@@ -438,7 +438,7 @@ replacement, not the older Go dashboard or the intended final design above.
 | Episodes list and detail | Live, with bounded search, state filtering, pagination, lifecycle metadata, and typed state-record summaries |
 | Incidents list and detail | Live, with bounded search, Slack-room lifecycle, linked source and investigation episodes, typed evidence records, and sanitized publication state |
 | Schedules list and detail | Live, with bounded search, confirmed run-now, Conversation Lab replacement, recurrence and authority, destination, trigger kind, child execution state and timing, attempts, sanitized failures, and dispatched or missed occurrence history |
-| Subscriptions | Live, with bounded search, webhook source, lifecycle resolution, polling fallback, hard deadline, episode link, and matcher/cursor digests without raw source payloads |
+| Subscriptions | Live, with bounded search, webhook source, lifecycle resolution, optional polling fallback and deadline, episode link, and matcher/cursor digests without raw source payloads; event-only waits have neither timer |
 | Channels list and detail | Live, with bounded search across durable Slack configuration, membership, incident ownership, conversation summaries, schedules, overrides, and recent episodes |
 | Repositories and topology | Live, with configured policy names, durable channel, schedule, session, and publication counts, serving Coop worker revisions, and the latest frozen freshness receipt |
 | Failures | Live, with typed confirmed recovery for admission, Work, delivery, Slack repaint/incident, Emisar monitoring, and retention custody |

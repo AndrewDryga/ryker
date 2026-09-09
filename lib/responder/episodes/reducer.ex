@@ -199,6 +199,8 @@ defmodule Responder.Episodes.Reducer do
 
   defp decide_existing(%Episode{} = episode, %AcceptResult{} = command) do
     with :ok <- current_turn(episode, command.expected_turn_ref),
+         :ok <- queued_delivery_wait(episode, command),
+         :ok <- valid_requested_wait(command),
          :ok <- next_turn_if_queued(episode, command.delivery, command.next_turn_ref) do
       episode = accept_result(episode, command)
       append(episode, command, :result_accepted)
@@ -274,10 +276,10 @@ defmodule Responder.Episodes.Reducer do
   defp queued_delivery_turn(_episode, _command), do: {:error, :queued_inputs_require_next_turn}
 
   defp queued_delivery_wait(%Episode{queued_input_refs: []}, _command), do: :ok
-  defp queued_delivery_wait(_episode, %ConfirmDelivery{next_wait: nil}), do: :ok
+  defp queued_delivery_wait(_episode, %{next_wait: nil}), do: :ok
   defp queued_delivery_wait(_episode, _command), do: {:error, :queued_inputs_prevent_wait}
 
-  defp valid_requested_wait(%ConfirmDelivery{next_wait: nil}), do: :ok
+  defp valid_requested_wait(%{next_wait: nil}), do: :ok
 
   defp valid_requested_wait(command) do
     if valid_delivery_wait?(command), do: :ok, else: {:error, :invalid_delivery_wait}
@@ -356,6 +358,7 @@ defmodule Responder.Episodes.Reducer do
   end
 
   defp valid_wait(%StartWait{kind: :input, deadline_at: nil}), do: :ok
+  defp valid_wait(%StartWait{kind: :event, deadline_at: nil}), do: :ok
 
   defp valid_wait(%StartWait{kind: :event, deadline_at: %DateTime{} = deadline} = command) do
     if DateTime.compare(deadline, command.occurred_at) == :gt,
@@ -366,6 +369,9 @@ defmodule Responder.Episodes.Reducer do
   defp valid_wait(%StartWait{kind: :event}), do: {:error, :event_wait_requires_future_deadline}
 
   defp next_turn_if_queued(%Episode{queued_input_refs: []}, _delivery, nil), do: :ok
+
+  defp next_turn_if_queued(%Episode{queued_input_refs: []}, :none, ref)
+       when is_binary(ref) and ref != "", do: :ok
 
   defp next_turn_if_queued(%Episode{queued_input_refs: []}, _delivery, _ref),
     do: {:error, :unexpected_next_turn}
@@ -384,7 +390,19 @@ defmodule Responder.Episodes.Reducer do
     }
   end
 
-  defp accept_result(%Episode{queued_input_refs: []} = episode, %AcceptResult{delivery: :none}) do
+  defp accept_result(%Episode{queued_input_refs: []} = episode, %AcceptResult{
+         delivery: :none,
+         next_wait: %{} = wait
+       }) do
+    episode
+    |> advance_after_delivery(%{next_wait: wait})
+    |> Map.update!(:semantic_version, &(&1 + 1))
+  end
+
+  defp accept_result(%Episode{queued_input_refs: []} = episode, %AcceptResult{
+         delivery: :none,
+         next_turn_ref: nil
+       }) do
     %{
       episode
       | state: :complete,
@@ -407,7 +425,7 @@ defmodule Responder.Episodes.Reducer do
 
   defp advance_after_delivery(
          %Episode{queued_input_refs: []} = episode,
-         %ConfirmDelivery{next_wait: %{kind: kind, ref: ref, deadline_at: deadline_at}}
+         %{next_wait: %{kind: kind, ref: ref, deadline_at: deadline_at}}
        ) do
     state = if kind == :input, do: :waiting_for_input, else: :waiting_for_event
 
@@ -491,12 +509,14 @@ defmodule Responder.Episodes.Reducer do
     if required == nil, do: Enum.split(queued, slots), else: {selected, remaining}
   end
 
-  defp valid_delivery_wait?(%ConfirmDelivery{
+  defp valid_delivery_wait?(%{
          next_wait: %{kind: :input, deadline_at: nil}
        }),
        do: true
 
-  defp valid_delivery_wait?(%ConfirmDelivery{
+  defp valid_delivery_wait?(%{next_wait: %{kind: :event, deadline_at: nil}}), do: true
+
+  defp valid_delivery_wait?(%{
          next_wait: %{kind: :event, deadline_at: %DateTime{}}
        }),
        do: true

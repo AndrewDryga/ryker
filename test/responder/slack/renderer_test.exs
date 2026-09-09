@@ -935,6 +935,37 @@ defmodule Responder.Slack.RendererTest do
     refute inspect(rendered) =~ ~s("deployment" => "responder")
   end
 
+  test "event-only watches do not append internal instructions or an empty deadline" do
+    # The original Terraform reply exposed its full monitoring prompt and UUIDs.
+    assert {:ok, rendered} =
+             Renderer.render(%{
+               "message" => "The plan is ready. I’ll report the apply outcome.",
+               "records" => [
+                 %{
+                   "kind" => "event_wait",
+                   "ref" => "record:event_wait:quiet",
+                   "status" => "open",
+                   "payload" => %{
+                     "deadline_at" => nil,
+                     "kind" => "source_event",
+                     "event_matcher" => %{
+                       "type" => "source_event",
+                       "source_kind" => "slack",
+                       "match" => %{"run_id" => "run-k9CpPp3nWjQrkCMG"},
+                       "poll_after" => nil,
+                       "on_timeout" => nil
+                     },
+                     "verification" => "Internal exact-run verification instructions."
+                   }
+                 }
+               ]
+             })
+
+    assert length(rendered["blocks"]) == 1
+    refute inspect(rendered) =~ "Waiting until"
+    refute inspect(rendered) =~ "Internal exact-run"
+  end
+
   test "refuses malformed or unsupported presentation records" do
     assert Renderer.render(%{"message" => "Done.", "records" => "records"}) ==
              {:error, {:invalid_slack_render, :records}}

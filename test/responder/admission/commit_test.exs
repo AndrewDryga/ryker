@@ -14,9 +14,91 @@ defmodule Responder.Admission.CommitTest do
   alias Responder.Ingress.{Inbox, Input}
   alias Responder.Repo
   alias Responder.Slack.Input, as: SlackInput
+  alias Responder.State.{EventSubscriptions, Records}
   alias Responder.Work.{Cancellation, Custody, Session, Submission}
 
   @now ~U[2026-08-27 12:00:00.000000Z]
+
+  for next_actor <- [:app, :user] do
+    @next_actor next_actor
+    test "an admitted #{@next_actor} input resumes the same event-only episode" do
+      # Derived from the real planning notification; only the future notification
+      # identity is varied offline. No synthetic source event is admitted live.
+      message = "testdata/slack/hcp-terraform-planning.json" |> File.read!() |> Jason.decode!()
+      actor = %{kind: :app, ref: message["bot_id"]}
+      original = create_episode!(thread_ref: "1787830000.000001", actor: actor, content: message)
+
+      assert {:ok, session} =
+               Custody.pin_episode(original.id, "work-read-only", String.duplicate("a", 64))
+
+      assert {:ok, claim} = Custody.claim_next("tfc-watch", 60, :work)
+      run = message["attachments"] |> hd() |> Map.take(["title", "title_link"])
+
+      assert {:ok, wait} =
+               Records.create(
+                 Records.token(claim.turn),
+                 "tfc-watch",
+                 "event_wait",
+                 %{
+                   "kind" => "source_event",
+                   "deadline_at" => nil,
+                   "event_matcher" => %{
+                     "type" => "source_event",
+                     "source_kind" => "slack",
+                     "match" => %{"bot_id" => message["bot_id"], "attachments" => [run]},
+                     "poll_after" => nil,
+                     "on_timeout" => nil
+                   },
+                   "verification" => "Verify this exact run and report a material outcome."
+                 }
+               )
+
+      %{rows: [[now]]} = Repo.query!("SELECT clock_timestamp()")
+
+      assert {:ok, _waiting} =
+               Episodes.apply(%Command.StartWait{
+                 episode_key: original.key,
+                 expected_turn_ref: original.owner_ref,
+                 kind: :event,
+                 wait_ref: wait.ref,
+                 occurred_at: now
+               })
+
+      assert {:ok, 1} = EventSubscriptions.reconcile()
+
+      entry =
+        record_input!(
+          actor: if(@next_actor == :app, do: actor, else: %{kind: :user, ref: "U123"}),
+          content:
+            if(@next_actor == :app,
+              do: message,
+              else: %{"text" => "What is happening with this deployment?"}
+            ),
+          event_ref: "TFC-next-notification",
+          thread_ref: if(@next_actor == :user, do: original.destination_thread_ref, else: nil),
+          message_ref: "1787832000.004000",
+          occurred_at: DateTime.add(now, 1)
+        )
+
+      context = context!(entry)
+      candidate = candidate!(context, original.id)
+      assert candidate.same_thread == (@next_actor == :user)
+      assert :same_work in candidate.allowed_relations
+      decision = decision!(:continue_episode, candidate.ref, :same_work)
+      assert {:ok, result} = Admission.commit(context, decision, "tfc-continue-event-only")
+      assert result.episode.id == original.id
+      assert result.episode.state == :working
+      assert result.episode.destination_thread_ref == original.destination_thread_ref
+      assert Repo.get!(Responder.State.Record, wait.id).status == :answered
+
+      assert Repo.get_by!(Responder.State.EventSubscription, record_id: wait.id).resolution_kind ==
+               :input
+
+      assert Repo.get_by!(Session, episode_id: original.id).id == session.id
+      assert {:ok, duplicate} = Admission.commit(context, decision, "tfc-continue-event-only")
+      assert duplicate.status == :duplicate
+    end
+  end
 
   test "ignoring keeps an original source excerpt without letting admission write topic memory" do
     # Blitz's real keep-service decision must remain recallable even when the bot
@@ -1129,7 +1211,7 @@ defmodule Responder.Admission.CommitTest do
     source_input =
       input!(
         actor: Keyword.get(options, :actor, %{kind: :app, ref: "A-old"}),
-        content: %{"text" => "Earlier Slack work"},
+        content: Keyword.get(options, :content, %{"text" => "Earlier Slack work"}),
         event_ref: "Ev-#{Ecto.UUID.generate()}",
         message_ref: Keyword.get(options, :message_ref, thread_ref),
         thread_ref: Keyword.get(options, :source_thread_ref)

@@ -98,7 +98,8 @@ defmodule Responder.Episodes.Command do
       :occurred_at,
       :result_ref
     ]
-    defstruct @enforce_keys ++ [decision_reason: nil, delivery_ref: nil, next_turn_ref: nil]
+    defstruct @enforce_keys ++
+                [decision_reason: nil, delivery_ref: nil, next_turn_ref: nil, next_wait: nil]
 
     @type t :: %__MODULE__{
             decision_reason: String.t() | nil,
@@ -107,6 +108,7 @@ defmodule Responder.Episodes.Command do
             episode_key: String.t(),
             expected_turn_ref: String.t(),
             next_turn_ref: String.t() | nil,
+            next_wait: map() | nil,
             occurred_at: DateTime.t(),
             result_ref: String.t()
           }
@@ -212,7 +214,11 @@ defmodule Responder.Episodes.Command do
   end
 
   def normalize(%AcceptResult{} = command) do
-    %{command | occurred_at: normalize_datetime(command.occurred_at)}
+    %{
+      command
+      | next_wait: normalize_wait(command.next_wait),
+        occurred_at: normalize_datetime(command.occurred_at)
+    }
   end
 
   def normalize(%ConfirmDelivery{} = command) do
@@ -313,7 +319,7 @@ defmodule Responder.Episodes.Command do
   end
 
   def document(%AcceptResult{} = command) do
-    %{
+    document = %{
       "delivery" => Atom.to_string(command.delivery),
       "decision_reason" => command.decision_reason,
       "delivery_ref" => command.delivery_ref,
@@ -324,6 +330,10 @@ defmodule Responder.Episodes.Command do
       "occurred_at" => iso8601(command.occurred_at),
       "result_ref" => command.result_ref
     }
+
+    if command.next_wait,
+      do: Map.put(document, "next_wait", wait_document(command.next_wait)),
+      else: document
   end
 
   def document(%ConfirmDelivery{} = command) do
@@ -498,6 +508,9 @@ defmodule Responder.Episodes.Command do
       {valid_delivery_ref?(command), :delivery_ref},
       {valid_decision_reason?(command), :decision_reason},
       {valid_accept_next_ref?(command), :next_turn_ref},
+      {valid_next_wait?(command.next_wait), :next_wait},
+      {is_nil(command.next_wait) or command.delivery == :none, :next_wait},
+      {is_nil(command.next_turn_ref) or is_nil(command.next_wait), :continuation},
       {utc_datetime?(command.occurred_at), :occurred_at}
     ])
   end
@@ -608,6 +621,9 @@ defmodule Responder.Episodes.Command do
   defp valid_next_wait?(nil), do: true
 
   defp valid_next_wait?(%{kind: :input, ref: ref, deadline_at: nil} = wait),
+    do: exact_keys?(wait, [:deadline_at, :kind, :ref]) and reference?(ref)
+
+  defp valid_next_wait?(%{kind: :event, ref: ref, deadline_at: nil} = wait),
     do: exact_keys?(wait, [:deadline_at, :kind, :ref]) and reference?(ref)
 
   defp valid_next_wait?(%{kind: :event, ref: ref, deadline_at: %DateTime{} = deadline} = wait),

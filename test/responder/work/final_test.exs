@@ -3,6 +3,23 @@ defmodule Responder.Work.FinalTest do
 
   alias Responder.Work.Final
 
+  test "an unchanged lifecycle may wait silently without discarding its durable record" do
+    # The Terraform episode posted every fallback despite no status change.
+    document = %{
+      "delivery" => "none",
+      "message" => nil,
+      "decision_reason" => "No lifecycle change; retain the existing notification watch.",
+      "outcome" => %{
+        "state" => "waiting_for_event",
+        "record_refs" => ["record:event_wait:e6d68ba5ee965c0a7052a684502370e3"],
+        "artifact_refs" => []
+      }
+    }
+
+    assert {:ok, final} = Final.parse(document)
+    assert Final.document(final) == document
+  end
+
   test "the published JSON Schema and parser accept the same boundary values" do
     schema = JSV.build!(Final.json_schema())
 

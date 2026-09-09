@@ -544,13 +544,20 @@ defmodule Responder.Episodes.ReducerTest do
       assert resumed.episode.queued_input_refs == []
     end
 
-    test "an event wait requires a future deadline" do
+    test "an event wait can be event-only and rejects an elapsed explicit deadline" do
       assert {:ok, admitted} = Reducer.decide(nil, EpisodeFixtures.admit_input())
 
       missing_deadline =
         EpisodeFixtures.start_wait(%{kind: :event, wait_ref: "deployment-health"})
 
-      assert Reducer.decide(admitted.episode, missing_deadline) ==
+      assert {:ok, event_only} = Reducer.decide(admitted.episode, missing_deadline)
+      assert event_only.episode.state == :waiting_for_event
+      assert event_only.episode.owner_deadline_at == nil
+
+      assert Reducer.decide(admitted.episode, %{
+               missing_deadline
+               | deadline_at: missing_deadline.occurred_at
+             }) ==
                {:error, :event_wait_requires_future_deadline}
 
       valid =
@@ -749,6 +756,41 @@ defmodule Responder.Episodes.ReducerTest do
       assert completed.episode.semantic_version == 2
     end
 
+    test "a silent result transfers custody to its wait without inventing a delivery" do
+      # Unchanged TFC checks used to require a Slack message just to stay waiting.
+      assert {:ok, admitted} = Reducer.decide(nil, EpisodeFixtures.admit_input())
+
+      result =
+        EpisodeFixtures.accept_result(%{
+          decision_reason: "No lifecycle change.",
+          delivery: :none,
+          delivery_ref: nil
+        })
+        |> Map.put(:next_wait, %{kind: :event, ref: "wait:tfc-run", deadline_at: nil})
+
+      assert {:ok, waiting} = Reducer.decide(admitted.episode, result)
+      assert waiting.episode.state == :waiting_for_event
+      assert waiting.episode.owner_ref == "wait:tfc-run"
+      assert waiting.episode.owner_kind == :event
+      assert waiting.episode.owner_deadline_at == nil
+
+      assert Snapshot.from_episode(waiting.episode)["owner"] == %{
+               "kind" => "event",
+               "ref" => "wait:tfc-run",
+               "deadline_at" => nil
+             }
+
+      assert waiting.episode.active_input_refs == []
+      assert waiting.episode.semantic_version == 2
+      assert waiting.event.payload["next_wait"]["ref"] == "wait:tfc-run"
+
+      input = EpisodeFixtures.admit_input(%{native_input_id: "slack:new-run-notification"})
+      assert {:ok, queued} = Reducer.decide(admitted.episode, input)
+
+      assert {:error, :queued_inputs_prevent_wait} =
+               Reducer.decide(queued.episode, result)
+    end
+
     test "an empty next-turn reference cannot strand queued input" do
       assert {:ok, admitted} = Reducer.decide(nil, EpisodeFixtures.admit_input())
 
@@ -772,7 +814,7 @@ defmodule Responder.Episodes.ReducerTest do
                {:error, {:invalid_command, :next_turn_ref}}
     end
 
-    test "a next-turn reference is accepted only when queued work needs it" do
+    test "only a settled result may start immediate host verification without queued input" do
       assert {:ok, admitted} = Reducer.decide(nil, EpisodeFixtures.admit_input())
 
       reply = EpisodeFixtures.accept_result(%{next_turn_ref: "turn-unused"})
@@ -782,14 +824,16 @@ defmodule Responder.Episodes.ReducerTest do
 
       silent =
         EpisodeFixtures.accept_result(%{
-          decision_reason: "exact duplicate lifecycle revision",
+          decision_reason: "the frozen wait elapsed during remote acceptance",
           delivery: :none,
           delivery_ref: nil,
           next_turn_ref: "turn-unused"
         })
 
-      assert Reducer.decide(admitted.episode, silent) ==
-               {:error, :unexpected_next_turn}
+      assert {:ok, verified} = Reducer.decide(admitted.episode, silent)
+      assert verified.episode.state == :working
+      assert verified.episode.owner_ref == "turn-unused"
+      assert verified.episode.active_input_refs == []
 
       assert {:ok, accepted} = Reducer.decide(admitted.episode, EpisodeFixtures.accept_result())
 

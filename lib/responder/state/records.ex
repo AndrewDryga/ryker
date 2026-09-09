@@ -248,6 +248,7 @@ defmodule Responder.State.Records do
            )
          ) do
       %{kind: "emisar_approval"} -> false
+      %{kind: "event_wait"} when input.actor.kind == :user -> true
       %{kind: "event_wait", payload: payload} -> event_wait_matches?(payload, input)
       %{kind: "input_request"} -> true
       nil -> true
@@ -422,6 +423,8 @@ defmodule Responder.State.Records do
       do: :ok,
       else: {:error, {:invalid_state_record, :record_limit}}
   end
+
+  defp validate_temporal("event_wait", %{"deadline_at" => nil}), do: :ok
 
   defp validate_temporal(
          "event_wait",

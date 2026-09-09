@@ -6,6 +6,26 @@ defmodule Responder.ControlPlane.CardLabTest do
   alias Responder.Slack.{Renderer, ThreadStatusProjection}
   alias Responder.State.RecordPayload
 
+  test "waiting status specimens match the quiet production projection" do
+    # The catalog must not promise a persistent activity indicator after Work
+    # has yielded durable custody to a human or source-event wait.
+    for phase <- [:waiting_for_input, :waiting_for_event] do
+      episode = %Responder.Episodes.Episode{
+        id: "preview",
+        state: phase,
+        execution_mode: :live,
+        destination_transport: "slack",
+        destination_conversation_ref: "slack:T123:C456",
+        destination_thread_ref: "1787832000.000100"
+      }
+
+      [projected] = ThreadStatusProjection.targets([], [episode], "T123")
+      state_id = phase |> Atom.to_string() |> String.replace("_", "-")
+      assert {:ok, specimen} = CardLab.fetch("thread-status", state_id)
+      assert specimen.rendered["status"] == projected.status
+    end
+  end
+
   test "working task examples expose retained legacy progress and identify simulated states" do
     # The default working task used invented parser prose, hiding the richness
     # and actual length of requests operators had already worked with.

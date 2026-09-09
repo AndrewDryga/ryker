@@ -87,6 +87,9 @@ defmodule Responder.State.EventWaits do
       )
 
     case subscription do
+      %EventSubscription{status: :active, deadline_at: nil, poll_after: nil} ->
+        {:error, :event_wait_not_due}
+
       %EventSubscription{status: :active, deadline_at: deadline} ->
         kind =
           cond do

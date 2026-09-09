@@ -3,6 +3,29 @@ defmodule Responder.StateTools.WaitPromptTest do
 
   alias Responder.StateTools.FixedTools
 
+  test "reliable source notifications may be awaited without any scheduled wake" do
+    tool = Enum.find(FixedTools.list(capabilities: [:event_waits]), &(&1["name"] == "wait_for"))
+    schema = JSV.build!(tool["inputSchema"])
+
+    assert {:ok, _} =
+             JSV.validate(
+               %{
+                 "deadline" => nil,
+                 "on_timeout" => nil,
+                 "verification" => "Verify this run after its next notification.",
+                 "trigger" => %{
+                   "type" => "source_event",
+                   "source_kind" => "slack",
+                   "match" => %{"run_id" => "run-k9CpPp3nWjQrkCMG"},
+                   "poll_after" => nil
+                 }
+               },
+               schema
+             )
+
+    assert tool["description"] =~ "event-only"
+  end
+
   test "source waits distinguish ingress identity from vendor payload fields" do
     # A fresh Terraform replay waited for source_kind=terraform although the
     # actual notification arrived through Slack, so its terminal update never

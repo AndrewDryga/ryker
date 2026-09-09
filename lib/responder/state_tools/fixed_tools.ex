@@ -1034,7 +1034,6 @@ defmodule Responder.StateTools.FixedTools do
 
   defp wait_for_tool do
     trigger = %{
-      "additionalProperties" => false,
       "oneOf" => [
         object(
           %{
@@ -1069,7 +1068,12 @@ defmodule Responder.StateTools.FixedTools do
                 "Recursive subset of input.content (the raw event payload), using exact values for stable lifecycle identity (for example run_id). In work.inputs.items or work.current_inputs.items, the raw payload is item.content.content, below the ingress envelope. Do not wrap match in content. If that payload contains run_id and status, match only run_id, not {content: {run_id: ...}}. Preserve any nesting within the raw payload. This is not JSONPath or a query language. Do not match a transient status that the next update will change.",
               "type" => "object"
             },
-            "poll_after" => timestamp(),
+            "poll_after" =>
+              Map.put(
+                nullable(timestamp()),
+                "description",
+                "Null for event-only monitoring. Set a timestamp only when a fallback check is actually needed; it must not exceed deadline."
+              ),
             "source_kind" =>
               Map.put(
                 nullable(reference(120)),
@@ -1085,10 +1089,10 @@ defmodule Responder.StateTools.FixedTools do
 
     tool(
       "wait_for",
-      "Create one durable wait. after and at schedule a timer before the hard deadline. A source_event must include a poll_after at or before the hard deadline and may carry an opaque cursor; matching webhooks resume it first, while the poll fallback forces verification if an event is lost.",
+      "Create one durable wait. For reliable lifecycle notifications use an event-only source_event: set poll_after, deadline, and on_timeout to null, specify source_kind and a nonempty stable identity match. No timer or polling is scheduled; the next matching notification resumes this episode. Add an explicit deadline and timeout action only when a timeout is required; a null poll_after then wakes only at that deadline. A non-null poll_after adds a fallback check at or before deadline. after and at require a future deadline and timeout action.",
       %{
-        "deadline" => timestamp(),
-        "on_timeout" => text(2_000),
+        "deadline" => nullable(timestamp()),
+        "on_timeout" => nullable(text(2_000)),
         "trigger" => trigger,
         "verification" => text(2_000)
       }

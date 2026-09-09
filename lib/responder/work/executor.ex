@@ -2426,14 +2426,15 @@ defmodule Responder.Work.Executor do
     do: {:error, {:coop_protocol_error, :output_artifact}}
 
   defp visible_reply_required?(%{"mode" => "full", "inputs" => %{"items" => items}}),
-    do: Enum.any?(items, &human_input?/1)
+    do: Enum.any?(items, &(&1["current"] == true and human_input?(&1)))
 
   defp visible_reply_required?(%{
          "mode" => "continuation",
-         "continuity" => %{"first_input" => first},
          "current_inputs" => %{"items" => items}
        }) do
-    human_input?(first) or Enum.any?(items, &human_input?/1)
+    # The original human request was handled by an earlier accepted turn.
+    # It must not force notifications for every later automated observation.
+    Enum.any?(items, &human_input?/1)
   end
 
   defp visible_reply_required?(_context), do: false

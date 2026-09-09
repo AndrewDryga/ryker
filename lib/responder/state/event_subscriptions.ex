@@ -2,10 +2,11 @@ defmodule Responder.State.EventSubscriptions do
   @moduledoc """
   Durable custody for one active event or timer wait per episode.
 
-  Webhooks remain the low-latency path through generic ingress. The stored
-  poll cursor and fallback time ensure a lost webhook still wakes the exact
-  episode for verification before its hard deadline. Timers share that indexed
-  wakeup time, anchored to the original record rather than each reconciliation.
+  Webhooks resume the exact episode through generic ingress. Event-only waits
+  retain a bounded source matcher without a timer. Optional deadlines and earlier
+  polling fallbacks protect waits that need verification after a missed webhook.
+  Timers share that indexed wakeup time, anchored to the original record rather
+  than each reconciliation.
   """
 
   import Ecto.Query
@@ -241,7 +242,7 @@ defmodule Responder.State.EventSubscriptions do
 
   defp insert(episode, record, trigger) do
     with :ok <- source_bounds(trigger),
-         {:ok, deadline} <- datetime(record.payload["deadline_at"], :deadline),
+         {:ok, deadline} <- subscription_deadline(record.payload, trigger),
          {:ok, poll_after} <- wakeup_at(record, trigger, deadline),
          :ok <- ordered(poll_after, deadline) do
       id = Ecto.UUID.generate()
@@ -278,6 +279,15 @@ defmodule Responder.State.EventSubscriptions do
     end
   end
 
+  defp subscription_deadline(%{"deadline_at" => nil} = payload, %{"type" => "source_event"}) do
+    case RecordPayload.prepare("event_wait", payload, "subscription:validation") do
+      {:ok, _prepared} -> {:ok, nil}
+      _invalid -> {:error, {:invalid_event_subscription, :deadline}}
+    end
+  end
+
+  defp subscription_deadline(payload, _trigger), do: datetime(payload["deadline_at"], :deadline)
+
   defp wakeup_at(_record, %{"type" => "source_event"} = trigger, deadline),
     do: poll_after(trigger["poll_after"], deadline)
 
@@ -301,6 +311,8 @@ defmodule Responder.State.EventSubscriptions do
   end
 
   defp datetime(_value, field), do: {:error, {:invalid_event_subscription, field}}
+
+  defp ordered(nil, nil), do: :ok
 
   defp ordered(poll_after, deadline) do
     if DateTime.compare(poll_after, deadline) in [:lt, :eq],

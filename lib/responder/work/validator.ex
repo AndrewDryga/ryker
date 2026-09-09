@@ -717,6 +717,8 @@ defmodule Responder.Work.Validator do
   defp continuation_kind(%{"kind" => "wait", "wait_kind" => "event"}), do: :event
   defp continuation_kind(_continuation), do: nil
 
+  defp elapsed?(%{"deadline_at" => nil}, _now), do: false
+
   defp elapsed?(%{"deadline_at" => deadline_at}, now) do
     case DateTime.from_iso8601(deadline_at) do
       {:ok, deadline, 0} -> DateTime.compare(deadline, now) != :gt
@@ -764,7 +766,8 @@ defmodule Responder.Work.Validator do
       "outcome.artifact_refs must contain at most 5 unique host-issued references using only letters, numbers, underscore, dot, colon, or hyphen, each at most 256 characters."
 
   defp final_violation(:state_requires_visible_reply),
-    do: "A waiting outcome requires delivery reply; delivery none may be used only with complete."
+    do:
+      "An input-waiting outcome requires delivery reply so the user can answer. Event waiting may use delivery none with its durable wait record."
 
   defp final_violation(:waiting_state_requires_record),
     do:

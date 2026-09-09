@@ -141,6 +141,8 @@ defmodule Responder.Work.Final do
 
   defp state_delivery(:none, %{state: :complete}), do: :ok
 
+  defp state_delivery(:none, %{state: :waiting_for_event, record_refs: [_ | _]}), do: :ok
+
   defp state_delivery(:none, _outcome),
     do: {:error, {:invalid_work_final, :state_requires_visible_reply}}
 

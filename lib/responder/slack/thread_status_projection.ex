@@ -148,10 +148,10 @@ defmodule Responder.Slack.ThreadStatusProjection do
     do: {:ok, :working, "is working...", 70}
 
   defp episode_status(%Episode{state: :waiting_for_input}),
-    do: {:ok, :waiting_for_input, "is waiting for your answer...", 60}
+    do: {:ok, :waiting_for_input, "", 60}
 
   defp episode_status(%Episode{state: :waiting_for_event}),
-    do: {:ok, :waiting_for_event, "is waiting for an external event...", 60}
+    do: {:ok, :waiting_for_event, "", 60}
 
   defp episode_status(%Episode{state: state}) when state in [:complete, :cancelled],
     do: {:ok, :clear, "", 20}

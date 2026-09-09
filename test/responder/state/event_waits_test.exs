@@ -10,6 +10,48 @@ defmodule Responder.State.EventWaitsTest do
   alias Responder.State.{EventSubscription, EventSubscriptions, EventWaits, Record, Records}
   alias Responder.Work.Custody
 
+  test "an event-only source wait survives reconciliation without any timer wakeup" do
+    # The real TFC wait created repeated unchanged replies at 10:45 and 11:15 UTC.
+    %{rows: [[now]]} = Repo.query!("SELECT clock_timestamp()")
+
+    fixture =
+      active_wait!(
+        "event-only",
+        now,
+        %{
+          "type" => "source_event",
+          "source_kind" => "slack",
+          "match" => %{
+            "bot_id" => "B0BHPQTBMA7",
+            "attachments" => [%{"title" => "Run run-k9CpPp3nWjQrkCMG"}]
+          },
+          "poll_after" => nil,
+          "on_timeout" => nil
+        },
+        nil
+      )
+
+    assert fixture.waiting.episode.state == :waiting_for_event
+    assert fixture.waiting.episode.owner_deadline_at == nil
+    assert fixture.subscription.poll_after == nil
+    assert fixture.subscription.deadline_at == nil
+    future = DateTime.add(now, 365, :day)
+
+    assert EventWaits.resume_at(fixture.record.id, fixture.waiting.episode.id, future) ==
+             {:error, :event_wait_not_due}
+
+    assert EventWaits.resume_due() == {:ok, :idle}
+
+    Repo.delete!(fixture.subscription)
+    assert {:ok, 1} = EventSubscriptions.reconcile()
+    restored = Repo.get_by!(EventSubscription, record_id: fixture.record.id)
+    assert restored.status == :active
+    assert restored.poll_after == nil
+    assert restored.deadline_at == nil
+    assert Repo.get!(Record, fixture.record.id).wait_error == nil
+    assert EventWaits.resume_due() == {:ok, :idle}
+  end
+
   test "source waits at the canonical byte limits persist without a database check failure" do
     %{rows: [[now]]} = Repo.query!("SELECT clock_timestamp()")
     cursor = %{"value" => String.duplicate("é", 8_186)}
@@ -546,12 +588,15 @@ defmodule Responder.State.EventWaitsTest do
     )
   end
 
-  defp active_wait!(suffix, now, trigger) do
+  defp active_wait!(suffix, now, trigger, deadline_override \\ :timed) do
     occurred_at = DateTime.add(now, -10, :second)
     poll_after = DateTime.add(now, 600, :second)
 
     deadline =
-      DateTime.add(now, if(trigger["type"] == "source_event", do: 3_600, else: 900), :second)
+      if deadline_override == :timed,
+        do:
+          DateTime.add(now, if(trigger["type"] == "source_event", do: 3_600, else: 900), :second),
+        else: deadline_override
 
     episode_id = Ecto.UUID.generate()
     turn_ref = "turn:event-subscription-source:#{episode_id}"
@@ -574,7 +619,7 @@ defmodule Responder.State.EventWaitsTest do
 
     assert {:ok, record} =
              Records.create(Records.token(claim.turn), "wait-source", "event_wait", %{
-               "deadline_at" => DateTime.to_iso8601(deadline),
+               "deadline_at" => if(deadline, do: DateTime.to_iso8601(deadline)),
                "event_matcher" => trigger,
                "kind" => trigger["type"],
                "verification" => "Read the deployment state and verify it is healthy."

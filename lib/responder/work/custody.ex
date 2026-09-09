@@ -3312,13 +3312,19 @@ defmodule Responder.Work.Custody do
   end
 
   defp build_result_acceptance(episode, turn, result, attributes, result_ref, delivery_ref, now) do
+    {next_turn, next_wait} =
+      if result.delivery == :none,
+        do: delivery_continuation(episode, %{turn | continuation: result.continuation}, now),
+        else: {next_turn_ref(episode, result.delivery, turn.id), nil}
+
     command = %Command.AcceptResult{
       decision_reason: result.decision_reason,
       delivery: result.delivery,
       delivery_ref: delivery_ref,
       episode_key: episode.key,
       expected_turn_ref: turn.turn_ref,
-      next_turn_ref: next_turn_ref(episode, result.delivery, turn.id),
+      next_turn_ref: next_turn,
+      next_wait: next_wait,
       occurred_at: now,
       result_ref: result_ref
     }
@@ -3468,6 +3474,20 @@ defmodule Responder.Work.Custody do
 
   defp delivery_continuation(_episode, %{continuation: %{"kind" => "complete"}}, _now),
     do: {nil, nil}
+
+  defp delivery_continuation(
+         _episode,
+         %{
+           continuation: %{
+             "deadline_at" => nil,
+             "kind" => "wait",
+             "wait_kind" => "event",
+             "wait_ref" => ref
+           }
+         },
+         _now
+       ),
+       do: {nil, %{deadline_at: nil, kind: :event, ref: ref}}
 
   defp delivery_continuation(
          _episode,

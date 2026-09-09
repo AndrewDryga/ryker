@@ -616,8 +616,9 @@ Wakeup {
 Kinds include retry, timer, approval, operator input, PR check, merge, deployment, Terraform run,
 alert resolution, and post-change verification.
 
-Every external-event wakeup has a polling fallback and a hard deadline. Webhooks provide low
-latency; polling prevents lost webhooks from abandoning accepted commitments.
+External-event waits retain a bounded source matcher. Reliable lifecycle notifications may use
+event-only custody without polling or a deadline. When loss protection is needed, a hard deadline
+and optional earlier polling fallback resume verification even if a webhook is missed.
 
 ### 13.2 Recurring schedules
 
@@ -1502,7 +1503,7 @@ The following are compatible extension points, not committed implementation scop
 | Destination changes | Operator request or deterministic policy only |
 | Provider retries | Resume episode with a fresh attempt and preserved manifest |
 | Goal scheduling | Ordered prerequisites plus bounded independent execution |
-| External subscriptions | Webhook first, polling fallback, hard deadline |
+| External subscriptions | Exact-event wakeup; optional deadline and polling fallback when needed |
 | Standing assignments | Confirmed typed scope, bounded outputs and budget, explicit expiry |
 | Knowledge authority | Git for committed knowledge; typed database for scoped hints/preferences |
 | Freeform guidance | Confirmed and scoped, non-executable, reviewable, expiring |

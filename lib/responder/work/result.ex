@@ -56,6 +56,13 @@ defmodule Responder.Work.Result do
     end
   end
 
+  def new(:none, nil, decision_reason, %{"kind" => "wait", "wait_kind" => "event"} = continuation) do
+    with {:ok, result} <- new(:none, nil, decision_reason, @complete),
+         {:ok, continuation} <- prepare_continuation(continuation) do
+      {:ok, %{result | continuation: continuation}}
+    end
+  end
+
   def new(delivery, _delivery_document, _decision_reason, _continuation),
     do: {:error, {:invalid_work_result, delivery}}
 
@@ -117,7 +124,8 @@ defmodule Responder.Work.Result do
       %{"kind" => "complete"} ->
         :ok
 
-      %{"deadline_at" => nil, "kind" => "wait", "wait_kind" => "input"} ->
+      %{"deadline_at" => nil, "kind" => "wait", "wait_kind" => kind}
+      when kind in ~w(input event) ->
         :ok
 
       %{"deadline_at" => deadline_at, "kind" => "wait", "wait_kind" => "event"} ->
@@ -146,11 +154,11 @@ defmodule Responder.Work.Result do
          %{
            "deadline_at" => nil,
            "kind" => "wait",
-           "wait_kind" => "input",
+           "wait_kind" => kind,
            "wait_ref" => wait_ref
          } = continuation
        )
-       when map_size(continuation) == 4 do
+       when map_size(continuation) == 4 and kind in ~w(input event) do
     if valid_text?(wait_ref, 1_024, 1_024),
       do: {:ok, continuation},
       else: {:error, {:invalid_work_result, :continuation}}

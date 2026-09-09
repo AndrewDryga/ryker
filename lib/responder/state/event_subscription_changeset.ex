@@ -26,11 +26,9 @@ defmodule Responder.State.EventSubscriptionChangeset do
     %EventSubscription{}
     |> cast(attributes, @fields)
     |> validate_required([
-      :deadline_at,
       :episode_id,
       :id,
       :matcher,
-      :poll_after,
       :record_id,
       :ref,
       :revision,
@@ -46,5 +44,6 @@ defmodule Responder.State.EventSubscriptionChangeset do
     |> foreign_key_constraint(:episode_id)
     |> foreign_key_constraint(:record_id)
     |> check_constraint(:status, name: :episode_event_subscription_valid)
+    |> check_constraint(:poll_after, name: :event_subscription_schedule_valid)
   end
 end
