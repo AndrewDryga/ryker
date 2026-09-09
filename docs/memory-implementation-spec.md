@@ -29,6 +29,12 @@ One supervised background lane maintains current topic knowledge. It reads origi
 revisions, not model-written observations. Admission decides response/work routing; Work owns
 execution; confirmed preferences/guidance remain operator-confirmed. No second agent runtime.
 
+Topic knowledge must be useful beyond completing one ordinary request. A one-off task, its
+steps and temporary execution constraints stay in the retained input and episode; do not create
+a topic just to rename them an unresolved intention. Preserve substantive project decisions,
+ongoing questions, intended configuration and corrections even when phrased as requests.
+This is a model-selection judgment, not a host keyword or message-length filter.
+
 This change includes: topic identity/create checking, source-capacity repair, passive learning,
 bounded failure recovery, useful existing memory search, operator progress/failure visibility,
 recorded-world tests, and deployment. It does not add cross-transport sharing permissions,

@@ -112,6 +112,9 @@ defmodule Responder.Evals.LearningRunner do
 
   def recorded_sequence("chatter"), do: sequence("retained-great-thanks.json", [:no_change])
 
+  def recorded_sequence("one-off-request"),
+    do: sequence("retained-one-off-acceptance-request.json", [:no_change])
+
   defp sequence(file, expectations) do
     path = Path.join("testdata/learning", file)
     bytes = File.read!(path)

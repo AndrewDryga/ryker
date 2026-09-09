@@ -403,3 +403,19 @@ failures. Missing cases are `UNRUN`, not implicit passes.
 Finally qualify the actual learning policy: inspect the read-only empty scratch checkout, absence
 of project environment/MCP/companions, exact fleet ownership, and close/plan/discard receipts.
 Deployment and readiness must name the exact running commit separately from all of these results.
+
+## One-off request selectivity regression
+
+The first recovered internal batch on `55193f4` completed successfully but saved an ordinary
+read-only acceptance-check request as a topic. The result merely restated its steps and temporary
+constraints as an unresolved intention. That is a learning-selection failure, not malformed
+output or a host application failure. The exact source, submitted prompt and unwanted result
+are retained in `testdata/learning/retained-one-off-acceptance-request.json`, with the stored
+prompt/result digests and originating run ID.
+
+`mix responder.learning_eval --scenario one-off-request` runs only that harvested input through
+the current learner and requires no topic update. The captured answer is used solely to prove
+that the offline evaluator rejects the old behavior; it is never supplied to the live learner.
+This scenario has no recall probe because a successful run intentionally learns nothing.
+Fresh model qualification must also retain meaningful decisions (such as the `draft-keep`
+conversation), so fixing selectivity cannot silently become a blanket filter on requests.
