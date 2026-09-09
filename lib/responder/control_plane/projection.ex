@@ -14,6 +14,7 @@ defmodule Responder.ControlPlane.Projection do
   alias Responder.ControlPlane.ConversationMemory
   alias Responder.ControlPlane.CurrentInputs
   alias Responder.ControlPlane.ModelRequests
+  alias Responder.ControlPlane.WorkRecovery
 
   alias Responder.Artifacts.OutputArtifact
   alias Responder.ControlPlane.{Card, CardLabDelivery, CardLabFeedback, EpisodeTrace}
@@ -30,7 +31,7 @@ defmodule Responder.ControlPlane.Projection do
   alias Responder.Repo
   alias Responder.Slack.{IncidentRoom, InteractionAudit, ThreadStatus}
   alias Responder.State.{Behavior, Memories, MemoryEntry, Record, Schedule}
-  alias Responder.Work.{Session, Turn}
+  alias Responder.Work.{Custody, Session, Turn}
 
   @episode_record_limit 500
   @maximum_page 10_000
@@ -1728,8 +1729,12 @@ defmodule Responder.ControlPlane.Projection do
   end
 
   defp work_item({%Turn{} = turn, %Episode{} = episode}) do
+    recovery =
+      WorkRecovery.project(turn, Custody.completed_workspace_recoverable(turn))
+
     %{
-      action: :retry,
+      action: recovery.action,
+      work_recovery: recovery,
       attempt_count: max(turn.work_attempt_count, turn.cancel_attempt_count),
       detail: FailureDetail.project(turn.last_error_detail),
       diagnosis: FailureDetail.facts(turn.last_error_detail),

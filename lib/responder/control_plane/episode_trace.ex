@@ -18,16 +18,17 @@ defmodule Responder.ControlPlane.EpisodeTrace do
   alias Responder.ControlPlane.EvidenceLinks
   alias Responder.ControlPlane.InspectionRedactor
   alias Responder.ControlPlane.SourceText
+  alias Responder.ControlPlane.WorkRecovery
   alias Responder.CoopFleet.Event, as: CoopEvent
   alias Responder.Delivery.PlatformAction
   alias Responder.Episodes.{Episode, Event}
   alias Responder.Ingress.Inbox.Entry
-  alias Responder.Operator.{EpisodeReview, FailureDetail}
+  alias Responder.Operator.EpisodeReview
   alias Responder.Publication.Publication
   alias Responder.Repo
   alias Responder.Slack.IncidentRoom
   alias Responder.State.{Record, Schedule}
-  alias Responder.Work.{Activity, ActivityEvent, ActivityPaths, Session, Turn}
+  alias Responder.Work.{Activity, ActivityEvent, ActivityPaths, Custody, Session, Turn}
 
   @chapters [
     {:input, "What came in", "The input, continuation, or trigger that opened this work."},
@@ -1471,7 +1472,21 @@ defmodule Responder.ControlPlane.EpisodeTrace do
     }
   end
 
+  defp stopped(_episode, %Turn{status: :blocked, delivery_ref: ref}) when is_binary(ref) do
+    %{
+      action:
+        "Inspect the delivery failure and check the conversation before retrying the saved reply.",
+      attempted: [],
+      headline: "The reply could not be delivered",
+      href: "/failures/delivery/#{segment(ref)}",
+      reason: "The answer is already saved. Delivery recovery does not run the model again."
+    }
+  end
+
   defp stopped(episode, %Turn{status: :blocked} = turn) do
+    recovery =
+      WorkRecovery.project(turn, Custody.completed_workspace_recoverable(turn))
+
     attempts =
       [
         plural(turn.work_attempt_count || 0, "Work claim"),
@@ -1482,12 +1497,13 @@ defmodule Responder.ControlPlane.EpisodeTrace do
       |> Enum.reject(&(&1 in [nil, "0 Work claims"]))
 
     %{
-      action: "Inspect the failure and retry only after its cause is corrected",
+      action: recovery.next_step,
       attempted: attempts,
-      headline: "Work needs operator recovery",
+      headline: recovery.headline,
+      model_output: recovery.model_output,
+      delivery: recovery.delivery,
       href: "/failures/work/#{segment(episode.key)}",
-      reason:
-        turn.last_error_code || FailureDetail.project(turn.last_error_detail) || "Work blocked"
+      reason: recovery.cause
     }
   end
 

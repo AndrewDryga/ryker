@@ -1359,7 +1359,11 @@ defmodule Responder.ControlPlane.HTML do
   defp failure_recovery_action(%{action: action} = row) when action in [:rearm, :retry] do
     Components.action_button(
       "/actions/#{segment(row.kind)}/#{segment(row.ref)}/#{action}",
-      if(FailurePage.manual_repair?(row), do: "Retry cleanup", else: recovery_label(row.kind)),
+      cond do
+        row[:work_recovery] -> row.work_recovery.action_label
+        FailurePage.manual_repair?(row) -> "Retry cleanup"
+        true -> recovery_label(row.kind)
+      end,
       :primary
     )
   end

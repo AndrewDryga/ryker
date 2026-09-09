@@ -32,6 +32,7 @@ defmodule Responder.Work.Turn do
     field(:validation_intent_fingerprint, :string)
     field(:validation_history, Responder.CanonicalJSON.Type, default: [])
     field(:validation_receipt, :string)
+    field(:completion_receipt, Responder.CanonicalJSON.Type)
     field(:final_preflight_candidate_sha256, :string)
     field(:final_preflight_continuity_sha256, :string)
     field(:final_preflight_ledger_sha256, :string)
@@ -115,6 +116,7 @@ defmodule Responder.Work.Turn do
           validation_intent_fingerprint: String.t() | nil,
           validation_history: [map()],
           validation_receipt: String.t() | nil,
+          completion_receipt: map() | nil,
           final_preflight_candidate_sha256: String.t() | nil,
           final_preflight_continuity_sha256: String.t() | nil,
           final_preflight_ledger_sha256: String.t() | nil,

@@ -1,0 +1,17 @@
+{
+  "source_episode_id": "17a74a22-88a4-438b-857c-9c8bb04ebad9",
+  "source_turn_id": "cd042420-1355-4b0b-8e3b-48d15359d672",
+  "harvested_at": "2026-09-09",
+  "candidate": {
+    "message": "Prepared the internal hosted runner bump from `0.23.1` to `0.27.0`, the latest published runner release. Only `infra/runtime/admin-runner/runner-version.txt` changed; existing checksum verification needs no metadata update.\n\nTerraform validation, formatting, TFLint, release-pin checks, and rendered startup syntax checks passed. The full infra gate stopped because this box lacks Docker.\n\nCan this task resume in a Docker-capable workspace to finish validation? [Repository instructions](https://github.com/AndrewDryga/emisar/blob/16d6d64f1a21f74c60dcaf162d256180fd65f755/AGENTS.md) require “Done requires green gates,” so the change remains uncommitted. Nothing was deployed or verified live.",
+    "outcome": {
+      "state": "waiting_for_input",
+      "record_refs": ["record:input_request:09a549775e7fdf7a4230bce4b74354fc", "record:finding:670ec39d408561bb1ca3e6ee745318d5"],
+      "artifact_refs": []
+    },
+    "delivery": "reply",
+    "decision_reason": null
+  },
+  "last_error_code": "work_execution_blocked",
+  "last_error_detail": "invalid_work_executor: {:invalid_work_executor, :workspace_checkpoint_api}"
+}

@@ -300,6 +300,56 @@ defmodule Responder.Work.TurnChangeset do
     |> work_constraints()
   end
 
+  @spec block_completion(Turn.t(), map(), String.t(), String.t()) :: Ecto.Changeset.t()
+  def block_completion(%Turn{} = turn, receipt, code, detail) do
+    turn
+    |> block(%{
+      status: :blocked,
+      last_error_code: code,
+      last_error_detail: detail,
+      lease_ref: nil,
+      lease_owner: nil,
+      lease_expires_at: nil,
+      next_attempt_at: nil
+    })
+    |> put_change(:completion_receipt, receipt)
+    |> check_constraint(:completion_receipt, name: :episode_work_turn_completion_receipt_valid)
+  end
+
+  @spec record_completion(Turn.t(), map()) :: Ecto.Changeset.t()
+  def record_completion(%Turn{} = turn, receipt) do
+    turn
+    |> change(completion_receipt: receipt)
+    |> check_constraint(:completion_receipt, name: :episode_work_turn_completion_receipt_valid)
+    |> work_constraints()
+  end
+
+  @spec retry_completion(Turn.t()) :: Ecto.Changeset.t()
+  def retry_completion(%Turn{} = turn) do
+    turn
+    |> cast(
+      %{
+        status: :pending,
+        last_error_code: nil,
+        last_error_detail: nil,
+        lease_ref: nil,
+        lease_owner: nil,
+        lease_expires_at: nil,
+        next_attempt_at: nil
+      },
+      [
+        :status,
+        :last_error_code,
+        :last_error_detail,
+        :lease_ref,
+        :lease_owner,
+        :lease_expires_at,
+        :next_attempt_at
+      ]
+    )
+    |> work_constraints()
+  end
+
   @spec bind_coop_turn(Turn.t(), String.t()) :: Ecto.Changeset.t()
   def bind_coop_turn(%Turn{} = turn, coop_turn_id) do
     turn

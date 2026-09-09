@@ -18,6 +18,7 @@ defmodule Responder.TestSupport.FakeWorkCoopAPI do
         changes_count: 0,
         changes_page_requests: [],
         checkpoint_keys: [],
+        checkpoint_error: nil,
         create_count: 0,
         create_keys: [],
         fence_create_keys: [],
@@ -50,7 +51,8 @@ defmodule Responder.TestSupport.FakeWorkCoopAPI do
           "policy_digest" => String.duplicate("a", 64),
           "project_env" => Keyword.get(options, :project_env, false),
           "project_mcp" => Keyword.get(options, :project_mcp, false),
-          "repository_read_only" => true,
+          "repository_read_only" => is_nil(Keyword.get(options, :workspace_task)),
+          "workspace_task" => Keyword.get(options, :workspace_task),
           "repository_freshness" => freshness_receipts(options),
           "repository_freshness_status" => "recorded",
           "revision" => 1,
@@ -192,7 +194,10 @@ defmodule Responder.TestSupport.FakeWorkCoopAPI do
         "transfer_id" => Ecto.UUID.generate()
       }
 
-      {{:ok, receipt}, %{state | checkpoint_keys: state.checkpoint_keys ++ [key]}}
+      result =
+        if state.checkpoint_error, do: {:error, state.checkpoint_error}, else: {:ok, receipt}
+
+      {result, %{state | checkpoint_keys: state.checkpoint_keys ++ [key]}}
     end)
   end
 

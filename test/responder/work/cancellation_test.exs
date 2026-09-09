@@ -571,7 +571,8 @@ defmodule Responder.Work.CancellationTest do
 
     assert blocked.turn.status == :blocked
 
-    assert {:ok, resumed} = Custody.retry_blocked(work.episode.key)
+    fingerprint = Custody.recovery_fingerprint(blocked.turn)
+    assert {:ok, resumed} = Custody.retry_blocked(work.episode.key, fingerprint)
     assert resumed.id == work.episode.id
     assert resumed.owner_ref =~ "turn:resume-blocked:#{work.turn.id}:v"
 
@@ -580,7 +581,7 @@ defmodule Responder.Work.CancellationTest do
     assert replacement.turn.turn_ref == resumed.owner_ref
     assert replacement.session.generation == work.session.generation + 1
 
-    assert {:error, :work_not_blocked} = Custody.retry_blocked(work.episode.key)
+    assert {:error, :work_recovery_changed} = Custody.retry_blocked(work.episode.key, fingerprint)
   end
 
   test "cancellation and close retries retain their first exact session revision" do

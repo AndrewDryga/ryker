@@ -1,13 +1,14 @@
 defmodule Responder.ControlPlane.FailurePage do
-  @moduledoc "A recovery brief built from saved, payload-free failure evidence."
+  @moduledoc "A recovery brief with host facts and redacted, attributed final responses."
   use Phoenix.Component
-  alias Responder.ControlPlane.{Components, SlackNames}
+  alias Responder.ControlPlane.{Components, SlackMarkdown, SlackNames}
 
   def render(assigns) do
     row = assigns.row
 
     assigns =
       assigns
+      |> assign(:work, row[:work_recovery])
       |> assign(:ownership_missing, manual_repair?(row))
       |> assign(:cause, cause(row))
       |> assign(:destination, destination(row))
@@ -18,7 +19,11 @@ defmodule Responder.ControlPlane.FailurePage do
     <section class="failure-detail">
       <div class="failure-heading">
         <h2>
-          {if @ownership_missing, do: "Temporary files could not be removed", else: @title}
+          {cond do
+            @work -> @work.headline
+            @ownership_missing -> "Temporary files could not be removed"
+            true -> @title
+          end}
         </h2>
         <p :if={@outcome} class="failure-outcome">{@outcome}</p>
         <div class="failure-meta">
@@ -47,22 +52,37 @@ defmodule Responder.ControlPlane.FailurePage do
       <div class="failure-explanation">
         <section>
           <h3>Why it stopped</h3>
-          <p>{@cause}</p>
+          <p>{if @work, do: @work.cause, else: @cause}</p>
+        </section>
+        <section :if={@work} class="recovery-preserved">
+          <h3>What is preserved</h3>
+          <p>{@work.workspace}</p>
+          <p :if={@work.model_output}>The worker’s final response is retained. {@work.delivery}</p>
+          <p :if={!@work.model_output}>No retained, accepted final response is available.</p>
         </section>
         <section class="failure-next-step">
-          <h3>Next step</h3>
+          <h3>{if @work, do: "What you need to do", else: "Next step"}</h3>
           <p :if={@ownership_missing}>
             Leave the folder in place for now. Do not retry cleanup.
           </p>
           <p :if={@ownership_missing}>
             There is no supported recovery command for this older session yet. Freeing this disk space needs a cleanup fix in Coop, not a change to your request or configuration.
           </p>
-          <p :if={!@ownership_missing}>{next_step(@row)}</p>
+          <p :if={!@ownership_missing}>{if @work, do: @work.next_step, else: next_step(@row)}</p>
           <div :if={!@ownership_missing && @recovery != ""} class="failure-recovery">
             {Phoenix.HTML.raw(@recovery)}
-            <p>{recovery_effect(@row.kind)}</p>
+            <p>{if @work, do: @work.retry_effect, else: recovery_effect(@row.kind)}</p>
           </div>
         </section>
+        <details :if={@work && @work.model_output} class="recovery-worker-report">
+          <summary>Worker’s saved response</summary>
+          <p class="recovery-attribution">
+            The worker reported the following. Check claims are not independently verified by this page.
+          </p>
+          <div class="recovery-model-output">
+            {Phoenix.HTML.raw(SlackMarkdown.preview(@work.model_output))}
+          </div>
+        </details>
       </div>
 
       <details class="failure-diagnostics">

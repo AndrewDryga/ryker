@@ -44,21 +44,36 @@ defmodule Responder.Work.Dispatcher do
       {:ok, execution} ->
         {:ok, {:executed, execution}}
 
-      {:error, {:work_execution_blocked, reason}} ->
-        stop_or_defer(claim, reason, settings)
-
-      {:error, {:work_poll_window_elapsed, phase} = reason}
-      when phase in [:operation, :turn] ->
-        yield_progress(claim, reason, settings)
-
-      {:error, :work_derived_context_busy = reason} ->
-        yield_progress(claim, reason, settings)
-
       {:error, reason} ->
-        case retry_class(reason) do
-          :transient -> retry_or_block(claim, reported_reason(reason), settings)
-          :blocked -> stop_or_defer(claim, reason, settings)
-        end
+        execution_failure(claim, reason, settings)
+    end
+  end
+
+  defp execution_failure(claim, {:work_completion_blocked, receipt, reason}, _settings),
+    do: block_completion(claim, receipt, reason)
+
+  defp execution_failure(
+         %{turn: %{status: :pending, completion_receipt: receipt}} = claim,
+         reason,
+         _settings
+       )
+       when is_map(receipt),
+       do: block_completion(claim, receipt, reason)
+
+  defp execution_failure(claim, {:work_execution_blocked, reason}, settings),
+    do: stop_or_defer(claim, reason, settings)
+
+  defp execution_failure(claim, {:work_poll_window_elapsed, phase} = reason, settings)
+       when phase in [:operation, :turn],
+       do: yield_progress(claim, reason, settings)
+
+  defp execution_failure(claim, :work_derived_context_busy = reason, settings),
+    do: yield_progress(claim, reason, settings)
+
+  defp execution_failure(claim, reason, settings) do
+    case retry_class(reason) do
+      :transient -> retry_or_block(claim, reported_reason(reason), settings)
+      :blocked -> stop_or_defer(claim, reason, settings)
     end
   end
 
@@ -122,6 +137,22 @@ defmodule Responder.Work.Dispatcher do
          ) do
       {:ok, _request} -> {:ok, {:deferred, {:work_stop_pending, reason}}}
       {:error, stop_reason} -> {:error, {:work_dispatch_failed, reason, stop_reason}}
+    end
+  end
+
+  defp block_completion(claim, receipt, reason) do
+    {_code, detail} = describe_error(reason)
+
+    case Custody.block_completion(
+           claim.episode.id,
+           claim.turn.turn_ref,
+           claim.lease_ref,
+           receipt,
+           "work_completion_blocked",
+           detail
+         ) do
+      {:ok, _turn} -> {:ok, {:blocked, reason}}
+      {:error, block_reason} -> {:error, {:work_dispatch_failed, reason, block_reason}}
     end
   end
 

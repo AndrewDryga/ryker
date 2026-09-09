@@ -59,7 +59,7 @@ defmodule Responder.ControlPlane.Actions do
       post_card_to_slack: &CardLabDelivery.enqueue/5,
       transition_card_slack_post: &CardLabDelivery.transition/3,
       retry_card_slack_post: &CardLabDelivery.retry/2,
-      retry_work: &retry_failure("work", &1),
+      retry_work: &retry_work/2,
       review_episode: &EpisodeReviews.review(&1, @actor_ref),
       run_schedule: run_schedule(schedule_policy_resolver),
       send_lab_message: lab_sender(work_profile),
@@ -102,6 +102,14 @@ defmodule Responder.ControlPlane.Actions do
     Failures.retry(kind, ref,
       action_ref: "control-plane:retry:#{Ecto.UUID.generate()}",
       actor_ref: @actor_ref
+    )
+  end
+
+  defp retry_work(ref, expected_recovery) do
+    Failures.retry("work", ref,
+      action_ref: "control-plane:retry:#{Ecto.UUID.generate()}",
+      actor_ref: @actor_ref,
+      expected_recovery: expected_recovery
     )
   end
 

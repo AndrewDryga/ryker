@@ -5,6 +5,7 @@ defmodule Responder.Work.ExecutorTest do
 
   alias Responder.Artifacts
   alias Responder.Artifacts.Outputs
+  alias Responder.ControlPlane.Projection
   alias Responder.Episodes
   alias Responder.Fixtures.Episodes, as: EpisodeFixtures
   alias Responder.Fixtures.Knowledge, as: KnowledgeFixtures
@@ -18,6 +19,7 @@ defmodule Responder.Work.ExecutorTest do
     Cancellation,
     Custody,
     DeliveryReceipt,
+    Dispatcher,
     Executor,
     Final,
     FinalPreflight,
@@ -532,6 +534,13 @@ defmodule Responder.Work.ExecutorTest do
 
     {:ok, fake} =
       FakeAPI.start_link([reply("Writable milestone complete.")],
+        workspace_task: %{
+          "offer_ref" => workspace_task["offer_ref"],
+          "id" => "task:checkpoint",
+          "queue_id" => "queue:checkpoint",
+          "task_id" => "task:checkpoint",
+          "draft_sha256" => String.duplicate("d", 64)
+        },
         changes: [
           workspace_changes(
             committed: [%{"path" => "lib/parser.ex", "status" => "modified"}],
@@ -566,7 +575,9 @@ defmodule Responder.Work.ExecutorTest do
     assert get_in(settled.delivery_document, ["outcome", "record_refs"]) == []
   end
 
-  test "writable work cannot settle when its worker cannot produce a checkpoint" do
+  test "unsupported writable execution is rejected before creating a worker or spending a model turn" do
+    # The hosted-runner task finished useful work before discovering its adapter
+    # could not checkpoint it. Reject the unsupported topology before any write.
     claim = claim_episode!("writable-checkpoint-required")
 
     workspace_task = %{
@@ -604,6 +615,9 @@ defmodule Responder.Work.ExecutorTest do
     assert Executor.run(claim, executor_options) ==
              {:error, {:invalid_work_executor, :workspace_checkpoint_api}}
 
+    assert FakeAPI.state(fake).create_count == 0
+    assert FakeAPI.state(fake).submit_count == 0
+
     refute Repo.get_by(Record,
              episode_id: claim.episode.id,
              kind: "publication_offer",
@@ -611,6 +625,341 @@ defmodule Responder.Work.ExecutorTest do
            )
 
     assert Repo.get!(Responder.Work.Turn, claim.turn.id).status == :pending
+  end
+
+  test "checkpointed unfinished work delivers its question without offering publication" do
+    # The actual runner bump stopped on missing Docker. A saved workspace is not
+    # evidence of completion and must not manufacture a publication-ready offer.
+    {claim, fake} = completed_runner_wait!("checkpoint-wait")
+
+    assert {:ok, %{status: :accepted, turn: turn}} = Executor.run(claim, options(fake))
+    refute Repo.get_by(Record, episode_id: claim.episode.id, kind: "publication_offer")
+    assert turn.status == :delivery_pending
+    assert turn.continuation["wait_kind"] == "input"
+    assert turn.delivery_document["message"] =~ "lacks Docker"
+    assert length(FakeAPI.state(fake).checkpoint_keys) == 1
+    assert FakeAPI.state(fake).submit_count == 0
+  end
+
+  test "writable work requires the exact approved task binding before model submission" do
+    # A checkpoint callback alone cannot repair the incident: the remote task
+    # was never host-bound. An unrelated or missing binding cannot authorize work.
+    for binding <- [nil, %{"offer_ref" => "record:task_offer:another"}] do
+      claim = claim_episode!("unbound-writable-#{System.unique_integer([:positive])}")
+
+      session =
+        claim.session
+        |> Ecto.Changeset.change(
+          repository_ref: "emisar",
+          workspace_task: %{"offer_ref" => "record:task_offer:runner"}
+        )
+        |> Repo.update!()
+
+      {:ok, fake} = fake_for(%{claim | session: session}, [reply("Must not run.")])
+
+      FakeAPI.update(fake, fn state ->
+        %{
+          state
+          | session:
+              Map.merge(state.session, %{
+                "repository_read_only" => false,
+                "workspace_task" => binding
+              })
+        }
+      end)
+
+      assert {:error, {:coop_protocol_error, :workspace_task_binding}} =
+               Executor.run(%{claim | session: session}, options(fake))
+
+      assert FakeAPI.state(fake).submit_count == 0
+    end
+  end
+
+  test "a completed checkpoint failure preserves the answer and retries finalization without model replay" do
+    # The generic stop path closed the completed runner session and stranded its
+    # patch. Finalization recovery must retain the exact turn, answer and worker.
+    {claim, fake} = completed_runner_wait!("checkpoint-recovery")
+    FakeAPI.update(fake, &Map.put(&1, :checkpoint_error, {:coop_unavailable, :checkpoint_store}))
+
+    assert {:ok, {:blocked, _reason}} =
+             Dispatcher.run_claim(claim,
+               worker_ref: "completion-test",
+               executor_options: options(fake)
+             )
+
+    blocked = Repo.get!(Responder.Work.Turn, claim.turn.id)
+    assert blocked.status == :blocked
+    assert blocked.cancellation_intent == nil
+    assert blocked.candidate == claim.turn.candidate
+    assert blocked.completion_receipt["candidate_sha256"] == claim.turn.candidate_sha256
+    assert FakeAPI.state(fake).session["state"] == "open"
+    assert FakeAPI.state(fake).cancel_keys == []
+
+    assert {:ok, episode} = retry_inspected_work(claim)
+    assert episode.owner_ref == claim.turn.turn_ref
+    assert {:ok, resumed} = Custody.claim_next("completion-resume", 60, :work)
+    assert resumed.turn.id == claim.turn.id
+    assert resumed.session.id == claim.session.id
+    FakeAPI.update(fake, &Map.put(&1, :checkpoint_error, nil))
+
+    assert {:ok, %{status: :accepted}} = Executor.run(resumed, options(fake))
+    assert FakeAPI.state(fake).submit_count == 0
+    assert FakeAPI.state(fake).create_count == 0
+    assert FakeAPI.state(fake).validations == []
+  end
+
+  test "a completed writable session closed before checkpointing cannot be blindly replayed" do
+    # The September 9 incident is already closed. Retrying would create a new
+    # session without the stranded patch, so both UI and host must refuse it.
+    {claim, _fake} = completed_runner_wait!("closed-checkpoint-recovery")
+    source = "testdata/work/hosted-runner-waiting.json" |> File.read!() |> Jason.decode!()
+
+    assert {:ok, _} =
+             Custody.request_block(
+               claim.episode.id,
+               claim.episode.key,
+               claim.turn.turn_ref,
+               claim.lease_ref,
+               source["last_error_detail"]
+             )
+
+    assert {:ok, stopping} = Custody.claim_next("closed-completion", 60, :work)
+
+    assert {:ok, receipt} =
+             Cancellation.terminal_receipt(
+               claim.session.coop_session_id,
+               claim.turn.coop_turn_id,
+               "completed",
+               nil,
+               "closed",
+               "responder:work:cancel-close:#{claim.turn.id}:g1"
+             )
+
+    assert {:ok, _} =
+             Custody.settle_cancellation(
+               claim.episode.id,
+               claim.episode.key,
+               claim.turn.turn_ref,
+               stopping.lease_ref,
+               receipt
+             )
+
+    assert {:error, :work_completed_workspace_recovery_required} =
+             retry_inspected_work(claim)
+
+    assert Repo.get!(Responder.Work.Turn, claim.turn.id).candidate == claim.turn.candidate
+
+    # Eligibility follows the closed uncheckpointed workspace, not one exact
+    # historical error string. Other finalization failures are just as stranded.
+    Repo.get!(Responder.Work.Turn, claim.turn.id)
+    |> Ecto.Changeset.change(last_error_detail: "{:coop_unavailable, :checkpoint_store}")
+    |> Repo.update!()
+
+    assert {:ok, recovery} = Projection.work(claim.episode.key)
+    assert recovery.action == nil
+    assert recovery.work_recovery.next_step =~ "restore the work"
+    assert {:error, :work_completed_workspace_recovery_required} = retry_inspected_work(claim)
+  end
+
+  test "completed reconciliation retains its final activity without rerunning work" do
+    # A completed state can be the first observation after restart. It still
+    # owes the episode its final tool history, independently of checkpointing.
+    {claim, fake} = completed_runner_wait!("completion-activity")
+
+    event = %{
+      "id" => "event:completion:1",
+      "session_id" => claim.session.coop_session_id,
+      "turn_id" => claim.turn.coop_turn_id,
+      "sequence" => 1,
+      "type" => "tool.completed",
+      "version" => 1,
+      "occurred_at" => DateTime.to_iso8601(@now),
+      "payload" => %{"tool_call_id" => "tool:completion:1", "status" => "completed"}
+    }
+
+    FakeAPI.update(fake, &Map.put(&1, :activity_events, [event]))
+    assert {:ok, %{status: :accepted}} = Executor.run(claim, options(fake))
+    assert [%{kind: "tool.completed"}] = Activity.list_for_episode(claim.episode.id)
+    assert FakeAPI.state(fake).submit_count == 0
+  end
+
+  test "a saved result with failed delivery links to delivery recovery rather than work execution" do
+    # Completion receipts remain as history after acceptance; they cannot own
+    # the next failure or hide the actual delivery recovery page.
+    {claim, fake} = completed_runner_wait!("completed-delivery-recovery")
+    assert {:ok, %{status: :accepted}} = Executor.run(claim, options(fake))
+    assert {:ok, delivery} = Custody.claim_next("failed-completed-delivery", 60, :delivery)
+
+    assert {:ok, _} =
+             Custody.block_delivery(
+               delivery.episode.id,
+               delivery.turn.turn_ref,
+               delivery.lease_ref,
+               "slack_unavailable",
+               "unavailable"
+             )
+
+    assert {:ok, detail} = Projection.episode(claim.episode.key)
+    assert detail.trace.stopped.headline == "The reply could not be delivered"
+
+    assert detail.trace.stopped.href ==
+             "/failures/delivery/" <> URI.encode_www_form(delivery.turn.delivery_ref)
+
+    assert :not_found = Projection.work(claim.episode.key)
+
+    assert {:ok, _} =
+             Projection.failure("delivery", delivery.turn.delivery_ref)
+  end
+
+  test "custody refuses a recovery confirmation after the stopped turn changes" do
+    # A browser check alone cannot fence a concurrent retry between inspection
+    # and the locked mutation. The old save-only confirmation must stay inert.
+    {claim, fake} = completed_runner_wait!("stale-completion-confirmation")
+    FakeAPI.update(fake, &Map.put(&1, :checkpoint_error, {:coop_unavailable, :checkpoint_store}))
+
+    assert {:ok, {:blocked, _}} =
+             Dispatcher.run_claim(claim,
+               worker_ref: "stale-confirmation",
+               executor_options: options(fake)
+             )
+
+    fingerprint = Repo.get!(Responder.Work.Turn, claim.turn.id) |> Custody.recovery_fingerprint()
+    assert {:ok, _} = Custody.retry_blocked(claim.episode.key, fingerprint)
+    assert {:ok, next} = Custody.claim_next("changed-completion", 60, :work)
+
+    assert {:ok, {:blocked, _}} =
+             Dispatcher.run_claim(next,
+               worker_ref: "stale-confirmation",
+               executor_options: options(fake)
+             )
+
+    assert {:error, :work_recovery_changed} =
+             Custody.retry_blocked(claim.episode.key, fingerprint)
+
+    assert Repo.get!(Responder.Work.Turn, claim.turn.id).status == :blocked
+    assert FakeAPI.state(fake).submit_count == 0
+  end
+
+  test "invalid executor settings cannot cancel a previously completed worker" do
+    # Configuration is validated before the completion-only executor branch;
+    # its failure must not slip back into the destructive generic stop path.
+    {claim, fake} = completed_runner_wait!("completion-invalid-settings")
+    FakeAPI.update(fake, &Map.put(&1, :checkpoint_error, {:coop_unavailable, :checkpoint_store}))
+
+    assert {:ok, {:blocked, _}} =
+             Dispatcher.run_claim(claim,
+               worker_ref: "completion-settings",
+               executor_options: options(fake)
+             )
+
+    assert {:ok, _} = retry_inspected_work(claim)
+    assert {:ok, resumed} = Custody.claim_next("completion-settings-resume", 60, :work)
+
+    assert {:ok, {:blocked, _}} =
+             Dispatcher.run_claim(resumed,
+               worker_ref: "completion-settings",
+               executor_options: Keyword.put(options(fake), :max_block_ms, -1)
+             )
+
+    turn = Repo.get!(Responder.Work.Turn, claim.turn.id)
+    assert turn.status == :blocked
+    assert turn.cancellation_intent == nil
+    assert FakeAPI.state(fake).cancel_keys == []
+  end
+
+  test "confirmed completion is durable before fallible host finalization starts" do
+    # A process crash between remote completion and checkpointing must not erase
+    # the fence that prevents workspace replacement and model replay on restart.
+    {claim, fake} = completed_runner_wait!("completion-crash-fence")
+    marker = make_ref()
+
+    overrides = %{
+      get_turn: fn fallback ->
+        Process.put(marker, true)
+        fallback.()
+      end,
+      get_session: fn fallback ->
+        if Process.get(marker) do
+          turn = Repo.get!(Responder.Work.Turn, claim.turn.id)
+          assert is_map(turn.completion_receipt)
+          assert turn.completion_receipt["candidate_sha256"] == claim.turn.candidate_sha256
+          raise "Simulated host finalization crash"
+        end
+
+        fallback.()
+      end
+    }
+
+    assert_raise RuntimeError, "Simulated host finalization crash", fn ->
+      Executor.run(claim, protocol_options(fake, overrides))
+    end
+
+    assert Repo.get!(Responder.Work.Turn, claim.turn.id).cancellation_intent == nil
+  end
+
+  test "completion recovery cannot replace a lost worker or reenter candidate validation" do
+    # Once completion is confirmed, even an unavailable/changed remote must not
+    # send the retained answer back through model execution or provider repair.
+    for failure <- [:connection, :placement, :state, :receipt] do
+      {claim, fake} = completed_runner_wait!("completion-fence-#{failure}")
+
+      FakeAPI.update(
+        fake,
+        &Map.put(&1, :checkpoint_error, {:coop_unavailable, :checkpoint_store})
+      )
+
+      assert {:ok, {:blocked, _}} =
+               Dispatcher.run_claim(claim,
+                 worker_ref: "completion-fence",
+                 executor_options: options(fake)
+               )
+
+      assert {:ok, _} = retry_inspected_work(claim)
+      assert {:ok, resumed} = Custody.claim_next("completion-fence-resume", 60, :work)
+      proof = resumed.turn.completion_receipt
+
+      executor_options =
+        case failure do
+          :connection ->
+            protocol_options(fake, %{get_session: {:error, {:coop_unavailable, :offline}}})
+
+          :placement ->
+            protocol_options(fake, %{
+              get_session: {:error, {:coop_session_replacement_required, resumed.session.id, 1}}
+            })
+
+          :state ->
+            FakeAPI.update(fake, fn state ->
+              %{state | turn: Map.put(state.turn, "state", "running")}
+            end)
+
+            options(fake)
+
+          :receipt ->
+            FakeAPI.update(fake, fn state ->
+              %{state | turn: Map.put(state.turn, "validation_receipt", "validation:changed")}
+            end)
+
+            options(fake)
+        end
+
+      assert {:error, {:work_completion_blocked, ^proof, _}} =
+               Executor.run(resumed, executor_options)
+
+      assert FakeAPI.state(fake).create_count == 0
+      assert FakeAPI.state(fake).submit_count == 0
+      assert FakeAPI.state(fake).validations == []
+      # Leave each failed test item parked before claiming the next fixture.
+      assert {:ok, _} =
+               Custody.block_completion(
+                 resumed.episode.id,
+                 resumed.turn.turn_ref,
+                 resumed.lease_ref,
+                 proof,
+                 "work_completion_blocked",
+                 "Worker unavailable."
+               )
+    end
   end
 
   test "a completed turn retains exact measured usage timing and effective target" do
@@ -932,7 +1281,12 @@ defmodule Responder.Work.ExecutorTest do
           output_artifacts: artifacts
         )
 
-      assert Executor.run(claim, options(fake)) == {:error, expected_error}
+      # A completed provider turn must remain recoverable even when its output
+      # artifact fails validation. The unsafe bytes are still rejected exactly.
+      assert {:error, {:work_completion_blocked, proof, ^expected_error}} =
+               Executor.run(claim, options(fake))
+
+      assert proof["candidate_sha256"] == digest(candidate)
 
       assert Outputs.fetch_many(claim.turn.id, [artifact_ref]) ==
                {:error, :work_output_artifact_not_found}
@@ -951,10 +1305,13 @@ defmodule Responder.Work.ExecutorTest do
       {:ok, update_in(response, ["turn"], &Map.put(&1, "output_artifacts", []))}
     end
 
-    assert Executor.run(
-             missing_metadata,
-             protocol_options(fake, %{validate_candidate: strip_metadata})
-           ) == {:error, {:coop_protocol_error, :accepted_artifact_metadata}}
+    assert {:error,
+            {:work_completion_blocked, _proof,
+             {:coop_protocol_error, :accepted_artifact_metadata}}} =
+             Executor.run(
+               missing_metadata,
+               protocol_options(fake, %{validate_candidate: strip_metadata})
+             )
   end
 
   test "a semantic rejection repairs in the same Coop turn and keeps one accepted result" do
@@ -3119,6 +3476,11 @@ defmodule Responder.Work.ExecutorTest do
              )
   end
 
+  defp retry_inspected_work(claim) do
+    fingerprint = Repo.get!(Responder.Work.Turn, claim.turn.id) |> Custody.recovery_fingerprint()
+    Custody.retry_blocked(claim.episode.key, fingerprint)
+  end
+
   defp claim_episode!(suffix), do: claim_episode!(suffix, nil, :live)
 
   defp claim_after_human_reply! do
@@ -3365,6 +3727,75 @@ defmodule Responder.Work.ExecutorTest do
              )
 
     %{claim | turn: turn}
+  end
+
+  defp completed_runner_wait!(suffix) do
+    claim = bound_turn!(suffix)
+    harvested = "testdata/work/hosted-runner-waiting.json" |> File.read!() |> Jason.decode!()
+    candidate = Jason.encode!(harvested["candidate"])
+    sha256 = digest(candidate)
+
+    session =
+      claim.session
+      |> Ecto.Changeset.change(
+        repository_ref: "emisar",
+        workspace_task: %{
+          "title" => "Bump hosted runner",
+          "offer_ref" => "record:task_offer:runner"
+        }
+      )
+      |> Repo.update!()
+
+    assert {:ok, _} =
+             Custody.stage_candidate(
+               claim.episode.id,
+               claim.turn.turn_ref,
+               claim.lease_ref,
+               nil,
+               nil,
+               candidate,
+               sha256,
+               1
+             )
+
+    assert {:ok, result} =
+             Result.new(:reply, harvested["candidate"], nil, %{
+               "kind" => "wait",
+               "wait_kind" => "input",
+               "deadline_at" => nil,
+               "wait_ref" => hd(harvested["candidate"]["outcome"]["record_refs"])
+             })
+
+    assert {:ok, turn} =
+             Custody.prepare_validation(
+               claim.episode.id,
+               claim.turn.turn_ref,
+               claim.lease_ref,
+               sha256,
+               1,
+               :accept,
+               result
+             )
+
+    claim = %{claim | session: session, turn: turn}
+    {:ok, fake} = fake_for(claim, [])
+
+    FakeAPI.update(fake, fn state ->
+      %{
+        state
+        | turn: %{
+            "assistant_message" => candidate,
+            "id" => turn.coop_turn_id,
+            "session_id" => session.coop_session_id,
+            "state" => "completed",
+            "validation_attempt" => 1,
+            "validation_candidate_sha256" => sha256,
+            "validation_receipt" => "validation:runner-completed"
+          }
+      }
+    end)
+
+    {claim, fake}
   end
 
   defp cancel_claim!(suffix, _remote_state) do

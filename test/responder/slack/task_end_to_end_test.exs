@@ -304,6 +304,7 @@ defmodule Responder.Slack.TaskEndToEndTest do
 
     {:ok, task_api} =
       FakeWorkCoopAPI.start_link([writable_task_reply()],
+        workspace_task: native_task_binding(task_session),
         changes: [workspace_changes()]
       )
 
@@ -499,7 +500,10 @@ defmodule Responder.Slack.TaskEndToEndTest do
     assert correction_claim.session.id == task_session.id
 
     {:ok, correction_api} =
-      FakeWorkCoopAPI.start_link([review_feedback_reply()], changes: [workspace_changes()])
+      FakeWorkCoopAPI.start_link([review_feedback_reply()],
+        workspace_task: native_task_binding(task_session),
+        changes: [workspace_changes()]
+      )
 
     FakeWorkCoopAPI.update(correction_api, fn state ->
       remote_session =
@@ -843,6 +847,16 @@ defmodule Responder.Slack.TaskEndToEndTest do
     after
       1_000 -> flunk("did not receive Slack post containing #{inspect(expected)}")
     end
+  end
+
+  defp native_task_binding(session) do
+    %{
+      "offer_ref" => session.workspace_task["offer_ref"],
+      "id" => "task-binding-e2e",
+      "queue_id" => "queue-e2e",
+      "task_id" => "task-e2e",
+      "draft_sha256" => String.duplicate("d", 64)
+    }
   end
 
   defp workspace_changes do
