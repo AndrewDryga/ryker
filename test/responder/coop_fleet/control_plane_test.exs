@@ -990,6 +990,62 @@ defmodule Responder.CoopFleet.ControlPlaneTest do
              ControlPlane.handle_poll("worker-a", rejected)
   end
 
+  test "an expired placement can finish publishing its bound public session activity" do
+    authorize_and_poll!("worker-a")
+    placement = place!("late-bound-activity")
+    coop_session_id = "coop-late-bound-activity"
+
+    {1, nil} =
+      Repo.update_all(
+        from(session in Session, where: session.id == ^placement.session_id),
+        set: [coop_session_id: coop_session_id]
+      )
+
+    expired_at = database_now!() |> DateTime.add(-5, :second)
+
+    placement
+    |> Ecto.Changeset.change(lease_expires_at: expired_at)
+    |> Repo.update!()
+
+    event = %{
+      "kind" => "session_event",
+      "payload" => %{
+        "id" => "evt-late-progress",
+        "occurred_at" => database_now!() |> DateTime.to_iso8601(),
+        "payload" => %{},
+        "sequence" => 1,
+        "session_id" => coop_session_id,
+        "turn_id" => "turn-late-progress",
+        "type" => "model.progress",
+        "version" => 1
+      },
+      "sequence" => 1
+    }
+
+    batch = %{
+      "after_sequence" => 0,
+      "events" => [event],
+      "placement_generation" => placement.generation,
+      "session_ref" => placement.session_id
+    }
+
+    # The two repaired Slack runs completed locally but their activity backlog
+    # arrived after the one-minute lease; rejecting it wedged every later heartbeat.
+    assert {:ok, response} =
+             ControlPlane.handle_poll(
+               "worker-a",
+               poll("worker-a", "workspace-main", "poll:worker-a:late-bound-activity",
+                 event_batches: [batch]
+               )
+             )
+
+    assert [%{"sequence" => 1}] = response["event_acknowledgements"]
+    assert Repo.get!(Placement, placement.id).state == :replaced
+
+    assert [%ActivityEvent{kind: "model.progress", remote_event_id: "evt-late-progress"}] =
+             Repo.all(ActivityEvent)
+  end
+
   test "a replaced placement acknowledges only its exact terminal workspace discard" do
     authorize_and_poll!("worker-a")
     placement = place!("terminal-discard-after-replacement")
