@@ -1744,6 +1744,111 @@ defmodule Responder.Work.ExecutorTest do
     assert state.turn["state"] == "cancelled"
   end
 
+  test "cancellation keeps its frozen state binding after the placement expires" do
+    work = bound_turn!("cancel-after-placement-expired")
+    worker_id = "worker-cancel-expired-#{Ecto.UUID.generate()}"
+    %{rows: [[now]]} = Repo.query!("SELECT clock_timestamp()")
+
+    Repo.insert!(%Responder.CoopFleet.Worker{
+      id: worker_id,
+      workspace_ref: "workspace-cancel-expired",
+      certificate_sha256: String.duplicate("c", 64),
+      protocol_version: "1",
+      build_version: "coop-test",
+      clock_at: now,
+      sandbox_digest: String.duplicate("d", 64),
+      policy_digests: %{work.session.policy => work.session.policy_digest},
+      policy_authority_digests: %{},
+      repositories: [%{"ref" => work.session.repository_ref, "revision" => "commit:abc123"}],
+      capabilities: [%{"name" => "responder-state", "version" => "1"}],
+      capacity: %{
+        "cooldown_until" => nil,
+        "session_slots_free" => 1,
+        "session_slots_total" => 1,
+        "state" => "eligible",
+        "turn_slots_free" => 1,
+        "turn_slots_total" => 1,
+        "workspace_slots_free" => 1,
+        "workspace_slots_total" => 1
+      },
+      state: :eligible,
+      last_seen_at: now
+    })
+
+    requirements = %{"repository_ref" => work.session.repository_ref}
+
+    placement =
+      Repo.insert!(%Responder.CoopFleet.Placement{
+        id: Ecto.UUID.generate(),
+        session_id: work.session.id,
+        episode_id: work.episode.id,
+        worker_id: worker_id,
+        generation: 1,
+        lease_ref: "lease-cancel-expired",
+        lease_expires_at: DateTime.add(now, 60, :second),
+        state: :active,
+        requirements: requirements,
+        requirements_fingerprint: Responder.CanonicalJSON.digest(requirements)
+      })
+
+    endpoint = "https://responder.example/v1/state-tools/mcp"
+    secret = "controller-state-tools-secret"
+
+    assert {:ok, binding} =
+             StateBinding.derive(
+               work.session,
+               work.turn,
+               StateBinding.placement_scope(placement),
+               endpoint,
+               secret
+             )
+
+    assert {:ok, turn} =
+             Custody.bind_state_tools(
+               work.episode.id,
+               work.turn.turn_ref,
+               work.lease_ref,
+               binding.endpoint,
+               binding.token_sha256
+             )
+
+    work = %{work | turn: turn}
+    {:ok, fake} = fake_for(work, [])
+    FakeAPI.seed_turn(fake, work.session.coop_session_id, work.turn.coop_turn_id, "running")
+
+    FakeAPI.update(fake, fn state ->
+      %{
+        state
+        | turn: Map.put(state.turn, "responder_binding_digest", StateBinding.binding_digest(turn))
+      }
+    end)
+
+    assert {:ok, _requested} =
+             Custody.request_cancel(
+               work.episode.id,
+               work.episode.key,
+               work.turn.turn_ref,
+               "cancel:expired-placement:#{work.turn.id}",
+               "Stopped after its worker placement expired."
+             )
+
+    placement |> Ecto.Changeset.change(state: :replaced) |> Repo.update!()
+    assert {:ok, claim} = Custody.claim_next("worker:cancel-expired-placement", 60, :work)
+
+    run_options =
+      fake
+      |> options()
+      |> Keyword.put(:state_tools_endpoint, endpoint)
+      |> Keyword.put(:state_tools_secret, secret)
+
+    # Both repaired Slack turns spent every cancellation retry on a placement
+    # that could never become current again, despite their frozen binding being intact.
+    assert {:ok, execution} = Executor.run(claim, run_options)
+    assert execution.status == :cancelled
+    assert execution.episode.state == :cancelled
+    assert FakeAPI.state(fake).turn["state"] == "cancelled"
+  end
+
   test "stop reconciles an admitted submit whose turn response was lost" do
     work = claim_with_bound_session!("cancel-lost-submit-binding")
     {:ok, fake} = fake_for(work, [])
