@@ -18,6 +18,7 @@ defmodule Responder.Slack.InteractionRepaint do
     IncidentRoom,
     IncidentRoomCard,
     InteractionAudit,
+    ReplyRecords,
     TaskCard,
     TaskCardProjection
   }
@@ -199,7 +200,10 @@ defmodule Responder.Slack.InteractionRepaint do
   defp repaint_sources(turn, document) do
     [
       DerivedContext.delivery(DerivedContext.delivery_document(turn))
-      | Enum.map(document["records"] || [], &DerivedContext.record/1)
+      | Enum.map(
+          document["records"] || [],
+          &(Map.delete(&1, "presentation") |> DerivedContext.record())
+        )
     ]
   end
 
@@ -222,7 +226,7 @@ defmodule Responder.Slack.InteractionRepaint do
           {:ok,
            %{
              "message" => confirmation_message(records, message),
-             "records" => Enum.map(records, &record_document/1)
+             "records" => ReplyRecords.documents("slack", turn.episode_id, records)
            }, turn.delivery_ref}
         end
 
@@ -235,15 +239,6 @@ defmodule Responder.Slack.InteractionRepaint do
     if Enum.any?(records, &(&1.kind in @confirmation_kinds and &1.status == :confirmed)),
       do: "Confirmation saved. The confirmed items are shown below.",
       else: message
-  end
-
-  defp record_document(record) do
-    %{
-      "kind" => record.kind,
-      "payload" => record.payload,
-      "ref" => record.ref,
-      "status" => Atom.to_string(record.status)
-    }
   end
 
   defp maybe_task_thread(query, nil), do: query

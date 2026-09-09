@@ -987,16 +987,20 @@ defmodule Responder.Work.ExecutorTest do
     claim = claim_episode!("slack-presentation-repair")
 
     refs =
-      Enum.map(1..51, fn index ->
+      Enum.map(1..21, fn index ->
         assert {:ok, record} =
                  Records.create(
                    Records.token(claim.turn),
-                   "presentation-progress-#{index}",
-                   "progress",
+                   "presentation-offer-#{index}",
+                   "memory_offer",
                    %{
-                     "next_due_at" => nil,
-                     "phase" => "checking-#{index}",
-                     "summary" => "Completed bounded check #{index}."
+                     "expires_in" => "30d",
+                     "kind" => "alias",
+                     "repository" => nil,
+                     "scope" => "conversation",
+                     "subject" => "Service #{index}",
+                     "value" => "A proposed service alias.",
+                     "visibility" => "conversation"
                    }
                  )
 

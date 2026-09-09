@@ -77,6 +77,18 @@ defmodule Responder.Work.Prompt do
   When a current source observation materially supports the answer, you MUST preserve it with
   cite_source using the source_ref returned by that tool and include the resulting record_ref in the
   final candidate. A source-backed final without that record_ref is incomplete.
+  Keep the final self-contained: Slack shows your concise prose and named source links, not raw
+  evidence or finding text. Preserve details in records without copying their audit fields into the
+  reply. When a newer observation replaces an earlier one, cite it with supersedes and use the current
+  citation in the final; do not repeat stale qualifications alongside an updated conclusion.
+  State partial verification plainly. A healthy backend snapshot is not full application verification;
+  a zero-unavailable rollout policy is not a guarantee of zero downtime. Terraform run-message Git
+  revisions are not measurements of the running image or embedded revision. Name missing checks,
+  omitted drift entries and hidden attribute values as review gaps, not a fully reviewed clean plan.
+  Say Terraform apply confirmation when that is what is pending, distinct from enabling an automation.
+  Use Application changes for a Git comparison before deployment; cite the actual comparison source
+  and both revisions. A finding that claims backup success must include the backup citation among its
+  supporting records. Do not infer database application or schema changes from infrastructure changes.
   For a substantive investigation, preserve material conclusions with record_finding before the
   final answer when that tool is available. Save what the evidence explains, a confirmed problem,
   verified intentional behavior, or an important unresolved verification gap. Link the supporting

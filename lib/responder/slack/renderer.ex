@@ -11,14 +11,14 @@ defmodule Responder.Slack.Renderer do
 
   alias Responder.Emisar.ApprovalStatus
   alias Responder.Publication.Card, as: PublicationCard
-  alias Responder.Slack.{Mentions, TaskCardDetails, WorkDiff}
+  alias Responder.Slack.{Mentions, ReplyRecords, TaskCardDetails, WorkDiff}
   alias Responder.State.RecordPayload
 
   @maximum_message_characters 20_000
   @maximum_markdown_characters 12_000
   @maximum_section_characters 3_000
   @maximum_blocks 50
-  @maximum_records 20
+  @maximum_records 64
   @maximum_button_characters 75
   @reference ~r/\A(?:record|publication):[A-Za-z0-9_.:-]{1,240}\z/
   @investigation_kinds ~w(evidence coverage finding progress goal goal_state alert_assessment)
@@ -1059,7 +1059,12 @@ defmodule Responder.Slack.Renderer do
     |> maybe_button_style(style)
   end
 
-  defp records(values) when is_list(values) and length(values) <= @maximum_records, do: :ok
+  defp records(values) when is_list(values) and length(values) <= @maximum_records do
+    if Enum.count(values, &(is_map(&1) and &1["kind"] not in @investigation_kinds)) <= 20,
+      do: :ok,
+      else: {:error, {:invalid_slack_render, :records}}
+  end
+
   defp records(_values), do: {:error, {:invalid_slack_render, :records}}
 
   defp block_count(text, record_blocks) do
@@ -1069,12 +1074,38 @@ defmodule Responder.Slack.Renderer do
   end
 
   defp render_records(records) do
-    Enum.reduce_while(records, {:ok, []}, fn record, {:ok, blocks} ->
-      case render_record(record) do
-        {:ok, rendered} -> {:cont, {:ok, blocks ++ rendered}}
-        {:error, _reason} = error -> {:halt, error}
-      end
-    end)
+    result =
+      Enum.reduce_while(records, {:ok, []}, fn record, {:ok, blocks} ->
+        case render_record(record) do
+          {:ok, rendered} -> {:cont, {:ok, blocks ++ rendered}}
+          {:error, _reason} = error -> {:halt, error}
+        end
+      end)
+
+    with {:ok, blocks} <- result, do: {:ok, blocks ++ source_blocks(records)}
+  end
+
+  defp render_record(
+         %{"kind" => "evidence", "presentation" => %{"source_url" => url} = meta} = record
+       )
+       when map_size(record) == 5 and map_size(meta) == 1 do
+    if ReplyRecords.safe_url?(url),
+      do: render_record(Map.delete(record, "presentation")),
+      else: {:error, {:invalid_slack_render, :record}}
+  end
+
+  defp render_record(
+         %{"kind" => "event_wait", "presentation" => %{"next_check_at" => at} = meta} = record
+       )
+       when map_size(record) == 5 and map_size(meta) == 1 and is_binary(at) do
+    with {:ok, _blocks} <- render_record(Map.delete(record, "presentation")),
+         {:ok, _time, 0} <- DateTime.from_iso8601(at) do
+      if record["status"] == "open",
+        do: {:ok, event_wait_blocks(record["payload"], at)},
+        else: {:ok, []}
+    else
+      _invalid -> {:error, {:invalid_slack_render, :record}}
+    end
   end
 
   defp render_record(%{"kind" => kind} = record)
@@ -1239,10 +1270,10 @@ defmodule Responder.Slack.Renderer do
          %{"kind" => kind, "payload" => payload, "ref" => ref, "status" => status} = record
        )
        when map_size(record) == 4 and kind in @investigation_kinds and
-              status in ["open", "confirmed"] do
+              status in ["open", "confirmed", "superseded", "dismissed"] do
     with :ok <- reference(ref),
-         {:ok, %{payload: prepared}} <- RecordPayload.prepare(kind, payload, ref) do
-      {:ok, [section(investigation_text(kind, prepared))]}
+         {:ok, _prepared} <- RecordPayload.prepare(kind, payload, ref) do
+      {:ok, []}
     else
       _invalid -> {:error, {:invalid_slack_render, :record}}
     end
@@ -1270,13 +1301,13 @@ defmodule Responder.Slack.Renderer do
            "kind" => "event_wait",
            "payload" => payload,
            "ref" => ref,
-           "status" => "open"
+           "status" => status
          } = record
        )
-       when map_size(record) == 4 do
+       when map_size(record) == 4 and status in ["open", "answered", "superseded", "dismissed"] do
     with :ok <- reference(ref),
          {:ok, %{payload: prepared}} <- RecordPayload.prepare("event_wait", payload, ref) do
-      {:ok, event_wait_blocks(prepared)}
+      {:ok, if(status == "open", do: event_wait_blocks(prepared), else: [])}
     else
       _invalid -> {:error, {:invalid_slack_render, :record}}
     end
@@ -1731,95 +1762,88 @@ defmodule Responder.Slack.Renderer do
     end
   end
 
-  defp event_wait_blocks(%{"deadline_at" => nil}), do: []
+  defp event_wait_blocks(payload, next_check \\ nil)
+  defp event_wait_blocks(%{"deadline_at" => nil}, _next_check), do: []
 
-  defp event_wait_blocks(%{"deadline_at" => deadline_at, "verification" => verification}) do
-    text = "#{mrkdwn(verification)}\nWaiting until: `#{mrkdwn(deadline_at)}`"
-    [section(text)]
+  defp event_wait_blocks(%{"deadline_at" => deadline, "event_matcher" => matcher}, next_check) do
+    next_check = next_check || scheduled_check(matcher)
+
+    text =
+      [
+        earlier_check?(next_check, deadline) && "Next check #{slack_date(next_check)}",
+        "Monitoring deadline #{slack_date(deadline)}"
+      ]
+      |> Enum.filter(&is_binary/1)
+      |> Enum.join(" · ")
+
+    [context(text)]
   end
 
-  defp investigation_text("evidence", payload) do
-    relation = payload["relation"] || "observed"
-    target = optional_line("Target", payload["target"])
+  defp scheduled_check(%{"type" => "source_event"} = matcher), do: matcher["poll_after"]
+  defp scheduled_check(%{"type" => "at"} = matcher), do: matcher["at"]
+  defp scheduled_check(_matcher), do: nil
 
-    [
-      "*Evidence · #{mrkdwn(relation)}*",
-      mrkdwn(payload["observation"]),
-      "Source: #{mrkdwn(payload["source_name"])}",
-      target
-    ]
-    |> compact_lines()
+  defp earlier_check?(nil, _deadline), do: false
+
+  defp earlier_check?(at, deadline) do
+    {:ok, at, 0} = DateTime.from_iso8601(at)
+    {:ok, deadline, 0} = DateTime.from_iso8601(deadline)
+    DateTime.compare(at, deadline) == :lt
   end
 
-  defp investigation_text("coverage", payload) do
-    [
-      "*Coverage · #{mrkdwn(payload["layer"])} · #{mrkdwn(payload["status"])}*",
-      mrkdwn(payload["detail"]),
-      "Source: #{mrkdwn(payload["source"])}"
-    ]
-    |> compact_lines()
+  defp slack_date(value) do
+    {:ok, at, 0} = DateTime.from_iso8601(value)
+    fallback = Calendar.strftime(at, "%Y-%m-%d %H:%M UTC")
+    "<!date^#{DateTime.to_unix(at)}^{date_short_pretty} at {time}|#{fallback}>"
   end
 
-  defp investigation_text("finding", payload) do
-    [
-      "*Finding · #{mrkdwn(payload["status"])}*",
-      mrkdwn(payload["what"]),
-      optional_line("Scope", payload["scope"]),
-      optional_line("Reason", payload["reason"])
-    ]
-    |> compact_lines()
+  defp source_blocks(records) do
+    superseded =
+      records
+      |> Enum.filter(&(&1["kind"] == "evidence" and &1["status"] in ["open", "confirmed"]))
+      |> Enum.flat_map(&(get_in(&1, ["payload", "supersedes"]) || []))
+      |> MapSet.new()
+
+    records
+    |> Enum.filter(&(&1["kind"] == "evidence" and &1["status"] in ["open", "confirmed"]))
+    |> Enum.reject(&MapSet.member?(superseded, &1["ref"]))
+    |> Enum.flat_map(&source_link/1)
+    |> Enum.uniq_by(&elem(&1, 0))
+    |> Enum.map(&elem(&1, 1))
+    |> Enum.chunk_while("Sources", &source_chunk/2, fn
+      "Sources" -> {:cont, []}
+      text -> {:cont, text, []}
+    end)
+    |> Enum.map(&context/1)
   end
 
-  defp investigation_text("progress", payload) do
-    [
-      "*Progress · #{mrkdwn(payload["phase"])}*",
-      mrkdwn(payload["summary"]),
-      optional_line("Next update", payload["next_due_at"])
-    ]
-    |> compact_lines()
+  defp source_chunk(link, text) do
+    next = text <> " · " <> link
+
+    if String.length(next) <= 3_000,
+      do: {:cont, next},
+      else: {:cont, text, "Sources · " <> link}
   end
 
-  defp investigation_text("goal", payload) do
-    required = if payload["required"], do: "required", else: "optional"
+  defp source_link(%{"payload" => payload} = record) do
+    url = get_in(record, ["presentation", "source_url"]) || payload["source_id"]
+    label = payload["target"] || payload["source_name"]
+    label = if label == payload["source_id"], do: "Source", else: label
+    label = mrkdwn(label)
+    unavailable = [{record["ref"], label <> " (source link unavailable)"}]
 
-    [
-      "*Goal · #{required} · #{mrkdwn(payload["id"])}*",
-      mrkdwn(payload["requested_outcome"]),
-      "Done when: #{mrkdwn(payload["completion_contract"])}",
-      optional_line("Parent", payload["parent_goal_id"]),
-      optional_line("Prerequisites", joined_refs(payload["prerequisite_goal_ids"])),
-      optional_line("Writable repository", payload["writable_repository"]),
-      optional_line("Read-only repositories", joined_refs(payload["read_only_repositories"]))
-    ]
-    |> compact_lines()
+    if ReplyRecords.safe_url?(url) do
+      link = "<#{mrkdwn(url)}|#{String.replace(label, "|", "&#124;")}>"
+      if String.length(link) <= 2_980, do: [{url, link}], else: unavailable
+    else
+      unavailable
+    end
   end
 
-  defp investigation_text("goal_state", payload) do
-    [
-      "*Goal update · #{mrkdwn(payload["state"])} · #{mrkdwn(payload["goal_id"])}*",
-      optional_line("Detail", payload["detail"])
-    ]
-    |> compact_lines()
-  end
-
-  defp investigation_text("alert_assessment", payload) do
-    [
-      "*Alert assessment · #{mrkdwn(payload["verdict"])}*",
-      mrkdwn(payload["impact"]),
-      optional_line("Cause", payload["cause"]),
-      optional_line("Next action", payload["immediate_action"]),
-      optional_line("Verify", payload["verification"])
-    ]
-    |> compact_lines()
-  end
-
-  defp joined_refs(values) when is_list(values) and values != [], do: Enum.join(values, ", ")
-  defp joined_refs(_values), do: nil
+  defp context(text),
+    do: %{"type" => "context", "elements" => [%{"type" => "mrkdwn", "text" => text}]}
 
   defp compact_lines(lines), do: lines |> Enum.reject(&is_nil/1) |> Enum.join("\n")
-
-  defp optional_line(_label, nil), do: nil
-  defp optional_line(label, value), do: "#{label}: #{mrkdwn(value)}"
 
   defp button(action_id, label, value, style, title, confirmation, confirm_label) do
     %{

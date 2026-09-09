@@ -354,6 +354,24 @@ defmodule Responder.ControlPlane.EpisodeTraceTest do
     refute html =~ "ghp_abcdefghijklmnopqrstuvwxyz"
   end
 
+  test "operator correction notes remain visible without becoming executable markup" do
+    # Historical audit corrections must be discoverable without rewriting accepted model records.
+    {_entry, episode} = admitted_input!()
+    {:ok, detail} = Projection.episode(episode.key)
+
+    detail =
+      put_in(
+        detail,
+        [:trace, :review, :note],
+        "Correction: backup citation retained. <script>bad()</script>"
+      )
+
+    html = render_component(&EpisodePage.render/1, snapshot: detail, requests: nil, params: %{})
+    assert html =~ "Correction: backup citation retained."
+    assert html =~ "&lt;script&gt;"
+    refute html =~ "<script>bad()"
+  end
+
   defp admitted_input! do
     {:ok, input} =
       Input.new(%{

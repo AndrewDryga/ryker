@@ -10,6 +10,13 @@ defmodule Responder.ControlPlane.EpisodePage do
   def render(assigns) do
     assigns = assign_new(assigns, :timeline, fn -> %{items: [], truncated: false} end)
 
+    assigns =
+      assign(
+        assigns,
+        :related,
+        assigns.snapshot[:related_episodes] || %{items: [], truncated: false}
+      )
+
     chapters =
       assigns.snapshot
       |> entries(assigns.timeline)
@@ -69,6 +76,31 @@ defmodule Responder.ControlPlane.EpisodePage do
           <dt>Tool calls</dt><dd>{metric(@snapshot.trace.metrics, "Tool calls")}</dd>
         </div>
       </dl>
+      <section
+        :if={@related.items != []}
+        class="episode-follow-through"
+        aria-label="Related episode history"
+      >
+        <h2>Related episode history</h2>
+        <p>
+          These are linked records, not merged episodes. Each retains its original inputs and delivery receipts.
+        </p>
+        <ul>
+          <li :for={item <- @related.items}>
+            <a href={item.href}>{item.relation} · {item.title} · {timestamp(item.at)} →</a>
+            <.status state={to_string(item.state)} />
+          </li>
+        </ul>
+        <p :if={@related.truncated}>
+          Showing the first 20 linked episodes.
+          <a href={
+            Responder.ControlPlane.Activity.conversation_path(
+              @snapshot.episode.transport,
+              @snapshot.episode.conversation_ref
+            )
+          }>Browse all requests in this conversation →</a>
+        </p>
+      </section>
       <section :if={@snapshot.trace.case_file[:expired_at]} class="story-stop">
         <h2>Older request details expired</h2>
         <p>
@@ -171,6 +203,11 @@ defmodule Responder.ControlPlane.EpisodePage do
         <summary>Technical record & review history</summary>
         <.link patch={base(@snapshot) <> "/requests"}>All model requests →</.link>
         <p>{coverage(@snapshot[:accounting])}</p>
+        <p :if={@snapshot.trace.review[:note] not in [nil, ""]}>
+          {@snapshot.trace.review[:note]
+          |> Responder.ControlPlane.InspectionRedactor.artifact(max_bytes: 2_048)
+          |> Map.fetch!(:text)}
+        </p>
         <dl>
           <dt>Episode</dt><dd>{@snapshot.episode.ref}</dd><dt>Destination</dt><dd>
             {@snapshot.episode.destination}
