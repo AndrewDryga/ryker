@@ -52,6 +52,14 @@ defmodule Responder.ControlPlane.EpisodeTrace do
       |> EvidenceLinks.attach(activity_page.events, turns, records)
 
     current_turn = List.last(turns)
+    stopped = stopped(episode, current_turn)
+    # Only collapse an entirely unstarted task, never earlier work in a resumed episode.
+    startup =
+      if current_blocked_turn?(episode, current_turn) and length(turns) == 1 and
+           WorkRecovery.not_started?(current_turn) and
+           Enum.all?(sessions, &is_nil(&1.coop_session_id)),
+         do: task_start(episode, current_turn)
+
     totals = totals(episode.id, events, records, sessions, turns)
     review = review_state(episode)
     received_at = first_received_at(episode)
@@ -77,7 +85,8 @@ defmodule Responder.ControlPlane.EpisodeTrace do
     %{
       activity: Map.drop(activity_page, [:events]),
       actions: operator_actions(episode, current_turn, review),
-      case_file: case_file(episode.id, turns),
+      case_file: case_file(episode.id, turns, sessions),
+      startup: startup,
       chapters: chapters(steps, received_at),
       follow_through: follow_through(platform_actions, publications, source),
       history: history(totals, activity_page),
@@ -88,7 +97,7 @@ defmodule Responder.ControlPlane.EpisodeTrace do
       source: source,
       stats: stats(steps, activity_page, totals),
       steps: steps,
-      stopped: stopped(episode, current_turn)
+      stopped: stopped
     }
   end
 
@@ -125,7 +134,7 @@ defmodule Responder.ControlPlane.EpisodeTrace do
   defp status_title(%{text: ""}), do: "Slack working status cleared"
   defp status_title(_), do: "Slack working status set"
 
-  defp case_file(episode_id, turns) do
+  defp case_file(episode_id, turns, sessions) do
     options = [
       secrets: InspectionRedactor.configured_secrets(),
       max_bytes: 12_000
@@ -149,21 +158,80 @@ defmodule Responder.ControlPlane.EpisodeTrace do
     latest_reply = List.last(replies)
     current_turn = List.last(turns)
 
+    task_session = task_session(current_turn, sessions)
+
     %{
-      title:
-        if(first && first.available,
-          do: first.text |> String.split("\n", parts: 2) |> hd() |> bounded(120),
-          else: "Episode case file"
-        ),
+      title: task_title(task_session) || input_title(first),
       expired_at: Enum.find_value(messages, & &1.expired_at),
       messages: messages,
-      repository: first && first.repository,
+      repository: case_repository(task_session, first),
       reply: latest_reply && latest_reply.text,
       reply_status: latest_reply && latest_reply.status,
       reply_request_id: latest_reply && latest_reply.id,
       awaiting_reply: is_nil(current_turn) or is_nil(current_turn.delivery_document),
       conversation:
         Enum.sort_by(messages ++ Enum.filter(replies, & &1.delivered), & &1.at, DateTime)
+    }
+  end
+
+  defp task_session(%Turn{operational_pruned_at: nil, session_id: id}, sessions),
+    do: Enum.find(sessions, &(&1.id == id and is_map(&1.workspace_task)))
+
+  defp task_session(_, _), do: nil
+
+  defp task_title(%Session{workspace_task: %{"title" => title}}) when is_binary(title),
+    do: InspectionRedactor.artifact(title, max_bytes: 240).text
+
+  defp task_title(_), do: nil
+
+  defp input_title(%{available: true, text: text}),
+    do: text |> String.split("\n", parts: 2) |> hd() |> bounded(120)
+
+  defp input_title(_), do: "Episode case file"
+
+  defp case_repository(%Session{repository_ref: ref}, _) when is_binary(ref), do: ref
+  defp case_repository(_, first), do: first && first.repository
+
+  defp task_start(episode, turn) do
+    offer =
+      Repo.one(
+        from(record in Record,
+          join: source in Episode,
+          on: source.id == record.episode_id,
+          where: record.kind == "task_offer" and record.status == :confirmed,
+          where: record.confirmed_episode_id == ^episode.id,
+          where: record.episode_id == ^(episode.linked_episode_id || episode.id),
+          select: %{
+            inserted_at: record.inserted_at,
+            confirmed_at: record.confirmed_at,
+            episode_key: source.key
+          },
+          order_by: [desc: record.confirmed_at, desc: record.id],
+          limit: 1
+        )
+      )
+
+    %{
+      confirmed: not is_nil(offer) and not is_nil(offer.confirmed_at),
+      events:
+        Enum.reject(
+          [
+            offer &&
+              %{
+                label: "Task proposed",
+                at: offer.inserted_at,
+                href: "/episodes/" <> segment(offer.episode_key)
+              },
+            offer && offer.confirmed_at &&
+              %{label: "Task approved", at: offer.confirmed_at, href: nil},
+            %{
+              label: "Couldn’t start — code-editing setup needs attention",
+              at: turn.cancelled_at || turn.updated_at,
+              href: nil
+            }
+          ],
+          &is_nil/1
+        )
     }
   end
 
@@ -1472,6 +1540,16 @@ defmodule Responder.ControlPlane.EpisodeTrace do
     }
   end
 
+  defp stopped(%Episode{state: :cancelled}, _turn) do
+    %{
+      action: "No action is required",
+      attempted: [],
+      headline: "Episode cancelled",
+      href: nil,
+      reason: "The durable episode owner recorded cancellation."
+    }
+  end
+
   defp stopped(_episode, %Turn{status: :blocked, delivery_ref: ref}) when is_binary(ref) do
     %{
       action:
@@ -1502,18 +1580,10 @@ defmodule Responder.ControlPlane.EpisodeTrace do
       headline: recovery.headline,
       model_output: recovery.model_output,
       delivery: recovery.delivery,
-      href: "/failures/work/#{segment(episode.key)}",
+      not_started: recovery.not_started,
+      href: recovery.setup_href || "/failures/work/#{segment(episode.key)}",
+      link_label: if(recovery.setup_href, do: "View required setup", else: "Open recovery"),
       reason: recovery.cause
-    }
-  end
-
-  defp stopped(%Episode{state: :cancelled}, _turn) do
-    %{
-      action: "No action is required",
-      attempted: [],
-      headline: "Episode cancelled",
-      href: nil,
-      reason: "The durable episode owner recorded cancellation."
     }
   end
 
@@ -1932,10 +2002,18 @@ defmodule Responder.ControlPlane.EpisodeTrace do
   end
 
   defp operator_actions(episode, current_turn, review) do
+    recovery =
+      if current_blocked_turn?(episode, current_turn) and is_nil(current_turn.delivery_ref),
+        do:
+          WorkRecovery.project(
+            current_turn,
+            Custody.completed_workspace_recoverable(current_turn)
+          )
+
     []
     |> maybe_action(
-      match?(%Turn{status: :blocked}, current_turn),
-      "Run again",
+      recovery != nil and recovery.action == :retry,
+      if(recovery, do: recovery.action_label, else: "Retry work"),
       "/actions/work/#{segment(episode.key)}/retry",
       :primary
     )
@@ -1952,6 +2030,14 @@ defmodule Responder.ControlPlane.EpisodeTrace do
       :secondary
     )
   end
+
+  defp current_blocked_turn?(
+         %Episode{state: :working, owner_kind: :turn, owner_ref: ref},
+         %Turn{status: :blocked, turn_ref: ref}
+       ),
+       do: true
+
+  defp current_blocked_turn?(_episode, _turn), do: false
 
   defp maybe_action(actions, true, label, href, tone),
     do: actions ++ [%{href: href, label: label, tone: tone}]

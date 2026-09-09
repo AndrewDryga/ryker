@@ -4,6 +4,7 @@ defmodule Responder.ControlPlane.ModelRequests do
   import Ecto.Query
   alias Responder.Admission.Attempt
   alias Responder.ControlPlane.InspectionRedactor, as: Redactor
+  alias Responder.ControlPlane.WorkRecovery
   alias Responder.Episodes.Episode
   alias Responder.Ingress.Inbox
   alias Responder.Ingress.Inbox.Entry
@@ -135,7 +136,10 @@ defmodule Responder.ControlPlane.ModelRequests do
       |> with_responses(Enum.take(turns, 20), %{})
 
     work =
-      Enum.flat_map(Enum.take(turns, 20), fn turn ->
+      turns
+      |> Enum.take(20)
+      |> Enum.reject(&WorkRecovery.retained_absent_submission?/1)
+      |> Enum.flat_map(fn turn ->
         request = inspect_row(turn, %{}, options)
 
         timing = [

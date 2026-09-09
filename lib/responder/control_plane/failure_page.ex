@@ -55,10 +55,13 @@ defmodule Responder.ControlPlane.FailurePage do
           <p>{if @work, do: @work.cause, else: @cause}</p>
         </section>
         <section :if={@work} class="recovery-preserved">
-          <h3>What is preserved</h3>
+          <h3>{if @work[:not_started], do: "What happened", else: "What is preserved"}</h3>
           <p>{@work.workspace}</p>
+          <p :if={@work[:not_started]}>{@work.delivery}</p>
           <p :if={@work.model_output}>The worker’s final response is retained. {@work.delivery}</p>
-          <p :if={!@work.model_output}>No retained, accepted final response is available.</p>
+          <p :if={!@work.model_output && !@work[:not_started]}>
+            No retained, accepted final response is available.
+          </p>
         </section>
         <section class="failure-next-step">
           <h3>{if @work, do: "What you need to do", else: "Next step"}</h3>
@@ -69,6 +72,7 @@ defmodule Responder.ControlPlane.FailurePage do
             There is no supported recovery command for this older session yet. Freeing this disk space needs a cleanup fix in Coop, not a change to your request or configuration.
           </p>
           <p :if={!@ownership_missing}>{if @work, do: @work.next_step, else: next_step(@row)}</p>
+          <a :if={@work && @work[:setup_href]} href={@work.setup_href} class="ui-button secondary">View required setup</a>
           <div :if={!@ownership_missing && @recovery != ""} class="failure-recovery">
             {Phoenix.HTML.raw(@recovery)}
             <p>{if @work, do: @work.retry_effect, else: recovery_effect(@row.kind)}</p>

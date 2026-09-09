@@ -1,11 +1,53 @@
 defmodule Responder.ControlPlane.ConfigurationHelpTest do
   use ExUnit.Case, async: false
 
+  alias Responder.ControlPlane.CodeEditingSetup
   alias Responder.ControlPlane.ConfigurationHelp
   alias Responder.ControlPlane.HTML
   alias Responder.ControlPlane.OperatorProjection
 
   @settings ~w(admission work control_plane coop_worker_gateway delivery publication retention state_tools event_waits schedules emisar slack github webhooks runtime.mode admission.policy admission.decision_timeout_ms work.concurrency work.poll_interval_ms retention.operational_data_seconds retention.closed_work_seconds retention.episode_history_seconds retention.audit_data_seconds)
+
+  test "code editing help explains the required setup without changing it" do
+    page = html([])
+    document = LazyHTML.from_document(page)
+    section = LazyHTML.query(document, "#code-editing") |> LazyHTML.text()
+    assert section =~ "Set up code editing"
+    assert section =~ "recoverable copy"
+    assert section =~ "work.execution"
+    assert section =~ "fleet"
+    assert section =~ "Docker"
+    assert section =~ "does not enroll"
+    commands = LazyHTML.query(document, "#code-editing details") |> LazyHTML.text()
+    assert commands =~ "Administrator commands and configuration"
+    assert commands =~ "coop sessions doctor"
+    assert commands =~ "mix responder.doctor --config"
+    assert commands =~ "execution: fleet"
+    assert commands =~ "workspace_ref: YOUR_ENROLLED_WORKSPACE"
+    assert commands =~ "0600"
+    refute page =~ "<form"
+  end
+
+  test "setup support reflects the running adapter rather than an edited YAML file" do
+    previous = Application.fetch_env(:responder, :work)
+
+    on_exit(fn ->
+      case previous do
+        {:ok, value} -> Application.put_env(:responder, :work, value)
+        :error -> Application.delete_env(:responder, :work)
+      end
+    end)
+
+    for config <- [nil, %{}, %{api: Responder.Coop.Client}] do
+      Application.put_env(:responder, :work, config)
+      refute CodeEditingSetup.checkpoint_supported?()
+      assert html([]) =~ "does not support saving coding work"
+    end
+
+    Application.put_env(:responder, :work, api: Responder.CoopFleet.Client)
+    assert CodeEditingSetup.checkpoint_supported?()
+    assert html([]) =~ "does not prove that a compatible coding worker is online"
+  end
 
   test "each effective setting explains its purpose, behavior and default beside its value" do
     # The old key/value table left operators guessing what a policy or timeout did.

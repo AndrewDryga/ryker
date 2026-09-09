@@ -9,6 +9,7 @@ defmodule Responder.ControlPlane.EpisodePage do
 
   def render(assigns) do
     assigns = assign_new(assigns, :timeline, fn -> %{items: [], truncated: false} end)
+    assigns = assign(assigns, :startup, assigns.snapshot.trace[:startup])
 
     assigns =
       assign(
@@ -32,7 +33,7 @@ defmodule Responder.ControlPlane.EpisodePage do
         <.link navigate="/" class="back-to-activity">← Activity</.link>
         <div class="episode-title-row">
           <h1>{@snapshot.trace.case_file.title}</h1><.status state={
-            to_string(@snapshot.episode.state)
+            if(@startup, do: "not_started", else: to_string(@snapshot.episode.state))
           } />
         </div>
         <p class="episode-location">
@@ -60,7 +61,33 @@ defmodule Responder.ControlPlane.EpisodePage do
           >This Slack thread →</a>
         </p>
       </div>
-      <dl class="episode-metrics">
+      <section :if={@startup} class="task-start-failure" aria-labelledby="task-start-heading">
+        <h2 id="task-start-heading">{@snapshot.trace.stopped.headline}</h2>
+        <p :if={@startup.confirmed}>Your confirmation was received.</p>
+        <p>{@snapshot.trace.stopped.reason}</p>
+        <p class="task-start-facts">No files changed. No checks ran. No task reply was sent.</p>
+        <p>{@snapshot.trace.stopped.action}</p>
+        <nav class="task-start-actions" aria-label="Task resolution">
+          <a href={@snapshot.trace.stopped.href} class="ui-button primary">View required setup</a>
+          <.action_button
+            :for={action <- @snapshot.trace.actions}
+            path={action.href}
+            label={action.label}
+            tone={action.tone}
+          />
+        </nav>
+      </section>
+      <section :if={@startup} class="task-start-history" aria-label="Task history">
+        <h2>What happened</h2>
+        <ol>
+          <li :for={event <- @startup.events}>
+            <time>{timestamp(event.at)}</time>
+            <a :if={event.href} href={event.href}>{event.label} →</a>
+            <span :if={!event.href}>{event.label}</span>
+          </li>
+        </ol>
+      </section>
+      <dl :if={!@startup} class="episode-metrics">
         <div>
           <dt title="First message to the latest recorded change">Elapsed</dt><dd>
             {elapsed(@snapshot)}
@@ -77,7 +104,7 @@ defmodule Responder.ControlPlane.EpisodePage do
         </div>
       </dl>
       <section
-        :if={@related.items != []}
+        :if={!@startup && @related.items != []}
         class="episode-follow-through"
         aria-label="Related episode history"
       >
@@ -107,7 +134,7 @@ defmodule Responder.ControlPlane.EpisodePage do
           Saved content was removed by retention on {timestamp(@snapshot.trace.case_file.expired_at)}. The remaining timeline still shows when the request ran and finished.
         </p>
       </section>
-      <nav class="case-actions" aria-label="Execution actions">
+      <nav :if={!@startup} class="case-actions" aria-label="Execution actions">
         <a href={if(@requests, do: base(@snapshot), else: "") <> outcome_anchor(@snapshot)}>Jump to latest outcome ↓</a>
         <.action_button
           :for={action <- @snapshot.trace.actions}
@@ -116,7 +143,7 @@ defmodule Responder.ControlPlane.EpisodePage do
           tone={action.tone}
         />
       </nav>
-      <section :if={@snapshot.trace.stopped} class="story-stop">
+      <section :if={@snapshot.trace.stopped && !@startup} class="story-stop">
         <p class="ui-eyebrow">NEXT ACTION</p><h3>{@snapshot.trace.stopped.headline}</h3>
         <p>{@snapshot.trace.stopped.reason}</p><strong>{@snapshot.trace.stopped.action}</strong>
         <details :if={@snapshot.trace.stopped[:model_output]} class="recovery-worker-report">
@@ -132,7 +159,7 @@ defmodule Responder.ControlPlane.EpisodePage do
           :if={@snapshot.trace.stopped.href}
           class="ui-button secondary"
           href={@snapshot.trace.stopped.href}
-        >Open recovery <.icon name={:arrow} /></a>
+        >{@snapshot.trace.stopped[:link_label] || "Open recovery"} <.icon name={:arrow} /></a>
         <details :if={@snapshot.trace.stopped.attempted != []}>
           <summary>Already attempted</summary><ul>
             <li :for={attempt <- @snapshot.trace.stopped.attempted}>{attempt}</li>
@@ -162,54 +189,20 @@ defmodule Responder.ControlPlane.EpisodePage do
           path={base(@snapshot) <> "/requests"}
         />
       </details>
-      <section
-        :if={!@requests}
-        class="case-timeline"
-        id="execution-timeline"
-        aria-label="Complete execution timeline"
-      >
-        <h2 class="sr-only">Execution timeline</h2>
-        <p :if={@snapshot.trace.history.truncated || @timeline.truncated} class="timeline-bound">
-          History is bounded. Older model requests are available under “All model requests” in the technical record below. Long artifacts are labeled when truncated.
-        </p>
-        <section
-          :for={{chapter, index} <- Enum.with_index(@chapters, 1)}
-          class={"trace-chapter phase-#{chapter.band} #{if chapter.starts_conversation, do: "conversation-boundary"}"}
-          data-conversation-turn={chapter.conversation_turn}
-          aria-labelledby={"chapter-#{index}"}
-        >
-          <div class="chapter-heading">
-            <span class="phase-number" aria-hidden="true">{phase_number(chapter.band)}</span>
-            <div class="chapter-description">
-              <p
-                :if={chapter.starts_conversation && chapter.conversation_turn > 1}
-                class="turn-divider-label"
-              >
-                Message {chapter.conversation_turn}
-              </p>
-              <h3 id={"chapter-#{index}"}>{chapter_title(chapter)}</h3>
-              <p>{chapter_description(chapter.band)}</p>
-            </div>
-            <span :if={chapter.span} class="chapter-span" title="Time since the first message">{chapter_span(
-              chapter,
-              @snapshot.trace.received_at
-            )} from start</span>
-          </div>
-          <div class="phase-entries">
-            <.entry :for={entry <- chapter.steps} entry={entry} />
-          </div>
-        </section>
-        <div id="latest-outcome" class="case-outcome">
-          <div :if={@snapshot.trace.case_file.awaiting_reply} class="story-wait">
-            <span class="pulse-dot"></span><div>
-              <strong>{pending_answer_label(@snapshot)}</strong><p>{@snapshot.episode.next_action}</p>
-            </div>
-          </div>
-          <a href="#execution-timeline">Back to start ↑</a>
-        </div>
-      </section>
+      <.execution_timeline
+        :if={!@requests && !@startup}
+        snapshot={@snapshot}
+        timeline={@timeline}
+        chapters={@chapters}
+      />
       <details class="story-identity">
-        <summary>Technical record & review history</summary>
+        <summary>Technical details &amp; review history</summary>
+        <.execution_timeline
+          :if={!@requests && @startup}
+          snapshot={@snapshot}
+          timeline={@timeline}
+          chapters={@chapters}
+        />
         <.link patch={base(@snapshot) <> "/requests"}>All model requests →</.link>
         <p>{coverage(@snapshot[:accounting])}</p>
         <p :if={@snapshot.trace.review[:note] not in [nil, ""]}>
@@ -227,6 +220,59 @@ defmodule Responder.ControlPlane.EpisodePage do
         </dl>
       </details>
     </div>
+    """
+  end
+
+  defp execution_timeline(assigns) do
+    ~H"""
+    <section
+      class="case-timeline"
+      id="execution-timeline"
+      aria-label="Complete execution timeline"
+    >
+      <h2 class="sr-only">Execution timeline</h2>
+      <p :if={@snapshot.trace.history.truncated || @timeline.truncated} class="timeline-bound">
+        History is bounded. Older model requests are available under “All model requests” in the technical record below. Long artifacts are labeled when truncated.
+      </p>
+      <section
+        :for={{chapter, index} <- Enum.with_index(@chapters, 1)}
+        class={"trace-chapter phase-#{chapter.band} #{if chapter.starts_conversation, do: "conversation-boundary"}"}
+        data-conversation-turn={chapter.conversation_turn}
+        aria-labelledby={"chapter-#{index}"}
+      >
+        <div class="chapter-heading">
+          <span class="phase-number" aria-hidden="true">{phase_number(chapter.band)}</span>
+          <div class="chapter-description">
+            <p
+              :if={chapter.starts_conversation && chapter.conversation_turn > 1}
+              class="turn-divider-label"
+            >
+              Message {chapter.conversation_turn}
+            </p>
+            <h3 id={"chapter-#{index}"}>{chapter_title(chapter)}</h3>
+            <p>{chapter_description(chapter.band)}</p>
+          </div>
+          <span :if={chapter.span} class="chapter-span" title="Time since the first message">{chapter_span(
+            chapter,
+            @snapshot.trace.received_at
+          )} from start</span>
+        </div>
+        <div class="phase-entries">
+          <.entry :for={entry <- chapter.steps} entry={entry} />
+        </div>
+      </section>
+      <div id="latest-outcome" class="case-outcome">
+        <div
+          :if={@snapshot.trace.case_file.awaiting_reply && !@snapshot.trace[:startup]}
+          class="story-wait"
+        >
+          <span class="pulse-dot"></span><div>
+            <strong>{pending_answer_label(@snapshot)}</strong><p>{@snapshot.episode.next_action}</p>
+          </div>
+        </div>
+        <a href="#execution-timeline">Back to start ↑</a>
+      </div>
+    </section>
     """
   end
 

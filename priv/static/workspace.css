@@ -1200,3 +1200,20 @@ details.measurement-notes > summary { cursor:pointer; font-weight:600; color:var
 .episode-follow-through li { display: flex; align-items: baseline; flex-wrap: wrap; gap: .35rem 1rem; overflow-wrap: anywhere; }
 .episode-follow-through li div { display: flex; flex-wrap: wrap; gap: .35rem .75rem; }
 .episode-follow-through li p { margin: 0; }
+
+/* An unstarted task is a short outcome, not an empty execution dashboard. */
+.task-start-failure { margin-block:24px; padding:4px 0 4px 20px; border-left:3px solid #866a39; max-width:780px; color:var(--ink); }
+.task-start-failure h2 { margin:0 0 12px; font-size:20px; line-height:1.35; }
+.task-start-failure p { margin:0 0 12px; line-height:1.6; }
+.task-start-facts { font-weight:600; }
+.task-start-actions { display:flex; flex-wrap:wrap; gap:12px; margin-top:20px; }
+.task-start-actions .ui-button { min-height:44px; }
+.task-start-history { border-top:1px solid var(--stroke); padding-top:20px; }
+.task-start-history h2 { font-size:16px; margin:0 0 12px; }
+.task-start-history ol { list-style:none; padding:0; margin:0; display:grid; gap:8px; }
+.task-start-history li { display:flex; align-items:baseline; flex-wrap:wrap; column-gap:20px; line-height:1.6; }
+.task-start-history time { color:var(--secondary); font-size:13px; font-variant-numeric:tabular-nums; }
+.task-start-history a { display:inline-flex; align-items:center; min-height:44px; }
+.task-start-history + .story-identity summary { min-height:44px; padding-block:12px; }
+.code-editing-setup { margin-block:24px; max-width:860px; scroll-margin-top:24px; }
+.code-editing-setup li { margin-bottom:12px; line-height:1.6; }

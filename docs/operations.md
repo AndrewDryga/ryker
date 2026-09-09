@@ -164,6 +164,104 @@ episode, and Work lifecycle state plus the bounded accepted `decision_reason`
 that says what the shadow model would have done; it never returns captured
 content or unreleased model output.
 
+## Set up code editing
+
+“Couldn’t start” with the workspace-checkpoint connection error means the host
+stopped before creating a coding session. It is not a failed repository check.
+The direct connection (`work.execution: direct`) does not support saving and
+restoring writable task workspaces. Use fleet execution for code-editing tasks;
+do not bypass the preflight or keep retrying the unchanged setup.
+
+The episode page distinguishes this proven startup failure from an older task
+that ran and lost access to its workspace. It shows the task title, confirmation,
+setup remedy and proposal/approval history first. Technical history stays
+available below. Missing or expired telemetry alone never proves “no files
+changed.” A completed proposal is not a completed code change.
+
+An administrator must prepare the worker and its permissions before switching
+execution. The following paths and identifiers are examples, not deployment
+authority. Keep the current runtime configuration's other policies and tool grants.
+
+1. Prepare a co:op session service with persistent storage, provider credentials,
+   reviewed repository policies, and the repository's actual build tools. Run
+   the daemon and connector as the same OS user. For an existing local daemon,
+   inspect its exact socket and policies; do not start a duplicate service.
+
+   ```bash
+   coop sessions doctor --socket /var/lib/coop-sessions/control.sock
+   coop sessions policies --policies /etc/coop/session-policies.yaml --json
+   ```
+
+   If this is a new worker, follow co:op's `docs/worker.md` and
+   `docs/session-api.md` to start its session daemon under supervision.
+   Copy the real policy and authority digests from the policy output. Obtain
+   the expected sandbox digest, repository mapping and capability advertisements
+   from the reviewed worker deployment—not placeholder hashes.
+
+2. Configure the host's `coop_worker_gateway` with a reachable HTTPS origin,
+   its trusted CA and signing key, server certificate/key, and checkpoint
+   encryption key. The named checkpoint secret must decode from base64 to
+   exactly 32 bytes. Preserve it: replacing it without a recovery plan can make
+   existing saved work unreadable. Worker traffic uses outbound mutual TLS;
+   do not expose the operator control plane to connect a remote worker.
+
+3. Enroll the exact worker and workspace. In the Responder checkout, with the
+   running release's `MIX_ENV=prod` and `DATABASE_URL` environment loaded:
+
+   ```bash
+   mix responder.coop_worker enroll WORKER_ID WORKSPACE_REF OPERATOR_REF
+   ```
+
+   This command prints the enrollment token once. Save only its token value in
+   the worker's owner-private `enrollment_token_file` (mode `0600`); do not paste
+   it into chat, command arguments or the worker JSON. This command does **not**
+   accept `--config`. It uses the database environment, not the host YAML path.
+
+   Complete co:op's `docs/examples/worker.json` with real identities, HTTPS origin,
+   CA, socket, policy/authority digests, repositories, capabilities and capacity.
+   `identity_file` must initially be absent; `journal_dir` must be persistent and
+   private. Then start the connector under supervision:
+
+   ```bash
+   coop worker connect --config /etc/coop/worker.json
+   ```
+
+   Preserve its generated identity and complete journal across restarts.
+   A quiet connector process is not proof that the worker is eligible.
+
+4. In the existing host YAML, change only the relevant Work settings:
+
+   ```yaml
+   work:
+     execution: fleet
+     workspace_ref: YOUR_ENROLLED_WORKSPACE
+     capability_names:
+       - responder-state
+     # Preserve the existing Work settings and source/action-tool grants.
+   ```
+
+   The workspace must exactly match enrollment. Preserve any additional required
+   capabilities; do not remove requirements just to make placement succeed.
+   Verify the selected worker advertises the task's repository, pinned policy and
+   authority, compatible sandbox, required capabilities and available capacity.
+   Validate the edited configuration with `mix responder.doctor --config
+   /absolute/path/to/responder-elixir.yaml`, then restart the host through its
+   normal deployment workflow. Do not restart or upgrade co:op as an incidental
+   part of deploying a host UI change.
+
+5. Before retrying the task, verify that a disposable workspace can be saved and
+   restored, and run a small required repository check inside the **coding
+   environment**. If its gate requires Docker, installing Docker on the host
+   alone is insufficient: the worker's environment must have approved access to
+   a working daemon. A host Docker socket grants broad host control; choose and
+   explicitly approve that access or an isolated build environment separately.
+
+After the connection changes, the episode offers “Retry task” again. This only
+means the known connection blocker is gone; it does not certify worker readiness.
+For a task proven never started, retry begins the approved task. For an older
+task with existing edits and a closed, unsaved session, preserve and recover those
+edits first; switching to fleet does not automatically restore them.
+
 ## Control plane and Conversation Lab
 
 The loopback control plane provides:

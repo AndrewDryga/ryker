@@ -65,6 +65,7 @@ defmodule Responder.ControlPlane.Components do
 
   def label("pending"), do: "Queued"
   def label("working"), do: "Working"
+  def label("not_started"), do: "Couldn’t start"
   def label("delivery_pending"), do: "Sending reply"
   def label("waiting_for_input"), do: "Needs your input"
   def label("waiting_for_event"), do: "Waiting for an event"
@@ -76,7 +77,7 @@ defmodule Responder.ControlPlane.Components do
   def label("reply"), do: "Reply selected"
   def label(value), do: value |> to_string() |> String.replace("_", " ") |> String.capitalize()
 
-  def tone(value) when value in ["blocked", "waiting_for_input"], do: "attention"
+  def tone(value) when value in ["blocked", "waiting_for_input", "not_started"], do: "attention"
   def tone(value) when value in ["working", "pending", "delivery_pending"], do: "active"
   def tone("complete"), do: "done"
   def tone(_), do: "quiet"
