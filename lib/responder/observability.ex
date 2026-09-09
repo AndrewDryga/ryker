@@ -515,10 +515,21 @@ defmodule Responder.Observability do
 
   defp fleet_event_cursor_lag do
     query = """
-    SELECT COALESCE(SUM(GREATEST(COALESCE(events.maximum_sequence, 0) - placement.last_acked_event_sequence, 0)), 0)::bigint
+    SELECT COALESCE(SUM(
+      GREATEST(
+        COALESCE(events.maximum_coarse_sequence, 0) - placement.last_acked_event_sequence,
+        0
+      ) +
+      GREATEST(
+        COALESCE(events.maximum_session_sequence, 0) - placement.last_acked_session_event_sequence,
+        0
+      )
+    ), 0)::bigint
     FROM coop_session_placements AS placement
     LEFT JOIN LATERAL (
-      SELECT MAX(event.sequence) AS maximum_sequence
+      SELECT
+        MAX(event.sequence) FILTER (WHERE event.kind <> 'session_event') AS maximum_coarse_sequence,
+        MAX(event.sequence) FILTER (WHERE event.kind = 'session_event') AS maximum_session_sequence
       FROM coop_worker_events AS event
       WHERE event.placement_id = placement.id
     ) AS events ON TRUE

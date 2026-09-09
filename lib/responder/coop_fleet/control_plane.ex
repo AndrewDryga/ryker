@@ -704,13 +704,32 @@ defmodule Responder.CoopFleet.ControlPlane do
       [%{"session_id" => remote_id} | _rest] = values ->
         expected_cursor = List.last(values)["sequence"]
 
-        case Activity.ingest_fleet(placement.session_id, remote_id, cursor, values) do
-          {:ok, %{cursor: ^expected_cursor}} -> :ok
-          {:error, reason} -> rollback(reason)
-          _invalid -> rollback({:invalid_coop_activity, :cursor})
+        case Repo.get(Session, placement.session_id) do
+          %Session{coop_session_id: nil} ->
+            if prebinding_session_created?(values),
+              do: :ok,
+              else: rollback({:coop_activity_session_conflict, remote_id})
+
+          %Session{} ->
+            case Activity.ingest_fleet(placement.session_id, remote_id, cursor, values) do
+              {:ok, %{cursor: ^expected_cursor}} -> :ok
+              {:error, reason} -> rollback(reason)
+              _invalid -> rollback({:invalid_coop_activity, :cursor})
+            end
+
+          nil ->
+            rollback(:work_session_not_found)
         end
     end
   end
+
+  defp prebinding_session_created?([
+         %{"sequence" => 1, "session_id" => remote_id, "type" => "session.created"}
+       ])
+       when is_binary(remote_id),
+       do: true
+
+  defp prebinding_session_created?(_events), do: false
 
   defp insert_event!(placement, event) do
     fingerprint = event_fingerprint(event)

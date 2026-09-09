@@ -20,6 +20,7 @@ defmodule Responder.Work.Executor do
     Custody,
     FinalPreflight,
     Measurement,
+    Session,
     StateBinding,
     SubmissionBuilder,
     ValidationIntent,
@@ -701,7 +702,7 @@ defmodule Responder.Work.Executor do
   defp capability_versions?(_versions), do: false
 
   defp create_session(claim, key, settings) do
-    task = claim.session.external_ref
+    task = Session.coop_task_ref(claim.session)
 
     case mutation_call(settings, :create_session, key, fn ->
            create_remote_session(settings, claim, key, task)
@@ -2140,7 +2141,7 @@ defmodule Responder.Work.Executor do
       settings.client,
       key,
       claim.session.policy,
-      claim.session.external_ref
+      Session.coop_task_ref(claim.session)
     )
   end
 
@@ -2645,7 +2646,7 @@ defmodule Responder.Work.Executor do
          allowed_states
        ) do
     remote_authority = {policy, policy_digest, external_ref}
-    expected_authority = {expected.policy, expected.policy_digest, expected.external_ref}
+    expected_authority = {expected.policy, expected.policy_digest, Session.coop_task_ref(expected)}
 
     with :ok <- exact_remote_session_identity(expected, id),
          :ok <- exact_remote_session_allowed_state(state, allowed_states),

@@ -24,6 +24,7 @@ defmodule Responder.Work.ExecutorTest do
     Final,
     FinalPreflight,
     Result,
+    Session,
     StateBinding,
     SubmissionBuilder
   }
@@ -3819,7 +3820,7 @@ defmodule Responder.Work.ExecutorTest do
       FakeAPI.update(fake, fn state ->
         session =
           Map.merge(state.session, %{
-            "external_ref" => claim.session.external_ref,
+            "external_ref" => Session.coop_task_ref(claim.session),
             "id" => claim.session.coop_session_id || "remote:#{claim.episode.id}",
             "policy" => claim.session.policy,
             "policy_digest" => claim.session.policy_digest,
