@@ -934,6 +934,71 @@ defmodule Responder.CoopFleet.ControlPlaneTest do
              ControlPlane.handle_poll("worker-a", rejected)
   end
 
+  test "a replaced placement acknowledges only its exact terminal workspace discard" do
+    authorize_and_poll!("worker-a")
+    placement = place!("terminal-discard-after-replacement")
+    coop_session_id = "coop-terminal-discard-after-replacement"
+
+    {1, nil} =
+      Repo.update_all(
+        from(session in Session, where: session.id == ^placement.session_id),
+        set: [coop_session_id: coop_session_id]
+      )
+
+    placement |> Ecto.Changeset.change(state: :replaced) |> Repo.update!()
+
+    discarded = %{
+      "kind" => "session_event",
+      "payload" => %{
+        "id" => "evt-workspace-discarded",
+        "occurred_at" => database_now!() |> DateTime.to_iso8601(),
+        "sequence" => 1,
+        "session_id" => coop_session_id,
+        "type" => "workspace.discarded",
+        "version" => 1
+      },
+      "sequence" => 1
+    }
+
+    terminal_poll =
+      poll("worker-a", "workspace-main", "poll:worker-a:terminal-discard",
+        event_batches: [
+          %{
+            "after_sequence" => 0,
+            "events" => [discarded],
+            "placement_generation" => placement.generation,
+            "session_ref" => placement.session_id
+          }
+        ]
+      )
+
+    wrong_session =
+      put_in(
+        terminal_poll,
+        ["event_batches", Access.at(0), "events", Access.at(0), "payload", "session_id"],
+        "coop-session-owned-by-someone-else"
+      )
+
+    assert {:error, {:coop_worker_event_placement_not_authorized, _placement_id}} =
+             ControlPlane.handle_poll("worker-a", wrong_session)
+
+    # One discarded workspace event blocked every later heartbeat in production,
+    # taking the only editing worker and the whole service out of readiness.
+    assert {:ok, response} = ControlPlane.handle_poll("worker-a", terminal_poll)
+
+    assert response["event_acknowledgements"] == [
+             %{
+               "placement_generation" => placement.generation,
+               "sequence" => 1,
+               "session_ref" => placement.session_id
+             }
+           ]
+
+    assert Repo.get!(Placement, placement.id).last_acked_session_event_sequence == 1
+    assert [%Event{kind: "session_event", sequence: 1}] = Repo.all(Event)
+    assert Repo.aggregate(ActivityEvent, :count) == 0
+  end
+
   defp authorize_and_poll!(worker_id, options \\ []) do
     assert {:ok, _worker} =
              ControlPlane.authorize_worker(

@@ -609,6 +609,15 @@ defmodule Responder.CoopFleet.ControlPlane do
       :unauthorized ->
         rollback({:coop_worker_event_placement_not_authorized, placement.id})
 
+      :terminal_cleanup ->
+        apply_terminal_cleanup_event_batch(
+          placement,
+          events,
+          cursor,
+          last_sequence,
+          session_events?
+        )
+
       :fresh ->
         apply_fresh_event_batch(placement, events, cursor, last_sequence, session_events?)
 
@@ -628,6 +637,19 @@ defmodule Responder.CoopFleet.ControlPlane do
 
   defp event_batch_disposition(_placement, cursor, _last_sequence, [], cursor, _now),
     do: :fresh
+
+  defp event_batch_disposition(
+         %Placement{state: :replaced} = placement,
+         cursor,
+         _last_sequence,
+         events,
+         cursor,
+         _now
+       ) do
+    if terminal_workspace_discard?(placement, events),
+      do: :terminal_cleanup,
+      else: :unauthorized
+  end
 
   defp event_batch_disposition(placement, cursor, _last_sequence, _events, cursor, now) do
     if command_result_authorized?(placement, now), do: :fresh, else: :unauthorized
@@ -650,6 +672,17 @@ defmodule Responder.CoopFleet.ControlPlane do
   defp apply_fresh_event_batch(placement, events, cursor, last_sequence, session_events?) do
     Enum.each(events, &insert_event!(placement, &1))
     ingest_session_events!(placement, events, cursor, session_events?)
+    advance_event_cursor(placement, cursor, last_sequence, session_events?)
+  end
+
+  defp apply_terminal_cleanup_event_batch(
+         placement,
+         events,
+         cursor,
+         last_sequence,
+         session_events?
+       ) do
+    Enum.each(events, &insert_event!(placement, &1))
     advance_event_cursor(placement, cursor, last_sequence, session_events?)
   end
 
@@ -730,6 +763,22 @@ defmodule Responder.CoopFleet.ControlPlane do
        do: true
 
   defp prebinding_session_created?(_events), do: false
+
+  defp terminal_workspace_discard?(placement, [
+         %{
+           "kind" => "session_event",
+           "payload" =>
+             %{
+               "session_id" => remote_id,
+               "type" => "workspace.discarded"
+             } = event
+         }
+       ]) do
+    Map.get(event, "turn_id") in [nil, ""] and
+      match?(%Session{coop_session_id: ^remote_id}, Repo.get(Session, placement.session_id))
+  end
+
+  defp terminal_workspace_discard?(_placement, _events), do: false
 
   defp insert_event!(placement, event) do
     fingerprint = event_fingerprint(event)
