@@ -19,13 +19,20 @@ defmodule Responder.Admission.CommitTest do
 
   @now ~U[2026-08-27 12:00:00.000000Z]
 
-  for next_actor <- [:app, :user] do
+  for next_actor <- [:app, :bot, :user] do
     @next_actor next_actor
     test "an admitted #{@next_actor} input resumes the same event-only episode" do
       # Derived from the real planning notification; only the future notification
       # identity is varied offline. No synthetic source event is admitted live.
+      # Real TFC bot (not app) Applying/Applied messages created two extra
+      # episodes because the original wait was offered as history-only.
       message = "testdata/slack/hcp-terraform-planning.json" |> File.read!() |> Jason.decode!()
-      actor = %{kind: :app, ref: message["bot_id"]}
+
+      actor = %{
+        kind: if(@next_actor == :user, do: :bot, else: @next_actor),
+        ref: message["bot_id"]
+      }
+
       original = create_episode!(thread_ref: "1787830000.000001", actor: actor, content: message)
 
       assert {:ok, session} =
@@ -68,9 +75,9 @@ defmodule Responder.Admission.CommitTest do
 
       entry =
         record_input!(
-          actor: if(@next_actor == :app, do: actor, else: %{kind: :user, ref: "U123"}),
+          actor: if(@next_actor != :user, do: actor, else: %{kind: :user, ref: "U123"}),
           content:
-            if(@next_actor == :app,
+            if(@next_actor != :user,
               do: message,
               else: %{"text" => "What is happening with this deployment?"}
             ),
