@@ -56,7 +56,9 @@ defmodule Responder.Slack.ThreadStatusProjectionTest do
              )
 
     assert waiting.phase == :waiting_for_event
-    assert waiting.status == "is waiting for an external event..."
+    # A day-long Terraform wait kept refreshing Slack's working indicator every
+    # 90 seconds after the work had settled. Waiting is not active work.
+    assert waiting.status == ""
 
     assert [complete] =
              ThreadStatusProjection.targets([], [episode(key, :complete, nil)], "TF2975945C602")
@@ -101,8 +103,7 @@ defmodule Responder.Slack.ThreadStatusProjectionTest do
       {[entry(key, :pending, next_attempt_at: retry_at)], [],
        {:admission_retry, "is waiting to retry admission..."}},
       {[], [episode(key, :working, :delivery)], {:delivery, "is preparing the response..."}},
-      {[], [episode(key, :waiting_for_input, :input)],
-       {:waiting_for_input, "is waiting for your answer..."}},
+      {[], [episode(key, :waiting_for_input, :input)], {:waiting_for_input, ""}},
       {[], [episode(key, :cancelled, nil)], {:clear, ""}}
     ]
 

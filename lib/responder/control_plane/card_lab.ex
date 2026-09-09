@@ -1147,9 +1147,8 @@ defmodule Responder.ControlPlane.CardLab do
       {:queued, "is queued...", "The input is accepted and queued."},
       {:delivery, "is preparing the response...", "The accepted result is being delivered."},
       {:working, "is working...", "A model turn owns the episode."},
-      {:waiting_for_input, "is waiting for your answer...", "The episode needs human input."},
-      {:waiting_for_event, "is waiting for an external event...",
-       "The episode awaits external verification."},
+      {:waiting_for_input, "", "The episode needs human input; native activity is cleared."},
+      {:waiting_for_event, "", "The episode awaits an event; native activity is cleared."},
       {:clear, "", "Terminal state clears Slack's assistant status."}
     ]
 

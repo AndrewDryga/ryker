@@ -143,6 +143,19 @@ defmodule Responder.Slack.ThreadStatusWorkerTest do
     assert length(Agent.get(client, & &1.writes)) == 2
   end
 
+  test "waiting clears native activity once and never refreshes a working indicator" do
+    # The Terraform wait kept Slack looking busy for an entire day.
+    {:ok, client} = Agent.start_link(fn -> %{writes: []} end)
+    {:ok, projection} = Agent.start_link(fn -> [target(:waiting_for_event, "")] end)
+    options = options(client, projection)
+    assert {:ok, %{failed: 0, written: 1}} = ThreadStatusWorker.run_once(options)
+    old = DateTime.add(DateTime.utc_now(), -3600, :second)
+    Repo.update_all(from(status in ThreadStatus), set: [delivered_at: old])
+    assert {:ok, %{failed: 0, written: 0}} = ThreadStatusWorker.run_once(options)
+    assert status!().phase == :waiting_for_event
+    assert Agent.get(client, & &1.writes) == [{"C456", "1787832000.000100", ""}]
+  end
+
   test "the supervised worker advances its independent reconciliation loop" do
     parent = self()
     {:ok, client} = Agent.start_link(fn -> %{writes: []} end)

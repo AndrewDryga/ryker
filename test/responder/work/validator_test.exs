@@ -446,7 +446,7 @@ defmodule Responder.Work.ValidatorTest do
          |> Map.put("decision_reason", "Wait silently.")
          |> put_in(["outcome", "state"], "waiting_for_input")
          |> put_in(["outcome", "record_refs"], ["record:wait:1"])
-       ), "waiting outcome requires delivery reply"},
+       ), "input-waiting outcome requires delivery reply"},
       {Jason.encode!(put_in(valid, ["outcome", "state"], "waiting_for_input")),
        "must reference the durable"}
     ]

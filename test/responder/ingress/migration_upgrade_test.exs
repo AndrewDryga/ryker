@@ -36,6 +36,7 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
   @candidate_responses_version 20_260_907_000_500
   @bounded_sources_version 20_260_909_000_100
   @confirmed_slack_feedback_version 20_260_909_000_200
+  @event_only_waits_version 20_260_909_120_000
   @memory_versions Enum.to_list(20_260_908_000_100..20_260_908_001_100//100) ++
                      [@bounded_sources_version]
   @workspace_versions [
@@ -96,7 +97,9 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
                @event_subscriptions_version,
                @work_activity_version,
                @card_lab_feedback_version
-               | @workspace_versions ++ @memory_versions ++ [@confirmed_slack_feedback_version]
+               | @workspace_versions ++
+                   @memory_versions ++
+                   [@confirmed_slack_feedback_version, @event_only_waits_version]
              ]
 
       refute table_exists?(repo, prefix, "slack_inbox_entries")
@@ -1506,7 +1509,7 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
       backup = backup_schema!(repo, prefix, temporary)
 
       assert Ecto.Migrator.run(repo, @migrations_path, :up, all: true, prefix: prefix, log: false) ==
-               @memory_versions ++ [@confirmed_slack_feedback_version]
+               @memory_versions ++ [@confirmed_slack_feedback_version, @event_only_waits_version]
 
       # Existing sessions have unknown disclosure custody. New columns must not
       # falsely attest them as tracked source-free sessions during the upgrade.
@@ -1524,8 +1527,8 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
       assert %{rows: [[0, 0, 0]]} = reset_topic_counts(repo, prefix)
       assert_reset_notes(repo, prefix, derived["conversation_observations"])
 
-      assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 1, prefix: prefix, log: false) ==
-               [@confirmed_slack_feedback_version]
+      assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 2, prefix: prefix, log: false) ==
+               [@event_only_waits_version, @confirmed_slack_feedback_version]
 
       # The later indexes, exposure marker, rebuild fields and resolver are reversible;
       # the derived-note reset itself still requires the verified backup.

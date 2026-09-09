@@ -28,7 +28,8 @@ defmodule Responder.Episodes.Snapshot do
 
   defp owner(%Episode{owner_kind: :event} = episode) do
     %{
-      "deadline_at" => DateTime.to_iso8601(episode.owner_deadline_at),
+      "deadline_at" =>
+        if(episode.owner_deadline_at, do: DateTime.to_iso8601(episode.owner_deadline_at)),
       "kind" => "event",
       "ref" => episode.owner_ref
     }

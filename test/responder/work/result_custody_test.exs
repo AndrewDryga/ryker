@@ -4,7 +4,15 @@ defmodule Responder.Work.ResultCustodyTest do
   alias Responder.Episodes
   alias Responder.Fixtures.Episodes, as: EpisodeFixtures
   alias Responder.State.{EventSubscription, Records}
-  alias Responder.Work.{Custody, DeliveryReceipt, Result, Submission, SubmissionBuilder}
+
+  alias Responder.Work.{
+    Custody,
+    DeliveryReceipt,
+    Result,
+    Submission,
+    SubmissionBuilder,
+    ValidationIntent
+  }
 
   @now ~U[2026-08-28 12:00:00.000000Z]
 
@@ -493,6 +501,51 @@ defmodule Responder.Work.ResultCustodyTest do
     host_continuation = submission["context"]["continuity"]["host_continuation"]
     assert host_continuation["resume_cause"] == "deadline_elapsed"
     assert host_continuation["requested"] == expired
+  end
+
+  test "a silent wait accepted after its frozen deadline settles into immediate verification" do
+    # A remote acceptance may finish after its deadline. Retrying that already
+    # accepted candidate forever would strand the episode without any delivery.
+    work = bound_turn!("silent-expired-wait")
+    stage_candidate!(work)
+
+    continuation = %{
+      "deadline_at" => ~U[2099-08-28 12:05:00.000000Z],
+      "kind" => "wait",
+      "wait_kind" => "event",
+      "wait_ref" => "verification:#{work.turn.id}"
+    }
+
+    result = result!(:none, nil, "No material change to report.", continuation)
+    assert {:ok, prepared} = prepare_accept!(work, result)
+
+    # Advance only the frozen schedule across the acceptance boundary, without
+    # a real sleep or altering the candidate/remote validation identity.
+    expired =
+      put_in(
+        prepared.validation_intent,
+        ["result", "continuation", "deadline_at"],
+        "2020-08-28T12:05:00Z"
+      )
+
+    prepared
+    |> Ecto.Changeset.change(
+      validation_intent: expired,
+      validation_intent_fingerprint: ValidationIntent.fingerprint(expired)
+    )
+    |> Responder.Repo.update!()
+
+    assert {:ok, accepted} = accept_prepared!(work)
+    assert accepted.turn.status == :settled
+    assert accepted.turn.delivery_ref == nil
+    assert accepted.episode.state == :working
+    assert accepted.episode.owner_ref == "turn:after:#{work.turn.id}"
+    assert accepted.episode.active_input_refs == []
+    assert {:ok, resumed} = Custody.claim_next("worker:silent-expired-resume", 60, :work)
+    assert {:ok, submission} = SubmissionBuilder.build(resumed)
+
+    assert submission["context"]["continuity"]["host_continuation"]["resume_cause"] ==
+             "deadline_elapsed"
   end
 
   test "a deliberate no-delivery result advances already queued input without an outbox" do

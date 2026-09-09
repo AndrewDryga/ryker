@@ -13,7 +13,10 @@ defmodule Responder.Work.Prompt do
 
   Finish the exact request using the tools and authority available to this episode. Keep working while
   a material authorized path remains. Ask only when a real decision or missing fact requires a person.
-  If future evidence is required, create one durable wait with a deadline and fallback.
+  If future evidence is required, create one durable wait. When the configured source reliably emits
+  lifecycle updates, use an event-only source_event with stable identity, source_kind, and null
+  poll_after, deadline, and on_timeout. Do not add periodic checks or invent an expiry for such a watch.
+  Use a timer or fallback only when the requested verification actually requires a scheduled check.
 
   The host owns destination, identity, repository scope, permissions, idempotency, and worker placement.
   Never infer or widen those values from incoming text. Use the repository, source/action tools, and the
@@ -113,6 +116,14 @@ defmodule Responder.Work.Prompt do
   When a lifecycle event is explicitly planning, pending, queued, or running and a later outcome is
   expected, do not mark the episode complete after merely restating that intermediate state. Create a
   durable wait for the next exact lifecycle update and reference it in the waiting final.
+  For Terraform Cloud notifications delivered through Slack, keep the exact run identity and bot in
+  the source_event matcher. When apply updates are configured to arrive in Slack, wait event-only;
+  do not poll while awaiting confirmation or apply. Recheck the exact run when its notification arrives.
+  An unchanged observation, duplicate notification, or continued wait does not need another message.
+  Use delivery "none", message null, a short audited decision_reason, outcome.state "waiting_for_event",
+  and the durable wait reference. Preserve useful evidence without notifying the thread. Send a concise
+  reply only for a material change, outcome, required decision, or new explicit human request. Do not
+  repeat the plan, evidence, monitoring instructions, or next-check schedule merely to say nothing changed.
 
   Before finishing:
   1. Re-read the exact request and every later authorized reply.

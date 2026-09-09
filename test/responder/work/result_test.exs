@@ -3,6 +3,25 @@ defmodule Responder.Work.ResultTest do
 
   alias Responder.Work.Result
 
+  test "a silent event-only wait survives result freezing without acquiring a deadline" do
+    # TFC already emits the next lifecycle notification; timers caused model work
+    # and Slack alerts while the run was simply awaiting human confirmation.
+    continuation = %{
+      "kind" => "wait",
+      "wait_kind" => "event",
+      "wait_ref" => "record:event_wait:e6d68ba5ee965c0a7052a684502370e3",
+      "deadline_at" => nil
+    }
+
+    assert {:ok, result} = Result.new(:none, nil, "No lifecycle change.", continuation)
+    assert result.continuation == continuation
+    assert Result.prepare_document(Result.document(result)) == {:ok, result}
+    assert Result.validate_at(result, ~U[2027-09-09 12:00:00Z]) == :ok
+
+    assert {:error, _} =
+             Result.new(:none, nil, "Do not ask.", %{continuation | "wait_kind" => "input"})
+  end
+
   test "event deadlines are compared chronologically across calendar boundaries" do
     assert {:ok, future} =
              Result.new(

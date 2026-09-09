@@ -1731,6 +1731,8 @@ defmodule Responder.Slack.Renderer do
     end
   end
 
+  defp event_wait_blocks(%{"deadline_at" => nil}), do: []
+
   defp event_wait_blocks(%{"deadline_at" => deadline_at, "verification" => verification}) do
     text = "#{mrkdwn(verification)}\nWaiting until: `#{mrkdwn(deadline_at)}`"
     [section(text)]

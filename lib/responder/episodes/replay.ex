@@ -287,12 +287,13 @@ defmodule Responder.Episodes.Replay do
     assert_fields!(
       value,
       ["type", "delivery", "episode_key", "expected_turn_ref", "occurred_at", "result_ref"],
-      ["decision_reason", "delivery_ref", "next_turn_ref"]
+      ["decision_reason", "delivery_ref", "next_turn_ref", "next_wait"]
     )
 
     struct!(AcceptResult, %{
       delivery: delivery!(required!(value, "delivery")),
       decision_reason: Map.get(value, "decision_reason"),
+      next_wait: optional_next_wait!(Map.get(value, "next_wait")),
       delivery_ref: Map.get(value, "delivery_ref"),
       episode_key: required!(value, "episode_key"),
       expected_turn_ref: required!(value, "expected_turn_ref"),
@@ -464,7 +465,7 @@ defmodule Responder.Episodes.Replay do
 
   defp validate_expected_owner!(%{"kind" => "event"} = value) do
     assert_fields!(value, ["deadline_at", "kind", "ref"], [])
-    timestamp!(required!(value, "deadline_at"))
+    optional_timestamp!(Map.fetch!(value, "deadline_at"))
     required!(value, "ref")
     :ok
   end
@@ -478,9 +479,10 @@ defmodule Responder.Episodes.Replay do
 
   defp optional_next_wait!(nil), do: nil
 
-  defp optional_next_wait!(%{"deadline_at" => nil, "kind" => "input", "ref" => ref} = wait) do
+  defp optional_next_wait!(%{"deadline_at" => nil, "kind" => kind, "ref" => ref} = wait)
+       when kind in ~w(input event) do
     assert_fields!(wait, ["deadline_at", "kind", "ref"], [])
-    %{deadline_at: nil, kind: :input, ref: ref}
+    %{deadline_at: nil, kind: wait_kind!(kind), ref: ref}
   end
 
   defp optional_next_wait!(

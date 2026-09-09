@@ -589,10 +589,12 @@ period. One-time tasks complete after their occurrence; run-now remains availabl
 manual repeat. Expired tasks and old run records are removed by normal retention maintenance.
 
 Source-event waits are durable subscriptions. They retain a bounded matcher, source kind, opaque
-cursor, polling-fallback time, hard deadline, and terminal resolution in PostgreSQL. Authenticated
-Slack, GitHub, and generic webhook inputs remain the low-latency path; if an event is lost, the
-existing wait worker resumes the exact episode at `poll_after` with host-authored verification
-evidence. The control plane exposes subscription state and digests without rendering source payloads.
+cursor, optional schedule, and terminal resolution in PostgreSQL. Reliable lifecycle notifications
+can use an event-only wait with no polling or deadline. Authenticated Slack, GitHub, and generic
+webhook inputs resume the exact episode; when loss protection is needed, a deadline and optional
+earlier `poll_after` wake it with host-authored verification evidence. Unchanged observations can
+retain the wait without posting. The control plane exposes subscription state and digests without
+rendering source payloads.
 `/responder shadow` runs the classifier and records its decision, evidence, and coverage without
 posting or creating an incident.
 

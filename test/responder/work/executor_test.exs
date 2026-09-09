@@ -17,6 +17,7 @@ defmodule Responder.Work.ExecutorTest do
     Activity,
     Cancellation,
     Custody,
+    DeliveryReceipt,
     Executor,
     Final,
     FinalPreflight,
@@ -26,6 +27,92 @@ defmodule Responder.Work.ExecutorTest do
   }
 
   @now ~U[2026-08-28 12:00:00.000000Z]
+
+  for origin <- [:automated, :human_followup, :human_followup_rotated] do
+    test "an unchanged #{origin} notification settles into an event-only wait without a Slack delivery" do
+      # The harvested TFC turn posted another unchanged-status reply at 11:16 UTC.
+      # Exercise its approved silent equivalent through real validation and custody.
+      claim =
+        if unquote(origin) in [:human_followup, :human_followup_rotated],
+          do: claim_after_human_reply!(),
+          else: claim_episode!("quiet-tfc", nil, :live, nil, nil, nil, "slack:app:B0BHPQTBMA7")
+
+      claim =
+        if unquote(origin) == :human_followup_rotated do
+          assert {:ok, rotated} =
+                   Custody.rotate_session(
+                     claim.episode.id,
+                     claim.turn.turn_ref,
+                     claim.lease_ref,
+                     claim.session.generation
+                   )
+
+          %{claim | session: rotated.session, turn: rotated.turn}
+        else
+          claim
+        end
+
+      assert {:ok, wait} =
+               Records.create(Records.token(claim.turn), "quiet-wait", "event_wait", %{
+                 "kind" => "source_event",
+                 "deadline_at" => nil,
+                 "event_matcher" => %{
+                   "type" => "source_event",
+                   "source_kind" => "slack",
+                   "match" => %{
+                     "bot_id" => "B0BHPQTBMA7",
+                     "attachments" => [%{"title" => "Run run-k9CpPp3nWjQrkCMG"}]
+                   },
+                   "poll_after" => nil,
+                   "on_timeout" => nil
+                 },
+                 "verification" => "Verify the exact run outcome from its next notification."
+               })
+
+      harvested = "testdata/work/terraform-unchanged-wait.json" |> File.read!() |> Jason.decode!()
+
+      candidate =
+        harvested["candidate"]
+        |> Map.merge(%{
+          "delivery" => "none",
+          "message" => nil,
+          "decision_reason" => "No lifecycle change."
+        })
+        |> put_in(["outcome", "record_refs"], [wait.ref])
+        |> Jason.encode!()
+
+      visible_fallback =
+        candidate
+        |> Jason.decode!()
+        |> Map.merge(%{
+          "delivery" => "reply",
+          "message" => "Still pending.",
+          "decision_reason" => nil
+        })
+        |> Jason.encode!()
+
+      {:ok, fake} = fake_for(claim, [candidate, visible_fallback])
+      FakeAPI.update(fake, fn state -> %{state | submit_count: 1} end)
+
+      assert {:ok, %{status: :accepted, turn: turn}} = Executor.run(claim, options(fake))
+      assert turn.status == :settled
+
+      if unquote(origin) == :human_followup_rotated,
+        do: assert(turn.submission["context"]["mode"] == "full")
+
+      assert turn.delivery_ref == nil
+      assert turn.delivery_document == nil
+      episode = Repo.get!(Responder.Episodes.Episode, claim.episode.id)
+      assert episode.state == :waiting_for_event
+      assert episode.owner_ref == wait.ref
+      assert episode.owner_deadline_at == nil
+      subscription = Repo.get_by!(Responder.State.EventSubscription, record_id: wait.id)
+      assert subscription.status == :active
+      assert subscription.poll_after == nil
+      assert {:ok, nil} = Custody.claim_next("quiet-wait-proof", 60, :work)
+      assert FakeAPI.state(fake).validations |> Enum.map(& &1.verdict) == [:accept]
+    end
+  end
 
   test "a follow-up cannot reuse knowledge hidden in the previous native session" do
     # Empty current recall does not erase the transcript of a warm provider session.
@@ -3029,6 +3116,57 @@ defmodule Responder.Work.ExecutorTest do
   end
 
   defp claim_episode!(suffix), do: claim_episode!(suffix, nil, :live)
+
+  defp claim_after_human_reply! do
+    first = claim_episode!("quiet-human-followup")
+
+    {:ok, fake} =
+      FakeAPI.start_link([reply("The plan is ready; I will report the apply outcome.")])
+
+    assert {:ok, %{turn: accepted}} = Executor.run(first, options(fake))
+
+    assert {:ok, _} =
+             Episodes.apply(
+               EpisodeFixtures.admit_input(%{
+                 actor_ref: "slack:app:B0BHPQTBMA7",
+                 episode_id: first.episode.id,
+                 episode_key: first.episode.key,
+                 native_input_id: "tfc-unchanged-followup",
+                 destination: %{
+                   transport: first.episode.destination_transport,
+                   conversation_ref: first.episode.destination_conversation_ref,
+                   thread_ref: first.episode.destination_thread_ref
+                 },
+                 occurred_at: DateTime.add(@now, 1),
+                 payload: %{"text" => "Run still pending"},
+                 turn_ref: "queued:tfc-followup"
+               })
+             )
+
+    assert {:ok, delivery} = Custody.claim_next("quiet-human-delivery", 60, :delivery)
+
+    assert {:ok, receipt} =
+             DeliveryReceipt.new(
+               accepted.delivery_ref,
+               first.episode.destination_transport,
+               first.episode.destination_conversation_ref,
+               first.episode.destination_thread_ref,
+               "1787932807.004100"
+             )
+
+    assert {:ok, _} =
+             Custody.confirm_delivery(
+               first.episode.id,
+               first.episode.key,
+               first.turn.turn_ref,
+               delivery.lease_ref,
+               receipt
+             )
+
+    assert {:ok, next} = Custody.claim_next("quiet-human-next", 60, :work)
+    next
+  end
+
   defp claim_episode!(suffix, payload), do: claim_episode!(suffix, payload, :live)
 
   defp claim_episode!(suffix, payload, execution_mode),
@@ -3044,13 +3182,14 @@ defmodule Responder.Work.ExecutorTest do
          execution_mode,
          authority_digest,
          repository_ref,
-         repository_context
+         repository_context,
+         actor_ref \\ "slack:user:U-stage3"
        ) do
     id = Ecto.UUID.generate()
 
     command =
       EpisodeFixtures.admit_input(%{
-        actor_ref: "slack:user:U-stage3",
+        actor_ref: actor_ref,
         episode_id: id,
         episode_key: "work-executor:#{suffix}:#{id}",
         execution_mode: execution_mode,

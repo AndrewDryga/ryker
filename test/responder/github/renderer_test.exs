@@ -3,6 +3,33 @@ defmodule Responder.GitHub.RendererTest do
 
   alias Responder.GitHub.Renderer
 
+  test "event-only waits do not crash a visible reply or expose internal instructions" do
+    # A shared wait contract must remain deliverable outside Slack as well.
+    message = "testdata/slack/hcp-terraform-planning.json" |> File.read!() |> Jason.decode!()
+
+    wait =
+      record("event_wait", %{
+        "deadline_at" => nil,
+        "kind" => "source_event",
+        "event_matcher" => %{
+          "type" => "source_event",
+          "source_kind" => "slack",
+          "match" => %{
+            "bot_id" => message["bot_id"],
+            "attachments" => [message["attachments"] |> hd() |> Map.take(["title", "title_link"])]
+          },
+          "poll_after" => nil,
+          "on_timeout" => nil
+        },
+        "verification" => "Internal instruction to inspect the exact run."
+      })
+
+    assert {:ok, rendered} =
+             Renderer.render(%{"message" => "I will report the outcome.", "records" => [wait]})
+
+    assert rendered == "I will report the outcome."
+  end
+
   test "projects governed approvals and durable questions without inventing GitHub authority" do
     document = %{
       "message" => "The action has not run.",

@@ -347,24 +347,31 @@ defmodule Responder.State.RecordPayload do
          :ok <- text(payload["kind"], 120, :kind),
          :ok <- text(payload["verification"], 2_000, :verification),
          :ok <- json_object(payload["event_matcher"], :event_matcher),
-         {:ok, deadline} <- utc_datetime(payload["deadline_at"]),
+         {:ok, deadline} <- event_deadline(payload),
          :ok <- event_wait_matcher(payload["event_matcher"], deadline),
          :ok <- canonical(payload) do
       {:ok,
        %{
          continuation: %{
-           "deadline_at" => DateTime.to_iso8601(deadline),
+           "deadline_at" => deadline_text(deadline),
            "kind" => "wait",
            "wait_kind" => "event",
            "wait_ref" => ref
          },
-         payload: %{payload | "deadline_at" => DateTime.to_iso8601(deadline)},
+         payload: %{payload | "deadline_at" => deadline_text(deadline)},
          subject_ref: nil
        }}
     end
   end
 
   defp event_wait(_payload, _ref), do: {:error, {:invalid_state_record, :payload}}
+
+  defp event_deadline(%{"deadline_at" => nil, "event_matcher" => %{"type" => "source_event"}}),
+    do: {:ok, nil}
+
+  defp event_deadline(payload), do: utc_datetime(payload["deadline_at"])
+  defp deadline_text(nil), do: nil
+  defp deadline_text(deadline), do: DateTime.to_iso8601(deadline)
 
   defp event_wait_matcher(%{"type" => "source_event"} = trigger, deadline) do
     required = ~w(match on_timeout poll_after type)
@@ -373,9 +380,7 @@ defmodule Responder.State.RecordPayload do
     with true <- required -- Map.keys(trigger) == [] and Map.keys(trigger) -- allowed == [],
          :ok <- json_object(trigger["match"], :event_matcher),
          :ok <- source_wait_bounds(trigger),
-         :ok <- text(trigger["on_timeout"], 2_000, :event_matcher),
-         {:ok, poll_after} <- utc_datetime(trigger["poll_after"]),
-         true <- DateTime.compare(poll_after, deadline) in [:lt, :eq] do
+         :ok <- source_wait_schedule(trigger, deadline) do
       :ok
     else
       false -> {:error, {:invalid_state_record, :event_matcher}}
@@ -405,6 +410,26 @@ defmodule Responder.State.RecordPayload do
   end
 
   defp event_wait_matcher(_untyped_matcher, _deadline), do: :ok
+
+  defp source_wait_schedule(trigger, nil) do
+    if is_nil(trigger["poll_after"]) and is_nil(trigger["on_timeout"]) and
+         is_binary(trigger["source_kind"]) and map_size(trigger["match"]) > 0,
+       do: :ok,
+       else: {:error, :event_only_requires_source_identity}
+  end
+
+  defp source_wait_schedule(trigger, deadline) do
+    with :ok <- text(trigger["on_timeout"], 2_000, :event_matcher),
+         {:ok, poll_after} <- source_poll_after(trigger["poll_after"], deadline),
+         true <- DateTime.compare(poll_after, deadline) in [:lt, :eq] do
+      :ok
+    else
+      _invalid -> {:error, :invalid_source_wait_schedule}
+    end
+  end
+
+  defp source_poll_after(nil, deadline), do: {:ok, deadline}
+  defp source_poll_after(value, _deadline), do: utc_datetime(value)
 
   @doc false
   def source_wait_bounds(%{"type" => "source_event"} = trigger) do

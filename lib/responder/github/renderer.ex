@@ -70,6 +70,7 @@ defmodule Responder.GitHub.Renderer do
   defp render_records(records) do
     Enum.reduce_while(records, {:ok, []}, fn record, {:ok, rendered} ->
       case render_record(record) do
+        {:ok, ""} -> {:cont, {:ok, rendered}}
         {:ok, section} -> {:cont, {:ok, rendered ++ [section]}}
         {:error, _reason} = error -> {:halt, error}
       end
@@ -116,6 +117,8 @@ defmodule Responder.GitHub.Renderer do
      """
      |> String.trim()}
   end
+
+  defp record_markdown("event_wait", %{"deadline_at" => nil}, _ref, "open"), do: {:ok, ""}
 
   defp record_markdown("event_wait", payload, _ref, "open") do
     {:ok,

@@ -1,0 +1,15 @@
+{
+  "source_episode_id": "55d09539-1394-4ede-95f1-4f5bcb82c5e1",
+  "source_turn_id": "e6b088c8-d5cc-4a90-a775-d146768c0a1e",
+  "recorded_at": "2026-09-09T11:16:10.832655Z",
+  "candidate": {
+    "decision_reason": null,
+    "delivery": "reply",
+    "message": "Still awaiting confirmation at 11:15 UTC; apply has not started. I’m watching for a status change, with a fallback check at 12:15 UTC.",
+    "outcome": {
+      "artifact_refs": [],
+      "record_refs": ["record:evidence:c3b71613385bf72e711d0884d8618076", "record:event_wait:e6d68ba5ee965c0a7052a684502370e3"],
+      "state": "waiting_for_event"
+    }
+  }
+}
