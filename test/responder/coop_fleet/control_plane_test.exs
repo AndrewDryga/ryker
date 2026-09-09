@@ -8,6 +8,7 @@ defmodule Responder.CoopFleet.ControlPlaneTest do
   alias Responder.Episodes
   alias Responder.Fixtures.Episodes, as: EpisodeFixtures
   alias Responder.Ingress.Inbox
+  alias Responder.Observability
   alias Responder.Repo
   alias Responder.Slack.Input, as: SlackInput
   alias Responder.StateTools.Binding
@@ -787,6 +788,105 @@ defmodule Responder.CoopFleet.ControlPlaneTest do
 
     assert {:ok, _replayed} = ControlPlane.handle_poll("worker-a", event_poll)
     assert Repo.aggregate(ActivityEvent, :count) == 1
+  end
+
+  test "session creation activity cannot wedge the worker before asynchronous create binding" do
+    authorize_and_poll!("worker-a")
+    placement = place!("pre-bind-session-created")
+    coop_session_id = "coop-session-created-before-binding"
+    now = database_now!() |> DateTime.to_iso8601()
+
+    created = %{
+      "kind" => "session_event",
+      "payload" => %{
+        "id" => "evt-session-created",
+        "occurred_at" => now,
+        "sequence" => 1,
+        "session_id" => coop_session_id,
+        "turn_id" => nil,
+        "type" => "session.created",
+        "version" => 1
+      },
+      "sequence" => 1
+    }
+
+    batch = %{
+      "after_sequence" => 0,
+      "events" => [created],
+      "placement_generation" => placement.generation,
+      "session_ref" => placement.session_id
+    }
+
+    # A real asynchronous create emitted this lifecycle event before Work could
+    # bind its session id. Every later worker heartbeat then failed with HTTP 400.
+    assert {:ok, response} =
+             ControlPlane.handle_poll(
+               "worker-a",
+               poll("worker-a", "workspace-main", "poll:worker-a:pre-bind-created",
+                 event_batches: [batch]
+               )
+             )
+
+    assert response["event_acknowledgements"] == [
+             %{
+               "placement_generation" => placement.generation,
+               "sequence" => 1,
+               "session_ref" => placement.session_id
+             }
+           ]
+
+    assert Repo.get!(Session, placement.session_id).coop_session_id == nil
+    assert Repo.get!(Placement, placement.id).last_acked_session_event_sequence == 1
+    assert Repo.aggregate(ActivityEvent, :count) == 0
+
+    assert [%Event{kind: "session_event", sequence: 1}] = Repo.all(Event)
+
+    # This acknowledged session-event cursor is independent from the coarse
+    # event cursor; conflating them left the whole service falsely unready.
+    assert {:ok, %{event_cursor_lag: 0}} = Observability.fleet()
+
+    {1, nil} =
+      Repo.update_all(
+        from(session in Session, where: session.id == ^placement.session_id),
+        set: [coop_session_id: coop_session_id]
+      )
+
+    assert {:ok, replay} =
+             ControlPlane.handle_poll(
+               "worker-a",
+               poll("worker-a", "workspace-main", "poll:worker-a:post-bind-replay",
+                 event_batches: [batch]
+               )
+             )
+
+    assert [%{"sequence" => 1}] = replay["event_acknowledgements"]
+
+    activity = %{
+      "kind" => "session_event",
+      "payload" => %{
+        "id" => "evt-tool-after-binding",
+        "occurred_at" => now,
+        "payload" => %{"kind" => "read", "tool_call_id" => "tool-after-binding"},
+        "sequence" => 2,
+        "session_id" => coop_session_id,
+        "turn_id" => "turn-after-binding",
+        "type" => "tool.started",
+        "version" => 1
+      },
+      "sequence" => 2
+    }
+
+    assert {:ok, continued} =
+             ControlPlane.handle_poll(
+               "worker-a",
+               poll("worker-a", "workspace-main", "poll:worker-a:post-bind-activity",
+                 event_batches: [%{batch | "after_sequence" => 1, "events" => [activity]}]
+               )
+             )
+
+    assert [%{"sequence" => 2}] = continued["event_acknowledgements"]
+
+    assert [%ActivityEvent{kind: "tool.started", sequence: 2}] = Repo.all(ActivityEvent)
   end
 
   test "fresh worker events require current placement authority but exact replay remains acknowledged" do

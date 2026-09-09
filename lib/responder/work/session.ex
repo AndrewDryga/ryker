@@ -122,4 +122,12 @@ defmodule Responder.Work.Session do
           retained_reason: String.t() | nil,
           discarded_at: DateTime.t() | nil
         }
+
+  @doc "The stable task identity presented to Coop across replacement generations."
+  @spec coop_task_ref(t()) :: String.t() | nil
+  def coop_task_ref(%__MODULE__{workspace_task: %{"offer_ref" => offer_ref}})
+      when is_binary(offer_ref) and byte_size(offer_ref) in 1..1_024,
+      do: offer_ref
+
+  def coop_task_ref(%__MODULE__{external_ref: external_ref}), do: external_ref
 end

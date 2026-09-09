@@ -66,6 +66,8 @@ defmodule Responder.CoopFleet.CertificateAuthority do
   @client_auth {1, 3, 6, 1, 5, 5, 7, 3, 2}
   @minimum_rsa_bits 2_048
   @maximum_public_key_bytes 16 * 1_024
+  @asn1_null :NULL
+  @der_null {:asn1_OPENTYPE, <<5, 0>>}
 
   @type issued :: %{
           certificate_der: binary(),
@@ -118,11 +120,11 @@ defmodule Responder.CoopFleet.CertificateAuthority do
     serial_number = Integer.to_string(serial_integer)
 
     signature =
-      signature_algorithm(algorithm: @sha256_with_rsa, parameters: :asn1_NOVALUE)
+      signature_algorithm(algorithm: @sha256_with_rsa, parameters: @der_null)
 
     subject_public_key_info =
       otp_subject_public_key_info(
-        algorithm: public_key_algorithm(algorithm: @rsa_encryption, parameters: :asn1_NOVALUE),
+        algorithm: public_key_algorithm(algorithm: @rsa_encryption, parameters: @asn1_null),
         subjectPublicKey: public_key
       )
 
@@ -194,6 +196,13 @@ defmodule Responder.CoopFleet.CertificateAuthority do
       [{^expected_type, _der, :not_encrypted} = entry] ->
         {:ok, :public_key.pem_entry_decode(entry)}
 
+      [{:PrivateKeyInfo, _der, :not_encrypted} = entry]
+      when expected_type == :RSAPrivateKey ->
+        case :public_key.pem_entry_decode(entry) do
+          value when is_tuple(value) and elem(value, 0) == :RSAPrivateKey -> {:ok, value}
+          _invalid -> {:error, :invalid_coop_worker_pem}
+        end
+
       _invalid ->
         {:error, :invalid_coop_worker_pem}
     end
@@ -213,6 +222,5 @@ defmodule Responder.CoopFleet.CertificateAuthority do
     end
   end
 
-  defp normalize(%DateTime{microsecond: {microsecond, _precision}} = datetime),
-    do: %{datetime | microsecond: {microsecond, 6}}
+  defp normalize(%DateTime{} = datetime), do: DateTime.truncate(datetime, :second)
 end

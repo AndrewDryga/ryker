@@ -39,6 +39,13 @@ defmodule Responder.CoopFleet.ClientTest do
              "transfer_id" => "018f04f4-5555-7000-8000-000000000001"
            }}
 
+        "reconcile_operation" ->
+          {:ok,
+           Process.get(
+             :coop_fleet_reconcile_result,
+             %{"id" => "remote-resource", "state" => "succeeded"}
+           )}
+
         _other ->
           {:ok, %{"id" => "remote-resource", "state" => "succeeded"}}
       end
@@ -50,7 +57,11 @@ defmodule Responder.CoopFleet.ClientTest do
 
   setup do
     Process.put(:coop_fleet_client_test_pid, self())
-    on_exit(fn -> Process.delete(:coop_fleet_client_test_pid) end)
+
+    on_exit(fn ->
+      Process.delete(:coop_fleet_client_test_pid)
+      Process.delete(:coop_fleet_reconcile_result)
+    end)
 
     session = session!()
 
@@ -225,9 +236,11 @@ defmodule Responder.CoopFleet.ClientTest do
     key = "responder:work:create:#{session.id}:g1"
 
     assert {:ok, %{"id" => "remote-resource", "revision" => 2}} =
-             Client.create_session(client, key, @policy, session.external_ref)
+             Client.create_session(client, key, @policy, workspace_task["offer_ref"])
 
-    assert_receive {:fleet_command, ^session, "create_session", _, ^key, _}
+    assert_receive {:fleet_command, ^session, "create_session", create_payload, ^key, _}
+
+    assert create_payload["external_ref"] == workspace_task["offer_ref"]
 
     assert_receive {:fleet_command, ^session, "ensure_workspace", payload, ensure_key, _}
 
@@ -345,9 +358,11 @@ defmodule Responder.CoopFleet.ClientTest do
     key = "responder:work:create:#{replacement.id}:g1"
 
     assert {:ok, %{"id" => "remote-resource", "revision" => 2}} =
-             Client.create_session(client, key, @policy, source.external_ref)
+             Client.create_session(client, key, @policy, workspace_task["offer_ref"])
 
-    assert_receive {:fleet_command, ^replacement, "create_session", _, ^key, _}
+    assert_receive {:fleet_command, ^replacement, "create_session", create_payload, ^key, _}
+
+    assert create_payload["external_ref"] == workspace_task["offer_ref"]
 
     assert_receive {:fleet_command, ^replacement, "ensure_workspace", payload, _ensure_key, _}
 
@@ -816,6 +831,38 @@ defmodule Responder.CoopFleet.ClientTest do
 
     assert {:ok, %{"id" => "operation-wrapped"}} =
              Client.operation_by_key(client, wrapped.idempotency_key)
+
+    running = command!(session, "running")
+
+    running =
+      complete_command!(running, :succeeded, %{
+        "operation" => %{
+          "id" => "operation-running",
+          "method" => "CreateRemoteSession",
+          "state" => "running"
+        }
+      })
+
+    terminal_operation = %{
+      "id" => "operation-running",
+      "method" => "CreateRemoteSession",
+      "resource_id" => "remote-session",
+      "resource_type" => "session",
+      "state" => "succeeded"
+    }
+
+    Process.put(:coop_fleet_reconcile_result, %{"operation" => terminal_operation})
+
+    # The live connector returned one successful command receipt containing a
+    # still-running create operation, which otherwise never advanced to its session.
+    assert {:ok, ^terminal_operation} = Client.operation_by_key(client, running.idempotency_key)
+
+    assert_receive {:fleet_command, ^session, "reconcile_operation", running_payload, _key,
+                    _options}
+
+    assert running_payload == %{"operation_key" => running.idempotency_key}
+
+    Process.delete(:coop_fleet_reconcile_result)
 
     direct = command!(session, "direct")
     direct = complete_command!(direct, :succeeded, %{"id" => "operation-direct"})

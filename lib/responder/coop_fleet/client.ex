@@ -67,7 +67,7 @@ defmodule Responder.CoopFleet.Client do
 
   @impl true
   def create_session(client, key, policy, task) do
-    with {:ok, session} <- session_by_external_ref(task),
+    with {:ok, session} <- session_by_task_ref(task),
          true <- session.policy == policy,
          {:ok, remote} <-
            execute(
@@ -91,7 +91,7 @@ defmodule Responder.CoopFleet.Client do
 
   @impl true
   def create_bound_session(client, key, policy, task, binding) do
-    with {:ok, session} <- session_by_external_ref(task),
+    with {:ok, session} <- session_by_task_ref(task),
          true <- session.policy == policy,
          :ok <- optional_responder_binding(binding),
          {:ok, remote} <-
@@ -175,7 +175,7 @@ defmodule Responder.CoopFleet.Client do
 
   @impl true
   def fence_create_session(client, key, policy, task) do
-    with {:ok, session} <- session_by_external_ref(task),
+    with {:ok, session} <- session_by_task_ref(task),
          true <- session.policy == policy do
       execute(
         client,
@@ -195,7 +195,7 @@ defmodule Responder.CoopFleet.Client do
 
   @impl true
   def fence_bound_session(client, key, policy, task, binding) do
-    with {:ok, session} <- session_by_external_ref(task),
+    with {:ok, session} <- session_by_task_ref(task),
          true <- session.policy == policy,
          :ok <- optional_responder_binding(binding) do
       execute(
@@ -569,8 +569,9 @@ defmodule Responder.CoopFleet.Client do
         :not_found
 
       %Command{status: :succeeded, result: result} = command ->
-        with :ok <- current_command_placement(command) do
-          operation_result(result)
+        with :ok <- current_command_placement(command),
+             {:ok, operation} <- operation_result(result) do
+          reconcile_waiting_operation(client, command, operation, key)
         end
 
       %Command{status: status} = command when status in [:queued, :delivered, :acknowledged] ->
@@ -645,16 +646,18 @@ defmodule Responder.CoopFleet.Client do
 
   defp valid_workspace_ref?(_workspace_ref), do: false
 
-  defp session_by_external_ref(external_ref) do
+  defp session_by_task_ref(task_ref) do
     case Repo.one(
            from(session in Session,
-             where: session.external_ref == ^external_ref,
+             where:
+               session.external_ref == ^task_ref or
+                 fragment("(?::jsonb ->> 'offer_ref') = ?", session.workspace_task, ^task_ref),
              order_by: [desc: session.generation],
              limit: 1
            )
          ) do
       %Session{} = session -> {:ok, session}
-      nil -> {:error, {:coop_session_not_found, external_ref}}
+      nil -> {:error, {:coop_session_not_found, task_ref}}
     end
   end
 
@@ -721,6 +724,28 @@ defmodule Responder.CoopFleet.Client do
   defp operation_result(%{"operation" => operation}) when is_map(operation), do: {:ok, operation}
   defp operation_result(%{"id" => _id} = operation), do: {:ok, operation}
   defp operation_result(_result), do: {:error, {:coop_protocol_error, :operation_resource}}
+
+  defp reconcile_waiting_operation(
+         client,
+         command,
+         %{"state" => state} = _operation,
+         operation_key
+       )
+       when state in ["reserved", "running"] do
+    with %Session{} = session <- Repo.get(Session, command.session_id),
+         {:ok, result} <-
+           execute_read(client, session, "reconcile_operation", %{
+             "operation_key" => operation_key
+           }) do
+      operation_result(result)
+    else
+      nil -> {:error, {:coop_session_not_found, command.session_id}}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp reconcile_waiting_operation(_client, _command, operation, _operation_key),
+    do: {:ok, operation}
 
   defp current_command_placement(command) do
     placement = Repo.one(from(value in Placement, where: value.id == ^command.placement_id))
