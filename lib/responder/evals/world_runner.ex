@@ -1316,7 +1316,7 @@ defmodule Responder.Evals.WorldRunner do
          %Record{
            kind: "goal",
            payload: %{
-             "kind" => "check",
+             "kind" => kind,
              "authority" => "read_only",
              "writable_repository" => nil,
              "read_only_repositories" => repositories
@@ -1325,7 +1325,7 @@ defmodule Responder.Evals.WorldRunner do
          actor,
          _identities
        )
-       when is_list(repositories),
+       when kind in ["check", "schedule"] and is_list(repositories),
        do: Enum.all?(repositories, &(&1 in actor.read_only_repositories))
 
   defp read_only_planning?(%Record{kind: "goal_state"} = record, _actor, identities),

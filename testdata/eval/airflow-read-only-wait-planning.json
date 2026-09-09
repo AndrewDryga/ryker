@@ -1,0 +1,49 @@
+{
+  "source": "Exact public planning records from the failed isolated Airflow Work qualification; not an invented model answer.",
+  "source_commit": "8d5d6a6b54d9a08e6a8f05761915623b9a35e3ec",
+  "scenario_id": "airflow-verification-arms-wait",
+  "episode_id": "15e95a6e-a482-4ff5-982b-5b97698e92be",
+  "report_sha256": "9c6d9bc170ef3d8cdce2669b6f86bcb90250996b4408e2917549a8414bb016a2",
+  "records": [
+    {
+      "kind": "goal",
+      "payload": {
+        "authority": "read_only",
+        "completion_contract": "Inspect available verification timing and establish one durable wait with a deadline and fallback.",
+        "id": "arm_observation",
+        "kind": "schedule",
+        "parent_goal_id": "verify_airflow",
+        "prerequisite_goal_ids": [],
+        "read_only_repositories": [],
+        "requested_outcome": "Arrange bounded post-apply observation.",
+        "required": true,
+        "writable_repository": null
+      },
+      "ref": "record:goal:8dae49ed5cfac9c0ee80c96b1db2e1cf",
+      "status": "open",
+      "turn_id": "22b49f59-14cb-4f21-904f-ac74b0dd9589"
+    },
+    {
+      "kind": "goal_state",
+      "payload": {
+        "detail": "Checking source for observation window and target deployment.",
+        "goal_id": "arm_observation",
+        "state": "working"
+      },
+      "ref": "record:goal_state:1b9d04c144bfb7bbe2100497b9e48c97",
+      "status": "open",
+      "turn_id": "22b49f59-14cb-4f21-904f-ac74b0dd9589"
+    },
+    {
+      "kind": "goal_state",
+      "payload": {
+        "detail": "Created one five-minute durable observation wait with deadline 2026-09-09T00:41:37Z and re-query/report fallback.",
+        "goal_id": "arm_observation",
+        "state": "completed"
+      },
+      "ref": "record:goal_state:439fb2e1aea93f35fde45835182470b1",
+      "status": "open",
+      "turn_id": "22b49f59-14cb-4f21-904f-ac74b0dd9589"
+    }
+  ]
+}

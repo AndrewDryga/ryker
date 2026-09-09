@@ -419,3 +419,17 @@ that the offline evaluator rejects the old behavior; it is never supplied to the
 This scenario has no recall probe because a successful run intentionally learns nothing.
 Fresh model qualification must also retain meaningful decisions (such as the `draft-keep`
 conversation), so fixing selectivity cannot silently become a blanket filter on requests.
+
+## Distinguish planning from operational authority in evaluations
+
+The Airflow Work qualification on `8d5d6a6` exposed an evaluator false positive: a read-only
+goal labelled `schedule` was rejected even though it only described a bounded observation
+step. Its two state updates then failed because the evaluator had rejected their parent.
+The run created no recurring schedules; the separately validated `wait_for` owned the wait.
+
+`plan_goal` creates planning records, not automations. The evaluator may accept read-only
+check and schedule planning within the disclosed repository scope without permitting a
+`schedule_offer`, standing assignment, writable repository, or governed operational action.
+Keep positive captured-record coverage alongside those negative authority checks. Preserve
+the original failed report; correcting an evaluator does not retroactively turn an unrun
+quality judge or the remaining scenarios into passes.

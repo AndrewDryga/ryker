@@ -250,9 +250,14 @@ defmodule Responder.Evals.WorldRunnerTest do
               {:work_retry_exhausted, {:coop_protocol_error, :session_authority}}}
   end
 
-  test "read-only investigation planning remains authorized across source-event turns" do
+  test "read-only wait planning remains authorized across source-event turns" do
     # The real Airflow smoke created read-only check goals and five ordinary
     # progress transitions; the eval rejected them as effectful operations.
+    # The September 9 qualification repeated that false failure for a schedule-
+    # labelled read-only child and its two updates, stopping the nine-case lane.
+    captured =
+      "testdata/eval/airflow-read-only-wait-planning.json" |> File.read!() |> Jason.decode!()
+
     {:ok, scenario} = WorldCase.fetch("airflow-verification-arms-wait")
     {:ok, fake} = FakeWorkCoopAPI.start_link([])
     on_exit(fn -> if Process.alive?(fake), do: Agent.stop(fake) end)
@@ -267,6 +272,22 @@ defmodule Responder.Evals.WorldRunnerTest do
       if index == 1 do
         assert {:ok, _} =
                  Tools.call("plan_goal", recorded_read_only_goal(), binding_options(claim))
+
+        for record <- captured["records"] do
+          # Only adapt the parent identity to this existing structural harness.
+          # Every other field is the captured public goal or progress payload.
+          {tool, payload} =
+            case record["kind"] do
+              "goal" ->
+                {"plan_goal",
+                 Map.put(record["payload"], "parent_goal_id", "airflow-verification-context")}
+
+              "goal_state" ->
+                {"update_goal", record["payload"]}
+            end
+
+          assert {:ok, _} = Tools.call(tool, payload, binding_options(claim))
+        end
       end
 
       assert {:ok, _} =
@@ -283,83 +304,94 @@ defmodule Responder.Evals.WorldRunnerTest do
       replay.(claim, world)
     end
 
-    assert {:ok, report} =
-             WorldRunner.run(scenario,
-               api: FakeWorkCoopAPI,
-               before_execute: before_execute,
-               cassette: cassette,
-               client: fake,
-               policy: "world-eval-read-only",
-               policy_digest: @policy_digest,
-               state_tools_endpoint: "https://eval.example/v1/state-tools/mcp",
-               state_tools_secret: "world-eval-state-tools-secret",
-               worker_ref: "world-read-only-plan"
-             )
+    result =
+      WorldRunner.run(scenario,
+        api: FakeWorkCoopAPI,
+        before_execute: before_execute,
+        cassette: cassette,
+        client: fake,
+        policy: "world-eval-read-only",
+        policy_digest: @policy_digest,
+        state_tools_endpoint: "https://eval.example/v1/state-tools/mcp",
+        state_tools_secret: "world-eval-state-tools-secret",
+        worker_ref: "world-read-only-plan"
+      )
+
+    report =
+      case result do
+        {:ok, report} -> report
+        {:error, {:world_eval_assertions, report}} -> report
+      end
 
     assert report.failures == []
-    assert Enum.count(report.record_history, &(&1["kind"] == "goal_state")) == 3
+    assert match?({:ok, _}, result)
+    assert Enum.count(report.record_history, &(&1["kind"] == "goal_state")) == 5
+    assert Repo.query!("SELECT count(*) FROM episode_schedules").rows == [[0]]
   end
 
-  test "source events still cannot authorize effectful plans or questions" do
-    {:ok, scenario} = WorldCase.fetch("airflow-verification-arms-wait")
+  for goal_kind <- ["operation", "schedule"] do
+    @effectful_goal_kind goal_kind
+    test "source events cannot authorize effectful #{goal_kind} plans or their updates" do
+      {:ok, scenario} = WorldCase.fetch("airflow-verification-arms-wait")
 
-    scenario = %{
-      scenario
-      | world: Map.put(scenario.world, "scheduled_events", []),
-        expect: %{"hard" => [], "quality_rubric" => [], "trajectory" => []}
-    }
+      scenario = %{
+        scenario
+        | world: Map.put(scenario.world, "scheduled_events", []),
+          expect: %{"hard" => [], "quality_rubric" => [], "trajectory" => []}
+      }
 
-    {:ok, fake} = FakeWorkCoopAPI.start_link([])
-    on_exit(fn -> if Process.alive?(fake), do: Agent.stop(fake) end)
+      {:ok, fake} = FakeWorkCoopAPI.start_link([])
+      on_exit(fn -> if Process.alive?(fake), do: Agent.stop(fake) end)
 
-    before_execute = fn claim, _world ->
-      goal =
-        Map.merge(recorded_read_only_goal(), %{
-          "kind" => "operation",
-          "authority" => "governed_operation",
-          "required" => false
-        })
+      before_execute = fn claim, _world ->
+        goal =
+          Map.merge(recorded_read_only_goal(), %{
+            "kind" => @effectful_goal_kind,
+            "authority" => "governed_operation",
+            "required" => false
+          })
 
-      assert {:ok, _} = Tools.call("plan_goal", goal, binding_options(claim))
+        assert {:ok, _} = Tools.call("plan_goal", goal, binding_options(claim))
 
-      assert {:ok, _} =
-               Tools.call(
-                 "update_goal",
-                 %{"goal_id" => goal["id"], "state" => "working", "detail" => nil},
-                 binding_options(claim)
+        assert {:ok, _} =
+                 Tools.call(
+                   "update_goal",
+                   %{"goal_id" => goal["id"], "state" => "working", "detail" => nil},
+                   binding_options(claim)
+                 )
+
+        {ref, state, message} = record_state_tool!("request_input", claim)
+        candidate = final_candidate(state, message, [ref])
+
+        assert {:ok, %{"accepted" => true}} =
+                 Tools.call(
+                   "validate_final",
+                   %{"candidate" => Jason.decode!(candidate)},
+                   binding_options(claim)
+                 )
+
+        FakeWorkCoopAPI.update(fake, &%{&1 | candidates: [candidate]})
+        :ok
+      end
+
+      assert {:error, {:world_eval_assertions, report}} =
+               WorldRunner.run(scenario,
+                 api: FakeWorkCoopAPI,
+                 before_execute: before_execute,
+                 client: fake,
+                 policy: "world-eval-read-only",
+                 policy_digest: @policy_digest,
+                 state_tools_endpoint: "https://eval.example/v1/state-tools/mcp",
+                 state_tools_secret: "world-eval-state-tools-secret",
+                 worker_ref: "world-source-event-denial"
                )
 
-      {ref, state, message} = record_state_tool!("request_input", claim)
-      candidate = final_candidate(state, message, [ref])
-
-      assert {:ok, %{"accepted" => true}} =
-               Tools.call(
-                 "validate_final",
-                 %{"candidate" => Jason.decode!(candidate)},
-                 binding_options(claim)
-               )
-
-      FakeWorkCoopAPI.update(fake, &%{&1 | candidates: [candidate]})
-      :ok
+      assert Enum.sort(Enum.map(report.failures, & &1["record_kind"])) == [
+               "goal",
+               "goal_state",
+               "input_request"
+             ]
     end
-
-    assert {:error, {:world_eval_assertions, report}} =
-             WorldRunner.run(scenario,
-               api: FakeWorkCoopAPI,
-               before_execute: before_execute,
-               client: fake,
-               policy: "world-eval-read-only",
-               policy_digest: @policy_digest,
-               state_tools_endpoint: "https://eval.example/v1/state-tools/mcp",
-               state_tools_secret: "world-eval-state-tools-secret",
-               worker_ref: "world-source-event-denial"
-             )
-
-    assert Enum.sort(Enum.map(report.failures, & &1["record_kind"])) == [
-             "goal",
-             "goal_state",
-             "input_request"
-           ]
   end
 
   test "a source event that does not match the open wait cannot spend another model turn" do
