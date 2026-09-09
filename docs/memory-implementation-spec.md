@@ -1,7 +1,9 @@
 # Memory maintenance and recall: implementation specification
 
 Date: 2026-09-08. Baseline: `f664a3e10c8eec85cbbfea9feba5bc94ad0bcd62`.
-Status: implementation awaiting final qualification after fifteen completed exact Fable reviews. The user authorized spec review, implementation,
+Status (2026-09-09): implemented and deployed internally; the bounded memory and Work qualification
+covered by this checkpoint is complete. See the [latest acceptance checkpoint](memory-evaluation.md#latest-acceptance-checkpoint--2026-09-09)
+for exact versions, remaining limits, and the fifteen-review implementation history below. The user authorized spec review, implementation,
 verification, and deployment, and permits resetting memory data if that simplifies the cutover.
 Research and rejected alternatives: [memory research](research/memory-systems.md).
 

@@ -5,6 +5,60 @@ the wrong subject despite a valid contract. Test those separately. Passing deter
 tests does not prove that the learner understands conversations, and replaying a captured answer
 does not count as a new model judgment.
 
+## Latest acceptance checkpoint — 2026-09-09
+
+The internal runtime implementation was deployed and verified healthy/ready at
+`6a2803866ecb7f04728e4c4ce4724f3500118dc2`. Actual main
+backup restore preserved every existing table count; main Coop and the private replay were not
+restarted or changed. Learning uses `codex:gpt-5.6-sol/medium@personal`. Each of the three deferred
+main batches received exactly one additional bounded start, preserving earlier attempts: two
+ended with no change, and one earlier low-value topic remains retained as regression evidence.
+
+Fresh memory qualification on `8d5d6a6` passed: an ordinary request produced no topic; three
+messages maintained the same draft-retention topic; auth resolution and later recurrence stayed
+distinct and were correctly recalled by a fresh Work question; a source-only rebuild updated the
+same topic with a new source generation. Nine model turns completed, one native attempt each.
+Reports are under `/private/tmp/responder-memory-qualification-final.8d5d6a6/`.
+
+All nine Work smoke scenarios now have passing observations: seven on `e2cadb0`, then the
+concurrent-feedback case repeated and the remaining Rivals/VA1 cases completed on `6a28038`.
+The final three-case campaign ran once: seven Work turns plus three judge turns, one native
+attempt each. Every session was discarded. Reports and public activity receipts remain under
+`/private/tmp/responder-memory-qualification-final.e2cadb0/` and
+`/private/tmp/responder-memory-qualification-final.6a28038/`.
+
+Root inspected actual responses, tool results, and the generated PNG, not only judge scores.
+Important qualifications:
+
+- The first passing concurrency trace still exposed a real Activity/Custody deadlock and HTTP
+  500. Its regression failed on old code; `6a28038` fixes the lock order. The repeat had no deadlock,
+  but did recover from one rejected tool preflight using a consumed wait reference.
+- Rivals retained one open proposal incorporating both follow-ups, superseding earlier versions.
+  The earlier `e2cadb0` missing-workspace observation remains unrun; a pinned read-only companion made
+  the final run possible. No repository change was executed or claimed.
+- VA1 used four supported historical sources and correctly marked allocation health and deployed
+  intent as unknown. Six other source calls were unmatched by the recorded world. This proves
+  bounded reporting and fallback monitoring use, not the unvisited service-timeout recovery path.
+- In the earlier artifact-delivery qualification, image delivery required two candidate repairs
+  and an injected lost-delivery-response retry.
+  The actual generated artifact was visually checked; this was recovery, not first-try success.
+- The Work lane forces episode routing and uses inert publishers. It does not qualify natural
+  Admission decisions, real Slack/GitHub posting, or unattended operations. The fresh memory
+  question used automatic briefing selection, not broad cross-channel or noisy-search retrieval.
+  Provider costs were not recorded; do not infer dollar totals from these reports.
+
+Final deterministic qualification passed 2,810 Elixir tests with 90.41% coverage and 106
+release-isolation tests. The required full gate's three Go race shards passed; its initial Elixir
+phase found two test-clock assumptions. A test-only repair preserved source times/content, and
+the final full Elixir phase passed. The original failed gate remains failed evidence. The exact
+committed release also passed archive, backup/restore, restart, and readiness qualification.
+Deployment and gate receipts: `/private/tmp/responder-activity-lock-deploy.XQ4UXU/STATUS.md`.
+
+Older checkpoints below preserve their original failures and unrun observations; they are not
+retroactively relabelled passes. This checkpoint supersedes their pending deployment/qualification
+status only for the specific cases above. Broader longitudinal retrieval quality remains a
+separate evaluation, not a reason to add embeddings or another memory runtime without evidence.
+
 ## Keep evidence honest
 
 The learning fixtures in `testdata/learning/` contain retained Blitz material:
@@ -337,6 +391,8 @@ Required harvested cases:
 | Privacy and expiry | Newly private, withdrawn, expired, and future queued source content never improves the answer by leaking into memory or a warm session. |
 
 ### Remaining acceptance boundary at this checkpoint
+
+This is the historical September 8 checkpoint; see the dated latest checkpoint above for follow-up results.
 
 These are still required, not implied by the positive observations above:
 
