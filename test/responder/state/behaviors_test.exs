@@ -554,7 +554,7 @@ defmodule Responder.State.BehaviorsTest do
            )
   end
 
-  test "attachment-only Terraform automation excludes other bots and conversations" do
+  test "attachment-only Terraform automation matches its run and excludes other bots and conversations" do
     # The live confirmed rule missed a newer deployment. A broad bot-message
     # filter would wake it for unrelated apps instead of fixing that omission.
     fixture = delivered_offers!("terraform-bot-filter")
@@ -570,10 +570,12 @@ defmodule Responder.State.BehaviorsTest do
       |> Jason.decode!()
       |> Map.put("channel", "C456")
 
+    run = message["attachments"] |> hd() |> Map.take(["title", "title_link"])
+
     payload =
       confirmed.behavior.payload
       |> Map.put("source_kind", "slack")
-      |> Map.put("filter", %{"bot_id" => message["bot_id"]})
+      |> Map.put("filter", %{"bot_id" => message["bot_id"], "attachments" => [run]})
 
     confirmed.behavior |> BehaviorChangeset.update(%{payload: payload}) |> Repo.update!()
 
@@ -601,6 +603,9 @@ defmodule Responder.State.BehaviorsTest do
     assert Behaviors.standing_match?(normalize.(message))
     refute Behaviors.standing_match?(normalize.(Map.put(message, "bot_id", "B-OTHER")))
     refute Behaviors.standing_match?(normalize.(Map.put(message, "channel", "C999")))
+
+    other_run = Map.put(message, "attachments", [%{run | "title" => "Run another-run"}])
+    refute Behaviors.standing_match?(normalize.(other_run))
 
     human = message |> Map.delete("bot_id") |> Map.put("user", "U123")
     refute Behaviors.standing_match?(normalize.(human))

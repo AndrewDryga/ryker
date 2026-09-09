@@ -34,9 +34,19 @@ defmodule Responder.Slack.SourceAuditsTest do
   test "bot-triggered reads retain audit attribution without widening private-channel access" do
     # The recovered live Terraform episode read Slack successfully, then lost
     # the entire result because the audit accepted only a human requester.
+    message = "testdata/slack/hcp-terraform-planning.json" |> File.read!() |> Jason.decode!()
+    assert_audited_notification_read("slack:bot:" <> message["bot_id"])
+  end
+
+  test "a durable fallback can read Slack under its real system actor without widening access" do
+    # The same live episode next wakes as EventWaits' system poll actor. It must
+    # not lose authorized Slack evidence merely because no human input is active.
+    assert_audited_notification_read("system:system:event-wait-poll_fallback")
+  end
+
+  defp assert_audited_notification_read(actor_ref) do
     episode_id = Ecto.UUID.generate()
     message = "testdata/slack/hcp-terraform-planning.json" |> File.read!() |> Jason.decode!()
-    actor_ref = "slack:bot:" <> message["bot_id"]
 
     assert {:ok, transition} =
              Episodes.apply(

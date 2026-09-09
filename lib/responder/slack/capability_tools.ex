@@ -1390,12 +1390,14 @@ defmodule Responder.Slack.CapabilityTools do
     |> active_input_events()
     |> Enum.find_value({:error, :slack_requester_unavailable}, fn event ->
       case event.payload do
-        %{"actor_ref" => "slack:user:" <> _user_ref = actor_ref} -> {:ok, actor_ref}
         # Attribution is not authorization: channel visibility was checked
-        # before this audit. Automated inputs must retain their real author.
-        %{"actor_ref" => "slack:bot:" <> _bot_ref = actor_ref} -> {:ok, actor_ref}
-        %{"actor_ref" => "slack:app:" <> _app_ref = actor_ref} -> {:ok, actor_ref}
-        _payload -> nil
+        # before this audit. Retain the host-admitted actor, including durable
+        # system wakeups; never invent a human requester for automated work.
+        %{"actor_ref" => actor_ref} when is_binary(actor_ref) and byte_size(actor_ref) > 0 ->
+          {:ok, actor_ref}
+
+        _payload ->
+          nil
       end
     end)
   end
