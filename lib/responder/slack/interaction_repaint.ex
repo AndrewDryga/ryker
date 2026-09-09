@@ -25,6 +25,8 @@ defmodule Responder.Slack.InteractionRepaint do
   alias Responder.State.{DerivedContext, Records}
   alias Responder.Work.{Session, Turn}
 
+  @confirmation_kinds ~w(preference_offer guidance_offer standing_assignment_offer memory_offer schedule_offer automation_change_offer)
+
   @spec repaint(InteractionAudit.t(), map()) :: :ok | {:error, term()}
   def repaint(%InteractionAudit{} = audit, %{api: api, client: client}) do
     if repaint_api?(api) do
@@ -219,7 +221,7 @@ defmodule Responder.Slack.InteractionRepaint do
         with {:ok, records} <- Records.fetch_for_episode(turn.episode_id, refs) do
           {:ok,
            %{
-             "message" => message,
+             "message" => confirmation_message(records, message),
              "records" => Enum.map(records, &record_document/1)
            }, turn.delivery_ref}
         end
@@ -227,6 +229,12 @@ defmodule Responder.Slack.InteractionRepaint do
       _invalid ->
         {:error, :slack_interaction_repaint_document_invalid}
     end
+  end
+
+  defp confirmation_message(records, message) do
+    if Enum.any?(records, &(&1.kind in @confirmation_kinds and &1.status == :confirmed)),
+      do: "Confirmation saved. The confirmed items are shown below.",
+      else: message
   end
 
   defp record_document(record) do

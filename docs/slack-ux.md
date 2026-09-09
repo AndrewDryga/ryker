@@ -258,6 +258,14 @@ channel. Preferences resolve in operator, channel, repository, then workspace or
 channel-scoped and match only Terraform plans, deployments, or operational alerts from the
 configured `human`, `app`, or `any` source.
 
+After a successful automation, schedule, memory, preference, or guidance confirmation, Slack shows a
+private acknowledgement and refreshes the original card to its confirmed state without the old button.
+The update remains queued across a restart; clicking again does not duplicate the change. The original
+accepted response remains in episode history even when its live card no longer says it is a proposal.
+Source-event automation filters use the exact observed event payload and its input adapter (`slack`,
+`github`, or `webhook`). Vendor names such as Terraform are not input adapters; a missing example must
+be resolved before inventing a rule that would never match or enabling an unbounded channel listener.
+
 An enabled standing rule can admit only its matching message type when broad proactive triage is
 off. The resulting turn uses the current channel transcript and available read-only tools. A match
 is an evaluation request, not an order to reply: the model may ignore an intermediate or duplicate

@@ -1216,10 +1216,29 @@ defmodule Responder.ControlPlane.CardLab do
     }
 
   defp record_state(id, label, description, kind, payload, status \\ "open") do
-    state(id, label, description, render_record(kind, payload, status), %{
-      record_kind: kind,
-      record_state: "#{kind}:#{status}"
-    })
+    specimen =
+      state(id, label, description, render_record(kind, payload, status), %{
+        record_kind: kind,
+        record_state: "#{kind}:#{status}"
+      })
+
+    if status == "open" and
+         kind in ~w(preference_offer guidance_offer standing_assignment_offer memory_offer schedule_offer automation_change_offer) do
+      Map.put(
+        specimen,
+        :confirmation,
+        record_state(
+          "#{id}-confirmed",
+          "#{label} confirmed",
+          "Saved confirmation without an active button.",
+          kind,
+          payload,
+          "confirmed"
+        )
+      )
+    else
+      specimen
+    end
   end
 
   defp publication_state(id, label, payload, status) do
@@ -1258,6 +1277,14 @@ defmodule Responder.ControlPlane.CardLab do
   end
 
   defp sequence(states) do
+    states =
+      Enum.flat_map(states, fn specimen ->
+        case Map.pop(specimen, :confirmation) do
+          {nil, specimen} -> [specimen]
+          {confirmed, specimen} -> [specimen, confirmed]
+        end
+      end)
+
     ids = Enum.map(states, & &1.id)
 
     states

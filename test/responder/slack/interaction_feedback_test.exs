@@ -90,6 +90,28 @@ defmodule Responder.Slack.InteractionFeedbackTest do
     assert {:ok, :idle} = InteractionFeedbackWorker.run_once(options)
   end
 
+  test "a successful confirmation retains one durable repaint across duplicate acknowledgements" do
+    click = %{interaction("interaction:confirmed") | action_id: "responder_confirm_behavior"}
+    assert {:ok, %{audit: audit, status: :recorded}} = InteractionAudits.record(click, :confirmed)
+    assert audit.outcome == :confirmed
+    assert audit.repaint_status == :pending
+
+    assert {:ok, %{audit: ^audit, status: :duplicate}} =
+             InteractionAudits.record(click, :confirmed)
+
+    redelivery = %{click | occurred_at: DateTime.add(click.occurred_at, 5, :second)}
+
+    assert {:ok, %{audit: ^audit, status: :duplicate}} =
+             InteractionAudits.record(redelivery, :confirmed)
+
+    assert {:ok, claim} = InteractionAudits.claim_next("confirmation-worker", 30)
+    assert claim.id == audit.id
+    assert {:ok, settled} = InteractionAudits.settle(audit.id, claim.lease_ref)
+    assert settled.repaint_status == :settled
+    assert settled.attempt_count == 1
+    assert {:ok, nil} = InteractionAudits.claim_next("confirmation-worker", 30)
+  end
+
   test "a stale setup control repaints the exact message from current durable state" do
     session =
       Repo.insert!(%ConfigurationSession{

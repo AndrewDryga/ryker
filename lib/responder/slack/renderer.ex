@@ -27,6 +27,15 @@ defmodule Responder.Slack.Renderer do
   @task_fields ~w(action_needed confirmed_at confirmed_by controls episode_state publication repository session_generation status summary task_ref title ui_revision updated_at work_state)
   @work_controls ~w(stop view_diff close timeline evidence handoff postmortem)
   @record_controls ~w(timeline evidence handoff postmortem)
+  @confirmation_labels %{
+    "standing_assignment_offer" => "Automation confirmed",
+    "preference_offer" => "Preference saved",
+    "guidance_offer" => "Guidance saved",
+    "memory_offer" => "Memory saved",
+    "schedule_offer" => "Schedule confirmed",
+    "automation_change_offer" => "Automation change confirmed"
+  }
+  @confirmation_kinds Map.keys(@confirmation_labels)
   @publication_controls ~w(readiness publish open check retry update discard)
   @setup_statuses ~w(asking confirming saved cancelled expired)
   @setup_steps ~w(participation repository alerts audience confirm)
@@ -52,6 +61,7 @@ defmodule Responder.Slack.Renderer do
         "publication_review:open",
         "publication_result:confirmed"
       ] ++
+        Enum.map(@confirmation_kinds, &"#{&1}:confirmed") ++
         Enum.flat_map(@investigation_kinds, fn kind ->
           ["#{kind}:open", "#{kind}:confirmed"]
         end)
@@ -1071,6 +1081,20 @@ defmodule Responder.Slack.Renderer do
        when kind in ["publication_review", "publication_result"] do
     case PublicationCard.prepare_record(record) do
       {:ok, payload} -> {:ok, publication_blocks(kind, record["ref"], payload)}
+      _invalid -> {:error, {:invalid_slack_render, :record}}
+    end
+  end
+
+  defp render_record(
+         %{"kind" => kind, "payload" => payload, "ref" => ref, "status" => "confirmed"} = record
+       )
+       when map_size(record) == 4 and kind in @confirmation_kinds do
+    with :ok <- reference(ref),
+         {:ok, %{payload: prepared}} <- RecordPayload.prepare(kind, payload, ref) do
+      summary = prepared["title"] || prepared["subject"] || prepared["key"] || prepared["task"]
+      text = ["*#{@confirmation_labels[kind]}*", summary && mrkdwn(summary)] |> compact_lines()
+      {:ok, [section(text)]}
+    else
       _invalid -> {:error, {:invalid_slack_render, :record}}
     end
   end

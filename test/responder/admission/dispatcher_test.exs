@@ -212,16 +212,22 @@ defmodule Responder.Admission.DispatcherTest do
     assert Enum.any?(Map.keys(state.operation_calls), &String.contains?(&1, ":g2"))
   end
 
-  test "a confirmed terminal Coop turn advances once and is reclassified" do
+  test "a terminal worker failure waits for operator recovery instead of launching another model" do
     entry = record_input!("Ev-dispatch-terminal-turn")
     {:ok, fake} = FakeAPI.start_link([decision()], fail_first_turn: true)
 
-    assert {:ok, {:deferred, input_ref, {:coop_turn_failed, "failed", _, _}}} =
+    assert {:ok, {:blocked, input_ref, {:coop_turn_failed, "failed", _, _}}} =
              Dispatcher.run_once(real_options(fake, @now))
 
     assert input_ref == Inbox.ref(entry)
     assert {:ok, deferred} = Inbox.fetch(input_ref)
     assert Map.fetch!(deferred, :execution_generation) == 2
+
+    assert {:ok, :idle} =
+             Dispatcher.run_once(real_options(fake, DateTime.add(@now, 2, :second)))
+
+    assert FakeAPI.state(fake).submit_count == 1
+    assert {:ok, _rearmed} = Inbox.rearm(input_ref)
 
     assert {:ok, {:decided, execution}} =
              Dispatcher.run_once(real_options(fake, DateTime.add(@now, 2, :second)))
@@ -231,6 +237,30 @@ defmodule Responder.Admission.DispatcherTest do
     assert state.submit_count == 2
     assert state.failed_turn_key =~ ":g1:"
     assert Enum.any?(state.turn_keys, &String.contains?(&1, ":g2:"))
+  end
+
+  test "recorded worker startup and quota failures block once with their actual diagnosis" do
+    # Input b8bff9f3 on 2026-09-09 spent fifteen admission executions on an
+    # incompatible worker and an exhausted account. Coop already owns failover;
+    # resubmitting its terminal failure only repeats the same frozen request.
+    for {code, detail} <- [
+          {"acp_process_error", "ACP child closed before its response"},
+          {"acp_protocol_error",
+           "provider limit prevented the turn: You've hit your usage limit. Visit https://chatgpt.com/codex/settings/usage to purchase more credits or try again at Sep 15th, 2026 4:32 PM."}
+        ] do
+      entry = record_input!("Ev-recorded-#{code}")
+      reason = {:coop_turn_failed, "failed", code, detail}
+      {:ok, stub} = ExecutorStub.start_link({:fail, {:admission_generation_spent, reason}})
+
+      assert {:ok, {:blocked, input_ref, ^reason}} = Dispatcher.run_once(options(stub))
+      assert input_ref == Inbox.ref(entry)
+      assert {:ok, blocked} = Inbox.fetch(input_ref)
+      assert blocked.attempt_count == 1
+      assert blocked.execution_generation == 2
+      assert blocked.last_error_code == code
+      assert blocked.last_error_detail =~ detail
+      assert {:ok, :idle} = Dispatcher.run_once(options(stub))
+    end
   end
 
   test "operator and policy terminal turns stop without silently starting a new session" do

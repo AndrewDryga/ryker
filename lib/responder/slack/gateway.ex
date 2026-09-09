@@ -413,16 +413,27 @@ defmodule Responder.Slack.Gateway do
   defp handle_interaction(interaction, settings) do
     case settings.interaction_handler.handle(interaction, settings.interaction_options) do
       {:ok, %{outcome: outcome}} when outcome in [:denied, :invalid] ->
-        case audit_interaction(interaction, outcome, settings) do
-          {:ok, _audit} ->
-            {:ack, {:interaction, outcome}, interaction_feedback(outcome)}
+        acknowledge_interaction(interaction, outcome, outcome, settings)
 
-          {:error, reason} ->
-            {:retry, reason}
-        end
+      {:ok, %{outcome: outcome}}
+      when outcome in [:confirmed, :duplicate] and
+             interaction.action_id in ~w(responder_confirm_behavior responder_confirm_memory responder_confirm_schedule responder_confirm_automation) ->
+        # Normalize duplicate delivery to the original confirmation outcome so
+        # a crash between commit and acknowledgement retains one repaint intent.
+        acknowledge_interaction(interaction, outcome, :confirmed, settings)
 
       {:ok, %{outcome: outcome}} ->
         {:ack, {:interaction, outcome}}
+
+      {:error, reason} ->
+        {:retry, reason}
+    end
+  end
+
+  defp acknowledge_interaction(interaction, outcome, audit_outcome, settings) do
+    case audit_interaction(interaction, audit_outcome, settings) do
+      {:ok, _audit} ->
+        {:ack, {:interaction, outcome}, interaction_feedback(audit_outcome)}
 
       {:error, reason} ->
         {:retry, reason}
@@ -447,6 +458,13 @@ defmodule Responder.Slack.Gateway do
     %{
       "response_type" => "ephemeral",
       "text" => "That control is no longer current. Use the refreshed message instead."
+    }
+  end
+
+  defp interaction_feedback(:confirmed) do
+    %{
+      "response_type" => "ephemeral",
+      "text" => "Your confirmation is saved. The message is being updated."
     }
   end
 

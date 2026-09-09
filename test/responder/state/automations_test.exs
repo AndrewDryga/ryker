@@ -22,6 +22,27 @@ defmodule Responder.State.AutomationsTest do
 
   @now ~U[2026-08-29 12:00:00.000000Z]
 
+  test "automation edits cannot bind an existing rule to an unregistered source" do
+    # The real Terraform offer was confirmed but could never match an input:
+    # terraform was a vendor name, not one of the configured ingress adapters.
+    source =
+      delivered_record!("source-edit", "standing_assignment_offer", standing_assignment_offer())
+
+    assert {:ok, created} = Behaviors.confirm(confirmation(source, "create-source-edit"))
+
+    recorded = File.read!("testdata/work/terraform-automation-recovery.json") |> Jason.decode!()
+    trigger = hd(recorded["automation_arguments"]["proposals"])["trigger"]
+
+    assert Automations.prepare_change(source.episode, %{
+             "action" => "update",
+             "automation_id" => created.behavior.ref,
+             "patch" => %{"trigger" => trigger},
+             "revision" => 1
+           }) == {:error, :invalid_automation_source}
+
+    assert Repo.get!(Behavior, created.behavior.id).payload["source_kind"] == "github"
+  end
+
   test "a delivered operator decision manages the complete time automation lifecycle" do
     source = delivered_record!("time-source", "schedule_offer", schedule_offer())
     assert {:ok, created} = Schedules.confirm(confirmation(source, "create-time"))

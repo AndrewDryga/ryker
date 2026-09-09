@@ -53,6 +53,12 @@ defmodule Responder.Admission.Dispatcher do
       {:error, {:admission_execution_blocked, reason}} ->
         block(claim, input_ref, reason)
 
+      {:error, {:admission_generation_spent, {:coop_turn_failed, _, _, _} = reason}} ->
+        # Coop owns provider failover and in-turn recovery. Once it declares
+        # failure, the frozen request cannot fix its runtime or account. Keep
+        # the next occurrence for an explicit retry after operator repair.
+        block(claim, input_ref, reason, :execution)
+
       {:error, reason} ->
         if claim.entry.attempt_count >= @maximum_attempts do
           # A pending predecessor prevents every later input in its conversation
@@ -124,11 +130,18 @@ defmodule Responder.Admission.Dispatcher do
     min(settings.retry_base_ms * Integer.pow(2, exponent), settings.retry_max_ms)
   end
 
+  defp describe_error({:coop_turn_failed, _state, code, _detail} = reason)
+       when is_binary(code) and byte_size(code) in 1..120 do
+    {code, error_detail(reason)}
+  end
+
   defp describe_error(reason) do
     code = reason |> error_atom() |> Atom.to_string()
-    detail = reason |> inspect(limit: 20, printable_limit: 3_500, width: 120) |> bound_detail()
-    {code, detail}
+    {code, error_detail(reason)}
   end
+
+  defp error_detail(reason),
+    do: reason |> inspect(limit: 20, printable_limit: 3_500, width: 120) |> bound_detail()
 
   defp bound_detail(detail) when byte_size(detail) <= @maximum_error_detail_bytes, do: detail
 
@@ -136,8 +149,10 @@ defmodule Responder.Admission.Dispatcher do
     String.byte_slice(detail, 0, @maximum_error_detail_bytes - 3) <> "..."
   end
 
-  defp error_atom({atom, _rest}) when is_atom(atom), do: atom
-  defp error_atom({atom, _second, _rest}) when is_atom(atom), do: atom
+  defp error_atom(reason)
+       when is_tuple(reason) and tuple_size(reason) > 0 and is_atom(elem(reason, 0)),
+       do: elem(reason, 0)
+
   defp error_atom(atom) when is_atom(atom), do: atom
   defp error_atom(_reason), do: :admission_execution_failed
 

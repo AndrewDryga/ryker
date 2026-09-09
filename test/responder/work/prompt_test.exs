@@ -3,6 +3,21 @@ defmodule Responder.Work.PromptTest do
 
   alias Responder.Work.Prompt
 
+  test "an automation offer has an explicit tool path and a complete final-call example" do
+    # The Sep 9 Terraform request searched MCP resources, claimed its tools were
+    # missing, and then spent two corrections guessing the final-call shape.
+    instructions = Prompt.build(%{}) |> Jason.decode!() |> Map.fetch!("instructions")
+    assert instructions =~ "responder-state"
+    assert instructions =~ "work.responder_state_tools"
+    assert instructions =~ "Resources and resource templates are not the tool catalog"
+    assert instructions =~ "propose_automation"
+    assert instructions =~ "An offer awaiting confirmation is a complete proposal"
+    assert instructions =~ ~s("candidate":)
+    assert instructions =~ ~s("outcome":)
+    assert instructions =~ ~s("record_refs":)
+    assert instructions =~ ~s("artifact_refs":)
+  end
+
   test "restating remembered claims keeps their uncertainty and attribution" do
     # The live draft-keep probe retained a tentative setup attribution in memory,
     # then described the decider as "the person it was set up for" as if verified.

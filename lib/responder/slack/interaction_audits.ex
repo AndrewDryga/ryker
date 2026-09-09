@@ -1,9 +1,9 @@
 defmodule Responder.Slack.InteractionAudits do
   @moduledoc """
-  Durable audit and repaint custody for denied or stale Slack controls.
+  Durable audit and repaint custody for denied, stale, or confirmed Slack controls.
 
   The Socket Mode envelope is acknowledged only after this ledger records the
-  authority outcome. Denials need no shared-message mutation. Stale controls
+  authority outcome. Denials need no shared-message mutation. Stale and confirmed controls
   enter a fenced repaint queue so the host-owned message catches up even when
   the gateway process exits immediately after acknowledging the user.
   """
@@ -16,11 +16,13 @@ defmodule Responder.Slack.InteractionAudits do
   alias Responder.Slack.{Interaction, InteractionAudit, InteractionAuditChangeset}
 
   @maximum_error_detail_bytes 4_096
+  @identity_fields ~w(action_id action_value_digest actor_ref channel_ref event_ref message_ref outcome thread_ref workspace_ref)a
 
-  @spec record(Interaction.t(), :denied | :invalid) ::
+  @spec record(Interaction.t(), :denied | :invalid | :confirmed) ::
           {:ok, %{audit: InteractionAudit.t(), status: :recorded | :duplicate}}
           | {:error, term()}
-  def record(%Interaction{} = interaction, outcome) when outcome in [:denied, :invalid] do
+  def record(%Interaction{} = interaction, outcome)
+      when outcome in [:denied, :invalid, :confirmed] do
     attributes = attributes(interaction, outcome)
 
     Repo.transaction(fn -> record_locked(attributes) end)
@@ -116,12 +118,12 @@ defmodule Responder.Slack.InteractionAudits do
       )
 
     case existing do
-      %InteractionAudit{request_fingerprint: fingerprint} = audit
-      when fingerprint == attributes.request_fingerprint ->
-        %{audit: audit, status: :duplicate}
-
-      %InteractionAudit{} ->
-        Repo.rollback(:slack_interaction_event_conflict)
+      %InteractionAudit{} = audit ->
+        # occurred_at is the gateway's receive time, not Slack event identity.
+        # A redelivered envelope keeps the first receipt and its repaint lease.
+        if Map.take(audit, @identity_fields) == Map.take(attributes, @identity_fields),
+          do: %{audit: audit, status: :duplicate},
+          else: Repo.rollback(:slack_interaction_event_conflict)
 
       nil ->
         case attributes |> InteractionAuditChangeset.insert() |> Repo.insert() do
@@ -245,7 +247,7 @@ defmodule Responder.Slack.InteractionAudits do
       message_ref: interaction.message_ref,
       occurred_at: interaction.occurred_at,
       outcome: outcome,
-      repaint_status: if(outcome == :invalid, do: :pending, else: :none),
+      repaint_status: if(outcome == :denied, do: :none, else: :pending),
       request_fingerprint: CanonicalJSON.digest(document),
       thread_ref: interaction.thread_ref,
       workspace_ref: interaction.workspace_ref

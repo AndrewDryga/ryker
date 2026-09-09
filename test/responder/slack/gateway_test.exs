@@ -557,6 +557,39 @@ defmodule Responder.Slack.GatewayTest do
     assert_received {:audited_interaction, "interaction:env-stale", :invalid}
   end
 
+  test "successful confirmations persist card feedback before acknowledgement, including redelivery" do
+    # The Sep 9 automation was active in PostgreSQL while Slack still said
+    # Enable automation: the success branch acknowledged without repaint custody.
+    for action <-
+          ~w(responder_confirm_behavior responder_confirm_memory responder_confirm_schedule responder_confirm_automation),
+        outcome <- [:confirmed, :duplicate] do
+      settings =
+        settings()
+        |> Map.put(:interaction_handler, InteractionHandler)
+        |> Map.put(:interaction_options, %{observer: self(), result: {:ok, %{outcome: outcome}}})
+        |> Map.put(:interaction_audit, fn interaction, recorded ->
+          send(self(), {:confirmation_recorded, interaction.action_id, recorded})
+          {:ok, %{status: :recorded}}
+        end)
+
+      envelope =
+        update_in(interaction_envelope(), ["payload", "actions"], fn [button] ->
+          [%{button | "action_id" => action}]
+        end)
+
+      assert {:ack, {:interaction, ^outcome}, %{"text" => feedback}} =
+               Gateway.handle_envelope(envelope, settings)
+
+      assert feedback =~ "saved"
+      assert_received {:confirmation_recorded, ^action, :confirmed}
+
+      unavailable =
+        Map.put(settings, :interaction_audit, fn _, _ -> {:error, :database_unavailable} end)
+
+      assert {:retry, :database_unavailable} = Gateway.handle_envelope(envelope, unavailable)
+    end
+  end
+
   test "an unavailable interaction audit leaves the envelope retryable" do
     settings =
       settings()

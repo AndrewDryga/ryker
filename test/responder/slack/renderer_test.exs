@@ -3,6 +3,37 @@ defmodule Responder.Slack.RendererTest do
 
   alias Responder.Slack.Renderer
 
+  test "a confirmed recorded automation replaces the enable button with its saved state" do
+    captured = Jason.decode!(File.read!("testdata/work/terraform-automation-recovery.json"))
+    proposal = hd(captured["automation_arguments"]["proposals"])
+
+    record = %{
+      "kind" => "standing_assignment_offer",
+      "ref" => hd(captured["accepted_candidate"]["outcome"]["record_refs"]),
+      "status" => "confirmed",
+      "payload" => %{
+        "catch_up" => proposal["catch_up"],
+        "context_channel" => "slack:T0BHXKZJVDX:C0BHTRPHXP0",
+        "delivery_channel" => "slack:T0BHXKZJVDX:C0BHTRPHXP0",
+        "expires_at" => nil,
+        "filter" => proposal["trigger"]["filter"],
+        "hold" => nil,
+        "repository" => nil,
+        "source_kind" => proposal["trigger"]["source_kind"],
+        "task" => proposal["prompt"],
+        "title" => proposal["title"]
+      }
+    }
+
+    assert {:ok, rendered} =
+             Renderer.render(%{"message" => "Confirmation saved.", "records" => [record]})
+
+    assert inspect(rendered) =~ "Automation confirmed"
+    assert inspect(rendered) =~ proposal["title"]
+    refute inspect(rendered) =~ "Enable automation"
+    refute Enum.any?(rendered["blocks"], &(&1["type"] == "actions"))
+  end
+
   test "renders host-authorized typed mentions into native Slack controls" do
     authority = %{
       "broadcasts" => [],

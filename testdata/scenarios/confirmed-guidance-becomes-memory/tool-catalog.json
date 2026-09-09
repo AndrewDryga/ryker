@@ -618,6 +618,7 @@
                             },
                             "filter": {
                               "additionalProperties": true,
+                              "description": "Exact recursive subset of the observed input.content payload. Read a real matching event to choose stable fields. This is not a text search or query language; an empty filter matches every event from this input adapter in the bound channel.",
                               "type": "object"
                             },
                             "recurrence": {
@@ -631,9 +632,12 @@
                               "type": "string"
                             },
                             "source_kind": {
-                              "maxLength": 120,
-                              "minLength": 1,
-                              "pattern": "^[A-Za-z0-9_.:-]+$",
+                              "description": "Exact input envelope source.kind, not a vendor mentioned inside it. Terraform and Grafana notifications posted to Slack use slack. Derive the filter from an observed event, not its vendor name.",
+                              "enum": [
+                                "github",
+                                "slack",
+                                "webhook"
+                              ],
                               "type": "string"
                             },
                             "starts_at": {
@@ -1391,7 +1395,7 @@
           "name": "record_feedback"
         },
         {
-          "description": "Preflight the exact final candidate against current host-owned state.",
+          "description": "Preflight the complete final candidate against current host-owned state. Pass one candidate object containing decision_reason, delivery, message, and outcome; outcome requires state, record_refs, and artifact_refs. Return only the accepted candidate unchanged.",
           "inputSchema": {
             "additionalProperties": false,
             "properties": {
