@@ -1152,11 +1152,21 @@ defmodule Responder.CoopFleet.ControlPlane do
   end
 
   defp reserved_placement_slots(worker_id) do
+    closed =
+      from(command in Command,
+        where:
+          command.placement_id == parent_as(:placement).id and
+            command.kind == "close_session" and command.status == :succeeded,
+        select: 1
+      )
+
     Repo.aggregate(
       from(placement in Placement,
+        as: :placement,
         where:
           placement.worker_id == ^worker_id and
-            placement.state in ^@current_placement_states
+            placement.state in ^@current_placement_states and
+            not exists(subquery(closed))
       ),
       :count
     )

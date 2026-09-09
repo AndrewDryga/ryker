@@ -194,6 +194,67 @@ defmodule Responder.CoopFleet.ControlPlaneTest do
     assert second_placement.worker_id == "worker-a"
   end
 
+  test "a successfully closed session no longer reserves a reported worker slot" do
+    # Two recovered Slack runs closed remotely but their still-current placement
+    # rows consumed every host reservation, so all fresh work was blocked even
+    # while the worker reported those two session slots as free.
+    authorize_and_poll!("worker-a", capacity: capacity(1, 1))
+    closed_placement = place!("closed-placement-capacity")
+
+    assert {:ok, command} =
+             ControlPlane.enqueue_command(
+               closed_placement.id,
+               "close_session",
+               %{"session_id" => "coop-closed-placement-capacity"},
+               "responder:test:closed-placement-capacity"
+             )
+
+    assert {:ok, %{"commands" => [%{"command_id" => command_id}]}} =
+             ControlPlane.handle_poll(
+               "worker-a",
+               poll("worker-a", "workspace-main", "poll:worker-a:close-capacity:deliver",
+                 capacity: capacity(0, 1)
+               )
+             )
+
+    assert command_id == command.id
+
+    assert {:ok, _response} =
+             ControlPlane.handle_poll(
+               "worker-a",
+               poll("worker-a", "workspace-main", "poll:worker-a:close-capacity:complete",
+                 capacity: capacity(1, 1),
+                 command_results: [
+                   %{
+                     "command_id" => command.id,
+                     "error" => nil,
+                     "operation_key" => command.idempotency_key,
+                     "resource" => %{
+                       "session_id" => "coop-closed-placement-capacity",
+                       "state" => "closed"
+                     },
+                     "state" => "succeeded"
+                   }
+                 ]
+               )
+             )
+
+    next = session!("capacity-after-close")
+
+    assert {:ok, next_placement} =
+             ControlPlane.place_session(
+               next.id,
+               %{
+                 capability_names: ["responder-state"],
+                 repository_ref: "responder",
+                 workspace_ref: "workspace-main"
+               },
+               60
+             )
+
+    assert next_placement.worker_id == "worker-a"
+  end
+
   test "authority drift revokes placement renewal before another command is delivered" do
     authorize_and_poll!("worker-a")
     placement = place!("authority-drift")
