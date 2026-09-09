@@ -32,7 +32,13 @@ defmodule Responder.Learning.BatchesTest do
 
   test "execution modes never share a batch and future arrivals cannot mutate an active batch" do
     [first, second] = inputs!()
-    Repo.update!(Ecto.Changeset.change(second, execution_mode: :live))
+
+    assert {1, _} =
+             Repo.update_all(
+               from(e in Entry, where: e.id == ^second.id),
+               set: [execution_mode: :live]
+             )
+
     assert {:ok, a} = Batches.claim("worker-a", @settings)
     assert [input] = a.inputs
     assert input.id == first.id
@@ -329,18 +335,6 @@ defmodule Responder.Learning.BatchesTest do
 
   defp inputs! do
     entries = Fixtures.inputs!()
-    # Queue timing belongs to PostgreSQL. The Docker clock was measured 10 ms
-    # behind the host, so zero-delay tests must not assume host insert time <= DB time.
-    %{rows: [[now]]} = Repo.query!("SELECT clock_timestamp()")
-
-    Enum.with_index(entries, fn entry, index ->
-      at = DateTime.add(now, index - length(entries), :microsecond)
-
-      Repo.update_all(from(e in Entry, where: e.id == ^entry.id),
-        set: [inserted_at: at, updated_at: at]
-      )
-
-      Repo.get!(Entry, entry.id)
-    end)
+    Fixtures.normalize_queue_timestamps!(entries)
   end
 end

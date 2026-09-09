@@ -62,7 +62,7 @@ defmodule Responder.Learning.ProviderFailureTest do
     # Retained replay batch 371 exhausted three provider contract attempts. A
     # test-only failure recorder hid the live executor's generic error mapping,
     # buying identical blind retries despite the static correction being tested.
-    _entries = Fixtures.inputs!()
+    _entries = Fixtures.inputs!() |> Fixtures.normalize_queue_timestamps!()
 
     terminal =
       "testdata/learning/retained-output-contract-failure.json"
