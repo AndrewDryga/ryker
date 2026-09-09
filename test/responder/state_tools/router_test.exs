@@ -1884,6 +1884,44 @@ defmodule Responder.StateTools.RouterTest do
              )
   end
 
+  test "recorded malformed final checks explain the complete call without accepting a partial answer" do
+    # The live Terraform offer spent two tool calls guessing this shape because
+    # both a missing candidate wrapper and a missing outcome said only invalid_arguments.
+    captured = Jason.decode!(File.read!("testdata/work/terraform-automation-recovery.json"))
+    claim = claim!("recorded-final-shape")
+
+    for arguments <- captured["invalid_validation_calls"] do
+      assert {:error, error} = Tools.call("validate_final", arguments, bound_options(claim))
+      assert error =~ "invalid_arguments:"
+      assert error =~ "candidate"
+      assert error =~ "outcome"
+      assert error =~ "record_refs"
+      assert error =~ "artifact_refs"
+      assert Repo.get!(Responder.Work.Turn, claim.turn.id).final_preflight_candidate_sha256 == nil
+    end
+  end
+
+  test "an automation cannot name a vendor as an unregistered ingress source" do
+    captured = Jason.decode!(File.read!("testdata/work/terraform-automation-recovery.json"))
+    claim = claim!("recorded-automation-source")
+
+    assert {:error, error} =
+             Tools.call(
+               "propose_automation",
+               captured["automation_arguments"],
+               bound_options(claim)
+             )
+
+    assert error =~ "source_kind"
+    assert error =~ "slack"
+    assert Records.model_records(claim.episode, claim.session.repository_ref) == []
+
+    tools = Tools.list(bound_options(claim))
+    schema = Enum.find(tools, &(&1["name"] == "propose_automation"))["inputSchema"]
+    trigger = hd(schema["properties"]["proposals"]["items"]["oneOf"])["properties"]["trigger"]
+    assert trigger["properties"]["source_kind"]["enum"] == ["github", "slack", "webhook"]
+  end
+
   test "a configured Emisar receipt is advertised and registered through the active turn" do
     unconfigured = rpc("tools/list", %{})
 

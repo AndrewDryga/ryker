@@ -10,6 +10,7 @@ defmodule Responder.State.Automations do
   import Ecto.Query
 
   alias Responder.Episodes.Episode
+  alias Responder.Ingress.Adapters
   alias Responder.Operator.FailureDetail
   alias Responder.Repo
 
@@ -421,10 +422,24 @@ defmodule Responder.State.Automations do
   defp changed_document(before, action, patch, episode) do
     with :ok <- change_allowed(before, action, patch),
          after_document <- apply_document_change(before, action, patch),
-         :ok <- validate_document(after_document, automation_kind(before), episode) do
+         :ok <- validate_document(after_document, automation_kind(before), episode),
+         :ok <- registered_source(after_document, action) do
       {:ok, after_document}
     end
   end
+
+  defp registered_source(
+         %{"trigger" => %{"type" => "source_event", "source_kind" => source_kind}},
+         action
+       )
+       when action in ~w(update resume) do
+    if Map.has_key?(Adapters.default(), source_kind),
+      do: :ok,
+      else: {:error, :invalid_automation_source}
+  end
+
+  # Operators must still be able to pause or delete a previously saved bad rule.
+  defp registered_source(_document, _action), do: :ok
 
   defp change_allowed(before, "update", patch) when map_size(patch) > 0 do
     allowed =

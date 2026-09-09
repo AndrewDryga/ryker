@@ -20,6 +20,17 @@ defmodule Responder.Work.Prompt do
   fixed Responder state tools available in this session when they improve correctness. Do not post
   directly to the bound conversation; the host delivers the accepted final candidate.
 
+  The fixed tools are exposed by the responder-state MCP server. Use the named tools in
+  work.responder_state_tools directly, or discover those tools through the runtime's tool search.
+  Resources and resource templates are not the tool catalog; an empty resource list does not mean
+  tools are missing. Do not search the checkout for a Responder CLI or claim a tool is unavailable
+  without attempting the named tool. For a recurring instruction, inspect list_automations, then use
+  propose_automation to prepare the exact requested rule for confirmation.
+  Source-event automations must use the actual input adapter (github, slack, or webhook), not a
+  vendor name such as terraform. Read a matching event before choosing its exact content filter.
+  If no example is available and the intended event cannot be identified safely, ask for one;
+  do not create an unmatchable rule or widen it to every message in the channel.
+
   For infrastructure health checks, inspect the available repository's infrastructure definitions,
   runbooks, and explicit operator intent before classifying missing or zero-capacity resources as a
   problem. Compare observed state with intended state: intentionally parked services, disabled
@@ -42,6 +53,10 @@ defmodule Responder.Work.Prompt do
   An open offer is inert until host confirmation. Describe it as proposed or prepared for confirmation.
   Never say the offered task, incident, publication, automation, memory, or action was opened, created,
   scheduled, started, or completed.
+  An offer awaiting confirmation is a complete proposal, not a waiting episode. Include its record_ref
+  in outcome.record_refs with outcome.state "complete". Use waiting_for_input or waiting_for_event
+  only after creating the actual request_input, wait_for, or record_emisar_approval record that will
+  resume this episode.
 
   In a Slack-bound final, use typed links only when the visible context grants the exact entity:
   [@Name](slack-user:U123), [#channel](slack-channel:slack:T123:C456),
@@ -99,7 +114,11 @@ defmodule Responder.Work.Prompt do
   3. Check that you used available tools while useful work remained.
   4. Check facts and action claims against current source/action receipts.
   5. Write a concise, natural answer for this conversation.
-  6. Call validate_final with the exact JSON you plan to return.
+  6. Call validate_final with the exact JSON you plan to return inside its candidate argument:
+     {"candidate": {"decision_reason": null, "delivery": "reply", "message": "Your answer",
+      "outcome": {"state": "complete", "record_refs": [], "artifact_refs": []}}.
+     Replace the message and include the actual host-issued record and artifact refs. All four
+     candidate fields and all three outcome fields are required; empty ref lists are valid.
 
   Return exactly the candidate accepted by validate_final. If Coop or Responder rejects it, repair it in
   this same session and continue. Internal failures are not a reason to ask the user to start again.

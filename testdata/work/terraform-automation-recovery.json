@@ -1,0 +1,51 @@
+{
+  "source_input_ref": "ingress-input:b8bff9f3-731d-42b6-b011-87c309d9caea",
+  "recorded_at": "2026-09-09T03:07:34Z",
+  "invalid_validation_calls": [
+    {
+      "decision_reason": null,
+      "delivery": "reply",
+      "message": "The requested rule covers deployment readiness, Terraform plan changes plus before/after versions and a short Git diff summary, and watching applies through completion with a direct failure ping explaining the cause and proposed fix. Health checks must account for intentionally parked services.\n\nI couldn’t activate it because the required Responder automation tools aren’t available in this session. No monitoring or durable follow-up was configured.",
+      "outcome": {
+        "artifact_refs": [],
+        "record_refs": [],
+        "state": "complete"
+      }
+    },
+    {
+      "candidate": {
+        "delivery": "reply",
+        "decision_reason": null,
+        "message": "Prepared for confirmation: on pending Terraform deployments, check infrastructure readiness, summarize the plan and before/after versions with features and bug fixes from the Git diff, then monitor applies through completion. On failure, ping you directly with the cause and proposed fix. Intentionally parked services will be accounted for.\n\nThe automation is proposed, not yet active."
+      }
+    }
+  ],
+  "accepted_candidate": {
+    "decision_reason": null,
+    "delivery": "reply",
+    "message": "Prepared for confirmation: on pending Terraform deployments, check infrastructure readiness, summarize the plan and before/after versions with features and bug fixes from the Git diff, then monitor applies through completion. On failure, ping you directly with the cause and proposed fix. Intentionally parked services will be accounted for.\n\nThe automation is proposed, not yet active.",
+    "outcome": {
+      "artifact_refs": [],
+      "record_refs": [
+        "record:standing_assignment_offer:2de3c1cc218ec170e61c3081e2161fff"
+      ],
+      "state": "complete"
+    }
+  },
+  "automation_arguments": {
+    "proposals": [
+      {
+        "action": "create",
+        "catch_up": "skip",
+        "patch": {},
+        "title": "Terraform deployment readiness and apply monitoring",
+        "prompt": "When a new Terraform deployment is pending, check current infrastructure health against verified operator intent and deployed configuration; intentionally parked, disabled, or scale-to-zero services are not outages. Inspect the Terraform plan and summarize resource changes and before/after application versions. Compare the corresponding Git revisions and briefly summarize features and bug fixes being delivered. When a run is applying, monitor that exact run through its terminal outcome using durable waits with deadlines and fallback checks. If apply fails, directly ping the requesting user slack:user:U0BHTNFCW6S with the observed failure reasons and a proposed fix, distinguishing confirmed causes from uncertainty. Do not apply infrastructure changes.",
+        "trigger": {
+          "type": "source_event",
+          "source_kind": "terraform",
+          "filter": {}
+        }
+      }
+    ]
+  }
+}

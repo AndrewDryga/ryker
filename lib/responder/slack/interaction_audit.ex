@@ -15,7 +15,7 @@ defmodule Responder.Slack.InteractionAudit do
     field(:actor_ref, :string)
     field(:action_id, :string)
     field(:action_value_digest, :string)
-    field(:outcome, Ecto.Enum, values: [:denied, :invalid])
+    field(:outcome, Ecto.Enum, values: [:denied, :invalid, :confirmed])
     field(:repaint_status, Ecto.Enum, values: [:none, :pending, :settled, :blocked])
     field(:attempt_count, :integer, default: 0)
     field(:next_attempt_at, :utc_datetime_usec)

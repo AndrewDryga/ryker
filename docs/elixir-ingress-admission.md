@@ -258,6 +258,12 @@ failures retain the original operation key for reconciliation. An interrupted or
 or an operation whose outcome Coop cannot prove, leaves explicit blocked custody instead of silently
 replaying an unsafe mutation.
 
+A terminal failed model turn also blocks immediately: Coop has already finished its own provider
+recovery, so automatically resubmitting the frozen request cannot repair its configuration or account.
+The input retains the provider's actual error and the next safe execution generation for an explicit
+operator retry after repair. A transport timeout while a turn is still running keeps its existing
+operation identity and remains retryable.
+
 ## Generic model decision
 
 The provider receives one bounded prompt containing:

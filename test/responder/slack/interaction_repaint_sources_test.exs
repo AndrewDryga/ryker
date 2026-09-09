@@ -134,6 +134,60 @@ defmodule Responder.Slack.InteractionRepaintSourcesTest do
     assert record["payload"] == fixture.record.payload
   end
 
+  test "confirmation repaint removes obsolete proposal prose without rewriting the accepted answer" do
+    # The real Terraform reply kept saying not yet active after its confirmation.
+    # The historical answer stays immutable; only its live Slack projection changes.
+    captured = Jason.decode!(File.read!("testdata/work/terraform-automation-recovery.json"))
+    fixture = fixture!(:structured)
+    record = fixture.record
+    proposal = hd(captured["automation_arguments"]["proposals"])
+
+    payload = %{
+      "catch_up" => proposal["catch_up"],
+      "context_channel" => fixture.claim.episode.destination_conversation_ref,
+      "delivery_channel" => fixture.claim.episode.destination_conversation_ref,
+      "expires_at" => nil,
+      "filter" => proposal["trigger"]["filter"],
+      "hold" => nil,
+      "repository" => nil,
+      "source_kind" => proposal["trigger"]["source_kind"],
+      "task" => proposal["prompt"],
+      "title" => proposal["title"]
+    }
+
+    # Structural replay: retain the recorded model content, rebind only fixture custody.
+    record
+    |> Ecto.Changeset.change(
+      kind: "standing_assignment_offer",
+      payload: payload,
+      payload_fingerprint: CanonicalJSON.digest(payload),
+      status: :confirmed,
+      confirmed_at: DateTime.utc_now(),
+      confirmed_by_actor_ref: "slack:user:fixture",
+      confirmation_ref: "interaction:recorded-confirmation"
+    )
+    |> Repo.update!()
+
+    candidate = put_in(captured["accepted_candidate"], ["outcome", "record_refs"], [record.ref])
+
+    turn =
+      fixture.turn
+      |> Ecto.Changeset.change(
+        delivery_document: candidate,
+        delivery_fingerprint: CanonicalJSON.digest(candidate)
+      )
+      |> Repo.update!()
+
+    assert :ok = repaint(fixture.audit)
+    assert_received {:updated, _, _, document, _}
+    assert document["message"] =~ "Confirmation saved"
+    refute document["message"] =~ "not yet active"
+    assert {:ok, rendered} = Renderer.render(document)
+    assert inspect(rendered) =~ "Automation confirmed"
+    refute inspect(rendered) =~ "Enable automation"
+    assert Repo.get!(Turn, turn.id).delivery_document == candidate
+  end
+
   test "unsupported retained reply shapes still fail without publishing" do
     fixture = fixture!(:simple)
 

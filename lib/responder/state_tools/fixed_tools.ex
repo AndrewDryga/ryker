@@ -6,6 +6,7 @@ defmodule Responder.StateTools.FixedTools do
   alias Responder.Artifacts.Outputs
   alias Responder.CanonicalJSON
   alias Responder.Delivery.{PlatformActionCustody, Presentation}
+  alias Responder.Ingress.Adapters, as: IngressAdapters
   alias Responder.Repo
   alias Responder.Slack.{ChannelMembership, Mentions}
 
@@ -25,6 +26,7 @@ defmodule Responder.StateTools.FixedTools do
   @contract_version "responder-state:v1"
   @confirmation_tools ~w(propose_automation propose_memory request_task)
   @maximum_automation_proposals 4
+  @source_kinds IngressAdapters.default() |> Map.keys() |> Enum.sort()
   @names ~w(
     get_work_state
     cite_source
@@ -662,7 +664,22 @@ defmodule Responder.StateTools.FixedTools do
       else: {:error, :invalid_repository_reference}
   end
 
+  defp schema_error("validate_final", _arguments, _schema),
+    do: {:error, :invalid_final_arguments}
+
+  defp schema_error("propose_automation", %{"proposals" => proposals}, _schema)
+       when is_list(proposals) do
+    if Enum.any?(proposals, &unsupported_automation_source?/1),
+      do: {:error, :invalid_automation_source},
+      else: {:error, :invalid_arguments}
+  end
+
   defp schema_error(_name, _arguments, _schema), do: {:error, :invalid_arguments}
+
+  defp unsupported_automation_source?(%{"trigger" => %{"type" => "source_event"} = trigger}),
+    do: trigger["source_kind"] not in @source_kinds
+
+  defp unsupported_automation_source?(_proposal), do: false
 
   defp valid_schema_value?(%{"anyOf" => schemas}, value),
     do: Enum.any?(schemas, &valid_schema_value?(&1, value))
@@ -905,6 +922,14 @@ defmodule Responder.StateTools.FixedTools do
 
   defp error_code(:unauthorized), do: "unauthorized"
   defp error_code(:invalid_arguments), do: "invalid_arguments"
+
+  defp error_code(:invalid_automation_source),
+    do:
+      "invalid_arguments: source_kind must name an authenticated input adapter: github, slack, or webhook. Terraform and Grafana are vendors, not input adapters. A notification posted in Slack uses slack. Read a real matching notification before choosing its exact content filter; do not invent filter fields or silently subscribe to every message."
+
+  defp error_code(:invalid_final_arguments),
+    do:
+      ~s(invalid_arguments: validate_final requires {"candidate":{"decision_reason":null,"delivery":"reply","message":"Your answer","outcome":{"state":"complete","record_refs":[],"artifact_refs":[]}}}. Keep the candidate wrapper and every outcome field. Use the actual host-issued refs. For delivery none, message must be null and decision_reason must explain the silence. Nothing was accepted; correct the call before returning.)
 
   defp error_code(:task_repository_required),
     do:
@@ -1243,7 +1268,7 @@ defmodule Responder.StateTools.FixedTools do
   defp validate_final_tool do
     tool(
       "validate_final",
-      "Preflight the exact final candidate against current host-owned state.",
+      "Preflight the complete final candidate against current host-owned state. Pass one candidate object containing decision_reason, delivery, message, and outcome; outcome requires state, record_refs, and artifact_refs. Return only the accepted candidate unchanged.",
       %{
         "candidate" => Final.json_schema()
       }
@@ -1260,9 +1285,19 @@ defmodule Responder.StateTools.FixedTools do
         "at" => timestamp(),
         "day" => integer(1, 31),
         "every_seconds" => integer(300, 31_536_000),
-        "filter" => %{"additionalProperties" => true, "type" => "object"},
+        "filter" => %{
+          "additionalProperties" => true,
+          "type" => "object",
+          "description" =>
+            "Exact recursive subset of the observed input.content payload. Read a real matching event to choose stable fields. This is not a text search or query language; an empty filter matches every event from this input adapter in the bound channel."
+        },
         "recurrence" => enum(~w(once interval daily weekly monthly)),
-        "source_kind" => reference(120),
+        "source_kind" =>
+          Map.put(
+            enum(@source_kinds),
+            "description",
+            "Exact input envelope source.kind, not a vendor mentioned inside it. Terraform and Grafana notifications posted to Slack use slack. Derive the filter from an observed event, not its vendor name."
+          ),
         "starts_at" => nullable(timestamp()),
         "time" => text(32),
         "timezone" => text(128),
