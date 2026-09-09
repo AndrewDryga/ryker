@@ -3,6 +3,18 @@ defmodule Responder.Work.PromptTest do
 
   alias Responder.Work.Prompt
 
+  test "tool discovery explains the generic MCP caller and a valid bounded automation lookup" do
+    # The Sep 9 live check claimed tools were missing despite an available
+    # generic MCP caller, then guessed limit 100 and spent another correction.
+    recorded = File.read!("testdata/work/automation-tool-discovery.json") |> Jason.decode!()
+    instructions = Prompt.build(%{}) |> Jason.decode!() |> Map.fetch!("instructions")
+    assert instructions =~ "generic MCP caller"
+    assert instructions =~ "Read the tool's input schema before choosing other arguments"
+    assert [_, example] = Regex.run(~r/Generic MCP call example: (.+)/, instructions)
+    assert Jason.decode!(example) == recorded["generic_list_call"]
+    refute instructions =~ "Use the named tools in\nwork.responder_state_tools directly"
+  end
+
   test "an automation offer has an explicit tool path and a complete final-call example" do
     # The Sep 9 Terraform request searched MCP resources, claimed its tools were
     # missing, and then spent two corrections guessing the final-call shape.

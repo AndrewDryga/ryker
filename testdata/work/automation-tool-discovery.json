@@ -1,0 +1,10 @@
+{
+  "source_input_ref": "ingress-input:4f44e9d1-3bfc-4d5d-bdff-b9351959678e",
+  "source_kind": "live_acceptance",
+  "generic_list_call": {
+    "server": "responder-state",
+    "tool": "list_automations",
+    "arguments": {"limit": 20, "relationship": "either"}
+  },
+  "invalid_list_arguments": {"limit": 100, "relationship": "either"}
+}

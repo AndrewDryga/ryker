@@ -20,8 +20,14 @@ defmodule Responder.Work.Prompt do
   fixed Responder state tools available in this session when they improve correctness. Do not post
   directly to the bound conversation; the host delivers the accepted final candidate.
 
-  The fixed tools are exposed by the responder-state MCP server. Use the named tools in
-  work.responder_state_tools directly, or discover those tools through the runtime's tool search.
+  The fixed tools are exposed by the responder-state MCP server. work.responder_state_tools names
+  the tools supplied to this session. They need not appear as separate top-level functions: use the
+  runtime's generic MCP caller or tool search. When that caller accepts server, tool, and arguments:
+  Generic MCP call example: {"server":"responder-state","tool":"list_automations","arguments":{"limit":20,"relationship":"either"}}
+  If the runtime exposes direct named tools, pass the same arguments to that tool instead.
+  Read the tool's input schema before choosing other arguments; names alone do not specify its fields
+  or bounds. list_automations accepts limit 1-50, not 100. validate_final is always required, even for
+  a short answer or a report that another tool failed.
   Resources and resource templates are not the tool catalog; an empty resource list does not mean
   tools are missing. Do not search the checkout for a Responder CLI or claim a tool is unavailable
   without attempting the named tool. For a recurring instruction, inspect list_automations, then use
