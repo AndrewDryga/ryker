@@ -618,6 +618,9 @@ defmodule Responder.CoopFleet.ControlPlane do
           session_events?
         )
 
+      :late_session_activity ->
+        apply_fresh_event_batch(placement, events, cursor, last_sequence, session_events?)
+
       :fresh ->
         apply_fresh_event_batch(placement, events, cursor, last_sequence, session_events?)
 
@@ -646,9 +649,11 @@ defmodule Responder.CoopFleet.ControlPlane do
          cursor,
          _now
        ) do
-    if terminal_workspace_discard?(placement, events),
-      do: :terminal_cleanup,
-      else: :unauthorized
+    cond do
+      terminal_workspace_discard?(placement, events) -> :terminal_cleanup
+      bound_session_activity?(placement, events) -> :late_session_activity
+      true -> :unauthorized
+    end
   end
 
   defp event_batch_disposition(placement, cursor, _last_sequence, _events, cursor, now) do
@@ -779,6 +784,21 @@ defmodule Responder.CoopFleet.ControlPlane do
   end
 
   defp terminal_workspace_discard?(_placement, _events), do: false
+
+  defp bound_session_activity?(placement, [_event | _rest] = events) do
+    case Repo.get(Session, placement.session_id) do
+      %Session{coop_session_id: remote_id} when is_binary(remote_id) ->
+        Enum.all?(events, fn
+          %{"kind" => "session_event", "payload" => %{"session_id" => ^remote_id}} -> true
+          _other -> false
+        end)
+
+      _unbound_or_missing ->
+        false
+    end
+  end
+
+  defp bound_session_activity?(_placement, _events), do: false
 
   defp insert_event!(placement, event) do
     fingerprint = event_fingerprint(event)
