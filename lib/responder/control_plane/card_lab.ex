@@ -104,7 +104,12 @@ defmodule Responder.ControlPlane.CardLab do
   end
 
   defp isolate_controls(value) when is_binary(value) do
-    value |> String.replace("<!", "&lt;!") |> String.replace("<@", "&lt;@")
+    value
+    |> String.replace(
+      ~r/<!(?!date\^\d+\^\{date_short_pretty\} at \{time\}\|\d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC>)/,
+      "&lt;!"
+    )
+    |> String.replace("<@", "&lt;@")
   end
 
   defp isolate_controls(value), do: value
@@ -848,14 +853,38 @@ defmodule Responder.ControlPlane.CardLab do
       ),
       record_state(
         "event",
-        "External event wait",
-        "The episode is waiting for a matching external observation.",
+        "Timed event wait",
+        "Localized next check and monitoring deadline; verification instructions remain in the episode.",
         "event_wait",
         %{
           "deadline_at" => "2099-09-05T12:00:00.000000Z",
-          "event_matcher" => %{"deployment" => "responder"},
+          "event_matcher" => %{
+            "type" => "source_event",
+            "source_kind" => "slack",
+            "match" => %{"deployment" => "responder"},
+            "poll_after" => "2099-09-04T12:30:00Z",
+            "on_timeout" => "Check the exact deployment."
+          },
           "kind" => "deployment_health",
           "verification" => "Verify the new allocation is healthy."
+        }
+      ),
+      record_state(
+        "event-only",
+        "Notification-only watch",
+        "No timer footer or activity indicator while waiting for a configured lifecycle notification.",
+        "event_wait",
+        %{
+          "deadline_at" => nil,
+          "kind" => "source_event",
+          "event_matcher" => %{
+            "type" => "source_event",
+            "source_kind" => "slack",
+            "match" => %{"run_id" => "run-k9CpPp3nWjQrkCMG"},
+            "poll_after" => nil,
+            "on_timeout" => nil
+          },
+          "verification" => "Check the exact run when its lifecycle notification arrives."
         }
       ),
       record_state(
@@ -884,6 +913,7 @@ defmodule Responder.ControlPlane.CardLab do
          "observation" => "The API probe is ready.",
          "relation" => nil,
          "source_name" => "production probe",
+         "source_id" => "https://example.com/probe",
          "source_type" => "monitoring"
        }},
       {"evidence-contradicts",
@@ -1033,7 +1063,7 @@ defmodule Responder.ControlPlane.CardLab do
     family(
       "investigation-record",
       "Investigation records",
-      "Every inert evidence, coverage, finding, goal, and assessment state.",
+      "Audit records stay in the episode. Slack shows self-contained prose and concise source links.",
       :message,
       sequence(records ++ confirmed)
     )
@@ -1255,7 +1285,7 @@ defmodule Responder.ControlPlane.CardLab do
       record_state(
         id,
         humanize(id),
-        "Inert #{humanize(kind)} record.",
+        "Audit-only #{humanize(kind)} record; no raw record dump is appended to Slack.",
         kind,
         payload,
         status

@@ -462,6 +462,7 @@ defmodule Responder.ControlPlane.Projection do
            },
            events: events,
            records: records,
+           related_episodes: related_episodes(episode),
            accounting: accounting,
            trace: trace
          }}
@@ -469,6 +470,43 @@ defmodule Responder.ControlPlane.Projection do
   end
 
   def episode(_ref), do: :not_found
+
+  defp related_episodes(episode) do
+    related =
+      Repo.all(
+        from(other in Episode,
+          where: other.destination_transport == ^episode.destination_transport,
+          where: other.destination_conversation_ref == ^episode.destination_conversation_ref,
+          where:
+            other.linked_episode_id == ^episode.id or
+              other.id == ^(episode.linked_episode_id || episode.id),
+          where: other.id != ^episode.id,
+          order_by: [asc: other.inserted_at, asc: other.id],
+          limit: 21
+        )
+      )
+
+    titles = Activity.request_titles(Enum.map(related, & &1.key))
+
+    %{
+      truncated: length(related) > 20,
+      items:
+        Enum.map(Enum.take(related, 20), fn other ->
+          %{
+            ref: other.key,
+            title: get_in(titles, [other.key, :title]) || "Earlier request",
+            href: "/episodes/" <> URI.encode_www_form(other.key),
+            at: other.inserted_at,
+            state: other.state,
+            relation:
+              if(other.id == episode.linked_episode_id,
+                do: "Previous episode",
+                else: "Follow-up episode"
+              )
+          }
+        end)
+    }
+  end
 
   def failures(_params) do
     work =

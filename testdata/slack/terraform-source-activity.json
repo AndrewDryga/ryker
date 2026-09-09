@@ -1,0 +1,18 @@
+{
+  "input": {
+    "tool": "run_action",
+    "server": "emisar",
+    "arguments": {
+      "args": {"run_id": "run-k9CpPp3nWjQrkCMG"},
+      "wait": "30s",
+      "reason": "Review exact saved deployment plan resource changes.",
+      "pack_ref": "hcp-terraform@0.8.5/sha256:cd42867c0e8237d86308dd01b99b9bd9db46a1134aa1a7b20b18f952c0667766",
+      "action_id": "tfc.plan_summary",
+      "runner_refs": ["emisar-p49n~2d22339d47ca0dab82e5274195106683"]
+    }
+  },
+  "status": "completed",
+  "output": {"result": {"structuredContent": {"runs": [
+    {"run_id": "01a085b2-310a-7f88-8b05-138e306c7555", "run_url": "https://emisar.dev/app/emisar/runs/01a085b2-310a-7f88-8b05-138e306c7555"}
+  ]}}}
+}

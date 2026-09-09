@@ -930,8 +930,9 @@ defmodule Responder.Slack.RendererTest do
              {"responder_answer_input", "record:input_request:abc123|1"}
            ]
 
-    assert wait["text"]["text"] =~ "Verify the new allocation is healthy."
-    assert wait["text"]["text"] =~ "2026-08-29T12:00:00.000000Z"
+    refute inspect(wait) =~ "Verify the new allocation is healthy."
+    assert inspect(wait) =~ "Monitoring deadline <!date^"
+    assert inspect(wait) =~ "2026-08-29 12:00 UTC"
     refute inspect(rendered) =~ ~s("deployment" => "responder")
   end
 
@@ -1021,7 +1022,7 @@ defmodule Responder.Slack.RendererTest do
     assert Enum.map_join(rendered["blocks"], "", &get_in(&1, ["text", "text"])) == message
   end
 
-  test "renders investigation records as escaped inert status sections" do
+  test "investigation records remain audit-only without hiding the self-contained reply" do
     records = [
       record("evidence", %{
         "claim_id" => "api.health",
@@ -1071,14 +1072,10 @@ defmodule Responder.Slack.RendererTest do
     assert {:ok, rendered} =
              Renderer.render(%{"message" => "Current investigation state.", "records" => records})
 
-    assert length(rendered["blocks"]) == 8
+    assert length(rendered["blocks"]) == 2
+    assert inspect(rendered) =~ "production &amp; probe (source link unavailable)"
     refute inspect(rendered) =~ "action_id"
-    assert inspect(rendered) =~ "&lt;API&gt;"
-    assert inspect(rendered) =~ "production &amp; probe"
-    assert inspect(rendered) =~ "Alert assessment · unverified"
-    assert inspect(rendered) =~ "Parent: verify-service"
-    assert inspect(rendered) =~ "Prerequisites: check-api"
-    assert inspect(rendered) =~ "Read-only repositories: runbooks"
+    assert rendered["text"] == "Current investigation state."
   end
 
   test "renders every durable setup state without inventing configuration authority" do

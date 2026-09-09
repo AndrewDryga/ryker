@@ -10,7 +10,7 @@ defmodule Responder.Delivery.Presentation do
   alias Responder.ControlPlane.Card, as: ControlPlaneCard
   alias Responder.Episodes.Episode
   alias Responder.GitHub.Renderer, as: GitHubRenderer
-  alias Responder.Slack.{Mentions, Renderer}
+  alias Responder.Slack.{Mentions, Renderer, ReplyRecords}
   alias Responder.State.Records
   alias Responder.Work.Final
 
@@ -21,27 +21,15 @@ defmodule Responder.Delivery.Presentation do
       when is_binary(turn_id) do
     with {:ok, records} <- Records.fetch_for_episode(episode.id, final.record_refs),
          :ok <- validate_native_records(episode, records) do
-      render(episode, document(final, records))
+      render(episode, %{
+        "message" => final.message,
+        "records" => ReplyRecords.documents(episode.destination_transport, episode.id, records)
+      })
     end
   end
 
   def validate(_episode, _turn_id, _final),
     do: {:error, {:invalid_delivery_presentation, :document}}
-
-  defp document(final, records) do
-    %{
-      "message" => final.message,
-      "records" =>
-        Enum.map(records, fn record ->
-          %{
-            "kind" => record.kind,
-            "payload" => record.payload,
-            "ref" => record.ref,
-            "status" => Atom.to_string(record.status)
-          }
-        end)
-    }
-  end
 
   defp render(%Episode{destination_transport: "slack"} = episode, document) do
     case Renderer.render(Map.put(document, "slack_mentions", Mentions.authority(episode))) do

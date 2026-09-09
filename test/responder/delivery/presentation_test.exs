@@ -41,7 +41,7 @@ defmodule Responder.Delivery.PresentationTest do
              {:error, {:invalid_delivery_presentation, :document}}
   end
 
-  test "Slack refuses a final whose durable records exceed its block limit" do
+  test "audit retention does not spend Slack interactive-card capacity or force a retry" do
     claim = claim!("slack-block-limit", "slack")
 
     refs =
@@ -61,8 +61,8 @@ defmodule Responder.Delivery.PresentationTest do
         record.ref
       end)
 
-    assert Presentation.validate(claim.episode, claim.turn.id, final!(:reply, refs)) ==
-             {:error, {:invalid_delivery_presentation, {:invalid_slack_render, :records}}}
+    assert :ok = Presentation.validate(claim.episode, claim.turn.id, final!(:reply, refs))
+    assert length(Records.retained_records(claim.episode.id)) == 51
   end
 
   test "Conversation Lab refuses a cited record its native card cannot safely project" do

@@ -134,6 +134,8 @@ defmodule Responder.StateTools.RouterTest do
              Records.retained_records(claim.episode.id)
 
     assert payload["target"] == "Exact phrase search results for Emisar MCP"
+    assert payload["source_name"] == payload["source_id"]
+    assert payload["source_id"] == "admit_input:current-message"
   end
 
   test "an investigation can save a source-linked finding without sending a reply" do

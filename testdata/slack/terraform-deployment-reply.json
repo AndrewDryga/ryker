@@ -1,0 +1,289 @@
+{
+  "source": {
+    "turn_id": "76464e2b-95c6-4f4d-8c5d-326d651272b9",
+    "episode_id": "55d09539-1394-4ede-95f1-4f5bcb82c5e1",
+    "accepted_at": "2026-09-09T10:27:30.776978"
+  },
+  "records": [
+    {
+      "ref": "record:evidence:2215bc2a6f6f3503c1f2ea8821e03395",
+      "kind": "evidence",
+      "status": "open",
+      "payload": {
+        "claim": "Saved Terraform plan",
+        "target": "Saved Terraform plan",
+        "claim_id": "citation:16008490ae65caf8c6e408526f96a8da",
+        "relation": "supports",
+        "freshness": null,
+        "source_id": "01a085b2-310a-7f88-8b05-138e306c7555",
+        "confidence": null,
+        "dimensions": {},
+        "scope_note": null,
+        "supersedes": [],
+        "observation": "One instance-template replacement, one managed-instance-group update, and container_image output change; five drift entries, two omitted from bounded summary.",
+        "observed_at": null,
+        "source_name": "01a085b2-310a-7f88-8b05-138e306c7555",
+        "source_type": "other",
+        "health_effect": null
+      }
+    },
+    {
+      "ref": "record:evidence:3d8b7ecffb60e27331e3ba7313fda458",
+      "kind": "evidence",
+      "status": "open",
+      "payload": {
+        "claim": "Terraform run status",
+        "target": "Terraform run status",
+        "claim_id": "citation:242f7a2772503cf18cabfd03e999a447",
+        "relation": "supports",
+        "freshness": null,
+        "source_id": "01a085b1-fdd8-7de3-b3bc-e9943f2a0a65",
+        "confidence": null,
+        "dimensions": {},
+        "scope_note": null,
+        "supersedes": [],
+        "observation": "At 10:23 UTC run-k9CpPp3nWjQrkCMG was planned_and_saved and confirmable; target main revision 3376639b89c540d3742f2b17900dbdd6403bfb4d.",
+        "observed_at": null,
+        "source_name": "01a085b1-fdd8-7de3-b3bc-e9943f2a0a65",
+        "source_type": "other",
+        "health_effect": null
+      }
+    },
+    {
+      "ref": "record:evidence:b90bcd3b3415fd3b54678480ab3ac766",
+      "kind": "evidence",
+      "status": "open",
+      "payload": {
+        "claim": "Deployed portal MIG",
+        "target": "Deployed portal MIG",
+        "claim_id": "citation:dd22b668a0c5d8744d9a106c2f0553ec",
+        "relation": "supports",
+        "freshness": null,
+        "source_id": "01a085b2-ad84-73b3-9088-4af8e87fbb64",
+        "confidence": null,
+        "dimensions": {},
+        "scope_note": null,
+        "supersedes": [],
+        "observation": "At 10:24 UTC deployed emisar MIG target size 2, stable and version target reached; proactive replacement policy has maxUnavailable 0 and maxSurge 2.",
+        "observed_at": null,
+        "source_name": "01a085b2-ad84-73b3-9088-4af8e87fbb64",
+        "source_type": "other",
+        "health_effect": null
+      }
+    },
+    {
+      "ref": "record:evidence:b4cbaf9e4a2c08d02beab5513142a122",
+      "kind": "evidence",
+      "status": "open",
+      "payload": {
+        "claim": "Cloud SQL readiness",
+        "target": "Cloud SQL readiness",
+        "claim_id": "citation:8e829b4468e2b7676b2e3081f667b58e",
+        "relation": "supports",
+        "freshness": null,
+        "source_id": "01a085b2-cce8-78f5-85bd-2a57483f3f8c",
+        "confidence": null,
+        "dimensions": {},
+        "scope_note": null,
+        "supersedes": [],
+        "observation": "At 10:24 UTC emisar Cloud SQL is RUNNABLE; automated backups and point-in-time recovery enabled. Backup completion has not yet been checked.",
+        "observed_at": null,
+        "source_name": "01a085b2-cce8-78f5-85bd-2a57483f3f8c",
+        "source_type": "other",
+        "health_effect": null
+      }
+    },
+    {
+      "ref": "record:evidence:ea93d4b32e71fc202c5281510f0fa166",
+      "kind": "evidence",
+      "status": "open",
+      "payload": {
+        "claim": "Portal serving readiness",
+        "target": "Portal serving readiness",
+        "claim_id": "citation:278a8437481db3c0991f49b8862c668a",
+        "relation": "supports",
+        "freshness": null,
+        "source_id": "01a085b3-9099-7a15-848b-dc30c483c758",
+        "confidence": null,
+        "dimensions": {},
+        "scope_note": null,
+        "supersedes": [],
+        "observation": "At 10:25 UTC both deployed portal endpoints emisar-w9w9 and emisar-p49n were HEALTHY in the portal backend service.",
+        "observed_at": null,
+        "source_name": "01a085b3-9099-7a15-848b-dc30c483c758",
+        "source_type": "other",
+        "health_effect": null
+      }
+    },
+    {
+      "ref": "record:evidence:3a9ae1daba6de8b7aff4598a8efc5f23",
+      "kind": "evidence",
+      "status": "open",
+      "payload": {
+        "claim": "Before and after deployment revisions",
+        "target": "Before and after deployment revisions",
+        "claim_id": "citation:ea8f31557927c9cda64d97b7662c78a9",
+        "relation": "supports",
+        "freshness": null,
+        "source_id": "01a085b3-a935-7b03-ad5c-1bf34d63a46b",
+        "confidence": null,
+        "dimensions": {},
+        "scope_note": null,
+        "supersedes": [],
+        "observation": "Latest applied Terraform run run-1WN6WZDQJzW1kxiw names main 469c443d42c9a6cd934f199221262b4337d8c16e. Pending run run-k9CpPp3nWjQrkCMG names main 3376639b89c540d3742f2b17900dbdd6403bfb4d and remains planned_and_saved. These are run-message revisions, not a direct running-image measurement.",
+        "observed_at": null,
+        "source_name": "01a085b3-a935-7b03-ad5c-1bf34d63a46b",
+        "source_type": "other",
+        "health_effect": null
+      }
+    },
+    {
+      "ref": "record:event_wait:b7c3db1181e2c793fc58a00a27602ca7",
+      "kind": "event_wait",
+      "status": "open",
+      "payload": {
+        "kind": "source_event",
+        "deadline_at": "2026-09-10T10:30:00Z",
+        "verification": "Read tfc.run_details for exact run run-k9CpPp3nWjQrkCMG; monitor through terminal outcome, diagnose an apply error and ping requesting user. Recheck portal readiness after apply. If event matching misses a Slack edit, timer forces the same exact-run check.",
+        "event_matcher": {
+          "type": "source_event",
+          "match": {
+            "bot_id": "B0BHPQTBMA7",
+            "attachments": [
+              {
+                "title": "Run run-k9CpPp3nWjQrkCMG",
+                "title_link": "https://app.terraform.io/app/Dryga/emisar/runs/run-k9CpPp3nWjQrkCMG"
+              }
+            ]
+          },
+          "on_timeout": "Recheck exact run run-k9CpPp3nWjQrkCMG through tfc.run_details. If still awaiting confirmation, report unchanged pending state; if applying continue bounded monitoring; if errored diagnose through tfc.run_diagnostics and ping slack:user:U0BHTNFCW6S with confirmed reasons and proposed fix. Never apply.",
+          "poll_after": "2026-09-09T10:45:00Z",
+          "source_kind": "slack"
+        }
+      }
+    },
+    {
+      "ref": "record:evidence:9f1da1c6f67741c8f54739a3c7f885d4",
+      "kind": "evidence",
+      "status": "open",
+      "payload": {
+        "claim": "Latest database backup",
+        "target": "Latest database backup",
+        "claim_id": "citation:ea0be389114665c2127a7d39ce5008ec",
+        "relation": "supports",
+        "freshness": null,
+        "source_id": "01a085b4-3eb0-7524-bcc4-196677a9cb24",
+        "confidence": null,
+        "dimensions": {},
+        "scope_note": null,
+        "supersedes": [],
+        "observation": "Latest automated Cloud SQL backup SUCCESSFUL, finished 2026-09-09T03:09:17.777Z; preceding daily backup also successful.",
+        "observed_at": null,
+        "source_name": "01a085b4-3eb0-7524-bcc4-196677a9cb24",
+        "source_type": "other",
+        "health_effect": null
+      }
+    },
+    {
+      "ref": "record:finding:6f62cee265afd7eda78591bfad0480b0",
+      "kind": "finding",
+      "status": "open",
+      "payload": {
+        "what": "Saved portal deployment awaits confirmation. Readiness checks show two healthy portal endpoints, stable MIG at deployed target with zero-unavailable update policy, RUNNABLE database and successful latest backup. Plan changes one instance template by replacement and one MIG by update, with container_image output changing; no standalone resource deletions or database changes. Five refresh drift entries are reported, with only three named by the bounded summary; drift attribute values and image digests are unavailable. Run messages establish latest-applied revision 469c443d4 and pending revision 3376639b8; direct running-image revision remains unverified.",
+        "scope": "Dryga/emisar run-k9CpPp3nWjQrkCMG",
+        "reason": null,
+        "status": "explained",
+        "cause_evidence": [
+          "record:evidence:2215bc2a6f6f3503c1f2ea8821e03395",
+          "record:evidence:3d8b7ecffb60e27331e3ba7313fda458",
+          "record:evidence:b90bcd3b3415fd3b54678480ab3ac766",
+          "record:evidence:b4cbaf9e4a2c08d02beab5513142a122",
+          "record:evidence:ea93d4b32e71fc202c5281510f0fa166",
+          "record:evidence:3a9ae1daba6de8b7aff4598a8efc5f23"
+        ]
+      }
+    }
+  ],
+  "receipts": [
+    {
+      "run_id": "01a085b1-fdd8-7de3-b3bc-e9943f2a0a65",
+      "run_url": "https://emisar.dev/app/emisar/runs/01a085b1-fdd8-7de3-b3bc-e9943f2a0a65",
+      "action_id": "tfc.run_details"
+    },
+    {
+      "run_id": "01a085b2-310a-7f88-8b05-138e306c7555",
+      "run_url": "https://emisar.dev/app/emisar/runs/01a085b2-310a-7f88-8b05-138e306c7555",
+      "action_id": "tfc.plan_summary"
+    },
+    {
+      "run_id": "01a085b3-9099-7a15-848b-dc30c483c758",
+      "run_url": "https://emisar.dev/app/emisar/runs/01a085b3-9099-7a15-848b-dc30c483c758",
+      "action_id": "gcp.backend_health"
+    },
+    {
+      "run_id": "01a085b4-3eb0-7524-bcc4-196677a9cb24",
+      "run_url": "https://emisar.dev/app/emisar/runs/01a085b4-3eb0-7524-bcc4-196677a9cb24",
+      "action_id": "gcp.sql_backups"
+    },
+    {
+      "run_id": "01a085b2-cce8-78f5-85bd-2a57483f3f8c",
+      "run_url": "https://emisar.dev/app/emisar/runs/01a085b2-cce8-78f5-85bd-2a57483f3f8c",
+      "action_id": "gcp.sql_instance_describe"
+    },
+    {
+      "run_id": "01a085b2-ad84-73b3-9088-4af8e87fbb64",
+      "run_url": "https://emisar.dev/app/emisar/runs/01a085b2-ad84-73b3-9088-4af8e87fbb64",
+      "action_id": "gcp.mig_health"
+    },
+    {
+      "run_id": "01a085b3-5b4c-708e-8d84-dbd8358f4b03",
+      "run_url": "https://emisar.dev/app/emisar/runs/01a085b3-5b4c-708e-8d84-dbd8358f4b03",
+      "action_id": "gcp.backend_services"
+    },
+    {
+      "run_id": "01a085c5-ed56-712f-9414-ff2bfa7356b7",
+      "run_url": "https://emisar.dev/app/emisar/runs/01a085c5-ed56-712f-9414-ff2bfa7356b7",
+      "action_id": "tfc.run_details"
+    },
+    {
+      "run_id": "01a085e1-489d-7f9b-bbc0-95aff63d9654",
+      "run_url": "https://emisar.dev/app/emisar/runs/01a085e1-489d-7f9b-bbc0-95aff63d9654",
+      "action_id": "tfc.run_details"
+    },
+    {
+      "run_id": "01a08618-757b-71fc-ac97-f498bec2f149",
+      "run_url": "https://emisar.dev/app/emisar/runs/01a08618-757b-71fc-ac97-f498bec2f149",
+      "action_id": "gcp.mig_health"
+    },
+    {
+      "run_id": "01a08618-640b-7c38-8f88-180fbe5b603a",
+      "run_url": "https://emisar.dev/app/emisar/runs/01a08618-640b-7c38-8f88-180fbe5b603a",
+      "action_id": "tfc.run_details"
+    },
+    {
+      "run_id": "01a08618-a10d-7c79-8a8e-12784864a696",
+      "run_url": "https://emisar.dev/app/emisar/runs/01a08618-a10d-7c79-8a8e-12784864a696",
+      "action_id": "gcp.backend_health"
+    }
+  ],
+  "candidate": {
+    "message": "[This run](https://app.terraform.io/app/Dryga/emisar/runs/run-k9CpPp3nWjQrkCMG) is planned and awaiting confirmation.\n\n• Readiness: both portal backends are healthy, the fleet is stable, Cloud SQL is runnable, and today’s automated backup succeeded. The deployed rollout policy permits zero unavailable instances. No blocker found in these checks.\n• Plan: replace the portal instance template and update its managed instance group; the container image changes. No database changes or standalone deletions. Five drift entries were reported; the summary exposes three monitor entries but hides attribute details and two entries.\n• Delivery: latest-applied run revision `469c443d4` → pending `3376639b8`. The Git diff improves Billing’s responsive layout, invoice empty states and header actions; unifies update indicators; adds OS-specific MCP update commands; and fixes controls inside tooltips. Exact image digests and the running app’s revision remain unverified.\n\nMonitoring is set for this exact run, with a fallback check at 10:45 UTC and a deadline tomorrow at 10:30 UTC. I’ll report its outcome and ping you with the cause and proposed fix if apply fails.",
+    "outcome": {
+      "state": "waiting_for_event",
+      "record_refs": [
+        "record:evidence:2215bc2a6f6f3503c1f2ea8821e03395",
+        "record:evidence:3d8b7ecffb60e27331e3ba7313fda458",
+        "record:evidence:b90bcd3b3415fd3b54678480ab3ac766",
+        "record:evidence:b4cbaf9e4a2c08d02beab5513142a122",
+        "record:evidence:ea93d4b32e71fc202c5281510f0fa166",
+        "record:evidence:3a9ae1daba6de8b7aff4598a8efc5f23",
+        "record:evidence:9f1da1c6f67741c8f54739a3c7f885d4",
+        "record:finding:6f62cee265afd7eda78591bfad0480b0",
+        "record:event_wait:b7c3db1181e2c793fc58a00a27602ca7"
+      ],
+      "artifact_refs": []
+    },
+    "delivery": "reply",
+    "decision_reason": null
+  }
+}

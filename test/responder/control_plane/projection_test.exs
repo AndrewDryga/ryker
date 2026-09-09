@@ -15,6 +15,7 @@ defmodule Responder.ControlPlane.ProjectionTest do
   alias Responder.Delivery.{PlatformAction, PlatformActionCustody}
   alias Responder.Episodes
   alias Responder.Episodes.Command
+  alias Responder.Episodes.Episode
   alias Responder.Fixtures.Episodes, as: EpisodeFixtures
   alias Responder.Ingress.Inbox
   alias Responder.Ingress.Inbox.Entry
@@ -53,6 +54,64 @@ defmodule Responder.ControlPlane.ProjectionTest do
   }
 
   @now ~U[2026-08-28 12:00:00.000000Z]
+
+  test "historically split lifecycle episodes expose their actual links without merging history" do
+    # Planning, Applying and Applied were three linked episodes before bot continuation was fixed.
+    id = Ecto.UUID.generate()
+
+    {:ok, planning} =
+      Episodes.apply(
+        EpisodeFixtures.admit_input(%{
+          episode_id: id,
+          episode_key: id,
+          native_input_id: id,
+          turn_ref: id
+        })
+      )
+
+    second = Ecto.UUID.generate()
+
+    {:ok, applying} =
+      Episodes.apply(
+        EpisodeFixtures.admit_input(%{
+          episode_id: second,
+          episode_key: second,
+          native_input_id: second,
+          turn_ref: second,
+          linked_episode_id: planning.episode.id
+        })
+      )
+
+    third = Ecto.UUID.generate()
+
+    {:ok, applied} =
+      Episodes.apply(
+        EpisodeFixtures.admit_input(%{
+          episode_id: third,
+          episode_key: third,
+          native_input_id: third,
+          turn_ref: third,
+          linked_episode_id: applying.episode.id
+        })
+      )
+
+    {:ok, snapshot} = Projection.episode(applying.episode.key)
+
+    assert Enum.map(snapshot.related_episodes.items, & &1.ref) == [
+             planning.episode.key,
+             applied.episode.key
+           ]
+
+    assert Enum.map(snapshot.related_episodes.items, & &1.relation) == [
+             "Previous episode",
+             "Follow-up episode"
+           ]
+
+    assert Enum.all?(snapshot.related_episodes.items, &(is_binary(&1.title) and &1.title != ""))
+
+    assert Repo.get!(Episode, applying.episode.id).linked_episode_id ==
+             planning.episode.id
+  end
 
   test "overview exposes admission phase counts and elapsed queue time" do
     assert {:ok, input} =

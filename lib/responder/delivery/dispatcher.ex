@@ -9,6 +9,7 @@ defmodule Responder.Delivery.Dispatcher do
 
   alias Responder.Artifacts.Outputs
   alias Responder.Delivery.{Adapters, PlatformActionCustody, ReactionCustody, Request}
+  alias Responder.Slack.ReplyRecords
   alias Responder.State.Records
   alias Responder.Work.Custody
 
@@ -91,7 +92,15 @@ defmodule Responder.Delivery.Dispatcher do
       document =
         if record_refs == [],
           do: %{"message" => message},
-          else: %{"message" => message, "records" => Enum.map(records, &record_document/1)}
+          else: %{
+            "message" => message,
+            "records" =>
+              ReplyRecords.documents(
+                claim.episode.destination_transport,
+                claim.episode.id,
+                records
+              )
+          }
 
       Request.new(%{
         artifacts: Enum.map(artifacts, &artifact_document/1),
@@ -136,15 +145,6 @@ defmodule Responder.Delivery.Dispatcher do
       {:ok, records} -> {:ok, records}
       {:error, _reason} -> {:error, {:invalid_delivery_message, :record_refs}}
     end
-  end
-
-  defp record_document(record) do
-    %{
-      "kind" => record.kind,
-      "payload" => record.payload,
-      "ref" => record.ref,
-      "status" => Atom.to_string(record.status)
-    }
   end
 
   defp artifact_document(artifact) do

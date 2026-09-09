@@ -101,6 +101,10 @@ defmodule Responder.ControlPlane.CardLabTest do
           refute json =~ ~s("action_id":"responder_)
           refute json =~ "<!channel>"
           refute json =~ "<!here>"
+
+          if Jason.encode!(state.rendered) =~ "<!date^" do
+            assert json =~ "<!date^", "#{card.id}/#{state.id} must retain native localized dates"
+          end
         else
           assert CardLab.slack_message(card.id, state.id) ==
                    {:error, :card_lab_requires_native_surface}
