@@ -555,22 +555,42 @@ defmodule Responder.CoopFleet.ClientTest do
     assert payload["submission_sha256"] == CanonicalJSON.digest(submission)
     refute inspect(payload) =~ data
 
-    assert {:ok, _resource} =
+    fence_command =
+      command!(session, "fence-artifact",
+        kind: "submit_turn",
+        payload: %{
+          "coop_session_id" => session.coop_session_id,
+          "expected_revision" => 3,
+          "submission" => submission,
+          "submission_sha256" => CanonicalJSON.digest(submission),
+          "turn_ref" => "turn-artifact"
+        },
+        key: "submit-artifact"
+      )
+
+    fence_command =
+      complete_command!(fence_command, :succeeded, %{
+        "operation" => %{
+          "id" => "operation-submit-artifact",
+          "method" => "SubmitTurn",
+          "state" => "succeeded"
+        }
+      })
+
+    assert {:ok, %{"id" => "operation-submit-artifact"}} =
              Client.fence_frozen_turn(
                client,
                session.coop_session_id,
-               "fence-artifact",
+               "submit-artifact",
                3,
                submission,
                nil,
                artifacts
              )
 
-    assert_receive {:fleet_command, ^session, "fence_operation", fence, "fence-artifact",
-                    _options}
-
-    assert fence["input_artifact_refs"] == [artifact.ref]
-    refute inspect(fence) =~ data
+    assert fence_command.payload["submission"]["input_artifact_refs"] == [artifact.ref]
+    refute inspect(fence_command.payload) =~ data
+    refute_receive {:fleet_command, _, "fence_operation", _, "submit-artifact", _}
 
     [input] = artifacts
     crossed = [Map.put(input, "sha256", String.duplicate("0", 64))]
@@ -597,18 +617,10 @@ defmodule Responder.CoopFleet.ClientTest do
       "token" => String.duplicate("a", 64) <> String.duplicate("t", 43)
     }
 
-    assert {:ok, _} =
+    assert :not_found =
              Client.fence_create_session(client, "fence-create", @policy, session.external_ref)
 
-    assert_receive {:fleet_command, ^session, "fence_operation", create_fence, "fence-create",
-                    _options}
-
-    assert create_fence == %{
-             "method" => "CreateRemoteSession",
-             "request" => %{"policy" => @policy, "task" => session.external_ref}
-           }
-
-    assert {:ok, _} =
+    assert :not_found =
              Client.fence_bound_session(
                client,
                "fence-bound-create",
@@ -616,14 +628,6 @@ defmodule Responder.CoopFleet.ClientTest do
                session.external_ref,
                binding
              )
-
-    assert_receive {:fleet_command, ^session, "fence_operation", bound_create_fence,
-                    "fence-bound-create", _options}
-
-    assert bound_create_fence["request"]["responder_binding"] == %{
-             "endpoint" => binding["endpoint"],
-             "token_sha256" => StateBinding.sha256(binding["token"])
-           }
 
     session = bind_session!(session, "coop-session-all-commands")
     schema = %{"type" => "object"}
@@ -647,7 +651,7 @@ defmodule Responder.CoopFleet.ClientTest do
     assert submit["submission"]["prompt"] == "frozen prompt"
     assert submit["submission"]["output_schema"] == schema
 
-    assert {:ok, _} =
+    assert :not_found =
              Client.fence_submit_turn(
                client,
                session.coop_session_id,
@@ -656,13 +660,6 @@ defmodule Responder.CoopFleet.ClientTest do
                "frozen prompt",
                schema
              )
-
-    assert_receive {:fleet_command, ^session, "fence_operation", submit_fence, "fence-submit",
-                    _options}
-
-    assert submit_fence["method"] == "SubmitTurn"
-    assert submit_fence["request"]["session_id"] == session.coop_session_id
-    assert submit_fence["request"]["output_contract"]["json_schema"] == schema
 
     assert {:ok, _} = Client.get_turn(client, session.coop_session_id, "coop-turn-1")
     assert_receive {:fleet_command, ^session, "get_turn", get_turn, _key, _options}
@@ -880,6 +877,56 @@ defmodule Responder.CoopFleet.ClientTest do
     assert payload == %{"operation_key" => reconcile.idempotency_key}
   end
 
+  test "a create fence reuses its durable command instead of colliding with that command", %{
+    client: client,
+    session: session
+  } do
+    key = "responder:work:create:#{session.id}:g1"
+
+    command =
+      command!(session, "create-fence",
+        kind: "create_session",
+        payload: %{
+          "authority_digest" => @authority_digest,
+          "external_ref" => session.external_ref,
+          "policy" => @policy,
+          "policy_digest" => @policy_digest
+        },
+        key: key
+      )
+
+    command =
+      complete_command!(command, :succeeded, %{
+        "operation" => %{
+          "id" => "operation-create-fence",
+          "method" => "CreateRemoteSession",
+          "state" => "running"
+        }
+      })
+
+    terminal_operation = %{
+      "id" => "operation-create-fence",
+      "method" => "CreateRemoteSession",
+      "resource_id" => "remote-create-fence",
+      "resource_type" => "session",
+      "state" => "succeeded"
+    }
+
+    Process.put(:coop_fleet_reconcile_result, %{"operation" => terminal_operation})
+
+    # Five Slack inputs stopped in one incident because cancellation tried to enqueue a
+    # second command under this already-succeeded create key and hit an idempotency conflict.
+    assert {:ok, ^terminal_operation} =
+             Client.fence_create_session(client, key, @policy, session.external_ref)
+
+    assert_receive {:fleet_command, ^session, "reconcile_operation", %{"operation_key" => ^key},
+                    read_key, _options}
+
+    assert String.starts_with?(read_key, "responder:fleet:read:reconcile_operation:")
+    refute_receive {:fleet_command, _, "fence_operation", _, ^key, _}
+    assert command.idempotency_key == key
+  end
+
   defp session! do
     episode_id = Ecto.UUID.generate()
 
@@ -912,7 +959,7 @@ defmodule Responder.CoopFleet.ClientTest do
     |> Responder.Repo.update!()
   end
 
-  defp command!(session, suffix) do
+  defp command!(session, suffix, options \\ []) do
     worker_id = "client-worker-#{suffix}-#{Ecto.UUID.generate()}"
     certificate_sha256 = :crypto.hash(:sha256, worker_id) |> Base.encode16(case: :lower)
 
@@ -935,9 +982,9 @@ defmodule Responder.CoopFleet.ClientTest do
     assert {:ok, command} =
              ControlPlane.enqueue_command(
                placement.id,
-               "get_session",
-               %{"coop_session_id" => "remote:#{suffix}"},
-               "client:operation:#{suffix}:#{Ecto.UUID.generate()}"
+               Keyword.get(options, :kind, "get_session"),
+               Keyword.get(options, :payload, %{"coop_session_id" => "remote:#{suffix}"}),
+               Keyword.get(options, :key, "client:operation:#{suffix}:#{Ecto.UUID.generate()}")
              )
 
     command
