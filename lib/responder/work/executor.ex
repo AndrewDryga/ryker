@@ -56,8 +56,31 @@ defmodule Responder.Work.Executor do
     end
   end
 
+  defp execute_turn(%{turn: %{completion_receipt: proof}} = claim, settings)
+       when is_map(proof) do
+    result =
+      with :ok <- KnowledgeSnapshot.authorize_session(claim.episode, claim.session),
+           :ok <-
+             KnowledgeSnapshot.authorize_submission(
+               claim.episode,
+               claim.session.repository_ref,
+               claim.turn.submission
+             ),
+           {:ok, remote_turn} <- fetch_bound_turn(claim, settings),
+           {:ok, ^proof} <- completion_proof(claim, remote_turn) do
+        finalize_completed(claim, remote_turn, proof, settings)
+      else
+        {:ok, _changed_proof} -> {:error, {:coop_protocol_error, :completion_receipt_changed}}
+        {:error, _reason} = error -> error
+      end
+
+    completion_result(result, proof)
+  end
+
   defp execute_turn(claim, settings) do
-    with {:ok, claim} <- ensure_session(claim, settings),
+    with :ok <- require_workspace_checkpoint_api(claim, settings),
+         {:ok, claim} <- ensure_session(claim, settings),
+         :ok <- require_workspace_task_binding(claim, settings),
          :ok <- require_repository_read_only(claim, settings),
          :ok <- require_project_isolation(claim, settings),
          {:ok, claim} <- ensure_state_binding(claim, settings),
@@ -73,6 +96,52 @@ defmodule Responder.Work.Executor do
       await_turn(claim, remote_turn, settings, settings.max_polls)
     end
   end
+
+  # Existing turns must reconcile their completed result even after configuration
+  # changes. New writable tasks must never start on an adapter unable to save them.
+  defp require_workspace_checkpoint_api(
+         %{
+           turn: %{coop_turn_id: nil},
+           session: %{workspace_task: task, repository_ref: repository}
+         },
+         settings
+       )
+       when is_map(task) and is_binary(repository) do
+    if function_exported?(settings.api, :checkpoint_workspace, 4),
+      do: :ok,
+      else: {:error, {:invalid_work_executor, :workspace_checkpoint_api}}
+  end
+
+  defp require_workspace_checkpoint_api(_claim, _settings), do: :ok
+
+  defp require_workspace_task_binding(
+         %{turn: %{coop_turn_id: nil}, session: %{workspace_task: task}} = claim,
+         settings
+       )
+       when is_map(task) do
+    with {:ok, remote} <-
+           api_call(settings, fn ->
+             settings.api.get_session(settings.client, claim.session.coop_session_id)
+           end),
+         %{
+           "offer_ref" => offer_ref,
+           "id" => id,
+           "queue_id" => queue_id,
+           "task_id" => task_id,
+           "draft_sha256" => sha
+         } <- remote["workspace_task"],
+         true <- offer_ref == task["offer_ref"] and is_binary(offer_ref),
+         true <- remote["repository_read_only"] == false,
+         true <- Enum.all?([id, queue_id, task_id], &(is_binary(&1) and &1 != "")),
+         true <- is_binary(sha) and Regex.match?(~r/\A[0-9a-f]{64}\z/, sha) do
+      :ok
+    else
+      {:error, _reason} = error -> error
+      _invalid -> {:error, {:coop_protocol_error, :workspace_task_binding}}
+    end
+  end
+
+  defp require_workspace_task_binding(_claim, _settings), do: :ok
 
   defp require_project_isolation(_claim, %{require_project_isolation: false}), do: :ok
 
@@ -855,6 +924,9 @@ defmodule Responder.Work.Executor do
     end
   end
 
+  defp await_turn(claim, %{"state" => "completed"} = remote_turn, settings, _left),
+    do: accept_completed(claim, remote_turn, settings)
+
   defp await_turn(claim, remote_turn, settings, left) do
     _activity = Activity.sync(claim.session, settings.api, settings.client)
 
@@ -1216,8 +1288,42 @@ defmodule Responder.Work.Executor do
     do: {:error, {:work_execution_blocked, reason}}
 
   defp accept_completed(claim, remote_turn, settings) do
+    with {:ok, proof} <- completion_proof(claim, remote_turn) do
+      completion_result(finalize_completed(claim, remote_turn, proof, settings), proof)
+    end
+  end
+
+  defp completion_proof(claim, %{"state" => "completed"} = remote_turn) do
     with {:ok, message, sha256, attempt, receipt} <- completed_fields(remote_turn),
-         :ok <- completed_matches(claim.turn, message, sha256, attempt),
+         :ok <- completed_matches(claim.turn, message, sha256, attempt) do
+      {:ok,
+       %{
+         "candidate_sha256" => sha256,
+         "candidate_attempt" => attempt,
+         "remote_turn_id" => claim.turn.coop_turn_id,
+         "validation_receipt" => receipt
+       }}
+    end
+  end
+
+  defp completion_proof(_claim, _remote_turn),
+    do: {:error, {:coop_protocol_error, :completed_turn_state_changed}}
+
+  defp completion_result({:error, reason}, proof),
+    do: {:error, {:work_completion_blocked, proof, reason}}
+
+  defp completion_result(result, _proof), do: result
+
+  defp finalize_completed(claim, remote_turn, proof, settings) do
+    with {:ok, _turn} <-
+           Custody.record_completion(
+             claim.episode.id,
+             claim.turn.turn_ref,
+             claim.lease_ref,
+             proof
+           ),
+         _activity <- Activity.sync(claim.session, settings.api, settings.client),
+         :ok <- Responder.Accounting.observe_work(claim, remote_turn),
          {:ok, remote_session} <- accepted_remote_session(claim, settings),
          {:ok, artifacts} <- output_artifact_metadata(remote_turn),
          {:ok, _stored} <- retain_selected_artifacts(claim, artifacts, settings),
@@ -1229,9 +1335,9 @@ defmodule Responder.Work.Executor do
              claim.episode.key,
              claim.turn.turn_ref,
              claim.lease_ref,
-             sha256,
+             proof["candidate_sha256"],
              claim.turn.candidate_attempt,
-             receipt,
+             proof["validation_receipt"],
              Measurement.prepare(remote_turn, remote_session)
            ) do
       {:ok,
@@ -1290,8 +1396,22 @@ defmodule Responder.Work.Executor do
          %{"transfer_id" => transfer_id}
        )
        when is_map(task) and is_binary(transfer_id) do
-    with {:ok, result} <- ValidationIntent.result(turn.validation_intent),
-         {:ok, body} <- publication_offer_body(result),
+    with {:ok, result} <- ValidationIntent.result(turn.validation_intent) do
+      maybe_create_publication_offer(task, turn, result)
+    end
+  end
+
+  defp ensure_checkpoint_publication_offer(_claim, _checkpoint),
+    do: {:error, {:coop_protocol_error, :workspace_checkpoint}}
+
+  defp maybe_create_publication_offer(_task, _turn, %{continuation: %{"kind" => "wait"}}), do: :ok
+
+  defp maybe_create_publication_offer(
+         task,
+         turn,
+         %{continuation: %{"kind" => "complete"}} = result
+       ) do
+    with {:ok, body} <- publication_offer_body(result),
          {:ok, _record} <-
            Records.create(
              Records.token(turn),
@@ -1305,9 +1425,6 @@ defmodule Responder.Work.Executor do
       :ok
     end
   end
-
-  defp ensure_checkpoint_publication_offer(_claim, _checkpoint),
-    do: {:error, {:coop_protocol_error, :workspace_checkpoint}}
 
   defp publication_offer_body(%{delivery_document: %{"message" => message}})
        when is_binary(message) do

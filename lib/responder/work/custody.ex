@@ -855,6 +855,78 @@ defmodule Responder.Work.Custody do
     end
   end
 
+  @doc "Freezes remote completion before fallible host finalization, retaining the lease."
+  def record_completion(episode_id, turn_ref, lease_ref, receipt) do
+    with {:ok, episode_id} <- uuid(episode_id, :episode_id),
+         :ok <- reference(turn_ref, :turn_ref),
+         :ok <- reference(lease_ref, :lease_ref) do
+      Repo.transaction(fn ->
+        record_completion_locked(episode_id, turn_ref, lease_ref, receipt)
+      end)
+      |> transaction_result()
+    end
+  end
+
+  defp record_completion_locked(episode_id, turn_ref, lease_ref, receipt) do
+    {_session, turn} = leased!(episode_id, turn_ref, lease_ref)
+
+    if completion_matches?(turn, receipt) and turn.status == :pending and
+         is_nil(turn.cancellation_intent) and is_nil(turn.result_ref) do
+      turn
+      |> TurnChangeset.record_completion(receipt)
+      |> Repo.update()
+      |> unwrap_or_rollback(:work_completion_record)
+    else
+      Repo.rollback(:work_completion_receipt_mismatch)
+    end
+  end
+
+  @doc "Pauses host finalization of an exactly confirmed completed turn, without closing its workspace."
+  def block_completion(episode_id, turn_ref, lease_ref, receipt, code, detail) do
+    with {:ok, episode_id} <- uuid(episode_id, :episode_id),
+         :ok <- reference(turn_ref, :turn_ref),
+         :ok <- reference(lease_ref, :lease_ref),
+         :ok <- bounded_text(code, 128, :error_code),
+         :ok <- bounded_text(detail, 4_096, :error_detail) do
+      Repo.transaction(fn ->
+        block_completion_locked(episode_id, turn_ref, lease_ref, receipt, code, detail)
+      end)
+      |> transaction_result()
+    end
+  end
+
+  defp block_completion_locked(episode_id, turn_ref, lease_ref, receipt, code, detail) do
+    {_session, turn} = leased!(episode_id, turn_ref, lease_ref)
+
+    if completion_matches?(turn, receipt) and turn.status == :pending and
+         is_nil(turn.cancellation_intent) and is_nil(turn.result_ref) do
+      turn
+      |> TurnChangeset.block_completion(receipt, code, detail)
+      |> Repo.update()
+      |> unwrap_or_rollback(:work_completion_block)
+    else
+      Repo.rollback(:work_completion_receipt_mismatch)
+    end
+  end
+
+  defp completion_matches?(
+         turn,
+         %{
+           "candidate_sha256" => sha,
+           "candidate_attempt" => attempt,
+           "remote_turn_id" => remote_id,
+           "validation_receipt" => receipt
+         } = proof
+       ) do
+    map_size(proof) == 4 and turn.candidate_sha256 == sha and turn.candidate_attempt == attempt and
+      turn.coop_turn_id == remote_id and is_binary(remote_id) and
+      (is_nil(turn.completion_receipt) or turn.completion_receipt == proof) and
+      get_in(turn.validation_intent, ["verdict"]) == "accept" and
+      reference(receipt, :validation_receipt) == :ok
+  end
+
+  defp completion_matches?(_turn, _receipt), do: false
+
   @doc """
   Pauses one episode because its host-owned delivery destination is inactive.
 
@@ -932,16 +1004,40 @@ defmodule Responder.Work.Custody do
   @doc """
   Retries one exact remotely settled blocked owner after operator inspection.
 
-  The old Coop turn remains immutable. Recovery transfers the episode to a new
-  logical turn and session generation through the same proven-stop path used by
-  a human correction.
+  A confirmed completion resumes finalization on the same turn and session.
+  Otherwise the old Coop turn remains immutable: a proven stop and recoverable
+  workspace are required before transferring ownership to a new logical turn.
   """
-  @spec retry_blocked(String.t()) :: {:ok, Episode.t()} | {:error, term()}
-  def retry_blocked(episode_key) do
-    with :ok <- reference(episode_key, :episode_key) do
-      Repo.transaction(fn -> retry_blocked_locked(episode_key) end)
+  @spec retry_blocked(String.t(), String.t()) :: {:ok, Episode.t()} | {:error, term()}
+  def retry_blocked(episode_key, expected_recovery) do
+    with :ok <- reference(episode_key, :episode_key),
+         :ok <- reference(expected_recovery, :expected_recovery) do
+      Repo.transaction(fn -> retry_blocked_locked(episode_key, expected_recovery) end)
       |> transaction_result()
     end
+  end
+
+  @doc "Binds operator confirmation to the exact stopped turn and recovery mode."
+  def recovery_fingerprint(%Turn{} = turn) do
+    turn
+    |> Map.take([
+      :id,
+      :status,
+      :completion_receipt,
+      :candidate_sha256,
+      :candidate_attempt,
+      :coop_turn_id,
+      :result_ref,
+      :delivery_ref,
+      :cancellation_intent,
+      :cancellation_receipt,
+      :work_attempt_count,
+      :cancel_attempt_count,
+      :updated_at
+    ])
+    |> Jason.encode!()
+    |> Jason.decode!()
+    |> CanonicalJSON.digest()
   end
 
   @doc """
@@ -2258,15 +2354,37 @@ defmodule Responder.Work.Custody do
 
   defp resume_blocked_owner(%Episode{} = episode, _required_input_ref), do: {:ok, episode}
 
-  defp retry_blocked_locked(episode_key) do
-    case Episodes.lock_current_in_transaction(episode_key) do
-      {:ok, episode} -> retry_blocked_episode(episode)
+  defp retry_blocked_locked(episode_key, expected_recovery) do
+    with {:ok, episode} <- Episodes.lock_current_in_transaction(episode_key),
+         {:ok, _session, turn} <- lock_turn_after_episode(episode.id, episode.owner_ref) do
+      if recovery_fingerprint(turn) != expected_recovery,
+        do: Repo.rollback(:work_recovery_changed)
+
+      retry_blocked_episode(episode)
+    else
       {:error, reason} -> Repo.rollback(reason)
     end
   end
 
   defp retry_blocked_episode(%Episode{state: :working, owner_kind: :turn} = episode) do
     case turn_identity(episode.id, episode.owner_ref) do
+      %Turn{
+        status: :blocked,
+        completion_receipt: %{},
+        cancellation_intent: nil,
+        result_ref: nil,
+        delivery_ref: nil
+      } ->
+        with {:ok, _session, turn} <- lock_turn_after_episode(episode.id, episode.owner_ref),
+             true <-
+               is_nil(turn.operational_pruned_at) and
+                 completion_matches?(turn, turn.completion_receipt),
+             {:ok, _turn} <- turn |> TurnChangeset.retry_completion() |> Repo.update() do
+          episode
+        else
+          _invalid -> Repo.rollback(:work_completion_not_retryable)
+        end
+
       %Turn{status: :blocked, cancellation_intent: %{"action" => "block"}} = identity ->
         case resume_blocked_identity(episode, identity, nil) do
           {:ok, resumed} -> resumed
@@ -2508,7 +2626,8 @@ defmodule Responder.Work.Custody do
     new_turn_ref = "turn:resume-blocked:#{identity.id}:v#{episode.semantic_version}"
     transfer_ref = "transfer:resume-blocked:#{identity.id}:v#{episode.semantic_version}"
 
-    with {:ok, intent} <-
+    with :ok <- completed_workspace_recoverable(identity),
+         {:ok, intent} <-
            Cancellation.new_transfer(new_turn_ref, transfer_ref, required_input_ref) do
       fingerprint = Cancellation.fingerprint(intent)
 
@@ -2523,6 +2642,34 @@ defmodule Responder.Work.Custody do
       |> resumed_episode()
     end
   end
+
+  @doc "Read-only recovery eligibility; retry rechecks this under custody locks."
+  def completed_workspace_recoverable(
+        %Turn{cancellation_receipt: %{"remote_state" => "completed", "session_state" => state}} =
+          turn
+      )
+      when state in ["closed", "discarded"] do
+    session = Repo.get!(Session, turn.session_id)
+
+    key =
+      "responder:work:checkpoint:#{turn.id}:a#{turn.candidate_attempt}:#{turn.candidate_sha256}"
+
+    saved =
+      Repo.exists?(
+        from(t in Responder.CoopFleet.WorkspaceCheckpointTransfer,
+          join: c in Responder.CoopFleet.Command,
+          on: c.id == t.command_id,
+          where:
+            c.session_id == ^session.id and c.idempotency_key == ^key and c.status == :succeeded
+        )
+      )
+
+    if is_map(session.workspace_task) and not saved,
+      do: {:error, :work_completed_workspace_recovery_required},
+      else: :ok
+  end
+
+  def completed_workspace_recoverable(_turn), do: :ok
 
   defp resumed_episode(%{episode: episode}), do: {:ok, episode}
 

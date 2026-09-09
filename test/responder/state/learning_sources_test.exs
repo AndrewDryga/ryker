@@ -27,6 +27,10 @@ defmodule Responder.State.LearningSourcesTest do
       )
 
     try do
+      # This global handler once counted another async test's query and failed
+      # an otherwise green repository gate. Observe only this caller's lookup.
+      Task.async(fn -> LearningSources.expand(sources) end) |> Task.await()
+      refute_receive {^reference, :expanded}, 0
       assert LearningSources.valid?(sources, scope)
       assert_receive {^reference, :expanded}
       refute_receive {^reference, :expanded}, 0
@@ -36,7 +40,7 @@ defmodule Responder.State.LearningSourcesTest do
   end
 
   def record_expansion(_event, _measurements, %{query: query}, {owner, reference}) do
-    if String.contains?(query, "FROM responder_learning_roots($1)"),
+    if self() == owner and String.contains?(query, "FROM responder_learning_roots($1)"),
       do: send(owner, {reference, :expanded})
   end
 

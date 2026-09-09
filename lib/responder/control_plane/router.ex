@@ -942,7 +942,8 @@ defmodule Responder.ControlPlane.Router do
          {:ok, token, conn} <- form_token(conn),
          true <- CSRF.valid?(options.csrf_secret, canonical_action, resource_ref, token),
          return_path <- action_return_path(kind, resource_ref, options),
-         {:ok, _resource} <- perform(kind, resource_ref, action, options.actions) do
+         {:ok, _resource} <-
+           perform(kind, resource_ref, action, options.actions, canonical_action) do
       conn
       |> put_resp_header("location", return_path)
       |> send_resp(303, "")
@@ -1475,10 +1476,18 @@ defmodule Responder.ControlPlane.Router do
 
   defp confirmation("work", resource_ref, "retry", options) do
     case options.projection.work.(resource_ref) do
-      {:ok, %{action: :retry, status: :blocked}} ->
-        {:ok, "Retry this blocked work?",
-         "Responder will preserve the episode and immutable stopped turn, then continue in a fresh logical turn.",
-         "work:retry"}
+      {:ok,
+       %{
+         action: :retry,
+         status: :blocked,
+         work_recovery: %{fingerprint: fingerprint} = recovery
+       }} ->
+        title =
+          if recovery.kind == :completion,
+            do: "Resume saving this completed result?",
+            else: "Retry this blocked work?"
+
+        {:ok, title, recovery.retry_effect, "work:retry:" <> fingerprint}
 
       _unavailable ->
         {:error, :not_found}
@@ -1575,6 +1584,12 @@ defmodule Responder.ControlPlane.Router do
 
   defp confirmation(_kind, _resource_ref, _action, _snapshot), do: {:error, :not_found}
 
+  defp perform("work", resource_ref, "retry", actions, "work:retry:" <> fingerprint),
+    do: actions.retry_work.(resource_ref, fingerprint)
+
+  defp perform(kind, resource_ref, action, actions, _canonical_action),
+    do: perform(kind, resource_ref, action, actions)
+
   defp perform("memory", resource_ref, "forget", actions),
     do: actions.forget_memory.(resource_ref)
 
@@ -1602,9 +1617,6 @@ defmodule Responder.ControlPlane.Router do
 
   defp perform("slack_incident", resource_ref, "rearm", actions),
     do: actions.rearm_slack_incident.(resource_ref)
-
-  defp perform("work", resource_ref, "retry", actions),
-    do: actions.retry_work.(resource_ref)
 
   defp perform("episode", resource_ref, "resolve", actions),
     do: actions.resolve_episode.(resource_ref)

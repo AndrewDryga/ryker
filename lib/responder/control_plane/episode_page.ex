@@ -119,6 +119,15 @@ defmodule Responder.ControlPlane.EpisodePage do
       <section :if={@snapshot.trace.stopped} class="story-stop">
         <p class="ui-eyebrow">NEXT ACTION</p><h3>{@snapshot.trace.stopped.headline}</h3>
         <p>{@snapshot.trace.stopped.reason}</p><strong>{@snapshot.trace.stopped.action}</strong>
+        <details :if={@snapshot.trace.stopped[:model_output]} class="recovery-worker-report">
+          <summary>Worker’s saved response</summary>
+          <p class="recovery-attribution">
+            {@snapshot.trace.stopped[:delivery]} This is the worker’s report, not an independently verified check result.
+          </p>
+          <div class="recovery-model-output">
+            {Phoenix.HTML.raw(SlackMarkdown.preview(@snapshot.trace.stopped.model_output))}
+          </div>
+        </details>
         <a
           :if={@snapshot.trace.stopped.href}
           class="ui-button secondary"

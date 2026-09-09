@@ -670,6 +670,14 @@ not a generic infrastructure failure. Every mutation requires a configured Slack
 an operator-chosen action reference; the action, prior safe state, and outcome are committed in the
 same PostgreSQL transaction so repeating that reference reconciles a lost response.
 
+Work recovery also requires `--expected-recovery SHA256`, using the inspected
+failure's `work_recovery.fingerprint`. The confirmation is bound to that exact
+stopped turn: confirmed completion resumes saving the retained result without
+rerunning the model, while a safely stopped execution may start a new logical turn.
+A closed writable session without a confirmed checkpoint requires workspace
+restoration, not a normal retry. Recovery pages show the redacted, attributed
+accepted worker response separately from the host failure and next action.
+
 `responder.replay slack` accepts an exact retained `ingress-input:` reference plus an
 operator-chosen idempotency reference. It preserves the normalized Slack content, attachments,
 actor, destination, timestamp, capabilities, and frozen Work profile under a fresh event identity,

@@ -136,7 +136,15 @@ worker tree. Doctor therefore reports configuration, database, migration, and
 durable queue readiness; `/readyz` on the running release remains authoritative
 for process-local workers and progress heartbeats. Failure output contains
 stable error codes and diagnostic SHA-256 values but no raw provider error,
-source body, prompt, model candidate, token, or credential.
+source body, prompt, rejected model candidate, token, or credential. Work failures
+also show the redacted accepted final response, explicitly attributed to the worker.
+
+For `work`, pass `--expected-recovery SHA256` from the inspected item's
+`work_recovery.fingerprint`. A changed turn invalidates the confirmation. Confirmed
+completion resumes host finalization on the same turn, without model replay.
+If a writable session was closed before a workspace checkpoint was confirmed,
+preserve and restore its working copy and task notes into a correctly bound fleet
+workspace first; ordinary retry is unavailable.
 
 Retry accepts only `admission`, `delivery`, `emisar`, `retention`,
 `slack_incident`, `slack_interaction`, and `work`. Inspect the current item

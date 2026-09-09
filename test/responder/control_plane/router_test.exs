@@ -1067,6 +1067,38 @@ defmodule Responder.ControlPlane.RouterTest do
            ).status == 503
   end
 
+  test "a completed-result confirmation cannot authorize a different stopped turn" do
+    # An old recovery tab must never turn a save-only action into fresh model work.
+    path = "/actions/work/episode%3Ablocked/retry"
+    initial = options()
+    {:ok, row} = initial.projection.work.("episode:blocked")
+
+    recovery = %{
+      kind: :completion,
+      fingerprint: String.duplicate("a", 64),
+      retry_effect: "Save only"
+    }
+
+    initial =
+      put_in(initial, [:projection, :work], fn _ ->
+        {:ok, Map.put(row, :work_recovery, recovery)}
+      end)
+
+    confirmation = request_with_options(:get, path, nil, initial)
+    assert confirmation.status == 200
+    [_, token] = Regex.run(~r/name="_token" value="([^"]+)"/, confirmation.resp_body)
+    changed = %{recovery | kind: :execution, fingerprint: String.duplicate("b", 64)}
+
+    current =
+      put_in(initial, [:projection, :work], fn _ ->
+        {:ok, Map.put(row, :work_recovery, changed)}
+      end)
+
+    response = request_with_options(:post, path, URI.encode_query(%{"_token" => token}), current)
+    assert response.status == 403
+    refute_received {:retried_work, _}
+  end
+
   test "each recoverable blocked custody has a typed confirmed action" do
     failures = request(:get, "/failures")
 
@@ -1576,7 +1608,7 @@ defmodule Responder.ControlPlane.RouterTest do
           send(parent, {:rearmed_slack_incident, ref})
           {:ok, %{ref: ref}}
         end,
-        retry_work: fn ref ->
+        retry_work: fn ref, _fingerprint ->
           send(parent, {:retried_work, ref})
           {:ok, %{key: ref}}
         end,
@@ -2569,7 +2601,17 @@ defmodule Responder.ControlPlane.RouterTest do
         end,
         work: fn
           "episode:blocked" ->
-            {:ok, %{action: :retry, kind: "work", status: :blocked}}
+            {:ok,
+             %{
+               action: :retry,
+               kind: "work",
+               status: :blocked,
+               work_recovery: %{
+                 kind: :execution,
+                 fingerprint: String.duplicate("a", 64),
+                 retry_effect: "Starts a fresh logical turn."
+               }
+             }}
 
           _ref ->
             :not_found

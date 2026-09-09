@@ -140,6 +140,15 @@ defmodule Responder.Operator.WorkflowsTest do
     assert Failures.retry("admission", "ingress-input:any", action_ref: "only") ==
              {:error, {:invalid_operator_failure, :options}}
 
+    for fingerprint <- [nil, "old-tab", String.duplicate("Z", 64)] do
+      assert Failures.retry(
+               "work",
+               "episode:any",
+               Keyword.put(identity, :expected_recovery, fingerprint)
+             ) ==
+               {:error, {:invalid_operator_failure, :expected_recovery}}
+    end
+
     assert Failures.retry("admission", "ingress-input:any",
              actor_ref: <<0>>,
              action_ref: "operator-action:invalid-actor"
@@ -186,7 +195,11 @@ defmodule Responder.Operator.WorkflowsTest do
     assert action.resource_ref == Inbox.ref(entry)
 
     assert {:error, :operator_action_conflict} =
-             Failures.retry("work", Inbox.ref(entry), options)
+             Failures.retry(
+               "work",
+               Inbox.ref(entry),
+               Keyword.put(options, :expected_recovery, String.duplicate("a", 64))
+             )
 
     assert {:error, {:invalid_operator_failure, :kind}} =
              Failures.retry(

@@ -1370,7 +1370,7 @@ defmodule Responder.ControlPlane.ProjectionTest do
              )
 
     assert {:ok, blocked_detail} = Projection.episode(working.episode.key)
-    assert blocked_detail.trace.stopped.headline == "Work needs operator recovery"
+    assert blocked_detail.trace.stopped.headline == "The task stopped before it could finish"
     assert blocked_detail.episode.next_action == "operator recovery"
 
     assert blocked_detail.trace.stopped.href ==

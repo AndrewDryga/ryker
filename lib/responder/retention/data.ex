@@ -456,6 +456,7 @@ defmodule Responder.Retention.Data do
         SET submission = CASE WHEN submission IS NULL THEN NULL ELSE '{"retention":"pruned"}' END,
             candidate = CASE WHEN candidate IS NULL THEN NULL ELSE '{"retention":"pruned"}' END,
             validation_intent = CASE WHEN validation_intent IS NULL THEN NULL ELSE '{"retention":"pruned"}' END,
+            completion_receipt = NULL,
             cancellation_intent = CASE WHEN cancellation_intent IS NULL THEN NULL ELSE '{"retention":"pruned"}' END,
             delivery_document = CASE WHEN delivery_document IS NULL THEN NULL ELSE '{"retention":"pruned"}' END,
             continuation = CASE WHEN continuation IS NULL THEN NULL ELSE '{"retention":"pruned"}' END,
