@@ -587,7 +587,13 @@ defmodule Responder.CoopFleet.Client do
         {:error, {:coop_worker_command_conflict, key}}
 
       nil ->
-        :not_found
+        {:ok,
+         failed_operation(
+           kind,
+           "fleet-fence:#{CanonicalJSON.digest(%{"key" => key, "kind" => kind})}",
+           "operation_not_enqueued",
+           "The fleet mutation was not enqueued and could not reach Coop."
+         )}
     end
   end
 
@@ -882,20 +888,26 @@ defmodule Responder.CoopFleet.Client do
   end
 
   defp worker_rejected_operation(command) do
-    method =
-      case command.kind do
-        "create_session" -> "CreateRemoteSession"
-        "submit_turn" -> "SubmitTurn"
-      end
+    failed_operation(
+      command.kind,
+      "fleet-command:#{command.id}",
+      command.error["code"],
+      command.error["detail"]
+    )
+  end
 
+  defp failed_operation(kind, id, code, detail) do
     %{
-      "error_code" => command.error["code"],
-      "error_detail" => command.error["detail"],
-      "id" => "fleet-command:#{command.id}",
-      "method" => method,
+      "error_code" => code,
+      "error_detail" => detail,
+      "id" => id,
+      "method" => operation_method(kind),
       "state" => "failed"
     }
   end
+
+  defp operation_method("create_session"), do: "CreateRemoteSession"
+  defp operation_method("submit_turn"), do: "SubmitTurn"
 
   defp responder_binding_descriptor(%{"endpoint" => endpoint, "token" => token}) do
     %{"endpoint" => endpoint, "token_sha256" => StateBinding.sha256(token)}
