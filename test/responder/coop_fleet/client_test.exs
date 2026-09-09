@@ -720,6 +720,54 @@ defmodule Responder.CoopFleet.ClientTest do
     refute_receive {:fleet_command, _, _, _, _, _}
   end
 
+  test "an unbound remote session resolves through its successful durable create", %{
+    client: client,
+    session: session
+  } do
+    remote_session_id = "remote:created-before-bind"
+
+    command =
+      command!(session, "created-before-bind",
+        kind: "create_session",
+        payload: %{
+          "authority_digest" => @authority_digest,
+          "external_ref" => session.external_ref,
+          "policy" => @policy,
+          "policy_digest" => @policy_digest
+        },
+        key: "responder:work:create:#{session.id}:g1"
+      )
+
+    complete_command!(command, :succeeded, %{
+      "operation" => %{
+        "id" => "operation-created-before-bind",
+        "method" => "CreateRemoteSession",
+        "state" => "running"
+      }
+    })
+
+    reconciliation =
+      command!(session, "reconcile-created-before-bind",
+        kind: "reconcile_operation",
+        payload: %{"operation_key" => command.idempotency_key}
+      )
+
+    complete_command!(reconciliation, :succeeded, %{
+      "id" => "operation-created-before-bind",
+      "method" => "CreateRemoteSession",
+      "resource_id" => remote_session_id,
+      "resource_type" => "session",
+      "state" => "succeeded"
+    })
+
+    # Two stopped Slack runs could reconcile their successful creates, but could not fetch
+    # and bind those sessions because the adapter only looked for an already-bound identity.
+    assert {:ok, %{"id" => "remote-resource"}} = Client.get_session(client, remote_session_id)
+
+    assert_receive {:fleet_command, ^session, "get_session",
+                    %{"coop_session_id" => ^remote_session_id}, _read_key, _options}
+  end
+
   test "binary transfer and authority mismatches fail closed at the fleet adapter", %{
     client: client,
     session: session
