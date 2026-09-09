@@ -258,6 +258,14 @@ defmodule Responder.CoopFleet.ControlPlaneTest do
     authorize_and_poll!("worker-a")
     placement = place!("expired-placement")
 
+    assert {:ok, command} =
+             ControlPlane.enqueue_command(
+               placement.id,
+               "get_session",
+               %{"session_ref" => placement.session_id},
+               "responder:test:expired-placement-read"
+             )
+
     Repo.update_all(
       from(value in Placement, where: value.id == ^placement.id),
       set: [lease_expires_at: DateTime.add(database_now!(), -1, :second)]
@@ -276,10 +284,67 @@ defmodule Responder.CoopFleet.ControlPlaneTest do
     assert generation == placement.generation
     assert Repo.get!(Placement, placement.id).state == :replaced
 
+    # Four reads that never left Responder stayed queued after failover and kept
+    # readiness red for every otherwise healthy request until operator repair.
+    failed_command = Repo.get!(Command, command.id)
+    assert failed_command.status == :failed
+    assert failed_command.error["code"] == "operation_not_enqueued"
+    assert failed_command.operation_key == command.idempotency_key
+    assert failed_command.completed_at != nil
+
     assert {:error, {:coop_session_replacement_required, ^session_id, ^generation}} =
              ControlPlane.place_session(placement.session_id, requirements, 60)
 
     assert Repo.aggregate(from(p in Placement, where: p.session_id == ^session_id), :count) == 1
+  end
+
+  test "a cancelling bound session reacquires only its previous worker after lease loss" do
+    authorize_and_poll!("worker-a")
+    session = session!("cancel-placement-recovery")
+
+    requirements = %{
+      capability_names: ["responder-state"],
+      repository_ref: "responder",
+      workspace_ref: "workspace-main"
+    }
+
+    assert {:ok, placement} = ControlPlane.place_session(session.id, requirements, 60)
+
+    {1, nil} =
+      Repo.update_all(
+        from(value in Session, where: value.id == ^session.id),
+        set: [coop_session_id: "coop-cancel-placement-recovery"]
+      )
+
+    assert {:ok, claim} =
+             Custody.claim_next("worker:cancel-placement-recovery", 60, :work)
+
+    turn = claim.turn
+
+    assert {:ok, intent} = Responder.Work.Cancellation.new_block("placement lease ended")
+
+    turn
+    |> Responder.Work.TurnChangeset.prepare_cancellation(
+      intent,
+      Responder.Work.Cancellation.fingerprint(intent),
+      nil
+    )
+    |> Repo.update!()
+
+    Repo.update_all(
+      from(value in Placement, where: value.id == ^placement.id),
+      set: [lease_expires_at: DateTime.add(database_now!(), -1, :second)]
+    )
+
+    assert {:error, {:coop_session_replacement_required, _, 1}} =
+             ControlPlane.place_session(session.id, requirements, 60)
+
+    # The two production cancellations could not reach the Coop sessions that
+    # were still present on their original worker, so both stayed pending forever.
+    assert {:ok, recovered} = ControlPlane.place_session(session.id, requirements, 60)
+    assert recovered.generation == 2
+    assert recovered.worker_id == placement.worker_id
+    assert recovered.state == :active
   end
 
   test "a revoking placement cannot be replaced before its worker lease expires" do
