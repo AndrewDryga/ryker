@@ -4,6 +4,24 @@ defmodule Responder.Slack.EventTest do
   alias Responder.Ingress.Input
   alias Responder.Slack.{Event, SourceRef}
 
+  test "attachment-only notifications retain the exact bot identity for automation filters" do
+    # This real HCP Terraform notification was invisible to the confirmed rule.
+    # Its text is empty and dropping bot_id prevents a narrow source filter.
+    message =
+      "testdata/slack/hcp-terraform-planning.json" |> File.read!() |> Jason.decode!()
+
+    assert {:ok, %{input: input}} = Event.from_socket(events_api(message), identity())
+    assert input.content["bot_id"] == message["bot_id"]
+    assert input.content["text"] == ""
+    assert input.content["attachments"] == message["attachments"]
+
+    app_message = Map.put(message, "app_id", "A123")
+    assert {:ok, %{input: app_input}} = Event.from_socket(events_api(app_message), identity())
+    assert app_input.content["bot_id"] == message["bot_id"]
+    assert app_input.content["app_id"] == "A123"
+    assert app_input.actor == %{kind: :app, ref: "A123"}
+  end
+
   test "an authenticated mention becomes one generic Slack input" do
     envelope =
       events_api(%{
