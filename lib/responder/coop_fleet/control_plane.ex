@@ -1220,15 +1220,14 @@ defmodule Responder.CoopFleet.ControlPlane do
   end
 
   defp worker_has_capacity?(worker) do
-    reserved_slots = reserved_placement_slots(worker.id)
+    reserved_slots = reserved_placement_slots(worker.id, worker.last_seen_at)
 
     Enum.all?(~w(session turn workspace), fn kind ->
-      capacity_slot(worker, "#{kind}_slots_free") > 0 and
-        capacity_slot(worker, "#{kind}_slots_total") > reserved_slots
+      capacity_slot(worker, "#{kind}_slots_free") > reserved_slots
     end)
   end
 
-  defp reserved_placement_slots(worker_id) do
+  defp reserved_placement_slots(worker_id, reported_at) do
     closed =
       from(command in Command,
         where:
@@ -1242,6 +1241,7 @@ defmodule Responder.CoopFleet.ControlPlane do
         as: :placement,
         where:
           placement.worker_id == ^worker_id and
+            placement.inserted_at > ^reported_at and
             placement.state in ^@current_placement_states and
             not exists(subquery(closed))
       ),
