@@ -1243,6 +1243,122 @@ defmodule Responder.CoopFleet.ClientTest do
     assert command.idempotency_key == key
   end
 
+  test "a create fence settles from durable task receipts after its placement expires", %{
+    client: client,
+    session: session
+  } do
+    workspace_task = %{
+      "authority_limits" => ["runner version only"],
+      "offer_ref" => "record:task_offer:expired-create-receipts",
+      "prompt" => "Bump the internal hosted runner version.",
+      "source_refs" => [],
+      "success_checks" => ["focused checks pass"],
+      "title" => "Bump hosted runner"
+    }
+
+    session =
+      session
+      |> SessionChangeset.bind_workspace_task(workspace_task)
+      |> Repo.update!()
+
+    key = "responder:work:create:#{session.id}:g1"
+
+    create =
+      command!(session, "expired-create-receipts",
+        kind: "create_session",
+        payload: %{
+          "authority_digest" => @authority_digest,
+          "external_ref" => workspace_task["offer_ref"],
+          "policy" => @policy,
+          "policy_digest" => @policy_digest
+        },
+        key: key
+      )
+
+    complete_command!(create, :succeeded, %{
+      "operation" => %{
+        "id" => "operation-expired-create-receipts",
+        "method" => "CreateRemoteSession",
+        "state" => "running"
+      }
+    })
+
+    remote_session_id = "remote-expired-create-receipts"
+
+    terminal_operation = %{
+      "id" => "operation-expired-create-receipts",
+      "method" => "CreateRemoteSession",
+      "resource_id" => remote_session_id,
+      "resource_type" => "session",
+      "state" => "succeeded"
+    }
+
+    reconciliation =
+      command!(session, "expired-create-reconciliation",
+        kind: "reconcile_operation",
+        payload: %{"operation_key" => key}
+      )
+
+    complete_command!(reconciliation, :succeeded, terminal_operation)
+
+    bound_task = %{
+      "draft_sha256" => String.duplicate("a", 64),
+      "id" => "responder-expired-create-receipts",
+      "offer_ref" => workspace_task["offer_ref"],
+      "queue_id" => String.duplicate("b", 32),
+      "task_id" => String.duplicate("c", 32)
+    }
+
+    workspace =
+      command!(session, "expired-create-workspace",
+        kind: "ensure_workspace",
+        payload: %{
+          "coop_session_id" => remote_session_id,
+          "expected_revision" => 1,
+          "task" => workspace_task
+        }
+      )
+
+    complete_command!(workspace, :succeeded, %{
+      "session" => %{
+        "id" => remote_session_id,
+        "revision" => 2,
+        "state" => "open",
+        "workspace_task" => %{bound_task | "offer_ref" => "record:task_offer:unrelated"}
+      }
+    })
+
+    create.placement_id
+    |> then(&Repo.get!(Placement, &1))
+    |> Ecto.Changeset.change(
+      lease_expires_at: DateTime.add(database_now!(), -1, :second),
+      state: :replaced
+    )
+    |> Repo.update!()
+
+    assert {:error, {:coop_session_replacement_required, session_id, 1}} =
+             Client.fence_create_session(client, key, @policy, workspace_task["offer_ref"])
+
+    assert session_id == session.id
+    refute_receive {:fleet_command, _, _, _, _, _}
+
+    complete_command!(workspace, :succeeded, %{
+      "session" => %{
+        "id" => remote_session_id,
+        "revision" => 2,
+        "state" => "open",
+        "workspace_task" => bound_task
+      }
+    })
+
+    # The repaired live task had both successful receipts, but cancellation kept trying to
+    # contact the expired placement instead of settling from those immutable results.
+    assert {:ok, ^terminal_operation} =
+             Client.fence_create_session(client, key, @policy, workspace_task["offer_ref"])
+
+    refute_receive {:fleet_command, _, _, _, _, _}
+  end
+
   test "a worker-local submit rejection settles from its durable receipt", %{
     client: client,
     session: session
