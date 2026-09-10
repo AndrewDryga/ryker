@@ -2137,7 +2137,7 @@ defmodule Responder.ControlPlane.ProjectionTest do
 
     assert LazyHTML.query(html, ".episode-follow-through") |> LazyHTML.text() =~ "later-error"
     assert LazyHTML.query(html, ".case-timeline .episode-follow-through") |> Enum.empty?()
-    assert Enum.any?(episode_detail.trace.steps, &(&1.title == "Incident requested"))
+    assert Enum.any?(episode_detail.trace.steps, &(&1.title == "Incident room requested"))
     assert Enum.count(episode_detail.trace.steps, &(&1.title == "Publication requested")) == 2
     assert Enum.any?(episode_detail.trace.steps, &(&1.title == "Schedule created"))
     assert Enum.any?(episode_detail.trace.steps, &(&1.title == "Worker · turn"))

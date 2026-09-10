@@ -10,7 +10,7 @@ defmodule Responder.ControlPlane.WorkflowGuide do
      ~w(task-offer task-card work-diff publication)},
     {"Investigations",
      "Ask Responder to investigate an incident. Follow its evidence, findings, open questions, and resolution in one timeline.",
-     [{"Incidents", "/incidents"}, {"Findings", "/findings"}],
+     [{"Incident rooms", "/incident-rooms"}, {"Findings", "/findings"}],
      ~w(incident-room investigation-record)},
     {"Standing rules",
      "Ask it to watch a channel for matching events and carry out a read-only instruction. Confirm the rule before it starts listening.",
