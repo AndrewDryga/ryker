@@ -244,10 +244,13 @@ defmodule Responder.Retention.DispatcherTest do
   end
 
   test "typed transient failures defer while permanent failures block with bounded diagnostics" do
+    # A cleanup that raced two fresh placements was permanently blocked even though the next
+    # worker poll reported both slots free, leaving terminal session custody stuck.
     transient_reasons = [
       {:retention_generation_spent, :close, :revision_conflict},
       {:coop_mutation_response_unresolved, :plan, :lost_response},
       {:coop_transport_error, :closed},
+      {:coop_worker_capacity_unavailable, "session-capacity"},
       {:coop_error, 429, "rate_limited", "later"},
       {:coop_error, 503, "unavailable", "later"}
     ]
