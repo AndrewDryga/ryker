@@ -186,7 +186,7 @@ defmodule Responder.RuntimeConfiguration do
         env_provider
       )
 
-    retention = retention!(root["retention"], work, host_ref)
+    retention = retention!(root["retention"], work, learning, host_ref)
     event_waits = event_waits!(root["event_waits"])
 
     emisar =
@@ -679,13 +679,18 @@ defmodule Responder.RuntimeConfiguration do
     )
   end
 
-  defp retention!(nil, _work, _host_ref), do: nil
+  defp retention!(nil, _work, _learning, _host_ref), do: nil
 
-  defp retention!(value, work, host_ref) do
+  defp retention!(value, work, learning, host_ref) do
     fields =
       ~w(poll_interval_ms lease_seconds max_attempts retry_base_seconds retry_max_seconds closed_session_grace_seconds operational_data_seconds conversation_memory_seconds closed_work_seconds episode_history_seconds audit_data_seconds)
 
     object = object!(value, fields, [], "retention")
+
+    learning_adapter =
+      if learning,
+        do: Responder.Learning.Runtime.options!(learning),
+        else: work
 
     retention = %{
       audit_data_seconds:
@@ -715,6 +720,8 @@ defmodule Responder.RuntimeConfiguration do
           "retention"
         ),
       lease_seconds: integer!(object, "lease_seconds", nil, 1, 3_600, "retention"),
+      learning_api: learning_adapter.api,
+      learning_client: learning_adapter.client,
       max_attempts: integer!(object, "max_attempts", nil, 1, 100, "retention"),
       operational_data_seconds:
         integer!(

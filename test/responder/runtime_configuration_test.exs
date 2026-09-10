@@ -69,6 +69,8 @@ defmodule Responder.RuntimeConfigurationTest do
            }
 
     assert configuration.work.client == configuration.retention.client
+    assert configuration.learning.client == configuration.retention.learning_client
+    assert configuration.retention.learning_api == Responder.CoopFleet.Client
     assert configuration.work.client == configuration.publication.coop_client
     assert configuration.work.client == configuration.slack.coop_client
     assert configuration.retention.api == Responder.CoopFleet.Client
@@ -533,13 +535,36 @@ defmodule Responder.RuntimeConfigurationTest do
           policy:
             name: learning-read
             digest: #{String.duplicate("d", 64)}
+        retention:
+          poll_interval_ms: 1000
+          lease_seconds: 60
+          max_attempts: 8
+          retry_base_seconds: 1
+          retry_max_seconds: 60
+          closed_session_grace_seconds: 900
+          operational_data_seconds: 3600
+          conversation_memory_seconds: 7200
+          closed_work_seconds: 10800
+          episode_history_seconds: 14400
+          audit_data_seconds: 18000
         """
+
+    document =
+      String.replace(
+        document,
+        "work: {}",
+        "work:\n  execution: fleet\n  workspace_ref: responder-main"
+      )
 
     configuration = RuntimeConfiguration.from_string!(document)
     settings = LearningRuntime.options!(configuration.learning)
     assert settings.api == Responder.Coop.Client
     assert settings.client.finch == Responder.CoopFinch
-    assert settings.client == configuration.work.client
+    assert configuration.work.api == Responder.CoopFleet.Client
+    assert settings.client != configuration.work.client
+    assert configuration.retention.client == configuration.work.client
+    assert configuration.retention.learning_api == Responder.Coop.Client
+    assert configuration.retention.learning_client == settings.client
   end
 
   test "unknown configuration fields fail closed without creating atoms" do

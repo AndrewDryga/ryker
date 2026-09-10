@@ -23,9 +23,11 @@ defmodule Responder.Retention.Dispatcher do
   defp execute(nil, _settings), do: {:ok, :idle}
 
   defp execute(claim, settings) do
+    {api, client} = execution_adapter(claim.session.execution_kind, settings)
+
     executor_options = [
-      api: settings.api,
-      client: settings.client,
+      api: api,
+      client: client,
       closed_session_grace_seconds: settings.closed_session_grace_seconds
     ]
 
@@ -39,6 +41,11 @@ defmodule Responder.Retention.Dispatcher do
           else: block(claim, reason)
     end
   end
+
+  defp execution_adapter(:learning, settings),
+    do: {settings.learning_api, settings.learning_client}
+
+  defp execution_adapter(_execution_kind, settings), do: {settings.api, settings.client}
 
   defp defer(claim, reason, settings) do
     retry_seconds = retry_delay(claim.session.cleanup_attempt_count, settings)
@@ -102,6 +109,8 @@ defmodule Responder.Retention.Dispatcher do
       :client,
       :closed_session_grace_seconds,
       :executor,
+      :learning_api,
+      :learning_client,
       :lease_seconds,
       :max_attempts,
       :retry_base_seconds,
@@ -114,6 +123,9 @@ defmodule Responder.Retention.Dispatcher do
       client: Map.get(options, :client),
       closed_session_grace_seconds: Map.get(options, :closed_session_grace_seconds, 900),
       executor: Map.get(options, :executor, Executor),
+      learning_api:
+        Map.get(options, :learning_api, Map.get(options, :api, Responder.Coop.Client)),
+      learning_client: Map.get(options, :learning_client, Map.get(options, :client)),
       lease_seconds: Map.get(options, :lease_seconds, 300),
       max_attempts: Map.get(options, :max_attempts, 8),
       retry_base_seconds: Map.get(options, :retry_base_seconds, 5),
@@ -134,7 +146,8 @@ defmodule Responder.Retention.Dispatcher do
   defp known_options?(options, allowed), do: Map.keys(options) -- allowed == []
 
   defp dispatcher_dependencies_valid?(settings) do
-    is_atom(settings.api) and is_atom(settings.executor) and not is_nil(settings.client) and
+    is_atom(settings.api) and is_atom(settings.learning_api) and is_atom(settings.executor) and
+      not is_nil(settings.client) and not is_nil(settings.learning_client) and
       nonnegative?(settings.closed_session_grace_seconds)
   end
 

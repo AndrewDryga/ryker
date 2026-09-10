@@ -21,7 +21,7 @@ defmodule Responder.Retention.Runtime do
     :worker_ref
   ]
 
-  @optional [:api]
+  @optional [:api, :learning_api, :learning_client]
 
   @spec child_spec(keyword() | map()) :: Supervisor.child_spec()
   def child_spec(configuration) do
@@ -47,6 +47,8 @@ defmodule Responder.Retention.Runtime do
       api: settings.api,
       client: settings.client,
       closed_session_grace_seconds: settings.closed_session_grace_seconds,
+      learning_api: settings.learning_api,
+      learning_client: settings.learning_client,
       lease_seconds: settings.lease_seconds,
       max_attempts: settings.max_attempts,
       retry_base_seconds: settings.retry_base_seconds,
@@ -81,6 +83,8 @@ defmodule Responder.Retention.Runtime do
     settings =
       configuration
       |> Map.put_new(:api, Responder.Coop.Client)
+      |> then(&Map.put_new(&1, :learning_api, &1.api))
+      |> then(&Map.put_new(&1, :learning_client, &1.client))
 
     validate!(settings)
     settings
@@ -130,7 +134,8 @@ defmodule Responder.Retention.Runtime do
   end
 
   defp runtime_dependencies_valid?(settings) do
-    is_atom(settings.api) and not is_nil(settings.client) and
+    is_atom(settings.api) and is_atom(settings.learning_api) and not is_nil(settings.client) and
+      not is_nil(settings.learning_client) and
       is_integer(settings.closed_session_grace_seconds) and
       settings.closed_session_grace_seconds >= 0
   end
