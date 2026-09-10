@@ -32,8 +32,9 @@ defmodule Responder.ControlPlane.OperatorUsabilityTest do
       ])
       |> IO.iodata_to_binary()
 
-    assert html =~ "Wait subscriptions"
-    assert html =~ "Next wake-up"
+    assert html =~ "Waits"
+    document = LazyHTML.from_document(html)
+    assert LazyHTML.query(document, ".subscription-timing dt") |> LazyHTML.text() =~ "Follow-up"
     assert html =~ "Timed follow-up"
     assert html =~ "Resume work at the scheduled time"
     refute html =~ ">any<"

@@ -5,6 +5,7 @@ defmodule Responder.ControlPlane.HTML do
   alias Responder.ControlPlane.FailurePage
   alias Responder.ControlPlane.FindingsPage
   alias Responder.ControlPlane.SlackNames
+  alias Responder.ControlPlane.SubscriptionPresentation
   alias Responder.ControlPlane.SubscriptionsPage
   alias Responder.ControlPlane.UsagePage
   alias Responder.ControlPlane.UsageProjection
@@ -921,14 +922,20 @@ defmodule Responder.ControlPlane.HTML do
   def subscriptions(items, params \\ %{}) do
     [
       workbench_intro(
-        "Wait subscriptions",
+        "Waits",
         "What the agent is waiting for, when it will check again, and what resumed the work."
       ),
       search_form(
         "/subscriptions",
         "Request, target, source or reference",
         params,
-        ~w(active resolved timed_out cancelled)
+        ~w(active resolved timed_out cancelled),
+        fn status ->
+          {label, _tone} =
+            SubscriptionPresentation.status(%{status: String.to_existing_atom(status)})
+
+          label
+        end
       ),
       Safe.to_iodata(SubscriptionsPage.render(%{__changed__: nil, items: items}))
     ]
@@ -2012,7 +2019,7 @@ defmodule Responder.ControlPlane.HTML do
     ]
   end
 
-  defp search_form(path, placeholder, params, statuses \\ []) do
+  defp search_form(path, placeholder, params, statuses \\ [], status_label \\ &Components.label/1) do
     params = UsageProjection.link_params(params)
 
     [
@@ -2033,7 +2040,7 @@ defmodule Responder.ControlPlane.HTML do
               "\"",
               if(params["status"] == status, do: " selected", else: ""),
               ">",
-              escape(Components.label(status)),
+              escape(status_label.(status)),
               "</option>"
             ]
           end),

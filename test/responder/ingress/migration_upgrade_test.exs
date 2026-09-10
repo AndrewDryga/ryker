@@ -39,6 +39,7 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
   @event_only_waits_version 20_260_909_120_000
   @completion_receipts_version 20_260_909_160_000
   @model_instructions_version 20_260_910_000_100
+  @wait_list_order_version 20_260_910_000_200
   @memory_versions Enum.to_list(20_260_908_000_100..20_260_908_001_100//100) ++
                      [@bounded_sources_version]
   @workspace_versions [
@@ -105,7 +106,8 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
                      @confirmed_slack_feedback_version,
                      @event_only_waits_version,
                      @completion_receipts_version,
-                     @model_instructions_version
+                     @model_instructions_version,
+                     @wait_list_order_version
                    ]
              ]
 
@@ -1523,7 +1525,8 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
                    @confirmed_slack_feedback_version,
                    @event_only_waits_version,
                    @completion_receipts_version,
-                   @model_instructions_version
+                   @model_instructions_version,
+                   @wait_list_order_version
                  ]
 
       # Existing sessions have unknown disclosure custody. New columns must not
@@ -1550,8 +1553,9 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
       assert %{rows: [[0, 0, 0]]} = reset_topic_counts(repo, prefix)
       assert_reset_notes(repo, prefix, derived["conversation_observations"])
 
-      assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 4, prefix: prefix, log: false) ==
+      assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 5, prefix: prefix, log: false) ==
                [
+                 @wait_list_order_version,
                  @model_instructions_version,
                  @completion_receipts_version,
                  @event_only_waits_version,

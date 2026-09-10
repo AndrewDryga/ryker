@@ -8,9 +8,9 @@ defmodule Responder.ControlPlane.SubscriptionsPage do
     assigns = assign_new(assigns, :now, &DateTime.utc_now/0)
 
     ~H"""
-    <section class="subscriptions-view" aria-label="Saved waits">
+    <section class="subscriptions-view" aria-label="Waits">
       <p class="subscription-window">
-        Search covers the latest 100 waits in the selected status. Exact subscription references search all history within that status.
+        Showing up to 100 waits in the selected status, with active waits first. Search filters this list. Exact subscription references search all history within that status.
       </p>
       <p :if={@items == []} class="empty-state">No waits match these filters.</p>
       <div :if={@items != []} class="subscription-list">
@@ -29,6 +29,7 @@ defmodule Responder.ControlPlane.SubscriptionsPage do
               id={"wait-target-#{item.ref}"}
               href={item.target_url}
               rel="noreferrer"
+              aria-label={"Open target for #{item.title}"}
             >Open target →</a>
           </div>
           <div class="subscription-timing">
@@ -43,7 +44,7 @@ defmodule Responder.ControlPlane.SubscriptionsPage do
                     id={"wait-time-#{item.ref}-#{URI.encode_www_form(label)}"}
                     datetime={exact(at)}
                     title={exact(at)}
-                    aria-label={"#{text} · #{exact(at)} UTC"}
+                    aria-label={"#{text} · #{Calendar.strftime(at, "%d %b %Y, %H:%M UTC")}"}
                     tabindex="0"
                   >{text}</time>
                   <span :if={!at}>{text}</span>
@@ -52,7 +53,12 @@ defmodule Responder.ControlPlane.SubscriptionsPage do
             </dl>
           </div>
           <details class="subscription-details" id={"wait-details-#{item.ref}"}>
-            <summary id={"wait-summary-#{item.ref}"}>Technical details</summary>
+            <summary
+              id={"wait-summary-#{item.ref}"}
+              aria-label={"Technical details for #{item.title}"}
+            >
+              Technical details
+            </summary>
             <dl>
               <div :for={{label, value} <- details(item)}>
                 <dt>{label}</dt><dd>{value || "Not recorded"}</dd>

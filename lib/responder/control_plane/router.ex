@@ -615,7 +615,7 @@ defmodule Responder.ControlPlane.Router do
     snapshot =
       options.projection.subscriptions.(Map.take(conn.query_params, ["q", "status"]))
 
-    html(conn, 200, "Event waits", HTML.subscriptions(snapshot, conn.query_params))
+    html(conn, 200, "Waits", HTML.subscriptions(snapshot, conn.query_params))
   end
 
   defp route(%Plug.Conn{method: "GET", path_info: ["channels"]} = conn, options) do

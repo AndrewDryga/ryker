@@ -26,7 +26,7 @@ defmodule Responder.ControlPlane.WorkflowGuide do
      [{"Memory & reviews", "/memory"}, {"Channels", "/channels"}], ~w(memory-offer)},
     {"Questions & event waits",
      "Answer a clarification in the original conversation, or ask Responder to wait for an external event and continue when it arrives.",
-     [{"Event waits", "/subscriptions"}, {"Requests", "/"}], ~w(wait-record)},
+     [{"Waits", "/subscriptions"}, {"Requests", "/"}], ~w(wait-record)},
     {"Governed operations",
      "Review the specific operation and approve it in Emisar when required. Follow approval and execution progress from the request timeline.",
      [{"Connections & grants", "/configuration"}], ~w(governed-action)},
