@@ -493,20 +493,20 @@ host rejects them for nonoperators before any repository or session mutation:
   the fork changes between clicks, Responder restarts at page one rather than combining snapshots.
   File groups show their total count and say how many paths are omitted from the compact summary.
   It does not start an agent turn.
-- **Run readiness check** compares the isolated changes with the current repository, checks rebase,
-  runs configured validation and policy gates, and reports whether the result is ready for external
-  review. Repository gates provide validation evidence rather than publication authority: missing,
-  failed, unavailable, or source-modifying gates are shown as warnings on a draft PR. Rebase
-  conflicts, moving source, incomplete reviewed patches, and policy findings remain blockers. It
-  never merges, signs, or deploys.
-- **Create draft PR** repeats the readiness review, retrieves and verifies Coop's complete
-  content-addressed patch artifact when the inline preview is truncated, reproduces the exact
-  approved tree in an isolated checkout, and publishes only a lease-protected Responder branch.
-  A cleanly rebased, policy-compliant exact tree can still publish when repository validation is
-  incomplete; the result warns that the diff and GitHub checks require review before merge.
-  Under the default `github.automatic_draft_pr_creation: operator_tasks` an operator's own task
-  runs this without the press, and a contributor task still waits for one; updates to an open PR
-  have always been automatic.
+- A confirmed coding task automatically checks its completed, checkpoint-backed changes. There is
+  no separate readiness permission button. The review compares the isolated changes with the
+  current repository, checks rebase, runs configured validation and policy gates, and reports
+  whether the result is ready for external review. The current Elixir publication path requires
+  a passed gate, clean rebase, no policy findings and a verified complete patch. Missing or failed
+  checks remain blockers; preparing a safe draft with incomplete checks is not implemented yet.
+  Readiness never merges, signs, or deploys.
+  Checks and follow-up Work share session custody, so a normal reply waits for an active review
+  without consuming an execution attempt. Delivery and unrelated sessions continue independently.
+- **Create draft PR** explicitly approves the retained review and its verified complete,
+  content-addressed patch. The publisher reproduces that exact approved tree in an isolated
+  checkout and publishes only a lease-protected Responder branch, using the configured GitHub
+  App repository binding. Automatic task-scoped draft authorization remains separate work;
+  automatically running checks does not grant publication, merge or deployment authority.
   After publication the task shows **Open PR** and **Check delivery**. Responder polls GitHub for
   check and merge transitions without occupying a model turn. After merge, matching deployment and
   Terraform app messages from other watched channels return to the original task thread only when

@@ -22,7 +22,6 @@ defmodule Responder.Slack.TaskCardChangeset do
     :next_attempt_at,
     :record_id,
     :ref,
-    :rendered_publication_offer_ref,
     :thread_ref,
     :workspace_ref
   ]
@@ -37,8 +36,7 @@ defmodule Responder.Slack.TaskCardChangeset do
                        :lease_expires_at,
                        :lease_owner,
                        :lease_ref,
-                       :next_attempt_at,
-                       :rendered_publication_offer_ref
+                       :next_attempt_at
                      ]
 
   def insert(attributes) do
@@ -64,10 +62,6 @@ defmodule Responder.Slack.TaskCardChangeset do
     |> validate_number(:attempt_count, greater_than_or_equal_to: 0)
     |> validate_number(:card_ui_revision, greater_than_or_equal_to: 0)
     |> validate_format(:card_fingerprint, ~r/\A[0-9a-f]{64}\z/)
-    |> validate_format(
-      :rendered_publication_offer_ref,
-      ~r/\Arecord:publication_offer:[A-Za-z0-9_.:-]{1,220}\z/
-    )
     |> unique_constraint(:ref)
     |> unique_constraint(:record_id)
     |> unique_constraint(:episode_id)

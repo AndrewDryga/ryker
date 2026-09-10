@@ -5,14 +5,145 @@ defmodule Responder.Publication.CustodyTest do
 
   alias Responder.Episodes
   alias Responder.Fixtures.Episodes, as: EpisodeFixtures
+  alias Responder.Observability
   alias Responder.Publication.Custody, as: PublicationCustody
   alias Responder.Publication.Operator, as: PublicationOperator
   alias Responder.Publication.Publication
   alias Responder.Repo
   alias Responder.State.Records
-  alias Responder.Work.{Custody, DeliveryReceipt, Result, Submission}
+
+  alias Responder.Work.{
+    Cancellation,
+    Custody,
+    DeliveryReceipt,
+    Result,
+    Submission,
+    Turn,
+    TurnChangeset
+  }
 
   @now ~U[2026-08-28 12:00:00.000000Z]
+
+  test "follow-up work waits for its active readiness review without spending an attempt" do
+    # Automatically starting checks must not race the next Slack reply against
+    # Coop's single active operation and burn the task's retry budget.
+    %{claim: claim, offer: offer, offer_receipt: receipt} = delivered_offer!("review-first")
+
+    assert {:ok, %{publication: publication}} =
+             PublicationCustody.request_review(review_request(claim, offer, receipt))
+
+    assert {:ok, review} = PublicationCustody.claim_next("publication:review-first", 60)
+    followup = admit_followup!(claim)
+
+    assert Custody.claim_next("work:followup", 60, :work) == {:ok, nil}
+    refute Repo.exists?(from(t in Responder.Work.Turn, where: t.turn_ref == ^followup.turn_ref))
+
+    # A concurrent Work claimant can materialize its pending turn before the
+    # post-lock review check. That intentional wait must not fail readiness.
+    pending =
+      Repo.insert!(
+        TurnChangeset.insert(
+          Ecto.UUID.generate(),
+          claim.episode.id,
+          claim.session.id,
+          followup.turn_ref
+        )
+      )
+
+    old = DateTime.add(DateTime.utc_now(), -3_600, :second)
+    Repo.update_all(from(t in Turn, where: t.id == ^pending.id), set: [inserted_at: old])
+    assert {:ok, snapshot} = Observability.snapshot(900)
+    assert Enum.find(snapshot.queues, &(&1.name == :work)).claimable == 0
+    refute :work in snapshot.stalled_queues
+
+    assert {:ok, _released} =
+             PublicationCustody.defer(
+               publication.ref,
+               review.lease_ref,
+               1,
+               "review_retry",
+               "Retry"
+             )
+
+    assert {:ok, work} = Custody.claim_next("work:followup", 60, :work)
+    assert work.session.id == claim.session.id
+    assert work.turn.turn_ref == followup.turn_ref
+    assert work.turn.work_attempt_count == 1
+  end
+
+  test "readiness waits for admitted follow-up work and does not starve another session" do
+    %{claim: claim, offer: offer, offer_receipt: receipt} = delivered_offer!("work-first")
+
+    assert {:ok, %{publication: waiting}} =
+             PublicationCustody.request_review(review_request(claim, offer, receipt))
+
+    %{claim: other, offer: other_offer, offer_receipt: other_receipt} =
+      delivered_offer!("independent-review")
+
+    assert {:ok, %{publication: independent}} =
+             PublicationCustody.request_review(review_request(other, other_offer, other_receipt))
+
+    admit_followup!(claim)
+    assert {:ok, review} = PublicationCustody.claim_next("publication:independent", 60)
+    assert review.publication.id == independent.id
+    assert Repo.get!(Publication, waiting.id).attempt_count == 0
+    old = DateTime.add(DateTime.utc_now(), -3_600, :second)
+    Repo.update_all(from(p in Publication, where: p.id == ^waiting.id), set: [updated_at: old])
+    assert {:ok, snapshot} = Observability.snapshot(900)
+    assert Enum.find(snapshot.queues, &(&1.name == :publication)).claimable == 0
+    refute :publication in snapshot.stalled_queues
+    assert {:ok, work} = Custody.claim_next("work:first", 60, :work)
+    assert work.session.id == claim.session.id
+    assert PublicationCustody.claim_next("publication:waiting", 60) == {:ok, nil}
+    assert Repo.get!(Publication, waiting.id).attempt_count == 0
+  end
+
+  test "checks wait for recovery after a blocked follow-up closes their workspace" do
+    # Block requires closed-session proof, not just a stopped turn. A status-only
+    # exception would send RunReview into a closed Coop workspace.
+    %{claim: claim, offer: offer, offer_receipt: receipt} = delivered_offer!("blocked-followup")
+
+    assert {:ok, %{publication: publication}} =
+             PublicationCustody.request_review(review_request(claim, offer, receipt))
+
+    admit_followup!(claim)
+    assert {:ok, work} = Custody.claim_next("work:blocked-followup", 60, :work)
+
+    assert {:ok, _} =
+             Custody.request_block(
+               work.episode.id,
+               work.episode.key,
+               work.turn.turn_ref,
+               work.lease_ref,
+               "The follow-up cannot continue."
+             )
+
+    assert {:ok, cancellation} = Custody.claim_next("work:stop-followup", 60, :work)
+
+    assert {:ok, stopped} =
+             Cancellation.absent_receipt(
+               "responder:work:create:#{work.session.id}:g#{work.session.create_generation}",
+               nil,
+               work.session.coop_session_id,
+               "closed",
+               "responder:work:cancel-close:#{work.turn.id}:g1"
+             )
+
+    assert {:ok, settled} =
+             Custody.settle_cancellation(
+               work.episode.id,
+               work.episode.key,
+               work.turn.turn_ref,
+               cancellation.lease_ref,
+               stopped
+             )
+
+    assert settled.turn.status == :blocked
+    assert settled.episode.state == :working
+
+    assert PublicationCustody.claim_next("review:after-block", 60) == {:ok, nil}
+    assert Repo.get!(Publication, publication.id).attempt_count == 0
+  end
 
   test "a delivered inert offer becomes one reviewed and operator-approved publication" do
     %{claim: claim, offer: offer, offer_receipt: offer_receipt} = delivered_offer!("lifecycle")
@@ -640,6 +771,26 @@ defmodule Responder.Publication.CustodyTest do
              actor_ref: "operator",
              action_ref: "operator-action:retry"
            ) == {:error, {:invalid_publication_recovery, :publication_ref}}
+  end
+
+  defp admit_followup!(claim) do
+    command =
+      EpisodeFixtures.admit_input(%{
+        destination: %{
+          conversation_ref: claim.episode.destination_conversation_ref,
+          thread_ref: claim.episode.destination_thread_ref,
+          transport: claim.episode.destination_transport
+        },
+        episode_id: claim.episode.id,
+        episode_key: claim.episode.key,
+        native_input_id: "followup:#{claim.episode.id}",
+        occurred_at: DateTime.utc_now(),
+        payload: %{"text" => "Please include the follow-up correction."},
+        turn_ref: "turn:followup:#{claim.episode.id}"
+      })
+
+    assert {:ok, _transition} = Episodes.apply(command)
+    command
   end
 
   defp reviewed_publication!(suffix, publishable?) do

@@ -761,6 +761,16 @@ defmodule Responder.ControlPlane.RouterTest do
     assert unavailable_record.status == 409
   end
 
+  test "the superseded task readiness action has no route or handler" do
+    conversation_id = "018f3ef7-1f62-7ee0-a83c-0c12f21d83e6"
+    record_ref = "record:task_offer:confirmed"
+    path = "/lab/#{conversation_id}/records/#{record_ref}/task-readiness"
+
+    assert request(:post, path, URI.encode_query(%{"_token" => "obsolete"})).status == 404
+    refute request(:get, "/lab/#{conversation_id}").resp_body =~ "task-readiness"
+    refute_received {:lab_record_action, _, _, :request_task_readiness, _}
+  end
+
   test "every native Lab card action round-trips one exact CSRF-bound control" do
     conversation_id = "018f3ef7-1f62-7ee0-a83c-0c12f21d83e6"
 
@@ -793,8 +803,6 @@ defmodule Responder.ControlPlane.RouterTest do
     end
 
     for {action_name, action, field, value} <- [
-          {"task-readiness", :request_task_readiness, "review_offer_ref",
-           "record:publication_offer:ready"},
           {"task-publish", :approve_task_publication, "publication_ref",
            "publication:confirmed-task"},
           {"task-check", :check_task_publication, "publication_ref", "publication:confirmed-task"}
@@ -810,14 +818,8 @@ defmodule Responder.ControlPlane.RouterTest do
 
       assert accepted.status == 303
 
-      expected_context =
-        case field do
-          "publication_ref" -> %{publication_ref: value}
-          "review_offer_ref" -> %{review_offer_ref: value}
-        end
-
       assert_received {:lab_record_action, ^conversation_id, ^record_ref, ^action,
-                       ^expected_context}
+                       %{publication_ref: ^value}}
     end
 
     for {action_name, action} <- [
@@ -2206,7 +2208,6 @@ defmodule Responder.ControlPlane.RouterTest do
                          :view_evidence,
                          :view_handoff,
                          :view_postmortem,
-                         :request_task_readiness,
                          :approve_task_publication,
                          :check_task_publication,
                          :retry_task_publication,
@@ -2220,7 +2221,6 @@ defmodule Responder.ControlPlane.RouterTest do
                        publication_ref: "publication:confirmed-task",
                        recovery_generation: 4,
                        ref: "record:task_offer:confirmed",
-                       review_offer_ref: "record:publication_offer:ready",
                        status: "working",
                        summary: "Focused tests are running.",
                        title: "Confirmed Lab task",

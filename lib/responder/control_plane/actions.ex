@@ -362,10 +362,6 @@ defmodule Responder.ControlPlane.Actions do
               is_binary(publication_ref) and byte_size(publication_ref) in 1..1_024,
        do: :ok
 
-  defp lab_action_arguments(:request_task_readiness, %{review_offer_ref: review_offer_ref})
-       when is_binary(review_offer_ref) and byte_size(review_offer_ref) in 1..1_024,
-       do: :ok
-
   defp lab_action_arguments(action, nil)
        when action in [
               :confirm_task,
@@ -655,30 +651,6 @@ defmodule Responder.ControlPlane.Actions do
   defp perform_lab_record_action(
          %Record{kind: "task_offer", status: :confirmed} = record,
          target,
-         :request_task_readiness,
-         %{review_offer_ref: review_offer_ref},
-         _work_profile,
-         _task_policies,
-         action_ref
-       ) do
-    with {:ok, episode} <- task_episode(record, target),
-         %Record{} = offer <- task_publication_offer(episode.id, review_offer_ref) do
-      PublicationCustody.request_review(%{
-        actor_ref: @actor_ref,
-        occurred_at: now(),
-        record_ref: offer.ref,
-        request_ref: action_ref,
-        target: target
-      })
-    else
-      nil -> {:error, :conversation_lab_publication_not_found}
-      {:error, _reason} = error -> error
-    end
-  end
-
-  defp perform_lab_record_action(
-         %Record{kind: "task_offer", status: :confirmed} = record,
-         target,
          :approve_task_publication,
          %{publication_ref: publication_ref},
          _work_profile,
@@ -845,16 +817,6 @@ defmodule Responder.ControlPlane.Actions do
     Repo.get_by(Publication, episode_id: episode_id, ref: publication_ref)
   end
 
-  defp task_publication_offer(episode_id, review_offer_ref) do
-    Repo.get_by(Record,
-      episode_id: episode_id,
-      ref: review_offer_ref,
-      kind: "publication_offer",
-      status: :open,
-      operation_id: "host:publication:ready"
-    )
-  end
-
   defp lab_publication_target(publication, source_target, receipt_kind) do
     receipt = publication_receipt(publication, receipt_kind)
 
@@ -911,9 +873,6 @@ defmodule Responder.ControlPlane.Actions do
 
   defp canonical_lab_action_context(%{publication_ref: publication_ref}),
     do: %{"publication_ref" => publication_ref}
-
-  defp canonical_lab_action_context(%{review_offer_ref: review_offer_ref}),
-    do: %{"review_offer_ref" => review_offer_ref}
 
   defp canonical_lab_action_context(other), do: other
 

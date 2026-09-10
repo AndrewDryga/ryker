@@ -216,19 +216,6 @@ defmodule Responder.Slack.InteractionHandler do
   end
 
   defp dispatch_action(
-         %Interaction{action_id: "responder_task_readiness"} = interaction,
-         work_ref,
-         %{publication_item_ref: "record:publication_offer:" <> _rest = record_ref},
-         options
-       ) do
-    attributes = task_publication_attributes(interaction, work_ref, record_ref)
-
-    with :ok <- configured_operator(interaction, options) do
-      options.request_task_readiness.(attributes)
-    end
-  end
-
-  defp dispatch_action(
          %Interaction{action_id: "responder_task_publish"} = interaction,
          work_ref,
          %{publication_item_ref: "publication:" <> _rest = publication_ref},
@@ -622,7 +609,7 @@ defmodule Responder.Slack.InteractionHandler do
   end
 
   defp selection(%Interaction{action_id: action_id, action_value: action_value})
-       when action_id in ~w(responder_task_check responder_task_publish responder_task_readiness) do
+       when action_id in ~w(responder_task_check responder_task_publish) do
     case String.split(action_value, "|", parts: 2) do
       ["task-card:" <> _rest = work_ref, publication_item_ref] ->
         {:ok, work_ref, %{publication_item_ref: publication_item_ref}}

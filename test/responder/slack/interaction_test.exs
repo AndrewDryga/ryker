@@ -198,11 +198,13 @@ defmodule Responder.Slack.InteractionTest do
         "task-card:abc123|record:publication_offer:def456"
       )
 
-    assert {:ok, _interaction} = Interaction.from_socket(readiness, "T123", @now)
+    # Tasks repeatedly stalled behind this redundant permission click. Old
+    # buttons are inert now that acceptance itself queues the checks.
+    assert Interaction.from_socket(readiness, "T123", @now) == :ignore
 
     crossed =
       put_in(
-        readiness,
+        publish,
         ["payload", "actions", Access.at(0), "value"],
         "incident-room:abc123|publication:def456"
       )

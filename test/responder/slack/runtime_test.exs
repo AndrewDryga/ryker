@@ -96,7 +96,6 @@ defmodule Responder.Slack.RuntimeTest do
     assert is_function(options.handler_settings.interaction_options.show_work_diff, 1)
     assert is_function(options.handler_settings.interaction_options.show_work_diff_page, 1)
     assert is_function(options.handler_settings.interaction_options.show_work_record, 1)
-    assert is_function(options.handler_settings.interaction_options.request_task_readiness, 1)
     assert is_function(options.handler_settings.interaction_options.approve_task_publication, 1)
     assert is_function(options.handler_settings.interaction_options.check_task_publication, 1)
     assert is_function(options.handler_settings.interaction_options.recover_task_publication, 2)

@@ -575,6 +575,14 @@ defmodule Responder.Work.ExecutorTest do
     assert offer.turn_id == claim.turn.id
     assert offer.status == :open
 
+    # A workspace task label alone is not an authenticated task confirmation.
+    # Automatic checks must use the confirmed offer, not model-supplied intent.
+    refute Repo.exists?(
+             from(publication in Responder.Publication.Publication,
+               where: publication.record_id == ^offer.id
+             )
+           )
+
     assert offer.payload == %{
              "body" => "Writable milestone complete.",
              "title" => "Checkpoint writable work"

@@ -71,14 +71,13 @@ defmodule Responder.Slack.TaskCards do
     )
   end
 
-  @spec mark(Ecto.UUID.t(), Ecto.UUID.t(), String.t(), pos_integer(), String.t() | nil) ::
+  @spec mark(Ecto.UUID.t(), Ecto.UUID.t(), String.t(), pos_integer()) ::
           {:ok, TaskCard.t()} | {:error, term()}
-  def mark(card_id, lease_ref, fingerprint, ui_revision, publication_offer_ref) do
+  def mark(card_id, lease_ref, fingerprint, ui_revision) do
     with {:ok, card_id} <- uuid(card_id, :card_id),
          {:ok, lease_ref} <- uuid(lease_ref, :lease_ref),
          :ok <- sha256(fingerprint, :card_fingerprint),
-         :ok <- bounded_integer(ui_revision, 1..1_000_000, :card_ui_revision),
-         :ok <- publication_offer_ref(publication_offer_ref) do
+         :ok <- bounded_integer(ui_revision, 1..1_000_000, :card_ui_revision) do
       mutate_claim(card_id, lease_ref, fn card, now ->
         update!(
           card,
@@ -86,7 +85,6 @@ defmodule Responder.Slack.TaskCards do
             card_checked_at: now,
             card_fingerprint: fingerprint,
             card_ui_revision: ui_revision,
-            rendered_publication_offer_ref: publication_offer_ref,
             last_error_code: nil,
             last_error_detail: nil,
             lease_expires_at: nil,
@@ -99,17 +97,6 @@ defmodule Responder.Slack.TaskCards do
       end)
     end
   end
-
-  defp publication_offer_ref(nil), do: :ok
-
-  defp publication_offer_ref(value) when is_binary(value) do
-    if Regex.match?(~r/\Arecord:publication_offer:[A-Za-z0-9_.:-]{1,220}\z/, value),
-      do: :ok,
-      else: {:error, {:invalid_task_card_request, :rendered_publication_offer_ref}}
-  end
-
-  defp publication_offer_ref(_value),
-    do: {:error, {:invalid_task_card_request, :rendered_publication_offer_ref}}
 
   @spec defer(Ecto.UUID.t(), Ecto.UUID.t(), pos_integer(), term()) ::
           {:ok, TaskCard.t()} | {:error, term()}

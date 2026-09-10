@@ -140,11 +140,12 @@ profile and Terra/medium, including durable admission usage. It took about 128
 seconds end to end. Existing credentials work, but this does not meet the speed
 requirement and is not evidence that fast classification is complete.
 
-The shipping gate also exposed a pre-existing cross-clock readiness defect:
+The earlier shipping gate also exposed a cross-clock readiness defect:
 PostgreSQL's card refresh timestamp could precede an application's offer timestamp.
-A deterministic clock-skew regression now preserves acceptance of the exact
-rendered offer, while unseen offers and crossed destinations remain rejected.
-The immutable rendered offer reference, not cross-clock ordering, is the proof.
+A clock-skew regression preserved acceptance of the exact rendered offer. The
+subsequent automatic-readiness cutover removes that manual control and its
+rendered-offer fence entirely: confirmed completed task results now enqueue
+their checks transactionally. Existing database history is preserved.
 Migration round trips include every new version and retain the earlier rollback
 refusal tests. The retention registry now explicitly owns classifier artifacts,
 synthetic Slack specimens, and compact accounting.

@@ -13,6 +13,8 @@ defmodule Responder.Work.Custody do
   alias Responder.CanonicalJSON
   alias Responder.Episodes
   alias Responder.Episodes.{Command, Episode}
+  alias Responder.Publication.Custody, as: PublicationCustody
+  alias Responder.Publication.Publication
   alias Responder.Repo
   alias Responder.State.{Continuity, EventSubscriptions, KnowledgeSnapshot}
 
@@ -1500,6 +1502,7 @@ defmodule Responder.Work.Custody do
 
       episode ->
         with {:ok, session, turn} <- ensure_session_and_turn(episode),
+             false <- active_publication_review?(session, turn),
              {:ok, turn} <- claim_turn(turn, worker_ref, now, lease_seconds) do
           %{
             episode: episode,
@@ -1508,37 +1511,65 @@ defmodule Responder.Work.Custody do
             turn: turn
           }
         else
+          true -> nil
           {:error, reason} -> Repo.rollback(reason)
         end
     end
   end
 
   defp eligible_episode(now, phase) do
-    pinned_episode_ids = from(session in Session, select: session.episode_id)
-    phase_filter = claim_phase_filter(phase, now)
-
-    eligible_ids =
-      from(episode in Episode,
-        left_join: turn in Turn,
-        on:
-          turn.episode_id == episode.id and
-            ((episode.owner_kind == :turn and turn.turn_ref == episode.owner_ref) or
-               (episode.owner_kind == :delivery and turn.delivery_ref == episode.owner_ref)),
-        where: episode.state == :working and episode.owner_kind in [:turn, :delivery],
-        where: episode.id in subquery(pinned_episode_ids),
-        where: ^phase_filter,
-        select: episode.id
-      )
-
     Repo.one(
       from(episode in Episode,
-        where: episode.id in subquery(eligible_ids),
+        where: episode.id in subquery(claimable_episode_ids_query(now, phase)),
         order_by: [asc: episode.updated_at, asc: episode.id],
         limit: 1,
         lock: "FOR UPDATE SKIP LOCKED"
       )
     )
   end
+
+  @doc false
+  def claimable_episode_ids_query(now, phase) do
+    pinned_episode_ids = from(session in Session, select: session.episode_id)
+
+    reviewing_episode_ids =
+      from(publication in Publication,
+        where: publication.status == :review_pending and publication.lease_expires_at > ^now,
+        select: publication.episode_id
+      )
+
+    phase_filter = claim_phase_filter(phase, now)
+
+    from(episode in Episode,
+      left_join: turn in Turn,
+      on:
+        turn.episode_id == episode.id and
+          ((episode.owner_kind == :turn and turn.turn_ref == episode.owner_ref) or
+             (episode.owner_kind == :delivery and turn.delivery_ref == episode.owner_ref)),
+      where: episode.state == :working and episode.owner_kind in [:turn, :delivery],
+      where: episode.id in subquery(pinned_episode_ids),
+      where: ^phase_filter,
+      where: episode.owner_kind == :delivery or episode.id not in subquery(reviewing_episode_ids),
+      select: episode.id
+    )
+  end
+
+  defp active_publication_review?(session, %Turn{status: status})
+       when status in [:pending, :cancel_pending] do
+    # Both claimers lock the session. Recheck after that lock as the selection
+    # query may have started before the other claimant committed its lease.
+    now = database_now!()
+
+    Repo.exists?(
+      from(publication in Publication,
+        where:
+          publication.session_id == ^session.id and publication.status == :review_pending and
+            publication.lease_expires_at > ^now
+      )
+    )
+  end
+
+  defp active_publication_review?(_session, _turn), do: false
 
   defp claim_phase_filter(:work, now) do
     dynamic(
@@ -2249,6 +2280,12 @@ defmodule Responder.Work.Custody do
            |> TurnChangeset.accept_result(attributes)
            |> Repo.update()
            |> persistence_result(:work_result),
+         :ok <-
+           PublicationCustody.ensure_task_review_in_transaction(
+             transition.episode,
+             session,
+             turn
+           ),
          :ok <- Responder.Accounting.accepted_in_transaction(episode, session, turn),
          {:ok, _subscription} <- EventSubscriptions.ensure_in_transaction(transition.episode),
          :ok <- Continuity.accept_staged_in_transaction(episode, session, turn, turn.result_ref) do

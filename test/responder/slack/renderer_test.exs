@@ -231,7 +231,6 @@ defmodule Responder.Slack.RendererTest do
         "pull_request_number" => 91,
         "pull_request_url" => "https://github.com/acme/responder/pull/91",
         "recovery_generation" => 1,
-        "review_offer_ref" => nil,
         "status" => "published"
       },
       "repository" => "responder",
@@ -272,7 +271,6 @@ defmodule Responder.Slack.RendererTest do
         "pull_request_number" => nil,
         "pull_request_url" => nil,
         "recovery_generation" => 1,
-        "review_offer_ref" => nil,
         "status" => "reviewed"
       })
 
@@ -289,7 +287,6 @@ defmodule Responder.Slack.RendererTest do
         "pull_request_number" => nil,
         "pull_request_url" => nil,
         "recovery_generation" => 3,
-        "review_offer_ref" => nil,
         "status" => "blocked"
       })
 
@@ -314,7 +311,6 @@ defmodule Responder.Slack.RendererTest do
         "pull_request_number" => 91,
         "pull_request_url" => "https://github.com/acme/responder/pull/91",
         "recovery_generation" => 4,
-        "review_offer_ref" => nil,
         "status" => "published"
       })
 
@@ -1122,7 +1118,7 @@ defmodule Responder.Slack.RendererTest do
 
   test "renders every task and incident lifecycle label from host-owned state" do
     task_statuses =
-      ~w(waiting_for_input waiting_for_event action_required stopping reviewing ready_for_review ready_to_publish completed cancelled)
+      ~w(waiting_for_input waiting_for_event action_required stopping reviewing ready_to_publish completed cancelled)
 
     Enum.each(task_statuses, fn status ->
       task = task_document(status)
@@ -1132,19 +1128,18 @@ defmodule Responder.Slack.RendererTest do
     end)
 
     readiness =
-      task_document("ready_for_review")
+      task_document("reviewing")
       |> put_in(["publication"], %{
-        "controls" => ["readiness"],
-        "publication_ref" => nil,
+        "controls" => [],
+        "publication_ref" => "publication:review123",
         "pull_request_number" => nil,
         "pull_request_url" => nil,
         "recovery_generation" => nil,
-        "review_offer_ref" => "record:publication_offer:review123",
-        "status" => "offered"
+        "status" => "review_pending"
       })
 
     assert {:ok, rendered} = Renderer.render(%{"task_card" => readiness})
-    assert inspect(rendered) =~ "responder_task_readiness"
+    refute inspect(rendered) =~ "responder_task_readiness"
 
     incident_statuses =
       ~w(provisioning action_required waiting_for_input waiting_for_event stopping resolved cancelled paused)
@@ -1186,7 +1181,6 @@ defmodule Responder.Slack.RendererTest do
         "pull_request_number" => 1,
         "pull_request_url" => "http://example.test/pr/1",
         "recovery_generation" => nil,
-        "review_offer_ref" => nil,
         "status" => "published"
       })
 
