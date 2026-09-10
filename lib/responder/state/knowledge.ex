@@ -666,13 +666,17 @@ defmodule Responder.State.Knowledge do
         select: 1
       )
 
+    # A cached empty-heap plan kept scanning the grown observation table once
+    # per receipt and exhausted learning's 15-second transaction. Replan this
+    # cardinality-sensitive recall; keep the same authorization and source locks.
     Repo.all(
       from(k in query,
         where: k.scope_key == ^scope_key(scope) and exists(subquery(direct_source)),
         order_by: [desc: k.latest_source_at, asc: k.id],
         limit: ^limit,
         lock: "FOR SHARE"
-      )
+      ),
+      prepare: :unnamed
     )
   end
 
