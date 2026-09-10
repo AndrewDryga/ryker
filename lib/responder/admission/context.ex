@@ -23,6 +23,7 @@ defmodule Responder.Admission.Context do
                 knowledge_omissions: [],
                 source_dependencies: nil,
                 slack_addressing: nil,
+                custom_instructions: nil,
                 fitted?: false
               ]
 
@@ -46,6 +47,7 @@ defmodule Responder.Admission.Context do
     |> put_observations(context.observations)
     |> put_knowledge(context.knowledge)
     |> put_slack_addressing(context.slack_addressing)
+    |> put_custom_instructions(context.custom_instructions)
   end
 
   @doc false
@@ -62,6 +64,7 @@ defmodule Responder.Admission.Context do
     |> put_observations(context.observations)
     |> put_knowledge(context.knowledge)
     |> put_slack_addressing(context.slack_addressing)
+    |> put_custom_instructions(context.custom_instructions)
   end
 
   @doc false
@@ -92,12 +95,14 @@ defmodule Responder.Admission.Context do
                    "conversation_knowledge",
                    "source_dependencies",
                    "knowledge_omissions",
-                   "slack_addressing"
+                   "slack_addressing",
+                   "custom_instructions"
                  ])
                )
              ) ==
                Enum.sort(fields),
          {:ok, slack_addressing} <- restore_slack_addressing(snapshot, input),
+         {:ok, custom_instructions} <- restore_custom_instructions(snapshot, input),
          observations when is_list(observations) <-
            Map.get(snapshot, "conversation_observations", []),
          true <- length(observations) <= 5,
@@ -119,6 +124,7 @@ defmodule Responder.Admission.Context do
          input_entry: entry,
          fitted?: true,
          slack_addressing: slack_addressing,
+         custom_instructions: custom_instructions,
          observations: observations,
          knowledge: knowledge,
          knowledge_omissions: omissions,
@@ -137,6 +143,23 @@ defmodule Responder.Admission.Context do
 
   defp put_slack_addressing(document, addressing),
     do: Map.put(document, "slack_addressing", addressing)
+
+  defp put_custom_instructions(document, nil), do: document
+
+  defp put_custom_instructions(document, snapshot),
+    do: Map.put(document, "custom_instructions", snapshot)
+
+  defp restore_custom_instructions(snapshot, input) do
+    case Map.fetch(snapshot, "custom_instructions") do
+      :error ->
+        {:ok, nil}
+
+      {:ok, saved} ->
+        if Responder.Instructions.valid_snapshot?(saved, input.destination),
+          do: {:ok, saved},
+          else: {:error, {:invalid_admission_context_snapshot, :custom_instructions}}
+    end
+  end
 
   defp restore_slack_addressing(snapshot, input) do
     case Map.fetch(snapshot, "slack_addressing") do

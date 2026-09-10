@@ -57,6 +57,15 @@ defmodule Responder.Work.SubmissionBuilder do
          context <-
            Map.put(
              context,
+             "custom_instructions",
+             Responder.Instructions.snapshot(%{
+               transport: episode.destination_transport,
+               conversation_ref: episode.destination_conversation_ref
+             })
+           ),
+         context <-
+           Map.put(
+             context,
              "conversation_feedback",
              Reactions.model_context(episode.id, episode.next_sequence)
            ),

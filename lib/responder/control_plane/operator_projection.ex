@@ -403,9 +403,23 @@ defmodule Responder.ControlPlane.OperatorProjection do
     |> filter_channel_search(search(params["q"]))
     |> Enum.sort_by(&{date_sort(&1.last_at), &1.workspace_ref, &1.channel_ref}, :desc)
     |> Enum.take(@list_limit)
+    |> with_channel_instructions()
   end
 
   def channels(_params), do: channels(%{})
+
+  defp with_channel_instructions(items) do
+    configured = Responder.Instructions.configured_channels(items)
+
+    Enum.map(
+      items,
+      &Map.put(
+        &1,
+        :custom_instructions,
+        MapSet.member?(configured, "slack:#{&1.workspace_ref}:#{&1.channel_ref}")
+      )
+    )
+  end
 
   def channel(workspace_ref, channel_ref)
       when is_binary(workspace_ref) and is_binary(channel_ref) and

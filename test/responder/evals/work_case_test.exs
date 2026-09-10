@@ -16,7 +16,7 @@ defmodule Responder.Evals.WorkCaseTest do
 
   test "the recorded Work corpus compiles into the production prompt and final contract" do
     assert {:ok, cases} = WorkCase.all()
-    assert length(cases) == 4
+    assert length(cases) == 10
     assert Enum.uniq_by(cases, & &1.eval_id) == cases
 
     assert Enum.any?(cases, &(&1.eval_id == "github_and_slack_remain_platform_adapters"))

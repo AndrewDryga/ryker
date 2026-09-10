@@ -465,6 +465,9 @@ defmodule Responder.Work.ExecutorTest do
   end
 
   test "one frozen turn reaches a validated durable delivery intent" do
+    assert {:ok, _} =
+             Responder.Instructions.save(:global, "Explain the evidence.", 0, "operator:test")
+
     claim = claim_episode!("valid")
 
     activity = [
@@ -489,6 +492,11 @@ defmodule Responder.Work.ExecutorTest do
     assert execution.episode.owner_kind == :delivery
 
     state = FakeAPI.state(fake)
+
+    assert Jason.decode!(hd(state.submissions).prompt)["work"]["custom_instructions"]["global"][
+             "text"
+           ] == "Explain the evidence."
+
     assert state.create_count == 1
     assert state.submit_count == 1
     assert Enum.map(state.validations, & &1.verdict) == [:accept]

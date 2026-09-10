@@ -1,13 +1,13 @@
 defmodule Responder.CoopFleet.ClientTest do
   use Responder.DataCase, async: true
 
-  alias Responder.{Artifacts, CanonicalJSON}
+  alias Responder.{Artifacts, CanonicalJSON, Instructions}
   alias Responder.CoopFleet.{Client, ControlPlane, Placement, WorkspaceCheckpointTransfer}
   alias Responder.Episodes
   alias Responder.Fixtures.Episodes, as: EpisodeFixtures
   alias Responder.Fixtures.WorkspaceCheckpoint, as: WorkspaceCheckpointFixture
   alias Responder.Repo
-  alias Responder.Work.{Custody, SessionChangeset, StateBinding}
+  alias Responder.Work.{Custody, SessionChangeset, StateBinding, SubmissionBuilder}
 
   @authority_digest String.duplicate("d", 64)
   @policy "work-read-only"
@@ -602,6 +602,47 @@ defmodule Responder.CoopFleet.ClientTest do
                "7b136cbd9b50c9ef8ab2b210cd686990281da74a8329586dcd577284870bb4d2",
              "turn_ref" => "turn-7"
            }
+  end
+
+  test "fleet submission keeps the prepared instructions after an operator clears them", %{
+    client: client,
+    session: session
+  } do
+    session = bind_session!(session, "coop-session-instructions")
+    assert {:ok, _} = Instructions.save(:global, "Keep replies concise.", 0, "operator:test")
+    assert {:ok, claim} = Custody.claim_next("fleet-instructions", 300)
+    assert claim.episode.id == session.episode_id
+    assert {:ok, submission} = SubmissionBuilder.build(claim)
+
+    assert {:ok, frozen} =
+             Custody.freeze_submission(
+               claim.episode.id,
+               claim.turn.turn_ref,
+               claim.lease_ref,
+               submission
+             )
+
+    assert {:ok, _} = Instructions.save(:global, "", 1, "operator:test")
+    key = "responder:work:submit:#{claim.turn.turn_ref}:g1"
+
+    assert {:ok, _} =
+             Client.submit_frozen_turn(
+               client,
+               session.coop_session_id,
+               key,
+               4,
+               frozen.submission,
+               nil,
+               []
+             )
+
+    assert_receive {:fleet_command, ^session, "submit_turn", payload, ^key, _}
+    assert payload["submission"] == frozen.submission
+    assert payload["submission_sha256"] == frozen.submission_fingerprint
+
+    assert Jason.decode!(payload["submission"]["prompt"])["work"]["custom_instructions"][
+             "global"
+           ] == %{"scope" => "global", "revision" => 1, "text" => "Keep replies concise."}
   end
 
   test "semantic validation carries the exact candidate attempt and frozen verdict", %{

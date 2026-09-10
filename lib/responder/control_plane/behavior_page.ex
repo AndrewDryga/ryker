@@ -14,6 +14,10 @@ defmodule Responder.ControlPlane.BehaviorPage do
     ~H"""
     <div class="behavior-library">
       <p class="page-description">{description(@view.kind)}</p>
+      <p :if={@view.kind == :guidance} class="muted">
+        Guidance is recalled when relevant. Use <a href="/instructions">Instructions</a>
+        for global or channel defaults supplied on every model turn.
+      </p>
       <div class="behavior-overview">
         <dl class="behavior-counts">
           <div :for={

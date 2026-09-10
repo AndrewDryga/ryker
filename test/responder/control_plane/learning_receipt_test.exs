@@ -10,7 +10,24 @@ defmodule Responder.ControlPlane.LearningReceiptTest do
   # The replay had hundreds of notes without an inspectable explanation of how
   # knowledge changed. The source pair is harvested; this candidate tests the host contract.
   test "a knowledge update opens its own complete grouped learning receipt" do
+    assert {:ok, _} =
+             Responder.Instructions.save(
+               :global,
+               "Saved learning instructions",
+               0,
+               "operator:test"
+             )
+
     {run, revision} = learned!()
+
+    assert {:ok, _} =
+             Responder.Instructions.save(
+               :global,
+               "New settings must not rewrite history",
+               1,
+               "operator:test"
+             )
+
     view = ConversationMemory.project(params(revision))
     assert view.learning.id == run.id
     assert view.learning.version == revision.version
@@ -19,7 +36,11 @@ defmodule Responder.ControlPlane.LearningReceiptTest do
     assert view.learning.target == "receipt-test-model"
 
     assert Enum.map(view.learning.sections, & &1.id) ==
-             ~w(inputs knowledge instructions contract prompt result validation)
+             ~w(inputs knowledge instructions custom_instructions contract prompt result validation)
+
+    custom = Enum.find(view.learning.sections, &(&1.id == "custom_instructions"))
+    assert custom.artifact.text =~ "Saved learning instructions"
+    refute custom.artifact.text =~ "New settings must not rewrite history"
 
     assert Enum.all?(view.learning.sections, &(!&1.artifact.truncated))
     expected = InspectionRedactor.artifact(run.prompt, preserve_format: true).text
@@ -32,7 +53,7 @@ defmodule Responder.ControlPlane.LearningReceiptTest do
 
     doc = LazyHTML.from_document(html)
     assert doc |> LazyHTML.query(".learning-receipt details[open]") |> LazyHTML.to_tree() == []
-    assert doc |> LazyHTML.query(".learning-receipt > details") |> Enum.count() == 7
+    assert doc |> LazyHTML.query(".learning-receipt > details") |> Enum.count() == 8
     assert html =~ "How update 1 was learned"
     assert html =~ "Source messages"
     assert html =~ "Response format"

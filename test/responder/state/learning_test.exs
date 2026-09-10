@@ -23,6 +23,56 @@ defmodule Responder.State.LearningTest do
 
   @policy %{policy: "recorded-read-only-policy", policy_digest: String.duplicate("a", 64)}
 
+  test "learning freezes scoped instructions without restarting a saved batch after an edit" do
+    alias Responder.Instructions
+
+    [first, second] = Fixtures.inputs!()
+    ["slack", workspace, channel] = String.split(first.destination_conversation_ref, ":")
+    scope = {:channel, workspace, channel}
+
+    destination = %{
+      transport: first.destination_transport,
+      conversation_ref: first.destination_conversation_ref
+    }
+
+    assert {:ok, _} =
+             Instructions.save(:global, "Keep durable facts concise.", 0, "operator:test")
+
+    assert {:ok, _} = Instructions.save(scope, "Preserve deployment context.", 0, "operator:test")
+    assert {:ok, run} = Learning.prepare([first.id], @policy)
+    assert Jason.decode!(run.prompt)["custom_instructions"] == Instructions.snapshot(destination)
+
+    assert {:ok, _} = Instructions.save(scope, "", 1, "operator:test")
+    assert {:ok, ^run} = Learning.prepare([first.id], @policy)
+    assert {:ok, next} = Learning.prepare([second.id], @policy)
+    assert Jason.decode!(next.prompt)["custom_instructions"]["channel"]["text"] == ""
+    assert Jason.decode!(next.prompt)["custom_instructions"]["channel"]["revision"] == 2
+  end
+
+  test "editing instructions cannot reset the learning start budget" do
+    first = hd(Fixtures.inputs!())
+
+    keys =
+      for generation <- 1..3 do
+        assert {:ok, run} = Learning.prepare([first.id], @policy)
+        assert run.generation == generation
+        assert {:error, :invalid_learning_result} = Fixtures.accept(run.id, "not-json", %{})
+
+        assert {:ok, _} =
+                 Responder.Instructions.save(
+                   :global,
+                   "Revision #{generation}",
+                   generation - 1,
+                   "operator:test"
+                 )
+
+        run.batch_key
+      end
+
+    assert length(Enum.uniq(keys)) == 1
+    assert {:error, :learning_retry_exhausted} = Learning.prepare([first.id], @policy)
+  end
+
   test "the frozen learning input preserves the original conversation and reply identities" do
     # Fortnite replay fortnite_b.json, run 380c7761-2ed8-4f66-a084-8d6519c96bef,
     # deferred the concern below because its prompt omitted the actual reply/thread

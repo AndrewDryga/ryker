@@ -155,6 +155,9 @@ defmodule Responder.Work.Prompt do
 
   @spec build(map()) :: String.t()
   def build(context) when is_map(context) do
-    CanonicalJSON.encode!(%{"instructions" => @instructions, "work" => context})
+    CanonicalJSON.encode!(%{
+      "instructions" => Responder.Instructions.prompt_instructions(@instructions),
+      "work" => context
+    })
   end
 end

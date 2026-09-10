@@ -6,6 +6,9 @@ defmodule Responder.ControlPlane.RequestContextHTML do
   @moduledoc "Readable context derived only from an already sanitized inspection artifact."
 
   @sources %{
+    "custom_instructions" =>
+      {"Custom instructions", "policy", "Submitted settings",
+       "The global and channel text, scopes and revisions saved with this request, not today's settings. Empty text means no instruction at that scope."},
     "input" =>
       {"Messages supplied to this request", "conversation", "Incoming message",
        "The message that started this routing call."},
@@ -73,7 +76,7 @@ defmodule Responder.ControlPlane.RequestContextHTML do
       {"Previous submission", "memory", "Work continuation",
        "The retained parent submission reference for this continuing turn."}
   }
-  @order ~w(input slack_addressing inputs current_inputs continuity operator_context records related_outcomes prior_outcome candidates responder_state_tools source_and_action_tools workspace repository_ref destination allowed_actions execution_mode mode offer_confirmation_supported linked_history_ref parent_submission_ref)
+  @order ~w(custom_instructions input slack_addressing inputs current_inputs continuity operator_context records related_outcomes prior_outcome candidates responder_state_tools source_and_action_tools workspace repository_ref destination allowed_actions execution_mode mode offer_confirmation_supported linked_history_ref parent_submission_ref)
 
   @doc "The complete submitted components, grouped for reading without hiding source labels."
   def briefing(sections, kind, prefix) do
@@ -219,6 +222,8 @@ defmodule Responder.ControlPlane.RequestContextHTML do
     [
       Enum.map(
         [
+          {"policy", "Custom instructions",
+           "Explicit operator settings included in this request."},
           {"conversation", "Messages",
            "The original input and any conversation history supplied to this call."},
           {"memory", "Selected knowledge",
@@ -402,12 +407,28 @@ defmodule Responder.ControlPlane.RequestContextHTML do
     end
   end
 
+  def instruction_layers(value) when is_map(value) do
+    Enum.map([{"global", "Global instructions"}, {"channel", "Channel instructions"}], fn {key,
+                                                                                           label} ->
+      [
+        "<section class=\"instruction-layer\"><h4>",
+        label,
+        "</h4>",
+        fields(value[key], 0),
+        "</section>"
+      ]
+    end)
+  end
+
   defp body(key, value, _path, _prefix)
        when key in ~w(input inputs current_inputs) and (is_map(value) or is_list(value)),
        do: messages(%{key => value})
 
   defp body("candidates", value, _path, _prefix) when is_list(value) and value != [],
     do: candidates(value)
+
+  defp body("custom_instructions", value, _path, _prefix) when is_map(value),
+    do: instruction_layers(value)
 
   defp body("operator_context", value, path, prefix) when is_map(value) and map_size(value) > 0,
     do: context(value, path, prefix)

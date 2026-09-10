@@ -38,6 +38,7 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
   @confirmed_slack_feedback_version 20_260_909_000_200
   @event_only_waits_version 20_260_909_120_000
   @completion_receipts_version 20_260_909_160_000
+  @model_instructions_version 20_260_910_000_100
   @memory_versions Enum.to_list(20_260_908_000_100..20_260_908_001_100//100) ++
                      [@bounded_sources_version]
   @workspace_versions [
@@ -103,12 +104,15 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
                    [
                      @confirmed_slack_feedback_version,
                      @event_only_waits_version,
-                     @completion_receipts_version
+                     @completion_receipts_version,
+                     @model_instructions_version
                    ]
              ]
 
       refute table_exists?(repo, prefix, "slack_inbox_entries")
       assert table_exists?(repo, prefix, "ingress_inbox_entries")
+      assert table_exists?(repo, prefix, "model_instruction_settings")
+      assert table_exists?(repo, prefix, "model_instruction_edits")
       assert table_exists?(repo, prefix, "episode_publications")
       assert table_exists?(repo, prefix, "episode_schedules")
       assert table_exists?(repo, prefix, "operator_behaviors")
@@ -1518,7 +1522,8 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
                  [
                    @confirmed_slack_feedback_version,
                    @event_only_waits_version,
-                   @completion_receipts_version
+                   @completion_receipts_version,
+                   @model_instructions_version
                  ]
 
       # Existing sessions have unknown disclosure custody. New columns must not
@@ -1545,8 +1550,9 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
       assert %{rows: [[0, 0, 0]]} = reset_topic_counts(repo, prefix)
       assert_reset_notes(repo, prefix, derived["conversation_observations"])
 
-      assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 3, prefix: prefix, log: false) ==
+      assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 4, prefix: prefix, log: false) ==
                [
+                 @model_instructions_version,
                  @completion_receipts_version,
                  @event_only_waits_version,
                  @confirmed_slack_feedback_version

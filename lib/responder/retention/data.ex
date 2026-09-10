@@ -940,15 +940,27 @@ defmodule Responder.Retention.Data do
       execute_count(
         """
         WITH candidates AS (
-          SELECT id FROM slack_channel_setting_audit
+          SELECT id FROM model_instruction_edits
           WHERE inserted_at < clock_timestamp() - ($1 * interval '1 second')
           ORDER BY inserted_at, id LIMIT 100 FOR UPDATE SKIP LOCKED
         )
-        DELETE FROM slack_channel_setting_audit AS audit
-        USING candidates WHERE audit.id = candidates.id
+        DELETE FROM model_instruction_edits AS edit
+        USING candidates WHERE edit.id = candidates.id
         """,
         [settings.audit_data_seconds]
       ) +
+        execute_count(
+          """
+          WITH candidates AS (
+            SELECT id FROM slack_channel_setting_audit
+            WHERE inserted_at < clock_timestamp() - ($1 * interval '1 second')
+            ORDER BY inserted_at, id LIMIT 100 FOR UPDATE SKIP LOCKED
+          )
+          DELETE FROM slack_channel_setting_audit AS audit
+          USING candidates WHERE audit.id = candidates.id
+          """,
+          [settings.audit_data_seconds]
+        ) +
         execute_count(
           """
           WITH candidates AS (

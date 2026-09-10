@@ -68,6 +68,14 @@ defmodule Responder.Learning.RebuildsTest do
   end
 
   test "explicit rebuilding can select a new original after every old support was withdrawn" do
+    assert {:ok, _} =
+             Responder.Instructions.save(
+               :global,
+               "Keep original attribution.",
+               0,
+               "operator:test"
+             )
+
     {topic, old, current} = unavailable_topic!()
     before_history = Repo.all(KnowledgeRevision)
     memberships = Repo.all(InputMembership)
@@ -87,6 +95,7 @@ defmodule Responder.Learning.RebuildsTest do
     assert {:ok, claim} = Batches.claim("rebuild-test", @settings)
     assert {:ok, run} = Batches.prepare(claim)
     prompt = Jason.decode!(run.prompt)
+    assert prompt["custom_instructions"]["global"]["text"] == "Keep original attribution."
     assert prompt["knowledge"] == []
     assert Enum.map(prompt["inputs"], & &1["content"]) == [current.content]
     refute run.prompt =~ topic.state["summary"]

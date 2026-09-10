@@ -32,6 +32,34 @@ Search covers readable labels among the latest 100 waits in the selected status;
 exact subscription references search all history within that status. Opening,
 filtering and refreshing this page never changes a wait.
 
+## Global and channel instructions
+
+`/instructions` has one installation-wide Global instructions field. Each available
+Slack channel has its own Channel instructions editor directly on
+`/channels/:workspace/:channel`, with a read-only preview of the inherited global
+text. The channel list shows “Global only” or “Global + channel” without excerpts.
+
+Save changes explicitly; Cancel discards the draft. Each field accepts 2,000 Unicode
+characters and 8 KiB of UTF-8, preserving line breaks and Markdown. Clear and save
+to remove that scope's instructions. A stale edit shows the current saved version
+without overwriting it; review the conflict before saving again. Unsaved drafts
+survive refresh and are kept per scope in browser tab storage for return navigation
+when storage is available. Recovery retains the draft's original revision.
+
+Every new Admission, Work and Learning/relearning request includes a frozen global
+and applicable channel snapshot. Channel instructions override only conflicting
+global defaults. An authorized task-specific request can override standing style
+defaults; current settings take precedence over older recalled Guidance. Instructions
+are always supplied, while Guidance is selected when relevant. Neither grants
+permissions nor changes participation, source attribution, retention or response
+contracts. The model cannot edit these operator settings.
+
+Changes apply to the next newly prepared model turn, including continuing sessions.
+Already submitted work and exact transport retries retain their saved instructions.
+Clears are explicit empty revisions, not missing history. Request and learning
+inspection show the text, scope and revisions actually submitted, through existing
+redaction and retention; today's settings never reconstruct an expired request.
+
 ## Why this exists
 
 The Slack App Home is the wrong surface for most of this and cannot be fixed by

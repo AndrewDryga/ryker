@@ -104,6 +104,13 @@ defmodule Responder.ControlPlane.LearningReceipt do
         secrets
       ),
       section(
+        "custom_instructions",
+        "Custom instructions",
+        "The global and channel text, scopes and revisions retained with this learning attempt, not today's settings.",
+        prompt["custom_instructions"],
+        secrets
+      ),
+      section(
         "contract",
         "Response format",
         "The output contract supplied alongside the prompt text.",
@@ -269,6 +276,13 @@ defmodule Responder.ControlPlane.LearningReceipt do
   defp part(%{section: %{id: "prompt"}} = assigns) do
     ~H"""
     <div class="prompt-assembly">{Phoenix.HTML.raw(PromptDocument.render(@section.artifact))}</div>
+    """
+  end
+
+  defp part(%{section: %{id: "custom_instructions", value: value}} = assigns)
+       when is_map(value) do
+    ~H"""
+    {Phoenix.HTML.raw(Responder.ControlPlane.RequestContextHTML.instruction_layers(@section.value))}
     """
   end
 

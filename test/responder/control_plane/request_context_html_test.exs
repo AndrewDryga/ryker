@@ -2,6 +2,34 @@ defmodule Responder.ControlPlane.RequestContextHTMLTest do
   use ExUnit.Case, async: true
   alias Responder.ControlPlane.{InspectionRedactor, RequestContextHTML}
 
+  test "custom instruction provenance shows only the submitted revisions through redaction and expiry" do
+    snapshot = %{
+      "global" => %{"scope" => "global", "revision" => 7, "text" => "Saved global PRIVATE_TOKEN"},
+      "channel" => %{
+        "scope" => "slack:T1:C1",
+        "revision" => 3,
+        "text" => "Saved channel <script>text</script>"
+      }
+    }
+
+    artifact =
+      InspectionRedactor.artifact(%{"custom_instructions" => snapshot},
+        secrets: ["PRIVATE_TOKEN"]
+      )
+
+    html =
+      artifact |> RequestContextHTML.assembly("$.work", "instructions") |> IO.iodata_to_binary()
+
+    assert html =~ "Custom instructions"
+    assert html =~ "Submitted settings"
+    assert html =~ "Saved global"
+    assert html =~ "slack:T1:C1"
+    refute html =~ "PRIVATE_TOKEN"
+    refute html =~ "<script>text</script>"
+    expired = InspectionRedactor.artifact(nil, expired: true)
+    assert RequestContextHTML.assembly(expired, "$.work", "instructions") == []
+  end
+
   test "Slack addressing is a collapsed message component with its exact retained source" do
     artifact =
       InspectionRedactor.artifact(%{

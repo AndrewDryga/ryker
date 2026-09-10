@@ -100,6 +100,7 @@ defmodule Responder.Admission do
         conversation_episode_count: conversation_episode_count(input, entry.execution_mode),
         input: input,
         input_entry: entry,
+        custom_instructions: Responder.Instructions.snapshot(input.destination),
         slack_addressing: slack_addressing(entry),
         observations: Observations.context(entry, entry.repository_ref, "", 5),
         knowledge:

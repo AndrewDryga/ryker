@@ -7,6 +7,33 @@ defmodule Responder.Admission.PromptTest do
   alias Responder.Ingress.Input
   alias Responder.Slack.Input, as: SlackInput
 
+  test "required custom instructions survive fitting before optional conversation knowledge" do
+    text = String.duplicate("\"\\\n🌱", 500)
+
+    instructions = %{
+      "global" => %{"scope" => "global", "revision" => 1, "text" => text},
+      "channel" => %{"scope" => "slack:T1:C1", "revision" => 2, "text" => text}
+    }
+
+    context =
+      %Context{
+        active_episode_fingerprint: Responder.CanonicalJSON.digest([]),
+        built_at: ~U[2026-08-27 12:00:01.000000Z],
+        candidates: [],
+        conversation_episode_count: 0,
+        input: input!(%{"text" => String.duplicate("x", 45_000)}),
+        input_entry: %Entry{id: Ecto.UUID.generate()},
+        knowledge: [%{"summary" => String.duplicate("k", 50_000)}]
+      }
+      |> Map.put(:custom_instructions, instructions)
+
+    request = Prompt.build(context)
+    assert request["context"]["custom_instructions"] == instructions
+    assert byte_size(Responder.CanonicalJSON.encode!(request)) <= 65_536
+    assert request["instructions"] =~ "replaces earlier custom instructions"
+    assert request["instructions"] =~ "do not grant permissions"
+  end
+
   test "addressing remains visible outside a truncated input and does not grant authority" do
     input =
       input!(%{

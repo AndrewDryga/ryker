@@ -5,6 +5,7 @@ defmodule Responder.ControlPlane.Actions do
 
   alias Responder.CanonicalJSON
   alias Responder.ControlPlane.{CardLabDelivery, CardLabFeedback, ConversationLab}
+  alias Responder.ControlPlane.InstructionSettings
   alias Responder.Episodes
   alias Responder.Episodes.{Command, Episode}
   alias Responder.Ingress.WorkProfile
@@ -64,6 +65,7 @@ defmodule Responder.ControlPlane.Actions do
       run_schedule: run_schedule(schedule_policy_resolver),
       send_lab_message: lab_sender(work_profile),
       set_behavior_status: &Behaviors.set_status/2,
+      save_instructions: &InstructionSettings.save/3,
       set_schedule_status: &Schedules.set_status/2,
       view_lab_task_record: lab_task_record_view(work_view_options)
     }

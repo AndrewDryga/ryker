@@ -81,6 +81,18 @@ defmodule Responder.Retention.DataTest do
     assert Activity.list_for_episode(work.episode.id) == []
   end
 
+  test "old instruction edit receipts expire without clearing the current value or its revision" do
+    alias Responder.Instructions
+    alias Responder.Instructions.Edit
+    assert {:ok, _} = Instructions.save(:global, "Original", 0, "operator:test")
+    Repo.update_all(Edit, set: [inserted_at: ~U[2000-01-01 00:00:00.000000Z]])
+    assert {:ok, _} = Instructions.save(:global, "Current", 1, "operator:test")
+    assert {:ok, _} = Data.prune(settings())
+    assert [%Edit{revision: 2}] = Repo.all(Edit)
+    assert Instructions.get(:global).text == "Current"
+    assert Instructions.get(:global).revision == 2
+  end
+
   test "operational bodies expire only after the exact Coop workspace is discarded" do
     discarded = settled_work!("discarded-secret") |> discard_session!()
     retained = settled_work!("active-secret")
