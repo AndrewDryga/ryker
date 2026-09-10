@@ -12,7 +12,7 @@ defmodule Responder.CoopFleet.ControlPlaneTest do
   alias Responder.Repo
   alias Responder.Slack.Input, as: SlackInput
   alias Responder.StateTools.Binding
-  alias Responder.Work.{ActivityEvent, Custody, Session, StateBinding}
+  alias Responder.Work.{ActivityEvent, Custody, Session, SessionChangeset, StateBinding}
 
   @authority_digest String.duplicate("d", 64)
   @policy_digest String.duplicate("b", 64)
@@ -1069,6 +1069,162 @@ defmodule Responder.CoopFleet.ControlPlaneTest do
     assert [%{"sequence" => 2}] = continued["event_acknowledgements"]
 
     assert [%ActivityEvent{kind: "tool.started", sequence: 2}] = Repo.all(ActivityEvent)
+  end
+
+  test "workspace binding activity cannot wedge the worker before asynchronous session binding" do
+    authorize_and_poll!("worker-a")
+    placement = place!("pre-bind-workspace-task")
+    coop_session_id = "coop-session-task-bound-before-binding"
+
+    workspace_task = %{
+      "authority_limits" => ["runner version only"],
+      "offer_ref" => "record:task_offer:pre-bind-workspace-task",
+      "prompt" => "Bump the internal hosted runner version.",
+      "source_refs" => [],
+      "success_checks" => ["focused checks pass"],
+      "title" => "Bump hosted runner"
+    }
+
+    placement.session_id
+    |> then(&Repo.get!(Session, &1))
+    |> SessionChangeset.bind_workspace_task(workspace_task)
+    |> Repo.update!()
+
+    now = database_now!() |> DateTime.to_iso8601()
+
+    created = %{
+      "kind" => "session_event",
+      "payload" => %{
+        "id" => "evt-pre-bind-session-created",
+        "occurred_at" => now,
+        "sequence" => 1,
+        "session_id" => coop_session_id,
+        "turn_id" => nil,
+        "type" => "session.created",
+        "version" => 1
+      },
+      "sequence" => 1
+    }
+
+    assert {:ok, _response} =
+             ControlPlane.handle_poll(
+               "worker-a",
+               poll("worker-a", "workspace-main", "poll:worker-a:pre-bind-task-created",
+                 event_batches: [
+                   %{
+                     "after_sequence" => 0,
+                     "events" => [created],
+                     "placement_generation" => placement.generation,
+                     "session_ref" => placement.session_id
+                   }
+                 ]
+               )
+             )
+
+    assert {:ok, command} =
+             ControlPlane.enqueue_command(
+               placement.id,
+               "ensure_workspace",
+               %{
+                 "coop_session_id" => coop_session_id,
+                 "expected_revision" => 1,
+                 "task" => workspace_task
+               },
+               "responder:workspace:pre-bind-task"
+             )
+
+    assert {:ok, %{"commands" => [%{"command_id" => command_id}]}} =
+             ControlPlane.handle_poll(
+               "worker-a",
+               poll("worker-a", "workspace-main", "poll:worker-a:pre-bind-task-deliver")
+             )
+
+    assert command_id == command.id
+
+    bound_task = %{
+      "draft_sha256" => String.duplicate("a", 64),
+      "id" => "responder-pre-bind-task",
+      "offer_ref" => workspace_task["offer_ref"],
+      "queue_id" => String.duplicate("b", 32),
+      "task_id" => String.duplicate("c", 32)
+    }
+
+    task_bound = %{
+      "kind" => "session_event",
+      "payload" => %{
+        "id" => "evt-pre-bind-workspace-task",
+        "occurred_at" => now,
+        "sequence" => 2,
+        "session_id" => coop_session_id,
+        "turn_id" => nil,
+        "type" => "workspace.task_bound",
+        "version" => 1
+      },
+      "sequence" => 2
+    }
+
+    unproven_event_poll =
+      poll("worker-a", "workspace-main", "poll:worker-a:unproven-pre-bind-task-event",
+        event_batches: [
+          %{
+            "after_sequence" => 1,
+            "events" => [task_bound],
+            "placement_generation" => placement.generation,
+            "session_ref" => placement.session_id
+          }
+        ]
+      )
+
+    assert {:error, {:coop_activity_session_conflict, ^coop_session_id}} =
+             ControlPlane.handle_poll("worker-a", unproven_event_poll)
+
+    remote = %{
+      "id" => coop_session_id,
+      "revision" => 2,
+      "state" => "open",
+      "workspace_task" => bound_task
+    }
+
+    assert {:ok, %{"acknowledged_result_command_ids" => [^command_id]}} =
+             ControlPlane.handle_poll(
+               "worker-a",
+               poll("worker-a", "workspace-main", "poll:worker-a:pre-bind-task-result",
+                 command_results: [
+                   %{
+                     "command_id" => command.id,
+                     "error" => nil,
+                     "operation_key" => command.idempotency_key,
+                     "resource" => %{"session" => remote},
+                     "state" => "succeeded"
+                   }
+                 ]
+               )
+             )
+
+    placement
+    |> Ecto.Changeset.change(lease_expires_at: DateTime.add(database_now!(), -1, :second))
+    |> Repo.update!()
+
+    # The third live retry bound the exact task, but its lifecycle event arrived before the
+    # local session ID was stored and outlived its short placement lease. Rejecting that event
+    # returned HTTP 400 on every later poll.
+    assert {:ok, response} =
+             ControlPlane.handle_poll(
+               "worker-a",
+               poll("worker-a", "workspace-main", "poll:worker-a:pre-bind-task-event",
+                 event_batches: [
+                   %{
+                     "after_sequence" => 1,
+                     "events" => [task_bound],
+                     "placement_generation" => placement.generation,
+                     "session_ref" => placement.session_id
+                   }
+                 ]
+               )
+             )
+
+    assert [%{"sequence" => 2}] = response["event_acknowledgements"]
+    assert Repo.get!(Placement, placement.id).last_acked_session_event_sequence == 2
   end
 
   test "fresh worker events require current placement authority but exact replay remains acknowledged" do
