@@ -38,6 +38,26 @@ defmodule Responder.Retention.DispatcherTest do
            end)
   end
 
+  test "completed writable task sessions release their worker capacity" do
+    # Two finished task sessions held both worker reservations and blocked every new Slack turn.
+    session = terminal_session!("writable-task-capacity")
+    offer_ref = "record:task_offer:#{Ecto.UUID.generate()}"
+
+    session =
+      session
+      |> Ecto.Changeset.change(workspace_task: %{"offer_ref" => offer_ref})
+      |> Repo.update!()
+
+    remote = session |> remote_session() |> Map.put("external_ref", offer_ref)
+    {:ok, api} = FakeAPI.start_link(session: remote)
+
+    assert {:ok, {:executed, %{phase: :closed}}} =
+             run(api, "cleanup:writable-task-capacity")
+
+    assert Repo.get!(Session, session.id).cleanup_status == :grace
+    assert Enum.any?(FakeAPI.calls(api), &match?({:close, _, _}, &1))
+  end
+
   test "lost mutation responses reconcile exact keys and bodies without duplicate cleanup" do
     session = terminal_session!("response-loss")
 

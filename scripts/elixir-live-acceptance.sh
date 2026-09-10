@@ -16,7 +16,8 @@ if [[ $configuration != /* ]]; then
   exit 2
 fi
 
-if [[ ! $channel_ref =~ ^[A-Za-z0-9._:-]{1,256}$ ]]; then
+if (( ${#channel_ref} < 1 || ${#channel_ref} > 256 )) ||
+  [[ ! $channel_ref =~ ^[A-Za-z0-9._:-]+$ ]]; then
   echo "live acceptance Slack channel reference is invalid" >&2
   exit 2
 fi
