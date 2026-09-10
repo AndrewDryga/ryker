@@ -278,13 +278,11 @@ defmodule Responder.StateTools.FixedTools do
           "visibility" => memory_visibility(scope)
         }
 
-        create_record(
+        create_memory_record(
           binding,
-          "propose_memory",
           arguments,
           "guidance_offer",
-          payload,
-          "memory_offer"
+          payload
         )
 
       "fact" ->
@@ -298,7 +296,7 @@ defmodule Responder.StateTools.FixedTools do
           "visibility" => fact_visibility(scope)
         }
 
-        create_record(binding, "propose_memory", arguments, "memory_offer", payload)
+        create_memory_record(binding, arguments, "memory_offer", payload)
     end
   end
 
@@ -546,6 +544,13 @@ defmodule Responder.StateTools.FixedTools do
 
       {:error, reason} ->
         {:error, reason}
+    end
+  end
+
+  defp create_memory_record(binding, arguments, kind, payload) do
+    with {:ok, result} <-
+           create_record(binding, "propose_memory", arguments, kind, payload, "memory_offer") do
+      {:ok, Map.put(result, "proposal", payload)}
     end
   end
 
@@ -1234,15 +1239,19 @@ defmodule Responder.StateTools.FixedTools do
   end
 
   defp propose_memory_tool do
-    tool("propose_memory", "Offer one durable fact or guidance item for human confirmation.", %{
-      "expires_at" => nullable(timestamp()),
-      "kind" => enum(~w(guidance fact)),
-      "scope" => enum(~w(current_channel repository workspace mine)),
-      "source_refs" => array(reference(256), 1, 20),
-      "subject" => text(120),
-      "supersedes" => array(reference(256), 0, 20),
-      "value" => text(4_000)
-    })
+    tool(
+      "propose_memory",
+      "Offer one durable fact or guidance item for human confirmation.",
+      %{
+        "expires_at" => nullable(timestamp()),
+        "kind" => enum(~w(guidance fact)),
+        "scope" => enum(~w(current_channel repository workspace mine)),
+        "source_refs" => array(reference(256), 1, 20),
+        "subject" => text(120),
+        "supersedes" => array(reference(256), 0, 20),
+        "value" => text(4_000)
+      }
+    )
   end
 
   defp update_conversation_summary_tool do

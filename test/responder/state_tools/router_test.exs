@@ -666,11 +666,20 @@ defmodule Responder.StateTools.RouterTest do
 
     assert listed["automation_id"] == schedule.ref
 
-    assert {:ok, %{"kind" => "memory_offer"}} =
+    requested_expiry =
+      DateTime.utc_now() |> DateTime.add(86_400, :second) |> DateTime.to_iso8601()
+
+    # The live memory card saved the supported seven-day bucket while the reply repeated the
+    # requested one-day timestamp, so the model must receive the normalized proposal it created.
+    assert {:ok,
+            %{
+              "kind" => "memory_offer",
+              "proposal" => %{"expires_in" => "7d", "subject" => "service_owner"}
+            }} =
              Tools.call(
                "propose_memory",
                %{
-                 "expires_at" => nil,
+                 "expires_at" => requested_expiry,
                  "kind" => "fact",
                  "scope" => "current_channel",
                  "source_refs" => ["source:health"],
