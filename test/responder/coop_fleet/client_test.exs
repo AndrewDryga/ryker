@@ -1357,6 +1357,16 @@ defmodule Responder.CoopFleet.ClientTest do
              Client.fence_create_session(client, key, @policy, workspace_task["offer_ref"])
 
     refute_receive {:fleet_command, _, _, _, _, _}
+
+    # Cancellation binds the asynchronous remote ID locally from this same proof. It must not
+    # ask the expired worker for a document the successful workspace receipt already contains.
+    assert {:ok,
+            %{
+              "id" => ^remote_session_id,
+              "workspace_task" => %{"offer_ref" => "record:task_offer:expired-create-receipts"}
+            }} = Client.get_session(client, remote_session_id)
+
+    refute_receive {:fleet_command, _, _, _, _, _}
   end
 
   test "a worker-local submit rejection settles from its durable receipt", %{
