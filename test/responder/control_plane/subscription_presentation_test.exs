@@ -29,7 +29,7 @@ defmodule Responder.ControlPlane.SubscriptionPresentationTest do
     assert view.title == "Run run-k9CpPp3nWjQrkCMG"
     assert view.condition == "Next matching Slack update"
     assert view.target_url == hd(@matcher["attachments"])["title_link"]
-    assert view.context_label == "Slack · Slack channel · emisar"
+    assert view.context_label == "Slack channel · emisar"
     assert view.episode_title == @episode.title
     refute view.condition =~ "approval"
     refute view.condition =~ "terminal"

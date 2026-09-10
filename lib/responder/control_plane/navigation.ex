@@ -19,7 +19,7 @@ defmodule Responder.ControlPlane.Navigation do
      [
        {"Standing rules", "/rules"},
        {"Schedules", "/schedules"},
-       {"Event waits", "/subscriptions"}
+       {"Waits", "/subscriptions"}
      ]},
     {:book, "Memory & learning",
      [

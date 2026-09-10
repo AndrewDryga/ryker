@@ -1267,7 +1267,7 @@ defmodule Responder.ControlPlane.RouterTest do
           {"/incident-rooms/incident%3Aone", "Room lifecycle"},
           {"/schedules", "Recurring and one-shot work"},
           {"/schedules/schedule%3Aone", "Execution history"},
-          {"/subscriptions", "Wait subscriptions"},
+          {"/subscriptions", "Waits"},
           {"/channels", "Slack conversation roster"},
           {"/channels/T123/C456", "Conversation continuity"},
           {"/repositories", "Where Responder can work"},

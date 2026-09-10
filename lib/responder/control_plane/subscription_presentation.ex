@@ -72,7 +72,9 @@ defmodule Responder.ControlPlane.SubscriptionPresentation do
     destination =
       if episode.source == "Slack", do: SlackNames.destination(episode.conversation)
 
-    [episode.source, destination, text(episode.repository, secrets)]
+    source = if destination == "Slack channel", do: nil, else: episode.source
+
+    [source, destination, text(episode.repository, secrets)]
     |> Enum.reject(&(&1 in [nil, ""]))
     |> Enum.uniq()
     |> Enum.join(" · ")

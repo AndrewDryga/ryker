@@ -23,12 +23,13 @@ rooms before a Slack channel exists; it is not a directory of local Lab incident
 Room status and search filters remain in the URL, and committed lifecycle changes
 refresh the list and detail views.
 
-The **Wait subscriptions** page at `/subscriptions` shows each wait's saved target,
+The **Waits** page at `/subscriptions` shows each wait's saved target,
 matching condition and source request. Relative times refresh with the page;
 exact UTC times and internal references remain available in Technical details.
 A next check is a polling fallback, not an estimated event arrival. Event-only
 waits have no scheduled check or deadline; elapsed times do not mark work complete.
-Search covers readable labels among the latest 100 waits in the selected status;
+The list shows up to 100 waits in the selected status, active first and newest
+updates first within each status. Search filters their readable labels;
 exact subscription references search all history within that status. Opening,
 filtering and refreshing this page never changes a wait.
 
@@ -447,7 +448,7 @@ replacement, not the older dashboard or the intended final design above.
 | Episodes list and detail | Live, with bounded search, state filtering, pagination, lifecycle metadata, and typed state-record summaries |
 | Incident rooms list and detail | Live, with bounded search, Slack-room lifecycle, linked source and investigation episodes, typed evidence records, and sanitized publication state |
 | Schedules list and detail | Live, with bounded search, confirmed run-now, Conversation Lab replacement, recurrence and authority, destination, trigger kind, child execution state and timing, attempts, sanitized failures, and dispatched or missed occurrence history |
-| Subscriptions | Live, with bounded search, webhook source, lifecycle resolution, optional polling fallback and deadline, episode link, and matcher/cursor digests without raw source payloads; event-only waits have neither timer |
+| Waits | Live, with active-first bounded search, readable target/condition/request, relative timing and exact UTC timestamps, accurate event/timer resolution, and collapsed technical details without raw source payloads |
 | Channels list and detail | Live, with bounded search across durable Slack configuration, membership, incident ownership, conversation summaries, schedules, overrides, and recent episodes |
 | Repositories and topology | Live, with configured policy names, durable channel, schedule, session, and publication counts, serving Coop worker revisions, and the latest frozen freshness receipt |
 | Failures | Live, with typed confirmed recovery for admission, Work, delivery, Slack repaint/incident, Emisar monitoring, and retention custody |

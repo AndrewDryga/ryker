@@ -143,8 +143,37 @@ defmodule Responder.ControlPlane.SubscriptionProjectionTest do
     end
   end
 
+  test "active waits remain visible ahead of more recent resolved history",
+       context do
+    # A busy channel can resolve 100 waits while one older deployment still needs
+    # attention. The default list must not hide that live wait behind history.
+    insert_resolved_history!(context)
+    items = OperatorProjection.subscriptions(%{})
+    assert length(items) == 100
+    assert hd(items).ref == context.subscription.ref
+    assert hd(items).status == :active
+  end
+
   test "exact subscription references remain findable outside the bounded recent search window",
        context do
+    Repo.update_all(from(s in EventSubscription, where: s.id == ^context.subscription.id),
+      set: [status: :resolved, resolution_kind: :input, last_observed_at: DateTime.utc_now()]
+    )
+
+    insert_resolved_history!(context)
+    items = OperatorProjection.subscriptions(%{})
+    assert length(items) == 100
+    refute Enum.any?(items, &(&1.ref == context.subscription.ref))
+    assert [exact] = OperatorProjection.subscriptions(%{"q" => context.subscription.ref})
+    assert exact.ref == context.subscription.ref
+
+    assert OperatorProjection.subscriptions(%{
+             "q" => context.subscription.ref,
+             "status" => "active"
+           }) == []
+  end
+
+  defp insert_resolved_history!(context) do
     now = DateTime.utc_now()
 
     for index <- 1..100 do
@@ -173,18 +202,6 @@ defmodule Responder.ControlPlane.SubscriptionProjectionTest do
         updated_at: now
       })
     end
-
-    assert length(OperatorProjection.subscriptions(%{})) == 100
-    assert [exact] = OperatorProjection.subscriptions(%{"q" => context.subscription.ref})
-    assert exact.ref == context.subscription.ref
-
-    assert OperatorProjection.subscriptions(%{
-             "q" => context.subscription.ref,
-             "status" => "resolved"
-           }) == []
-
-    assert [item] = OperatorProjection.subscriptions(%{"status" => "active"})
-    assert item.ref == context.subscription.ref
   end
 
   test "live wait updates retain filters and stable disclosure identities without executing work",

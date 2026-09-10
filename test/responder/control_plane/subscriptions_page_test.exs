@@ -2,6 +2,7 @@ defmodule Responder.ControlPlane.SubscriptionsPageTest do
   use ExUnit.Case, async: true
 
   alias Responder.ControlPlane.HTML
+  alias Responder.ControlPlane.Navigation
   alias Responder.ControlPlane.SubscriptionsPage
   import Phoenix.LiveViewTest
 
@@ -84,7 +85,10 @@ defmodule Responder.ControlPlane.SubscriptionsPageTest do
     assert LazyHTML.query(due, "time[tabindex='0'][datetime='2026-09-10T10:00:00Z']")
            |> LazyHTML.text() == "due now"
 
-    assert LazyHTML.query(due, "time[aria-label*='UTC'][title='2026-09-10T10:00:00Z']")
+    assert LazyHTML.query(
+             due,
+             "time[aria-label='due now · 10 Sep 2026, 10:00 UTC'][title='2026-09-10T10:00:00Z']"
+           )
            |> Enum.count() == 1
 
     assert LazyHTML.query(future, "details") |> LazyHTML.attribute("id") ==
@@ -103,10 +107,52 @@ defmodule Responder.ControlPlane.SubscriptionsPageTest do
     assert LazyHTML.query(document, "a.subscription-target[rel=noreferrer]") |> LazyHTML.text() =~
              "Open target"
 
+    assert LazyHTML.query(document, ".subscription-target") |> LazyHTML.attribute("aria-label") ==
+             ["Open target for #{title}"]
+
+    assert LazyHTML.query(document, "summary") |> LazyHTML.attribute("aria-label") ==
+             ["Technical details for #{title}"]
+
     html = HTML.subscriptions([]) |> IO.iodata_to_binary()
     assert html =~ "No waits match these filters"
-    assert html =~ "latest 100 waits"
+    assert html =~ "Showing up to 100 waits in the selected status, with active waits first."
     assert LazyHTML.from_document(html) |> LazyHTML.query(".subscription-list") |> Enum.empty?()
     assert html =~ "Exact subscription references search all history"
+  end
+
+  test "wait page titles and navigation use the same name", %{item: item} do
+    content = HTML.subscriptions([item]) |> IO.iodata_to_binary() |> LazyHTML.from_document()
+    assert LazyHTML.query(content, ".page-description h2") |> LazyHTML.text() == "Waits"
+
+    sidebar =
+      render_component(&Navigation.sidebar/1,
+        path: "/subscriptions",
+        live: false
+      )
+      |> LazyHTML.from_document()
+
+    assert LazyHTML.query(sidebar, "a[href='/subscriptions']") |> LazyHTML.text() == "Waits"
+  end
+
+  test "wait status filters use the same words as the rows they select", %{item: item} do
+    # The filter said Active/Resolved/Stopped while the rows said
+    # Waiting/Resumed/Cancelled, leaving operators to guess the correspondence.
+    for {status, label} <- [
+          active: "Waiting",
+          resolved: "Resumed",
+          timed_out: "Timed out",
+          cancelled: "Cancelled"
+        ] do
+      document =
+        HTML.subscriptions([%{item | status: status}], %{"status" => Atom.to_string(status)})
+        |> IO.iodata_to_binary()
+        |> LazyHTML.from_document()
+
+      assert LazyHTML.query(document, "select[name=status] option[selected]") |> LazyHTML.text() ==
+               label
+
+      assert LazyHTML.query(document, ".subscription-timing .ui-status") |> LazyHTML.text() ==
+               label
+    end
   end
 end

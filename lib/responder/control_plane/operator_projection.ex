@@ -212,7 +212,7 @@ defmodule Responder.ControlPlane.OperatorProjection do
         on: episode.id == subscription.episode_id,
         join: record in Record,
         on: record.id == subscription.record_id,
-        order_by: [desc: subscription.updated_at, desc: subscription.id],
+        order_by: [asc: subscription.status, desc: subscription.updated_at, desc: subscription.id],
         limit: @list_limit,
         select: %{
           cursor: subscription.cursor,
