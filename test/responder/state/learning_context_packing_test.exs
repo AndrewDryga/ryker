@@ -1,5 +1,6 @@
 defmodule Responder.State.LearningContextPackingTest do
   use Responder.DataCase, async: false
+  import Ecto.Query
 
   alias Responder.{CanonicalJSON, Episodes}
   alias Responder.Fixtures.Episodes, as: EpisodeFixtures
@@ -118,6 +119,8 @@ defmodule Responder.State.LearningContextPackingTest do
     assert Enum.map(original_inputs, & &1["source_input_id"]) == Enum.map(entries, & &1.id)
     assert Enum.map(original_inputs, & &1["content"]) == Enum.map(entries, & &1.content)
 
+    warm_thread_plan!(hd(entries))
+
     # Topic prose and current messages are unchanged harvested data. Only the
     # historical identities/counts below are deterministic host capacity setup;
     # no model is called and no model result over this setup is invented.
@@ -142,6 +145,44 @@ defmodule Responder.State.LearningContextPackingTest do
     %{entries: entries, heads: heads, selected: selected}
   end
 
+  defp warm_thread_plan!(entry) do
+    # Two full-gate packing cases exhausted their 15-second transaction: a
+    # cached plan from a nearly empty heap kept scanning the whole grown heap
+    # for every receipt. Fresh EXPLAIN missed it; EXPLAIN EXECUTE exposed it.
+    # Replay the observed relation estimates and the warm connection, without
+    # changing source prose, root counts or production timeouts. Sandbox rolls
+    # back these PostgreSQL 18 test-only statistics and planner settings.
+    Repo.query!("SET LOCAL plan_cache_mode TO force_generic_plan")
+
+    for {table, pages} <- [
+          {"conversation_knowledge", 0},
+          {"conversation_knowledge_revisions", 0},
+          {"conversation_knowledge_sources", 0},
+          {"conversation_observations", 963}
+        ] do
+      assert %{rows: [[true]]} =
+               Repo.query!(
+                 """
+                 SELECT pg_catalog.pg_restore_relation_stats(
+                   'version', current_setting('server_version_num')::integer,
+                   'schemaname', 'public', 'relname', $1::text,
+                   'relpages', $2::integer, 'reltuples', 0::real,
+                   'relallvisible', 0::integer, 'relallfrozen', 0::integer)
+                 """,
+                 [table, pages]
+               )
+    end
+
+    thread = entry.destination_thread_ref || entry.source_item_ref
+
+    for _ <- 1..6,
+        do:
+          assert(
+            Knowledge.context(entry, entry.repository_ref, {:threads, [thread]}, 8, "writable") ==
+              []
+          )
+  end
+
   defp seed_topic!(topic, history) do
     proposal =
       Map.merge(topic["state"], %{
@@ -152,6 +193,8 @@ defmodule Responder.State.LearningContextPackingTest do
       })
 
     dependencies = raw_sources(history)
+    assert hd(LearningSources.for_entry(hd(history))) in dependencies
+    assert hd(LearningSources.for_entry(List.last(history))) in dependencies
 
     assert {:ok, :ok} =
              Repo.transaction(fn ->
@@ -181,8 +224,30 @@ defmodule Responder.State.LearningContextPackingTest do
              ])
   end
 
-  defp raw_sources(entries),
-    do: entries |> Enum.map(&LearningSources.for_entry/1) |> LearningSources.merge()
+  defp raw_sources(entries) do
+    # These capacity fixtures have 10,000 retained roots. Reading each receipt
+    # separately exhausted the test deadline before packing ran. Read the real
+    # stored receipts together; seed_topic! checks this shape against the owner,
+    # and prepare/authorize still validate every root through production code.
+    ids = Enum.map(entries, & &1.id)
+
+    Repo.all(from(o in ConversationObservation, where: o.source_input_id in ^ids))
+    |> Enum.map(fn source ->
+      %{
+        "observation_id" => source.id,
+        "source_input_id" => source.source_input_id,
+        "revision" => source.revision,
+        "fingerprint" => source.source_fingerprint,
+        "transport" => source.transport,
+        "workspace_ref" => source.workspace_ref,
+        "conversation_ref" => source.conversation_ref,
+        "repository_ref" => source.repository_ref,
+        "visibility" => Atom.to_string(source.visibility),
+        "retained_at" => DateTime.to_iso8601(source.updated_at)
+      }
+    end)
+    |> then(&LearningSources.merge([&1]))
+  end
 
   defp persist_input!(raw) do
     at = raw["occurred_at"] |> NaiveDateTime.from_iso8601!() |> DateTime.from_naive!("Etc/UTC")
