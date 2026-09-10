@@ -525,8 +525,7 @@ defmodule Responder.CoopFleet.Client do
         :not_found
 
       %Command{status: :succeeded, result: result} = command ->
-        with :ok <- current_command_placement(command),
-             {:ok, operation} <- operation_result(result),
+        with {:ok, operation} <- operation_result(result),
              {:ok, operation} <- reconcile_waiting_operation(client, command, operation, key),
              :ok <- ensure_reconciled_workspace(client, command, operation, key) do
           {:ok, operation}
@@ -773,19 +772,26 @@ defmodule Responder.CoopFleet.Client do
   defp reconcile_waiting_operation(
          client,
          command,
-         %{"state" => state} = _operation,
+         %{"state" => state} = operation,
          operation_key
        )
        when state in ["reserved", "running"] do
-    with %Session{} = session <- Repo.get(Session, command.session_id),
-         {:ok, result} <-
-           execute_read(client, session, "reconcile_operation", %{
-             "operation_key" => operation_key
-           }) do
-      operation_result(result)
-    else
-      nil -> {:error, {:coop_session_not_found, command.session_id}}
-      {:error, _reason} = error -> error
+    case durable_terminal_operation(command, operation, operation_key) do
+      {:ok, terminal} ->
+        {:ok, terminal}
+
+      :not_found ->
+        with :ok <- current_command_placement(command),
+             %Session{} = session <- Repo.get(Session, command.session_id),
+             {:ok, result} <-
+               execute_read(client, session, "reconcile_operation", %{
+                 "operation_key" => operation_key
+               }) do
+          operation_result(result)
+        else
+          nil -> {:error, {:coop_session_not_found, command.session_id}}
+          {:error, _reason} = error -> error
+        end
     end
   end
 
@@ -794,7 +800,7 @@ defmodule Responder.CoopFleet.Client do
 
   defp ensure_reconciled_workspace(
          client,
-         %Command{kind: "create_session", session_id: session_id},
+         %Command{kind: "create_session", session_id: session_id} = command,
          %{
            "method" => "CreateRemoteSession",
            "resource_id" => coop_session_id,
@@ -812,17 +818,118 @@ defmodule Responder.CoopFleet.Client do
         :ok
 
       %Session{} = session ->
-        with {:ok, remote} <-
-               execute_read(client, session, "get_session", %{
-                 "coop_session_id" => coop_session_id
-               }),
-             {:ok, _ensured} <- ensure_workspace(client, session, remote, create_key) do
+        if durable_workspace_bound?(command, session, coop_session_id) do
           :ok
+        else
+          ensure_reconciled_workspace_live(
+            client,
+            command,
+            session,
+            coop_session_id,
+            create_key
+          )
         end
     end
   end
 
   defp ensure_reconciled_workspace(_client, _command, _operation, _create_key), do: :ok
+
+  defp ensure_reconciled_workspace_live(
+         client,
+         command,
+         session,
+         coop_session_id,
+         create_key
+       ) do
+    with :ok <- current_command_placement(command),
+         {:ok, remote} <-
+           execute_read(client, session, "get_session", %{
+             "coop_session_id" => coop_session_id
+           }),
+         {:ok, _ensured} <- ensure_workspace(client, session, remote, create_key) do
+      :ok
+    end
+  end
+
+  defp durable_terminal_operation(command, operation, operation_key) do
+    candidate =
+      Repo.one(
+        from(reconciliation in Command,
+          where:
+            reconciliation.session_id == ^command.session_id and
+              reconciliation.placement_generation == ^command.placement_generation and
+              reconciliation.kind == "reconcile_operation" and
+              reconciliation.status == :succeeded and
+              fragment(
+                "(?::jsonb ->> 'operation_key') = ?",
+                reconciliation.payload,
+                ^operation_key
+              ) and
+              fragment(
+                "(?::jsonb ->> 'state') IN ('succeeded', 'failed')",
+                reconciliation.result
+              ),
+          order_by: [desc: reconciliation.completed_at, desc: reconciliation.id],
+          limit: 1
+        )
+      )
+
+    with %Command{result: result} <- candidate,
+         {:ok, terminal} <- operation_result(result),
+         true <- same_operation?(operation, terminal) do
+      {:ok, terminal}
+    else
+      _missing_or_mismatch -> :not_found
+    end
+  end
+
+  defp same_operation?(%{"id" => id, "method" => method}, %{
+         "id" => id,
+         "method" => method
+       })
+       when is_binary(id) and is_binary(method),
+       do: true
+
+  defp same_operation?(_operation, _terminal), do: false
+
+  defp durable_workspace_bound?(
+         %Command{session_id: session_id, placement_generation: placement_generation},
+         %Session{workspace_task: %{"offer_ref" => offer_ref} = workspace_task},
+         coop_session_id
+       ) do
+    Repo.all(
+      from(command in Command,
+        where:
+          command.session_id == ^session_id and
+            command.placement_generation == ^placement_generation and
+            command.kind == "ensure_workspace" and command.status == :succeeded and
+            fragment(
+              "(?::jsonb ->> 'coop_session_id') = ?",
+              command.payload,
+              ^coop_session_id
+            ),
+        order_by: [desc: command.completed_at, desc: command.id],
+        limit: 10
+      )
+    )
+    |> Enum.any?(fn
+      %Command{
+        payload: %{"task" => ^workspace_task},
+        result: %{
+          "session" => %{
+            "id" => ^coop_session_id,
+            "workspace_task" => %{"offer_ref" => ^offer_ref}
+          }
+        }
+      } ->
+        true
+
+      _other ->
+        false
+    end)
+  end
+
+  defp durable_workspace_bound?(_command, _session, _coop_session_id), do: false
 
   defp current_command_placement(command) do
     placement = Repo.one(from(value in Placement, where: value.id == ^command.placement_id))
