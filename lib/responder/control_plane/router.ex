@@ -1161,7 +1161,6 @@ defmodule Responder.ControlPlane.Router do
         method: :get,
         path: path,
         publication_ref: nil,
-        review_offer_ref: nil,
         token: nil
       }
     else
@@ -1173,7 +1172,6 @@ defmodule Responder.ControlPlane.Router do
         method: :post,
         path: path,
         publication_ref: lab_publication_ref(action_context),
-        review_offer_ref: lab_review_offer_ref(action_context),
         token: CSRF.token(secret, @lab_record_action, resource)
       }
     end
@@ -1202,7 +1200,6 @@ defmodule Responder.ControlPlane.Router do
   defp lab_record_action("close-task"), do: {:ok, :close_task}
   defp lab_record_action("publish-draft"), do: {:ok, :approve_publication}
   defp lab_record_action("check-publication"), do: {:ok, :check_publication}
-  defp lab_record_action("task-readiness"), do: {:ok, :request_task_readiness}
   defp lab_record_action("task-publish"), do: {:ok, :approve_task_publication}
   defp lab_record_action("task-check"), do: {:ok, :check_task_publication}
   defp lab_record_action("task-retry"), do: {:ok, :retry_task_publication}
@@ -1223,7 +1220,6 @@ defmodule Responder.ControlPlane.Router do
   defp lab_record_action_name(:close_task), do: "close-task"
   defp lab_record_action_name(:approve_publication), do: "publish-draft"
   defp lab_record_action_name(:check_publication), do: "check-publication"
-  defp lab_record_action_name(:request_task_readiness), do: "task-readiness"
   defp lab_record_action_name(:approve_task_publication), do: "task-publish"
   defp lab_record_action_name(:check_task_publication), do: "task-check"
   defp lab_record_action_name(:retry_task_publication), do: "task-retry"
@@ -1247,7 +1243,6 @@ defmodule Responder.ControlPlane.Router do
   defp lab_record_label(:close_task), do: "Close"
   defp lab_record_label(:approve_publication), do: "Publish draft"
   defp lab_record_label(:check_publication), do: "Check pull request"
-  defp lab_record_label(:request_task_readiness), do: "Run readiness check"
   defp lab_record_label(:approve_task_publication), do: "Create draft PR"
   defp lab_record_label(:check_task_publication), do: "Check delivery"
   defp lab_record_label(:retry_task_publication), do: "Retry publication"
@@ -1352,9 +1347,6 @@ defmodule Responder.ControlPlane.Router do
   defp lab_action_context_resource(%{publication_ref: publication_ref}),
     do: publication_ref
 
-  defp lab_action_context_resource(%{review_offer_ref: review_offer_ref}),
-    do: review_offer_ref
-
   defp lab_action_context_resource(choice_index) when is_integer(choice_index),
     do: Integer.to_string(choice_index)
 
@@ -1366,9 +1358,6 @@ defmodule Responder.ControlPlane.Router do
 
   defp lab_publication_ref(%{publication_ref: publication_ref}), do: publication_ref
   defp lab_publication_ref(_action_context), do: nil
-
-  defp lab_review_offer_ref(%{review_offer_ref: review_offer_ref}), do: review_offer_ref
-  defp lab_review_offer_ref(_action_context), do: nil
 
   defp confirmation("memory", resource_ref, "forget", options) do
     snapshot = options.projection.memory.(%{})
@@ -1929,20 +1918,6 @@ defmodule Responder.ControlPlane.Router do
     end
   end
 
-  defp lab_record_form(conn, :request_task_readiness) do
-    with [content_type] <- get_req_header(conn, "content-type"),
-         true <-
-           String.starts_with?(String.downcase(content_type), "application/x-www-form-urlencoded"),
-         {:ok, body, conn} <- read_form(conn),
-         %{"_token" => token, "review_offer_ref" => review_offer_ref} = form <- Query.decode(body),
-         true <- Enum.sort(Map.keys(form)) == ["_token", "review_offer_ref"],
-         {:ok, review_offer_ref} <- path_ref(review_offer_ref) do
-      {:ok, token, %{review_offer_ref: review_offer_ref}, conn}
-    else
-      _invalid -> {:error, :form}
-    end
-  end
-
   defp lab_record_form(conn, _action) do
     with {:ok, token, conn} <- form_token(conn) do
       {:ok, token, nil, conn}
@@ -1963,9 +1938,6 @@ defmodule Responder.ControlPlane.Router do
   defp lab_action_context(card, action)
        when action in [:approve_task_publication, :check_task_publication],
        do: %{publication_ref: Map.get(card, :publication_ref)}
-
-  defp lab_action_context(card, :request_task_readiness),
-    do: %{review_offer_ref: Map.get(card, :review_offer_ref)}
 
   defp lab_action_context(_card, _action), do: nil
 

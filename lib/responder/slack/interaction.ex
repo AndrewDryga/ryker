@@ -6,7 +6,7 @@ defmodule Responder.Slack.Interaction do
   is never interpreted as a control.
   """
 
-  @actions ~w(responder_answer_input responder_check_publication responder_close_work responder_confirm_automation responder_confirm_behavior responder_confirm_memory responder_confirm_schedule responder_diff_page responder_open_incident responder_open_publication responder_publish_draft responder_review_publication responder_start_engineering_task responder_stop_work responder_task_check responder_task_discard_publication responder_task_publish responder_task_readiness responder_task_retry_publication responder_task_update_publication responder_view_diff responder_work_record responder_setup_alerts_automatic responder_setup_alerts_offer responder_setup_alerts_reply responder_setup_audience_none responder_setup_be_proactive responder_setup_cancel responder_setup_customize responder_setup_participation_mentions responder_setup_participation_proactive responder_setup_participation_shadow responder_setup_restart responder_setup_safe_defaults responder_setup_save)
+  @actions ~w(responder_answer_input responder_check_publication responder_close_work responder_confirm_automation responder_confirm_behavior responder_confirm_memory responder_confirm_schedule responder_diff_page responder_open_incident responder_open_publication responder_publish_draft responder_review_publication responder_start_engineering_task responder_stop_work responder_task_check responder_task_discard_publication responder_task_publish responder_task_retry_publication responder_task_update_publication responder_view_diff responder_work_record responder_setup_alerts_automatic responder_setup_alerts_offer responder_setup_alerts_reply responder_setup_audience_none responder_setup_be_proactive responder_setup_cancel responder_setup_customize responder_setup_participation_mentions responder_setup_participation_proactive responder_setup_participation_shadow responder_setup_restart responder_setup_safe_defaults responder_setup_save)
   @repository_action ~r/\Aresponder_setup_repository_[0-9]{1,2}\z/
   @reference ~r/\A[A-Za-z0-9_.:-]{1,256}\z/
   @choice_value ~r/\Arecord:input_request:[A-Za-z0-9_.:-]{1,220}\|[0-9]{1,2}\z/
@@ -131,7 +131,7 @@ defmodule Responder.Slack.Interaction do
     do: is_binary(value) and Regex.match?(@diff_page_value, value)
 
   defp action_value?(action_id, value)
-       when action_id in ~w(responder_task_check responder_task_publish responder_task_readiness),
+       when action_id in ~w(responder_task_check responder_task_publish),
        do: is_binary(value) and Regex.match?(@task_publication_value, value)
 
   defp action_value?(action_id, value)

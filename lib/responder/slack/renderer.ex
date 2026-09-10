@@ -23,7 +23,7 @@ defmodule Responder.Slack.Renderer do
   @reference ~r/\A(?:record|publication):[A-Za-z0-9_.:-]{1,240}\z/
   @investigation_kinds ~w(evidence coverage finding progress goal goal_state alert_assessment)
   @incident_statuses ~w(provisioning investigating action_required waiting_for_input waiting_for_event stopping resolved cancelled paused)
-  @task_statuses ~w(working waiting_for_input waiting_for_event action_required stopping reviewing ready_for_review ready_to_publish published completed cancelled)
+  @task_statuses ~w(working waiting_for_input waiting_for_event action_required stopping reviewing ready_to_publish published completed cancelled)
   @task_fields ~w(action_needed confirmed_at confirmed_by controls episode_state publication repository session_generation status summary task_ref title ui_revision updated_at work_state)
   @work_controls ~w(stop view_diff close timeline evidence handoff postmortem)
   @record_controls ~w(timeline evidence handoff postmortem)
@@ -36,7 +36,7 @@ defmodule Responder.Slack.Renderer do
     "automation_change_offer" => "Automation change confirmed"
   }
   @confirmation_kinds Map.keys(@confirmation_labels)
-  @publication_controls ~w(readiness publish open check retry update discard)
+  @publication_controls ~w(publish open check retry update discard)
   @setup_statuses ~w(asking confirming saved cancelled expired)
   @setup_steps ~w(participation repository alerts audience confirm)
 
@@ -534,7 +534,6 @@ defmodule Responder.Slack.Renderer do
   defp task_status_label("action_required"), do: "Action required"
   defp task_status_label("stopping"), do: "Stopping current work"
   defp task_status_label("reviewing"), do: "Review or publication in progress"
-  defp task_status_label("ready_for_review"), do: "Changes ready · not published yet"
   defp task_status_label("ready_to_publish"), do: "Reviewed and ready for operator publication"
   defp task_status_label("published"), do: "Draft pull request published"
   defp task_status_label("completed"), do: "Completed"
@@ -549,22 +548,19 @@ defmodule Responder.Slack.Renderer do
            "pull_request_number" => number,
            "pull_request_url" => url,
            "recovery_generation" => recovery_generation,
-           "review_offer_ref" => review_offer_ref,
            "status" => status
          } = publication
        )
-       when map_size(publication) == 7 do
+       when map_size(publication) == 6 do
     with :ok <- bounded_text(status, 120),
          :ok <- publication_controls(controls),
          :ok <- optional_publication_reference(publication_ref),
-         :ok <- optional_publication_offer_reference(review_offer_ref),
          :ok <- optional_positive_integer(number),
          :ok <- optional_positive_integer(recovery_generation),
          :ok <- optional_https_url(url) do
       publication_control_identity(
         controls,
         publication_ref,
-        review_offer_ref,
         number,
         url,
         recovery_generation
@@ -582,7 +578,6 @@ defmodule Responder.Slack.Renderer do
          "pull_request_number" => number,
          "pull_request_url" => url,
          "recovery_generation" => recovery_generation,
-         "review_offer_ref" => review_offer_ref,
          "status" => status
        }) do
     detail =
@@ -594,13 +589,6 @@ defmodule Responder.Slack.Renderer do
 
     buttons =
       Enum.map(controls, fn
-        "readiness" ->
-          plain_button(
-            "responder_task_readiness",
-            "Run readiness check",
-            "#{task_ref}|#{review_offer_ref}"
-          )
-
         "publish" ->
           button(
             "responder_task_publish",
@@ -661,9 +649,6 @@ defmodule Responder.Slack.Renderer do
       else: [summary, actions("#{task_ref}:publication", buttons)]
   end
 
-  defp publication_status_message("offered", _),
-    do: "Changes are ready. Run a readiness check before creating a draft PR."
-
   defp publication_status_message("reviewed", _),
     do: "Readiness review complete. Create a draft PR when you are ready."
 
@@ -700,16 +685,12 @@ defmodule Responder.Slack.Renderer do
   defp publication_control_identity(
          controls,
          publication_ref,
-         review_offer_ref,
          number,
          url,
          recovery_generation
        ) do
     valid =
       Enum.all?(controls, fn
-        "readiness" ->
-          is_nil(publication_ref) and is_binary(review_offer_ref)
-
         "publish" ->
           is_binary(publication_ref)
 
@@ -732,15 +713,6 @@ defmodule Responder.Slack.Renderer do
     if is_binary(value) and Regex.match?(~r/\Apublication:[A-Za-z0-9_.:-]{1,240}\z/, value),
       do: :ok,
       else: {:error, :invalid_publication_reference}
-  end
-
-  defp optional_publication_offer_reference(nil), do: :ok
-
-  defp optional_publication_offer_reference(value) do
-    if is_binary(value) and
-         Regex.match?(~r/\Arecord:publication_offer:[A-Za-z0-9_.:-]{1,220}\z/, value),
-       do: :ok,
-       else: {:error, :invalid_publication_reference}
   end
 
   defp optional_positive_integer(nil), do: :ok

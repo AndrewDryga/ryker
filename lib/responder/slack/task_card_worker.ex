@@ -88,8 +88,7 @@ defmodule Responder.Slack.TaskCardWorker do
              card.id,
              card.lease_ref,
              projection.fingerprint,
-             projection.ui_revision,
-             projection.publication_offer_ref
+             projection.ui_revision
            ) do
       {:ok, {:updated, marked.ref}}
     else

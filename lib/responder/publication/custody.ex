@@ -24,7 +24,6 @@ defmodule Responder.Publication.Custody do
   }
 
   alias Responder.Repo
-  alias Responder.Slack.TaskCard
   alias Responder.State.{Record, Records}
   alias Responder.Work.{DeliveryReceipt, Session, Turn}
 
@@ -49,6 +48,57 @@ defmodule Responder.Publication.Custody do
       end)
       |> transaction_result()
     end
+  end
+
+  @doc "Queue a confirmed task's ordinary checks inside accepted Work-result custody."
+  def ensure_task_review_in_transaction(
+        %Episode{} = episode,
+        %Session{workspace_task: %{"offer_ref" => task_ref}, repository_ref: repository} = session,
+        %Turn{continuation: %{"kind" => "complete"}} = turn
+      )
+      when is_binary(repository) and is_binary(session.coop_session_id) do
+    case confirmed_task_readiness(episode, turn, task_ref) do
+      {%Record{} = offer, %Record{} = task, %Turn{external_receipt: %{"message_ref" => message}}} ->
+        # The original task confirmation authorizes its checks, not publication.
+        # Retain that actor and source message; no new button receipt is invented.
+        attributes = %{
+          actor_ref: task.confirmed_by_actor_ref,
+          occurred_at: turn.accepted_at,
+          request_ref: "task-readiness:#{turn.id}",
+          target: %{message_ref: message}
+        }
+
+        _request = insert_review_request(offer, episode, session, repository, attributes)
+        :ok
+
+      nil ->
+        :ok
+    end
+  end
+
+  def ensure_task_review_in_transaction(_episode, _session, _turn), do: :ok
+
+  defp confirmed_task_readiness(episode, turn, task_ref) do
+    # Later completed turns belong to the task's existing publication, including
+    # its PR and recovery history. Never replace it with a second draft workflow.
+    publication_episode_ids = from(publication in Publication, select: publication.episode_id)
+
+    Repo.one(
+      from(offer in Record,
+        join: task in Record,
+        on: task.ref == ^task_ref and task.confirmed_episode_id == ^episode.id,
+        join: source_turn in Turn,
+        on: source_turn.id == task.turn_id and source_turn.episode_id == task.episode_id,
+        where:
+          offer.episode_id == ^episode.id and offer.turn_id == ^turn.id and
+            offer.kind == "publication_offer" and offer.status == :open and
+            offer.operation_id == "host:publication:ready",
+        where: task.kind == "task_offer" and task.status == :confirmed,
+        where: source_turn.status == :settled,
+        where: offer.episode_id not in subquery(publication_episode_ids),
+        select: {offer, task, source_turn}
+      )
+    )
   end
 
   @spec claim_next(String.t(), pos_integer()) ::
@@ -583,36 +633,40 @@ defmodule Responder.Publication.Custody do
          :ok <- delivered_offer_proof(record, episode, turn, attributes.target),
          {:ok, repository} <- repository(session, episode.id),
          true <- is_binary(session.coop_session_id) do
-      id = Ecto.UUID.generate()
-
-      publication =
-        Changeset.insert(%{
-          body: record.payload["body"],
-          destination_conversation_ref: episode.destination_conversation_ref,
-          destination_thread_ref: episode.destination_thread_ref,
-          destination_transport: episode.destination_transport,
-          episode_id: episode.id,
-          id: id,
-          offer_message_ref: attributes.target.message_ref,
-          record_id: record.id,
-          ref: "publication:#{id}",
-          repository: repository,
-          review_request_ref: attributes.request_ref,
-          review_requested_at: attributes.occurred_at,
-          review_requested_by_actor_ref: attributes.actor_ref,
-          session_id: session.id,
-          status: :review_pending,
-          title: record.payload["title"]
-        })
-        |> Repo.insert()
-
-      case publication do
-        {:ok, publication} -> %{publication: publication, status: :requested}
-        {:error, changeset} -> Repo.rollback({:publication_persistence_failed, changeset.errors})
-      end
+      insert_review_request(record, episode, session, repository, attributes)
     else
       false -> Repo.rollback(:publication_session_not_bound)
       {:error, reason} -> Repo.rollback(reason)
+    end
+  end
+
+  defp insert_review_request(record, episode, session, repository, attributes) do
+    id = Ecto.UUID.generate()
+
+    publication =
+      Changeset.insert(%{
+        body: record.payload["body"],
+        destination_conversation_ref: episode.destination_conversation_ref,
+        destination_thread_ref: episode.destination_thread_ref,
+        destination_transport: episode.destination_transport,
+        episode_id: episode.id,
+        id: id,
+        offer_message_ref: attributes.target.message_ref,
+        record_id: record.id,
+        ref: "publication:#{id}",
+        repository: repository,
+        review_request_ref: attributes.request_ref,
+        review_requested_at: attributes.occurred_at,
+        review_requested_by_actor_ref: attributes.actor_ref,
+        session_id: session.id,
+        status: :review_pending,
+        title: record.payload["title"]
+      })
+      |> Repo.insert()
+
+    case publication do
+      {:ok, publication} -> %{publication: publication, status: :requested}
+      {:error, changeset} -> Repo.rollback({:publication_persistence_failed, changeset.errors})
     end
   end
 
@@ -670,94 +724,9 @@ defmodule Responder.Publication.Custody do
   defp delivered_target(_episode, _turn, _target),
     do: {:error, :publication_offer_not_delivered}
 
-  defp delivered_offer_proof(
-         %Record{operation_id: "host:publication:ready"} = record,
-         episode,
-         _turn,
-         target
-       ),
-       do: task_card_offer_delivered(record, episode, target)
-
   defp delivered_offer_proof(record, episode, turn, target) do
     with :ok <- delivered_target(episode, turn, target),
          do: record_was_delivered(turn, record.ref)
-  end
-
-  defp task_card_offer_delivered(record, episode, %{transport: "slack"} = target) do
-    # The immutable offer ref is the rendering fence. checked_at and inserted_at
-    # come from PostgreSQL and the application host respectively; comparing
-    # those clocks can reject a genuinely rendered control after a fresh update.
-    card =
-      Repo.one(
-        from(card in TaskCard,
-          where:
-            card.episode_id == ^episode.id and
-              card.rendered_publication_offer_ref == ^record.ref and
-              not is_nil(card.card_fingerprint) and not is_nil(card.card_checked_at),
-          lock: "FOR SHARE"
-        )
-      )
-
-    case card do
-      %TaskCard{} = card ->
-        expected = %{
-          conversation_ref: "slack:#{card.workspace_ref}:#{card.channel_ref}",
-          message_ref: card.message_ref,
-          thread_ref: card.thread_ref,
-          transport: "slack"
-        }
-
-        if expected == target,
-          do: :ok,
-          else: {:error, :publication_offer_delivery_mismatch}
-
-      nil ->
-        {:error, :publication_offer_not_delivered}
-    end
-  end
-
-  defp task_card_offer_delivered(
-         _publication_offer,
-         episode,
-         %{transport: "control_plane"} = target
-       ) do
-    row =
-      Repo.one(
-        from(task_offer in Record,
-          join: source_turn in Turn,
-          on:
-            source_turn.id == task_offer.turn_id and
-              source_turn.episode_id == task_offer.episode_id,
-          join: source_episode in Episode,
-          on: source_episode.id == task_offer.episode_id,
-          where:
-            task_offer.kind == "task_offer" and task_offer.status == :confirmed and
-              task_offer.confirmed_episode_id == ^episode.id,
-          select: {task_offer, source_episode, source_turn},
-          lock: "FOR SHARE"
-        )
-      )
-
-    case row do
-      {%Record{} = task_offer, %Episode{} = source_episode, %Turn{status: :settled} = source_turn} ->
-        with :ok <- same_destination(episode, source_episode),
-             :ok <- delivered_target(source_episode, source_turn, target),
-             do: record_was_delivered(source_turn, task_offer.ref)
-
-      _missing_or_unsettled ->
-        {:error, :publication_offer_not_delivered}
-    end
-  end
-
-  defp task_card_offer_delivered(_record, _episode, _target),
-    do: {:error, :publication_offer_not_delivered}
-
-  defp same_destination(left, right) do
-    if left.destination_transport == right.destination_transport and
-         left.destination_conversation_ref == right.destination_conversation_ref and
-         left.destination_thread_ref == right.destination_thread_ref,
-       do: :ok,
-       else: {:error, :publication_offer_delivery_mismatch}
   end
 
   defp record_was_delivered(%Turn{delivery_document: document}, record_ref) do
@@ -792,24 +761,47 @@ defmodule Responder.Publication.Custody do
         nil
 
       {publication, session} ->
-        lease_publication(publication, session, worker_ref, lease_seconds, now)
+        # The joined session is locked by next_claimable_query. Recheck Work
+        # custody after acquiring it, before starting Coop's exclusive review.
+        if publication.status != :review_pending or
+             not Repo.exists?(
+               from(e in active_work_episodes(), where: e.id == ^session.episode_id)
+             ) do
+          lease_publication(publication, session, worker_ref, lease_seconds, now)
+        end
     end
   end
 
   defp next_claimable_query(now) do
+    from([publication, session] in claimable_query(now),
+      order_by: [asc: publication.inserted_at, asc: publication.id],
+      limit: 1,
+      select: {publication, session},
+      lock: "FOR UPDATE SKIP LOCKED"
+    )
+  end
+
+  @doc false
+  def claimable_query(now) do
     from(publication in Publication,
       join: session in Session,
       on: session.id == publication.session_id and session.episode_id == publication.episode_id,
+      where:
+        publication.status != :review_pending or
+          publication.episode_id not in subquery(active_work_episodes()),
       where:
         publication.status in ^@claimable and
           (is_nil(publication.last_error_code) or
              publication.last_error_code not in ^@publication_conflicts) and
           (is_nil(publication.next_attempt_at) or publication.next_attempt_at <= ^now) and
-          (is_nil(publication.lease_expires_at) or publication.lease_expires_at <= ^now),
-      order_by: [asc: publication.inserted_at, asc: publication.id],
-      limit: 1,
-      select: {publication, session},
-      lock: "FOR UPDATE SKIP LOCKED"
+          (is_nil(publication.lease_expires_at) or publication.lease_expires_at <= ^now)
+    )
+  end
+
+  defp active_work_episodes do
+    from(episode in Episode,
+      where: episode.state == :working and episode.owner_kind == :turn,
+      select: episode.id
     )
   end
 

@@ -79,7 +79,9 @@ defmodule Responder.Slack.TaskCardProjection do
     progress = Enum.map(snapshot.progress_records, &progress_detail/1)
 
     projection = %{
-      "action_needed" => action_needed(episode, turn, records, publication),
+      "action_needed" =>
+        action_needed(episode, turn, records, publication) ||
+          unstarted_review(episode, publication, publication_offer),
       "confirmed_at" => DateTime.to_iso8601(record.confirmed_at),
       "confirmed_by" => record.confirmed_by_actor_ref,
       "controls" => controls(record, episode, turn, session, publication),
@@ -111,7 +113,6 @@ defmodule Responder.Slack.TaskCardProjection do
      %{
        document: document,
        fingerprint: CanonicalJSON.digest(document),
-       publication_offer_ref: publication_offer && publication_offer["ref"],
        ui_revision: @ui_revision
      }}
   end
@@ -263,7 +264,7 @@ defmodule Responder.Slack.TaskCardProjection do
         "controls" => Enum.filter(task["controls"], &(&1 in ~w(stop close timeline)))
       })
 
-    projection |> replace_task(safe) |> Map.put(:publication_offer_ref, nil)
+    replace_task(projection, safe)
   end
 
   defp replace_task(projection, task) do
@@ -333,6 +334,9 @@ defmodule Responder.Slack.TaskCardProjection do
     )
   end
 
+  defp status(%Episode{state: :working}, %Turn{status: :blocked}, _publication, _offer),
+    do: "action_required"
+
   defp status(
          _episode,
          _turn,
@@ -362,7 +366,10 @@ defmodule Responder.Slack.TaskCardProjection do
     do: "completed"
 
   defp status(%Episode{state: :cancelled}, _turn, _publication, _offer), do: "cancelled"
-  defp status(_episode, _turn, nil, %{"status" => "open"}), do: "ready_for_review"
+
+  defp status(%Episode{state: :complete}, _turn, nil, %{"status" => "open"}),
+    do: "action_required"
+
   defp status(%Episode{state: :complete}, _turn, _publication, _offer), do: "completed"
 
   defp status(%Episode{state: :waiting_for_input}, _turn, _publication, _offer),
@@ -371,11 +378,14 @@ defmodule Responder.Slack.TaskCardProjection do
   defp status(%Episode{state: :waiting_for_event}, _turn, _publication, _offer),
     do: "waiting_for_event"
 
-  defp status(_episode, %Turn{status: :blocked}, _publication, _offer),
-    do: "action_required"
-
   defp status(_episode, %Turn{status: :cancel_pending}, _publication, _offer), do: "stopping"
   defp status(_episode, _turn, _publication, _offer), do: "working"
+
+  defp unstarted_review(%Episode{state: :complete}, nil, %{"status" => "open"}),
+    do:
+      "Prepared changes are saved, but checks have not started. Open the episode to review workspace recovery."
+
+  defp unstarted_review(_episode, _publication, _offer), do: nil
 
   defp action_needed(_episode, _turn, _records, %Publication{status: :blocked} = publication),
     do:
@@ -433,19 +443,7 @@ defmodule Responder.Slack.TaskCardProjection do
     end
   end
 
-  defp publication(nil, nil), do: nil
-
-  defp publication(nil, %{"ref" => ref}) do
-    %{
-      "controls" => ["readiness"],
-      "publication_ref" => nil,
-      "pull_request_number" => nil,
-      "pull_request_url" => nil,
-      "recovery_generation" => nil,
-      "review_offer_ref" => ref,
-      "status" => "offered"
-    }
-  end
+  defp publication(nil, _offer), do: nil
 
   defp publication(%Publication{} = publication, _offer) do
     %{
@@ -454,7 +452,6 @@ defmodule Responder.Slack.TaskCardProjection do
       "pull_request_number" => publication.pull_request_number,
       "pull_request_url" => publication.pull_request_url,
       "recovery_generation" => publication.recovery_generation,
-      "review_offer_ref" => nil,
       "status" => Atom.to_string(publication.status)
     }
   end

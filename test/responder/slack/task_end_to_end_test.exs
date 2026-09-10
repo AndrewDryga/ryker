@@ -148,7 +148,7 @@ defmodule Responder.Slack.TaskEndToEndTest do
     def get_publication_status(_client, _repository, _number), do: {:error, :not_used}
   end
 
-  test "an authorized Slack task publishes once despite clock skew and repairs GitHub review in the same session" do
+  test "a confirmed Slack task checks readiness automatically and repairs GitHub review in the same session" do
     claim = claim_episode!()
     # Structural records are installed before the fake provider runs; initialize
     # their empty external-source custody at the real pre-disclosure boundary.
@@ -314,8 +314,48 @@ defmodule Responder.Slack.TaskEndToEndTest do
       |> put_in([:session, "policy_digest"], @write_policy_digest)
     end)
 
-    assert {:ok, %{status: :accepted, turn: %{status: :delivery_pending}}} =
+    assert {:ok, %{status: :accepted, turn: %{status: :delivery_pending}} = task_accepted} =
              Executor.run(task_claim, executor_options(task_api))
+
+    # Confirmed coding tasks stalled behind another readiness permission click.
+    # Queue the trusted check atomically with acceptance, before Slack delivery
+    # or retention can close the completed session. This is not a publish grant.
+    ready_offer =
+      Repo.get_by!(Record,
+        episode_id: task_episode.id,
+        turn_id: task_accepted.turn.id,
+        kind: "publication_offer",
+        operation_id: "host:publication:ready"
+      )
+
+    automatic_review = Repo.get_by(Publication, record_id: ready_offer.id)
+
+    assert match?(%Publication{status: :review_pending}, automatic_review),
+           "a confirmed task must queue readiness without another user interaction"
+
+    assert automatic_review.episode_id == task_episode.id
+    assert automatic_review.session_id == task_session.id
+    assert automatic_review.repository == task_session.repository_ref
+    assert automatic_review.review_requested_by_actor_ref == confirmed.confirmed_by_actor_ref
+
+    assert automatic_review.offer_message_ref ==
+             Repo.get!(Turn, claim.turn.id).external_receipt["message_ref"]
+
+    assert automatic_review.approval_ref == nil
+
+    assert {:ok, _duplicate} =
+             Custody.accept_result(
+               task_episode.id,
+               task_episode.key,
+               task_claim.turn.turn_ref,
+               task_claim.lease_ref,
+               task_accepted.turn.candidate_sha256,
+               task_accepted.turn.candidate_attempt,
+               task_accepted.turn.validation_receipt
+             )
+
+    assert [same_review] = Repo.all(from(p in Publication, where: p.record_id == ^ready_offer.id))
+    assert same_review.id == automatic_review.id
 
     assert {:ok, {:delivered, :message, _task_delivery_ref}} = deliver_once(adapters)
 
@@ -328,19 +368,6 @@ defmodule Responder.Slack.TaskEndToEndTest do
       "1788268001.000201"
     }
 
-    offer =
-      Repo.get_by!(Record,
-        episode_id: task_episode.id,
-        kind: "publication_offer",
-        operation_id: "host:publication:ready"
-      )
-
-    assert {:ack, {:interaction, :invalid}, _feedback} =
-             Gateway.handle_envelope(
-               readiness_interaction(card, offer.ref, "before-card-refresh"),
-               gateway_settings()
-             )
-
     Repo.update_all(from(saved in TaskCard, where: saved.id == ^card.id),
       set: [card_checked_at: nil]
     )
@@ -350,23 +377,11 @@ defmodule Responder.Slack.TaskEndToEndTest do
     card = Repo.get!(TaskCard, card.id)
     assert {:ok, ready_projection} = TaskCardProjection.build(card)
     ready_card = ready_projection.document["task_card"]
-    assert ready_card["status"] == "ready_for_review"
-    assert ready_card["publication"]["review_offer_ref"] == offer.ref
-    assert ready_card["publication"]["controls"] == ["readiness"]
+    assert ready_card["status"] == "reviewing"
+    assert ready_card["publication"]["publication_ref"] == automatic_review.ref
+    assert ready_card["publication"]["controls"] == []
 
-    # A freshly rendered readiness button was intermittently rejected in the
-    # release gate: Ecto stamps offers on the host, card custody uses PostgreSQL.
-    # The exact rendered offer identity must remain valid across clock skew.
-    Repo.update_all(from(saved in TaskCard, where: saved.id == ^card.id),
-      set: [card_checked_at: DateTime.add(offer.inserted_at, -10, :second)]
-    )
-
-    assert Gateway.handle_envelope(
-             readiness_interaction(card, offer.ref, "after-card-refresh"),
-             gateway_settings()
-           ) == {:ack, {:interaction, :requested}}
-
-    publication = Repo.get_by!(Publication, record_id: offer.id)
+    publication = Repo.get!(Publication, automatic_review.id)
     assert publication.episode_id == task_episode.id
     assert publication.repository == "responder"
     assert publication.status == :review_pending
@@ -564,6 +579,17 @@ defmodule Responder.Slack.TaskEndToEndTest do
     assert final_receipt["transport"] == "slack"
     assert final_receipt["conversation_ref"] == "slack:T123:C456"
     assert final_receipt["thread_ref"] == "1788268000.000100"
+
+    # A completed correction must not mint another Publication and replace the
+    # existing PR link with a fresh Create draft PR control.
+    assert [same_publication] =
+             Repo.all(from(p in Publication, where: p.episode_id == ^task_episode.id))
+
+    assert same_publication.id == publication.id
+    assert {:ok, after_correction} = TaskCardProjection.build(Repo.get!(TaskCard, card.id))
+
+    assert after_correction.document["task_card"]["publication"]["pull_request_url"] ==
+             same_publication.pull_request_url
   end
 
   defp claim_episode! do
@@ -619,10 +645,6 @@ defmodule Responder.Slack.TaskEndToEndTest do
     }
   end
 
-  defp readiness_interaction(card, offer_ref, suffix) do
-    publication_interaction(card, "responder_task_readiness", offer_ref, suffix)
-  end
-
   defp publication_interaction(card, action_id, item_ref, suffix) do
     %{
       "envelope_id" => "task-readiness-e2e-#{suffix}",
@@ -663,7 +685,6 @@ defmodule Responder.Slack.TaskEndToEndTest do
         operators: MapSet.new(["U123"]),
         approve_task_publication: &WorkControls.approve_publication/1,
         records: Records,
-        request_task_readiness: &WorkControls.request_readiness/1,
         repositories: %{
           "responder" => %{
             contributor_policy: %{

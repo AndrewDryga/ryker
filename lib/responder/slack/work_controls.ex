@@ -15,14 +15,12 @@ defmodule Responder.Slack.WorkControls do
   alias Responder.Publication.{Followups, Operator, Publication}
   alias Responder.Repo
   alias Responder.Slack.{Client, WorkDiff, WorkRecord, WorkTarget}
-  alias Responder.State.Record
   alias Responder.Work.{Custody, Session, Turn}
 
   @control_fields [:actor_ref, :occurred_at, :request_ref, :target, :work_ref]
   @page_fields @control_fields ++ [:patch_offset, :snapshot_digest]
   @publication_fields @control_fields ++ [:publication_ref]
   @publication_recovery_fields @publication_fields ++ [:expected_generation]
-  @readiness_fields @control_fields ++ [:record_ref]
   @record_fields @control_fields ++ [:record_kind]
 
   @spec stop(map()) :: {:ok, map()} | {:error, term()}
@@ -142,33 +140,6 @@ defmodule Responder.Slack.WorkControls do
   end
 
   def show_record(_attributes, _options), do: {:error, :invalid_work_control}
-
-  @spec request_readiness(map()) :: {:ok, map()} | {:error, term()}
-  def request_readiness(attributes) do
-    with {:ok, attributes} <- attributes(attributes, @readiness_fields),
-         {:ok, %{kind: :task} = resolved} <-
-           WorkTarget.resolve(attributes.work_ref, attributes.target),
-         {:ok, offer_target} <-
-           delivered_publication_offer(resolved, attributes.record_ref),
-         {:ok, request} <-
-           PublicationCustody.request_review(%{
-             actor_ref: attributes.actor_ref,
-             occurred_at: attributes.occurred_at,
-             record_ref: attributes.record_ref,
-             request_ref: attributes.request_ref,
-             target: offer_target
-           }) do
-      {:ok,
-       %{
-         outcome: request.status,
-         publication_ref: request.publication.ref,
-         work_ref: resolved.work_ref
-       }}
-    else
-      {:ok, _non_task} -> {:error, :task_publication_mismatch}
-      {:error, _reason} = error -> error
-    end
-  end
 
   @spec approve_publication(map()) :: {:ok, map()} | {:error, term()}
   def approve_publication(attributes) do
@@ -320,37 +291,6 @@ defmodule Responder.Slack.WorkControls do
          ) do
       %Session{} = session -> {:ok, session}
       nil -> {:error, :work_changes_not_available}
-    end
-  end
-
-  defp delivered_publication_offer(resolved, record_ref) do
-    row =
-      Repo.one(
-        from(record in Record,
-          join: turn in Turn,
-          on: turn.id == record.turn_id and turn.episode_id == record.episode_id,
-          where:
-            record.episode_id == ^resolved.episode.id and record.ref == ^record_ref and
-              record.kind == "publication_offer" and record.status == :open,
-          select: {record, turn}
-        )
-      )
-
-    case row do
-      {%Record{operation_id: "host:publication:ready"}, %Turn{status: :settled}} ->
-        {:ok,
-         %{
-           conversation_ref: "slack:#{resolved.workspace_ref}:#{resolved.channel_ref}",
-           message_ref: resolved.card_message_ref,
-           thread_ref: resolved.output_thread_ref,
-           transport: "slack"
-         }}
-
-      {%Record{}, %Turn{status: :settled, external_receipt: receipt}} when is_map(receipt) ->
-        publication_target(receipt)
-
-      _missing ->
-        {:error, :task_publication_mismatch}
     end
   end
 

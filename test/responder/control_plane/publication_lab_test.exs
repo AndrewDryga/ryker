@@ -8,9 +8,10 @@ defmodule Responder.ControlPlane.PublicationLabTest do
   alias Responder.Publication.{Changeset, Publication}
   alias Responder.Publication.Custody, as: PublicationCustody
   alias Responder.Repo
-  alias Responder.State.Records
+  alias Responder.Slack.TaskCardProjection
+  alias Responder.State.{Record, Records}
 
-  alias Responder.Work.{Custody, DeliveryReceipt, Result, SubmissionBuilder}
+  alias Responder.Work.{Cancellation, Custody, DeliveryReceipt, Result, SubmissionBuilder}
 
   @conversation_id "018f3ef7-1f62-7ee0-a83c-0c12f21d83e6"
   @now ~U[2026-08-30 18:00:00.000000Z]
@@ -101,7 +102,33 @@ defmodule Responder.ControlPlane.PublicationLabTest do
            ) == {:error, :conversation_lab_record_mismatch}
   end
 
-  test "a confirmed Lab task exposes the same trusted readiness control as its Slack card" do
+  test "a confirmed task with no prepared changes does not create a readiness review" do
+    task_offer = delivered_task_offer!()
+
+    actions =
+      Actions.callbacks(profile(), %{
+        "responder" => %{name: "responder-contributor", digest: @digest}
+      })
+
+    assert {:ok, confirmation} =
+             actions.act_on_lab_record.(@conversation_id, task_offer.ref, :confirm_task, nil)
+
+    assert {:ok, child_claim} = Custody.claim_next("lab-task-no-changes", 60, :work)
+    child_claim = bind_claim!(child_claim, "task-no-changes")
+
+    settle_claim!(
+      child_claim,
+      %{
+        "message" => "No repository change is needed.",
+        "outcome" => %{"artifact_refs" => [], "record_refs" => [], "state" => "complete"}
+      },
+      "control-plane-message:task-no-changes"
+    )
+
+    refute Repo.get_by(Publication, episode_id: confirmation.episode.id)
+  end
+
+  test "a confirmed Lab task starts its checks without another readiness control" do
     task_offer = delivered_task_offer!()
 
     actions =
@@ -139,6 +166,22 @@ defmodule Responder.ControlPlane.PublicationLabTest do
                }
              )
 
+    # A retained milestone must not start a review while the task is waiting
+    # for input. Only its completed result may enter automatic review custody.
+    session = Repo.get!(Responder.Work.Session, child_claim.session.id)
+    waiting_turn = %{child_claim.turn | continuation: %{"kind" => "wait"}}
+
+    assert {:ok, :ok} =
+             Repo.transaction(fn ->
+               PublicationCustody.ensure_task_review_in_transaction(
+                 confirmation.episode,
+                 session,
+                 waiting_turn
+               )
+             end)
+
+    refute Repo.get_by(Publication, record_id: publication_offer.id)
+
     settle_claim!(
       child_claim,
       %{
@@ -155,22 +198,26 @@ defmodule Responder.ControlPlane.PublicationLabTest do
       |> Enum.flat_map(& &1.cards)
       |> Enum.find(&(&1.ref == task_offer.ref))
 
-    assert :request_task_readiness in task_card.actions
-    assert task_card.review_offer_ref == publication_offer.ref
-
-    assert {:ok, readiness} =
-             actions.act_on_lab_record.(
-               @conversation_id,
-               task_offer.ref,
-               :request_task_readiness,
-               %{review_offer_ref: task_card.review_offer_ref}
-             )
-
-    assert readiness.status == :requested
+    assert task_card.status == "reviewing"
+    refute :request_task_readiness in task_card.actions
+    readiness = %{publication: Repo.get_by!(Publication, record_id: publication_offer.id)}
+    assert readiness.publication.status == :review_pending
+    assert readiness.publication.review_requested_by_actor_ref == "control-plane:local"
+    assert is_nil(readiness.publication.approval_ref)
     assert readiness.publication.record_id == publication_offer.id
     assert readiness.publication.episode_id == confirmation.episode.id
     assert readiness.publication.destination_transport == "control_plane"
     assert readiness.publication.destination_conversation_ref == conversation_ref()
+
+    # The real retained runner task has prepared changes but predates automatic
+    # review custody. Removing a button must not relabel that work Completed.
+    Repo.delete!(readiness.publication)
+    confirmed_task = Repo.get!(Record, task_offer.id)
+    assert {:ok, stranded} = TaskCardProjection.build(confirmed_task)
+    assert stranded.document["task_card"]["status"] == "action_required"
+    assert stranded.document["task_card"]["action_needed"] =~ "checks have not started"
+    assert is_nil(stranded.document["task_card"]["publication"])
+    Repo.insert!(Ecto.put_meta(readiness.publication, state: :built))
 
     assert {:ok, review_claim} = PublicationCustody.claim_next("lab-task-review", 60)
 
@@ -361,6 +408,62 @@ defmodule Responder.ControlPlane.PublicationLabTest do
              )
 
     assert check.status == :requested
+
+    # A previously reviewed/published task must not hide a failed correction
+    # behind its older publication status. This follows real episode custody.
+    assert {:ok, _} =
+             Episodes.apply(
+               EpisodeFixtures.admit_input(%{
+                 destination: %{
+                   conversation_ref: conversation_ref(),
+                   thread_ref: conversation_ref(),
+                   transport: "control_plane"
+                 },
+                 episode_id: confirmation.episode.id,
+                 episode_key: confirmation.episode.key,
+                 native_input_id: "lab:blocked-correction",
+                 linked_episode_id: confirmation.episode.linked_episode_id,
+                 occurred_at: DateTime.utc_now(),
+                 payload: %{"text" => "Please include the follow-up correction."},
+                 turn_ref: "lab:blocked-correction"
+               })
+             )
+
+    assert {:ok, followup} = Custody.claim_next("lab:followup", 60, :work)
+
+    assert {:ok, _} =
+             Custody.request_block(
+               followup.episode.id,
+               followup.episode.key,
+               followup.turn.turn_ref,
+               followup.lease_ref,
+               "The follow-up could not finish."
+             )
+
+    assert {:ok, cancellation} = Custody.claim_next("lab:stop-followup", 60, :work)
+
+    assert {:ok, stopped} =
+             Cancellation.absent_receipt(
+               "responder:work:create:#{followup.session.id}:g#{followup.session.create_generation}",
+               nil,
+               followup.session.coop_session_id,
+               "closed",
+               "responder:work:cancel-close:#{followup.turn.id}:g1"
+             )
+
+    assert {:ok, _} =
+             Custody.settle_cancellation(
+               followup.episode.id,
+               followup.episode.key,
+               followup.turn.turn_ref,
+               cancellation.lease_ref,
+               stopped
+             )
+
+    assert {:ok, blocked} = TaskCardProjection.build(confirmed_task)
+    assert blocked.document["task_card"]["status"] == "action_required"
+    assert blocked.document["task_card"]["action_needed"] =~ "follow-up could not finish"
+    assert blocked.document["task_card"]["publication"]["pull_request_url"] == published_task.url
   end
 
   defp delivered_task_offer! do

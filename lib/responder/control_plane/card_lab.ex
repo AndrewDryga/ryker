@@ -14,7 +14,7 @@ defmodule Responder.ControlPlane.CardLab do
   @external_resource @legacy_path
   @legacy Jason.decode!(File.read!(@legacy_path))
 
-  @task_statuses ~w(working waiting_for_input waiting_for_event action_required stopping reviewing ready_for_review ready_to_publish published completed cancelled)
+  @task_statuses ~w(working waiting_for_input waiting_for_event action_required stopping reviewing ready_to_publish published completed cancelled)
   @incident_statuses ~w(provisioning investigating action_required waiting_for_input waiting_for_event stopping resolved cancelled paused)
   @spec catalog() :: [map()]
   def catalog do
@@ -187,13 +187,31 @@ defmodule Responder.ControlPlane.CardLab do
           task_status: status
         })
       end)
-      |> insert_after("ready-for-review", [
+      |> insert_after("reviewing", [
         state(
-          "readiness-offered",
-          "Readiness offered",
-          "The committed candidate can enter its read-only readiness check.",
-          task_document("ready_for_review", publication("offered", ["readiness"])),
-          %{task_status: "ready_for_review"}
+          "automatic-readiness",
+          "Checking changes",
+          "The confirmed task starts its ordinary readiness checks without another permission request.",
+          task_document("reviewing", publication("review_pending", []))
+          |> put_in(["task_card", "controls"], ~w(view_diff timeline evidence handoff))
+          |> put_in(["task_card", "episode_state"], "complete")
+          |> put_in(["task_card", "work_state"], "settled"),
+          %{task_status: "reviewing"}
+        ),
+        state(
+          "unstarted-readiness",
+          "Prepared changes need recovery",
+          "A retained completed task has changes but no review custody. It is not completed publication.",
+          task_document("action_required")
+          |> put_in(["task_card", "controls"], ~w(view_diff timeline evidence handoff))
+          |> put_in(["task_card", "episode_state"], "complete")
+          |> put_in(["task_card", "work_state"], "settled")
+          |> put_in(["task_card", "summary"], "The prepared changes remain saved.")
+          |> put_in(
+            ["task_card", "action_needed"],
+            "Prepared changes are saved, but checks have not started. Open the episode to review workspace recovery."
+          ),
+          %{task_status: "action_required"}
         ),
         state(
           "reviewed-publication",
@@ -267,9 +285,8 @@ defmodule Responder.ControlPlane.CardLab do
         "waiting-for-event" => [t("event-arrived", "Event arrived", "working")],
         "action-required" => [t("correct", "Apply correction", "working")],
         "stopping" => [t("stopped", "Finish stopping", "cancelled")],
-        "reviewing" => [t("ready", "Readiness result", "ready-for-review")],
-        "ready-for-review" => [t("offer-readiness", "Offer readiness check", "readiness-offered")],
-        "readiness-offered" => [
+        "reviewing" => [t("check", "Checks start automatically", "automatic-readiness")],
+        "automatic-readiness" => [
           t("reviewed", "Pass readiness", "reviewed-publication"),
           t("blocked", "Block publication", "blocked-publication")
         ],
@@ -1380,13 +1397,11 @@ defmodule Responder.ControlPlane.CardLab do
   defp publication(status, controls, generation \\ 1, published \\ false) do
     %{
       "controls" => controls,
-      "publication_ref" => if(status == "offered", do: nil, else: "publication:card-lab"),
+      "publication_ref" => "publication:card-lab",
       "pull_request_number" => if(published, do: 91, else: nil),
       "pull_request_url" =>
         if(published, do: "https://github.com/acme/responder/pull/91", else: nil),
-      "recovery_generation" => if(status == "offered", do: nil, else: generation),
-      "review_offer_ref" =>
-        if(status == "offered", do: "record:publication_offer:card-lab", else: nil),
+      "recovery_generation" => generation,
       "status" => status
     }
   end
@@ -1400,7 +1415,7 @@ defmodule Responder.ControlPlane.CardLab do
   defp task_episode_state(_status), do: "working"
 
   defp task_work_state(status)
-       when status in ~w(completed cancelled published ready_to_publish ready_for_review),
+       when status in ~w(completed cancelled published ready_to_publish),
        do: "settled"
 
   defp task_work_state("action_required"), do: "blocked"
@@ -1422,8 +1437,6 @@ defmodule Responder.ControlPlane.CardLab do
 
   defp task_description("reviewing"),
     do: "The committed candidate is in a trusted read-only review."
-
-  defp task_description("ready_for_review"), do: "Changes are ready for a readiness check."
 
   defp task_description("ready_to_publish"),
     do: "The reviewed candidate is ready for operator publication."

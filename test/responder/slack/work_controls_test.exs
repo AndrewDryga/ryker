@@ -261,35 +261,6 @@ defmodule Responder.Slack.WorkControlsTest do
              {:error, :work_record_not_available}
   end
 
-  test "the exact task card starts its delivered readiness review" do
-    fixture =
-      PublicationFixture.published!("task-card-readiness", conversation_ref: "slack:T123:C456")
-
-    card = publication_task_card!(fixture.publication, "readiness")
-
-    Repo.delete_all(
-      from(followup in Followup, where: followup.publication_id == ^fixture.publication.id)
-    )
-
-    Repo.delete!(fixture.publication)
-
-    attributes =
-      card
-      |> publication_attributes()
-      |> Map.put(:record_ref, "record:publication_offer:#{fixture.publication.record_id}")
-
-    record = Repo.get!(Responder.State.Record, fixture.publication.record_id)
-    attributes = %{attributes | record_ref: record.ref}
-
-    assert {:ok, result} = WorkControls.request_readiness(attributes)
-    assert result.outcome == :requested
-    assert result.work_ref == card.ref
-    assert Repo.get_by!(Publication, ref: result.publication_ref).episode_id == card.episode_id
-
-    crossed = put_in(attributes, [:target, :message_ref], "message:someone-else")
-    assert WorkControls.request_readiness(crossed) == {:error, :work_control_target_mismatch}
-  end
-
   test "the exact task card approves only its reviewed publication" do
     fixture =
       PublicationFixture.published!("task-card-publish", conversation_ref: "slack:T123:C456")
@@ -488,7 +459,6 @@ defmodule Responder.Slack.WorkControlsTest do
     assert WorkControls.show_record(exact, :options) == {:error, :invalid_work_control}
     assert WorkControls.stop(%{}) == {:error, :invalid_work_control}
     assert WorkControls.close(:invalid) == {:error, :invalid_work_control}
-    assert WorkControls.request_readiness(%{}) == {:error, :invalid_work_control}
     assert WorkControls.approve_publication(%{}) == {:error, :invalid_work_control}
     assert WorkControls.check_publication(%{}) == {:error, :invalid_work_control}
     assert WorkControls.recover_publication(%{}, :retry) == {:error, :invalid_work_control}

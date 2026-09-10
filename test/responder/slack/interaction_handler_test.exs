@@ -473,16 +473,6 @@ defmodule Responder.Slack.InteractionHandlerTest do
                       work_ref: "task-card:abc123"
                     }}
 
-    readiness = %{
-      publish
-      | action_id: "responder_task_readiness",
-        action_value: "task-card:abc123|record:publication_offer:def456",
-        event_ref: "interaction:task-readiness"
-    }
-
-    assert InteractionHandler.handle(readiness, operator_options) ==
-             {:ok, %{outcome: :requested, publication_ref: "publication:def456"}}
-
     check = %{
       publish
       | action_id: "responder_task_check",
@@ -579,10 +569,6 @@ defmodule Responder.Slack.InteractionHandlerTest do
       request_publication_review: fn attributes ->
         send(observer, {:publication_review_requested, attributes})
         {:ok, %{publication: %{ref: "publication:1"}, status: :requested}}
-      end,
-      request_task_readiness: fn attributes ->
-        send(observer, {:task_readiness_requested, attributes})
-        {:ok, %{outcome: :requested, publication_ref: "publication:def456"}}
       end,
       show_work_diff: fn attributes ->
         send(observer, {:work_diff_shown, attributes})

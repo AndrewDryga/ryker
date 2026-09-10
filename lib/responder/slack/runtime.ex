@@ -343,7 +343,6 @@ defmodule Responder.Slack.Runtime do
         records: Records,
         request_incident_room: request_incident_room,
         request_publication_review: &Custody.request_review/1,
-        request_task_readiness: &WorkControls.request_readiness/1,
         repositories: repositories,
         show_work_diff: work_diff_callback(work_presentation_options),
         show_work_diff_page: work_diff_page_callback(work_presentation_options),

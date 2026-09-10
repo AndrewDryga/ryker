@@ -17,10 +17,12 @@ defmodule Responder.Observability do
   alias Responder.Episodes.Episode
   alias Responder.Ingress.Inbox.Entry
   alias Responder.Observability.Progress
+  alias Responder.Publication.Custody, as: PublicationCustody
   alias Responder.Publication.{Followup, LifecycleEvent, Publication}
   alias Responder.Repo
   alias Responder.Slack.{IncidentRoom, TaskCard}
   alias Responder.State.{Record, Schedule}
+  alias Responder.Work.Custody, as: WorkCustody
   alias Responder.Work.{Session, Turn}
 
   @default_stall_after_seconds 15 * 60
@@ -156,7 +158,7 @@ defmodule Responder.Observability do
       queue(
         Publication,
         :publication,
-        [:review_pending, :publish_pending, :published_ready],
+        [:review_pending, :review_ready, :publish_pending, :published_ready],
         :updated_at,
         now
       ),
@@ -304,6 +306,7 @@ defmodule Responder.Observability do
       from(row in base,
         where: is_nil(row.lease_ref) or row.lease_expires_at <= ^now
       )
+      |> runnable_queue(name, now)
 
     active =
       from(row in base,
@@ -312,6 +315,23 @@ defmodule Responder.Observability do
 
     queue_projection(claimable, active, name, age_field, now)
   end
+
+  # Deliberate peer-custody waits are not stalled claimable work. Keep active
+  # lease monitoring separate so a stuck executor is still visible.
+  defp runnable_queue(query, name, now) when name in [:work, :cancellation, :delivery] do
+    phase = if name == :delivery, do: :delivery, else: :work
+    episodes = WorkCustody.claimable_episode_ids_query(now, phase)
+    from(turn in query, where: turn.episode_id in subquery(episodes))
+  end
+
+  defp runnable_queue(query, :publication, now) do
+    publications =
+      from(publication in PublicationCustody.claimable_query(now), select: publication.id)
+
+    from(publication in query, where: publication.id in subquery(publications))
+  end
+
+  defp runnable_queue(query, _name, _now), do: query
 
   defp query_cleanup_queue(base, name, age_field, now) do
     claimable =

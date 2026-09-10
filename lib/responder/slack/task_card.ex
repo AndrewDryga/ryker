@@ -15,7 +15,6 @@ defmodule Responder.Slack.TaskCard do
     field(:thread_ref, :string)
     field(:message_ref, :string)
     field(:card_fingerprint, :string)
-    field(:rendered_publication_offer_ref, :string)
     field(:card_ui_revision, :integer, default: 0)
     field(:card_checked_at, :utc_datetime_usec)
     field(:attempt_count, :integer, default: 0)
@@ -38,7 +37,6 @@ defmodule Responder.Slack.TaskCard do
           thread_ref: String.t() | nil,
           message_ref: String.t() | nil,
           card_fingerprint: String.t() | nil,
-          rendered_publication_offer_ref: String.t() | nil,
           card_ui_revision: non_neg_integer(),
           card_checked_at: DateTime.t() | nil,
           attempt_count: non_neg_integer(),

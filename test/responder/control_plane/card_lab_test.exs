@@ -6,6 +6,22 @@ defmodule Responder.ControlPlane.CardLabTest do
   alias Responder.Slack.{Renderer, ThreadStatusProjection}
   alias Responder.State.RecordPayload
 
+  test "automatic readiness has no redundant check or stopped Work controls" do
+    assert {:ok, reviewing} = CardLab.fetch("task-card", "reviewing")
+    assert Enum.any?(reviewing.state.transitions, &(&1.label == "Checks start automatically"))
+    assert {:ok, snapshot} = CardLab.fetch("task-card", "automatic-readiness")
+    payload = Jason.encode!(snapshot.rendered)
+    assert payload =~ "Checking the changes before creating a PR."
+    refute payload =~ "responder_task_readiness"
+    refute payload =~ "responder_stop_work"
+    refute payload =~ "responder_close_work"
+
+    assert {:ok, stranded} = CardLab.fetch("task-card", "unstarted-readiness")
+    assert stranded.rendered["text"] =~ "Action required"
+    assert Jason.encode!(stranded.rendered) =~ "checks have not started"
+    refute Jason.encode!(stranded.rendered) =~ "responder_task_readiness"
+  end
+
   test "waiting status specimens match the quiet production projection" do
     # The catalog must not promise a persistent activity indicator after Work
     # has yielded durable custody to a human or source-event wait.
@@ -142,7 +158,7 @@ defmodule Responder.ControlPlane.CardLabTest do
     contract = Renderer.presentation_contract()
 
     assert coverage.task_statuses ==
-             ~w(working waiting_for_input waiting_for_event action_required stopping reviewing ready_for_review ready_to_publish published completed cancelled)
+             ~w(working waiting_for_input waiting_for_event action_required stopping reviewing ready_to_publish published completed cancelled)
 
     assert coverage.incident_statuses ==
              ~w(provisioning investigating action_required waiting_for_input waiting_for_event stopping resolved cancelled paused)

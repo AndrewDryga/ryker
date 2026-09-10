@@ -528,7 +528,8 @@ monotonic revisions. Search and source reads span the exact conversation across 
 uploaded Lab files appear as bounded virtual file resources with the same `files` search and `document`
 read contract. An incident offer opens a linked policy-pinned local incident episode in the same timeline,
 so the investigation, tools, waits, progress, and controls are real while Slack channel creation is not.
-Confirmed task cards retain Slack's trusted readiness, draft-publication, delivery-check, diff, stop,
+Confirmed tasks automatically start the same trusted readiness checks as Slack when their completed
+result contains prepared changes; no second readiness action is needed. Cards retain draft-publication, delivery-check, diff, stop,
 close, timeline, evidence, and handoff actions. Local incidents add the same evidence-backed postmortem
 view without pretending that a Slack room was provisioned.
 The local adapter also keeps an executable allowlist of those five implementations. If the shared Slack

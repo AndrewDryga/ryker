@@ -473,7 +473,6 @@ defmodule Responder.ControlPlane.Card do
 
     card
     |> optional_card_ref(:publication_ref, get_in(task, ["publication", "publication_ref"]))
-    |> optional_card_ref(:review_offer_ref, get_in(task, ["publication", "review_offer_ref"]))
   end
 
   defp optional_card_ref(card, key, value) when is_binary(value), do: Map.put(card, key, value)
@@ -503,7 +502,6 @@ defmodule Responder.ControlPlane.Card do
 
   defp task_publication_actions(%{"controls" => controls}) when is_list(controls) do
     Enum.flat_map(controls, fn
-      "readiness" -> [:request_task_readiness]
       "publish" -> [:approve_task_publication]
       "check" -> [:check_task_publication]
       "retry" -> [:retry_task_publication]
