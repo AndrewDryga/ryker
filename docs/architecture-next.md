@@ -1,14 +1,10 @@
 # Responder Target Architecture and Verification Plan
 
-Status: target design; the Elixir/PostgreSQL replacement is canonical and remaining P0/P1 gaps are
-        tracked by the checked capability contract
+Status: target design; the Elixir/PostgreSQL implementation is canonical
 Last updated: 2026-09-05
 Audience: Responder maintainers, operators, and contributors
 
-This document defines the architecture Responder should evolve toward. It is more prescriptive
-than [Architecture](architecture.md), which describes the deployed system, and more
-implementation-oriented than [How Responder Works](how-responder-works.md), which explains current
-product behavior.
+This document defines the architecture Responder should evolve toward.
 
 The [control-plane redesign plan](control-plane-redesign.md) specifies the next
 operator-facing slices: LiveView, faster admission with unchanged host authority,
@@ -27,18 +23,8 @@ The canonical implementation is now the Elixir release backed by PostgreSQL. Gen
 admission, episodes, Coop Work, MCP state tools, platform delivery, approvals, publication, waits,
 schedules, retention, the local control plane, and optional Slack/GitHub/webhook adapters share that
 one durable ownership model. Normal process or host replacement reclaims database leases; it does not
-switch between a Go and Elixir writer or require a canary/promote state machine.
-
-The exact current boundary is machine-checked in the
-[Go-to-Elixir capability contract](elixir-go-capability-contract.md). It deliberately distinguishes
-implemented code with deterministic proof from partial behavior with an owning task, and both from
-deployment and live-acceptance evidence. The narrower lifecycle test manifest remains useful, but its
-230 mapped tests in 25 Go files are not whole-product parity.
-
-The legacy Go source below `internal/` remains a historical behavior oracle and bounded rollback
-archive while the remaining contract gaps are rebuilt. It is not a second production runtime. The
-phase narrative below is retained as design rationale; use the checked contract, not old phase prose
-or module existence, for current implementation status.
+require a canary/promote state machine. The phase narrative below is retained as design rationale,
+not current implementation status.
 
 ## 1. Product objective
 
@@ -1138,18 +1124,16 @@ provider allocation, correct ordering within an episode, and strict visibility f
 
 Start with four enforceable gates:
 
-1. unit, race, storage, and adapter-contract tests;
+1. unit, storage, concurrency, and adapter-contract tests;
 2. deterministic historical replay with zero hard-invariant violations;
 3. real-model evaluation above the configured semantic and communication thresholds;
-4. live canary success in the designated test channel.
+4. live acceptance in the designated test channel.
 
 Expand the gate only when a new check has demonstrated signal and acceptable stability.
 
 ## 24. Capability preservation matrix
 
-This table is the stable target taxonomy. Current P0/P1 status, implementation paths, deterministic
-proof, and exact remaining gaps live in the checked
-[Go-to-Elixir capability contract](elixir-go-capability-contract.md).
+This table is the stable target taxonomy.
 
 | Capability | Required target behavior |
 | --- | --- |
@@ -1178,23 +1162,8 @@ proof, and exact remaining gaps live in the checked
 | Progress updates | Typed events rendered through status and durable messages |
 | Cleanup | Ownership-based lifecycle and retention policies |
 
-No migration may remove a capability because its replacement package exists but its behavior is not
-yet proven.
-
-Proof is counted per capability, and so is deletion. A legacy path may be deleted once a replay
-fixture proves the capability that path carries, and only the paths belonging to that capability may
-go with it. Every other capability keeps its legacy path until its own fixture exists. A phase is
-therefore never held shut as a whole by the least-covered capability inside it, and no capability is
-ever deleted on the strength of a neighbour's proof.
-
-A deletion that cannot name the one capability it rests on is not a per-capability deletion. Shared
-plumbing — a path several capabilities route through — is proven only when every capability routing
-through it is proven, because deleting it on one capability's fixture removes the others untested.
-
-Each deletion is recorded where the proof is checked rather than where it is remembered:
-`internal/episode_replay_coverage_test.go` carries a marker per deleted legacy path naming its
-capability, and fails if that capability is an acknowledged gap, if it is absent from the corpus, or
-if the deleted path reappears in the tree.
+No migration may remove a capability merely because its replacement module exists; its behavior must
+be covered by current tests and replay fixtures.
 
 ## 25. Migration plan
 

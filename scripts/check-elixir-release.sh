@@ -87,7 +87,6 @@ for asset in \
   deploy/nginx/responder.conf \
   deploy/systemd/responder.service \
   deploy/systemd/responder.env.example \
-  docs/elixir-cutover.md \
   docs/elixir-ingress-admission.md \
   docs/operations.md \
   docs/releasing.md; do

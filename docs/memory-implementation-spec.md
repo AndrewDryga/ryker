@@ -601,10 +601,9 @@ that never started could hide an older real failure's static correction. Both sa
 new-selection fallback now skip such manifests; a later accepted judgment still clears obsolete
 feedback. The two intended failures were reproduced, the success control remained valid, and all
 96 owning tests passed. The final `make dev-check` passed 2,796 Elixir tests with zero failures
-and 90.35% coverage, including this repair. The required `make check` also passed all three
-Go race shards and its vulnerability scan; its earlier Elixir phase passed 2,793 tests before
+and 90.35% coverage, including this repair. An earlier full-gate phase passed 2,793 tests before
 the final feedback repair. The final deterministic gate reran the same full Elixir checks on
-the repaired bytes. Go code and race scripts did not change between those runs.
+the repaired bytes.
 
 The other two review suggestions are preventive follow-ups: count future filter work on additional
 query-plan node types, and isolate a draft fixture that has no concurrent identity collision today.

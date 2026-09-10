@@ -16,7 +16,7 @@ defmodule Responder.Evals.AdmissionCase do
   alias Responder.Ingress.Input
   alias Responder.Slack.Input, as: SlackInput
 
-  @manifest_path "docs/elixir-episode-kernel-go-parity.json"
+  @manifest_path "testdata/eval/admission.json"
   @manifest_fields ~w(context_fixture reason)
 
   @enforce_keys [
@@ -45,11 +45,11 @@ defmodule Responder.Evals.AdmissionCase do
   @spec all(Path.t()) :: {:ok, [t()]} | {:error, term()}
   def all(manifest_path \\ @manifest_path) do
     with {:ok, manifest} <- decode_file(manifest_path),
-         evals when is_list(evals) <- manifest["stage2_pending_model_evals"],
+         evals when is_list(evals) <- manifest["cases"],
          {:ok, cases} <- compile_all(evals) do
       unique_cases(cases)
     else
-      nil -> {:error, {:invalid_admission_eval_manifest, :pending_model_evals}}
+      nil -> {:error, {:invalid_admission_eval_manifest, :cases}}
       {:error, _reason} = error -> error
       _invalid -> {:error, {:invalid_admission_eval_manifest, :document}}
     end
@@ -147,8 +147,7 @@ defmodule Responder.Evals.AdmissionCase do
 
     valid? =
       Enum.all?(@manifest_fields, &(&1 in keys)) and
-        (Enum.sort(keys) == Enum.sort(@manifest_fields ++ ~w(eval_id)) or
-           Enum.sort(keys) == Enum.sort(@manifest_fields ++ ~w(go_file go_test)))
+        Enum.sort(keys) == Enum.sort(@manifest_fields ++ ~w(eval_id))
 
     if valid?,
       do: :ok,
@@ -157,13 +156,6 @@ defmodule Responder.Evals.AdmissionCase do
 
   defp eval_id(%{"eval_id" => eval_id}) do
     with :ok <- nonblank(eval_id, :eval_id), do: {:ok, eval_id}
-  end
-
-  defp eval_id(%{"go_file" => go_file, "go_test" => go_test}) do
-    with :ok <- nonblank(go_file, :go_file),
-         :ok <- nonblank(go_test, :go_test) do
-      {:ok, "legacy:#{go_file}:#{go_test}"}
-    end
   end
 
   defp candidate(nil, _current_thread, _now, _fixture), do: {:ok, nil}

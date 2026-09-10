@@ -82,7 +82,7 @@ defmodule Responder.CoopFleet.CertificateAuthorityTest do
     assert {:ok, _details} =
              :public_key.pkix_path_validation(root.cert, [issued.certificate_der], [])
 
-    # The live Go connector rejected every issued identity with
+    # The legacy connector rejected every issued identity with
     # "x509: RSA key missing NULL parameters" after consuming its token.
     certificate = :public_key.pkix_decode_cert(issued.certificate_der, :otp)
     tbs_certificate = otp_certificate(certificate, :tbsCertificate)

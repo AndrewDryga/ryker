@@ -48,8 +48,7 @@ Important qualifications:
   Provider costs were not recorded; do not infer dollar totals from these reports.
 
 Final deterministic qualification passed 2,810 Elixir tests with 90.41% coverage and 106
-release-isolation tests. The required full gate's three Go race shards passed; its initial Elixir
-phase found two test-clock assumptions. A test-only repair preserved source times/content, and
+release-isolation tests. The initial full gate found two test-clock assumptions. A test-only repair preserved source times/content, and
 the final full Elixir phase passed. The original failed gate remains failed evidence. The exact
 committed release also passed archive, backup/restore, restart, and readiness qualification.
 Deployment and gate receipts: `/private/tmp/responder-activity-lock-deploy.XQ4UXU/STATUS.md`.
@@ -173,8 +172,7 @@ make eval-world CONFIG=/absolute/responder-elixir-eval.yaml
 Use dedicated evaluation policies, isolated databases, inert delivery, and the same recorded world
 for candidate and baseline. No production Slack/GitHub writes or infrastructure mutations are
 needed. The full schema/operation-list gate is required for a changed contract; the wording-only
-smoke exception is not sufficient here. Older Go memory/prompt commands are not substitutes for
-proving the new Elixir learner and search boundary.
+smoke exception is not sufficient here.
 
 The existing admission/final-result cases and tool-world scenarios do not by themselves exercise
 longitudinal background learning. The dedicated lane drives the actual durable dispatcher, current
@@ -414,9 +412,8 @@ These are still required, not implied by the positive observations above:
 - Qualify duplicate boilerplate as no durable change. The single retained acknowledgement proves
   the narrower chatter case, not every repeated alert or redundant update.
 - Independent reviews and deterministic gates are complete: the final `make dev-check` passed
-  2,796 Elixir tests with zero failures and 90.35% coverage. `make check` passed its three Go race
-  shards and vulnerability scan; its 2,793-test Elixir phase preceded the final retry-feedback
-  repair, which the final deterministic gate covers. No Go code or race scripts changed.
+  2,796 Elixir tests with zero failures and 90.35% coverage. An earlier 2,793-test phase preceded
+  the final retry-feedback repair, which the final deterministic gate covers.
   Exact release qualification, deployment/readiness, and active background-learning receipts
   remain required. Model observations are not evidence that new code is running in the application.
 

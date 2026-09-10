@@ -445,7 +445,7 @@
               <li><span><b>Corrections become fixtures.</b> A kept correction turns into a permanent regression test that replays with no model.</span></li>
               <li><span><b>Decisions and findings queues.</b> The work the machine owes a human, in one list, with the evidence attached.</span></li>
               <li><span><b>Model routing profiles.</b> Bring your own model through Coop, with an escalation ladder across providers.</span></li>
-              <li><span><b>One Go binary, one SQLite file.</b> No cluster, no broker, no second datastore.</span></li>
+              <li><span><b>One Elixir release, one PostgreSQL database.</b> No broker and no second datastore.</span></li>
               <li><span><b>Slack socket mode.</b> No inbound ports required. The service listens on loopback.</span></li>
               <li><span><b>Bounded webhooks.</b> Grafana and mapped JSON, size-capped, authenticated, deduplicated by delivery identity.</span></li>
               <li><span><b>Automatic repository mirrors.</b> Declared by slug, kept current in the background, and never modified.</span></li>
@@ -482,7 +482,7 @@
                entitled to see spelled out, so it is spelled out here. -->
           <div class="data-where">
             <h3>Where your data goes</h3>
-            <p>Your prompts go to one place: the model provider you configure, reached through Coop. There is no second model runtime and no direct provider client anywhere in the binary. Slack messages, evidence, episodes, and traces live in one SQLite file on your host.</p>
+            <p>Your prompts go to one place: the model provider you configure, reached through Coop. There is no second model runtime and no direct provider client in Responder. Slack messages, evidence, episodes, and traces live in PostgreSQL on your host.</p>
             <p class="data-more"><a href="docs/operations.html#state">Where the state lives <span class="arr" aria-hidden="true">→</span></a></p>
           </div>
         </div>
@@ -519,8 +519,8 @@
       <div class="install">
         <p class="code-label">install</p>
         <pre><code><span class="tok-x">git</span> <span class="tok-v">clone https://github.com/AndrewDryga/responder</span>
-<span class="tok-x">cd</span> <span class="tok-v">responder</span> <span class="tok-p">&amp;&amp;</span> <span class="tok-x">make</span> <span class="tok-v">install</span></code></pre>
-        <p class="install-note">One binary in <code>~/.local/bin</code>. A Unix host and Go are all it assumes.</p>
+<span class="tok-x">cd</span> <span class="tok-v">responder</span> <span class="tok-p">&amp;&amp;</span> <span class="tok-x">make</span> <span class="tok-v">elixir-install</span></code></pre>
+        <p class="install-note">One immutable release under <code>~/.local/libexec/responder</code>.</p>
         <p class="install-more"><a href="docs/getting-started.html#install">Run it yourself <span class="arr" aria-hidden="true">→</span></a></p>
       </div>
     </div>

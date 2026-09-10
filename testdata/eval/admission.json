@@ -1,0 +1,74 @@
+{
+  "cases": [
+    {
+      "context_fixture": "test/responder/admission/fixtures/resolved_card_continues_active_episode.json",
+      "eval_id": "resolved_card_continues_active_episode",
+      "reason": "The model must choose continuation instead of ignore or a new episode."
+    },
+    {
+      "context_fixture": "test/responder/admission/fixtures/resolved_card_continues_active_episode.json",
+      "eval_id": "recovered_stream_stays_open_for_its_window",
+      "reason": "The model must preserve recovery and hold-window semantics."
+    },
+    {
+      "context_fixture": "test/responder/admission/fixtures/new_cycle_links_history_only.json",
+      "eval_id": "refire_after_recovered_hold_starts_new_cycle",
+      "reason": "The model must choose new work with history after expiry."
+    },
+    {
+      "context_fixture": "test/responder/admission/fixtures/unknown_app_starts_episode.json",
+      "eval_id": "unknown_actionable_app_card_starts_episode",
+      "reason": "The model must investigate an unfamiliar actionable app card."
+    },
+    {
+      "context_fixture": "test/responder/admission/fixtures/new_cycle_links_history_only.json",
+      "eval_id": "new_lifecycle_keeps_history_without_borrowing_thread",
+      "reason": "The model must select history-only context for a new lifecycle."
+    },
+    {
+      "context_fixture": "test/responder/admission/fixtures/different_app_lifecycles_do_not_merge.json",
+      "eval_id": "different_external_lifecycles_do_not_merge",
+      "reason": "The model must distinguish similar but separate source lifecycles."
+    },
+    {
+      "context_fixture": "test/responder/admission/fixtures/resolved_card_continues_active_episode.json",
+      "eval_id": "alert_lifecycle_correlation",
+      "reason": "The model must recognize the provider alert lifecycle."
+    },
+    {
+      "context_fixture": "test/responder/admission/fixtures/terraform_lifecycle_continues_episode.json",
+      "eval_id": "terraform_run_lifecycle_correlation",
+      "reason": "The model must recognize the provider run lifecycle."
+    },
+    {
+      "context_fixture": "test/responder/admission/fixtures/resolved_card_continues_active_episode.json",
+      "eval_id": "operational_recovery_keeps_original_thread",
+      "reason": "The model must select the active episode so the host preserves its destination."
+    },
+    {
+      "context_fixture": "test/responder/admission/fixtures/resolved_card_continues_active_episode.json",
+      "eval_id": "resolved_update_continues_active_work",
+      "reason": "The model must continue rather than discard active work."
+    },
+    {
+      "context_fixture": "test/responder/admission/fixtures/new_cycle_links_history_only.json",
+      "eval_id": "terminal_operational_update_starts_linked_episode",
+      "reason": "The model must start linked new work after terminal history."
+    },
+    {
+      "context_fixture": "test/responder/admission/fixtures/human_thread_reply_reopens_episode.json",
+      "eval_id": "human_thread_reply_continues_existing_episode",
+      "reason": "An authorized reply must naturally resume the same conversation."
+    },
+    {
+      "context_fixture": "testdata/eval/admission/direct_question_uses_conversational_work.json",
+      "eval_id": "direct_question_selects_conversational_work",
+      "reason": "A short ordinary question should use the conversational tier rather than spending a full investigation turn."
+    },
+    {
+      "context_fixture": "testdata/eval/admission/broad_health_assessment_uses_deep_work.json",
+      "eval_id": "broad_health_assessment_selects_deep_work",
+      "reason": "A consequential multi-source assessment should explicitly select deep reasoning rather than under-routing it."
+    }
+  ]
+}

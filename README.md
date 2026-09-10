@@ -9,9 +9,6 @@ is platform-neutral: Slack, GitHub comments and pull-request reviews, and authen
 adapters over the same ingress, episode, Work, and Delivery contracts. It can answer, investigate,
 change code, and prepare reviewed work without turning every request into an incident.
 
-The checked [Go-to-Elixir capability contract](docs/elixir-go-capability-contract.md) is the source of
-truth for what is implemented, what remains partial, and which task owns each remaining P0/P1 gap.
-An implementation row is code-and-test evidence, not a claim that the commit is deployed or live-proved.
 
 It runs on one trusted host and:
 
@@ -51,10 +48,7 @@ operator must authorize Responder to reproduce the exact approved tree, push a l
 Responder branch, and create or update a draft GitHub pull request. Emisar owns infrastructure
 policy, approval, execution, and audit.
 
-See [How Responder works](docs/how-responder-works.md) for end-to-end diagrams covering Slack
-message routing, Coop turns, memory, evidence, standing rules, incidents, approvals, retries, and
-garbage collection.
-The replacement adapter and delivery boundary is documented in
+The adapter and delivery boundary is documented in
 [Elixir platform adapters and delivery](docs/elixir-platform-adapters.md).
 
 For memory-system design work, consult the
@@ -138,207 +132,9 @@ GitHub comments/PR reviews/emoji, universal-webhook, model-behavior, and
 restart/restore qualification journeys.
 
 The unit runs PostgreSQL migrations before opening listeners. See
-[`docs/elixir-cutover.md`](docs/elixir-cutover.md) for the one-time Go/SQLite transition,
 [`docs/elixir-platform-adapters.md`](docs/elixir-platform-adapters.md) for Slack/GitHub/webhook
 bindings, and [`docs/operations.md`](docs/operations.md) for backup, restart, rollback, and live
 acceptance.
-
-## Legacy Go runtime archive
-
-The material below documents the frozen Go runtime retained for bounded rollback and historical
-fixtures. It is not the production quick start for the replacement service.
-
-Requirements:
-
-- Go 1.26.5 or a released Responder binary;
-- Coop with the local session API (`coop sessions serve`);
-- a Slack workspace app created from [`deploy/slack-app-manifest.yaml`](deploy/slack-app-manifest.yaml)
-  and configured using the [Slack app guide](docs/slack-app.md);
-- an observe-scoped Emisar API key in `EMISAR_API_KEY`;
-- a TLS reverse proxy for public webhook delivery.
-
-After creating the Slack app, upload [`deploy/slack-app-icon.png`](deploy/slack-app-icon.png),
-create an app-level token with `connections:write`, and use that `xapp-` value as
-`SLACK_APP_TOKEN`. The manifest enables Socket Mode and contains the complete supported event,
-scope, interactivity, and presentation configuration.
-
-Install the current source build for your user:
-
-```bash
-make install
-```
-
-This writes `~/.local/bin/responder`; override `INSTALL_DIR` when needed. For a system installation
-from source:
-
-```bash
-make build
-sudo install -m 0755 bin/responder /usr/local/bin/responder
-```
-
-Or install the binary at the root of an unpacked release archive:
-
-```bash
-sudo install -m 0755 ./responder /usr/local/bin/responder
-```
-
-Release archives have a signed checksum manifest and GitHub build provenance. Verify them before
-installation using the commands in [`docs/operations.md`](docs/operations.md#release-verification).
-
-Then create the service account and configuration:
-
-```bash
-getent passwd responder >/dev/null || \
-  sudo useradd --system --home-dir /var/lib/responder --shell /usr/sbin/nologin responder
-sudo install -d -o root -g responder -m 0750 /etc/responder
-sudo install -d -o responder -g responder -m 0700 /var/lib/responder
-sudo install -o root -g responder -m 0640 \
-  config/responder.example.yaml /etc/responder/responder.yaml
-sudo install -o root -g responder -m 0640 \
-  deploy/coop/session-policies.example.yaml /etc/responder/session-policies.yaml
-sudo install -o root -g responder -m 0640 \
-  deploy/systemd/responder.env.example /etc/responder/responder.env
-```
-
-The account-creation command keeps an existing `responder` user. Edit the Slack IDs, repository
-path, Coop policy, webhook route, and `/etc/responder/responder.env`. For a manual foreground trial,
-export the same variables:
-
-```bash
-export SLACK_BOT_TOKEN='xoxb-...'
-export SLACK_APP_TOKEN='xapp-...'
-export EMISAR_API_KEY='...'
-export GRAFANA_WEBHOOK_TOKEN='...'
-export GENERIC_WEBHOOK_SECRET='...'
-```
-
-Every configured secret must contain at least 16 bytes. Use independently generated random values
-for webhook authentication.
-
-Create Coop's private MCP projection:
-
-```bash
-sudo -u responder env EMISAR_API_KEY="$EMISAR_API_KEY" \
-  responder bootstrap-coop --config /etc/responder/responder.yaml
-```
-
-To expose additional MCP servers to every Responder turn, set `coop.additional_mcp_file` to an
-owner-private `0600` file using the standard `{"mcpServers": {...}}` shape. Put any MCP-only
-`NAME=value` credentials in a separate `coop.additional_env_file`, also owner-private. Responder
-merges those sources into Coop's private projection, reserves the `emisar` server name, and refuses
-to project configured Slack or webhook secrets. Stop Coop and rerun `bootstrap-coop` after either
-source changes.
-
-Authenticate the agent account into that same dedicated Coop configuration:
-
-```bash
-sudo -u responder env COOP_CONFIG_DIR=/var/lib/responder/coop/agents \
-  coop login codex@oncall
-```
-
-A policy's `target` may instead be an ordered fallback ladder of up to four targets, which may
-cross providers:
-
-```yaml
-    target: [codex:gpt-5.6/medium@oncall, claude@oncall]
-```
-
-Coop moves a rate-limited session to the next rung and re-delivers the same turn, so a usage limit
-mid-incident costs a retry rather than the investigation. Sign in every rung — `responder doctor`
-checks all of them, not just the one sessions start on.
-
-Declare each repository by slug and Responder owns the checkout:
-
-```yaml
-repositories:
-  infrastructure:
-    coop_policy: infrastructure-observe
-    github: example/infrastructure
-```
-
-`responder bootstrap-coop` clones it into `<state_dir>/repos/example/infrastructure`, the
-maintenance lane keeps it current with `git fetch` plus a fast-forward on the default branch
-(`limits.repository_fetch_interval`, 15m by default), and a turn whose clone has lapsed pays for a
-bounded fetch before its session forks. Responder never modifies the work tree. Every attempt's
-context manifest records the revision and the time it was last fetched, so "how old was the code
-the model read" has an answer; a fetch that fails degrades to recorded staleness rather than
-blocking a turn, and shows up in `responder doctor` and on `/metrics` as
-`responder_repository_fetch_failures`.
-
-The GitHub credential stays host-side. It reaches `git` as a per-invocation HTTP header and never a
-file, an argument, a Coop policy, or anything projected into an agent box — the same hermetic path
-draft-PR publication uses. The agent box still reads code with no GitHub credential inside it.
-
-An operator-maintained checkout still works and is what a repository outside GitHub should use.
-Exactly one of `path:` and `github:` is required per repository, because both answer "which
-directory is this" and a session policy can name only one:
-
-```bash
-sudo install -d -o responder -g responder -m 0700 /srv/repos
-sudo -u responder git clone <infrastructure-repository-url> /srv/repos/infrastructure
-sudo -u responder git clone <backend-repository-url> /srv/repos/backend
-```
-
-Nothing fetches those, which is the reason for slugs.
-
-For a one-command foreground trial, set `coop.supervise: true` in Responder's configuration. Both
-`doctor` and `serve` then launch Coop with the configured binary, state, policies, socket, and
-private agent configuration. `doctor` stops its temporary child after preflight; `serve` restarts
-Coop after unexpected exits and stops it when Responder shuts down. Before accepting Slack work,
-managed startup verifies the real Coop box image and builds it when missing. `responder doctor`
-fails with the exact `coop build` remediation when the execution image is unavailable:
-
-```bash
-sudo -u responder -g docker env \
-  SLACK_BOT_TOKEN="$SLACK_BOT_TOKEN" \
-  SLACK_APP_TOKEN="$SLACK_APP_TOKEN" \
-  EMISAR_API_KEY="$EMISAR_API_KEY" \
-  GRAFANA_WEBHOOK_TOKEN="$GRAFANA_WEBHOOK_TOKEN" \
-  GENERIC_WEBHOOK_SECRET="$GENERIC_WEBHOOK_SECRET" \
-  responder serve --config /etc/responder/responder.yaml
-```
-
-Responder refuses managed mode when another process owns the configured Coop socket. It also
-removes the configured Slack, webhook, and Emisar variables from the child process environment;
-Coop receives Emisar access through the private files written by `bootstrap-coop`, which project
-`EMISAR_CLIENT=responder` into every incident box for client attribution.
-
-With `coop.supervise: false`, start `coop sessions serve` separately or use the shipped split
-systemd units. Then verify local state, Coop, Slack, and the authenticated Emisar MCP tool catalog:
-
-```bash
-sudo -u responder env \
-  SLACK_BOT_TOKEN="$SLACK_BOT_TOKEN" \
-  SLACK_APP_TOKEN="$SLACK_APP_TOKEN" \
-  EMISAR_API_KEY="$EMISAR_API_KEY" \
-  GRAFANA_WEBHOOK_TOKEN="$GRAFANA_WEBHOOK_TOKEN" \
-  GENERIC_WEBHOOK_SECRET="$GENERIC_WEBHOOK_SECRET" \
-  responder doctor --config /etc/responder/responder.yaml
-```
-
-For a supervised installation, install the units from `deploy/systemd/`, then enable
-`responder.service`; it starts Coop first:
-
-```bash
-sudo install -o root -g root -m 0644 \
-  deploy/systemd/coop-responder.service /etc/systemd/system/coop-responder.service
-sudo install -o root -g root -m 0644 \
-  deploy/systemd/responder.service /etc/systemd/system/responder.service
-sudo systemctl daemon-reload
-sudo systemctl enable --now responder.service
-sudo systemctl status coop-responder.service responder.service
-curl -f http://127.0.0.1:8080/readyz
-```
-
-Both systemd processes use the same restricted Unix account because Coop's v1 socket is owner-only.
-Only the Coop unit receives the `docker` supplementary group; the Responder process does not.
-
-`doctor` and `serve` initialize Emisar MCP with the configured token and require the operational
-tools Responder depends on. This validates authentication and the tool catalog without executing an
-infrastructure action. Every Coop turn also receives a mandatory claim-based evidence policy:
-repository files establish declared topology and implementation, Emisar is preferred for live
-infrastructure checks, and other available MCP servers or tools are used when they own relevant
-evidence. A missing local cloud CLI is never treated as evidence that Emisar is unavailable.
 
 ## Webhooks
 
@@ -635,10 +431,9 @@ Infrastructure access remains constrained by the selected Coop and Emisar polici
 and external Slack Connect identities are denied. See
 [`docs/slack-ux.md`](docs/slack-ux.md) for the complete interaction contract.
 
-## Current Elixir operations
+## Operations
 
-The frozen Go runtime archive above ends here. The commands below operate the current
-Elixir/PostgreSQL service.
+These commands operate the current Elixir/PostgreSQL service.
 
 ```bash
 MIX_ENV=prod mix responder.doctor --config /etc/responder/responder-elixir.yaml
@@ -715,56 +510,26 @@ for target validation, policy, approval, execution, and audit; Slack only links 
 approval returned by Emisar. Responder monitors and reports that exact run but cannot approve it,
 substitute another run, or repeat the mutation during terminal verification.
 
-Use the smallest mechanical check while editing. With no arguments it formats changed Go files,
-runs their owning package tests, and checks changed shell scripts:
+Run the owning Elixir test while editing:
 
 ```bash
-make focus
-make focus FOCUS_PACKAGE=./internal/service FOCUS_TEST='^TestName$'
+scripts/elixir-test.sh test/responder/work/executor_test.exs
 ```
 
-Use the parallel fast deterministic gate for a completed edit batch:
+Run the deterministic repository gates before committing and shipping:
 
 ```bash
 make dev-check
+make check
 ```
 
-After committing, build and inspect the immutable Elixir release, restart it against one disposable
-PostgreSQL database, and boot it from a verified backup restore:
+Use `make customer-check` for the Elixir product journeys and deterministic host replay.
+Use `make model-release-check CONFIG=/absolute/responder-elixir-eval.yaml` only when the
+model contract changes. Build and qualify the immutable Elixir release with:
 
 ```bash
-make elixir-release-check
-make elixir-candidate-check
+make release-check
 ```
 
-Production activation is one ordinary writer replacement: install the authenticated version,
-stop the previous service, start `responder.service`, and require readiness plus the bounded live
-acceptance matrix. PostgreSQL leases and immutable release directories provide restart and rollback;
-there is no separate canary/promote state.
-
-`make check` remains the uncached full CI and release gate. CI runs it independently on a clean
-runner; a local candidate cache can never satisfy CI.
-
-`make customer-check` is the faster deterministic product-behavior gate: it runs the Go customer
-journeys and replays the checked-in redacted JSONL response corpus through strict production
-parsers. It does not call a model. `make eval CONFIG=/path/to/responder.yaml` is the actual
-behavior eval: every case calls the configured model through its own Coop session, uses the
-production prompts and tool configuration, scores the returned decision, then discards the
-workspace only after Coop proves it is clean. Use shadow mode to collect candidate decisions
-safely, review and redact them, then promote representative contracts into the replay or live
-corpus before changing prompts or models. Use `--case`, `--repeat`, and `--results` for focused
-variance testing and private sanitized diagnostics. `make model-release-check` additionally
-calibrates the qualitative judge, evaluates the rendered Slack experience, measures proactive
-precision and recall, runs multi-turn cross-channel and old-thread scenarios, and independently
-re-checks high-risk operational claims, and replays the corrections an operator kept.
-`make eval-productivity` adds an observable commit-and-review outcome when a disposable writable
-Coop policy is available. Every model evaluation records its result, and `make eval-trend` prints
-the pass rate and mean judge score over time so a release can say whether answers are improving
-rather than only that the gate passed. See [`docs/testing.md`](docs/testing.md) for the coverage
-matrix and bounded live acceptance set.
-
-`make snapshot` builds the compatibility Go archives. `make release-check` runs the full gate,
-builds and boots the canonical Elixir release, adds it to the same signed checksum set as the two
-compatibility archives, checks every required operator asset, and smoke-tests executable artifacts.
-See
+See [`docs/testing.md`](docs/testing.md) for test boundaries and
 [`docs/releasing.md`](docs/releasing.md) for the tag and publication contract.

@@ -40,9 +40,8 @@ Both have failing-before regression tests. The screenshot harness is documented
 in [control-plane-visual-testing.md](control-plane-visual-testing.md).
 
 The timeline follow-up fixes the inherited message margins that displaced the
-rail and restores source-labelled retained instructions/context. See
-[timeline-parity.md](timeline-parity.md) for the source-grounded remaining gaps;
-this increment does not mark the broader typed timeline item complete.
+rail and restores source-labelled retained instructions/context. This increment
+does not mark the broader typed timeline item complete.
 
 ## Ordered implementation
 

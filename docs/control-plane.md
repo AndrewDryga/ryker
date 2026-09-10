@@ -193,41 +193,6 @@ recorded reports and are not presented as live-traffic quality scores.
 There are no standalone Decisions or Calibration pages. The current Elixir
 control plane does not provide fixture-candidate keep/discard controls.
 
-### 4a. Findings — "what is wrong with Responder itself?"
-
-Routing inspection is about whether Responder judged a situation correctly. This is about
-whether Responder is broken, which is a different question with a different
-source: `scripts/quality-watch.sh` reads every terminal work episode out of
-process, asks an assessor whether it reveals a concrete product defect, and then
-asks a second reviewer to disprove it.
-
-- One row per proposed defect, newest first, paged
-- Both verdicts, because a rejection is the adversarial reviewer visibly working
-  — it overturned 23 of the first 83 proposals — and a page that shows only
-  survivors cannot tell you whether the skeptic exists
-- What was wrong, what should have happened, the file-and-symbol evidence, the
-  regression test the assessor would write, and the episodes it came from, each
-  linking to its own page
-- The path to the full prompts and transcripts, which expire on the same horizon
-  the row does, so the pointer never outlives what it points at
-
-The watcher used to keep none of this. A confirmed defect's only durable trace
-was a quarantined Git worktree nobody opens and a line in a rotating log, and
-its attempt to fix the defect itself landed nothing in 59 tries: 48 patches
-failed the full gate against 81 distinct broken tests, 10 of the 11 that
-survived were rejected by the final reviewer, and the one that passed everything
-failed to install. So the fix attempt became opt-in
-(`RESPONDER_QUALITY_FIX=on`), the finding became the product, and this is where
-it lands. When an operator does turn the fixer on, what became of the attempt is
-written back onto the row rather than left in a directory.
-
-Findings and the transcripts behind them expire together after
-`RESPONDER_QUALITY_RETENTION_DAYS` (default 30), and the sweep names every
-artifact it drops.
-
-**Source:** `quality_findings`, written by the watcher over sqlite3 rather than
-through the service, because it runs out of process and only ever reports.
-
 ### 5. Audit — "who did what, and what came of it?"
 
 The only place an approval, a saved channel configuration, a remembered
@@ -429,7 +394,7 @@ full.
 ## What the Elixir replacement currently wires
 
 Only backed projections appear in navigation. This table describes the current
-replacement, not the older Go dashboard or the intended final design above.
+replacement, not the older dashboard or the intended final design above.
 
 | Page | Wired |
 |---|---|

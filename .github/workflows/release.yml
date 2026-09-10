@@ -25,10 +25,6 @@ jobs:
         with:
           version-file: .tool-versions
           version-type: strict
-      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
-        with:
-          go-version-file: go.mod
-          cache: false
       - name: full gate
         run: make check
 
@@ -51,10 +47,6 @@ jobs:
         with:
           version-file: .tool-versions
           version-type: strict
-      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
-        with:
-          go-version-file: go.mod
-          cache: false
       - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
         with:
           cosign-release: v3.1.1
@@ -96,26 +88,21 @@ jobs:
           set -eu
           make elixir-release-check
           version=${GITHUB_REF_NAME#v}
-          install -d -m 0755 dist-input
+          install -d -m 0755 dist
           install -m 0644 \
             "_build/prod/responder-${version}.tar.gz" \
-            dist-input/responder-elixir.tar.gz
-      - uses: goreleaser/goreleaser-action@5daf1e915a5f0af01ddbcd89a43b8061ff4f1a89 # v7
-        with:
-          version: v2.16.0
-          args: release --clean --draft --release-notes /tmp/release-notes.md
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      - name: stage canonical Elixir archive for verification and attestation
-        run: |
-          set -eu
-          version=${GITHUB_REF_NAME#v}
-          install -m 0644 \
-            dist-input/responder-elixir.tar.gz \
             "dist/responder_${version}_elixir_linux_amd64.tar.gz"
           install -m 0755 scripts/install-elixir-release.sh dist/install-elixir-release.sh
           install -m 0755 scripts/check-elixir-release.sh dist/check-elixir-release.sh
           install -m 0755 scripts/activate-elixir-release.sh dist/activate-elixir-release.sh
+          (cd dist && sha256sum \
+            responder_*_elixir_linux_amd64.tar.gz \
+            install-elixir-release.sh \
+            check-elixir-release.sh \
+            activate-elixir-release.sh > checksums.txt)
+          cosign sign-blob dist/checksums.txt \
+            --bundle=dist/checksums.txt.bundle \
+            --yes
       - name: smoke release archives
         run: scripts/check-release.sh dist "$GITHUB_REF_NAME"
       - uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
@@ -124,4 +111,15 @@ jobs:
       - name: publish verified draft
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release edit "$GITHUB_REF_NAME" --draft=false
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --draft \
+            --title "$GITHUB_REF_NAME" \
+            --notes-file /tmp/release-notes.md \
+            dist/responder_*_elixir_linux_amd64.tar.gz \
+            dist/install-elixir-release.sh \
+            dist/check-elixir-release.sh \
+            dist/activate-elixir-release.sh \
+            dist/checksums.txt \
+            dist/checksums.txt.bundle
+          gh release edit "$GITHUB_REF_NAME" --draft=false

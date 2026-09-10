@@ -107,7 +107,7 @@
 
     <h2 id="shape">The shape of it</h2>
 
-    <p>Responder runs as one Go binary on one host you control. It connects to Slack over socket mode, so it needs no inbound port. It reads your repositories to learn what your systems are <em>supposed</em> to look like. It checks that against live evidence through Emisar, the infrastructure authority. Then it says what it found.</p>
+    <p>Responder runs as one Elixir release backed by PostgreSQL on a host you control. It connects to Slack over socket mode, so it needs no inbound port. It reads your repositories to learn what your systems are <em>supposed</em> to look like. It checks that against live evidence through Emisar, the infrastructure authority. Then it says what it found.</p>
 
     <p>It talks to a model through <a href="https://github.com/AndrewDryga/coop">Coop</a>, which owns the isolated session and the fork the model works in. You bring your own model and your own account. Responder has no second model runtime and no direct provider client.</p>
 

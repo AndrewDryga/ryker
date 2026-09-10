@@ -85,7 +85,7 @@
       <summary>On this page</summary>
       <ul>
         <li><a href="#restarts">Deploys and restarts</a></li>
-        <li><a href="#state">State is one file — back it up</a></li>
+        <li><a href="#state">PostgreSQL state and backups</a></li>
         <li><a href="#retention">Retention</a></li>
         <li><a href="#webhooks">Webhooks and dedup</a></li>
         <li><a href="#mirrors">Repository mirrors</a></li>
@@ -114,19 +114,15 @@
 
     <p>With the split systemd units, <code>responder.service</code> requires the Coop unit and starts it first. Only the Coop unit holds the <code>docker</code> group; the Responder process never does. The unit runs <code>doctor</code> as a pre-start check, so a broken configuration fails to start rather than starting and failing quietly.</p>
 
-    <p>For self-deployment there is a three-step chain: build and prove the exact commit, roll one deployment as a canary, then promote the rest — and the promotion only proceeds after confirming the canary is still running the binary it was given. A proof is content-bound; it can never be reused for a different commit or a different binary.</p>
+    <p><code>scripts/deploy.sh</code> builds and qualifies the exact immutable release, installs it, performs one normal service restart, and waits for health and readiness. A proof is content-bound; it can never be reused for a different commit or a different archive.</p>
 
     <p>Release archives are verified <em>cosign first</em>: authenticate the checksum manifest against its signature bundle, then check the sums, then verify build provenance. Comparing checksums against an unauthenticated manifest proves nothing at all.</p>
 
-    <h2 id="state">State is one file — back it up</h2>
+    <h2 id="state">State lives in PostgreSQL</h2>
 
-    <p>Everything durable lives in one owner-private SQLite database in your state directory: Slack inputs, webhook events, deliveries, agent runs, episodes and their event streams, evidence, coverage, memory, approvals, timelines, evaluation decisions, audit records, and the scheduler’s work index.</p>
+    <p>PostgreSQL owns durable inputs, deliveries, episodes, evidence, memory, approvals, schedules, and worker state. Use <code>pg_dump</code> for backups and restore into a fresh database before treating a backup as usable.</p>
 
-    <p>It runs in WAL mode with full synchronous writes, foreign keys on, and exactly one writer connection. One process owns a state directory at a time, enforced by a lock file.</p>
-
-    <p>Before any schema upgrade, Responder writes a verified snapshot into <code>backups/</code>, checks it, and confirms it still carries the <em>source</em> schema version — aborting before migrating if any step fails. It keeps the three newest of its own snapshots. The cleanup glob is deliberately narrow, so a snapshot you took by hand is never collected by it. That also means hand-taken copies are yours to prune.</p>
-
-    <p>For a point-in-time backup: stop Responder, copy the database to a directory Responder does not own — explicitly not <code>backups/</code> — and restart. Coop’s state and its forks are separate. Never restore one side without the other, and run <code>doctor</code>, <code>status</code>, and <code>failures</code> after any recovery.</p>
+    <p>Application restarts reclaim expired leases and resume pending custody from the database. Never run two service instances against the same Slack, GitHub, webhook, or delivery identities.</p>
 
     <h2 id="retention">Retention</h2>
 
@@ -198,7 +194,7 @@
     <p>So there are two kinds of check, and knowing which one you need is the diagnosis:</p>
 
     <dl>
-      <div><dt>The host mishandled a valid answer</dt><dd>An ordinary Go test beside the code, plus a recorded fixture. Deterministic, offline, no credentials, about a second. This runs on every commit.</dd></div>
+      <div><dt>The host mishandled a valid answer</dt><dd>An ordinary ExUnit test beside the owning module, plus a recorded fixture. Deterministic, offline, and credential-free. This runs on every commit.</dd></div>
       <div><dt>The model produced an unusable answer</dt><dd>A prompt problem, and no amount of host testing fixes it. That needs the real-model evaluation, and it is run when prompts, contracts, or operation schemas change.</dd></div>
     </dl>
 
@@ -267,7 +263,7 @@
       <div><dt>Worker lanes</dt><dd>Control, background, and maintenance, sized separately. Slack controls stay on the control lane while long turns stay on background, so an approval or a stop is never blocked behind an investigation.</dd></div>
     </dl>
 
-    <p>Secrets are read at startup and rotated by restart. The Emisar key needs a little more care: park the work, stop Coop and Responder, update the environment, rerun <code>bootstrap-coop</code>, restart. <code>bootstrap-coop</code> refuses to rewrite configuration while the Coop socket is still accepting connections, and it never prints the key.</p>
+    <p>Secrets are read at startup and rotated by restart. Park active work, update the owner-only environment, restart the affected service, and verify readiness before resuming work.</p>
 
     <nav class="doc-next" aria-label="Page navigation">
       <a href="control-plane.html"><span class="k">Previous</span><span class="t">← The control plane</span></a>
@@ -279,7 +275,7 @@
     <p class="lbl">On this page</p>
     <ul>
       <li><a href="#restarts">Deploys and restarts</a></li>
-      <li><a href="#state">State is one file — back it up</a></li>
+      <li><a href="#state">PostgreSQL state and backups</a></li>
       <li><a href="#retention">Retention</a></li>
       <li><a href="#webhooks">Webhooks and dedup</a></li>
       <li><a href="#mirrors">Repository mirrors</a></li>

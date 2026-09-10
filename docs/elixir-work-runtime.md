@@ -241,7 +241,7 @@ search unrelated channels, and a derived summary is never presented as the origi
 An expired source cannot be reconstructed from a summary. Memory supports historical attribution;
 current health, successful deployment, and operational authorization still need their owning evidence.
 
-The implementation decisions and cutover scope are recorded in the
+The implementation decisions and scope are recorded in the
 [memory implementation specification](memory-implementation-spec.md). The schema snapshots and
 model-evaluation obligations are documented in [memory evaluation](memory-evaluation.md).
 
@@ -289,8 +289,7 @@ network service. It covers:
 - a supervised optional worker pool reaching a validated delivery intent; and
 - generic Slack/GitHub delivery settling only after an exact typed receipt.
 
-The expanded parity manifest assigns 230 retained Go tests to replacement owners. Stage 3 claims only
-the cases its tests already prove. Typed state-tool carry and privileged GitHub completion guards are
+The Work-runtime suite claims only the cases its tests already prove. Typed state-tool carry and privileged GitHub completion guards are
 owned by their dedicated modules. Generic transport rendering and external response-loss
 reconciliation are described in
 [platform adapters and delivery](elixir-platform-adapters.md).

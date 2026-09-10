@@ -1,6 +1,4 @@
-# This file configures the Elixir product runtime. It is intentionally
-# separate from responder.example.yaml, which remains the strict Go service
-# configuration until cutover.
+# This file configures the Elixir product runtime.
 version: 1
 mode: product
 host_ref: responder-a

@@ -92,7 +92,7 @@ measurements are not rewritten.
 Focused regression tests were observed red before their fixes, then green for
 pricing, attribution, naming, URL escaping, failure presentation, card controls,
 and refreshed disclosure state. The final fast repository gate passes: 1,864 Elixir
-tests, 80 script-unit tests, static analysis and offline legacy checks.
+tests, 80 script-unit tests, static analysis and offline checks.
 
 Playwright captured 132 card states and all populated console routes at desktop
 and mobile widths: 316 viewport checks with no layout or browser errors. A later
@@ -131,11 +131,9 @@ explain their meaning; sparse multi-year charts are capped at 366 displayed days
 The one-time full gate did not finish green. Its parallel Elixir leg hit four
 database/local-request timeouts; all four passed isolated with unchanged timeouts,
 and the complete Elixir suite subsequently passed in the final serial dev gate.
-The legacy Go race gate passed the other-packages and first service shards, but
-the second service shard exceeded its 20-minute aggregate budget (its current test
-had run only four seconds). No race report was emitted. This is an incomplete
-legacy qualification, not a passing full gate; it was not repeatedly rerun for
-these Elixir-only changes. Local Elixir release proof is recorded separately.
+One full-gate shard exceeded its 20-minute aggregate budget even though its
+current test had run only four seconds. The incomplete qualification was not
+treated as a passing full gate. Local release proof is recorded separately.
 
 OrbStack and the existing database were restored with operator approval; no data
 was deleted. The earlier Responder shutdown followed database-pool failures and

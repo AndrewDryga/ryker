@@ -469,6 +469,3 @@ curl --fail http://127.0.0.1:4321/readyz
 ```
 
 Never roll a binary behind migrations or persisted contracts it cannot read.
-For the one-time replacement window, use `docs/elixir-cutover.md`; it defines
-the separate frozen-source rollback evidence and the exact point after which
-restoring old runtime state is unsafe.
