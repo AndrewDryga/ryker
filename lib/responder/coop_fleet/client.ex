@@ -200,7 +200,13 @@ defmodule Responder.CoopFleet.Client do
   @impl true
   def get_session(client, coop_session_id) do
     with {:ok, session} <- session_by_coop_id(coop_session_id) do
-      execute_read(client, session, "get_session", %{"coop_session_id" => coop_session_id})
+      case durable_prebinding_session(session, coop_session_id) do
+        {:ok, remote_session} ->
+          {:ok, remote_session}
+
+        :not_found ->
+          execute_read(client, session, "get_session", %{"coop_session_id" => coop_session_id})
+      end
     end
   end
 
@@ -894,15 +900,32 @@ defmodule Responder.CoopFleet.Client do
 
   defp durable_workspace_bound?(
          %Command{session_id: session_id, placement_generation: placement_generation},
-         %Session{workspace_task: %{"offer_ref" => offer_ref} = workspace_task},
+         %Session{id: session_id} = session,
          coop_session_id
+       ),
+       do:
+         match?(
+           {:ok, _remote_session},
+           durable_ensured_session(session, coop_session_id, placement_generation)
+         )
+
+  defp durable_workspace_bound?(_command, _session, _coop_session_id), do: false
+
+  defp durable_prebinding_session(%Session{coop_session_id: nil} = session, coop_session_id),
+    do: durable_ensured_session(session, coop_session_id, nil)
+
+  defp durable_prebinding_session(_session, _coop_session_id), do: :not_found
+
+  defp durable_ensured_session(
+         %Session{id: session_id, workspace_task: %{"offer_ref" => offer_ref} = workspace_task},
+         coop_session_id,
+         placement_generation
        ) do
-    Repo.all(
+    query =
       from(command in Command,
         where:
-          command.session_id == ^session_id and
-            command.placement_generation == ^placement_generation and
-            command.kind == "ensure_workspace" and command.status == :succeeded and
+          command.session_id == ^session_id and command.kind == "ensure_workspace" and
+            command.status == :succeeded and
             fragment(
               "(?::jsonb ->> 'coop_session_id') = ?",
               command.payload,
@@ -911,25 +934,38 @@ defmodule Responder.CoopFleet.Client do
         order_by: [desc: command.completed_at, desc: command.id],
         limit: 10
       )
-    )
-    |> Enum.any?(fn
+
+    query =
+      if is_integer(placement_generation) do
+        from(command in query,
+          where: command.placement_generation == ^placement_generation
+        )
+      else
+        query
+      end
+
+    query
+    |> Repo.all()
+    |> Enum.find_value(:not_found, fn
       %Command{
         payload: %{"task" => ^workspace_task},
         result: %{
-          "session" => %{
-            "id" => ^coop_session_id,
-            "workspace_task" => %{"offer_ref" => ^offer_ref}
-          }
+          "session" =>
+            %{
+              "id" => ^coop_session_id,
+              "workspace_task" => %{"offer_ref" => ^offer_ref}
+            } = remote_session
         }
       } ->
-        true
+        {:ok, remote_session}
 
       _other ->
         false
     end)
   end
 
-  defp durable_workspace_bound?(_command, _session, _coop_session_id), do: false
+  defp durable_ensured_session(_session, _coop_session_id, _placement_generation),
+    do: :not_found
 
   defp current_command_placement(command) do
     placement = Repo.one(from(value in Placement, where: value.id == ^command.placement_id))
