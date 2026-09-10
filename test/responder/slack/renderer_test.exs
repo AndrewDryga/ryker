@@ -1072,8 +1072,9 @@ defmodule Responder.Slack.RendererTest do
     assert {:ok, rendered} =
              Renderer.render(%{"message" => "Current investigation state.", "records" => records})
 
-    assert length(rendered["blocks"]) == 2
-    assert inspect(rendered) =~ "production &amp; probe (source link unavailable)"
+    assert length(rendered["blocks"]) == 1
+    refute inspect(rendered) =~ "Sources"
+    refute inspect(rendered) =~ "source link unavailable"
     refute inspect(rendered) =~ "action_id"
     assert rendered["text"] == "Current investigation state."
   end

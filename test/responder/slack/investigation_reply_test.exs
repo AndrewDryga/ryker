@@ -7,6 +7,8 @@ defmodule Responder.Slack.InvestigationReplyTest do
 
   test "the recorded Terraform review keeps audit records out of the Slack reply" do
     # Seven evidence dumps, a repeated finding and private wait instructions buried the review.
+    # Linkless source footers later buried it again with labels the reader could
+    # not open. Evidence stays in the audit; only useful source links belong here.
     fixture = @fixture |> File.read!() |> Jason.decode!()
 
     assert {:ok, rendered} =
@@ -20,6 +22,7 @@ defmodule Responder.Slack.InvestigationReplyTest do
     refute inspect(rendered["blocks"]) =~ "Finding ·"
     refute inspect(rendered["blocks"]) =~ "Read tfc.run_details"
     refute inspect(rendered["blocks"]) =~ "Waiting until:"
+    refute inspect(rendered["blocks"]) =~ "source link unavailable"
   end
 
   test "recorded sources become named links without repeating observations or findings" do
@@ -88,8 +91,41 @@ defmodule Responder.Slack.InvestigationReplyTest do
     assert {:ok, rendered} =
              Renderer.render(%{"message" => "Partial review.", "records" => [projected]})
 
-    assert inspect(rendered) =~ "Saved Terraform plan (source link unavailable)"
+    refute inspect(rendered) =~ "Sources"
+    refute inspect(rendered) =~ "source link unavailable"
     refute inspect(rendered) =~ "01a085b2-310a-7f88-8b05-138e306c7555"
+  end
+
+  test "a mixed source footer keeps real links and omits linkless audit labels" do
+    fixture = @fixture |> File.read!() |> Jason.decode!()
+    records = ReplyRecords.enrich(fixture["records"], fixture["receipts"])
+    [first | _] = records
+    original_payload = first["payload"]
+    linkless = Map.delete(first, "presentation")
+
+    assert {:ok, rendered} =
+             Renderer.render(%{
+               "message" => "Review complete.",
+               "records" => [linkless | tl(records)]
+             })
+
+    blocks = inspect(rendered["blocks"])
+    assert blocks =~ "Sources"
+    assert blocks =~ "|Latest database backup>"
+    refute blocks =~ "Saved Terraform plan"
+    refute blocks =~ "source link unavailable"
+    assert linkless["payload"] == original_payload
+  end
+
+  test "repeated evidence for the same source produces one navigable link" do
+    fixture = @fixture |> File.read!() |> Jason.decode!()
+    [record | _] = ReplyRecords.enrich(fixture["records"], fixture["receipts"])
+    duplicate = Map.put(record, "ref", "record:evidence:same-source")
+
+    assert {:ok, rendered} =
+             Renderer.render(%{"message" => "Review.", "records" => [record, duplicate]})
+
+    assert length(Regex.scan(~r/\|Saved Terraform plan>/, inspect(rendered["blocks"]))) == 1
   end
 
   test "source labels cannot turn source links into Slack notifications" do
@@ -136,7 +172,7 @@ defmodule Responder.Slack.InvestigationReplyTest do
   end
 
   test "retained source labels always fit Slack even after escaping" do
-    # Legacy evidence allows 500-character labels; an escaped fallback must not reject delivery.
+    # Retained evidence allows 500-character labels; escaping must not reject delivery.
     fixture = @fixture |> File.read!() |> Jason.decode!()
     [record | _] = fixture["records"]
 
@@ -149,8 +185,11 @@ defmodule Responder.Slack.InvestigationReplyTest do
       assert {:ok, rendered} =
                Renderer.render(%{
                  "message" => "Review.",
-                 "records" => [%{record | "payload" => payload}]
+                 "records" =>
+                   ReplyRecords.enrich([%{record | "payload" => payload}], fixture["receipts"])
                })
+
+      if character == "|", do: refute(inspect(rendered["blocks"]) =~ "Sources")
 
       for %{"type" => "context", "elements" => elements} <- rendered["blocks"],
           element <- elements do

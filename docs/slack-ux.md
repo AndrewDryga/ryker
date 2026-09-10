@@ -67,6 +67,12 @@ headings, emphasis, links, quotes, lists, task lists, dividers, tables, inline c
 language-tagged code blocks. Responder, not the model, owns buttons, menus, mentions, approvals,
 and other interactive or notification-bearing elements.
 
+Investigation replies include a Sources footer only when retained evidence has a
+safe, usable link. Linkless entries and oversized links are omitted; repeated
+destinations appear once. The answer and valid inline links remain unchanged, and
+the full authorized evidence stays in the episode even when it cannot supply a
+Slack link.
+
 When enabled, Slack's native assistant status appears immediately after accepted operator input and
 cycles through semantic milestones such as topology mapping, live Emisar checks, source
 reconciliation, coverage assessment, and response preparation. Slack clears it only when the reply,
