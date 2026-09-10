@@ -310,7 +310,7 @@ defmodule Responder.Retention.Executor do
         {:error, {:coop_protocol_error, :session_state}}
 
       policy != expected.policy or policy_digest != expected.policy_digest or
-          external_ref != expected.external_ref ->
+          external_ref != Session.coop_task_ref(expected) ->
         {:error, {:coop_protocol_error, :session_authority}}
 
       true ->

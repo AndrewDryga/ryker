@@ -1,6 +1,6 @@
 .DEFAULT_GOAL := dev-check
 
-.PHONY: product-e2e elixir-product-e2e live-acceptance eval-world-pack eval-world-smoke eval-world eval-host-replay eval-replay model-release-check eval-trend customer-check elixir-unit elixir-test elixir-check elixir-release elixir-release-check elixir-install elixir-activate elixir-candidate-check control-plane-js-check shellcheck watchdog-check dev-check check release-check clean
+.PHONY: product-e2e elixir-product-e2e live-acceptance live-acceptance-wrapper-check eval-world-pack eval-world-smoke eval-world eval-host-replay eval-replay model-release-check eval-trend customer-check elixir-unit elixir-test elixir-check elixir-release elixir-release-check elixir-install elixir-activate elixir-candidate-check control-plane-js-check shellcheck watchdog-check dev-check check release-check clean
 
 ELIXIR_INSTALL_PREFIX ?= $(HOME)/.local/libexec/responder
 RESPONDER_ELIXIR_RELEASE ?= $(ELIXIR_INSTALL_PREFIX)/current/bin/responder
@@ -79,6 +79,9 @@ live-acceptance:
 	RESPONDER_ELIXIR_RELEASE="$(RESPONDER_ELIXIR_RELEASE)" \
 		scripts/elixir-live-acceptance.sh "$(abspath $(CONFIG))" "$(LIVE_CHANNEL)"
 
+live-acceptance-wrapper-check:
+	scripts/elixir-live-acceptance_test.sh
+
 eval-world-pack:
 	MIX_ENV=test scripts/elixir-mix.sh responder.eval world-pack
 
@@ -122,7 +125,7 @@ watchdog-check:
 	scripts/watchdog_test.sh
 
 dev-check:
-	+$(MAKE) --no-print-directory -j$(DEV_CHECK_JOBS) elixir-check control-plane-js-check eval-replay shellcheck watchdog-check
+	+$(MAKE) --no-print-directory -j$(DEV_CHECK_JOBS) elixir-check control-plane-js-check eval-replay shellcheck watchdog-check live-acceptance-wrapper-check
 
 check: dev-check
 	scripts/test-eval-trend.sh
