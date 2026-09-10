@@ -1234,6 +1234,27 @@ defmodule Responder.ControlPlane.RouterTest do
     assert Router.snapshot("/audit", "", options()).status == 404
   end
 
+  test "incident rooms have one canonical route with their actual room-only scope" do
+    conn = request(:get, "/incident-rooms")
+    assert conn.status == 200
+    assert conn.resp_body =~ "Incident rooms"
+
+    assert conn.resp_body =~
+             "Track Slack incident rooms from setup through closure, with channel status and linked investigation work."
+
+    assert conn.resp_body =~ "href=\"/incident-rooms/incident%3Aone\""
+    refute conn.resp_body =~ "Incident rooms and local incidents"
+    assert request(:get, "/incident-rooms/incident%3Aone").status == 200
+    assert Router.snapshot("/incident-rooms", "q=room&status=blocked", options()).status == 200
+
+    for path <- ["/incidents", "/incidents/incident%3Aone"] do
+      removed = request(:get, path)
+      assert removed.status == 404
+      assert get_resp_header(removed, "location") == []
+      assert Router.snapshot(path, "", options()).status == 404
+    end
+  end
+
   test "renders every bounded read-only operator view without external assets" do
     channel = request(:get, "/channels/T123/C456")
     assert channel.resp_body =~ "<h1>Slack channel</h1>"
@@ -1242,8 +1263,8 @@ defmodule Responder.ControlPlane.RouterTest do
     for {path, marker} <- [
           {"/memory", "Operational memory"},
           {"/configuration", "Effective host configuration"},
-          {"/incidents", "Incident rooms and local incidents"},
-          {"/incidents/incident%3Aone", "Room lifecycle"},
+          {"/incident-rooms", "Track Slack incident rooms"},
+          {"/incident-rooms/incident%3Aone", "Room lifecycle"},
           {"/schedules", "Recurring and one-shot work"},
           {"/schedules/schedule%3Aone", "Execution history"},
           {"/subscriptions", "Wait subscriptions"},

@@ -72,20 +72,21 @@ defmodule Responder.ControlPlane.Updates do
   defp domains("episode_event_subscriptions"), do: ~w(activity subscriptions episodes lab)
 
   defp domains("episode_state_" <> _),
-    do: ~w(activity episodes incidents lab findings memory)
+    do: ~w(activity episodes incident-rooms lab findings memory)
 
   defp domains("episode_" <> _),
-    do: ~w(activity episodes incidents lab usage workspaces failures)
+    do: ~w(activity episodes incident-rooms lab usage workspaces failures)
 
   defp domains("ingress_" <> _), do: ~w(activity admission episodes lab usage failures channels)
 
   defp domains("admission_" <> _),
     do: ~w(activity admission episodes lab usage failures)
 
-  defp domains("slack_incident_" <> _), do: ~w(activity incidents episodes lab channels failures)
+  defp domains("slack_incident_" <> _),
+    do: ~w(activity incident-rooms episodes lab channels failures)
 
   defp domains("slack_" <> _),
-    do: ~w(activity channels incidents episodes lab failures configuration repositories)
+    do: ~w(activity channels incident-rooms episodes lab failures configuration repositories)
 
   defp domains("coop_" <> _),
     do: ~w(activity workspaces episodes lab repositories configuration failures)

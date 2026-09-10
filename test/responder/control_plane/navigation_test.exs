@@ -28,6 +28,20 @@ defmodule Responder.ControlPlane.NavigationTest do
     end
   end
 
+  test "incident rooms keep selected navigation on both their list and detail routes" do
+    # The primary sidebar becomes the compact primary navigation on mobile;
+    # mobile/1 supplies only the separate More menu.
+    for path <- ["/incident-rooms", "/incident-rooms/incident%3Aone"], live <- [true, false] do
+      document =
+        render_component(&Navigation.sidebar/1, path: path, live: live)
+        |> LazyHTML.from_fragment()
+
+      link = LazyHTML.query(document, "a[href='/incident-rooms'][aria-current=page]")
+      assert LazyHTML.text(link) == "Incident rooms"
+      assert LazyHTML.query(document, "a[href='/incidents']") |> Enum.empty?()
+    end
+  end
+
   test "navigation contains real operator destinations without invented accounts or workspaces" do
     # The template's fake profile and connected workspace looked like features
     # despite having no account, tenancy or presence contract behind them.
@@ -49,7 +63,7 @@ defmodule Responder.ControlPlane.NavigationTest do
              ]
 
       for path <-
-            ~w(/ /incidents /failures /usage /lab /card-lab /manual-tests /schedules /subscriptions /memory /findings /configuration /channels /repositories /workspaces) do
+            ~w(/ /incident-rooms /failures /usage /lab /card-lab /manual-tests /schedules /subscriptions /memory /findings /configuration /channels /repositories /workspaces) do
         assert path in (document |> LazyHTML.query("a") |> LazyHTML.attribute("href"))
       end
 

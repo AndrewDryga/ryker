@@ -20,7 +20,7 @@ const allCards = process.argv.includes('--cards');
 const filtersOnly = process.argv.includes('--filters');
 const routes = filtersOnly ? [['requests', '/'], ['episodes', '/episodes?state=complete']] : [
   ['requests', '/'], ['lab', '/lab'], ['episodes', '/episodes'],
-  ['incidents', '/incidents'], ['failures', '/failures'], ['usage', '/usage'],
+  ['incident-rooms', '/incident-rooms'], ['failures', '/failures'], ['usage', '/usage'],
   ['schedules', '/schedules'], ['subscriptions', '/subscriptions'],
   ['rules', '/rules'], ['preferences', '/preferences'], ['guidance', '/guidance'],
   ['memory', '/memory'], ['decisions', '/decisions'], ['findings', '/findings'],
@@ -68,7 +68,7 @@ async function discover(page) {
     ['episode-detail', '/', '.activity-title[href^="/episodes/"]'],
     ['lab-chat', '/lab', '.lab-directory-list a[href^="/lab/"]'],
     ['channel-detail', '/channels', 'a[href^="/channels/"]'],
-    ['incident-detail', '/incidents', 'a[href^="/incidents/"]'],
+    ['incident-room-detail', '/incident-rooms', 'a[href^="/incident-rooms/"]'],
     ['schedule-detail', '/schedules', 'a[href^="/schedules/"]'],
     ['failure-detail', '/failures', 'a[href^="/failures/"]']
   ]) {

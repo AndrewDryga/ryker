@@ -128,7 +128,7 @@ defmodule Responder.ControlPlane.LiveTest do
   test "every searchable operator list keeps the search and exposes its supported status filter" do
     # Query-string status filters were invisible, and every refresh emptied search.
     for {path, status} <- [
-          {"/incidents", "blocked"},
+          {"/incident-rooms", "blocked"},
           {"/schedules", "paused"},
           {"/subscriptions", "timed_out"},
           {"/channels", nil},
@@ -621,6 +621,15 @@ defmodule Responder.ControlPlane.LiveTest do
     conn = build_conn() |> Map.put(:host, "localhost") |> get("/audit")
     assert conn.status == 404
     refute conn.resp_body =~ "audit-feed"
+  end
+
+  test "removed incident routes cannot mount a live page or redirect" do
+    for path <- ["/incidents", "/incidents/incident%3Aone"] do
+      conn = build_conn() |> Map.put(:host, "localhost") |> get(path)
+      assert conn.status == 404
+      assert Plug.Conn.get_resp_header(conn, "location") == []
+      refute conn.resp_body =~ "data-phx-main"
+    end
   end
 
   test "mobile workspace navigation preserves every secondary destination" do

@@ -16,6 +16,13 @@ Usage is now one of those projections: accepted Work turns retain the effective
 Coop target, provider usage when present, and remote timing boundaries. Missing
 provider telemetry stays explicitly unmeasured rather than appearing as zero.
 
+The **Incident rooms** page at `/incident-rooms` tracks Slack incident rooms from
+setup through closure, with channel status and linked investigation work. Each
+room opens at `/incident-rooms/:ref`. The list includes requested and blocked
+rooms before a Slack channel exists; it is not a directory of local Lab incidents.
+Room status and search filters remain in the URL, and committed lifecycle changes
+refresh the list and detail views.
+
 ## Why this exists
 
 The Slack App Home is the wrong surface for most of this and cannot be fixed by
@@ -401,7 +408,7 @@ replacement, not the older dashboard or the intended final design above.
 | Overview | Live for active, waiting, blocked, delivery-pending, admission queued/deciding/retrying counts, oldest active-admission time, durable Slack-status backlog age, and bounded attention records |
 | Conversation Lab | Live, with durable messages/files, generated-image delivery, the exact Slack chat tool schemas through a local-only adapter, reactions, confirmed extra posts, native cards/actions, episode custody, and same-session continuation |
 | Episodes list and detail | Live, with bounded search, state filtering, pagination, lifecycle metadata, and typed state-record summaries |
-| Incidents list and detail | Live, with bounded search, Slack-room lifecycle, linked source and investigation episodes, typed evidence records, and sanitized publication state |
+| Incident rooms list and detail | Live, with bounded search, Slack-room lifecycle, linked source and investigation episodes, typed evidence records, and sanitized publication state |
 | Schedules list and detail | Live, with bounded search, confirmed run-now, Conversation Lab replacement, recurrence and authority, destination, trigger kind, child execution state and timing, attempts, sanitized failures, and dispatched or missed occurrence history |
 | Subscriptions | Live, with bounded search, webhook source, lifecycle resolution, optional polling fallback and deadline, episode link, and matcher/cursor digests without raw source payloads; event-only waits have neither timer |
 | Channels list and detail | Live, with bounded search across durable Slack configuration, membership, incident ownership, conversation summaries, schedules, overrides, and recent episodes |

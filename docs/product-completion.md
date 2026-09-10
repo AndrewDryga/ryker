@@ -84,7 +84,7 @@ the unchecked product items below remain open.
 - [ ] Episode and retained request detail
 - [ ] Conversation Lab and all card actions
 - [ ] Slack Card Lab: every family/state, especially working tasks
-- [ ] Incidents and incident detail
+- [ ] Incident rooms and room detail
 - [ ] Failures and confirmed recovery
 - [ ] Usage and cost, including drill-downs
 - [ ] Schedules and schedule detail

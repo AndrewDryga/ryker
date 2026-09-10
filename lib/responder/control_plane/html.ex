@@ -594,12 +594,12 @@ defmodule Responder.ControlPlane.HTML do
         "Local operator workbench",
         enabled["control_plane"],
         [
-          "Open Incidents and verify a room links to its source and investigation episodes, lifecycle observations, evidence records, and sanitized publication state.",
+          "Open Incident rooms and verify a room links to its source and investigation episodes, lifecycle observations, evidence records, and sanitized publication state.",
           "Open Schedules and verify recurrence, authority, destination, next occurrence, and dispatched or missed history agree with PostgreSQL-backed product behavior.",
           "Open Channels and Repositories; verify configuration, membership, continuity, serving worker revisions, and the latest frozen Coop freshness receipt without fetching Git live.",
           "Open Configuration and Usage; verify only allowlisted values and grant names render, and that work types show the effective model, response corrections, tokens, cost, and timing."
         ],
-        "/incidents"
+        "/incident-rooms"
       ),
       "</div>"
     ]
@@ -687,7 +687,7 @@ defmodule Responder.ControlPlane.HTML do
     rows =
       Enum.map(items, fn item ->
         [
-          "<tr><td><a href=\"/incidents/",
+          "<tr><td><a href=\"/incident-rooms/",
           segment(item.ref),
           "\">",
           escape(item.title),
@@ -709,16 +709,16 @@ defmodule Responder.ControlPlane.HTML do
 
     [
       workbench_intro(
-        "Incident rooms and local incidents",
-        "Follow the durable room, linked work, lifecycle, evidence records, and publication without relying on Slack history."
+        "Incident rooms",
+        "Track Slack incident rooms from setup through closure, with channel status and linked investigation work."
       ),
       search_form(
-        "/incidents",
+        "/incident-rooms",
         "Title, room, repository or channel",
         params,
         ~w(requested ready blocked closed)
       ),
-      table(["Incident", "Status", "Repository", "Channel", "Publication", "Updated"], rows)
+      table(["Incident room", "Status", "Repository", "Channel", "Publication", "Updated"], rows)
     ]
   end
 

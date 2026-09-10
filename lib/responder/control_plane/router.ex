@@ -90,10 +90,10 @@ defmodule Responder.ControlPlane.Router do
 
   defp snapshot_path?([page]),
     do:
-      page in ~w(lab card-lab incidents schedules subscriptions channels repositories failures workspaces findings memory rules preferences guidance usage configuration manual-tests)
+      page in ~w(lab card-lab incident-rooms schedules subscriptions channels repositories failures workspaces findings memory rules preferences guidance usage configuration manual-tests)
 
   defp snapshot_path?(["lab", "new"]), do: false
-  defp snapshot_path?([page, _ref]), do: page in ~w(lab incidents schedules)
+  defp snapshot_path?([page, _ref]), do: page in ~w(lab incident-rooms schedules)
   defp snapshot_path?([page, _, _]), do: page in ~w(card-lab channels failures)
   defp snapshot_path?(_path), do: false
 
@@ -580,16 +580,19 @@ defmodule Responder.ControlPlane.Router do
     )
   end
 
-  defp route(%Plug.Conn{method: "GET", path_info: ["incidents"]} = conn, options) do
+  defp route(%Plug.Conn{method: "GET", path_info: ["incident-rooms"]} = conn, options) do
     conn = fetch_query_params(conn)
     snapshot = options.projection.incidents.(Map.take(conn.query_params, ["q", "status"]))
-    html(conn, 200, "Incidents", HTML.incidents(snapshot, conn.query_params))
+    html(conn, 200, "Incident rooms", HTML.incidents(snapshot, conn.query_params))
   end
 
-  defp route(%Plug.Conn{method: "GET", path_info: ["incidents", incident_ref]} = conn, options) do
+  defp route(
+         %Plug.Conn{method: "GET", path_info: ["incident-rooms", incident_ref]} = conn,
+         options
+       ) do
     case path_ref(incident_ref) do
       {:ok, incident_ref} -> render_incident(conn, options, incident_ref)
-      {:error, :path_ref} -> html(conn, 404, "Not found", HTML.generic("Incident", []))
+      {:error, :path_ref} -> html(conn, 404, "Not found", HTML.generic("Incident room", []))
     end
   end
 
@@ -963,8 +966,8 @@ defmodule Responder.ControlPlane.Router do
   defp render_incident(conn, options, incident_ref) do
     case options.projection.incident.(incident_ref) do
       {:ok, snapshot} -> html(conn, 200, snapshot.room.title, HTML.incident(snapshot))
-      :not_found -> html(conn, 404, "Not found", HTML.generic("Incident", []))
-      {:error, _reason} -> html(conn, 503, "Unavailable", HTML.generic("Incident", []))
+      :not_found -> html(conn, 404, "Not found", HTML.generic("Incident room", []))
+      {:error, _reason} -> html(conn, 503, "Unavailable", HTML.generic("Incident room", []))
     end
   end
 

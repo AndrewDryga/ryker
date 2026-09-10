@@ -60,7 +60,7 @@ defmodule Responder.ControlPlane.UpdatesTest do
       "episode_work_turns" => "episodes",
       "ingress_inbox_entries" => "admission",
       "admission_attempts" => "admission",
-      "slack_incident_rooms" => "incidents",
+      "slack_incident_rooms" => "incident-rooms",
       "slack_channel_memberships" => "channels",
       "coop_workers" => "workspaces",
       "conversation_summaries" => "lab",
@@ -97,5 +97,26 @@ defmodule Responder.ControlPlane.UpdatesTest do
 
     assert Updates.domain("/") == "activity"
     assert Updates.domain("/episodes/an-episode/requests") == "episodes"
+  end
+
+  test "room list and detail receive every invalidation for their displayed state" do
+    for table <-
+          ~w(slack_incident_rooms slack_channel_memberships episode_state_records episode_publications),
+        path <- ["/incident-rooms", "/incident-rooms/incident%3Aone"] do
+      state = %{connection: self(), reference: make_ref(), pending: MapSet.new(), timer: nil}
+
+      {:noreply, pending} =
+        Updates.handle_info(
+          {:notification, self(), state.reference, "responder_control_plane", table},
+          state
+        )
+
+      Process.cancel_timer(pending.timer)
+
+      assert MapSet.member?(pending.pending, Updates.domain(path)),
+             "#{table} must refresh #{path}"
+
+      refute MapSet.member?(pending.pending, "incidents")
+    end
   end
 end

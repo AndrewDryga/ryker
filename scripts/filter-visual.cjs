@@ -63,7 +63,7 @@ async function contrast(locator) {
       await page.locator('.usage-drilldown').waitFor({state: 'detached'});
       assert.equal(new URL(page.url()).searchParams.get('state'), 'complete');
 
-      for (const [route, status] of [['incidents', 'blocked'], ['schedules', 'paused'], ['subscriptions', 'timed_out'], ['channels', null], ['repositories', null]]) {
+      for (const [route, status] of [['incident-rooms', 'blocked'], ['schedules', 'paused'], ['subscriptions', 'timed_out'], ['channels', null], ['repositories', null]]) {
         await open(`/${route}?q=emisar${status ? '&status=' + status : ''}`);
         const form = page.locator('form.search-form');
         assert.equal(await form.locator('input[name=q]').inputValue(), 'emisar');

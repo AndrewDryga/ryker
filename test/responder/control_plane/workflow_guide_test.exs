@@ -21,7 +21,7 @@ defmodule Responder.ControlPlane.WorkflowGuideTest do
     assert html =~ "Memory &amp; continuity"
 
     for path <-
-          ~w(/rules /preferences /guidance /memory /subscriptions /schedules /configuration /channels /repositories /workspaces /incidents /findings) do
+          ~w(/rules /preferences /guidance /memory /subscriptions /schedules /configuration /channels /repositories /workspaces /incident-rooms /findings) do
       assert html =~ "href=\"#{path}\""
     end
 

@@ -1241,14 +1241,14 @@ defmodule Responder.ControlPlane.EpisodeTrace do
           actor: "Responder",
           details:
             compact_details([
-              {"Incident", room.ref},
+              {"Incident room", room.ref},
               {"Repository", room.repository_ref}
             ]),
-          href: "/incidents/#{segment(room.ref)}",
+          href: "/incident-rooms/#{segment(room.ref)}",
           stage: "Incident",
           state: nil,
-          summary: "An incident room was requested. Open the incident for its current state.",
-          title: "Incident requested",
+          summary: "An incident room was requested. Open the room for its current state.",
+          title: "Incident room requested",
           tone: nil
         }
       )
