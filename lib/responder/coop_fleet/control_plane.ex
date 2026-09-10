@@ -749,12 +749,17 @@ defmodule Responder.CoopFleet.ControlPlane do
     cond do
       terminal_workspace_discard?(placement, events) -> :terminal_cleanup
       bound_session_activity?(placement, events) -> :late_session_activity
+      prebinding_session_activity?(placement, events, cursor) -> :late_session_activity
       true -> :unauthorized
     end
   end
 
-  defp event_batch_disposition(placement, cursor, _last_sequence, _events, cursor, now) do
-    if command_result_authorized?(placement, now), do: :fresh, else: :unauthorized
+  defp event_batch_disposition(placement, cursor, _last_sequence, events, cursor, now) do
+    cond do
+      command_result_authorized?(placement, now) -> :fresh
+      prebinding_session_activity?(placement, events, cursor) -> :late_session_activity
+      true -> :unauthorized
+    end
   end
 
   defp event_batch_disposition(_placement, _after_sequence, last_sequence, _events, cursor, _now)
@@ -840,8 +845,8 @@ defmodule Responder.CoopFleet.ControlPlane do
         expected_cursor = List.last(values)["sequence"]
 
         case Repo.get(Session, placement.session_id) do
-          %Session{coop_session_id: nil} ->
-            if prebinding_session_created?(values),
+          %Session{coop_session_id: nil} = session ->
+            if prebinding_session_events?(placement, session, values, cursor),
               do: :ok,
               else: rollback({:coop_activity_session_conflict, remote_id})
 
@@ -858,13 +863,68 @@ defmodule Responder.CoopFleet.ControlPlane do
     end
   end
 
-  defp prebinding_session_created?([
-         %{"sequence" => 1, "session_id" => remote_id, "type" => "session.created"}
-       ])
+  defp prebinding_session_events?(_placement, _session, [created], 0),
+    do: prebinding_session_created?(created)
+
+  defp prebinding_session_events?(placement, session, [created, task_bound], 0) do
+    prebinding_session_created?(created) and
+      created["session_id"] == task_bound["session_id"] and
+      prebinding_workspace_task_bound?(placement, session, task_bound)
+  end
+
+  defp prebinding_session_events?(placement, session, [task_bound], 1),
+    do: prebinding_workspace_task_bound?(placement, session, task_bound)
+
+  defp prebinding_session_events?(_placement, _session, _events, _cursor), do: false
+
+  defp prebinding_session_created?(%{
+         "sequence" => 1,
+         "session_id" => remote_id,
+         "type" => "session.created"
+       })
        when is_binary(remote_id),
        do: true
 
-  defp prebinding_session_created?(_events), do: false
+  defp prebinding_session_created?(_event), do: false
+
+  defp prebinding_workspace_task_bound?(
+         placement,
+         %Session{workspace_task: %{"offer_ref" => offer_ref} = workspace_task},
+         %{
+           "sequence" => 2,
+           "session_id" => remote_id,
+           "type" => "workspace.task_bound"
+         } = event
+       )
+       when is_binary(remote_id) and is_binary(offer_ref) do
+    command =
+      Repo.one(
+        from(command in Command,
+          where:
+            command.session_id == ^placement.session_id and
+              command.placement_generation == ^placement.generation and
+              command.kind == "ensure_workspace" and command.status == :succeeded,
+          order_by: [desc: command.completed_at, desc: command.id],
+          limit: 1
+        )
+      )
+
+    Map.get(event, "turn_id") in [nil, ""] and
+      match?(
+        %Command{
+          payload: %{"coop_session_id" => ^remote_id, "task" => ^workspace_task},
+          result: %{
+            "session" => %{
+              "id" => ^remote_id,
+              "workspace_task" => %{"offer_ref" => ^offer_ref}
+            }
+          }
+        },
+        command
+      )
+  end
+
+  defp prebinding_workspace_task_bound?(_placement, _session, _event), do: false
 
   defp terminal_workspace_discard?(placement, [
          %{
@@ -896,6 +956,23 @@ defmodule Responder.CoopFleet.ControlPlane do
   end
 
   defp bound_session_activity?(_placement, _events), do: false
+
+  defp prebinding_session_activity?(placement, events, cursor) do
+    values =
+      Enum.map(events, fn
+        %{"kind" => "session_event", "payload" => event} -> event
+        _other -> nil
+      end)
+
+    case Repo.get(Session, placement.session_id) do
+      %Session{coop_session_id: nil} = session ->
+        Enum.all?(values, &is_map/1) and
+          prebinding_session_events?(placement, session, values, cursor)
+
+      _bound_or_missing ->
+        false
+    end
+  end
 
   defp insert_event!(placement, event) do
     fingerprint = event_fingerprint(event)
