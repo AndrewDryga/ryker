@@ -526,13 +526,17 @@ defmodule Responder.CoopFleet.Client do
 
       %Command{status: :succeeded, result: result} = command ->
         with :ok <- current_command_placement(command),
-             {:ok, operation} <- operation_result(result) do
-          reconcile_waiting_operation(client, command, operation, key)
+             {:ok, operation} <- operation_result(result),
+             {:ok, operation} <- reconcile_waiting_operation(client, command, operation, key),
+             :ok <- ensure_reconciled_workspace(client, command, operation, key) do
+          {:ok, operation}
         end
 
       %Command{status: status} = command when status in [:queued, :delivered, :acknowledged] ->
-        with {:ok, result} <- client.bridge.await_command(command.id, client.bridge_options) do
-          operation_result(result)
+        with {:ok, result} <- client.bridge.await_command(command.id, client.bridge_options),
+             {:ok, operation} <- operation_result(result),
+             :ok <- ensure_reconciled_workspace(client, command, operation, key) do
+          {:ok, operation}
         end
 
       %Command{status: :failed, kind: kind, error: %{"code" => "invalid_command"}} = command
@@ -542,8 +546,10 @@ defmodule Responder.CoopFleet.Client do
       %Command{} = command ->
         with %Session{} = session <- Repo.get(Session, command.session_id),
              {:ok, result} <-
-               execute_read(client, session, "reconcile_operation", %{"operation_key" => key}) do
-          operation_result(result)
+               execute_read(client, session, "reconcile_operation", %{"operation_key" => key}),
+             {:ok, operation} <- operation_result(result),
+             :ok <- ensure_reconciled_workspace(client, command, operation, key) do
+          {:ok, operation}
         else
           nil -> {:error, {:coop_session_not_found, command.session_id}}
           {:error, _reason} = error -> error
@@ -673,21 +679,38 @@ defmodule Responder.CoopFleet.Client do
         )
       )
 
-    if is_nil(checkpoint) do
-      if is_nil(previous) or is_nil(previous.coop_session_id),
-        do: {:ok, nil},
-        else: {:error, {:coop_workspace_checkpoint_required, previous.id, previous.generation}}
-    else
-      {:ok,
-       %{
-         "byte_size" => checkpoint.bundle_byte_size,
-         "checkpoint_ref" => checkpoint.checkpoint_ref,
-         "sha256" => checkpoint.bundle_sha256,
-         "source_placement_generation" => checkpoint.placement_generation,
-         "source_session_ref" => checkpoint.session_ref,
-         "transfer_id" => checkpoint.id
-       }}
+    case checkpoint do
+      nil ->
+        missing_checkpoint(previous)
+
+      checkpoint ->
+        {:ok,
+         %{
+           "byte_size" => checkpoint.bundle_byte_size,
+           "checkpoint_ref" => checkpoint.checkpoint_ref,
+           "sha256" => checkpoint.bundle_sha256,
+           "source_placement_generation" => checkpoint.placement_generation,
+           "source_session_ref" => checkpoint.session_ref,
+           "transfer_id" => checkpoint.id
+         }}
     end
+  end
+
+  defp missing_checkpoint(nil), do: {:ok, nil}
+  defp missing_checkpoint(%Session{coop_session_id: nil}), do: {:ok, nil}
+
+  defp missing_checkpoint(%Session{} = previous) do
+    if workspace_binding_attempted?(previous.id),
+      do: {:error, {:coop_workspace_checkpoint_required, previous.id, previous.generation}},
+      else: {:ok, nil}
+  end
+
+  defp workspace_binding_attempted?(session_id) do
+    Repo.exists?(
+      from(command in Command,
+        where: command.session_id == ^session_id and command.kind == "ensure_workspace"
+      )
+    )
   end
 
   defp maybe_put_checkpoint(payload, nil), do: payload
@@ -768,6 +791,38 @@ defmodule Responder.CoopFleet.Client do
 
   defp reconcile_waiting_operation(_client, _command, operation, _operation_key),
     do: {:ok, operation}
+
+  defp ensure_reconciled_workspace(
+         client,
+         %Command{kind: "create_session", session_id: session_id},
+         %{
+           "method" => "CreateRemoteSession",
+           "resource_id" => coop_session_id,
+           "resource_type" => "session",
+           "state" => "succeeded"
+         },
+         create_key
+       )
+       when is_binary(coop_session_id) do
+    case Repo.get(Session, session_id) do
+      nil ->
+        {:error, {:coop_session_not_found, session_id}}
+
+      %Session{workspace_task: nil} ->
+        :ok
+
+      %Session{} = session ->
+        with {:ok, remote} <-
+               execute_read(client, session, "get_session", %{
+                 "coop_session_id" => coop_session_id
+               }),
+             {:ok, _ensured} <- ensure_workspace(client, session, remote, create_key) do
+          :ok
+        end
+    end
+  end
+
+  defp ensure_reconciled_workspace(_client, _command, _operation, _create_key), do: :ok
 
   defp current_command_placement(command) do
     placement = Repo.one(from(value in Placement, where: value.id == ^command.placement_id))

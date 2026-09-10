@@ -2645,7 +2645,9 @@ defmodule Responder.Work.Executor do
          allowed_states
        ) do
     remote_authority = {policy, policy_digest, external_ref}
-    expected_authority = {expected.policy, expected.policy_digest, Session.coop_task_ref(expected)}
+
+    expected_authority =
+      {expected.policy, expected.policy_digest, Session.coop_task_ref(expected)}
 
     with :ok <- exact_remote_session_identity(expected, id),
          :ok <- exact_remote_session_allowed_state(state, allowed_states),
