@@ -194,6 +194,44 @@ defmodule Responder.CoopFleet.ControlPlaneTest do
     assert second_placement.worker_id == "worker-a"
   end
 
+  test "fresh worker capacity can reuse slots held only by reflected parked placements" do
+    # Two parked live sessions filled the placement ledger while the worker reported both
+    # slots free, blocking every later Slack conversation before it could start.
+    authorize_and_poll!("worker-a", capacity: capacity(2, 2))
+
+    requirements = %{
+      capability_names: ["responder-state"],
+      repository_ref: "responder",
+      workspace_ref: "workspace-main"
+    }
+
+    first = session!("reflected-capacity-first")
+    assert {:ok, _placement} = ControlPlane.place_session(first.id, requirements, 60)
+
+    assert {:ok, _response} =
+             ControlPlane.handle_poll(
+               "worker-a",
+               poll("worker-a", "workspace-main", "poll:worker-a:first-reflected",
+                 capacity: capacity(1, 2)
+               )
+             )
+
+    second = session!("reflected-capacity-second")
+    assert {:ok, _placement} = ControlPlane.place_session(second.id, requirements, 60)
+
+    assert {:ok, _response} =
+             ControlPlane.handle_poll(
+               "worker-a",
+               poll("worker-a", "workspace-main", "poll:worker-a:both-parked",
+                 capacity: capacity(2, 2)
+               )
+             )
+
+    next = session!("capacity-after-reflected-placements")
+    assert {:ok, placement} = ControlPlane.place_session(next.id, requirements, 60)
+    assert placement.worker_id == "worker-a"
+  end
+
   test "a successfully closed session no longer reserves a reported worker slot" do
     # Two recovered Slack runs closed remotely but their still-current placement
     # rows consumed every host reservation, so all fresh work was blocked even
