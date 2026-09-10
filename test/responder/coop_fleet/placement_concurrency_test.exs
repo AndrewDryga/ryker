@@ -114,6 +114,75 @@ defmodule Responder.CoopFleet.PlacementConcurrencyTest do
     end)
   end
 
+  test "activity custody does not block session placement" do
+    # A routine follow-up deadlocked after Coop activity held the placement and its Session FK.
+    Sandbox.unboxed_run(Repo, fn ->
+      suffix = Ecto.UUID.generate()
+      workspace_ref = "workspace-activity-#{suffix}"
+      worker_id = "worker-activity-#{suffix}"
+      session = session!("activity-#{suffix}")
+      parent = self()
+
+      authorize_and_poll!(worker_id, workspace_ref)
+
+      holder =
+        unboxed_task(fn ->
+          Repo.transaction(fn ->
+            Repo.one!(
+              from(value in Session,
+                where: value.id == ^session.id,
+                lock: "FOR KEY SHARE"
+              )
+            )
+
+            send(parent, :activity_session_reference_held)
+
+            receive do
+              :release_activity -> :ok
+            end
+          end)
+        end)
+
+      try do
+        assert_receive :activity_session_reference_held, 5_000
+
+        contender =
+          unboxed_task(fn ->
+            ControlPlane.place_session(
+              session.id,
+              %{
+                capability_names: ["responder-state"],
+                repository_ref: "responder",
+                workspace_ref: workspace_ref
+              },
+              60
+            )
+          end)
+
+        Process.put({__MODULE__, :activity_contender}, contender)
+        placement_result = Task.yield(contender, 5_000)
+        send(holder.pid, :release_activity)
+        assert {:ok, _transaction} = Task.await(holder, 5_000)
+
+        if placement_result == nil do
+          assert {:ok, _placement} = Task.await(contender, 5_000)
+          flunk("session placement waited on activity's foreign-key reference")
+        end
+
+        assert {:ok, {:ok, placement}} = placement_result
+        assert placement.session_id == session.id
+      after
+        send(holder.pid, :release_activity)
+
+        [holder, Process.delete({__MODULE__, :activity_contender})]
+        |> Enum.reject(&is_nil/1)
+        |> stop_tasks()
+
+        cleanup!([session], [worker_id])
+      end
+    end)
+  end
+
   defp authorize_and_poll!(worker_id, workspace_ref) do
     certificate = "certificate-#{worker_id}"
     digest = :crypto.hash(:sha256, certificate) |> Base.encode16(case: :lower)
