@@ -46,6 +46,13 @@ defmodule Responder.CoopFleet.ClientTest do
              %{"id" => "remote-resource", "state" => "succeeded"}
            )}
 
+        "get_session" ->
+          {:ok,
+           Process.get(
+             :coop_fleet_get_session_result,
+             %{"id" => "remote-resource", "state" => "succeeded"}
+           )}
+
         _other ->
           {:ok, %{"id" => "remote-resource", "state" => "succeeded"}}
       end
@@ -61,6 +68,7 @@ defmodule Responder.CoopFleet.ClientTest do
     on_exit(fn ->
       Process.delete(:coop_fleet_client_test_pid)
       Process.delete(:coop_fleet_reconcile_result)
+      Process.delete(:coop_fleet_get_session_result)
     end)
 
     session = session!()
@@ -374,6 +382,104 @@ defmodule Responder.CoopFleet.ClientTest do
              "source_session_ref" => source.id,
              "transfer_id" => transfer_id
            }
+  end
+
+  test "a replacement after the task was never bound starts from a clean workspace", %{
+    client: client,
+    session: session
+  } do
+    workspace_task = %{
+      "authority_limits" => ["must not deploy"],
+      "offer_ref" => "record:task_offer:unbound-replacement",
+      "prompt" => "Continue the exact writable task.",
+      "source_refs" => [],
+      "success_checks" => ["focused tests pass"],
+      "title" => "Recover unbound task"
+    }
+
+    source =
+      session
+      |> SessionChangeset.bind_workspace_task(workspace_task)
+      |> Ecto.Changeset.change(coop_session_id: "coop-session-never-task-bound")
+      |> Repo.update!()
+
+    replacement =
+      SessionChangeset.insert_with_authority(
+        Ecto.UUID.generate(),
+        source.episode_id,
+        2,
+        source.policy,
+        source.policy_digest,
+        source.repository_ref,
+        source.external_ref,
+        %{authority_digest: source.authority_digest, workspace_task: nil}
+      )
+      |> Repo.insert!()
+      |> SessionChangeset.bind_workspace_task(workspace_task)
+      |> Repo.update!()
+
+    key = "responder:work:create:#{replacement.id}:g1"
+
+    # Covers: TestUnboundTaskReplacementStartsClean
+    # The third live retry had a remote session ID but never acquired a writable workspace;
+    # requiring a nonexistent checkpoint would strand the repaired task again.
+    assert {:ok, %{"id" => "remote-resource", "revision" => 2}} =
+             Client.create_session(client, key, @policy, workspace_task["offer_ref"])
+
+    assert_receive {:fleet_command, ^replacement, "ensure_workspace", payload, _ensure_key, _}
+    refute Map.has_key?(payload, "checkpoint")
+  end
+
+  test "a replacement still requires a checkpoint after any workspace binding attempt", %{
+    client: client,
+    session: session
+  } do
+    workspace_task = %{
+      "authority_limits" => ["must preserve workspace changes"],
+      "offer_ref" => "record:task_offer:attempted-binding",
+      "prompt" => "Continue without losing prior work.",
+      "source_refs" => [],
+      "success_checks" => ["prior changes survive"],
+      "title" => "Preserve attempted workspace"
+    }
+
+    source =
+      session
+      |> SessionChangeset.bind_workspace_task(workspace_task)
+      |> Ecto.Changeset.change(coop_session_id: "coop-session-binding-attempted")
+      |> Repo.update!()
+
+    _binding_command =
+      command!(source, "attempted-workspace-binding",
+        kind: "ensure_workspace",
+        payload: %{
+          "coop_session_id" => source.coop_session_id,
+          "expected_revision" => 1,
+          "task" => workspace_task
+        }
+      )
+
+    replacement =
+      SessionChangeset.insert_with_authority(
+        Ecto.UUID.generate(),
+        source.episode_id,
+        2,
+        source.policy,
+        source.policy_digest,
+        source.repository_ref,
+        source.external_ref,
+        %{authority_digest: source.authority_digest, workspace_task: nil}
+      )
+      |> Repo.insert!()
+      |> SessionChangeset.bind_workspace_task(workspace_task)
+      |> Repo.update!()
+
+    key = "responder:work:create:#{replacement.id}:g1"
+
+    assert {:error, {:coop_protocol_error, :create_session_response}} =
+             Client.create_session(client, key, @policy, workspace_task["offer_ref"])
+
+    refute_receive {:fleet_command, ^replacement, "ensure_workspace", _, _, _}
   end
 
   test "frozen submit preserves exact persisted prompt schema context and digest", %{
@@ -941,6 +1047,150 @@ defmodule Responder.CoopFleet.ClientTest do
 
     assert_receive {:fleet_command, ^session, "reconcile_operation", payload, _key, _options}
     assert payload == %{"operation_key" => reconcile.idempotency_key}
+  end
+
+  test "asynchronous writable session creation binds its approved task before reconciliation completes",
+       %{
+         client: client,
+         session: session
+       } do
+    workspace_task = %{
+      "authority_limits" => ["must not deploy"],
+      "instruction_ref" => "input:trusted:async",
+      "offer_ref" => "record:task_offer:async-workspace-binding",
+      "prompt" => "Change the runner version and preserve idempotency.",
+      "source_refs" => ["artifact:incident:async"],
+      "success_checks" => ["focused tests pass"],
+      "title" => "Bump the hosted runner"
+    }
+
+    session =
+      session
+      |> SessionChangeset.bind_workspace_task(workspace_task)
+      |> Repo.update!()
+
+    key = "responder:work:create:#{session.id}:g1"
+
+    create =
+      command!(session, "async-workspace-binding",
+        kind: "create_session",
+        payload: %{
+          "authority_digest" => @authority_digest,
+          "external_ref" => workspace_task["offer_ref"],
+          "policy" => @policy,
+          "policy_digest" => @policy_digest
+        },
+        key: key
+      )
+
+    complete_command!(create, :succeeded, %{
+      "operation" => %{
+        "id" => "operation-async-workspace-binding",
+        "method" => "CreateRemoteSession",
+        "state" => "running"
+      }
+    })
+
+    terminal_operation = %{
+      "id" => "operation-async-workspace-binding",
+      "method" => "CreateRemoteSession",
+      "resource_id" => "remote-async-workspace-binding",
+      "resource_type" => "session",
+      "state" => "succeeded"
+    }
+
+    Process.put(:coop_fleet_reconcile_result, %{"operation" => terminal_operation})
+
+    Process.put(:coop_fleet_get_session_result, %{
+      "id" => "remote-async-workspace-binding",
+      "revision" => 1,
+      "state" => "open"
+    })
+
+    # Covers: TestAsynchronousWritableSessionBindsApprovedTask
+    # Three live repair attempts sent a valid task offer, then failed before model work
+    # because asynchronous session creation never bound that task to the workspace.
+    assert {:ok, ^terminal_operation} = Client.operation_by_key(client, key)
+
+    assert_receive {:fleet_command, ^session, "reconcile_operation", %{"operation_key" => ^key},
+                    _reconcile_key, _options}
+
+    assert_receive {:fleet_command, ^session, "get_session",
+                    %{"coop_session_id" => "remote-async-workspace-binding"}, _get_key, _options}
+
+    assert_receive {:fleet_command, ^session, "ensure_workspace", payload, ensure_key, _options}
+
+    assert payload == %{
+             "coop_session_id" => "remote-async-workspace-binding",
+             "expected_revision" => 1,
+             "task" => workspace_task
+           }
+
+    assert String.starts_with?(ensure_key, "responder:workspace:")
+  end
+
+  test "an uncertain writable session creation binds its approved task when reconciliation succeeds",
+       %{
+         client: client,
+         session: session
+       } do
+    workspace_task = %{
+      "authority_limits" => ["must not deploy"],
+      "offer_ref" => "record:task_offer:uncertain-workspace-binding",
+      "prompt" => "Change the runner version and preserve idempotency.",
+      "source_refs" => [],
+      "success_checks" => ["focused tests pass"],
+      "title" => "Recover the hosted runner task"
+    }
+
+    session =
+      session
+      |> SessionChangeset.bind_workspace_task(workspace_task)
+      |> Repo.update!()
+
+    key = "responder:work:create:#{session.id}:g1"
+
+    create =
+      command!(session, "uncertain-workspace-binding",
+        kind: "create_session",
+        payload: %{
+          "authority_digest" => @authority_digest,
+          "external_ref" => workspace_task["offer_ref"],
+          "policy" => @policy,
+          "policy_digest" => @policy_digest
+        },
+        key: key
+      )
+
+    complete_command!(create, :uncertain, nil)
+
+    terminal_operation = %{
+      "id" => "operation-uncertain-workspace-binding",
+      "method" => "CreateRemoteSession",
+      "resource_id" => "remote-uncertain-workspace-binding",
+      "resource_type" => "session",
+      "state" => "succeeded"
+    }
+
+    Process.put(:coop_fleet_reconcile_result, %{"operation" => terminal_operation})
+
+    Process.put(:coop_fleet_get_session_result, %{
+      "id" => "remote-uncertain-workspace-binding",
+      "revision" => 1,
+      "state" => "open"
+    })
+
+    assert {:ok, ^terminal_operation} = Client.operation_by_key(client, key)
+
+    assert_receive {:fleet_command, ^session, "reconcile_operation", %{"operation_key" => ^key},
+                    _reconcile_key, _options}
+
+    assert_receive {:fleet_command, ^session, "get_session",
+                    %{"coop_session_id" => "remote-uncertain-workspace-binding"}, _get_key,
+                    _options}
+
+    assert_receive {:fleet_command, ^session, "ensure_workspace", payload, _ensure_key, _options}
+    assert payload["task"] == workspace_task
   end
 
   test "a create fence reuses its durable command instead of colliding with that command", %{
