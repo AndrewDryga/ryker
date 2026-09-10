@@ -5,6 +5,7 @@ defmodule Responder.ControlPlane.HTML do
   alias Responder.ControlPlane.FailurePage
   alias Responder.ControlPlane.FindingsPage
   alias Responder.ControlPlane.SlackNames
+  alias Responder.ControlPlane.SubscriptionsPage
   alias Responder.ControlPlane.UsagePage
   alias Responder.ControlPlane.UsageProjection
   @moduledoc false
@@ -918,60 +919,18 @@ defmodule Responder.ControlPlane.HTML do
   end
 
   def subscriptions(items, params \\ %{}) do
-    rows =
-      Enum.map(items, fn item ->
-        [
-          "<tr><td><code>",
-          escape(item.ref),
-          "</code></td><td>",
-          escape(
-            if(item.trigger_type in ["after", "at"], do: "Timer", else: item.source_kind || "any")
-          ),
-          "</td><td>",
-          escape(item.status),
-          " / ",
-          escape(item.resolution_kind || "waiting"),
-          "</td><td>",
-          timestamp(item.poll_after),
-          "</td><td>",
-          timestamp(item.deadline_at),
-          "</td><td>",
-          episode_link(item.episode_ref),
-          "</td><td><code>",
-          escape(item.matcher_digest),
-          "</code></td><td><code>",
-          escape(item.cursor_digest || "none"),
-          "</code></td><td>",
-          timestamp(item.last_observed_at),
-          "</td></tr>"
-        ]
-      end)
-
     [
       workbench_intro(
         "Wait subscriptions",
-        "Inspect timers and external-event waits: when they next wake, their hard deadline, and how they finished. Timers run at their scheduled time; external events can arrive before the polling fallback."
+        "What the agent is waiting for, when it will check again, and what resumed the work."
       ),
       search_form(
         "/subscriptions",
-        "Subscription, source or episode",
+        "Request, target, source or reference",
         params,
         ~w(active resolved timed_out cancelled)
       ),
-      table(
-        [
-          "Subscription",
-          "Trigger / source",
-          "State",
-          "Next wake-up",
-          "Deadline",
-          "Episode",
-          "Matcher digest",
-          "Cursor digest",
-          "Observed"
-        ],
-        rows
-      )
+      Safe.to_iodata(SubscriptionsPage.render(%{__changed__: nil, items: items}))
     ]
   end
 

@@ -7,24 +7,35 @@ defmodule Responder.ControlPlane.OperatorUsabilityTest do
     html =
       HTML.subscriptions([
         %{
+          title: "Timed follow-up",
+          condition: "Resume work at the scheduled time",
+          context_label: "Source context unavailable",
+          episode_title: "Follow up on the deployment",
+          episode_href: "/episodes/episode%3Atimer",
+          source_label: "Timer",
+          target_url: nil,
           cursor_digest: nil,
           deadline_at: ~U[2026-09-07 12:15:00Z],
           episode_ref: "episode:timer",
           last_observed_at: nil,
+          last_observation_digest: nil,
           matcher_digest: "matcher-digest",
           poll_after: ~U[2026-09-07 12:10:00Z],
           ref: "subscription:timer",
+          revision: 1,
           resolution_kind: nil,
           source_kind: nil,
           status: :active,
-          trigger_type: "after"
+          trigger_type: "after",
+          updated_at: ~U[2026-09-07 12:00:00Z]
         }
       ])
       |> IO.iodata_to_binary()
 
     assert html =~ "Wait subscriptions"
     assert html =~ "Next wake-up"
-    assert html =~ "Timer"
+    assert html =~ "Timed follow-up"
+    assert html =~ "Resume work at the scheduled time"
     refute html =~ ">any<"
     refute html =~ "External event subscriptions"
   end
