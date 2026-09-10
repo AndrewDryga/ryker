@@ -1,5 +1,9 @@
 defmodule Responder.Admission.ReplayTest do
-  use Responder.DataCase, async: true
+  # These harvested identities are also replayed by other modules. The sandbox
+  # holds the seeded conversation lock across a later Inbox.record call, unlike
+  # the separate production transactions. Two full gates hit that artificial
+  # conversation/channel lock inversion; retain exact source identities serially.
+  use Responder.DataCase, async: false
 
   @moduletag isolation: "REPEATABLE READ"
 

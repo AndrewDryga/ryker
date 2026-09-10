@@ -6,6 +6,7 @@ defmodule Responder.Delivery.DispatcherTest do
 
   @moduletag isolation: "REPEATABLE READ"
 
+  alias Ecto.Adapters.SQL.Sandbox
   alias Mix.Tasks.Responder.Delivery, as: DeliveryTask
   alias Responder.Admission
   alias Responder.Admission.Decision
@@ -598,11 +599,14 @@ defmodule Responder.Delivery.DispatcherTest do
   # A rescued renewal exception keeps the poller alive, so caller-death monitoring
   # alone leaves a publishing child running beyond the failed custody renewal.
   test "a rescued database renewal failure reaps the actual provider before polling returns" do
+    pool = renewal_pool!()
+    previous_pool = Repo.put_dynamic_repo(pool)
     accepted = delivery_pending!("renewal-pool-failure")
     parent = self()
 
     {worker, worker_monitor} =
       spawn_monitor(fn ->
+        Repo.put_dynamic_repo(pool)
         {:monitors, initial_monitors} = Process.info(self(), :monitors)
 
         delay =
@@ -635,10 +639,10 @@ defmodule Responder.Delivery.DispatcherTest do
     assert_receive {:delivery_publish_started, provider}, 1_000
     provider_monitor = Process.monitor(provider)
     send(worker, {:provider_under_test, provider})
-    holder = hold_renewal_connection!()
+    holder = hold_renewal_connection!(pool)
 
     try do
-      assert_receive {:poll_returned, ^worker, delay, provider_alive}, 20_000
+      assert_receive {:poll_returned, ^worker, delay, provider_alive}, 5_000
       refute provider_alive, "the fake provider outlived the failed lease renewal"
       assert delay == 1_000
       assert_receive {:DOWN, ^provider_monitor, :process, ^provider, :killed}, 1_000
@@ -663,6 +667,7 @@ defmodule Responder.Delivery.DispatcherTest do
       Process.exit(worker, :kill)
       Process.demonitor(provider_monitor, [:flush])
       Process.demonitor(worker_monitor, [:flush])
+      Repo.put_dynamic_repo(previous_pool)
     end
   end
 
@@ -709,11 +714,32 @@ defmodule Responder.Delivery.DispatcherTest do
     )
   end
 
-  defp hold_renewal_connection! do
+  defp renewal_pool! do
+    # The shared pool's 10-second queue poll can reject a renewal just after the
+    # old 20-second assertion deadline. One full gate failed on that timer phase.
+    # Exercise the real exhausted pool with short timers, not a longer assertion
+    # or a synthetic renewal result; keep fixture writes sandboxed.
+    pool =
+      start_supervised!(
+        Supervisor.child_spec(
+          {Repo, name: nil, pool_size: 1, queue_target: 10, queue_interval: 10},
+          id: :delivery_renewal_pool
+        )
+      )
+
+    owner = Sandbox.start_owner!(pool, shared: true, isolation: "REPEATABLE READ")
+
+    on_exit(fn -> Sandbox.stop_owner(owner) end)
+    pool
+  end
+
+  defp hold_renewal_connection!(pool) do
     parent = self()
 
     holder =
       spawn_link(fn ->
+        Repo.put_dynamic_repo(pool)
+
         Repo.checkout(
           fn ->
             send(parent, {:renewal_connection_held, self()})
