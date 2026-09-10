@@ -16,6 +16,7 @@ defmodule Responder.ControlPlane.KnowledgeRebuildTest do
   }
 
   alias Responder.Episodes.Episode
+  alias Responder.Fixtures.DatabaseClock
   alias Responder.Fixtures.Knowledge, as: Fixtures
   alias Responder.Fixtures.Learning, as: LearningFixtures
   alias Responder.Learning.{Batch, Batches}
@@ -29,6 +30,15 @@ defmodule Responder.ControlPlane.KnowledgeRebuildTest do
     lease_seconds: 300,
     batch_size: 16
   }
+
+  test "the source picker fixture stays claimable when the database clock trails the host" do
+    # Two full-gate failures came from zero-delay fixture claims comparing host
+    # receipt timestamps with a slightly earlier PostgreSQL clock.
+    DatabaseClock.behind_host!()
+    {id, current} = unavailable_with_current_original!()
+    assert is_binary(id)
+    assert current.content["text"] =~ "keep"
+  end
 
   test "an unavailable topic offers explicit source selection without changing history on inspection" do
     # Source withdrawal used to leave an unrepairable topic. This renderer
@@ -340,7 +350,8 @@ defmodule Responder.ControlPlane.KnowledgeRebuildTest do
     # original is the separately retained human keep decision, not derived prose.
     {old, document} = Fixtures.learn!(destination, current.repository_ref)
     Fixtures.revoke!(old)
-    assert {:ok, claim} = Batches.claim("relearn-ui-fixture", @settings)
+    [current] = LearningFixtures.normalize_queue_timestamps!([current])
+    assert {:ok, %{batch: %Batch{}} = claim} = Batches.claim("relearn-ui-fixture", @settings)
     assert {:ok, _} = Batches.finish(claim, :no_change)
     {String.replace_prefix(document["source_ref"], "knowledge:", ""), current}
   end
