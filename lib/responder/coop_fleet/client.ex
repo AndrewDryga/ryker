@@ -705,15 +705,28 @@ defmodule Responder.CoopFleet.Client do
   defp missing_checkpoint(%Session{coop_session_id: nil}), do: {:ok, nil}
 
   defp missing_checkpoint(%Session{} = previous) do
-    if workspace_binding_attempted?(previous.id),
+    if workspace_changes_possible?(previous.id),
       do: {:error, {:coop_workspace_checkpoint_required, previous.id, previous.generation}},
       else: {:ok, nil}
   end
 
-  defp workspace_binding_attempted?(session_id) do
+  defp workspace_changes_possible?(session_id),
+    do: turn_submission_attempted?(session_id) or checkpoint_restore_attempted?(session_id)
+
+  defp turn_submission_attempted?(session_id) do
     Repo.exists?(
       from(command in Command,
-        where: command.session_id == ^session_id and command.kind == "ensure_workspace"
+        where: command.session_id == ^session_id and command.kind == "submit_turn"
+      )
+    )
+  end
+
+  defp checkpoint_restore_attempted?(session_id) do
+    Repo.exists?(
+      from(command in Command,
+        where:
+          command.session_id == ^session_id and command.kind == "ensure_workspace" and
+            fragment("(?::jsonb -> 'checkpoint') IS NOT NULL", command.payload)
       )
     )
   end
