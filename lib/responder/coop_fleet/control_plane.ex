@@ -260,7 +260,7 @@ defmodule Responder.CoopFleet.ControlPlane do
       Repo.one(
         from(session in Session,
           where: session.id == ^session_id,
-          lock: "FOR UPDATE"
+          lock: "FOR NO KEY UPDATE"
         )
       ) || rollback({:coop_session_not_found, session_id})
 
