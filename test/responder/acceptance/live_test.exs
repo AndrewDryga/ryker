@@ -7,7 +7,7 @@ defmodule Responder.Acceptance.LiveTest do
 
   @now ~U[2026-08-30 15:00:00.000000Z]
 
-  test "an immutable release proves a same-session answer and follow-up in one test thread" do
+  test "an immutable release proves an answer and contextual follow-up in one test thread" do
     parent = self()
 
     {:ok, observer} =
@@ -18,7 +18,7 @@ defmodule Responder.Acceptance.LiveTest do
             {:ok, snapshot("episode-a", "session-a", "turn-a", "Answer one")}
           ],
           "acceptance:followup" => [
-            {:ok, snapshot("episode-a", "session-a", "turn-b", "Answer two")}
+            {:ok, snapshot("episode-a", "session-b", "turn-b", "Answer two")}
           ]
         }
       end)
@@ -79,18 +79,19 @@ defmodule Responder.Acceptance.LiveTest do
              get_in(followup, ["payload", "event", "ts"])
   end
 
-  test "product acceptance proves both turns used one exact remote worker placement" do
-    placement = %{generation: 3, state: :active, worker_id: "worker-remote-a"}
+  test "product acceptance proves both turns used a valid remote worker placement" do
+    first_placement = %{generation: 3, state: :active, worker_id: "worker-remote-a"}
+    followup_placement = %{generation: 4, state: :active, worker_id: "worker-remote-b"}
 
     first =
       "episode-a"
       |> snapshot("session-a", "turn-a", "Remote answer one")
-      |> Map.put(:worker_placement, placement)
+      |> Map.put(:worker_placement, first_placement)
 
     followup =
       "episode-a"
-      |> snapshot("session-a", "turn-b", "Remote answer two")
-      |> Map.put(:worker_placement, placement)
+      |> snapshot("session-b", "turn-b", "Remote answer two")
+      |> Map.put(:worker_placement, followup_placement)
 
     operations = snapshot_operations(self(), "fleet", first, followup)
     configuration = Map.put(configuration(), :runtime_mode, :product)
@@ -102,18 +103,17 @@ defmodule Responder.Acceptance.LiveTest do
                timeout_ms: 1_000
              )
 
-    assert report.worker_placement == placement
+    assert report.worker_placement == first_placement
 
-    crossed =
-      Map.put(followup, :worker_placement, %{placement | generation: 4, worker_id: "worker-b"})
+    missing = Map.put(followup, :worker_placement, nil)
 
-    operations = snapshot_operations(self(), "crossed-fleet", first, crossed)
+    operations = snapshot_operations(self(), "missing-fleet", first, missing)
 
     assert Live.run(configuration, "C-TEST",
              operations: operations,
-             run_id: "crossed-fleet",
+             run_id: "missing-fleet",
              timeout_ms: 1_000
-           ) == {:error, :live_acceptance_followup_changed_worker_placement}
+           ) == {:error, :live_acceptance_remote_placement_missing}
   end
 
   test "unsafe or unjoined Slack channels are rejected before posting" do
@@ -143,7 +143,7 @@ defmodule Responder.Acceptance.LiveTest do
     end
   end
 
-  test "a crossed episode or Coop session fails the live proof" do
+  test "a crossed episode fails the live proof" do
     {:ok, observer} =
       Agent.start_link(fn ->
         %{
@@ -263,9 +263,6 @@ defmodule Responder.Acceptance.LiveTest do
 
   test "continuation identity and delivery destination are independently verified" do
     cases = [
-      {snapshot("episode-a", "session-a", "turn-a", "one"),
-       snapshot("episode-a", "session-b", "turn-b", "two"),
-       :live_acceptance_followup_changed_session},
       {snapshot("episode-a", "session-a", "turn-a", "one"),
        snapshot("episode-a", "session-a", "turn-a", "two"),
        :live_acceptance_followup_reused_turn},
