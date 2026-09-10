@@ -2,8 +2,39 @@ defmodule Responder.Learning.RetentionTest do
   use Responder.DataCase, async: false
   alias Responder.Fixtures.Learning, as: Fixtures
   alias Responder.Learning.FleetSession
-  alias Responder.Retention.Custody
+  alias Responder.Retention.{Custody, Dispatcher}
   alias Responder.State.Learning
+
+  test "terminal learning sessions clean up through the learning execution client" do
+    # The internal component runs Work through the fleet but learning directly. Cleanup sent
+    # learning sessions to the fleet, where no worker owned that policy, and left them stuck.
+    {run, _session} = prepared!()
+
+    run
+    |> Ecto.Changeset.change(
+      remote_stopped_at: DateTime.utc_now(),
+      stop_receipt: %{"kind" => "terminal_turn", "state" => "completed"}
+    )
+    |> Repo.update!()
+
+    assert {:ok, {:executed, %{phase: :routed}}} =
+             Dispatcher.run_once(
+               api: __MODULE__.WorkAPI,
+               client: {:work, self()},
+               learning_api: __MODULE__.LearningAPI,
+               learning_client: {:learning, self()},
+               closed_session_grace_seconds: 0,
+               executor: __MODULE__.RoutingExecutor,
+               lease_seconds: 60,
+               max_attempts: 8,
+               retry_base_seconds: 1,
+               retry_max_seconds: 60,
+               worker_ref: "cleanup:learning-routing"
+             )
+
+    assert_receive {:cleanup_adapter, __MODULE__.LearningAPI, {:learning, _pid}}
+    refute_receive {:cleanup_adapter, __MODULE__.WorkAPI, {:work, _pid}}
+  end
 
   test "cleanup cannot claim a learning session before its remote turn is proven stopped" do
     {run, session} = prepared!()
@@ -62,6 +93,25 @@ defmodule Responder.Learning.RetentionTest do
       {run, session}
     else
       {run, session}
+    end
+  end
+
+  defmodule WorkAPI do
+    @moduledoc false
+  end
+
+  defmodule LearningAPI do
+    @moduledoc false
+  end
+
+  defmodule RoutingExecutor do
+    @moduledoc false
+
+    def run(_claim, options) do
+      client = Keyword.fetch!(options, :client)
+      {_kind, test_pid} = client
+      send(test_pid, {:cleanup_adapter, Keyword.fetch!(options, :api), client})
+      {:ok, %{phase: :routed}}
     end
   end
 end
