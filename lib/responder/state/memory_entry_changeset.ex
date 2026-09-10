@@ -30,22 +30,12 @@ defmodule Responder.State.MemoryEntryChangeset do
   ]
 
   @normal_required @insert_fields -- [:cutover_item_id, :source_thread_ref]
-  @cutover_required @insert_fields -- [:offer_record_id, :source_thread_ref]
 
   @spec insert(map()) :: Ecto.Changeset.t()
   def insert(attributes) do
     %MemoryEntry{}
     |> cast(attributes, @insert_fields)
     |> validate_required(@normal_required)
-    |> validate()
-  end
-
-  @doc false
-  @spec cutover(map()) :: Ecto.Changeset.t()
-  def cutover(attributes) do
-    %MemoryEntry{}
-    |> cast(attributes, @insert_fields)
-    |> validate_required(@cutover_required)
     |> validate()
   end
 

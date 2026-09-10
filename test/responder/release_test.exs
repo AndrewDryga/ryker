@@ -4,6 +4,40 @@ defmodule Responder.ReleaseTest do
   alias Responder.Release
   alias Responder.RuntimeConfiguration
 
+  test "the Elixir release preserves import history without shipping retired Go migration commands" do
+    # Removing the Go gates left their obsolete importer and rollback command in
+    # every release. Historical provenance is still used by retention and records.
+    for module <- [
+          Mix.Tasks.Responder.Cutover,
+          Responder.Cutover.Importer,
+          Responder.Cutover.Ledger,
+          Responder.Cutover.LegacySchema,
+          Responder.Cutover.LegacySnapshot,
+          Responder.Cutover.Manifest,
+          Responder.Cutover.Rollback
+        ] do
+      refute Code.ensure_loaded?(module)
+    end
+
+    assert Code.ensure_loaded?(Responder.Cutover.Item)
+    assert Code.ensure_loaded?(Responder.Cutover.Run)
+  end
+
+  test "retained historical schemas do not expose retired import write paths" do
+    # The removed importer was their sole caller; leaving these writes behind
+    # made an obsolete migration look like a supported runtime operation.
+    for {module, operation, arity} <- [
+          {Responder.State.MemoryEntryChangeset, :cutover, 1},
+          {Responder.State.BehaviorChangeset, :cutover, 1},
+          {Responder.State.ScheduleChangeset, :cutover, 1},
+          {Responder.State.RecordChangeset, :cutover, 1},
+          {Responder.Episodes.EpisodeChangeset, :bind_cutover, 2}
+        ] do
+      assert Code.ensure_loaded?(module)
+      refute function_exported?(module, operation, arity)
+    end
+  end
+
   test "production defaults to operational logging instead of debug SQL output" do
     configuration =
       Path.expand("../../config/prod.exs", __DIR__)

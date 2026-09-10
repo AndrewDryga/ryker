@@ -25,7 +25,7 @@ defmodule Responder.RuntimeConfigurationTest do
     configuration = RuntimeConfiguration.load!(@example, env_provider: env_provider)
 
     assert Map.keys(configuration) |> Enum.sort() ==
-             ~w(admission control_plane coop_worker_gateway cutover_profiles delivery emisar event_waits github learning model_evals publication retention runtime_mode schedules slack state_tools webhooks work)a
+             ~w(admission control_plane coop_worker_gateway delivery emisar event_waits fleet_profiles github learning model_evals publication retention runtime_mode schedules slack state_tools webhooks work)a
 
     assert configuration.runtime_mode == :product
     assert configuration.webhooks.routes["universal"].adapter == %{kind: :universal}
@@ -247,14 +247,14 @@ defmodule Responder.RuntimeConfigurationTest do
     assert {:ok, %{name: "responder-deep-v1"}} =
              WorkProfile.policy_for(binding.work_profile, :deep)
 
-    assert configuration.cutover_profiles[{"read_only", "responder"}] == %{
+    assert configuration.fleet_profiles[{"read_only", "responder"}] == %{
              authority_digest: "6666666666666666666666666666666666666666666666666666666666666666",
              policy: "responder-conversation-v1",
              policy_digest: "9999999999999999999999999999999999999999999999999999999999999999",
              repository_ref: "responder"
            }
 
-    assert configuration.cutover_profiles[{"repository_write", "responder"}].policy ==
+    assert configuration.fleet_profiles[{"repository_write", "responder"}].policy ==
              "responder-contributor-v1"
   end
 
@@ -645,7 +645,7 @@ defmodule Responder.RuntimeConfigurationTest do
 
     assert Map.keys(configuration) |> Enum.sort() == [
              :admission,
-             :cutover_profiles,
+             :fleet_profiles,
              :runtime_mode,
              :work
            ]
@@ -654,7 +654,7 @@ defmodule Responder.RuntimeConfigurationTest do
     assert configuration.admission.worker_ref == "responder-minimal:admission"
     assert configuration.work.worker_ref == "responder-minimal:work"
     assert configuration.work.concurrency == 4
-    assert configuration.cutover_profiles[{"read_only", nil}].policy == "admission-read"
+    assert configuration.fleet_profiles[{"read_only", nil}].policy == "admission-read"
     refute Map.has_key?(configuration.work, :state_tool_capabilities)
   end
 
@@ -1277,7 +1277,7 @@ defmodule Responder.RuntimeConfigurationTest do
     previous_variable = System.get_env(variable)
     previous_admission = Application.get_env(:responder, :admission)
     previous_control_plane = Application.get_env(:responder, :control_plane)
-    previous_cutover_profiles = Application.get_env(:responder, :cutover_profiles)
+    previous_fleet_profiles = Application.get_env(:responder, :fleet_profiles)
     previous_runtime_mode = Application.get_env(:responder, :runtime_mode)
     previous_work = Application.get_env(:responder, :work)
 
@@ -1290,7 +1290,7 @@ defmodule Responder.RuntimeConfigurationTest do
       restore_environment(variable, previous_variable)
       restore_application(:admission, previous_admission)
       restore_application(:control_plane, previous_control_plane)
-      restore_application(:cutover_profiles, previous_cutover_profiles)
+      restore_application(:fleet_profiles, previous_fleet_profiles)
       restore_application(:runtime_mode, previous_runtime_mode)
       restore_application(:work, previous_work)
       File.rm(path)

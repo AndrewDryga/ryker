@@ -180,7 +180,7 @@ defmodule Responder.ObservabilityTest do
     policy_digest = String.duplicate("b", 64)
     workspace_ref = "workspace-observability"
     previous_work = Application.get_env(:responder, :work, :missing)
-    previous_profiles = Application.get_env(:responder, :cutover_profiles, :missing)
+    previous_profiles = Application.get_env(:responder, :fleet_profiles, :missing)
 
     assert {:ok, client} =
              Client.new(
@@ -190,7 +190,7 @@ defmodule Responder.ObservabilityTest do
 
     Application.put_env(:responder, :work, %{api: Client, client: client})
 
-    Application.put_env(:responder, :cutover_profiles, %{
+    Application.put_env(:responder, :fleet_profiles, %{
       {"read_only", nil} => %{
         authority_digest: authority_digest,
         policy: "work-read-only",
@@ -201,7 +201,7 @@ defmodule Responder.ObservabilityTest do
 
     on_exit(fn ->
       restore_env(:work, previous_work)
-      restore_env(:cutover_profiles, previous_profiles)
+      restore_env(:fleet_profiles, previous_profiles)
     end)
 
     assert {:error, unavailable} =

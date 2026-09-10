@@ -47,32 +47,10 @@ defmodule Responder.State.BehaviorChangeset do
                        :use_count
                      ]
 
-  @cutover_required @fields --
-                      [
-                        :expires_at,
-                        :edited_at,
-                        :edited_by_actor_ref,
-                        :edit_review_ref,
-                        :last_reviewed_at,
-                        :last_used_at,
-                        :offer_record_id,
-                        :source_thread_ref,
-                        :use_count
-                      ]
-
   def insert(attributes) do
     %Behavior{}
     |> cast(attributes, @fields)
     |> validate_required(@insert_required)
-    |> validate()
-  end
-
-  @doc false
-  @spec cutover(map()) :: Ecto.Changeset.t()
-  def cutover(attributes) do
-    %Behavior{}
-    |> cast(attributes, @fields)
-    |> validate_required(@cutover_required)
     |> validate()
   end
 

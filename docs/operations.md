@@ -419,6 +419,10 @@ no live references. Active episodes, schedule occurrences with active child
 work, pending delivery, approvals, publications, and cutover evidence are not
 age-only garbage.
 
+Historical import records and their provenance remain in PostgreSQL. The retired
+Go-state import and rollback commands are no longer shipped; removing those tools
+does not remove previously imported work or memory.
+
 Inspect retention failures in the control plane before retrying. A failed close
 or prune remains durable work; do not bypass it with direct deletes.
 

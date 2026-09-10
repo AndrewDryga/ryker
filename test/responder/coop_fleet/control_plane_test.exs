@@ -13,6 +13,7 @@ defmodule Responder.CoopFleet.ControlPlaneTest do
   alias Responder.Slack.Input, as: SlackInput
   alias Responder.StateTools.Binding
   alias Responder.Work.{ActivityEvent, Custody, Session, SessionChangeset, StateBinding}
+  alias Responder.Work.{Cancellation, TurnChangeset}
 
   @authority_digest String.duplicate("d", 64)
   @policy_digest String.duplicate("b", 64)
@@ -192,6 +193,22 @@ defmodule Responder.CoopFleet.ControlPlaneTest do
     second = session!("free-capacity-second")
     assert {:ok, second_placement} = ControlPlane.place_session(second.id, requirements, 60)
     assert second_placement.worker_id == "worker-a"
+  end
+
+  test "placement reservations and leases use the same database clock" do
+    # Host/database clock drift made freshly reported capacity count an existing
+    # placement twice, blocking the next conversation even with a free worker slot.
+    authorize_and_poll!("worker-a")
+    session = session!("reservation-database-clock")
+
+    assert {:ok, placement} =
+             ControlPlane.place_session(
+               session.id,
+               %{repository_ref: "responder", workspace_ref: "workspace-main"},
+               60
+             )
+
+    assert placement.inserted_at == DateTime.add(placement.lease_expires_at, -60, :second)
   end
 
   test "fresh worker capacity can reuse slots held only by reflected parked placements" do
@@ -420,12 +437,12 @@ defmodule Responder.CoopFleet.ControlPlaneTest do
 
     turn = claim.turn
 
-    assert {:ok, intent} = Responder.Work.Cancellation.new_block("placement lease ended")
+    assert {:ok, intent} = Cancellation.new_block("placement lease ended")
 
     turn
-    |> Responder.Work.TurnChangeset.prepare_cancellation(
+    |> TurnChangeset.prepare_cancellation(
       intent,
-      Responder.Work.Cancellation.fingerprint(intent),
+      Cancellation.fingerprint(intent),
       nil
     )
     |> Repo.update!()

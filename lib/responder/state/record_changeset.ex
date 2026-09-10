@@ -36,32 +36,11 @@ defmodule Responder.State.RecordChangeset do
     :turn_id
   ]
 
-  @cutover_required [
-    :cutover_item_id,
-    :episode_id,
-    :id,
-    :kind,
-    :operation_id,
-    :payload,
-    :payload_fingerprint,
-    :ref,
-    :status
-  ]
-
   @spec insert(map()) :: Ecto.Changeset.t()
   def insert(attributes) do
     %Record{}
     |> cast(attributes, @fields)
     |> validate_required(@insert_required)
-    |> validate()
-  end
-
-  @doc false
-  @spec cutover(map()) :: Ecto.Changeset.t()
-  def cutover(attributes) do
-    %Record{}
-    |> cast(attributes, @fields)
-    |> validate_required(@cutover_required)
     |> validate()
   end
 

@@ -48,16 +48,6 @@ defmodule Responder.Episodes.EpisodeChangeset do
     |> validate()
   end
 
-  @doc false
-  @spec bind_cutover(Episode.t(), Ecto.UUID.t()) :: Ecto.Changeset.t()
-  def bind_cutover(%Episode{} = episode, cutover_item_id) do
-    episode
-    |> cast(%{cutover_item_id: cutover_item_id}, [:cutover_item_id])
-    |> validate_required([:cutover_item_id])
-    |> unique_constraint(:cutover_item_id)
-    |> foreign_key_constraint(:cutover_item_id)
-  end
-
   defp validate(changeset) do
     changeset
     |> validate_required(@required_fields)

@@ -1,5 +1,9 @@
 defmodule Responder.Admission.ReplySameWorkEquivalenceTest do
-  use Responder.DataCase, async: true
+  # ReplayTest uses this same harvested Slack identity. A sandbox holds locks
+  # across receive/admit calls that commit separately in production; running the
+  # two fixtures concurrently deadlocked their channel and conversation locks.
+  # Keep the source unmodified and run this equivalence assertion serially.
+  use Responder.DataCase, async: false
 
   @moduletag isolation: "REPEATABLE READ"
 
