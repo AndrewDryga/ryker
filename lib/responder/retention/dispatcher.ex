@@ -63,6 +63,7 @@ defmodule Responder.Retention.Dispatcher do
   defp transient?({:coop_mutation_response_unresolved, _phase, _reason}), do: true
   defp transient?({:coop_unavailable, _reason}), do: true
   defp transient?({:coop_transport_error, _reason}), do: true
+  defp transient?({:coop_worker_capacity_unavailable, _session_id}), do: true
   defp transient?({:coop_error, 429, _code, _detail}), do: true
   defp transient?({:coop_error, status, _code, _detail}) when status >= 500, do: true
   defp transient?(_reason), do: false
