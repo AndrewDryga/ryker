@@ -25,8 +25,7 @@ Preserve user data; removing an old interface does not authorize deleting histor
 Use the narrowest validation that proves the current edit while iterating:
 
 1. Run the owning package or named test after each code change, for example
-   `scripts/elixir-test.sh test/responder/work/executor_test.exs:120`. Use a focused
-   Go test only when the edited boundary is still owned by legacy Go code.
+   `scripts/elixir-test.sh test/responder/work/executor_test.exs:120`.
 2. Run `make dev-check` before committing. It is the fast deterministic repository gate.
 3. Run `make check` once before shipping changes that affect concurrency, persistence,
    security, release behavior, or broad shared contracts. CI and release workflows always
@@ -34,13 +33,12 @@ Use the narrowest validation that proves the current edit while iterating:
 4. Run live Slack, Coop, or Emisar acceptance only when the changed integration boundary
    requires it. Do not substitute live smoke tests for focused offline tests.
 
-Do not repeatedly run the whole-tree race detector, vulnerability scan, or credentialed
-model evals during ordinary edit-test cycles.
+Do not repeatedly run credentialed model evals during ordinary edit-test cycles.
 
 ## Every fix carries the test that would have caught it
 
 A fix without a test is a fix with a scheduled return date. On 2026-08-13 eight defects
-were found in one day; seven were ordinary Go tests nobody had written, and several were
+were found in one day; seven were ordinary deterministic tests nobody had written, and several were
 variants of bugs fixed the week before. The diagnosis was never the bottleneck.
 
 So, for anything that reached production:
@@ -53,7 +51,7 @@ So, for anything that reached production:
    failure message names what went wrong rather than whatever the store said about a write
    that should never have happened.
 3. **Name the test after the invariant**, not the function:
-   `TestAttemptedRunSurvivesANewerContextualMessage`, not `TestAdmitTriageRun`.
+   `attempted run survives a newer contextual message`, not `admit triage run`.
 4. **Record the cost in the comment.** "Thirty of these in two days, on episodes that then
    spent every attempt they had" is why the test exists; a future reader deleting it as
    redundant needs to know what it is holding shut.
@@ -61,7 +59,7 @@ So, for anything that reached production:
 The model's answer is an **input**, not a dependency. Almost every defect here is the host
 mishandling a well-formed result — suppression rebuilding a reply it had just cleared, a 409
 read as "this work is finished", a whole result discarded because `confidence` was `3`
-instead of `"high"`. Reproduce those with a recorded result string and `newFakeCoop()`. No
+instead of `"high"`. Reproduce those with a recorded result and a deterministic test double. No
 test in `dev-check` may call a model: `make eval-replay` runs its recorded cases in under a
 second with no credentials, and that is the standard to hold.
 
@@ -69,24 +67,17 @@ Fixtures are harvested, never invented. `agent_runs.result_json` holds hundreds 
 answers and `context_manifests.submitted_prompt` the prompts that produced them, so the exact
 result that broke production is already on disk.
 
-`make findings-coverage` lists every confirmed finding whose suggested test does not exist.
-The assessor proposes a name; when a better one exists by the time you write it, claim the
-spec with a `// Covers: TestSuggestedName` line so the backlog is a number that can reach
-zero rather than one that drifts.
-
 ### Where each kind of test belongs
 
-- **Host mishandled a valid result** → Go test beside the code. Deterministic, no model.
-- **Model produced an invalid or unusable result** → `make eval-prompts`. That is a prompt
+- **Host mishandled a valid result** → ExUnit test beside the owning module. Deterministic, no model.
+- **Model produced an invalid or unusable result** → `make eval-world`. That is a prompt
   problem, and no amount of host testing fixes it. Run it when prompts, contracts, or
   operation schemas change.
 - **The machine stopped working** → no test catches this. `scripts/watchdog.sh` does.
 
-The full eval-prompts run takes half an hour and must never queue a deploy. For a prompt
-WORDING change, `make eval-prompts-smoke` (~5 minutes, five smoke-tagged cases) gates the
-deploy; the full run follows after the deploy as information. The full run gates only
-contract, schema, or operation-list changes, and releases. A live fix waits for dev-check
-and nothing else.
+For a prompt wording change, `make eval-world-smoke` is the focused model gate. Run the full
+`make eval-world` matrix for contract, schema, operation-list, and release changes. A live fix
+waits for `dev-check` and nothing else.
 
 The split is diagnostic. When a correction fires repeatedly on one episode, ask which side it
 belongs to before writing anything: a correction the model *cannot* satisfy is a host bug, and

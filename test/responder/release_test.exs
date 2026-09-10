@@ -30,7 +30,6 @@ defmodule Responder.ReleaseTest do
       deploy/nginx/responder.conf
       deploy/systemd/responder.service
       deploy/systemd/responder.env.example
-      docs/elixir-cutover.md
       docs/elixir-ingress-admission.md
       docs/operations.md
       docs/releasing.md
@@ -67,15 +66,12 @@ defmodule Responder.ReleaseTest do
     assert version_script =~ ~s(cat-file -t "$tag")
 
     release_workflow = File.read!(Path.expand("../../.github/workflows/release.yml", __DIR__))
-    goreleaser = File.read!(Path.expand("../../.goreleaser.yaml", __DIR__))
-
     assert release_workflow =~ "erlef/setup-beam@"
     assert release_workflow =~ "make elixir-release-check"
     assert release_workflow =~ "_elixir_linux_amd64.tar.gz"
-    assert goreleaser =~ "checksum:"
-    assert goreleaser =~ "extra_files:"
-    assert goreleaser =~ "responder_{{ .Version }}_elixir_linux_amd64.tar.gz"
-    assert goreleaser =~ "install-elixir-release.sh"
+    assert release_workflow =~ "sha256sum"
+    assert release_workflow =~ "cosign sign-blob"
+    assert release_workflow =~ "install-elixir-release.sh"
 
     mixfile = File.read!(Path.expand("../../mix.exs", __DIR__))
     assert mixfile =~ "System.get_env(\"RESPONDER_ELIXIR_VERSION\")"
@@ -111,7 +107,6 @@ defmodule Responder.ReleaseTest do
     assert deploy =~ ~S|installed_version=$("$prefix/current/bin/responder" version)|
     assert deploy =~ ~S|scripts/check-running-elixir-release.sh "$health_url" "$version"|
     refute deploy =~ ~S|installed_version=$($prefix/current/bin/responder version)|
-    refute deploy =~ "go build"
     refute deploy =~ "launchctl"
     refute deploy =~ "responder-$sha"
 
@@ -331,7 +326,6 @@ defmodule Responder.ReleaseTest do
           deploy/nginx/responder.conf
           deploy/systemd/responder.service
           deploy/systemd/responder.env.example
-          docs/elixir-cutover.md
           docs/elixir-ingress-admission.md
           docs/operations.md
           docs/releasing.md

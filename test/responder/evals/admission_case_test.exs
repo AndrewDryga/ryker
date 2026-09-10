@@ -150,7 +150,7 @@ defmodule Responder.Evals.AdmissionCaseTest do
 
   test "malformed manifests and candidates fail before a model score can be reported" do
     temporary = Path.join(System.tmp_dir!(), "responder-eval-#{Ecto.UUID.generate()}.json")
-    File.write!(temporary, Jason.encode!(%{"stage2_pending_model_evals" => []}))
+    File.write!(temporary, Jason.encode!(%{"cases" => []}))
     on_exit(fn -> File.rm(temporary) end)
 
     assert AdmissionCase.all(temporary) == {:ok, []}
@@ -243,15 +243,15 @@ defmodule Responder.Evals.AdmissionCaseTest do
     missing = write_json!(%{})
 
     assert AdmissionCase.all(missing) ==
-             {:error, {:invalid_admission_eval_manifest, :pending_model_evals}}
+             {:error, {:invalid_admission_eval_manifest, :cases}}
 
-    not_a_list = write_json!(%{"stage2_pending_model_evals" => %{}})
+    not_a_list = write_json!(%{"cases" => %{}})
 
     assert AdmissionCase.all(not_a_list) ==
              {:error, {:invalid_admission_eval_manifest, :document}}
 
     duplicate = descriptor(@fixture_path, "duplicate")
-    duplicate_manifest = write_json!(%{"stage2_pending_model_evals" => [duplicate, duplicate]})
+    duplicate_manifest = write_json!(%{"cases" => [duplicate, duplicate]})
 
     assert AdmissionCase.all(duplicate_manifest) ==
              {:error, {:invalid_admission_eval_manifest, :duplicate_eval_id}}
@@ -268,7 +268,7 @@ defmodule Responder.Evals.AdmissionCaseTest do
              AdmissionCase.all(missing_path)
 
     invalid_descriptor = descriptor(missing_path, "missing-fixture")
-    invalid_manifest = write_json!(%{"stage2_pending_model_evals" => [invalid_descriptor]})
+    invalid_manifest = write_json!(%{"cases" => [invalid_descriptor]})
 
     assert AdmissionCase.all(invalid_manifest) ==
              {:error, {missing_path, {:invalid_admission_eval_file, missing_path, :enoent}}}

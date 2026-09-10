@@ -33,7 +33,7 @@ partial, stale or cancelled paths just because the happy-path mock looks good.
 
 ## 2. Use real evidence, with explicit proposed variants
 
-Reuse the sanitized Blitz corpus and prior sent Go card in the reference task below. They contain
+Reuse the sanitized Blitz corpus and prior sent card in the reference task below. They contain
 real requests, repositories, goals, observations, tool calls and publication failures. Choose
 representative cases; do not copy irrelevant follow-ups or old progress labels into a new design.
 

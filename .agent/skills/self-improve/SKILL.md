@@ -60,18 +60,7 @@ invent a Decisions page or send its obsolete actions.
 - Never edit operator-confirmed memory silently; use the review actions so the
   supersession trail stays honest.
 
-## 3. Quality findings — the watcher's confirmed defects
-
-- Findings page on the control plane (or `SELECT * FROM quality_findings ORDER BY
-  created_at DESC` on blitz). Each row survived an adversarial challenger.
-- For each unaddressed finding: reproduce it (the row names file/symbol evidence and
-  the episodes it came from), then fix it the repo's way — the failing test FIRST,
-  watched red on the pre-fix code, then the fix, then the gate.
-- `make findings-coverage` lists confirmed findings whose suggested test does not
-  exist. Write the missing tests or claim renamed specs with `// Covers:` lines.
-  The backlog must be a number that reaches zero, not one that drifts.
-
-## 4. Blocked decisions and stale queue state
+## 3. Blocked decisions and stale queue state
 
 - `coop tasks decisions` lists every open decision card with its recommendation.
   Decide each one you have the evidence for; write the Resolution and unblock.
@@ -84,7 +73,7 @@ invent a Decisions page or send its obsolete actions.
   means (verify against the tree first — several backlog items have been
   superseded within days of filing).
 
-## 5. Eval and cost health — is it getting better?
+## 4. Eval and cost health — is it getting better?
 
 - `responder audition --config <deployment yaml>` — corrections-per-attempt and
   cost per lane per model. A lane whose rate jumped is a regression to diagnose
@@ -97,7 +86,7 @@ invent a Decisions page or send its obsolete actions.
 - Chronic failures in `testdata/eval/` cases: decide prompt-side vs host-side and
   open the task on the right side.
 
-## 6. Episodes with fresh eyes — the unprompted review
+## 5. Episodes with fresh eyes — the unprompted review
 
 The host keeps the review ledger, so this section never re-reads an ending it has
 already judged. Walk `GET /episodes?review=pending` on each deployment's control
@@ -120,19 +109,10 @@ either "no defect" or the task id you filed. The note is the review journal. An
 episode left unmarked is an episode the next pass pays to read again, and a mark
 without a note is a review that cannot be audited.
 
-## 7. Record what only now exists
-
-Check `internal/episode_replay_coverage_test.go`'s acknowledged gaps against the
-last few days of real history. Retention prunes fast — if a gap's real occurrence
-happened recently (a room-less approval, a standing-assignment evaluation, a
-completed schedule run), record it NOW with
-`responder record-episode --config <yaml> --episode <id> --capability <slug>`,
-append to the corpus, delete the gap line, and let the ratchet climb.
-
-## 8. Close the loop
+## 6. Close the loop
 
 - Land every fix through the gate (dev-check; the full `make check` and
-  `eval-prompts` tiers per CLAUDE.md's rules for what changed).
+  `eval-world` tiers per AGENTS.md's rules for what changed).
 - Deploy with `scripts/deploy.sh` and say what is running.
 - Update the weekly picture: what was decided, what was fixed, what was deferred
   and why — a short digest in the session, and durable notes only where the repo's

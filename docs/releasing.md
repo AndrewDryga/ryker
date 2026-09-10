@@ -1,17 +1,15 @@
 # Releasing Responder
 
 Responder releases are public, tag-driven GitHub Releases. The canonical service artifact is the
-self-contained Linux amd64 Elixir release. The workflow builds and structurally checks it first;
-GoReleaser then adds it and the three installation helpers to the same `checksums.txt` as the bounded
-legacy Go archives, signs that manifest through GitHub OIDC and cosign, and publishes the finalized
-changelog section. GitHub records build provenance for every archive.
+self-contained Linux amd64 Elixir release. The workflow builds and structurally checks it, adds the
+three installation helpers, signs `checksums.txt` through GitHub OIDC and cosign, and publishes the
+finalized changelog section. GitHub records build provenance for the archive.
 
 Pushing a version tag is the release-publication boundary. All release preparation before that
 push is reversible without rewriting a published release.
 
-Local release checks require the Erlang and Elixir versions from `.tool-versions`, the Go version
-from `go.mod`, ShellCheck, and GoReleaser v2.16.0. Commit first, then prove the exact Elixir artifact
-without touching a production listener:
+Local release checks require the Erlang and Elixir versions from `.tool-versions` and ShellCheck.
+Commit first, then prove the exact Elixir artifact without touching a production listener:
 
 ```bash
 make elixir-release-check
@@ -49,9 +47,8 @@ host.
 ## Prepare
 
 1. Work from a clean `main` that is not behind `origin/main`.
-2. Run `make release-check`. It executes the complete gate, builds the exact unsigned Elixir and
-   compatibility snapshots, verifies their checksums and archive contents, boots the Elixir
-   candidate against disposable PostgreSQL, and smoke-tests native executables where supported.
+2. Run `make release-check`. It executes the complete gate, builds and inspects the exact unsigned
+   Elixir release, and boots the candidate against disposable PostgreSQL.
 3. Refuse a no-op release. Compare the latest version tag to `main`; if only documentation or the
    changelog changed, attribute those notes to the existing release instead of cutting a
    byte-identical binary.
@@ -88,15 +85,12 @@ git push origin vX.Y.Z
 Watch `.github/workflows/release.yml` to completion, then confirm the GitHub Release contains:
 
 - `responder_X.Y.Z_elixir_linux_amd64.tar.gz`;
-- `responder_X.Y.Z_linux_amd64.tar.gz`;
-- `responder_X.Y.Z_linux_arm64.tar.gz`;
 - `install-elixir-release.sh`, `check-elixir-release.sh`, and `activate-elixir-release.sh`;
 - `checksums.txt`;
 - `checksums.txt.bundle`.
 
-The workflow creates a draft first, smoke-tests its local artifacts, records provenance, and only
-then makes the release public. A failure after GoReleaser therefore leaves a non-public draft for
-inspection rather than a partially verified public release.
+The workflow smoke-tests its local artifacts before creating the draft, records provenance, and
+only then makes the release public.
 
 Use the verification and installation procedure in
 [`operations.md`](operations.md#release-verification) against downloaded assets. It verifies the

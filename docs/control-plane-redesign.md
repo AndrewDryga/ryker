@@ -430,12 +430,9 @@ changing today's configuration must not silently rewrite yesterday's estimates.
 
 ## 5. Restore the learning flywheel
 
-The historical Go loop captured corrections, reviewed fixture candidates,
-promoted approved cases into a replay corpus, and auditioned model profiles.
-Reuse those semantics rather than building a disconnected analytics dashboard.
-The source references are `internal/service/correction_escalation.go`,
-`internal/app/fixture_promotion.go`, `internal/app/record_episode.go`,
-`internal/audition/audition.go`, and [Testing](testing.md). The current Elixir
+The learning loop captures corrections, reviews fixture candidates, promotes
+approved cases into a replay corpus, and compares model profiles. Reuse those
+semantics rather than building a disconnected analytics dashboard. The current
 admission fixtures and `Responder.Evals.AdmissionCase` are the starting corpus.
 
 The new durable loop is:
@@ -619,8 +616,8 @@ Implementation requirements:
 - The final focused Elixir regression batch for this slice passes 156 tests in
   about eight seconds. A separate 137-test accounting/projection/retention batch
   also passed. These are focused offline results, not full release qualification
-  or production-like acceptance. No Go or credentialed model tests were run for
-  these Elixir/UI edits.
+  or production-like acceptance. No credentialed model tests were run for these
+  UI edits.
 - The read-only Coop architecture review confirmed that the existing session
   service cannot provide tool-free/workspace-free inference. It needs a separate
   durable inference resource, direct-provider adapter, recovery/cancellation
@@ -662,8 +659,8 @@ Add migrations under `priv/repo/migrations/` and owning tests under
 verify the actual dependency API and pin supported contracts.
 
 For each production bug, first add the test that fails for the actual defect,
-using harvested data. Run the owning Elixir tests during iteration; no Go tests
-for Elixir-only edits. Run `make dev-check` before committing and `make check`
+using harvested data. Run the owning Elixir tests during iteration. Run
+`make dev-check` before committing and `make check`
 once before shipping the persistence/security/shared-contract changes. Model
 quality qualification is a separate bounded gate, never an unbounded repeated
 whole-tree test loop. Run credentialed model evaluations when the classifier or
@@ -679,8 +676,7 @@ never describe a plan, a passing gate, or a local preview as a deployed feature.
 
 ## References
 
-- [Original control-plane capabilities](control-plane.md) and
-  [checked Go-to-Elixir capability contract](elixir-go-capability-contract.md).
+- [Original control-plane capabilities](control-plane.md).
 - [Admission lifecycle contract](elixir-ingress-admission.md) and
   [harvested Slack admission corpus](elixir-slack-admission-corpus.md).
 - [Testing and the historical regression flywheel](testing.md).

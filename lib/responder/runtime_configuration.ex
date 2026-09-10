@@ -2,8 +2,7 @@ defmodule Responder.RuntimeConfiguration do
   @moduledoc """
   Strict host configuration for the Elixir product runtime.
 
-  This file is deliberately separate from the legacy Go configuration. YAML
-  keys remain strings while decoding and are mapped only to a fixed set of
+  YAML keys remain strings while decoding and are mapped only to a fixed set of
   application keys. Platform tokens stay behind callbacks and are read for
   each outbound request; webhook verification and local MCP secrets are read
   once into the owning trusted adapter at startup.
