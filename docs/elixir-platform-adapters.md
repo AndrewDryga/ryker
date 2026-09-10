@@ -65,6 +65,13 @@ payload, but remains bound to the engineering task's original delivery thread an
 authority. Generic GitHub conversations still expose the eight native emoji reactions; publication
 feedback is routed for task work rather than converted into a crossed-platform reaction target.
 
+Authorized Coop readiness reviews run whenever a delivery adapter is configured, even without
+GitHub publication credentials. The optional `publication` configuration adds the exact
+GitHub-bound repository allowlist; without it, the existing publication worker can review and
+deliver results but cannot publish a PR. An attempted publication retains its reviewed candidate
+and reports `publication_repository_not_configured` until the binding is configured. This does
+not grant task, publication, merge, or deployment authority.
+
 GitHub Work turns expose `read_github_conversation` for one bounded page of the host-bound issue or
 pull request and `search_github` for repository-scoped issue/PR search. Sections cover the subject,
 issue discussion, review summaries, review comments, one exact inline review thread, and changed

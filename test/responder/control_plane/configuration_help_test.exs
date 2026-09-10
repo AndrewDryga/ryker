@@ -80,6 +80,13 @@ defmodule Responder.ControlPlane.ConfigurationHelpTest do
     refute page =~ "<form"
   end
 
+  test "readiness availability is not described as GitHub publication authority" do
+    page = html([row("publication", "enabled")])
+    assert page =~ "Readiness reviews run whenever a delivery adapter is configured"
+    assert page =~ "Publishing requires GitHub and an explicitly configured repository binding"
+    refute page =~ "Not configured unless publication is present"
+  end
+
   test "policy help explains immutable pins instead of treating policy names as model names" do
     page = html([row("admission.policy", "responder-admission-v1")])
     assert page =~ "Coop execution policy"

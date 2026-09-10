@@ -36,10 +36,10 @@ defmodule Responder.ControlPlane.ConfigurationHelp do
       "Required whenever a local, Slack or GitHub delivery adapter is enabled."
     },
     "publication" => {
-      "Repository publication",
-      "Publishes approved repository candidates and follows their GitHub lifecycle.",
+      "Readiness and repository publication",
+      "Reviews repository candidates, publishes approved drafts and follows their GitHub lifecycle.",
       "Uses configured repository bindings and the recorded candidate. Enabling the worker does not authorize arbitrary pushes or merges; the publication checks and operator action boundaries still apply.",
-      "Not configured unless publication is present; requires GitHub and a bound repository."
+      "Readiness reviews run whenever a delivery adapter is configured. Publishing requires GitHub and an explicitly configured repository binding."
     },
     "retention" => {
       "Cleanup and retention",

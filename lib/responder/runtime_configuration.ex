@@ -1234,8 +1234,16 @@ defmodule Responder.RuntimeConfiguration do
     }
   end
 
-  defp publication!(nil, _coop, _work, _repositories, _github, _adapters, _host_ref, _env),
-    do: nil
+  defp publication!(nil, _coop, _work, _repositories, _github, adapters, _host_ref, _env)
+       when map_size(adapters) == 0,
+       do: nil
+
+  defp publication!(nil, coop, work, _repositories, _github, adapters, host_ref, _env) do
+    # Readiness uses the existing Coop authority, not GitHub credentials. An
+    # empty publication allowlist keeps external writes explicitly unavailable.
+    options = %{"lease_seconds" => max(60, div(coop.receive_timeout_ms, 1_000) + 1)}
+    publication_runtime!(options, coop, work, %{}, adapters, host_ref)
+  end
 
   defp publication!(value, coop, work, repositories, github, adapters, host_ref, env_provider) do
     if is_nil(github), do: raise(ArgumentError, "publication requires GitHub configuration")
@@ -1294,6 +1302,10 @@ defmodule Responder.RuntimeConfiguration do
     if map_size(publication_repositories) == 0,
       do: raise(ArgumentError, "publication requires at least one GitHub-bound repository")
 
+    publication_runtime!(object, coop, work, publication_repositories, adapters, host_ref)
+  end
+
+  defp publication_runtime!(object, coop, work, publication_repositories, adapters, host_ref) do
     status_client = %{repositories: publication_repositories}
 
     publisher_binding = %{

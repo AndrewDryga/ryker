@@ -283,6 +283,49 @@ defmodule Responder.RuntimeConfigurationTest do
            ) == {:error, "unauthorized"}
   end
 
+  test "readiness workers run without GitHub publication credentials" do
+    # A real readiness request remained at zero attempts and made the entire
+    # deployment unready because its worker required unrelated GitHub credentials.
+    document =
+      minimal_document("""
+      delivery: {}
+      control_plane:
+        ip: 127.0.0.1
+        port: 4321
+        work_profile:
+          policy: local-conversation
+          policy_digest: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+          repository_ref:
+      """)
+
+    # Enabling reviews must also preserve valid, longer Coop receive timeouts.
+    for timeout <- [30_000, 90_000] do
+      configured_document =
+        String.replace(document, "coop:\n", "coop:\n  receive_timeout_ms: #{timeout}\n")
+
+      configuration =
+        RuntimeConfiguration.from_string!(configured_document,
+          env_provider: fn name -> flunk("readiness must not request #{name}") end
+        )
+
+      assert Map.has_key?(configuration, :publication),
+             "a configured delivery surface must have a worker for authorized readiness requests"
+
+      options = Responder.Publication.Runtime.options!(configuration.publication)
+      assert options.coop_api == configuration.work.api
+      assert options.coop_client == configuration.work.client
+      assert options.receive_timeout_ms == timeout
+      assert options.lease_seconds * 1_000 > timeout
+      assert options.publisher_binding.repositories == %{}
+
+      assert options.status_api.get_publication_status(
+               options.status_client,
+               "acme/unconfigured",
+               1
+             ) == {:error, {:publication_repository_not_configured, "acme/unconfigured"}}
+    end
+  end
+
   test "publication retains the exact GitHub App authority for every configured repository" do
     document = """
     version: 1

@@ -199,6 +199,82 @@ defmodule Responder.Publication.DispatcherTest do
     assert request.approval_ref == "interaction:publish:runtime"
   end
 
+  test "readiness completes without publication credentials but cannot publish a draft" do
+    # Missing GitHub setup stalled an already-authorized readiness request at
+    # zero attempts. Checks must finish without turning that into write authority.
+    %{claim: work_claim, offer: offer, offer_receipt: offer_receipt} =
+      delivered_offer!("review-without-github")
+
+    assert {:ok, %{publication: publication}} =
+             PublicationCustody.request_review(review_request(work_claim, offer, offer_receipt))
+
+    patch = "diff --git a/lib/fix.ex b/lib/fix.ex\n+fixed\n"
+
+    {:ok, coop} =
+      Agent.start_link(fn ->
+        %{
+          patch: patch,
+          patch_calls: [],
+          review: review_document(work_claim, patch),
+          review_calls: [],
+          session: %{
+            "external_ref" => work_claim.session.external_ref,
+            "id" => work_claim.session.coop_session_id,
+            "policy" => work_claim.session.policy,
+            "policy_digest" => work_claim.session.policy_digest,
+            "revision" => 7,
+            "state" => "exhausted"
+          }
+        }
+      end)
+
+    {:ok, effects} = Agent.start_link(fn -> %{delivery_requests: []} end)
+
+    options =
+      dispatcher_options(coop, effects)
+      |> Keyword.update!(:executor_options, fn options ->
+        options
+        |> Keyword.put(:publisher, Responder.Publication.GitHubPublisher)
+        |> Keyword.put(:publisher_binding, %{
+          api: Responder.Publication.GitHubPublisher,
+          client: %{repositories: %{}},
+          git: Responder.Publication.Git,
+          repositories: %{}
+        })
+      end)
+
+    assert {:ok, {:executed, %{phase: :reviewed}}} = Dispatcher.run_once(options)
+    assert {:ok, {:executed, %{phase: :delivered}}} = Dispatcher.run_once(options)
+    reviewed = Repo.get!(Publication, publication.id)
+    assert reviewed.status == :reviewed
+    assert reviewed.review_patch == patch
+    assert length(Agent.get(coop, & &1.review_calls)) == 1
+    assert length(Agent.get(effects, & &1.delivery_requests)) == 1
+
+    assert {:ok, %{status: :approved}} =
+             PublicationCustody.approve(%{
+               actor_ref: "slack:user:U-operator",
+               approval_ref: "interaction:publish:without-github",
+               occurred_at: DateTime.add(@now, 2, :second),
+               publication_ref: publication.ref,
+               target: %{
+                 conversation_ref: work_claim.episode.destination_conversation_ref,
+                 message_ref: reviewed.review_delivery_receipt["message_ref"],
+                 thread_ref: work_claim.episode.destination_thread_ref,
+                 transport: "slack"
+               }
+             })
+
+    assert {:ok, {:deferred, {:publication_repository_not_configured, "responder"}}} =
+             Dispatcher.run_once(options)
+
+    deferred = Repo.get!(Publication, publication.id)
+    assert deferred.status == :publish_pending
+    assert deferred.review_patch == patch
+    assert deferred.publication_receipt == nil
+    assert deferred.last_error_code == "publication_repository_not_configured"
+  end
+
   test "a crossed Coop review identity is deferred without storing review evidence" do
     %{claim: work_claim, offer: offer, offer_receipt: offer_receipt} = delivered_offer!("crossed")
 

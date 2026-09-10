@@ -184,6 +184,9 @@ delivery:
   max_attempts: 8
   poll_interval_ms: 250
 
+# Delivery-enabled hosts always run authorized Coop readiness reviews. This
+# optional section adds GitHub publication credentials and tuning; omitting it
+# leaves the publisher's repository allowlist empty, so no PR can be published.
 publication:
   branch_prefix: responder
   state_dir: /var/lib/responder/publications
