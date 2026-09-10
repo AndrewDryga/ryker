@@ -430,7 +430,71 @@ defmodule Responder.CoopFleet.ClientTest do
     refute Map.has_key?(payload, "checkpoint")
   end
 
-  test "a replacement still requires a checkpoint after any workspace binding attempt", %{
+  test "a replacement after task binding but before any turn starts uses a clean workspace", %{
+    client: client,
+    session: session
+  } do
+    workspace_task = %{
+      "authority_limits" => ["runner version only"],
+      "offer_ref" => "record:task_offer:bound-without-turn",
+      "prompt" => "Bump the internal hosted runner version.",
+      "source_refs" => [],
+      "success_checks" => ["focused tests pass"],
+      "title" => "Bump hosted runner"
+    }
+
+    source =
+      session
+      |> SessionChangeset.bind_workspace_task(workspace_task)
+      |> Ecto.Changeset.change(coop_session_id: "coop-session-bound-without-turn")
+      |> Repo.update!()
+
+    binding =
+      command!(source, "bound-without-turn",
+        kind: "ensure_workspace",
+        payload: %{
+          "coop_session_id" => source.coop_session_id,
+          "expected_revision" => 1,
+          "task" => workspace_task
+        }
+      )
+
+    complete_command!(binding, :succeeded, %{
+      "session" => %{
+        "id" => source.coop_session_id,
+        "revision" => 2,
+        "state" => "open",
+        "workspace_task" => %{"offer_ref" => workspace_task["offer_ref"]}
+      }
+    })
+
+    replacement =
+      SessionChangeset.insert_with_authority(
+        Ecto.UUID.generate(),
+        source.episode_id,
+        2,
+        source.policy,
+        source.policy_digest,
+        source.repository_ref,
+        source.external_ref,
+        %{authority_digest: source.authority_digest, workspace_task: nil}
+      )
+      |> Repo.insert!()
+      |> SessionChangeset.bind_workspace_task(workspace_task)
+      |> Repo.update!()
+
+    key = "responder:work:create:#{replacement.id}:g1"
+
+    # The production session was task-bound but closed with turns_used=0. With no submit
+    # command, there is no model-authored workspace state to checkpoint into the replacement.
+    assert {:ok, %{"id" => "remote-resource", "revision" => 2}} =
+             Client.create_session(client, key, @policy, workspace_task["offer_ref"])
+
+    assert_receive {:fleet_command, ^replacement, "ensure_workspace", payload, _ensure_key, _}
+    refute Map.has_key?(payload, "checkpoint")
+  end
+
+  test "a replacement still requires a checkpoint after any turn submission attempt", %{
     client: client,
     session: session
   } do
@@ -456,6 +520,16 @@ defmodule Responder.CoopFleet.ClientTest do
           "coop_session_id" => source.coop_session_id,
           "expected_revision" => 1,
           "task" => workspace_task
+        }
+      )
+
+    _turn_command =
+      command!(source, "attempted-turn-submission",
+        kind: "submit_turn",
+        payload: %{
+          "coop_session_id" => source.coop_session_id,
+          "expected_revision" => 2,
+          "submission" => %{"prompt" => "Continue the exact task."}
         }
       )
 
