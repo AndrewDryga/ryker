@@ -385,6 +385,34 @@ details.measurement-notes > summary { cursor:pointer; font-weight:600; color:var
 .status-attention { color:#956228; background:#fbefdc; }
 .status-done { color:#59765a; background:#edf4e9; }
 .status-quiet { color:#6a7162; background:#f3f5ee; }
+.subscription-window { color:var(--secondary); font-size:13px; margin:0 0 12px; }
+.subscription-list { background:var(--panel); border:1px solid var(--stroke); border-radius:7px; overflow:hidden; }
+.subscription-row { display:grid; grid-template-columns:minmax(0,1fr) minmax(210px,260px); gap:14px 28px; padding:20px 24px; border-bottom:1px solid var(--stroke); overflow-wrap:anywhere; }
+.subscription-row:last-child { border-bottom:0; }
+.responder-app .subscription-title { font-size:17px; font-weight:600; line-height:1.5; margin:0 0 4px; letter-spacing:-.2px; }
+.subscription-condition { color:var(--ink); font-size:14px; margin:0 0 12px; }
+.subscription-request { font-size:14px; margin:0 0 4px; }
+.subscription-request a { color:var(--green); }
+.subscription-context, .subscription-target { color:var(--secondary); font-size:13px; margin:0; }
+.subscription-target { display:inline-block; margin-top:8px; }
+.subscription-timing { text-align:right; }
+.responder-app .subscription-row dl { display:block; margin:10px 0 0; }
+.responder-app .subscription-row dt, .responder-app .subscription-row dd { border:0; padding:0; margin:0; font-size:13px; }
+.subscription-timing dl > div + div { margin-top:10px; }
+.subscription-timing dt { color:var(--secondary); }
+.subscription-timing dd { line-height:1.6; }
+.subscription-details { grid-column:1/-1; color:var(--secondary); font-size:12px; }
+.subscription-details summary { cursor:pointer; width:fit-content; }
+.subscription-details dl { padding:12px 0 0; }
+.subscription-details dl > div { display:grid; grid-template-columns:155px minmax(0,1fr); gap:12px; margin:5px 0; }
+.subscription-details dd { font-family:ui-monospace,monospace; }
+@media(max-width:700px) {
+  .subscription-row { grid-template-columns:minmax(0,1fr); padding:16px; }
+  .subscription-timing { text-align:left; }
+  .responder-app .subscription-timing dl { display:flex; flex-wrap:wrap; gap:12px 28px; }
+  .subscription-timing dl > div + div { margin-top:0; }
+  .subscription-details dl > div { grid-template-columns:minmax(0,1fr); gap:2px; }
+}
 .row-elapsed { font-size:14px; color:#6c7064; }
 .row-open { color:#696e62; padding:6px 0 6px 6px; }
 .row-open .ui-icon { width:14px; height:14px; }

@@ -135,6 +135,8 @@ defmodule Responder.ControlPlane.Activity do
             ),
           source: episode.destination_transport,
           repository: input.repository,
+          source_available:
+            not is_nil(input.content) and is_nil(input.pruned_at) and input.event_kind != :delete,
           text:
             fragment(
               "CASE WHEN ? IS NOT NULL THEN NULL WHEN ? = 'delete' THEN 'Message deleted' ELSE (SELECT left(COALESCE(NULLIF(source ->> 'text', ''), source #>> '{payload,comment,body}', source #>> '{payload,review,body}', source #>> '{attachments,0,title}', source #>> '{attachments,0,pretext}', source #>> '{attachments,0,text}', source #>> '{attachments,0,fallback}', source #>> '{blocks,0,text,text}', source #>> '{files,0,name}'), 12000) FROM (SELECT ?::jsonb AS source) AS payload) END",
@@ -178,6 +180,9 @@ defmodule Responder.ControlPlane.Activity do
             ),
           source: entry.destination_transport,
           repository: entry.repository_ref,
+          source_available:
+            not is_nil(current.content) and is_nil(current.operational_pruned_at) and
+              current.event_kind != :delete,
           text:
             fragment(
               "CASE WHEN ? IS NOT NULL THEN NULL WHEN ? = 'delete' THEN 'Message deleted' ELSE (SELECT left(COALESCE(NULLIF(source ->> 'text', ''), source #>> '{payload,comment,body}', source #>> '{payload,review,body}', source #>> '{attachments,0,title}', source #>> '{attachments,0,pretext}', source #>> '{attachments,0,text}', source #>> '{attachments,0,fallback}', source #>> '{blocks,0,text,text}', source #>> '{files,0,name}'), 12000) FROM (SELECT ?::jsonb AS source) AS payload) END",

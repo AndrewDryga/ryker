@@ -23,6 +23,15 @@ rooms before a Slack channel exists; it is not a directory of local Lab incident
 Room status and search filters remain in the URL, and committed lifecycle changes
 refresh the list and detail views.
 
+The **Wait subscriptions** page at `/subscriptions` shows each wait's saved target,
+matching condition and source request. Relative times refresh with the page;
+exact UTC times and internal references remain available in Technical details.
+A next check is a polling fallback, not an estimated event arrival. Event-only
+waits have no scheduled check or deadline; elapsed times do not mark work complete.
+Search covers readable labels among the latest 100 waits in the selected status;
+exact subscription references search all history within that status. Opening,
+filtering and refreshing this page never changes a wait.
+
 ## Why this exists
 
 The Slack App Home is the wrong surface for most of this and cannot be fixed by

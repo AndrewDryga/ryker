@@ -8,6 +8,7 @@ defmodule Responder.ControlPlane.OperatorProjection do
 
   import Ecto.Query
 
+  alias Responder.ControlPlane.{Activity, InspectionRedactor, SubscriptionPresentation}
   alias Responder.CoopFleet.Worker
   alias Responder.Episodes.Episode
   alias Responder.Operator.FailureDetail
@@ -211,7 +212,7 @@ defmodule Responder.ControlPlane.OperatorProjection do
         on: episode.id == subscription.episode_id,
         join: record in Record,
         on: record.id == subscription.record_id,
-        order_by: [asc: subscription.status, asc: subscription.poll_after, desc: subscription.id],
+        order_by: [desc: subscription.updated_at, desc: subscription.id],
         limit: @list_limit,
         select: %{
           cursor: subscription.cursor,
@@ -231,14 +232,31 @@ defmodule Responder.ControlPlane.OperatorProjection do
         }
       )
       |> subscription_status(filter_enum(params["status"], @subscription_statuses))
-      |> subscription_search(search(params["q"]))
 
-    query
-    |> Repo.all()
-    |> Enum.map(&sanitize_subscription/1)
+    search = search(params["q"])
+    items = subscription_rows(query, search)
+    episodes = Activity.request_titles(Enum.map(items, & &1.episode_ref))
+    secrets = InspectionRedactor.configured_secrets()
+
+    items
+    |> Enum.map(fn item ->
+      item
+      |> SubscriptionPresentation.project(episodes[item.episode_ref], secrets)
+      |> sanitize_subscription()
+    end)
+    |> subscription_search(search)
   end
 
   def subscriptions(_params), do: subscriptions(%{})
+
+  defp subscription_rows(query, nil), do: Repo.all(query)
+
+  defp subscription_rows(query, search) do
+    case Repo.all(from(subscription in query, where: subscription.ref == ^search)) do
+      [] -> Repo.all(query)
+      exact -> exact
+    end
+  end
 
   def schedule(ref) when is_binary(ref) and byte_size(ref) <= 1_024 do
     case Repo.one(from(schedule in Schedule, where: schedule.ref == ^ref, limit: 1)) do
@@ -645,16 +663,27 @@ defmodule Responder.ControlPlane.OperatorProjection do
     )
   end
 
-  defp subscription_search(query, nil), do: query
+  defp subscription_search(items, nil), do: items
 
-  defp subscription_search(query, search) do
-    pattern = "%#{escape_like(search)}%"
+  defp subscription_search(items, search) do
+    search = String.downcase(search)
 
-    from([subscription, episode] in query,
-      where:
-        ilike(subscription.ref, ^pattern) or ilike(subscription.source_kind, ^pattern) or
-          ilike(episode.key, ^pattern)
-    )
+    Enum.filter(items, fn item ->
+      item
+      |> Map.take([
+        :ref,
+        :episode_ref,
+        :source_label,
+        :title,
+        :condition,
+        :episode_title,
+        :context_label
+      ])
+      |> Map.values()
+      |> Enum.join(" ")
+      |> String.downcase()
+      |> String.contains?(search)
+    end)
   end
 
   defp sanitize_subscription(subscription) do
