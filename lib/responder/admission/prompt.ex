@@ -132,7 +132,10 @@ defmodule Responder.Admission.Prompt do
   # Fitted and restored contexts never reread or refit their candidate strings.
   # The marker is lifecycle state, not another field in the saved document.
   defp request(context),
-    do: %{"context" => Context.for_model(context), "instructions" => @instructions}
+    do: %{
+      "context" => Context.for_model(context),
+      "instructions" => Responder.Instructions.prompt_instructions(@instructions)
+    }
 
   defp fits?(context) do
     byte_size(CanonicalJSON.encode!(request(context))) <= @max_encoded_bytes and

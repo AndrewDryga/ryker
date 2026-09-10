@@ -20,6 +20,8 @@ defmodule Responder.Admission.ExecutorTest do
   @now ~U[2026-08-27 12:00:00.000000Z]
 
   test "Coop schema validation and host semantic validation finish one admission turn" do
+    assert {:ok, _} = Responder.Instructions.save(:global, "Plain language.", 0, "operator:test")
+
     assert {:ok, input} =
              SlackInput.new(%{
                actor: %{kind: :user, ref: "U123"},
@@ -54,6 +56,11 @@ defmodule Responder.Admission.ExecutorTest do
              )
 
     state = FakeAPI.state(fake)
+
+    assert Jason.decode!(state.submitted_prompt)["context"]["custom_instructions"]["global"][
+             "text"
+           ] == "Plain language."
+
     assert state.submit_count == 1
     assert Enum.map(state.validations, & &1.verdict) == [:accept]
     assert state.closed

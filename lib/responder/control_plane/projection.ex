@@ -13,6 +13,7 @@ defmodule Responder.ControlPlane.Projection do
   alias Responder.ControlPlane.BehaviorLibrary
   alias Responder.ControlPlane.ConversationMemory
   alias Responder.ControlPlane.CurrentInputs
+  alias Responder.ControlPlane.InstructionSettings
   alias Responder.ControlPlane.ModelRequests
   alias Responder.ControlPlane.WorkRecovery
 
@@ -52,6 +53,7 @@ defmodule Responder.ControlPlane.Projection do
       card_lab_post: &CardLabDelivery.fetch/1,
       channel: &channel/2,
       channels: &channels/1,
+      instructions: &InstructionSettings.fetch/1,
       configuration: &configuration/0,
       delivery: &delivery/1,
       emisar: &emisar/1,

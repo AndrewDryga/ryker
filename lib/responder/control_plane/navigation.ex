@@ -26,6 +26,7 @@ defmodule Responder.ControlPlane.Navigation do
        {"Memory", "/memory"},
        {"Preferences", "/preferences"},
        {"Guidance", "/guidance"},
+       {"Instructions", "/instructions"},
        {"Findings", "/findings"}
      ]},
     {:settings, "Connections & setup",

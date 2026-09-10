@@ -16,6 +16,41 @@ defmodule Responder.Admission.ContextTest do
   @now ~U[2026-08-27 12:00:00.000000Z]
   @current_thread "1787832000.000100"
 
+  test "new admission snapshots replace instructions while restored requests keep their saved layers" do
+    alias Responder.Instructions
+
+    scope = {:channel, "TA6E21ABA08AF", "C456"}
+    assert {:ok, _} = Instructions.save(:global, "Use plain language.", 0, "operator:test")
+    assert {:ok, _} = Instructions.save(scope, "Keep this channel concise.", 0, "operator:test")
+    entry = record_input!()
+    assert {:ok, context} = build_context(entry)
+    expected = Instructions.snapshot(context.input.destination)
+    assert Context.for_model(context)["custom_instructions"] == expected
+    saved = Context.snapshot(context)
+    assert saved["custom_instructions"] == expected
+
+    assert {:ok, _} = Instructions.save(scope, "", 1, "operator:test")
+    assert {:ok, _} = Instructions.save(:global, "Explain assumptions.", 1, "operator:test")
+    assert {:ok, restored} = Context.restore(saved, context.input, entry, %{})
+    assert Context.for_model(restored)["custom_instructions"] == expected
+    assert {:ok, fresh} = build_context(entry)
+    assert fresh.custom_instructions["channel"]["text"] == ""
+    assert fresh.custom_instructions["channel"]["revision"] == 2
+    assert fresh.custom_instructions["global"]["text"] == "Explain assumptions."
+
+    other = %{
+      context.input
+      | destination: %{context.input.destination | conversation_ref: "slack:TA6E21ABA08AF:COTHER"}
+    }
+
+    assert {:error, {:invalid_admission_context_snapshot, :custom_instructions}} =
+             Context.restore(saved, other, entry, %{})
+
+    historical = Map.delete(saved, "custom_instructions")
+    assert {:ok, old} = Context.restore(historical, context.input, entry, %{})
+    refute Map.has_key?(Context.for_model(old), "custom_instructions")
+  end
+
   test "addressing is frozen from the receipt and restored independently of current entry metadata" do
     assert {:ok, %{entry: entry}} =
              Inbox.record(input!([]), slack_audience: :ambient, slack_bot_user_ref: "UBOT")

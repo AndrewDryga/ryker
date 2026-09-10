@@ -19,6 +19,18 @@ defmodule Responder.Retention.Policy do
 
   @policies [
     %{
+      table: "model_instruction_settings",
+      class: :kept,
+      why:
+        "current explicit operator settings and monotonic scope revisions; clearing removes text without resetting edit custody"
+    },
+    %{
+      table: "model_instruction_edits",
+      class: :audit,
+      why:
+        "actor and revision fingerprints expire at the audit horizon; no historical instruction text is duplicated here"
+    },
+    %{
       table: "conversation_learning_batches",
       class: :kept,
       why:

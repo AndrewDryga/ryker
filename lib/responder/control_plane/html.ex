@@ -957,6 +957,8 @@ defmodule Responder.ControlPlane.HTML do
           "</td><td>",
           escape(item.participation || "not configured"),
           "</td><td>",
+          if(item[:custom_instructions], do: "Global + channel", else: "Global only"),
+          "</td><td>",
           escape(item.repository_ref || "none"),
           "</td><td>",
           integer(item.episodes),
@@ -978,6 +980,7 @@ defmodule Responder.ControlPlane.HTML do
           "Kind",
           "Membership",
           "Participation",
+          "Instructions",
           "Repository",
           "Episodes",
           "Last activity"

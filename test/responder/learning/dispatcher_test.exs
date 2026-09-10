@@ -170,8 +170,18 @@ defmodule Responder.Learning.DispatcherTest do
     # Fable found this crash window created a remote session but never counted
     # its start, so every submit failed forever and blocked the conversation.
     entries = inputs!()
+
+    assert {:ok, _} =
+             Responder.Instructions.save(
+               :global,
+               "Preserve source attribution.",
+               0,
+               "operator:test"
+             )
+
     assert {:ok, claim} = Batches.claim("crashed-before-start", @settings)
     assert {:ok, prepared} = Batches.prepare(claim)
+    assert {:ok, _} = Responder.Instructions.save(:global, "", 1, "operator:test")
     assert is_nil(prepared.started_at)
     Repo.update_all(Batch, set: [lease_expires_at: ~U[2000-01-01 00:00:00.000000Z]])
     {:ok, fake} = FakeCoopAPI.start_link([result(entries)])
@@ -189,6 +199,11 @@ defmodule Responder.Learning.DispatcherTest do
     assert run.started_at != nil
     assert length(FakeCoopAPI.state(fake).create_keys) == 1
     assert FakeCoopAPI.state(fake).submit_count == 1
+    submitted = FakeCoopAPI.state(fake).submitted_prompt
+    assert submitted == prepared.prompt
+
+    assert Jason.decode!(submitted)["custom_instructions"]["global"]["text"] ==
+             "Preserve source attribution."
   end
 
   for unavailable <- [:pruned, :deleted] do

@@ -10,11 +10,13 @@ defmodule Responder.ControlPlane.WorkbenchLive do
     CardLabPage,
     Endpoint,
     EpisodePage,
+    HTML,
     LabPage,
     Navigation,
     RequestFilters,
     RequestPage,
     Router,
+    SlackNames,
     Updates,
     UsageProjection
   }
@@ -41,6 +43,9 @@ defmodule Responder.ControlPlane.WorkbenchLive do
        observed_at: nil,
        domain: nil,
        native: nil,
+       instructions: nil,
+       instruction_scope: nil,
+       save_instructions: nil,
        overview: nil,
        activity: nil,
        filter_draft: %{},
@@ -295,6 +300,35 @@ defmodule Responder.ControlPlane.WorkbenchLive do
     end
   end
 
+  defp load_detail(socket, options, ["instructions"]) do
+    {:ok, view} = options.projection.instructions.(:global)
+
+    assign(socket,
+      native: :instructions,
+      page_title: "Instructions",
+      body: "",
+      instructions: view,
+      instruction_scope: :global,
+      save_instructions: options.actions.save_instructions
+    )
+  end
+
+  defp load_detail(socket, options, ["channels", workspace, channel]) do
+    with {:ok, snapshot} <- options.projection.channel.(workspace, channel),
+         {:ok, view} <- options.projection.instructions.({:channel, workspace, channel}) do
+      assign(socket,
+        native: :instructions,
+        page_title: SlackNames.name(workspace, channel),
+        body: HTML.channel(snapshot) |> IO.iodata_to_binary(),
+        instructions: view,
+        instruction_scope: {:channel, workspace, channel},
+        save_instructions: options.actions.save_instructions
+      )
+    else
+      _ -> load_snapshot(socket, options)
+    end
+  end
+
   defp load_detail(socket, options, ["lab"]) do
     assign(socket,
       native: :lab,
@@ -346,7 +380,9 @@ defmodule Responder.ControlPlane.WorkbenchLive do
     end
   end
 
-  defp load_detail(socket, options, _segments) do
+  defp load_detail(socket, options, _segments), do: load_snapshot(socket, options)
+
+  defp load_snapshot(socket, options) do
     page = Router.snapshot(socket.assigns.path, socket.assigns.query, options)
     if page.status >= 500, do: throw({:projection_unavailable, :secondary})
     assign(socket, native: nil, body: page.body, page_title: page.title)
@@ -525,6 +561,19 @@ defmodule Responder.ControlPlane.WorkbenchLive do
             announcement={@lab_announcement}
           />
           <CardLabPage.render :if={@native == :card_lab} view={@card_lab} params={@params} />
+          <div :if={@native == :instructions} class="secondary-page instructions-page">
+            <div class="secondary-page-title">
+              <h1>{@page_title}</h1>
+            </div>
+            <.live_component
+              module={Responder.ControlPlane.InstructionsEditor}
+              id={"instructions-#{@instructions.setting.scope_ref}"}
+              scope={@instruction_scope}
+              view={@instructions}
+              save={@save_instructions}
+            />
+            {Phoenix.HTML.raw(@body)}
+          </div>
           <div :if={@native == :request} class="standalone-inspector">
             <.link navigate="/" class="back-to-activity">← Activity</.link><RequestPage.render
               view={@requests}

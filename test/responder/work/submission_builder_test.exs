@@ -51,6 +51,14 @@ defmodule Responder.Work.SubmissionBuilderTest do
   end
 
   test "a Slack briefing exposes an opaque exact message ref for source and action tools" do
+    assert {:ok, _} =
+             Responder.Instructions.save(
+               {:channel, "TD0983425B9D3", "C456"},
+               "Use channel context.",
+               0,
+               "operator:test"
+             )
+
     id = Ecto.UUID.generate()
 
     payload = %{
@@ -87,6 +95,12 @@ defmodule Responder.Work.SubmissionBuilderTest do
 
     assert input["source_ref"] ==
              SourceRef.message("TD0983425B9D3", "C456", "1787832001.000200")
+
+    assert submission["context"]["custom_instructions"]["channel"] == %{
+             "scope" => "slack:TD0983425B9D3:C456",
+             "revision" => 1,
+             "text" => "Use channel context."
+           }
   end
 
   test "a GitHub briefing exposes an opaque exact comment ref for native emoji actions" do
@@ -552,10 +566,21 @@ defmodule Responder.Work.SubmissionBuilderTest do
   end
 
   test "a continuation in the same Coop session sends a delta instead of the briefing again" do
+    alias Responder.Instructions
+
+    assert {:ok, _} = Instructions.save(:global, "Explain assumptions.", 0, "operator:test")
     initial = String.duplicate("a", 1_500) <> " ORIGINAL_REQUEST_MARKER"
     first = claim_episode!("delta-continuation", initial)
     assert {:ok, first_submission} = SubmissionBuilder.build(first)
+
+    assert first_submission["context"]["custom_instructions"] ==
+             Instructions.snapshot(destination(first))
+
     bind_remote_turn!(first, first_submission)
+
+    assert {:ok, _} = Instructions.save(:global, "", 1, "operator:test")
+    frozen = Responder.Repo.get!(Responder.Work.Turn, first.turn.id)
+    assert frozen.submission["prompt"] == first_submission["prompt"]
 
     assert {:ok, _queued} =
              Episodes.apply(
@@ -616,6 +641,16 @@ defmodule Responder.Work.SubmissionBuilderTest do
 
     assert {:ok, delta} = SubmissionBuilder.build(second)
     assert delta["context"]["mode"] == "continuation"
+
+    assert delta["context"]["custom_instructions"]["global"] == %{
+             "scope" => "global",
+             "revision" => 2,
+             "text" => ""
+           }
+
+    assert Jason.decode!(delta["prompt"])["work"]["custom_instructions"] ==
+             delta["context"]["custom_instructions"]
+
     assert delta["context"]["parent_submission_ref"] == Submission.fingerprint(first_submission)
     assert delta["prompt"] =~ "NEW_INPUT_MARKER"
     refute delta["prompt"] =~ String.duplicate("a", 500)
@@ -721,10 +756,15 @@ defmodule Responder.Work.SubmissionBuilderTest do
   end
 
   defp assert_bounded_with_notes(claim, input_key, text) do
+    instructions = String.duplicate("🌱", 2_000)
+    assert {:ok, _} = Responder.Instructions.save(:global, instructions, 0, "operator:test")
+
     assert {:ok, submission} =
              SubmissionBuilder.build(claim,
                workspace: %{"description" => String.duplicate("w", 15_000)}
              )
+
+    assert submission["context"]["custom_instructions"]["global"]["text"] == instructions
 
     assert [current] = submission["context"][input_key]["items"]
     assert current["content"] == %{"text" => text}

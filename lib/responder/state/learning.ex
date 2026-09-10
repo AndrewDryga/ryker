@@ -160,8 +160,10 @@ defmodule Responder.State.Learning do
 
   defp request_identity(identity, nil), do: identity
   defp request_identity(identity, rebuild), do: Map.put(identity, "rebuild", rebuild)
-  defp instructions(nil), do: @instructions
-  defp instructions(_rebuild), do: @rebuild_instructions
+  defp instructions(nil), do: Responder.Instructions.prompt_instructions(@instructions)
+
+  defp instructions(_rebuild),
+    do: Responder.Instructions.prompt_instructions(@rebuild_instructions)
 
   def authorize(id, claim \\ nil) do
     owned_transaction(id, claim, fn run ->
@@ -665,8 +667,21 @@ defmodule Responder.State.Learning do
     unless is_list(raw), do: Repo.rollback(:learning_source_stale)
     inputs = Enum.map(entries, &input_document/1)
 
+    custom_instructions =
+      Responder.Instructions.snapshot(%{
+        transport: entry.destination_transport,
+        conversation_ref: entry.destination_conversation_ref
+      })
+
     {prompt, knowledge, omissions, dependencies} =
-      fit_prompt!(inputs, knowledge, raw, settings.retry_feedback, settings.rebuild)
+      fit_prompt!(
+        inputs,
+        knowledge,
+        raw,
+        settings.retry_feedback,
+        settings.rebuild,
+        custom_instructions
+      )
 
     # A create-check correction is useful only if the next judgment actually
     # sees its alternatives. Do not repeatedly pay for the same blind decision.
@@ -756,8 +771,8 @@ defmodule Responder.State.Learning do
     end
   end
 
-  defp fit_prompt!(inputs, knowledge, raw, feedback, rebuild) do
-    prompt = learning_prompt(inputs, [], feedback, rebuild)
+  defp fit_prompt!(inputs, knowledge, raw, feedback, rebuild, custom_instructions) do
+    prompt = learning_prompt(inputs, [], feedback, rebuild, custom_instructions)
     if byte_size(prompt) > @max_prompt, do: Repo.rollback(:learning_capacity_exceeded)
 
     # A saturated first topic must not hide affordable subjects after it.
@@ -765,7 +780,9 @@ defmodule Responder.State.Learning do
     Enum.reduce(knowledge, {prompt, [], [], raw}, fn item,
                                                      {prompt, selected, omissions, sources} ->
       dependencies = LearningSources.merge([sources, LearningSources.document_sources(item)])
-      candidate = learning_prompt(inputs, selected ++ [item], feedback, rebuild)
+
+      candidate =
+        learning_prompt(inputs, selected ++ [item], feedback, rebuild, custom_instructions)
 
       if is_list(dependencies) and byte_size(candidate) <= @max_prompt do
         {candidate, selected ++ [item], omissions, dependencies}
@@ -781,9 +798,10 @@ defmodule Responder.State.Learning do
     |> Map.put("reason", if(is_nil(dependencies), do: "source_capacity", else: "prompt_capacity"))
   end
 
-  defp learning_prompt(inputs, knowledge, feedback, rebuild) do
+  defp learning_prompt(inputs, knowledge, feedback, rebuild, custom_instructions) do
     document = %{
       "instructions" => instructions(rebuild),
+      "custom_instructions" => custom_instructions,
       "inputs" => inputs,
       "knowledge" => knowledge,
       "previous_attempt_error" => feedback
