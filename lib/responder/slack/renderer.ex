@@ -1830,13 +1830,12 @@ defmodule Responder.Slack.Renderer do
     label = payload["target"] || payload["source_name"]
     label = if label == payload["source_id"], do: "Source", else: label
     label = mrkdwn(label)
-    unavailable = [{record["ref"], label <> " (source link unavailable)"}]
 
     if ReplyRecords.safe_url?(url) do
       link = "<#{mrkdwn(url)}|#{String.replace(label, "|", "&#124;")}>"
-      if String.length(link) <= 2_980, do: [{url, link}], else: unavailable
+      if String.length(link) <= 2_980, do: [{url, link}], else: []
     else
-      unavailable
+      []
     end
   end
 
