@@ -42,7 +42,7 @@ defmodule Responder.RuntimeConfiguration do
     :admission,
     :learning,
     :control_plane,
-    :cutover_profiles,
+    :fleet_profiles,
     :coop_worker_gateway,
     :delivery,
     :emisar,
@@ -209,7 +209,7 @@ defmodule Responder.RuntimeConfiguration do
 
     %{
       admission: admission,
-      cutover_profiles: cutover_profiles(repositories, admission),
+      fleet_profiles: fleet_profiles(repositories, admission),
       runtime_mode: mode,
       work: work
     }
@@ -231,7 +231,7 @@ defmodule Responder.RuntimeConfiguration do
     |> validate_runtimes!()
   end
 
-  defp cutover_profiles(repositories, admission) do
+  defp fleet_profiles(repositories, admission) do
     repository_profiles =
       Enum.flat_map(repositories, fn {name, repository} ->
         [

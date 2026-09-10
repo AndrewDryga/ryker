@@ -276,25 +276,22 @@ defmodule Responder.CoopFleet.ControlPlane do
         end
 
       nil ->
-        case latest_placement(session_id) do
-          %Placement{generation: generation} = placement ->
-            fail_undelivered_commands(placement, now)
+        place_unassigned_session(session, requirements, lease_seconds, now)
+    end
+  end
 
-            if cancelling_bound_session?(session) do
-              recover_cancellation_placement(
-                session,
-                placement,
-                requirements,
-                lease_seconds,
-                now
-              )
-            else
-              {:replacement_required, generation}
-            end
+  defp place_unassigned_session(session, requirements, lease_seconds, now) do
+    case latest_placement(session.id) do
+      %Placement{} = placement ->
+        fail_undelivered_commands(placement, now)
 
-          nil ->
-            insert_placement(session, requirements, lease_seconds, now)
-        end
+        if cancelling_bound_session?(session),
+          do:
+            recover_cancellation_placement(session, placement, requirements, lease_seconds, now),
+          else: {:replacement_required, placement.generation}
+
+      nil ->
+        insert_placement(session, requirements, lease_seconds, now)
     end
   end
 
@@ -323,7 +320,7 @@ defmodule Responder.CoopFleet.ControlPlane do
     id = Ecto.UUID.generate()
     frozen_requirements = placement_requirements(session, worker, requirements)
 
-    %Placement{}
+    %Placement{inserted_at: now, updated_at: now}
     |> cast(
       %{
         episode_id: session.episode_id,
@@ -397,14 +394,10 @@ defmodule Responder.CoopFleet.ControlPlane do
          lease_seconds,
          now
        ) do
-    cutoff = DateTime.add(now, -@heartbeat_stale_seconds, :second)
     worker = locked_worker(previous.worker_id)
 
     eligible =
-      match?(%Worker{}, worker) and worker.workspace_ref == requirements.workspace_ref and
-        worker.state == :eligible and is_nil(worker.drain_requested_at) and
-        is_nil(worker.revoked_at) and match?(%DateTime{}, worker.last_seen_at) and
-        DateTime.compare(worker.last_seen_at, cutoff) != :lt and
+      worker_current?(worker, requirements.workspace_ref, now) and
         worker_eligible?(worker, session, requirements, now) and
         placement_authority_current?(previous.requirements, worker) and
         worker_has_capacity?(worker)
@@ -413,6 +406,17 @@ defmodule Responder.CoopFleet.ControlPlane do
       do: insert_placement_on_worker(session, worker, requirements, lease_seconds, now),
       else: rollback({:coop_worker_capacity_unavailable, session.id})
   end
+
+  defp worker_current?(%Worker{} = worker, workspace_ref, now) do
+    cutoff = DateTime.add(now, -@heartbeat_stale_seconds, :second)
+
+    worker.workspace_ref == workspace_ref and worker.state == :eligible and
+      is_nil(worker.drain_requested_at) and is_nil(worker.revoked_at) and
+      match?(%DateTime{}, worker.last_seen_at) and
+      DateTime.compare(worker.last_seen_at, cutoff) != :lt
+  end
+
+  defp worker_current?(nil, _workspace_ref, _now), do: false
 
   defp enqueue_command_locked(placement_id, kind, payload, idempotency_key) do
     fingerprint =
@@ -698,7 +702,7 @@ defmodule Responder.CoopFleet.ControlPlane do
 
     after_sequence = batch["after_sequence"]
     events = batch["events"]
-    last_sequence = if events == [], do: after_sequence, else: List.last(events)["sequence"]
+    last_sequence = last_event_sequence(events, after_sequence)
     session_events? = session_event_batch?(events)
     cursor = event_cursor(placement, session_events?)
 
@@ -715,10 +719,7 @@ defmodule Responder.CoopFleet.ControlPlane do
           session_events?
         )
 
-      :late_session_activity ->
-        apply_fresh_event_batch(placement, events, cursor, last_sequence, session_events?)
-
-      :fresh ->
+      disposition when disposition in [:fresh, :late_session_activity] ->
         apply_fresh_event_batch(placement, events, cursor, last_sequence, session_events?)
 
       :replay ->
@@ -734,6 +735,9 @@ defmodule Responder.CoopFleet.ControlPlane do
       "session_ref" => placement.session_id
     }
   end
+
+  defp last_event_sequence([], after_sequence), do: after_sequence
+  defp last_event_sequence(events, _after_sequence), do: List.last(events)["sequence"]
 
   defp event_batch_disposition(_placement, cursor, _last_sequence, [], cursor, _now),
     do: :fresh
@@ -842,24 +846,28 @@ defmodule Responder.CoopFleet.ControlPlane do
         :ok
 
       [%{"session_id" => remote_id} | _rest] = values ->
-        expected_cursor = List.last(values)["sequence"]
+        ingest_bound_session_events!(placement, remote_id, values, cursor)
+    end
+  end
 
-        case Repo.get(Session, placement.session_id) do
-          %Session{coop_session_id: nil} = session ->
-            if prebinding_session_events?(placement, session, values, cursor),
-              do: :ok,
-              else: rollback({:coop_activity_session_conflict, remote_id})
+  defp ingest_bound_session_events!(placement, remote_id, values, cursor) do
+    expected_cursor = List.last(values)["sequence"]
 
-          %Session{} ->
-            case Activity.ingest_fleet(placement.session_id, remote_id, cursor, values) do
-              {:ok, %{cursor: ^expected_cursor}} -> :ok
-              {:error, reason} -> rollback(reason)
-              _invalid -> rollback({:invalid_coop_activity, :cursor})
-            end
+    case Repo.get(Session, placement.session_id) do
+      %Session{coop_session_id: nil} = session ->
+        if prebinding_session_events?(placement, session, values, cursor),
+          do: :ok,
+          else: rollback({:coop_activity_session_conflict, remote_id})
 
-          nil ->
-            rollback(:work_session_not_found)
+      %Session{} ->
+        case Activity.ingest_fleet(placement.session_id, remote_id, cursor, values) do
+          {:ok, %{cursor: ^expected_cursor}} -> :ok
+          {:error, reason} -> rollback(reason)
+          _invalid -> rollback({:invalid_coop_activity, :cursor})
         end
+
+      nil ->
+        rollback(:work_session_not_found)
     end
   end
 

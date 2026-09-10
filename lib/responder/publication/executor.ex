@@ -9,6 +9,7 @@ defmodule Responder.Publication.Executor do
 
   alias Responder.Delivery.Adapters
   alias Responder.Publication.{Callback, Custody, Request, Review}
+  alias Responder.Work.Session
 
   @review_states ~w(open exhausted)
 
@@ -121,7 +122,7 @@ defmodule Responder.Publication.Executor do
        )
        when map_size(remote) >= 6 and is_integer(revision) and revision > 0 and
               state in @review_states do
-    if id == session.coop_session_id and external_ref == session.external_ref and
+    if id == session.coop_session_id and external_ref == Session.coop_task_ref(session) and
          policy == session.policy and digest == session.policy_digest,
        do: {:ok, revision},
        else: {:error, {:publication_coop_identity_mismatch, :session}}

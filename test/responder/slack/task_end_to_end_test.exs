@@ -382,14 +382,13 @@ defmodule Responder.Slack.TaskEndToEndTest do
           patch_calls: [],
           review: review,
           review_calls: [],
-          session: %{
-            "external_ref" => task_session.external_ref,
-            "id" => task_session.coop_session_id,
-            "policy" => task_session.policy,
-            "policy_digest" => task_session.policy_digest,
-            "revision" => 7,
-            "state" => "open"
-          }
+          # Publication must review the real task session too. Reconstructing a
+          # host-only ref here hid a readiness rejection for every engineering task.
+          session:
+            Map.merge(FakeWorkCoopAPI.state(task_api).session, %{
+              "revision" => 7,
+              "state" => "open"
+            })
         }
       end)
 
@@ -506,12 +505,10 @@ defmodule Responder.Slack.TaskEndToEndTest do
       )
 
     FakeWorkCoopAPI.update(correction_api, fn state ->
+      # Resume the session returned by task creation, including its stable task
+      # ref. Rebuilding it from the host's external ref creates a different authority.
       remote_session =
-        Map.merge(state.session, %{
-          "external_ref" => task_session.external_ref,
-          "id" => task_session.coop_session_id,
-          "policy" => task_session.policy,
-          "policy_digest" => task_session.policy_digest,
+        Map.merge(FakeWorkCoopAPI.state(task_api).session, %{
           "revision" => 9,
           "state" => "open"
         })

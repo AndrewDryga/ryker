@@ -446,7 +446,7 @@ defmodule Responder.Observability do
   end
 
   defp fleet_policy_profiles do
-    case Application.get_env(:responder, :cutover_profiles, %{}) do
+    case Application.get_env(:responder, :fleet_profiles, %{}) do
       profiles when is_map(profiles) ->
         profiles
         |> Map.values()

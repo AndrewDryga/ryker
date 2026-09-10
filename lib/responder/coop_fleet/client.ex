@@ -744,44 +744,45 @@ defmodule Responder.CoopFleet.Client do
   end
 
   defp session_by_reconciled_coop_id(coop_session_id) do
-    sessions =
-      Repo.all(
-        from(session in Session,
-          join: create in Command,
-          on: create.session_id == session.id and create.kind == "create_session",
-          join: reconciliation in Command,
-          on:
-            reconciliation.session_id == session.id and
-              reconciliation.kind == "reconcile_operation" and
-              fragment(
-                "(?::jsonb ->> 'operation_key') = ?",
-                reconciliation.payload,
-                create.idempotency_key
-              ),
-          where:
-            is_nil(session.coop_session_id) and reconciliation.status == :succeeded and
-              fragment(
-                "(?::jsonb ->> 'resource_id') = ?",
-                reconciliation.result,
-                ^coop_session_id
-              ) and
-              fragment("(?::jsonb ->> 'resource_type') = 'session'", reconciliation.result) and
-              fragment(
-                "(?::jsonb ->> 'method') = 'CreateRemoteSession'",
-                reconciliation.result
-              ) and
-              fragment("(?::jsonb ->> 'state') = 'succeeded'", reconciliation.result),
-          distinct: true,
-          select: session,
-          limit: 2
-        )
-      )
-
-    case sessions do
+    case reconciled_sessions(coop_session_id) do
       [%Session{} = session] -> {:ok, session}
       [] -> {:error, {:coop_session_not_found, coop_session_id}}
       [_first, _second] -> {:error, {:coop_session_identity_ambiguous, coop_session_id}}
     end
+  end
+
+  defp reconciled_sessions(coop_session_id) do
+    Repo.all(
+      from(session in Session,
+        join: create in Command,
+        on: create.session_id == session.id and create.kind == "create_session",
+        join: reconciliation in Command,
+        on:
+          reconciliation.session_id == session.id and
+            reconciliation.kind == "reconcile_operation" and
+            fragment(
+              "(?::jsonb ->> 'operation_key') = ?",
+              reconciliation.payload,
+              create.idempotency_key
+            ),
+        where:
+          is_nil(session.coop_session_id) and reconciliation.status == :succeeded and
+            fragment(
+              "(?::jsonb ->> 'resource_id') = ?",
+              reconciliation.result,
+              ^coop_session_id
+            ) and
+            fragment("(?::jsonb ->> 'resource_type') = 'session'", reconciliation.result) and
+            fragment(
+              "(?::jsonb ->> 'method') = 'CreateRemoteSession'",
+              reconciliation.result
+            ) and
+            fragment("(?::jsonb ->> 'state') = 'succeeded'", reconciliation.result),
+        distinct: true,
+        select: session,
+        limit: 2
+      )
+    )
   end
 
   defp operation_result(%{"operation" => operation}) when is_map(operation), do: {:ok, operation}

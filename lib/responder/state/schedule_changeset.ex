@@ -50,34 +50,10 @@ defmodule Responder.State.ScheduleChangeset do
                        :repository
                      ]
 
-  @cutover_required @fields --
-                      [
-                        :destination_thread_ref,
-                        :expires_at,
-                        :failure_count,
-                        :last_error,
-                        :lease_expires_at,
-                        :lease_owner,
-                        :lease_ref,
-                        :next_attempt_at,
-                        :offer_record_id,
-                        :repository,
-                        :source_episode_id
-                      ]
-
   def insert(attributes) do
     %Schedule{}
     |> cast(attributes, @fields)
     |> validate_required(@insert_required)
-    |> validate()
-  end
-
-  @doc false
-  @spec cutover(map()) :: Ecto.Changeset.t()
-  def cutover(attributes) do
-    %Schedule{}
-    |> cast(attributes, @fields)
-    |> validate_required(@cutover_required)
     |> validate()
   end
 
