@@ -481,9 +481,6 @@ defmodule Responder.Acceptance.Live do
       first.episode_id != followup.episode_id ->
         {:error, :live_acceptance_followup_changed_episode}
 
-      first.session_id != followup.session_id ->
-        {:error, :live_acceptance_followup_changed_session}
-
       first.turn_id == followup.turn_id ->
         {:error, :live_acceptance_followup_reused_turn}
 
@@ -493,16 +490,9 @@ defmodule Responder.Acceptance.Live do
   end
 
   defp same_execution_boundary(%{runtime_mode: :product}, first, followup) do
-    cond do
-      is_nil(first.worker_placement) or is_nil(followup.worker_placement) ->
-        {:error, :live_acceptance_remote_placement_missing}
-
-      first.worker_placement != followup.worker_placement ->
-        {:error, :live_acceptance_followup_changed_worker_placement}
-
-      true ->
-        :ok
-    end
+    if is_nil(first.worker_placement) or is_nil(followup.worker_placement),
+      do: {:error, :live_acceptance_remote_placement_missing},
+      else: :ok
   end
 
   defp same_execution_boundary(%{runtime_mode: :component}, _first, _followup), do: :ok
