@@ -42,6 +42,7 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
   @wait_list_order_version 20_260_910_000_200
   @typed_question_answers_version 20_260_910_000_300
   @answer_confirmed_global_facts_version 20_260_910_000_400
+  @worker_storage_reports_version 20_260_911_000_400
   @memory_versions Enum.to_list(20_260_908_000_100..20_260_908_001_100//100) ++
                      [@bounded_sources_version]
   @workspace_versions [
@@ -111,7 +112,8 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
                      @model_instructions_version,
                      @wait_list_order_version,
                      @typed_question_answers_version,
-                     @answer_confirmed_global_facts_version
+                     @answer_confirmed_global_facts_version,
+                     @worker_storage_reports_version
                    ]
              ]
 
@@ -1532,7 +1534,8 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
                    @model_instructions_version,
                    @wait_list_order_version,
                    @typed_question_answers_version,
-                   @answer_confirmed_global_facts_version
+                   @answer_confirmed_global_facts_version,
+                   @worker_storage_reports_version
                  ]
 
       # Existing sessions have unknown disclosure custody. New columns must not
@@ -1558,6 +1561,10 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
       assert reset_preserved_rows(repo, prefix) == preserved
       assert %{rows: [[0, 0, 0]]} = reset_topic_counts(repo, prefix)
       assert_reset_notes(repo, prefix, derived["conversation_observations"])
+
+      # Worker storage accounting is reversible on its own.
+      assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 1, prefix: prefix, log: false) ==
+               [@worker_storage_reports_version]
 
       assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 7, prefix: prefix, log: false) ==
                [
@@ -1635,6 +1642,9 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
       assert column_nullable?(repo, prefix, "operational_memory_entries", "expires_at")
       assert column_nullable?(repo, prefix, "episode_state_record_responses", "choice")
 
+      assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 1, prefix: prefix, log: false) ==
+               [@worker_storage_reports_version]
+
       fact_id = insert_global_fact!(repo, prefix)
 
       assert_raise Postgrex.Error, ~r/global facts have data/, fn ->
@@ -1675,7 +1685,11 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
       refute column_nullable?(repo, prefix, "episode_state_record_responses", "choice")
 
       assert Ecto.Migrator.run(repo, @migrations_path, :up, all: true, prefix: prefix, log: false) ==
-               [@typed_question_answers_version, @answer_confirmed_global_facts_version]
+               [
+                 @typed_question_answers_version,
+                 @answer_confirmed_global_facts_version,
+                 @worker_storage_reports_version
+               ]
     after
       SQL.query!(repo, "DROP SCHEMA IF EXISTS #{prefix} CASCADE", [])
     end
