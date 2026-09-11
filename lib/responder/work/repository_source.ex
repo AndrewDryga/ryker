@@ -145,9 +145,7 @@ defmodule Responder.Work.RepositorySource do
   def reconcile(nil, nil), do: {:ok, nil}
   def reconcile(nil, _requested), do: invalid_binding(:fields)
 
-  def reconcile(value, nil) do
-    with {:ok, binding} <- parse_binding(value, :admitted_tree_optional), do: {:ok, binding}
-  end
+  def reconcile(value, nil), do: parse_binding(value, :admitted_tree_optional)
 
   def reconcile(value, requested) do
     with {:ok, binding} <- parse_binding(value, :admitted_tree_required) do
