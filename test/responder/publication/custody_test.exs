@@ -531,6 +531,53 @@ defmodule Responder.Publication.CustodyTest do
              {:error, :publication_recovery_generation_stale}
   end
 
+  # A review phase can fail permanently: reconciliation reads its operation on the placement that
+  # owns it, and once that placement is replaced no retry can ever clear the error. Before this,
+  # review_pending had no update or discard clause, so the publication deferred once a minute
+  # forever. Update must queue a fresh review generation, and only for a phase that actually failed.
+  test "operator update queues a fresh review for a review phase no retry can clear" do
+    %{claim: claim, offer: offer, offer_receipt: receipt} =
+      delivered_offer!("recover-stuck-review")
+
+    assert {:ok, %{publication: publication}} =
+             PublicationCustody.request_review(review_request(claim, offer, receipt))
+
+    assert PublicationCustody.recover(publication.ref, :update, 1) ==
+             {:error, :publication_recovery_not_allowed}
+
+    assert {:ok, active} = PublicationCustody.claim_next("publication:recover-stuck", 60)
+
+    assert {:ok, _deferred} =
+             PublicationCustody.defer(
+               publication.ref,
+               active.lease_ref,
+               300,
+               "coop_session_replacement_required",
+               ~s({:coop_session_replacement_required, "session", 1})
+             )
+
+    assert {:ok, %{previous: previous, publication: updated}} =
+             PublicationCustody.recover(publication.ref, :update, 1)
+
+    assert previous == %{
+             "last_error_code" => "coop_session_replacement_required",
+             "recovery_generation" => 1,
+             "status" => "review_pending"
+           }
+
+    assert updated.status == :review_pending
+    assert updated.review_generation == publication.review_generation + 1
+    assert updated.recovery_generation == 2
+    assert updated.review_expected_revision == nil
+    assert updated.last_error_code == nil
+    assert updated.last_error_detail == nil
+    assert updated.lease_ref == nil
+    assert %DateTime{} = updated.next_attempt_at
+
+    assert PublicationCustody.recover(publication.ref, :update, 1) ==
+             {:error, :publication_recovery_generation_stale}
+  end
+
   test "operator update safely replaces only an unapproved review outcome" do
     reviewed = reviewed_publication!("recover-update", true)
 
