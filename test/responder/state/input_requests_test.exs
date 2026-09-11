@@ -7,7 +7,7 @@ defmodule Responder.State.InputRequestsTest do
   alias Responder.Slack.Input, as: SlackInput
   alias Responder.Slack.InteractionAudit
   alias Responder.State.{InputRequests, Record, Records, Response}
-  alias Responder.Work.{Custody, DeliveryReceipt, Result, Submission}
+  alias Responder.Work.{Custody, DeliveryReceipt, Result, Submission, Turn}
 
   @now ~U[2026-08-28 12:00:00.000000Z]
 
@@ -62,6 +62,33 @@ defmodule Responder.State.InputRequestsTest do
     Repo.update_all(Record, set: [status: :dismissed])
     assert InputRequests.answer(answer(fixture, 0, "stale")) == {:error, :input_request_stale}
     assert Repo.aggregate(Response, :count, :id) == 0
+  end
+
+  test "a question delivered to a joined input's origin thread can be answered from that thread" do
+    # Found live 2026-09-11: routing delivered a correction card to the joined
+    # root's thread and the Save press was refused as "no longer current"; a
+    # human sees the same.
+    fixture = delivered_question!(:slack, "1787832500.000700")
+
+    assert fixture.episode.destination_thread_ref == "1787832000.000100"
+    assert fixture.receipt["thread_ref"] == "1787832500.000700"
+
+    assert {:ok, answer} = InputRequests.answer(answer(fixture, 1, "routed"))
+    assert answer.status == :recorded
+    assert answer.response.choice == "Stop the rollout"
+
+    assert {:ok, entry} = Inbox.fetch(answer.input_ref)
+    assert entry.destination_thread_ref == "1787832500.000700"
+
+    # The control is still only answerable where it was delivered.
+    elsewhere =
+      put_in(
+        answer(fixture, 0, "routed-elsewhere"),
+        [:target, :thread_ref],
+        fixture.episode.destination_thread_ref
+      )
+
+    assert InputRequests.answer(elsewhere) == {:error, :input_request_delivery_mismatch}
   end
 
   test "a Conversation Lab choice resumes the same wait through generic ingress" do
@@ -161,9 +188,10 @@ defmodule Responder.State.InputRequestsTest do
     entry
   end
 
-  defp delivered_question!(transport \\ :slack) do
+  defp delivered_question!(transport \\ :slack, delivery_thread_ref \\ nil) do
     episode_id = Ecto.UUID.generate()
     destination = destination(transport)
+    delivery_thread_ref = delivery_thread_ref || destination.thread_ref
 
     command =
       EpisodeFixtures.admit_input(%{
@@ -276,12 +304,25 @@ defmodule Responder.State.InputRequestsTest do
 
     assert {:ok, delivery_claim} = Custody.claim_next("delivery:question", 60, :delivery)
 
+    # Where this turn's question goes, exactly as `Custody.reply_target/2`
+    # freezes it at acceptance: the answering input's own origin, which routing
+    # can join into this episode from a thread other than its bound home.
+    Repo.get_by!(Turn, episode_id: episode_id, turn_ref: turn.turn_ref)
+    |> Ecto.Changeset.change(
+      delivery_target: %{
+        "conversation_ref" => destination.conversation_ref,
+        "thread_ref" => delivery_thread_ref,
+        "transport" => destination.transport
+      }
+    )
+    |> Repo.update!()
+
     assert {:ok, receipt} =
              DeliveryReceipt.new(
                accepted.turn.delivery_ref,
                destination.transport,
                destination.conversation_ref,
-               destination.thread_ref,
+               delivery_thread_ref,
                "1787832001.000200"
              )
 

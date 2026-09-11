@@ -12,7 +12,7 @@ defmodule Responder.State.TaskOffers do
   alias Responder.Episodes
   alias Responder.Episodes.{Command, Episode}
   alias Responder.Repo
-  alias Responder.State.{Record, RecordChangeset}
+  alias Responder.State.{CardDelivery, Record, RecordChangeset}
   alias Responder.Work.{Custody, RepositoryContext, RepositorySource, Session, Turn}
 
   @fields [:actor_ref, :confirmation_ref, :occurred_at, :policy, :record_ref, :target]
@@ -78,26 +78,13 @@ defmodule Responder.State.TaskOffers do
     end
   end
 
-  defp delivered_from?(episode, %Turn{status: :settled, external_receipt: receipt}, target)
-       when is_map(receipt) do
-    expected = %{
-      conversation_ref: episode.destination_conversation_ref,
-      message_ref: receipt["message_ref"],
-      thread_ref: episode.destination_thread_ref,
-      transport: episode.destination_transport
-    }
-
-    receipt_matches =
-      receipt["conversation_ref"] == episode.destination_conversation_ref and
-        receipt["thread_ref"] == episode.destination_thread_ref and
-        receipt["transport"] == episode.destination_transport
-
-    if receipt_matches and expected == target,
-      do: :ok,
-      else: {:error, :task_offer_delivery_mismatch}
+  defp delivered_from?(episode, turn, target) do
+    case CardDelivery.delivered_from?(episode, turn, target) do
+      :ok -> :ok
+      {:error, :mismatch} -> {:error, :task_offer_delivery_mismatch}
+      {:error, :not_delivered} -> {:error, :task_offer_not_delivered}
+    end
   end
-
-  defp delivered_from?(_episode, _turn, _target), do: {:error, :task_offer_not_delivered}
 
   defp create_episode(record, source_episode, attributes) do
     episode_id = Ecto.UUID.generate()

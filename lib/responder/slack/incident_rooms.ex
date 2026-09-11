@@ -24,7 +24,7 @@ defmodule Responder.Slack.IncidentRooms do
     MembershipTransition
   }
 
-  alias Responder.State.{Record, RecordChangeset, TaskOffers}
+  alias Responder.State.{CardDelivery, Record, RecordChangeset, TaskOffers}
   alias Responder.Work.{Custody, Session, Turn}
 
   @request_fields [
@@ -750,23 +750,13 @@ defmodule Responder.Slack.IncidentRooms do
     end
   end
 
-  defp delivered_from?(episode, %Turn{status: :settled, external_receipt: receipt}, target)
-       when is_map(receipt) do
-    matches =
-      receipt["conversation_ref"] == episode.destination_conversation_ref and
-        receipt["thread_ref"] == episode.destination_thread_ref and
-        receipt["transport"] == episode.destination_transport and
-        target == %{
-          conversation_ref: episode.destination_conversation_ref,
-          message_ref: receipt["message_ref"],
-          thread_ref: episode.destination_thread_ref,
-          transport: episode.destination_transport
-        }
-
-    if matches, do: :ok, else: {:error, :incident_offer_delivery_mismatch}
+  defp delivered_from?(episode, turn, target) do
+    case CardDelivery.delivered_from?(episode, turn, target) do
+      :ok -> :ok
+      {:error, :mismatch} -> {:error, :incident_offer_delivery_mismatch}
+      {:error, :not_delivered} -> {:error, :incident_offer_not_delivered}
+    end
   end
-
-  defp delivered_from?(_episode, _turn, _target), do: {:error, :incident_offer_not_delivered}
 
   defp workspace_source?(episode, workspace_ref) do
     case String.split(episode.destination_conversation_ref, ":", parts: 3) do

@@ -20,6 +20,7 @@ defmodule Responder.State.Memories do
   alias Responder.State.{
     Behavior,
     BehaviorChangeset,
+    CardDelivery,
     MemoryEntry,
     MemoryEntryChangeset,
     MemoryReviewItem,
@@ -1522,7 +1523,7 @@ defmodule Responder.State.Memories do
       ref: "memory:#{id}",
       source_conversation_ref: episode.destination_conversation_ref,
       source_message_ref: attributes.target.message_ref,
-      source_thread_ref: episode.destination_thread_ref,
+      source_thread_ref: attributes.target.thread_ref,
       source_transport: episode.destination_transport,
       status: :active
     })
@@ -1788,21 +1789,13 @@ defmodule Responder.State.Memories do
     end
   end
 
-  defp delivered_from?(episode, %Turn{status: :settled, external_receipt: receipt}, target)
-       when is_map(receipt) do
-    expected = %{
-      conversation_ref: episode.destination_conversation_ref,
-      message_ref: receipt["message_ref"],
-      thread_ref: episode.destination_thread_ref,
-      transport: episode.destination_transport
-    }
-
-    if expected == target,
-      do: :ok,
-      else: {:error, :memory_offer_delivery_mismatch}
+  defp delivered_from?(episode, turn, target) do
+    case CardDelivery.delivered_from?(episode, turn, target) do
+      :ok -> :ok
+      {:error, :mismatch} -> {:error, :memory_offer_delivery_mismatch}
+      {:error, :not_delivered} -> {:error, :memory_offer_not_delivered}
+    end
   end
-
-  defp delivered_from?(_episode, _turn, _target), do: {:error, :memory_offer_not_delivered}
 
   defp retrieval_context(context) do
     fields = [:conversation_ref, :repository, :workspace_ref]

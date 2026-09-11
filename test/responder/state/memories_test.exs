@@ -26,7 +26,7 @@ defmodule Responder.State.MemoriesTest do
     Records
   }
 
-  alias Responder.Work.{Custody, DeliveryReceipt, Result, Submission}
+  alias Responder.Work.{Custody, DeliveryReceipt, Result, Submission, Turn}
 
   @now ~U[2026-08-28 12:00:00.000000Z]
 
@@ -193,6 +193,33 @@ defmodule Responder.State.MemoriesTest do
 
     assert Memories.confirm(confirmation(fixture, fixture.first, "stale")) ==
              {:error, :memory_offer_stale}
+  end
+
+  test "a memory offer delivered to a joined input's origin thread can be confirmed from that thread" do
+    # Found live 2026-09-11: routing delivered a correction card to the joined
+    # root's thread and the Save press was refused as "no longer current"; a
+    # human sees the same.
+    fixture = delivered_offers!("routed", "1787832500.000700")
+
+    assert fixture.episode.destination_thread_ref == "1787832000.000100"
+    assert fixture.receipt["thread_ref"] == "1787832500.000700"
+
+    assert {:ok, confirmed} = Memories.confirm(confirmation(fixture, fixture.first, "routed"))
+    assert confirmed.status == :confirmed
+    assert confirmed.memory.payload["value"] == "responder"
+
+    # A fact's source is the card it was saved from, so the recorded thread has
+    # to be the one holding the recorded message.
+    assert confirmed.memory.source_thread_ref == "1787832500.000700"
+    assert confirmed.memory.source_message_ref == fixture.receipt["message_ref"]
+
+    # The card is still only confirmable where it was delivered.
+    elsewhere =
+      fixture
+      |> confirmation(fixture.workspace, "routed-elsewhere")
+      |> put_in([:target, :thread_ref], fixture.episode.destination_thread_ref)
+
+    assert Memories.confirm(elsewhere) == {:error, :memory_offer_delivery_mismatch}
   end
 
   test "memory listing, expiry, and forget controls never widen scope" do
@@ -835,7 +862,7 @@ defmodule Responder.State.MemoriesTest do
     assert Repo.get!(MemoryEntry, confirmed.memory.id).recall_count == 1
   end
 
-  defp delivered_offers!(suffix) do
+  defp delivered_offers!(suffix, delivery_thread_ref \\ "1787832000.000100") do
     Repo.insert!(%ChannelMembership{
       channel_ref: "C456",
       external_shared: false,
@@ -941,14 +968,20 @@ defmodule Responder.State.MemoriesTest do
                }
              )
 
-    bind_and_deliver!(claim, transition.episode, suffix, [
-      first,
-      replacement,
-      workspace,
-      duplicate,
-      guidance,
-      guidance_duplicate
-    ])
+    bind_and_deliver!(
+      claim,
+      transition.episode,
+      suffix,
+      [
+        first,
+        replacement,
+        workspace,
+        duplicate,
+        guidance,
+        guidance_duplicate
+      ],
+      delivery_thread_ref
+    )
     |> Map.merge(%{
       duplicate: duplicate,
       first: first,
@@ -995,7 +1028,7 @@ defmodule Responder.State.MemoriesTest do
     |> Repo.insert!()
   end
 
-  defp bind_and_deliver!(claim, episode, suffix, records) do
+  defp bind_and_deliver!(claim, episode, suffix, records, delivery_thread_ref) do
     assert {:ok, submission} =
              Submission.new(
                %{"episode_id" => episode.id},
@@ -1086,12 +1119,25 @@ defmodule Responder.State.MemoriesTest do
     assert {:ok, delivery_claim} =
              Custody.claim_next("delivery:memory:#{suffix}", 60, :delivery)
 
+    # Where this turn's reply goes, exactly as `Custody.reply_target/2` freezes
+    # it at acceptance: the answering input's own origin, which routing can join
+    # into this episode from a thread other than its bound home.
+    Repo.get_by!(Turn, episode_id: episode.id, turn_ref: turn.turn_ref)
+    |> Ecto.Changeset.change(
+      delivery_target: %{
+        "conversation_ref" => "slack:T123:C456",
+        "thread_ref" => delivery_thread_ref,
+        "transport" => "slack"
+      }
+    )
+    |> Repo.update!()
+
     assert {:ok, receipt} =
              DeliveryReceipt.new(
                accepted.turn.delivery_ref,
                "slack",
                "slack:T123:C456",
-               "1787832000.000100",
+               delivery_thread_ref,
                "1787832001.000200"
              )
 

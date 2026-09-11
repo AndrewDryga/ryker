@@ -25,7 +25,7 @@ defmodule Responder.State.BehaviorsTest do
     StandingAssignmentRun
   }
 
-  alias Responder.Work.{Custody, DeliveryReceipt, Result, Submission}
+  alias Responder.Work.{Custody, DeliveryReceipt, Result, Submission, Turn}
 
   @now ~U[2026-08-28 12:00:00.000000Z]
 
@@ -667,6 +667,26 @@ defmodule Responder.State.BehaviorsTest do
     assert resumed.status == :active
   end
 
+  test "guidance saved from a joined input's origin thread records the thread it was saved in" do
+    # Found live 2026-09-11: routing delivered a correction card to the joined
+    # root's thread and the Save press was refused as "no longer current"; a
+    # human sees the same.
+    fixture = delivered_offers!("routed", "1787832500.000700")
+
+    assert fixture.episode.destination_thread_ref == "1787832000.000100"
+    assert fixture.receipt["thread_ref"] == "1787832500.000700"
+
+    assert {:ok, confirmed} =
+             Behaviors.confirm(confirmation(fixture, fixture.guidance, "routed"))
+
+    assert confirmed.status == :confirmed
+
+    # Guidance's source is the card it was saved from, so the recorded thread
+    # has to be the one holding the recorded message.
+    assert confirmed.behavior.source_thread_ref == "1787832500.000700"
+    assert confirmed.behavior.source_message_ref == fixture.receipt["message_ref"]
+  end
+
   test "crossed and stale behavior controls fail closed" do
     fixture = delivered_offers!("crossed")
 
@@ -984,7 +1004,7 @@ defmodule Responder.State.BehaviorsTest do
              end)
   end
 
-  defp delivered_offers!(suffix) do
+  defp delivered_offers!(suffix, delivery_thread_ref \\ "1787832000.000100") do
     episode_id = Ecto.UUID.generate()
 
     assert {:ok, transition} =
@@ -1085,13 +1105,19 @@ defmodule Responder.State.BehaviorsTest do
                }
              )
 
-    bind_and_deliver!(claim, transition.episode, suffix, [
-      workspace_preference,
-      operator_preference,
-      guidance,
-      assignment,
-      source_event_assignment
-    ])
+    bind_and_deliver!(
+      claim,
+      transition.episode,
+      suffix,
+      [
+        workspace_preference,
+        operator_preference,
+        guidance,
+        assignment,
+        source_event_assignment
+      ],
+      delivery_thread_ref
+    )
     |> Map.merge(%{
       assignment: assignment,
       guidance: guidance,
@@ -1168,7 +1194,7 @@ defmodule Responder.State.BehaviorsTest do
     {^count, nil} = Repo.insert_all(Behavior, behaviors)
   end
 
-  defp bind_and_deliver!(claim, episode, suffix, records) do
+  defp bind_and_deliver!(claim, episode, suffix, records, delivery_thread_ref) do
     assert {:ok, submission} =
              Submission.new(
                %{"episode_id" => episode.id},
@@ -1257,12 +1283,25 @@ defmodule Responder.State.BehaviorsTest do
     assert {:ok, delivery_claim} =
              Custody.claim_next("delivery:behavior:#{suffix}", 60, :delivery)
 
+    # Where this turn's reply goes, exactly as `Custody.reply_target/2` freezes
+    # it at acceptance: the answering input's own origin, which routing can join
+    # into this episode from a thread other than its bound home.
+    Repo.get_by!(Turn, episode_id: episode.id, turn_ref: turn.turn_ref)
+    |> Ecto.Changeset.change(
+      delivery_target: %{
+        "conversation_ref" => "slack:T123:C456",
+        "thread_ref" => delivery_thread_ref,
+        "transport" => "slack"
+      }
+    )
+    |> Repo.update!()
+
     assert {:ok, receipt} =
              DeliveryReceipt.new(
                accepted.turn.delivery_ref,
                "slack",
                "slack:T123:C456",
-               "1787832000.000100",
+               delivery_thread_ref,
                "1787832001.000200"
              )
 

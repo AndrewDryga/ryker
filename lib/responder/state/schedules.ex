@@ -16,6 +16,7 @@ defmodule Responder.State.Schedules do
   alias Responder.Repo
 
   alias Responder.State.{
+    CardDelivery,
     Record,
     RecordChangeset,
     Schedule,
@@ -674,27 +675,13 @@ defmodule Responder.State.Schedules do
     end
   end
 
-  defp delivered_from?(episode, %Turn{status: :settled, external_receipt: receipt}, target)
-       when is_map(receipt) do
-    expected = %{
-      conversation_ref: episode.destination_conversation_ref,
-      message_ref: receipt["message_ref"],
-      thread_ref: episode.destination_thread_ref,
-      transport: episode.destination_transport
-    }
-
-    receipt_matches =
-      receipt["conversation_ref"] == episode.destination_conversation_ref and
-        receipt["thread_ref"] == episode.destination_thread_ref and
-        receipt["transport"] == episode.destination_transport
-
-    if receipt_matches and expected == target,
-      do: :ok,
-      else: {:error, :schedule_offer_delivery_mismatch}
+  defp delivered_from?(episode, turn, target) do
+    case CardDelivery.delivered_from?(episode, turn, target) do
+      :ok -> :ok
+      {:error, :mismatch} -> {:error, :schedule_offer_delivery_mismatch}
+      {:error, :not_delivered} -> {:error, :schedule_offer_not_delivered}
+    end
   end
-
-  defp delivered_from?(_episode, _turn, _target),
-    do: {:error, :schedule_offer_not_delivered}
 
   defp live_schedule_lease(schedule_ref, lease_ref, now) do
     case lock_schedule(schedule_ref) do
