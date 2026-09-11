@@ -1356,6 +1356,7 @@ details.measurement-notes > summary { cursor:pointer; font-weight:600; color:var
 .settings-section { background:#fff; border:1px solid var(--stroke); border-radius:8px; margin:0 0 20px; padding:22px 24px; }
 .settings-section-head h2 { font-size:20px; letter-spacing:-.3px; margin:0 0 6px; }
 .settings-description { color:#4f5a50; margin:0 0 14px; max-width:78ch; line-height:1.6; }
+.settings-notice { background:#faf5e9; border:1px solid #d9c89c; border-radius:6px; color:#5a4a22; margin:0 0 14px; padding:10px 12px; max-width:78ch; }
 .settings-credentials { display:flex; flex-wrap:wrap; gap:8px 18px; list-style:none; margin:0 0 16px; padding:0; font-size:13px; }
 .settings-credentials li { display:flex; align-items:baseline; gap:8px; }
 .settings-credentials li span { color:var(--secondary); }
