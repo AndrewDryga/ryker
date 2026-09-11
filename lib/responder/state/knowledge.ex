@@ -107,7 +107,11 @@ defmodule Responder.State.Knowledge do
   end
 
   defp search_page_locked(scope, page) do
-    query = visible_query(scope) |> within_scope(scope, page.scope)
+    query =
+      visible_query(scope)
+      |> within_scope(scope, page.scope)
+      |> MemorySearchPage.related_sources(page)
+
     query = from(k in query, lock: "FOR SHARE")
 
     case MemorySearchPage.one(
@@ -1009,6 +1013,7 @@ defmodule Responder.State.Knowledge do
             occurred_at: o.occurred_at,
             transport: o.transport,
             conversation_ref: o.conversation_ref,
+            thread_ref: o.thread_ref,
             source_message_ref: o.source_message_ref
           }
         )
@@ -1042,7 +1047,8 @@ defmodule Responder.State.Knowledge do
           &MemorySourceLink.message(
             &1.transport,
             &1.conversation_ref,
-            &1.source_message_ref
+            &1.source_message_ref,
+            &1.thread_ref
           )
         )
         |> Stream.reject(&is_nil/1)

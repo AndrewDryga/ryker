@@ -2,7 +2,11 @@ defmodule Responder.StateTools.MemorySearchTest do
   use Responder.DataCase, async: false
   import Ecto.Query
   alias Responder.{CanonicalJSON, Repo}
+  alias Responder.Episodes
+  alias Responder.Episodes.Command
+  alias Responder.Fixtures.Episodes, as: EpisodeFixtures
   alias Responder.Fixtures.{Knowledge, Learning}
+  alias Responder.Slack.CapabilityTools, as: SlackCapabilityTools
   alias Responder.Slack.SourceRef
 
   alias Responder.State.{
@@ -10,13 +14,14 @@ defmodule Responder.StateTools.MemorySearchTest do
     ConversationObservation,
     KnowledgeSnapshot,
     MemoryEntry,
+    MemorySearch,
     Observations,
     Record,
     Records,
     SourceExposure
   }
 
-  alias Responder.StateTools.{Router, Tools}
+  alias Responder.StateTools.{LookupContext, Router, Tools}
   alias Responder.Work.Custody
 
   @args %{
@@ -51,6 +56,372 @@ defmodule Responder.StateTools.MemorySearchTest do
     %{claim: claim, options: options, entries: entries}
   end
 
+  test "an empty platform lookup still rejects a caller whose lease was lost", %{claim: claim} do
+    expired = put_in(claim.turn.lease_ref, Ecto.UUID.generate())
+
+    for name <- ~w(search_slack read_github_conversation search_github) do
+      assert {:error, "state_tools_binding_not_authorized"} =
+               LookupContext.enrich(
+                 name,
+                 %{},
+                 expired,
+                 %{"results" => %{"messages" => []}},
+                 []
+               )
+    end
+  end
+
+  test "raw Slack matches and neighbors cannot reveal an input queued for the next turn", %{
+    claim: claim,
+    entries: [entry | _]
+  } do
+    # Captured completion text, newly queued on the real kernel ledger. The
+    # provider can already see it while this Work turn must not consume it.
+    [_root, _card, later] =
+      Path.join(__DIR__, "../slack/fixtures/readiness_thread.json")
+      |> File.read!()
+      |> Jason.decode!()
+
+    ["slack", workspace, channel] = String.split(entry.destination_conversation_ref, ":")
+
+    command =
+      EpisodeFixtures.admit_input(%{
+        episode_id: claim.episode.id,
+        episode_key: claim.episode.key,
+        native_input_id: "queued-source-lookup",
+        turn_ref: claim.turn.turn_ref,
+        occurred_at: DateTime.utc_now(),
+        destination: %{
+          transport: "slack",
+          conversation_ref: entry.destination_conversation_ref,
+          thread_ref: entry.destination_thread_ref
+        },
+        payload: %{
+          "source_item_ref" => later["ts"],
+          "content" => %{"text" => later["text"]},
+          "destination" => %{
+            "transport" => "slack",
+            "conversation_ref" => entry.destination_conversation_ref
+          }
+        }
+      })
+
+    assert {:ok, transition} = Episodes.apply(command)
+    assert Command.dedupe_key(command) in transition.episode.queued_input_refs
+    future = Map.put(later, "source_ref", SourceRef.message(workspace, channel, later["ts"]))
+
+    current = %{
+      "source_ref" => SourceRef.message(workspace, channel, entry.source_item_ref),
+      "thread_root" => future,
+      "context_messages" => %{"before" => [], "after" => [future]}
+    }
+
+    descriptor = %{
+      "tool" => "read_slack_source",
+      "arguments" => %{
+        "source_ref" => SourceRef.thread(workspace, channel, entry.destination_thread_ref),
+        "view" => "thread",
+        "anchor_ref" => future["source_ref"]
+      }
+    }
+
+    raw = %{
+      "complete" => true,
+      "results" => %{"messages" => [current, future]},
+      "source_reads" => [descriptor]
+    }
+
+    assert {:ok, result} = LookupContext.enrich("search_slack", %{}, claim, raw, [])
+    assert [hit] = result["results"]["messages"]
+    assert hit["context_messages"]["after"] == []
+    assert is_nil(hit["thread_root"])
+    assert result["source_reads"] == []
+    refute result["complete"]
+    refute CanonicalJSON.encode!(result) =~ later["text"]
+
+    assert {:error, "source_not_available"} =
+             LookupContext.enrich(
+               "read_slack_source",
+               %{},
+               claim,
+               %{"anchor" => future, "messages" => []},
+               []
+             )
+  end
+
+  test "source-linked lookup memory is exposed under the original caller and stops after source deletion",
+       %{claim: claim, entries: [entry | _]} do
+    {learned, _offer} = Knowledge.learn!(claim.episode, claim.session.repository_ref)
+
+    targets = [
+      %{
+        "conversation_ref" => entry.destination_conversation_ref,
+        "thread_ref" => entry.destination_thread_ref,
+        "message_ref" => entry.source_item_ref
+      }
+    ]
+
+    assert {:ok, result} = MemorySearch.related(claim, targets, nil)
+    assert Enum.any?(result["memories"], &(&1["kind"] == "conversation_knowledge"))
+    assert Repo.aggregate(SourceExposure, :count) > 0
+
+    Knowledge.revoke!(learned)
+    assert {:error, _} = MemorySearch.related(claim, targets, nil)
+  end
+
+  test "a platform source read returns related knowledge without a separate memory search", %{
+    claim: claim,
+    entries: [entry | _]
+  } do
+    Knowledge.learn!(claim.episode, claim.session.repository_ref)
+    ["slack", workspace, channel] = String.split(entry.destination_conversation_ref, ":")
+    source = SourceRef.message(workspace, channel, entry.source_item_ref)
+
+    response = %{
+      "source_ref" => source,
+      "anchor" => %{"source_ref" => source, "thread_ts" => entry.destination_thread_ref},
+      "messages" => []
+    }
+
+    tool =
+      Enum.find(
+        SlackCapabilityTools.definitions(),
+        &(&1["name"] == "read_slack_source")
+      )
+
+    options =
+      Router.init(
+        token: "host-only-search-test-secret",
+        binding: claim,
+        additional_tools: [tool],
+        additional_call: fn _, _, _ -> {:ok, response} end
+      )
+
+    request = %{
+      "id" => 1,
+      "jsonrpc" => "2.0",
+      "method" => "tools/call",
+      "params" => %{
+        "name" => "read_slack_source",
+        "arguments" => %{"source_ref" => source, "view" => "surrounding"}
+      }
+    }
+
+    connection =
+      Plug.Test.conn(:post, "/mcp", Jason.encode!(request))
+      |> Plug.Conn.put_req_header("authorization", "Bearer host-only-search-test-secret")
+      |> Plug.Conn.put_req_header("content-type", "application/json")
+      |> Router.call(options)
+
+    result = Jason.decode!(connection.resp_body)["result"]
+    refute result["isError"]
+
+    assert [%{"kind" => "conversation_knowledge"} | _] =
+             result["structuredContent"]["related_memory"]
+
+    assert Repo.aggregate(SourceExposure, :count) > 0
+  end
+
+  test "related knowledge uses the verified source root even when the reply omits thread_ts", %{
+    claim: claim,
+    entries: [entry | _]
+  } do
+    Knowledge.learn!(claim.episode, claim.session.repository_ref)
+    ["slack", workspace, channel] = String.split(entry.destination_conversation_ref, ":")
+
+    result = %{
+      "source_ref" => SourceRef.thread(workspace, channel, entry.destination_thread_ref),
+      "anchor" => %{"source_ref" => SourceRef.message(workspace, channel, "1789058455.189229")},
+      "messages" => []
+    }
+
+    assert {:ok, enriched} =
+             LookupContext.enrich("read_slack_source", %{}, claim, result, ["read_slack_source"])
+
+    assert Enum.any?(enriched["related_memory"], &(&1["kind"] == "conversation_knowledge"))
+  end
+
+  test "large optional lookup context is trimmed before any primary hit or exact root", %{
+    claim: claim,
+    entries: [entry | _]
+  } do
+    ["slack", workspace, channel] = String.split(entry.destination_conversation_ref, ":")
+
+    anchor = %{
+      "source_ref" => SourceRef.message(workspace, channel, entry.source_item_ref),
+      "text" => @captured
+    }
+
+    root = %{
+      "source_ref" => SourceRef.message(workspace, channel, "1789000000.000100"),
+      "text" => "The original question"
+    }
+
+    neighbors =
+      Enum.map(1..20, fn index ->
+        %{
+          "source_ref" => SourceRef.message(workspace, channel, "17890000#{10 + index}.000100"),
+          "text" => String.duplicate(@captured, 120),
+          "ts" => "17890000#{10 + index}.000100"
+        }
+      end)
+
+    raw = %{
+      "anchor" => anchor,
+      "thread_root" => root,
+      "messages" => neighbors,
+      "coverage" => %{"status" => "complete"},
+      "complete" => true,
+      "channel_context" => %{"messages" => neighbors, "coverage" => %{"status" => "complete"}}
+    }
+
+    assert {:ok, result} = LookupContext.enrich("read_slack_source", %{}, claim, raw, [])
+    assert result["anchor"] == anchor
+    assert result["thread_root"] == root
+    assert byte_size(CanonicalJSON.encode!(result)) <= 131_072
+    refute result["complete"]
+    assert result["coverage"]["status"] == "partial"
+    assert result["coverage"]["reason"] == "response_byte_limit"
+  end
+
+  test "overlapping lookup originals are shared without removing their primary hits", %{
+    claim: claim,
+    entries: [entry | _]
+  } do
+    ["slack", workspace, channel] = String.split(entry.destination_conversation_ref, ":")
+
+    first = %{
+      "source_ref" => SourceRef.message(workspace, channel, entry.source_item_ref),
+      "content" => @captured
+    }
+
+    second = %{
+      "source_ref" => SourceRef.message(workspace, channel, "1789000000.000200"),
+      "content" => "The later correction"
+    }
+
+    neighbor = %{
+      "source_ref" => SourceRef.message(workspace, channel, "1789000000.000300"),
+      "text" => "Shared surrounding original"
+    }
+
+    raw = %{
+      "results" => %{
+        "messages" => [
+          Map.put(first, "context_messages", %{"before" => [neighbor], "after" => [second]}),
+          Map.put(second, "context_messages", %{"before" => [first, neighbor], "after" => []})
+        ]
+      }
+    }
+
+    assert {:ok, result} = LookupContext.enrich("search_slack", %{}, claim, raw, [])
+    [first_hit, second_hit] = result["results"]["messages"]
+    assert first_hit["content"] == @captured
+    assert second_hit["content"] == "The later correction"
+    assert first_hit["context_messages"]["before"] == [neighbor]
+
+    assert [%{"source_ref" => ref, "context_reference" => true}] =
+             first_hit["context_messages"]["after"]
+
+    assert ref == second["source_ref"]
+    assert Enum.all?(second_hit["context_messages"]["before"], & &1["context_reference"])
+    assert length(String.split(CanonicalJSON.encode!(result), "Shared surrounding original")) == 2
+  end
+
+  test "the platform response byte cap includes attachment coverage even with no optional memory",
+       %{
+         claim: claim,
+         entries: [entry | _]
+       } do
+    # Structural size boundary: the old attachment wrapper could exceed the
+    # advertised cap even after every optional document had been removed.
+    ["slack", workspace, channel] = String.split(entry.destination_conversation_ref, ":")
+
+    result = %{
+      "anchor" => %{"source_ref" => SourceRef.message(workspace, channel, entry.source_item_ref)},
+      "body" => ""
+    }
+
+    result =
+      Map.put(
+        result,
+        "body",
+        String.duplicate("x", 131_072 - byte_size(CanonicalJSON.encode!(result)) - 20)
+      )
+
+    assert {:error, "source_result_too_large"} =
+             LookupContext.enrich("read_slack_source", %{}, claim, result, ["read_slack_source"])
+  end
+
+  test "a lookup cannot impersonate another thread or disclose memory after its lease is lost", %{
+    claim: claim,
+    entries: [entry | _]
+  } do
+    Knowledge.learn!(claim.episode, claim.session.repository_ref)
+
+    targets = [
+      %{
+        "conversation_ref" => entry.destination_conversation_ref,
+        "thread_ref" => "1789000999.000001",
+        "message_ref" => "1789000999.000002"
+      }
+    ]
+
+    assert {:ok, %{"memories" => []}} = MemorySearch.related(claim, targets, nil)
+    expired = put_in(claim.turn.lease_ref, Ecto.UUID.generate())
+
+    assert {:error, :state_tools_binding_not_authorized} =
+             MemorySearch.related(expired, targets, nil)
+  end
+
+  test "source-related recall includes confirmed facts and guidance without unrelated workspace memory",
+       %{claim: claim} do
+    fact = fact!(claim, 1)
+    guidance!(claim, 2)
+    unrelated = fact!(claim, 3)
+    unrelated |> Ecto.Changeset.change(source_message_ref: "1789000999.000001") |> Repo.update!()
+
+    targets = [
+      %{
+        "conversation_ref" => fact.source_conversation_ref,
+        "message_ref" => fact.source_message_ref,
+        "thread_ref" => nil
+      }
+    ]
+
+    assert {:ok, result} = MemorySearch.related(claim, targets, nil)
+    assert Enum.map(result["memories"], & &1["kind"]) == ["entity_relationship", "guidance"]
+    refute Enum.any?(result["memories"], &(&1["memory_ref"] == unrelated.ref))
+  end
+
+  test "a searched source excerpt carries later retained thread knowledge without repeating the primary",
+       %{claim: claim, options: options, entries: entries} do
+    assert {:ok, :ok} =
+             Repo.transaction(fn ->
+               Enum.each(entries, &Observations.record_excerpt_in_transaction/1)
+             end)
+
+    Knowledge.learn!(claim.episode, claim.session.repository_ref)
+    # The captured FIRING and RESOLVED sources are different threads. Select
+    # the FIRING source whose exact thread owns the related knowledge above.
+    args = %{@args | "query" => "FIRING", "kinds" => ["continuity"], "limit" => 1}
+    assert {:ok, result} = Tools.call("search_memory", args, options)
+    assert [primary] = result["memories"]
+    assert primary["kind"] == "conversation_observation"
+
+    assert Enum.any?(result["related_memory"] || [], &(&1["kind"] == "conversation_knowledge")),
+           inspect(%{
+             primary: Map.take(primary, ["thread_ref", "source_message_ref"]),
+             target_thread: claim.episode.destination_thread_ref,
+             coverage: result["related_memory_coverage"]
+           })
+
+    refute Enum.any?(result["related_memory"], &(&1["source_ref"] == primary["source_ref"]))
+
+    assert byte_size(CanonicalJSON.encode!(result["memories"] ++ result["related_memory"])) <=
+             65_536
+  end
+
   test "every later page is reachable without retrieval counters moving the cursor", %{
     claim: claim,
     options: options
@@ -65,6 +436,16 @@ defmodule Responder.StateTools.MemorySearchTest do
              MapSet.new(Enum.map(records, & &1.ref))
 
     assert Repo.aggregate(MemoryEntry, :sum, :recall_count) == Decimal.new(27)
+  end
+
+  test "memory search does not advertise a platform reader that this turn cannot call", %{
+    claim: claim,
+    options: options
+  } do
+    fact!(claim, 1)
+    assert {:ok, %{"memories" => [memory]}} = Tools.call("search_memory", @args, options)
+    assert is_nil(memory["source_read"])
+    assert memory["source"]["message_ref"] == "1788628764.248029"
   end
 
   test "facts cannot consume the whole page and hide guidance or topic knowledge", %{
@@ -280,6 +661,9 @@ defmodule Responder.StateTools.MemorySearchTest do
     entries: entries,
     options: options
   } do
+    # This assertion promises a callable expansion, so expose its real schema.
+    options = Map.put(options, :additional_tools, SlackCapabilityTools.definitions())
+
     assert {:ok, :ok} =
              Repo.transaction(fn ->
                Enum.each(entries, &Observations.record_excerpt_in_transaction/1)
@@ -302,11 +686,22 @@ defmodule Responder.StateTools.MemorySearchTest do
 
     assert %{
              "tool" => "read_slack_source",
-             "arguments" => %{"source_ref" => source_ref, "view" => "surrounding"}
+             "arguments" => %{
+               "source_ref" => source_ref,
+               "anchor_ref" => anchor_ref,
+               "view" => "thread"
+             }
            } = newer["source_read"]
 
-    assert {:ok, %{kind: :message}} =
+    assert {:ok, %{kind: :thread, message_ref: root}} =
              SourceRef.parse(source_ref, hd(entries).source_ref)
+
+    assert root == newer["thread_ref"]
+
+    assert {:ok, %{kind: :message, message_ref: anchor}} =
+             SourceRef.parse(anchor_ref, hd(entries).source_ref)
+
+    assert anchor == newer["source_message_ref"]
 
     [older] = Enum.reject(entries, &(&1.id == newer["source_input_id"]))
 

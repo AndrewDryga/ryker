@@ -204,6 +204,203 @@ defmodule Responder.Slack.CapabilityToolsTest do
     end
   end
 
+  defmodule ContextSearchAPI do
+    defdelegate list_conversations(observer, document), to: FakeAPI
+    defdelegate conversation_info(observer, channel_ref), to: FakeAPI
+    defdelegate list_bookmarks(observer, channel_ref), to: FakeAPI
+    defdelegate file_info(observer, file_ref), to: FakeAPI
+    defdelegate read_messages(observer, channel_ref, thread_ref, document), to: FakeAPI
+
+    def search_context(observer, token, document) do
+      send(observer, {:search_context, token, document})
+
+      [root, hit, later] =
+        Path.join(__DIR__, "fixtures/readiness_thread.json") |> File.read!() |> Jason.decode!()
+
+      root = Map.merge(root, Process.get(:nested_context_override, %{}))
+
+      {:ok,
+       %{
+         "next_cursor" => "",
+         "results" => %{
+           "messages" => [
+             %{
+               "channel_id" => "C456",
+               "content" => hit["text"],
+               "context_messages" => %{"before" => [root, root, hit], "after" => [later]},
+               "message_ts" => hit["ts"],
+               "thread_ts" => hit["thread_ts"]
+             }
+           ]
+         }
+       }}
+    end
+  end
+
+  defmodule PagedSourceAPI do
+    defdelegate list_conversations(observer, document), to: FakeAPI
+    defdelegate conversation_info(observer, channel_ref), to: FakeAPI
+    defdelegate list_bookmarks(observer, channel_ref), to: FakeAPI
+    defdelegate file_info(observer, file_ref), to: FakeAPI
+    defdelegate search_context(observer, token, document), to: FakeAPI
+
+    def read_messages(observer, channel_ref, thread_ref, document) do
+      send(observer, {:read_messages, channel_ref, thread_ref, document})
+
+      [root, _hit, later] =
+        Path.join(__DIR__, "fixtures/readiness_thread.json") |> File.read!() |> Jason.decode!()
+
+      if document["oldest"] == root["ts"] and document["latest"] == root["ts"] do
+        {:ok,
+         %{"messages" => if(Process.get(:anchor_deleted), do: [], else: [root]), "cursor" => ""}}
+      else
+        # A dense history page, or a later thread page, need not repeat the anchor.
+        {:ok, %{"messages" => [later], "cursor" => "next-page"}}
+      end
+    end
+  end
+
+  defmodule DenseSourceAPI do
+    defdelegate list_conversations(observer, document), to: FakeAPI
+    defdelegate conversation_info(observer, channel_ref), to: FakeAPI
+    defdelegate list_bookmarks(observer, channel_ref), to: FakeAPI
+    defdelegate file_info(observer, file_ref), to: FakeAPI
+    defdelegate search_context(observer, token, document), to: FakeAPI
+
+    def read_messages(_observer, _channel, _thread, document) do
+      originals =
+        for n <- 1..250, do: %{"ts" => "#{1_789_000_000 + n}.000001", "text" => "row #{n}"}
+
+      rows =
+        Enum.filter(originals, fn row ->
+          above?(row["ts"], document["oldest"], document["inclusive"]) and
+            below?(row["ts"], document["latest"], document["inclusive"])
+        end)
+        |> Enum.reverse()
+
+      offset = if document["cursor"], do: String.to_integer(document["cursor"]), else: 0
+      page = Enum.slice(rows, offset, document["limit"])
+
+      cursor =
+        if offset + length(page) < length(rows), do: to_string(offset + length(page)), else: ""
+
+      {:ok, %{"messages" => page, "cursor" => cursor}}
+    end
+
+    defp above?(_value, nil, _inclusive), do: true
+    defp above?(value, bound, true), do: value >= bound
+    defp above?(value, bound, _), do: value > bound
+    defp below?(_value, nil, _inclusive), do: true
+    defp below?(value, bound, true), do: value <= bound
+    defp below?(value, bound, _), do: value < bound
+  end
+
+  defmodule ThreadSourceAPI do
+    defdelegate list_conversations(observer, document), to: FakeAPI
+    defdelegate conversation_info(observer, channel_ref), to: FakeAPI
+    defdelegate list_bookmarks(observer, channel_ref), to: FakeAPI
+    defdelegate file_info(observer, file_ref), to: FakeAPI
+    defdelegate search_context(observer, token, document), to: FakeAPI
+
+    def read_messages(observer, channel, thread, document) do
+      send(observer, {:read_messages, channel, thread, document})
+
+      [root | _] =
+        originals =
+        Path.join(__DIR__, "fixtures/readiness_thread.json") |> File.read!() |> Jason.decode!()
+
+      selected =
+        Enum.filter(originals, fn message ->
+          (is_nil(document["oldest"]) or message["ts"] >= document["oldest"]) and
+            (is_nil(document["latest"]) or message["ts"] <= document["latest"])
+        end)
+
+      # Harvested replies behavior: the real root is also returned for an exact reply.
+      {:ok, %{"messages" => Enum.uniq_by([root | selected], & &1["ts"]), "cursor" => ""}}
+    end
+  end
+
+  defmodule ContextualThreadAPI do
+    defdelegate conversation_info(observer, channel_ref), to: FakeAPI
+    defdelegate list_conversations(observer, document), to: FakeAPI
+    defdelegate list_bookmarks(observer, channel_ref), to: FakeAPI
+    defdelegate file_info(observer, file_ref), to: FakeAPI
+    defdelegate search_context(observer, token, document), to: FakeAPI
+
+    def read_messages(observer, channel, thread, document) do
+      send(observer, {:read_messages, channel, thread, document})
+
+      originals =
+        Path.join(__DIR__, "fixtures/readiness_thread.json") |> File.read!() |> Jason.decode!()
+
+      [root | _] = originals
+      # These additional rows describe only channel/thread structure. The
+      # conversational originals above retain the captured production wording.
+      rows =
+        if thread,
+          do: originals,
+          else: [
+            %{"ts" => "1789058306.000001", "text" => "preceding channel original"},
+            root,
+            %{
+              "ts" => "1789058308.000001",
+              "text" => "another thread reply",
+              "thread_ts" => "1789000000.000001"
+            },
+            %{"ts" => "1789058309.000001", "text" => "following channel original"}
+          ]
+
+      inclusive = document["inclusive"] == true
+
+      selected =
+        Enum.filter(rows, fn row ->
+          (is_nil(document["oldest"]) or row["ts"] > document["oldest"] or
+             (inclusive and row["ts"] == document["oldest"])) and
+            (is_nil(document["latest"]) or row["ts"] < document["latest"] or
+               (inclusive and row["ts"] == document["latest"]))
+        end)
+
+      # This valid exact-reply response omits the root. The reader must obtain
+      # it explicitly, not assume every provider response repeats the parent.
+      {:ok, %{"messages" => selected, "cursor" => ""}}
+    end
+  end
+
+  test "thread expansion fetches a missing root and separates surrounding channel originals" do
+    source = SourceRef.thread("T123", "C456", "1789058307.523479")
+    anchor = SourceRef.message("T123", "C456", "1789058455.189229")
+    arguments = %{"source_ref" => source, "anchor_ref" => anchor, "view" => "thread"}
+
+    assert {:ok, result} =
+             CapabilityTools.call("read_slack_source", arguments, work_binding(), %{
+               options()
+               | api: ContextualThreadAPI
+             })
+
+    assert result["thread_root"]["ts"] == "1789058307.523479"
+    assert result["anchor"]["source_ref"] == anchor
+
+    assert Enum.map(result["channel_context"]["messages"], & &1["ts"]) == [
+             "1789058306.000001",
+             "1789058309.000001"
+           ]
+
+    refute Jason.encode!(result["channel_context"]) =~ "another thread reply"
+
+    assert result["channel_context"]["source_read"]["arguments"]["source_ref"] ==
+             SourceRef.message("T123", "C456", "1789058307.523479")
+
+    assert {:ok, expanded} =
+             CapabilityTools.call(
+               "read_slack_source",
+               result["channel_context"]["source_read"]["arguments"],
+               work_binding(),
+               %{options() | api: ContextualThreadAPI}
+             )
+
+    refute Jason.encode!(expanded) =~ "another thread reply"
+  end
+
   test "list_slack_channels exposes public joined channels and only the current private channel" do
     options = options()
 
@@ -385,6 +582,101 @@ defmodule Responder.Slack.CapabilityToolsTest do
     end
   end
 
+  test "file context retains known shares without inventing a unique originating thread" do
+    {:ok, file} = FakeAPI.file_info(self(), "F123")
+
+    file =
+      Map.merge(file, %{
+        "created" => 1_787_832_000,
+        "updated" => 1_787_833_000,
+        "shares" => %{
+          "public" => %{
+            "C456" => [
+              %{
+                "ts" => "1787832001.000200",
+                "thread_ts" => "1787832000.000100",
+                "team_id" => "T123"
+              },
+              %{
+                "ts" => "1787833001.000200",
+                "thread_ts" => "1787833000.000100",
+                "team_id" => "T123"
+              }
+            ]
+          },
+          "private" => %{
+            "G999" => [%{"ts" => "1787834001.000200", "thread_ts" => "1787834000.000100"}]
+          }
+        }
+      })
+
+    Process.put(:adversarial_file_response, {:ok, file})
+
+    assert {:ok, result} =
+             CapabilityTools.call(
+               "read_slack_source",
+               %{"source_ref" => SourceRef.file("T123", "C456", "F123"), "view" => "document"},
+               work_binding(),
+               %{options() | api: AdversarialSearchAPI}
+             )
+
+    assert result["document"]["created"] == 1_787_832_000
+    assert result["document"]["updated"] == 1_787_833_000
+    context = result["document"]["source_context"]
+    assert context["origin"] == "not_established"
+    assert [first, second] = context["shares"]
+    assert first["source_ref"] == SourceRef.message("T123", "C456", "1787832001.000200")
+    assert first["thread_source_ref"] == SourceRef.thread("T123", "C456", "1787832000.000100")
+    assert second["source_ref"] == SourceRef.message("T123", "C456", "1787833001.000200")
+    refute Responder.CanonicalJSON.encode!(context) =~ "G999"
+    refute Map.has_key?(context, "thread_source_ref")
+
+    Process.put(:adversarial_search_response, %{
+      "results" => %{"files" => [%{"file_id" => "F123"}]}
+    })
+
+    assert {:ok, searched} =
+             CapabilityTools.call("search_slack", valid_arguments(), public_work_binding(), %{
+               options()
+               | api: AdversarialSearchAPI
+             })
+
+    assert [hit] = searched["results"]["files"]
+    assert hit["source_context"] == context
+    assert hit["created"] == file["created"]
+    assert hit["source_read"]["arguments"]["view"] == "document"
+  end
+
+  test "a provider preview is not reported as the complete file content" do
+    {:ok, file} = FakeAPI.file_info(self(), "F123")
+    preview = file |> Map.delete("plain_text") |> Map.put("preview", "# Checkout")
+    Process.put(:adversarial_file_response, {:ok, preview})
+
+    assert {:ok, result} =
+             CapabilityTools.call(
+               "read_slack_source",
+               %{"source_ref" => SourceRef.file("T123", "C456", "F123"), "view" => "document"},
+               work_binding(),
+               %{options() | api: AdversarialSearchAPI}
+             )
+
+    assert result["document"]["content"] == "# Checkout"
+    refute result["document"]["content_complete"]
+    refute result["complete"]
+  end
+
+  test "an exact file read cannot substitute another file shared in the same channel" do
+    {:ok, file} = FakeAPI.file_info(self(), "FOTHER")
+    Process.put(:adversarial_file_response, {:ok, file})
+
+    assert CapabilityTools.call(
+             "read_slack_source",
+             %{"source_ref" => SourceRef.file("T123", "C456", "F123"), "view" => "document"},
+             work_binding(),
+             %{options() | api: AdversarialSearchAPI}
+           ) == {:error, "unauthorized"}
+  end
+
   test "read_slack_source resolves a bookmark as metadata without fetching its external link" do
     options = options()
     source_ref = SourceRef.bookmark("T123", "C456", "BkRUNBOOK")
@@ -459,9 +751,12 @@ defmodule Responder.Slack.CapabilityToolsTest do
 
     assert_received {:read_messages, "C456", nil,
                      %{
-                       "latest" => "1787918401.999999",
+                       "latest" => "1787832001.000200",
                        "oldest" => "1787745601.000000"
                      }}
+
+    assert_received {:read_messages, "C456", nil,
+                     %{"oldest" => "1787832001.000200", "latest" => "1787918401.999999"}}
 
     canvas_ref = SourceRef.canvas("T123", "C456", "FCHANNEL")
 
@@ -569,13 +864,14 @@ defmodule Responder.Slack.CapabilityToolsTest do
            ]
 
     arguments = %{
-      "after" => "2026-08-28T11:00:00Z",
+      # The original-read expansion now checks the requested range, so this
+      # query must include the fixture's 27 Aug source rather than start a day later.
+      "after" => "2026-08-27T11:00:00Z",
       "author_ref" => "slack-user:U123",
       "before" => nil,
       "content_types" => ["messages"],
       "conversation_refs" => ["slack:T123:C456"],
       "cursor" => nil,
-      "include_context" => true,
       "limit" => 20,
       "query" => "What happened to the deploy?"
     }
@@ -587,7 +883,7 @@ defmodule Responder.Slack.CapabilityToolsTest do
 
     assert_received {:search_context, "xact-user-turn-secret", document}
     assert document["action_token"] == nil
-    assert document["after"] == 1_787_914_800
+    assert document["after"] == 1_787_828_400
     assert document["include_context_messages"] == true
     assert document["limit"] == 20
     assert document["query"] =~ "in:<#C456>"
@@ -605,6 +901,138 @@ defmodule Responder.Slack.CapabilityToolsTest do
 
     assert {:ok, %{channel_ref: "C456", kind: :message, message_ref: "1787832001.000200"}} =
              SourceRef.parse(message["source_ref"], "T123")
+  end
+
+  test "surrounding context cannot be disabled or supplied as a retired search option" do
+    search = Enum.find(CapabilityTools.definitions(), &(&1["name"] == "search_slack"))
+    refute Map.has_key?(search["inputSchema"]["properties"], "include_context")
+
+    for value <- [true, false] do
+      assert CapabilityTools.call(
+               "search_slack",
+               %{"query" => "deployment", "include_context" => value},
+               work_binding(),
+               options()
+             ) == {:error, "invalid_arguments"}
+    end
+
+    refute_received {:search_context, _, _}
+  end
+
+  test "search neighbors have exact source identities and exclude the duplicated anchor" do
+    # A real QA thread has an older task card and a later completion message.
+    # Returning either without the other hid the difference between task and review state.
+    assert {:ok, result} =
+             CapabilityTools.call("search_slack", %{"query" => "task"}, work_binding(), %{
+               options()
+               | api: ContextSearchAPI
+             })
+
+    [hit] = result["results"]["messages"]
+
+    assert [%{"ts" => "1789058307.523479", "source_ref" => root_ref}] =
+             hit["context_messages"]["before"]
+
+    assert [%{"ts" => "1789058572.713319", "source_ref" => later_ref}] =
+             hit["context_messages"]["after"]
+
+    assert root_ref == SourceRef.message("T123", "C456", "1789058307.523479")
+    assert later_ref == SourceRef.message("T123", "C456", "1789058572.713319")
+    assert hit["thread_source_ref"] == SourceRef.thread("T123", "C456", "1789058307.523479")
+    assert hit["context_coverage"]["status"] == "partial"
+    assert hit["context_coverage"]["basis"] == "provider_selected"
+  end
+
+  test "a visible search hit cannot smuggle neighbors from another audience or thread" do
+    for identity <- [
+          %{"channel_id" => "G999"},
+          %{"team_id" => "TOTHER"},
+          %{"thread_ts" => "1789000000.000001"}
+        ] do
+      Process.put(:nested_context_override, identity)
+
+      assert CapabilityTools.call("search_slack", %{"query" => "task"}, work_binding(), %{
+               options()
+               | api: ContextSearchAPI
+             }) == {:error, "temporarily_unavailable"}
+    end
+  end
+
+  defmodule MissingContextSearchAPI do
+    defdelegate conversation_info(observer, channel), to: FakeAPI
+    defdelegate list_conversations(observer, document), to: FakeAPI
+    defdelegate list_bookmarks(observer, channel), to: FakeAPI
+    defdelegate file_info(observer, file), to: FakeAPI
+    defdelegate read_messages(observer, channel, thread, document), to: ThreadSourceAPI
+
+    def search_context(_observer, _token, _document) do
+      originals =
+        Path.join(__DIR__, "fixtures/readiness_thread.json") |> File.read!() |> Jason.decode!()
+
+      selected = if Process.get(:all_missing_hits), do: originals, else: [Enum.at(originals, 1)]
+
+      messages =
+        Enum.map(
+          selected,
+          &%{
+            "channel_id" => "C456",
+            "content" => &1["text"],
+            "message_ts" => &1["ts"],
+            "thread_ts" => &1["thread_ts"]
+          }
+        )
+
+      {:ok, %{"next_cursor" => "", "results" => %{"messages" => messages}}}
+    end
+  end
+
+  test "missing provider context triggers a bounded original read with nonmatching neighbors" do
+    assert {:ok, result} =
+             CapabilityTools.call(
+               "search_slack",
+               %{"query" => "Engineering task"},
+               work_binding(),
+               %{options() | api: MissingContextSearchAPI}
+             )
+
+    [hit] = result["results"]["messages"]
+    assert hit["thread_root"]["ts"] == "1789058307.523479"
+    assert [%{"ts" => "1789058572.713319"}] = hit["context_messages"]["after"]
+    assert hit["context_coverage"]["basis"] == "original_reader"
+    assert hit["source_read"]["tool"] == "read_slack_source"
+  end
+
+  test "automatic search expansion preserves all hits without exceeding its fallback allowance" do
+    Process.put(:all_missing_hits, true)
+
+    assert {:ok, result} =
+             CapabilityTools.call("search_slack", %{"query" => "QA"}, work_binding(), %{
+               options()
+               | api: MissingContextSearchAPI
+             })
+
+    hits = result["results"]["messages"]
+    assert length(hits) == 3
+    assert Enum.count(hits, &(&1["context_coverage"]["basis"] == "original_reader")) == 2
+    assert result["context_limits"]["fallback_reads"] == 2
+    assert result["context_limits"]["message_page_limit"] == 12
+    assert List.last(hits)["context_coverage"]["reason"] == "expansion_budget"
+    assert List.last(hits)["source_read"]["tool"] == "read_slack_source"
+  end
+
+  test "provider context absence is only complete after an original read verifies the empty neighborhood" do
+    assert {:ok, result} =
+             CapabilityTools.call(
+               "search_slack",
+               %{"query" => "deploy"},
+               work_binding(),
+               options()
+             )
+
+    [hit] = result["results"]["messages"]
+    assert hit["context_messages"] == %{"before" => [], "after" => []}
+    assert hit["context_coverage"]["status"] == "complete"
+    assert hit["context_coverage"]["basis"] == "original_reader"
   end
 
   test "workspace search exposes only host-verified public results to an internal destination" do
@@ -710,15 +1138,17 @@ defmodule Responder.Slack.CapabilityToolsTest do
     assert_received {:read_messages, "G123", "1787832000.000100",
                      %{
                        "cursor" => nil,
-                       "inclusive" => true,
+                       "inclusive" => false,
                        "latest" => nil,
-                       "limit" => 100,
-                       "oldest" => nil
+                       "limit" => 50,
+                       "oldest" => "1787832000.000100"
                      }}
 
     assert result["complete"] == true
     assert result["source_ref"] == source_ref
-    assert [%{"source_ref" => hydrated_ref}] = result["messages"]
+    assert result["messages"] == []
+    assert [%{"ts" => "1787832001.000200"}] = result["channel_context"]["messages"]
+    assert %{"source_ref" => hydrated_ref} = result["anchor"]
 
     assert {:ok, %{kind: :message, channel_ref: "G123"}} =
              SourceRef.parse(hydrated_ref, "T123")
@@ -727,7 +1157,7 @@ defmodule Responder.Slack.CapabilityToolsTest do
                      %{
                        capability: "conversations.replies",
                        channel_ref: "G123",
-                       result_count: 1,
+                       result_count: 2,
                        source_ref: ^source_ref,
                        tool: :read_slack_source
                      }}
@@ -741,6 +1171,108 @@ defmodule Responder.Slack.CapabilityToolsTest do
              work_binding(),
              options
            ) == {:error, "unauthorized"}
+  end
+
+  test "dense surrounding reads return neighbors instead of the newest distant page" do
+    source = SourceRef.message("T123", "C456", "1789000101.000001")
+    arguments = %{"source_ref" => source, "view" => "surrounding", "limit" => 10}
+
+    assert {:ok, result} =
+             CapabilityTools.call("read_slack_source", arguments, work_binding(), %{
+               options()
+               | api: DenseSourceAPI
+             })
+
+    assert Enum.map(result["messages"], & &1["ts"]) ==
+             Enum.map(
+               Enum.to_list(96..100) ++ Enum.to_list(102..106),
+               &"#{1_789_000_000 + &1}.000001"
+             )
+  end
+
+  test "a paginated source keeps its independently verified anchor even when the page omits it" do
+    source = SourceRef.message("T123", "C456", "1789058307.523479")
+    options = %{options() | api: PagedSourceAPI}
+    arguments = %{"source_ref" => source, "view" => "surrounding", "limit" => 20}
+
+    assert {:ok, first} =
+             CapabilityTools.call("read_slack_source", arguments, work_binding(), options)
+
+    assert first["anchor"]["source_ref"] == source
+    # This provider page does not finish the scan toward the anchor. Its
+    # distant originals must not be emitted again as later windows expand.
+    assert first["messages"] == []
+    refute first["complete"]
+
+    assert {:ok, next} =
+             CapabilityTools.call(
+               "read_slack_source",
+               Map.put(arguments, "cursor", first["cursor"]),
+               work_binding(),
+               options
+             )
+
+    assert next["anchor"]["source_ref"] == source
+    Process.put(:anchor_deleted, true)
+
+    assert CapabilityTools.call(
+             "read_slack_source",
+             Map.put(arguments, "cursor", next["cursor"]),
+             work_binding(),
+             options
+           ) == {:error, "not_found"}
+  end
+
+  test "source continuation cannot change the original source range or caller" do
+    source = SourceRef.message("T123", "C456", "1789058307.523479")
+    options = %{options() | api: PagedSourceAPI}
+    arguments = %{"source_ref" => source, "view" => "surrounding", "limit" => 20}
+    binding = work_binding()
+    assert {:ok, first} = CapabilityTools.call("read_slack_source", arguments, binding, options)
+    refute first["cursor"] == "next-page"
+
+    for {changed, caller} <- [
+          {Map.put(arguments, "limit", 21), binding},
+          {arguments, %{binding | turn: %{binding.turn | id: "other-turn"}}},
+          {arguments, binding}
+        ] do
+      cursor =
+        if changed == arguments and caller == binding,
+          do: first["cursor"] <> "altered",
+          else: first["cursor"]
+
+      assert CapabilityTools.call(
+               "read_slack_source",
+               Map.put(changed, "cursor", cursor),
+               caller,
+               options
+             ) == {:error, "invalid_source_cursor"}
+    end
+  end
+
+  test "a thread source can preserve an exact reply anchor without confusing it with the root" do
+    source = SourceRef.thread("T123", "C456", "1789058307.523479")
+    anchor = SourceRef.message("T123", "C456", "1789058455.189229")
+    arguments = %{"source_ref" => source, "anchor_ref" => anchor, "view" => "thread"}
+    options = %{options() | api: ThreadSourceAPI}
+
+    assert {:ok, result} =
+             CapabilityTools.call("read_slack_source", arguments, work_binding(), options)
+
+    assert result["anchor"]["source_ref"] == anchor
+    assert result["thread_root"]["ts"] == "1789058307.523479"
+
+    for crossed <- [
+          SourceRef.message("T123", "G999", "1789058455.189229"),
+          SourceRef.message("TOTHER", "C456", "1789058455.189229")
+        ] do
+      assert CapabilityTools.call(
+               "read_slack_source",
+               %{arguments | "anchor_ref" => crossed},
+               work_binding(),
+               options
+             ) == {:error, "unauthorized"}
+    end
   end
 
   test "search_slack rejects destination widening and invalid arguments before token checkout" do
@@ -1316,6 +1848,7 @@ defmodule Responder.Slack.CapabilityToolsTest do
 
   defp work_binding do
     %{
+      cursor_secret: String.duplicate("a", 64),
       episode: %Episode{
         active_input_refs: ["input-current"],
         destination_conversation_ref: "slack:T123:G123",
@@ -1346,7 +1879,6 @@ defmodule Responder.Slack.CapabilityToolsTest do
       "content_types" => ["messages"],
       "conversation_refs" => [],
       "cursor" => nil,
-      "include_context" => true,
       "limit" => 20,
       "query" => "deployment"
     }

@@ -2,6 +2,39 @@ defmodule Responder.Evals.WorkCaseTest do
   use ExUnit.Case, async: true
 
   alias Responder.Evals.WorkCase
+  alias Responder.Slack.SourceRef
+  alias Responder.StateTools.LookupOriginals
+
+  test "context interpretation cases preserve harvested originals and host deduplication" do
+    [root, card, completion] =
+      "test/responder/slack/fixtures/readiness_thread.json" |> File.read!() |> Jason.decode!()
+
+    original = fn row ->
+      Map.put(row, "source_ref", SourceRef.message("T0BHXKZJVDX", "C0BLU1GACKC", row["ts"]))
+    end
+
+    [root, card, completion] = Enum.map([root, card, completion], original)
+
+    thread = case_by_id!("retained_lookup_uses_later_completion")
+    assert thread.source_document["context"]["retained_lookup"]["anchor"] == card
+    assert thread.source_document["context"]["retained_lookup"]["thread_root"] == root
+    assert thread.source_document["context"]["retained_lookup"]["messages"] == [completion]
+
+    raw = %{
+      "results" => %{
+        "messages" => [
+          card
+          |> Map.put("thread_root", root)
+          |> Map.put("context_messages", %{"before" => [], "after" => [completion]}),
+          completion
+        ]
+      }
+    }
+
+    assert {:ok, expected} = LookupOriginals.fit(raw, 131_072)
+    search = case_by_id!("retained_lookup_resolves_shared_originals")
+    assert search.source_document["context"]["retained_lookup"] == expected
+  end
 
   test "recorded incident-button refusals fail the alert behavior regression" do
     # Two real alerts got only an unsolicited acknowledgement refusal while
@@ -16,7 +49,7 @@ defmodule Responder.Evals.WorkCaseTest do
 
   test "the recorded Work corpus compiles into the production prompt and final contract" do
     assert {:ok, cases} = WorkCase.all()
-    assert length(cases) == 10
+    assert length(cases) == 12
     assert Enum.uniq_by(cases, & &1.eval_id) == cases
 
     assert Enum.any?(cases, &(&1.eval_id == "github_and_slack_remain_platform_adapters"))

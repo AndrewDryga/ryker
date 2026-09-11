@@ -616,7 +616,12 @@ defmodule Responder.State.LearningSources do
   def document_sources(%{"source_ref" => "observation:" <> id} = document) do
     case get_uuid(ConversationObservation, id) do
       %{note: note, source_dependencies: sources} = source when is_map(note) ->
-        if Observations.document(source) == document, do: sources
+        # Navigation is a host projection, not the original's custody receipt.
+        # Keep exact content/identity checks across reader availability changes.
+        if Observations.original_document(source) ==
+             Map.drop(document, ["source_read", "thread_ref"]) and
+             Map.get(document, "thread_ref", source.thread_ref) == source.thread_ref,
+           do: sources
 
       _ ->
         nil

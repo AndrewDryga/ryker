@@ -25,6 +25,7 @@ defmodule Responder.State.Continuity do
     LearningSources,
     MemorySearch,
     MemorySearchPage,
+    MemorySourceLink,
     Observations
   }
 
@@ -272,7 +273,12 @@ defmodule Responder.State.Continuity do
         do: searchable_summaries_query(context, page.scope),
         else: searchable_rollups_query(context, page.scope)
 
-    query = query |> LearningSources.sourced() |> LearningSources.eligible(context)
+    query =
+      query
+      |> LearningSources.sourced()
+      |> LearningSources.eligible(context)
+      |> MemorySearchPage.related_sources(page)
+
     query = from(item in query, lock: "FOR SHARE")
 
     query
@@ -1029,21 +1035,35 @@ defmodule Responder.State.Continuity do
 
   defp summary_document(summary) do
     %{
+      "transport" => summary.transport,
+      "workspace_ref" => summary.workspace_ref,
+      "conversation_ref" => summary.conversation_ref,
+      "thread_ref" => summary.thread_ref,
+      "source_message_ref" => summary.source_message_ref,
       "repository_ref" => summary.repository_ref,
       "source_ref" => summary.ref,
+      "source_reads" => MemorySourceLink.sources(summary.source_dependencies),
       "state" => summary.state,
+      "coverage" => %{"basis" => "derived_handover", "status" => "partial"},
       "updated_at" => DateTime.to_iso8601(summary.updated_at)
     }
   end
 
   defp rollup_document(rollup) do
     %{
+      "workspace_ref" => rollup.workspace_ref,
+      "scope_kind" => Atom.to_string(rollup.scope_kind),
+      "scope_ref" => rollup.scope_ref,
       "period_end" => DateTime.to_iso8601(rollup.period_end),
       "period_start" => DateTime.to_iso8601(rollup.period_start),
+      "updated_at" => DateTime.to_iso8601(rollup.updated_at),
+      "expires_at" => DateTime.to_iso8601(rollup.expires_at),
       "repository_ref" => rollup.repository_ref,
       "source_count" => rollup.source_count,
       "source_ref" => rollup.ref,
       "source_refs" => rollup.source_refs,
+      "source_reads" => MemorySourceLink.sources(rollup.source_dependencies),
+      "coverage" => %{"basis" => "compacted_continuity", "status" => "partial"},
       "state" => rollup.state
     }
   end

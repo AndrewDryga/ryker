@@ -12,7 +12,7 @@ defmodule Responder.StateTools.Router do
   import Plug.Conn
 
   alias Responder.CanonicalJSON
-  alias Responder.StateTools.{Tools, ToolVisibility}
+  alias Responder.StateTools.{LookupContext, Tools, ToolVisibility}
 
   @maximum_body_bytes 1_048_576
   @protocol_version "2025-11-25"
@@ -173,10 +173,30 @@ defmodule Responder.StateTools.Router do
         Tools.call(name, arguments, options)
 
       Enum.any?(visible_additional_tools(options), &(&1["name"] == name)) ->
-        case call_additional(options.additional_call, name, arguments, options.binding) do
-          {:ok, %{} = result} -> {:ok, result}
-          {:error, error} when is_binary(error) or is_map(error) -> {:error, error}
-          _invalid -> {:error, "invalid_fabricated_tool_response"}
+        # Records.token/1 is a public turn locator, not a signing key. Platform
+        # readers receive the same host-owned cursor secret as fixed memory tools.
+        binding =
+          if is_map(options.binding),
+            do: Map.put(options.binding, :cursor_secret, options.cursor_secret),
+            else: options.binding
+
+        case call_additional(options.additional_call, name, arguments, binding) do
+          {:ok, %{} = result} ->
+            source_tools = Enum.map(visible_additional_tools(options), & &1["name"])
+
+            LookupContext.enrich(
+              name,
+              arguments,
+              binding,
+              result,
+              source_tools
+            )
+
+          {:error, error} when is_binary(error) or is_map(error) ->
+            {:error, error}
+
+          _invalid ->
+            {:error, "invalid_fabricated_tool_response"}
         end
 
       true ->

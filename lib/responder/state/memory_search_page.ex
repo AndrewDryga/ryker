@@ -1,7 +1,7 @@
 defmodule Responder.State.MemorySearchPage do
   @moduledoc false
   import Ecto.Query
-  alias Responder.Repo
+  alias Responder.{CanonicalJSON, Repo}
 
   # A cursor traverses content order, never retrieval counters. Rows changed
   # after the cutoff disappear from this traversal; a new search sees them.
@@ -23,10 +23,12 @@ defmodule Responder.State.MemorySearchPage do
 
   def one(query, page, text, changed, source) do
     search = page.query
+    excluded_ids = Map.get(page, :excluded_ids, [])
 
     query =
       from(item in query,
         where: item.inserted_at <= ^page.cutoff,
+        where: item.id not in ^excluded_ids,
         where: ^dynamic([item], ^changed <= ^page.cutoff),
         where:
           ^dynamic(
@@ -71,6 +73,58 @@ defmodule Responder.State.MemorySearchPage do
       %{item: item, time: time} -> {:ok, item, [DateTime.to_iso8601(time), item.id]}
     end
   end
+
+  # These selectors are host-resolved lookup sources, not a replacement caller
+  # scope. Each owner still applies its normal visibility and source fences.
+  def related_sources(query, %{source_targets: targets}) do
+    from(item in query,
+      where:
+        fragment(
+          """
+          EXISTS (
+            SELECT 1 FROM responder_learning_roots(?) r
+            JOIN conversation_observations o ON o.id = CASE
+              WHEN pg_input_is_valid(r->>'observation_id', 'uuid')
+              THEN (r->>'observation_id')::uuid ELSE NULL END
+          JOIN jsonb_to_recordset(?::text::jsonb) AS target(conversation_ref text, thread_ref text, message_ref text)
+              ON target.conversation_ref = o.conversation_ref
+             AND ((target.thread_ref IS NOT NULL AND target.thread_ref = o.thread_ref)
+                  OR (target.message_ref IS NOT NULL AND target.message_ref = o.source_message_ref))
+          )
+          """,
+          item.source_dependencies,
+          ^CanonicalJSON.encode!(targets)
+        )
+    )
+  end
+
+  def related_sources(query, _page), do: query
+
+  def related_originals(query, %{source_targets: targets}, conversation, thread, message) do
+    selected =
+      Enum.reduce(targets, dynamic(false), fn target, selected ->
+        source_conversation = target["conversation_ref"]
+        source_thread = target["thread_ref"]
+        source_message = target["message_ref"]
+        identity = dynamic([item], false)
+
+        identity =
+          if source_thread,
+            do: dynamic([item], ^identity or ^thread == ^source_thread),
+            else: identity
+
+        identity =
+          if source_message,
+            do: dynamic([item], ^identity or ^message == ^source_message),
+            else: identity
+
+        dynamic([item], ^selected or (^conversation == ^source_conversation and ^identity))
+      end)
+
+    from(item in query, where: ^selected)
+  end
+
+  def related_originals(query, _page, _conversation, _thread, _message), do: query
 
   defp date_filter(query, %{after: nil, before: nil}, _date), do: query
   defp date_filter(query, _page, nil), do: from(item in query, where: false)

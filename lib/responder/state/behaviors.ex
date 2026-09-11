@@ -392,7 +392,8 @@ defmodule Responder.State.Behaviors do
         MemorySourceLink.message(
           behavior.source_transport,
           behavior.source_conversation_ref,
-          behavior.source_message_ref
+          behavior.source_message_ref,
+          behavior.source_thread_ref
         ),
       "kind" => "guidance",
       "scope" => Atom.to_string(behavior.scope_kind),
@@ -443,6 +444,12 @@ defmodule Responder.State.Behaviors do
       )
 
     query
+    |> MemorySearchPage.related_originals(
+      page,
+      dynamic([b], b.source_conversation_ref),
+      dynamic([b], b.source_thread_ref),
+      dynamic([b], b.source_message_ref)
+    )
     |> MemorySearchPage.one(
       page,
       dynamic([b], b.payload),

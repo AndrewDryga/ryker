@@ -8,7 +8,8 @@ defmodule Responder.ControlPlane.CapabilityToolsTest do
   alias Responder.Episodes.Command
   alias Responder.Fixtures.Episodes, as: EpisodeFixtures
   alias Responder.Repo
-  alias Responder.State.{Record, Records}
+  alias Responder.State.{MemoryEntry, MemorySourceLink, Record, Records}
+  alias Responder.StateTools.LookupContext
   alias Responder.Work.Custody
 
   @conversation_id "018f3ef7-1f62-7ee0-a83c-0c12f21d83e6"
@@ -60,7 +61,6 @@ defmodule Responder.ControlPlane.CapabilityToolsTest do
                  "content_types" => ["messages"],
                  "conversation_refs" => [@conversation_ref],
                  "cursor" => nil,
-                 "include_context" => true,
                  "limit" => 20,
                  "query" => "parity"
                },
@@ -171,6 +171,264 @@ defmodule Responder.ControlPlane.CapabilityToolsTest do
 
     assert Repo.aggregate(PlatformAction, :count) == 0
     assert Repo.aggregate(Record, :count) == 0
+  end
+
+  test "a Lab search hit includes its nonmatching neighbors and expands around the anchor" do
+    # Real QA wording: the task card and later completion describe different stages.
+    # Query and author filters select the hit, not the context required to interpret it.
+    [root, hit, later] =
+      Path.join(__DIR__, "../slack/fixtures/readiness_thread.json")
+      |> File.read!()
+      |> Jason.decode!()
+
+    {root_ref, _, _} =
+      admit_lab_input!("context-root", @conversation_ref, root["text"], DateTime.add(@now, -3))
+
+    {hit_ref, _, _} =
+      admit_lab_input!("context-hit", @conversation_ref, hit["text"], DateTime.add(@now, -2))
+
+    {later_ref, _, _} =
+      admit_lab_input!("context-later", @conversation_ref, later["text"], DateTime.add(@now, -1))
+
+    {binding, _, _} = lab_binding!("context-lookup")
+
+    assert {:ok, result} =
+             CapabilityTools.call(
+               "search_slack",
+               %{
+                 "query" => "Engineering task 55be4694",
+                 "limit" => 1
+               },
+               binding
+             )
+
+    assert [message] = result["results"]["messages"]
+    assert message["source_ref"] == hit_ref
+    assert [%{"source_ref" => ^root_ref}] = message["context_messages"]["before"]
+    assert hd(message["context_messages"]["after"])["source_ref"] == later_ref
+    assert message["context_coverage"]["basis"] == "retained_conversation"
+
+    assert {:ok, expanded} =
+             CapabilityTools.call(
+               "read_slack_source",
+               %{
+                 "source_ref" => hit_ref,
+                 "view" => "surrounding",
+                 "limit" => 3
+               },
+               binding
+             )
+
+    assert Enum.map(expanded["messages"], & &1["source_ref"]) == [root_ref, hit_ref, later_ref]
+
+    assert {:ok, thread} =
+             CapabilityTools.call(
+               "read_slack_source",
+               %{
+                 "source_ref" => @conversation_ref,
+                 "anchor_ref" => hit_ref,
+                 "view" => "thread",
+                 "limit" => 3
+               },
+               binding
+             )
+
+    assert thread["messages"] == expanded["messages"]
+
+    assert CapabilityTools.call(
+             "read_slack_source",
+             %{
+               "source_ref" => @conversation_ref,
+               "anchor_ref" => "admit_input:other-conversation",
+               "view" => "thread"
+             },
+             binding
+           ) == {:error, "unauthorized"}
+  end
+
+  test "Lab search continuation reaches every matching original and rejects crossed queries" do
+    refs =
+      for index <- 1..4 do
+        {ref, _, _} =
+          admit_lab_input!(
+            "page-#{index}",
+            @conversation_ref,
+            "Paginated original #{index}",
+            DateTime.add(@now, -index)
+          )
+
+        ref
+      end
+
+    {binding, _, _} = lab_binding!("page-lookup")
+    args = %{"query" => "Paginated original", "limit" => 2}
+
+    assert {:ok, first} = CapabilityTools.call("search_slack", args, binding)
+    refute first["complete"]
+    assert is_binary(first["next_cursor"]) and first["next_cursor"] != ""
+
+    assert {:ok, second} =
+             CapabilityTools.call(
+               "search_slack",
+               Map.put(args, "cursor", first["next_cursor"]),
+               binding
+             )
+
+    assert second["complete"]
+    found = first["results"]["messages"] ++ second["results"]["messages"]
+    assert MapSet.new(Enum.map(found, & &1["source_ref"])) == MapSet.new(refs)
+    assert length(found) == 4
+
+    assert CapabilityTools.call(
+             "search_slack",
+             Map.merge(args, %{"query" => "crossed", "cursor" => first["next_cursor"]}),
+             binding
+           ) == {:error, "invalid_source_cursor"}
+  end
+
+  test "Lab source continuation reaches context outside the centered window without repeating originals" do
+    # A bounded first page used to advertise no continuation and strand older
+    # originals. Structural rows exercise cardinality, not invented model output.
+    refs =
+      for index <- 1..7 do
+        {ref, _, _} =
+          admit_lab_input!(
+            "source-page-#{index}",
+            @conversation_ref,
+            "Source window original #{index}",
+            DateTime.add(@now, index - 10)
+          )
+
+        ref
+      end
+
+    {binding, _, _} = lab_binding!("source-page-reader")
+    anchor = Enum.at(refs, 3)
+
+    args = %{
+      "source_ref" => anchor,
+      "view" => "surrounding",
+      "before" => DateTime.to_iso8601(DateTime.add(@now, -1)),
+      "limit" => 3
+    }
+
+    assert {:ok, first} = CapabilityTools.call("read_slack_source", args, binding)
+    assert Enum.map(first["messages"], & &1["source_ref"]) == Enum.slice(refs, 2, 3)
+    refute first["complete"]
+    assert first["cursor"] != ""
+
+    assert {:ok, second} =
+             CapabilityTools.call(
+               "read_slack_source",
+               Map.put(args, "cursor", first["cursor"]),
+               binding
+             )
+
+    assert {:ok, third} =
+             CapabilityTools.call(
+               "read_slack_source",
+               Map.put(args, "cursor", second["cursor"]),
+               binding
+             )
+
+    assert third["cursor"] == ""
+    assert third["complete"]
+
+    found =
+      Enum.flat_map(
+        [first, second, third],
+        &Enum.map(&1["messages"], fn item -> item["source_ref"] end)
+      )
+
+    assert length(found) == 7
+    assert MapSet.new(found) == MapSet.new(refs)
+    assert second["anchor"]["source_ref"] == anchor
+    assert third["anchor"]["source_ref"] == anchor
+
+    assert CapabilityTools.call(
+             "read_slack_source",
+             Map.merge(args, %{"source_ref" => hd(refs), "cursor" => first["cursor"]}),
+             binding
+           ) == {:error, "invalid_source_cursor"}
+  end
+
+  test "a retained Lab source-item receipt expands to its actual admitted original" do
+    {binding, input_ref, source_item_ref} = lab_binding!("source-item-navigation")
+
+    link =
+      MemorySourceLink.message(
+        "control_plane",
+        @conversation_ref,
+        source_item_ref,
+        @conversation_ref
+      )
+
+    assert link["arguments"]["anchor_ref"] == input_ref
+    assert {:ok, original} = CapabilityTools.call("read_slack_source", link["arguments"], binding)
+    assert original["anchor"]["source_ref"] == input_ref
+  end
+
+  test "Lab lookups attach retained local memory with a usable original-source reader" do
+    {binding, input_ref, _} = lab_binding!("local-memory-lookup")
+    # A structural confirmed row tests retrieval, not a model's decision to save.
+    payload = %{
+      "expires_in" => "30d",
+      "kind" => "entity_relationship",
+      "repository" => nil,
+      "scope" => "workspace",
+      "subject" => "local QA",
+      "value" => "retained local context",
+      "visibility" => "workspace"
+    }
+
+    assert {:ok, offer} =
+             Records.create(binding.state_token, "local-memory-lookup", "memory_offer", payload)
+
+    id = Ecto.UUID.generate()
+
+    fact =
+      Repo.insert!(%MemoryEntry{
+        id: id,
+        ref: "memory:#{id}",
+        offer_record_id: offer.id,
+        kind: :entity_relationship,
+        status: :active,
+        workspace_ref: @conversation_ref,
+        scope_kind: :workspace,
+        scope_ref: @conversation_ref,
+        visibility: :workspace,
+        subject: payload["subject"],
+        payload: payload,
+        payload_fingerprint: Responder.CanonicalJSON.digest(payload),
+        confirmed_by_actor_ref: "local-operator",
+        confirmation_ref: "local-memory:#{id}",
+        confirmed_at: @now,
+        source_transport: "control_plane",
+        source_conversation_ref: @conversation_ref,
+        source_thread_ref: @conversation_ref,
+        source_message_ref: input_ref,
+        expires_at: DateTime.add(DateTime.utc_now(), 3600),
+        inserted_at: @now,
+        updated_at: @now
+      })
+
+    args = %{"query" => "Slack parity"}
+    assert {:ok, raw} = CapabilityTools.call("search_slack", args, binding)
+
+    assert {:ok, result} =
+             LookupContext.enrich("search_slack", args, binding, raw, ["read_slack_source"])
+
+    assert [memory] = result["related_memory"]
+    assert memory["memory_ref"] == fact.ref
+
+    assert {:ok, original} =
+             CapabilityTools.call(
+               "read_slack_source",
+               memory["source_read"]["arguments"],
+               binding
+             )
+
+    assert original["anchor"]["source_ref"] == input_ref
   end
 
   test "Lab Slack-compatible reads preserve source-view and search-filter semantics" do
@@ -294,14 +552,16 @@ defmodule Responder.ControlPlane.CapabilityToolsTest do
 
     assert [%{"source_ref" => ^historical_ref}] = searched["results"]["messages"]
 
-    assert {:ok, %{"messages" => [%{"content" => historical}]}} =
+    assert {:ok, %{"messages" => originals}} =
              CapabilityTools.call(
                "read_slack_source",
                %{"source_ref" => historical_ref, "view" => "surrounding"},
                binding
              )
 
-    assert historical == "A durable message from an earlier Lab episode."
+    historical = Enum.find(originals, &(&1["source_ref"] == historical_ref))
+    assert historical["content"] == "A durable message from an earlier Lab episode."
+    assert Enum.any?(originals, &(&1["source_ref"] == current_ref))
 
     assert {:ok, %{"messages" => channel_messages}} =
              CapabilityTools.call(
@@ -346,7 +606,7 @@ defmodule Responder.ControlPlane.CapabilityToolsTest do
       "status" => "available"
     }
 
-    {_file_input_ref, _file_episode, _source_item_ref} =
+    {file_input_ref, _file_episode, _source_item_ref} =
       admit_lab_content!(
         "file-source",
         @conversation_ref,
@@ -385,6 +645,9 @@ defmodule Responder.ControlPlane.CapabilityToolsTest do
     assert file["source_ref"] == artifact.ref
     assert file["title"] == "local-runbook.md"
     assert file["media_type"] == "text/markdown"
+    assert file["sha256"] == artifact.sha256
+    assert file["source_context"]["source_ref"] == file_input_ref
+    assert file["source_context"]["conversation_ref"] == @conversation_ref
 
     assert {:ok, read} =
              CapabilityTools.call(
@@ -400,9 +663,20 @@ defmodule Responder.ControlPlane.CapabilityToolsTest do
              "content_complete" => true,
              "kind" => "file",
              "media_type" => "text/markdown",
+             "occurred_at" => file["occurred_at"],
+             "sha256" => artifact.sha256,
              "size" => artifact.byte_size,
+             "source_context" => file["source_context"],
              "title" => "local-runbook.md"
            }
+
+    descriptor = read["document"]["source_context"]["source_read"]
+
+    assert {:ok, expanded} =
+             CapabilityTools.call(descriptor["tool"], descriptor["arguments"], binding)
+
+    assert expanded["anchor"]["source_ref"] == file_input_ref
+    assert expanded["anchor"]["content"] == "Use the attached local runbook."
 
     assert read["emulated"] == true
     assert read["external_effects"] == false
@@ -462,21 +736,31 @@ defmodule Responder.ControlPlane.CapabilityToolsTest do
         DateTime.add(@now, 1, :second)
       )
 
+    # The edit is queued behind the original active turn. That turn must see
+    # neither the queued correction nor the superseded original; a later reader
+    # can see the current source revision.
+    assert {:ok, %{"results" => %{"messages" => []}}} =
+             CapabilityTools.call("search_slack", %{"query" => "Slack parity"}, binding)
+
+    {reader, _, _} = lab_binding!("message-lifecycle-reader")
+
     assert {:ok, searched} =
              CapabilityTools.call(
                "search_slack",
                %{"query" => "corrected exact"},
-               binding
+               reader
              )
 
     assert [%{"source_ref" => ^edited_ref}] = searched["results"]["messages"]
 
-    assert {:ok, %{"results" => %{"messages" => []}}} =
+    assert {:ok, previous_wording} =
              CapabilityTools.call(
                "search_slack",
                %{"query" => "Exercise exact Slack parity"},
                binding
              )
+
+    refute Enum.any?(previous_wording["results"]["messages"], &(&1["source_ref"] == original_ref))
 
     _deleted_ref =
       admit_lab_revision!(
@@ -493,7 +777,7 @@ defmodule Responder.ControlPlane.CapabilityToolsTest do
              CapabilityTools.call(
                "search_slack",
                %{"query" => "corrected exact"},
-               binding
+               reader
              )
 
     assert CapabilityTools.call(
@@ -501,6 +785,46 @@ defmodule Responder.ControlPlane.CapabilityToolsTest do
              %{"source_ref" => original_ref, "view" => "surrounding"},
              binding
            ) == {:error, "unauthorized"}
+  end
+
+  test "a queued Lab input cannot leak into the current turn through search neighbors or exact reads" do
+    {binding, _, _} = lab_binding!("queued-input")
+
+    future_ref =
+      admit_lab_revision!(
+        binding.episode,
+        "queued-native",
+        "queued-item",
+        :message,
+        1,
+        "Do not mix this queued correction into the active turn.",
+        DateTime.add(@now, 1)
+      )
+
+    assert {:ok, result} =
+             CapabilityTools.call("search_slack", %{"query" => "Slack parity"}, binding)
+
+    refute Jason.encode!(result) =~ "queued correction"
+
+    assert CapabilityTools.call(
+             "read_slack_source",
+             %{"source_ref" => future_ref, "view" => "surrounding"},
+             binding
+           ) == {:error, "unauthorized"}
+  end
+
+  test "Lab source reads reject a lost lease even when the caller still holds the old binding" do
+    {binding, input_ref, _source_item_ref} = lab_binding!("lost-read-lease")
+    stale = put_in(binding.turn.lease_ref, Ecto.UUID.generate())
+
+    assert CapabilityTools.call(
+             "read_slack_source",
+             %{"source_ref" => input_ref, "view" => "surrounding"},
+             stale
+           ) == {:error, "unauthorized"}
+
+    assert CapabilityTools.call("search_slack", %{"query" => "Slack parity"}, stale) ==
+             {:error, "unauthorized"}
   end
 
   test "Lab Slack-compatible tools reject malformed or stale calls without side effects" do
@@ -591,6 +915,7 @@ defmodule Responder.ControlPlane.CapabilityToolsTest do
     assert {:ok, claim} = Custody.claim_next("lab-capabilities:#{suffix}", 60, :work)
 
     binding = %{
+      cursor_secret: "host-only-lab-source-cursor-secret",
       episode: claim.episode,
       session: claim.session,
       state_token: Records.token(claim.turn),

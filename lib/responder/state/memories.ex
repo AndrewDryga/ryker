@@ -1418,6 +1418,12 @@ defmodule Responder.State.Memories do
     text = dynamic([e], fragment("? || ' ' || ?", e.subject, e.payload))
 
     query
+    |> MemorySearchPage.related_originals(
+      page,
+      dynamic([e], e.source_conversation_ref),
+      dynamic([e], e.source_thread_ref),
+      dynamic([e], e.source_message_ref)
+    )
     |> MemorySearchPage.one(page, text, changed, dynamic([e], e.confirmed_at))
     |> account_search_result()
   end
@@ -1534,7 +1540,8 @@ defmodule Responder.State.Memories do
         MemorySourceLink.message(
           entry.source_transport,
           entry.source_conversation_ref,
-          entry.source_message_ref
+          entry.source_message_ref,
+          entry.source_thread_ref
         ),
       "subject" => entry.subject,
       "value" => entry.payload["value"],

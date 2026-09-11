@@ -220,6 +220,14 @@ derived conversation context, and confirmation time for a confirmed item. `chang
 change/confirmation/edit time, never a retrieval counter. Explicit history keeps source excerpts
 searchable after consolidation, while automatic briefing avoids those covered duplicates.
 
+Excerpt, topic and handover hits may carry an additional shared `related_memory` section with
+source-linked retained context. Primary `memories`, kind interleaving and cursor positions are
+unchanged. The one-hop attachment scan uses the remainder of the same 64-candidate and 64-KiB
+budget, excludes primary IDs before recall, and registers all disclosed documents together with
+source-exposure custody. Attachment dates use content change time; an explicit `before` cutoff
+excludes understanding created after that cutoff even when the primary uses original source time.
+Exact confirmed-fact getters and fact-only search pages do not acquire unrelated conversation history.
+
 Pages interleave requested kinds instead of letting facts consume the whole result budget.
 Within each lane, stable content time and identity form a descending keyset. The host-signed cursor
 binds the effective query, filters, scope, active execution binding, effective operator, and cutoff; it expires after an
@@ -240,6 +248,89 @@ Retained Slack results can include a `source_read` or `source_reads` descriptor 
 search unrelated channels, and a derived summary is never presented as the original quotation.
 An expired source cannot be reconstructed from a summary. Memory supports historical attribution;
 current health, successful deployment, and operational authorization still need their owning evidence.
+
+Slack search always requests surrounding context. Provider-selected neighbors are sorted, assigned
+exact source references, deduplicated against the hit, and limited to two originals on each side
+(4,096 UTF-8 bytes per optional excerpt). This is partial context, not an exhaustive transcript.
+Known thread source descriptors retain both the root and an exact `anchor_ref`; unknown roots
+remain message/surrounding reads. Memory search omits expansion descriptors for readers not exposed
+to that turn and validates canonical source records before filtering navigation metadata.
+Missing provider context triggers at most two original-reader expansions per search, with at most
+twelve message-page requests across those expansions. Later hits retain a usable source-read
+descriptor and explicit expansion-budget coverage. A source no longer present is omitted; the search
+does not report that filtered page as complete. Provider-supplied context does not consume this fallback
+allowance. Exact original reads, not provider non-supply, establish an empty complete neighborhood.
+
+Source reads independently recheck the anchor on every page. Their bounded window contains up to
+`limit` neighbors split around it; anchor and root are separate from those neighbors. Channel
+history is newest-first and thread replies oldest-first, so the opposite side scans at most three
+100-message provider pages. The other side takes one page. Coverage reports whether each side is
+actually adjacent, partial, or carried on a previous page. Long scans can require continuation before
+nearby originals are available on that side; an empty pending scan is not a complete neighborhood.
+Trimmed originals remain reachable by seeking past the emitted edge. Cursors bind source, anchor,
+view, range, limit, episode and turn, expire after one hour, and allow at most ten window responses.
+Provider limits without a usable cursor do not imply a complete history.
+The last allowed window reports `continuation_exhausted` rather than issuing an unusable cursor.
+Its `source_reads` offer fresh bounded reads centered on known originals at the unfinished edges;
+these are explicit wider expansions, not continuation of the exhausted cursor.
+Thread reads fetch their exact root separately when the reply response omits it. Their first page
+also includes a separate four-original `channel_context` around that root, excluding thread replies
+and duplicate root text. Later thread pages refer back to that layer rather than repeating it.
+Its `source_read` descriptor either continues the signed channel window or requests a wider original
+window. Root plus both windows use at most ten message-page requests, in addition to channel metadata;
+each layer reports its own coverage. The requested transcript's `complete` flag does not claim that
+every optional context layer is complete.
+Handovers and compacted rollups carry at most three original-source descriptors from their existing
+source receipts. An absent saved excerpt does not erase a valid original receipt. Rollup scope remains
+its actual repository or conversation scope; navigation to a supporting thread does not turn the
+rollup itself into a thread summary.
+
+Through the Work MCP endpoint, Slack and Conversation Lab message lookups return a shared `related_memory` section:
+up to eight source-linked confirmed facts, guidance, topics, observations, handovers or rollups,
+selected across at most twenty
+unique lookup anchors. Eight is also the per-source maximum: this is one shared allowance, not eight
+attachments multiplied by every hit. Shared memory documents appear once. The original caller remains the authority; selecting another public channel
+does not impersonate that channel's episode. Derived attachments use the existing source eligibility
+and session exposure checks. The SQL scan keeps the 64-candidate, 64-KiB and five-second budgets;
+provider I/O happens before that transaction. A `before` bound also limits the attachment's content
+change time. The combined response is bounded to 128 KiB. Optional memory yields to originals;
+when originals alone exceed the cap, broader channel context yields before local neighbors.
+Primary hits, exact anchors and roots remain. Overlapping originals use `context_reference: true`
+with the `source_ref` of a body elsewhere in the same response. Deduplication is recalculated after
+trimming, so a reference never depends on a removed body. Byte-trimmed windows report partial
+coverage and `omitted_context` reader descriptors; search expansions restart before omitted context.
+`source_result_too_large` means the required originals and coverage still cannot fit. These attachments
+do not establish fresh operational state. Shared context is not recursively expanded.
+
+Conversation Lab search uses signed, caller/query-bound keyset continuation over current retained
+originals and includes nonmatching neighbors inside the requested date bounds. It rechecks the live
+session, ownership and lease before local reads or effects. Its coverage names
+the retained-conversation basis and 200-message retention window; it is not proof of full Slack history.
+Queued inputs for the active Lab episode cannot enter source reads or neighbors. Current revision
+selection happens before that exclusion, so withholding a queued edit does not resurrect its old text.
+
+Slack file and canvas reads retain available creation/edit dates and up to four known shares in the
+authorized channel. Each known share can expand through the existing original reader. Shares are
+not proof of a unique originating thread, and other channels' shares are not disclosed. File search
+keeps the same provenance plus a document-reader descriptor. A provider preview is explicitly partial;
+external bookmarks remain link metadata. Lab files retain their authenticated checksum, input date,
+conversation and a working descriptor for the original supplying message.
+
+GitHub discussion/review reads add the bound subject body. Review replies reuse parents on the page
+or read at most four missing parents, verifying each against the current PR before disclosure.
+Deleted and budget-omitted parents have explicit coverage. Repository search adds up to five discussion
+items only for a hit matching the current subject; other subjects keep their body and an honest
+current-subject-reader limitation. Files and subject-only reads stay focused. Through Work MCP, these
+GitHub lookups also recheck the active caller after provider I/O and obey the 128-KiB response cap.
+Lab source reads start with a centered window, then use signed source/range/turn-bound cursors to
+expand beyond its consumed interval without repeating originals. The exact anchor remains available
+on later pages. Retained native source-item receipts resolve to the admitted local original; they are
+not treated as an interchangeable reader ID. Memory navigation stays inside the same Lab conversation.
+Observation custody compares exact original text and source identity separately from optional
+navigation metadata, and still rejects altered prose or a different supplied thread.
+The Work MCP response rechecks the active binding after provider I/O, even for an empty lookup.
+Raw Slack matches and neighbors are filtered against inputs queued for a later turn; a requested
+queued anchor is unavailable. This check and memory exposure share the same bounded transaction.
 
 The implementation decisions and scope are recorded in the
 [memory implementation specification](memory-implementation-spec.md). The schema snapshots and

@@ -79,6 +79,11 @@ files. The host derives repository, subject number, and review root from the epi
 the model supplies none of those authority fields. Pages contain at most 20 items, cursors stop after
 page 10, text is bounded per item, search rejects repository/org/user qualifiers, and every search
 result is checked against the configured repository.
+Discussion and review sections also include the bound subject body. Review context reuses parents
+already returned and fetches at most four missing parents, checking their exact PR identity; deleted
+or omitted parents remain explicitly unavailable/partial. Search attaches up to five discussion items
+only to the current subject's hit. Other subjects do not acquire access through the current-subject
+reader. Subject-only and changed-file reads remain focused.
 
 ## Outbound delivery
 

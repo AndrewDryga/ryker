@@ -390,6 +390,7 @@ defmodule Responder.State.Observations do
       )
       |> LearningSources.eligible(scope)
       |> within_scope(scope, page.scope)
+      |> MemorySearchPage.related_sources(page)
 
     # Explicit history search includes originals even after their topic was
     # consolidated. Otherwise an older source date becomes unreachable.
@@ -479,6 +480,20 @@ defmodule Responder.State.Observations do
   defp matching(query, _search), do: query
 
   def document(note) do
+    Map.merge(original_document(note), %{
+      "source_read" =>
+        MemorySourceLink.message(
+          note.transport,
+          note.conversation_ref,
+          note.source_message_ref,
+          note.thread_ref
+        ),
+      "thread_ref" => note.thread_ref
+    })
+  end
+
+  @doc false
+  def original_document(note) do
     %{
       "kind" => "conversation_observation",
       "source_ref" => "observation:#{note.id}",
@@ -486,12 +501,6 @@ defmodule Responder.State.Observations do
       "topics" => note.note["topics"],
       "conversation_ref" => note.conversation_ref,
       "source_message_ref" => note.source_message_ref,
-      "source_read" =>
-        MemorySourceLink.message(
-          note.transport,
-          note.conversation_ref,
-          note.source_message_ref
-        ),
       "source_input_id" => note.source_input_id,
       "actor_ref" => note.actor_ref,
       "occurred_at" => DateTime.to_iso8601(note.occurred_at)
