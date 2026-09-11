@@ -1693,6 +1693,11 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
       assert column_nullable?(repo, prefix, "operational_memory_entries", "expires_at")
       assert column_nullable?(repo, prefix, "episode_state_record_responses", "choice")
 
+      # The worker session evidence sits above the learning rungs and is empty in
+      # this schema, so it rolls back on its own first.
+      assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 1, prefix: prefix, log: false) ==
+               [@coop_session_evidence_version]
+
       execution_id = insert_learning_execution!(repo, prefix)
 
       assert_raise Postgrex.Error, ~r/export learning execution accounting before rollback/, fn ->
@@ -1741,11 +1746,6 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
       refute column_exists?(repo, prefix, "episode_work_turns", "selection_ledger")
 
       configuration_id = insert_default_channel_configuration!(repo, prefix)
-
-      # Worker session evidence sits above these and holds nothing in this
-      # schema, so it rolls back on its own before the guarded ones below.
-      assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 1, prefix: prefix, log: false) ==
-               [@coop_session_evidence_version]
 
       assert_raise Postgrex.Error, ~r/default channel configurations have data/, fn ->
         Ecto.Migrator.run(repo, @migrations_path, :down, step: 1, prefix: prefix, log: false)
@@ -1922,7 +1922,8 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
                  @delivery_targets_version,
                  @association_corrections_version,
                  @retained_cases_version,
-                 @learning_executions_version
+                 @learning_executions_version,
+                 @coop_session_evidence_version
                ]
 
       assert table_exists?(repo, prefix, "episode_routing_digests")
@@ -1933,10 +1934,10 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
 
       case_id = insert_case_record!(repo, prefix, ids.episode_id)
 
-      # A newer migration sits above the routing rungs; it is reversible in this
-      # schema because nothing metered a learning execution here.
-      assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 1, prefix: prefix, log: false) ==
-               [@learning_executions_version]
+      # Two newer migrations sit above the routing rungs; both are reversible in
+      # this schema, which recorded no worker evidence and metered no learning.
+      assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 2, prefix: prefix, log: false) ==
+               [@coop_session_evidence_version, @learning_executions_version]
 
       assert_raise Postgrex.Error, ~r/retained cases or lessons have data/, fn ->
         Ecto.Migrator.run(repo, @migrations_path, :down, step: 1, prefix: prefix, log: false)

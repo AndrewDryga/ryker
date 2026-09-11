@@ -173,6 +173,7 @@ defmodule Responder.ControlPlane.EpisodePage do
           </li>
         </ul>
       </section>
+      <Responder.ControlPlane.WorkerEvidenceCard.render episode_id={@snapshot.episode[:id]} />
       <p :if={@requests}><.link patch={base(@snapshot)}>← Back to the timeline</.link></p>
       <details :if={@requests} open class="specific-request">
         <summary>Selected model call · exact retained artifact</summary>

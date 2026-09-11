@@ -466,6 +466,10 @@ defmodule Responder.ControlPlane.Projection do
              destination: destination(episode),
              conversation_ref: episode.destination_conversation_ref,
              thread_ref: episode.destination_thread_ref,
+             # The identity a card needs to read evidence recorded against this
+             # episode; the key is the reader-facing reference and cannot be
+             # joined on.
+             id: episode.id,
              transport: episode.destination_transport,
              next_action: trace.next_action,
              ref: episode.key,
