@@ -1616,8 +1616,9 @@ defmodule Responder.ControlPlane.ProjectionTest do
     assert Projection.episode("missing") == :not_found
 
     assert Projection.findings(%{}) == %{items: [], total: 0, page: 1, pages: 1}
-    assert map_size(Projection.callbacks()) == 39
+    assert map_size(Projection.callbacks()) == 40
     assert is_function(Projection.callbacks().instructions, 1)
+    assert is_function(Projection.callbacks().settings, 0)
     refute Map.has_key?(Projection.callbacks(), :episodes)
     assert is_function(Projection.callbacks().behavior, 1)
     assert is_function(Projection.callbacks().behaviors, 2)

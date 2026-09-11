@@ -1568,9 +1568,9 @@ defmodule Responder.ControlPlane.HTML do
       end)
 
     [
-      "<div class=\"configuration-guide\"><h2>Effective host configuration</h2><p>What this Responder is configured to do, and what each setting changes.</p><p>Loaded from <code>",
+      "<div class=\"configuration-guide\"><h2>Effective host configuration</h2><p>What this Responder assembled and is running, and what each setting changes.</p><p>Assembled from <code>",
       escape(source),
-      "</code>.</p><div class=\"configuration-change-note\"><strong>How to change these settings</strong><p>This page is read-only. Edit the host YAML (or application environment in a component setup), validate it, then restart Responder through the normal deployment workflow. Refreshing this page does not reload the file or change running work.</p><p>Configured means the component has configuration, not that its connection or workers are healthy. Defaults below describe the v1 loader; example YAML values are not necessarily defaults. Credentials, URLs, callback values and raw policy documents remain private.</p></div></div><div class=\"configuration-settings\" aria-label=\"Effective values and explanations\">",
+      "</code>.</p><div class=\"configuration-change-note\"><strong>How to change these settings</strong><p>This part is read-only evidence. Product settings are edited in the sections above and take effect without a deployment; the deployment environment (database, listeners, credentials) is set in the unit file. Refreshing this page does not change running work.</p><p>Configured means this installation saved a setting, not that its connection or workers are healthy. Running values can lag a save that has not been applied yet. Credentials, URLs, callback values and raw policy documents remain private.</p></div></div><div class=\"configuration-settings\" aria-label=\"Effective values and explanations\">",
       configuration_rows,
       "</div>",
       code_editing_setup(),
