@@ -383,6 +383,18 @@ If shutdown happens during a remote mutation or visible delivery, let the
 typed reconciliation path determine whether the operation committed. Never
 retry a post or validation manually from copied bytes.
 
+A review can finish after a worker request times out. Responder reconciles its
+original operation on the original placement and reads the saved review result;
+the timeout receipt is retained and the gate is not rerun. This requires the Coop
+daemon and connector's completed-review reconciliation support. Upgrade workers
+independently of Responder; do not clear command receipts or change review keys to
+work around an older worker.
+
+Recovery also requires that original placement to remain active. If it has expired
+or its authority changed, preserve the candidate and review history and inspect the
+episode's recovery state before acting. A lookup is not permission to recreate the
+session or grant a new worker access to its workspace.
+
 ## Worker drain and revocation
 
 Use the audited fleet lifecycle commands to drain planned maintenance and

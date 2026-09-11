@@ -16,6 +16,7 @@ defmodule Responder.CoopFleet.Client do
     ArtifactTransport,
     Bridge,
     Command,
+    ControlPlane,
     Placement,
     Worker,
     WorkspaceCheckpointTransfer
@@ -280,16 +281,104 @@ defmodule Responder.CoopFleet.Client do
 
   @impl true
   def run_review(client, coop_session_id, key, expected_revision) do
-    with {:ok, session} <- session_by_coop_id(coop_session_id) do
-      execute(
-        client,
-        session,
-        "run_review",
-        %{"coop_session_id" => coop_session_id, "expected_revision" => expected_revision},
-        key
-      )
+    with {:ok, %Session{id: session_id} = session} <- session_by_coop_id(coop_session_id) do
+      payload = %{"coop_session_id" => coop_session_id, "expected_revision" => expected_revision}
+
+      case Repo.get_by(Command, idempotency_key: key) do
+        %Command{
+          status: :uncertain,
+          session_id: ^session_id,
+          kind: "run_review",
+          payload: ^payload
+        } =
+            command ->
+          reconcile_review(client, command, coop_session_id, expected_revision)
+
+        %Command{status: :uncertain} ->
+          {:error, {:coop_worker_command_conflict, key}}
+
+        _not_uncertain ->
+          execute(client, session, "run_review", payload, key)
+      end
     end
   end
+
+  defp reconcile_review(client, command, coop_session_id, revision) do
+    # A review may finish after its HTTP request times out. Keep that receipt and
+    # read the original operation on its owning placement; never place this lookup anew.
+    with :ok <- current_command_placement(command),
+         {:ok, reconciliation} <-
+           ControlPlane.enqueue_command(
+             command.placement_id,
+             "reconcile_operation",
+             %{"operation_key" => command.idempotency_key},
+             "responder:fleet:read:reconcile_operation:#{Ecto.UUID.generate()}"
+           ),
+         {:ok, response} <-
+           client.bridge.await_command(reconciliation.id, client.bridge_options) do
+      review_resource(response, coop_session_id, revision)
+    end
+  end
+
+  defp review_resource(
+         %{
+           "operation" => %{
+             "id" => operation_id,
+             "method" => "RunReview",
+             "state" => "succeeded",
+             "resource_type" => "review",
+             "resource_id" => session_id
+           },
+           "review" => %{
+             "operation_id" => operation_id,
+             "session_id" => session_id,
+             "session_revision" => revision
+           }
+         } = response,
+         session_id,
+         revision
+       )
+       when is_binary(operation_id) and operation_id != "",
+       do: {:ok, response}
+
+  defp review_resource(
+         %{
+           "method" => "RunReview",
+           "state" => "succeeded",
+           "resource_type" => "review",
+           "resource_id" => session_id
+         },
+         session_id,
+         _revision
+       ),
+       do:
+         {:error,
+          {:coop_upgrade_required, :completed_review_lookup,
+           "Upgrade the Coop daemon and worker connector to recover this saved review."}}
+
+  defp review_resource(%{"method" => "RunReview", "state" => state}, _session_id, _revision)
+       when state in ["reserved", "running", "uncertain"],
+       do: {:error, {:coop_unavailable, "Review operation has not completed."}}
+
+  defp review_resource(
+         %{
+           "method" => "RunReview",
+           "state" => "failed",
+           "error_code" => code,
+           "error_detail" => detail
+         },
+         _session_id,
+         _revision
+       )
+       when is_binary(code) and code != "" and is_binary(detail) do
+    # The saved operation carries no HTTP status; 0 is the bridge's own convention
+    # for that, and a revision conflict keeps its 409 so publication re-stages.
+    status = if code == "revision_conflict", do: 409, else: 0
+    {:error, {:coop_error, status, code, detail}}
+  end
+
+  defp review_resource(_response, _session_id, _revision),
+    do: {:error, {:coop_protocol_error, :review_resource}}
 
   @impl true
   def get_review_patch(_client, _artifact_id, _expected_sha256, _expected_bytes),
