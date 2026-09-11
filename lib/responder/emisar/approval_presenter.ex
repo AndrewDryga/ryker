@@ -8,7 +8,7 @@ defmodule Responder.Emisar.ApprovalPresenter do
   """
 
   alias Responder.Delivery.{Adapters, Request}
-  alias Responder.Emisar.{Approval, ApprovalStatus, RunState}
+  alias Responder.Emisar.{Approval, ApprovalStatus, Review, RunState}
   alias Responder.Episodes.Episode
   alias Responder.Repo
   alias Responder.State.Record
@@ -51,9 +51,19 @@ defmodule Responder.Emisar.ApprovalPresenter do
   def permanent?({:emisar_approval_presentation_unavailable, _reason}), do: false
   def permanent?(_reason), do: true
 
+  # A repaint costs an operator's attention, so it follows a change this card can
+  # actually show. The card reports the REVIEW: a second reviewer arriving, a
+  # denial, or an override moves nothing in the remote run status, which sits at
+  # `pending_approval` throughout — and once the review is decided, the run's own
+  # march through sent, running and success changes nothing on it. Execution
+  # belongs to the episode, not to a stream of repaints of a settled decision.
+  # A run carrying no receipt at all still tracks its status, which is then the
+  # only thing the card states.
   defp changed?(approval, state) do
-    approval.remote_status != state.status or approval.run_url != state.run_url or
-      approval.remote_error != state.error_message
+    approval.review_digest != Review.digest(state.review) or
+      approval.run_url != state.run_url or
+      approval.remote_error != state.error_message or
+      (is_nil(state.review) and approval.remote_status != state.status)
   end
 
   defp source(approval) do

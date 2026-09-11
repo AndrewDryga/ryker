@@ -96,6 +96,26 @@ defmodule Responder.GitHub.RendererTest do
       "pack_ref" => "nomad@1#sha256:abc",
       "remote_error" => "policy denied this target",
       "request_id" => "apr-1",
+      "review" => %{
+        "request_id" => "apr-1",
+        "status" => "denied",
+        "required_approvals" => 2,
+        "approved_count" => 1,
+        "reason" => "Restart the stuck allocation.",
+        "decisions" => [
+          %{
+            "actor" => "Jane Doe",
+            "decision" => "approve",
+            "decided_at" => "2026-09-11T08:07:23.379141Z"
+          },
+          %{
+            "actor" => "Sam Reviewer",
+            "decision" => "deny",
+            "decided_at" => "2026-09-11T08:09:10.100000Z",
+            "reason" => "Please narrow the query."
+          }
+        ]
+      },
       "run_id" => "run-1",
       "run_url" => "https://emisar.example/app/acme/runs/run-1",
       "runner_ref" => "production-runner",
@@ -104,6 +124,12 @@ defmodule Responder.GitHub.RendererTest do
 
     assert {:ok, rendered} = Renderer.render(%{"emisar_approval_status" => status})
     assert rendered =~ "Denied in Emisar"
+
+    # The review reads the same here as it does in Slack: the outcome once, then
+    # the decisions that produced it, oldest first.
+    assert rendered =~ "✕ Review denied by Sam Reviewer."
+    assert rendered =~ "✓ Review granted by Jane Doe."
+    assert rendered =~ "✕ Review denied by Sam Reviewer. Reason: Please narrow the query."
     assert rendered =~ "policy denied this target"
     assert rendered =~ "Open the exact run"
     assert rendered =~ "GitHub cannot approve this action"

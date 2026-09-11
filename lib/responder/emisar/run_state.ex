@@ -1,6 +1,11 @@
 defmodule Responder.Emisar.RunState do
   @moduledoc """
   Bounded public projection of an Emisar run supervised by Responder.
+
+  `review` is the receipt Emisar publishes for a run a human reviewed: the
+  rationale its approvers were shown, the trusted command, the recorded votes
+  and any explicit override. It is absent for a run policy never gated, and its
+  absence is never read as a decision.
   """
 
   @enforce_keys [
@@ -11,7 +16,7 @@ defmodule Responder.Emisar.RunState do
     :runner_ref,
     :status
   ]
-  defstruct @enforce_keys ++ [error_message: nil, run_url: nil]
+  defstruct @enforce_keys ++ [error_message: nil, review: nil, run_url: nil]
 
   @nonterminal ~w(pending pending_approval sent running cancelling)
   @terminal ~w(success failed error validation_failed unknown_action cancelled timed_out refused denied)
@@ -21,6 +26,7 @@ defmodule Responder.Emisar.RunState do
           error_message: String.t() | nil,
           operation_id: String.t(),
           pack_ref: String.t(),
+          review: map() | nil,
           run_id: String.t(),
           run_url: String.t() | nil,
           runner_ref: String.t(),

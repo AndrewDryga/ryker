@@ -8,7 +8,7 @@ defmodule Responder.Emisar.Client do
 
   @behaviour Responder.Emisar.API
 
-  alias Responder.Emisar.RunState
+  alias Responder.Emisar.{Review, RunState}
 
   @fields [:http, :requester, :rpc_path, :rpc_origin]
   @headers [
@@ -112,13 +112,15 @@ defmodule Responder.Emisar.Client do
          :ok <- reference(run["runner_ref"], @maximum_reference_bytes, :runner_ref),
          true <- RunState.valid_status?(run["status"]),
          {:ok, run_url} <- optional_same_origin_url(run["run_url"], origin),
-         {:ok, error_message} <- optional_text(run["error_message"], @maximum_error_bytes) do
+         {:ok, error_message} <- optional_text(run["error_message"], @maximum_error_bytes),
+         {:ok, review} <- review(run["review"]) do
       {:ok,
        %RunState{
          action_id: run["action_id"],
          error_message: error_message,
          operation_id: run["operation_id"],
          pack_ref: run["pack_ref"],
+         review: review,
          run_id: run["run_id"],
          run_url: run_url,
          runner_ref: run["runner_ref"],
@@ -135,6 +137,15 @@ defmodule Responder.Emisar.Client do
        do: {:error, {:emisar_tool_error, code, bounded(message, @maximum_error_bytes)}}
 
   defp run_state(_structured, _origin), do: {:error, {:emisar_protocol_error, :run}}
+
+  # The review receipt is Emisar's, so a shape this host cannot validate is a
+  # protocol error rather than a card rendered from a document nobody checked.
+  defp review(value) do
+    case Review.prepare(value) do
+      {:ok, review} -> {:ok, review}
+      {:error, _reason} -> {:error, {:emisar_protocol_error, :review}}
+    end
+  end
 
   defp optional_same_origin_url(nil, _origin), do: {:ok, nil}
   defp optional_same_origin_url("", _origin), do: {:ok, nil}

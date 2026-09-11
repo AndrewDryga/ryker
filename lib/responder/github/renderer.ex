@@ -20,13 +20,6 @@ defmodule Responder.GitHub.Renderer do
   def render(%{"emisar_approval_status" => status} = document) when map_size(document) == 1 do
     case ApprovalStatus.prepare(status) do
       {:ok, status} ->
-        label = ApprovalStatus.label(status["status"])
-
-        error =
-          if status["remote_error"],
-            do: "\n\n**Error:** #{escape(status["remote_error"])}",
-            else: ""
-
         run =
           if status["run_url"],
             do: "[Open the exact run](#{status["run_url"]})",
@@ -34,11 +27,11 @@ defmodule Responder.GitHub.Renderer do
 
         {:ok,
          """
-         ### Governed action — #{escape(label)}
+         ### Governed action — #{escape(ApprovalStatus.label(status["status"]))}
 
          `#{escape(status["action_id"])}` on `#{escape(status["runner_ref"])}`. Pack: `#{escape(status["pack_ref"])}`.
-
-         #{run} · [Review in Emisar](#{status["approval_url"]})#{error}
+         #{review_markdown(status)}
+         #{run} · [Review in Emisar](#{status["approval_url"]})#{error_markdown(status)}
 
          GitHub cannot approve this action.
          """
@@ -66,6 +59,23 @@ defmodule Responder.GitHub.Renderer do
   end
 
   def render(_document), do: {:error, {:invalid_github_render, :document}}
+
+  # The same review Slack reports, in Markdown: current status first, then the
+  # decisions oldest first. A run no human reviewed states nothing here.
+  defp review_markdown(status) do
+    case ApprovalStatus.review_summary(status) do
+      nil ->
+        ""
+
+      %{summary: summary, history: history} ->
+        Enum.map_join([summary | history], "\n", &("\n" <> escape(&1))) <> "\n"
+    end
+  end
+
+  defp error_markdown(%{"remote_error" => error}) when is_binary(error),
+    do: "\n\n**Error:** #{escape(error)}"
+
+  defp error_markdown(_status), do: ""
 
   defp render_records(records) do
     Enum.reduce_while(records, {:ok, []}, fn record, {:ok, rendered} ->

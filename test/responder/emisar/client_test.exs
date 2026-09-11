@@ -10,6 +10,75 @@ defmodule Responder.Emisar.ClientTest do
     end
   end
 
+  # Emisar's own published example, byte for byte. It is the contract between the
+  # two repositories: a shape either side changes alone fails here rather than in
+  # a governed-review card nobody can repaint.
+  test "reads Emisar's published review receipt off the wire" do
+    run =
+      "test/responder/emisar/fixtures/wait_for_run_review_v1.json"
+      |> File.read!()
+      |> Jason.decode!()
+      |> Map.fetch!("run")
+
+    assert {:ok, client} = client_for(run)
+
+    assert {:ok, %RunState{review: review}} = Client.wait_for_run(client, run["run_id"])
+
+    assert review == run["review"]
+    assert review["approved_count"] == 1
+    assert review["override"]["waived_approvals"] == 1
+    assert review["command"]["kind"] == "executed"
+  end
+
+  test "a review shape this host cannot validate is a protocol error, not a card" do
+    run =
+      "test/responder/emisar/fixtures/wait_for_run_review_v1.json"
+      |> File.read!()
+      |> Jason.decode!()
+      |> Map.fetch!("run")
+
+    # An override with no reason, a vote with no decision, and a receipt whose
+    # tally exceeds its own requirement each fail the read closed: the monitor
+    # defers and the card keeps the last receipt it could prove.
+    invalid = [
+      put_in(run, ["review", "override", "reason"], "   "),
+      put_in(run, ["review", "decisions"], [%{"actor" => "Jane Doe"}]),
+      put_in(run, ["review", "approved_count"], 9),
+      put_in(run, ["review", "invented"], true)
+    ]
+
+    for candidate <- invalid do
+      assert {:ok, client} = client_for(candidate)
+
+      assert Client.wait_for_run(client, candidate["run_id"]) ==
+               {:error, {:emisar_protocol_error, :review}}
+    end
+  end
+
+  defp client_for(run) do
+    response =
+      {:ok,
+       %{
+         body: %{
+           "id" => "response-1",
+           "jsonrpc" => "2.0",
+           "result" => %{
+             "isError" => false,
+             "structuredContent" => %{"ok" => true, "run" => run}
+           }
+         },
+         headers: [],
+         status: 200
+       }}
+
+    Client.new(%{
+      http: {self(), response},
+      requester: Requester,
+      rpc_origin: "https://emisar.dev",
+      rpc_path: "/api/mcp/rpc"
+    })
+  end
+
   test "reads one exact run through the bounded read-only MCP operation" do
     response =
       {:ok,

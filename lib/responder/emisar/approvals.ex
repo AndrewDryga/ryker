@@ -10,7 +10,7 @@ defmodule Responder.Emisar.Approvals do
 
   import Ecto.Query
 
-  alias Responder.Emisar.{Approval, ApprovalChangeset, RunState}
+  alias Responder.Emisar.{Approval, ApprovalChangeset, Review, RunState}
   alias Responder.Episodes
   alias Responder.Episodes.{Command, Episode}
   alias Responder.Ingress.Input
@@ -238,6 +238,7 @@ defmodule Responder.Emisar.Approvals do
           next_attempt_at: DateTime.add(now, poll_seconds, :second),
           remote_error: state.error_message,
           remote_status: state.status,
+          review_digest: Review.digest(state.review),
           run_url: state.run_url
         })
 
@@ -282,6 +283,7 @@ defmodule Responder.Emisar.Approvals do
              remote_error: state.error_message,
              remote_status: state.status,
              resumed_at: now,
+             review_digest: Review.digest(state.review),
              run_url: state.run_url,
              status: :resumed,
              terminal_at: now

@@ -889,7 +889,7 @@ defmodule Responder.Slack.RendererTest do
     assert button["confirm"]["text"]["text"] =~ "read-only Coop review"
   end
 
-  test "renders a governed Emisar approval as an authoritative outbound link" do
+  test "the first governed-review card is the card its decisions will repaint" do
     document = %{
       "message" => "The action has not run. It is waiting for Emisar approval.",
       "records" => [
@@ -913,39 +913,233 @@ defmodule Responder.Slack.RendererTest do
     }
 
     assert {:ok, rendered} = Renderer.render(document)
+    [_message | blocks] = rendered["blocks"]
 
-    assert rendered["text"] =~ "has not run"
-    assert [_, summary, actions] = rendered["blocks"]
-    assert summary["text"]["text"] =~ "Slack cannot approve"
+    assert headings(blocks) == ["Emisar review", "Action", "Runner", "Status"]
+    assert status_text(blocks) =~ "◷ Waiting for review."
 
-    assert [button] = actions["elements"]
+    # Review happens in Emisar, and while a decision is open its link is the
+    # card's accented primary action.
+    assert [%{"elements" => [button]}] = Enum.filter(blocks, &(&1["type"] == "actions"))
     assert button["action_id"] == "responder_open_emisar_approval"
+    assert button["text"]["text"] == "Review in Emisar"
+    assert button["style"] == "primary"
     assert button["url"] == "https://emisar.example/app/acme/approvals/apr-1"
-    assert button["value"] == "apr-1"
 
     malformed = put_in(document, ["records", Access.at(0), "payload", "request_id"], "other")
     assert {:error, {:invalid_slack_render, :record}} = Renderer.render(malformed)
   end
 
-  test "refreshes a governed run status without adding Slack approval authority" do
+  test "a pending review leads with the dispatch rationale and a trusted command block" do
     assert {:ok, rendered} =
              Renderer.render(%{
-               "emisar_approval_status" => approval_status("validation_failed", "invalid target")
+               "emisar_approval_status" =>
+                 approval_status("pending_approval", nil, review(%{"approved_count" => 0}))
              })
 
-    assert rendered["text"] =~ "Validation failed"
-    assert rendered["text"] =~ "Approval and policy decisions remain authoritative in Emisar"
+    blocks = rendered["blocks"]
 
-    [status, actions] = rendered["blocks"]
-    assert status["text"]["text"] =~ "Error: invalid target"
-    assert status["text"]["text"] =~ "Slack cannot approve"
+    # Operator-facing dispatch metadata first, in one fixed order, then what
+    # will actually run, then who runs it.
+    assert headings(blocks) == [
+             "Emisar review",
+             "Reason",
+             "Evidence",
+             "Expected outcome",
+             "Command to run",
+             "Runner",
+             "Status"
+           ]
 
-    assert Enum.map(actions["elements"], & &1["action_id"]) == [
+    assert [code] = Enum.filter(blocks, &(&1["type"] == "rich_text"))
+
+    assert code["elements"] == [
+             %{
+               "type" => "rich_text_preformatted",
+               "elements" => [
+                 %{"type" => "text", "text" => "vmctl query-range --query 'sum(...)' --step 60s"}
+               ]
+             }
+           ]
+
+    # Headings this card owns carry no colon; retained prose keeps its own.
+    for heading <- headings(blocks), do: refute(String.ends_with?(heading, ":"))
+    assert status_text(blocks) =~ "◷ 0 of 2 reviews received."
+
+    # Both controls link out and nothing on this card mutates: Slack cannot
+    # approve a governed action, and no button here pretends otherwise.
+    assert [%{"elements" => buttons}] = Enum.filter(blocks, &(&1["type"] == "actions"))
+
+    assert Enum.map(buttons, & &1["action_id"]) == [
              "responder_open_emisar_approval",
              "responder_open_emisar_run"
            ]
 
-    malformed = put_in(approval_status("success", nil), ["run_url"], "http://evil.example/run")
+    assert Enum.all?(buttons, &is_binary(&1["url"]))
+  end
+
+  test "without a provable command the card names the action and where its arguments are" do
+    assert {:ok, rendered} =
+             Renderer.render(%{
+               "emisar_approval_status" =>
+                 approval_status(
+                   "pending_approval",
+                   nil,
+                   review(%{"argument_count" => 3}) |> Map.delete("command")
+                 )
+             })
+
+    blocks = rendered["blocks"]
+
+    assert headings(blocks) == [
+             "Emisar review",
+             "Reason",
+             "Evidence",
+             "Expected outcome",
+             "Action",
+             "Runner",
+             "Status"
+           ]
+
+    # The note belongs under the Action block and before Runner, not in a
+    # disconnected footer.
+    kinds = Enum.map(blocks, & &1["type"])
+    action_index = Enum.find_index(blocks, &(section_text(&1) == "*Action*"))
+
+    runner_index =
+      Enum.find_index(blocks, &String.starts_with?(section_text(&1) || "", "*Runner*"))
+
+    note_index = Enum.find_index(blocks, &(context_text(&1) =~ "arguments in Emisar"))
+
+    assert Enum.at(kinds, action_index + 1) == "rich_text"
+    assert note_index == action_index + 2
+    assert note_index < runner_index
+    assert context_text(Enum.at(blocks, note_index)) == "3 arguments in Emisar."
+  end
+
+  test "an executed run reports a receipt, never a command it would run" do
+    executed = %{"kind" => "executed", "text" => "df -P -h /srv", "truncated" => true}
+
+    assert {:ok, rendered} =
+             Renderer.render(%{
+               "emisar_approval_status" =>
+                 approval_status(
+                   "success",
+                   nil,
+                   review(%{
+                     "status" => "approved",
+                     "approved_count" => 2,
+                     "command" => executed,
+                     "decisions" => [approve("Jane Doe"), approve("Sam Reviewer")]
+                   })
+                 )
+             })
+
+    blocks = rendered["blocks"]
+    assert "Executed command" in headings(blocks)
+    refute "Command to run" in headings(blocks)
+
+    assert Enum.any?(blocks, &(context_text(&1) =~ "Command truncated"))
+  end
+
+  test "every governed-review outcome states its status once, then its history oldest first" do
+    states = [
+      {"partial", "pending_approval",
+       review(%{"approved_count" => 1, "decisions" => [approve("Jane Doe")]}),
+       "◷ 1 of 2 reviews received.", ["✓ Review granted by Jane Doe."]},
+      {"granted", "success",
+       review(%{
+         "status" => "approved",
+         "required_approvals" => 1,
+         "approved_count" => 1,
+         "decisions" => [approve("Jane Doe", "Read-only query; no configuration changes.")]
+       }), "✓ Review granted by Jane Doe. Reason: Read-only query; no configuration changes.",
+       []},
+      {"granted-many", "success",
+       review(%{
+         "status" => "approved",
+         "approved_count" => 2,
+         "decisions" => [approve("Jane Doe"), approve("Sam Reviewer")]
+       }), "✓ Review granted; 2 of 2 reviews received.",
+       ["✓ Review granted by Jane Doe.", "✓ Review granted by Sam Reviewer."]},
+      {"denied", "denied",
+       review(%{
+         "status" => "denied",
+         "approved_count" => 1,
+         "decisions" => [approve("Jane Doe"), deny("Sam Reviewer", "Please narrow the query.")]
+       }), "✕ Review denied by Sam Reviewer.",
+       [
+         "✓ Review granted by Jane Doe.",
+         "✕ Review denied by Sam Reviewer. Reason: Please narrow the query."
+       ]},
+      {"expired", "cancelled",
+       review(%{
+         "status" => "expired",
+         "approved_count" => 1,
+         "decisions" => [approve("Jane Doe")]
+       }), "◷ Review window expired. 1 of 2 reviews received.",
+       ["✓ Review granted by Jane Doe."]},
+      {"cancelled", "cancelled", review(%{"status" => "cancelled"}),
+       "■ Review cancelled. 0 of 2 reviews received.", []},
+      {"override", "success",
+       review(%{
+         "status" => "approved",
+         "approved_count" => 1,
+         "decisions" => [approve("Jane Doe")],
+         "override" => %{
+           "actor" => "Alex Admin",
+           "reason" => "A second reviewer is unavailable.",
+           "approved_count" => 1,
+           "required_approvals" => 2,
+           "waived_approvals" => 1,
+           "decided_at" => "2026-09-11T08:07:23.488276Z"
+         }
+       }),
+       "✓ Review granted by Alex Admin; 1 of 2 reviews received; remaining reviews were overridden.",
+       [
+         "✓ Review granted by Jane Doe.",
+         "⚠ Review granted by Alex Admin · admin override. Reason: A second reviewer is unavailable."
+       ]}
+    ]
+
+    for {name, run_status, review, summary, history} <- states do
+      assert {:ok, rendered} =
+               Renderer.render(%{
+                 "emisar_approval_status" => approval_status(run_status, nil, review)
+               })
+
+      blocks = rendered["blocks"]
+      expected = Enum.join([summary | if(history == [], do: [], else: [""] ++ history)], "\n")
+
+      assert status_text(blocks) == "*Status*\n" <> expected, "#{name} status"
+      assert rendered["text"] =~ summary
+
+      # While a decision is open, reviewing it in Emisar is the card's accented
+      # primary action; once decided, the same link opens the decided record.
+      assert [%{"elements" => buttons}] = Enum.filter(blocks, &(&1["type"] == "actions"))
+      open? = review["status"] == "pending"
+      expected_label = if open?, do: "Review in Emisar", else: "Open in Emisar"
+
+      assert hd(buttons)["text"]["text"] == expected_label, "#{name} control"
+      assert Map.get(hd(buttons), "style") == if(open?, do: "primary"), "#{name} control style"
+    end
+  end
+
+  test "a failed poll says the status could not be refreshed, never that it was denied" do
+    assert {:ok, rendered} =
+             Renderer.render(%{
+               "emisar_approval_status" =>
+                 approval_status("pending_approval", "The approval read failed.", nil)
+             })
+
+    status = status_text(rendered["blocks"])
+
+    assert status == "*Status*\n⚠ Couldn't refresh review status. Check Emisar for the latest."
+    refute status =~ "denied"
+    refute status =~ "expired"
+
+    malformed =
+      put_in(approval_status("success", nil, nil), ["run_url"], "http://evil.example/run")
 
     assert Renderer.render(%{"emisar_approval_status" => malformed}) ==
              {:error, {:invalid_slack_render, :emisar_approval_status}}
@@ -1887,7 +2081,7 @@ defmodule Responder.Slack.RendererTest do
     }
   end
 
-  defp approval_status(status, error) do
+  defp approval_status(status, error, review) do
     %{
       "action_id" => "nomad.alloc_restart",
       "approval_url" => "https://emisar.example/app/acme/approvals/apr-1",
@@ -1896,11 +2090,62 @@ defmodule Responder.Slack.RendererTest do
       "pack_ref" => "nomad@1#sha256:abc",
       "remote_error" => error,
       "request_id" => "apr-1",
+      "review" => review,
       "run_id" => "run-1",
       "run_url" => "https://emisar.example/app/acme/runs/run-1",
       "runner_ref" => "production-runner",
       "status" => status
     }
+  end
+
+  defp review(fields) do
+    Map.merge(
+      %{
+        "request_id" => "apr-1",
+        "status" => "pending",
+        "required_approvals" => 2,
+        "approved_count" => 0,
+        "argument_count" => 2,
+        "reason" => "Check whether the reload churn has settled.",
+        "evidence" => "43 reloads in ten minutes across five allocations.",
+        "expected" => "A time series showing whether reloads returned below the threshold.",
+        "command" => %{
+          "kind" => "preview",
+          "text" => "vmctl query-range --query 'sum(...)' --step 60s",
+          "truncated" => false
+        },
+        "decisions" => []
+      },
+      fields
+    )
+  end
+
+  defp approve(actor, reason \\ nil), do: review_decision(actor, "approve", reason)
+  defp deny(actor, reason), do: review_decision(actor, "deny", reason)
+
+  defp review_decision(actor, decision, reason) do
+    %{"actor" => actor, "decision" => decision, "decided_at" => "2026-09-11T08:07:23.379141Z"}
+    |> then(&if reason, do: Map.put(&1, "reason", reason), else: &1)
+  end
+
+  defp headings(blocks) do
+    for %{"type" => "section", "text" => %{"text" => text}} <- blocks,
+        [_, heading] = Regex.run(~r/\A\*([^*]+)\*/, text) || [nil, nil],
+        heading != nil,
+        do: heading
+  end
+
+  defp section_text(%{"type" => "section", "text" => %{"text" => text}}), do: text
+  defp section_text(_block), do: nil
+
+  defp context_text(%{"type" => "context", "elements" => [%{"text" => text} | _]}), do: text
+  defp context_text(_block), do: ""
+
+  defp status_text(blocks) do
+    Enum.find_value(blocks, fn block ->
+      text = get_in(block, ["text", "text"])
+      if is_binary(text) and String.starts_with?(text, "*Status*"), do: text
+    end)
   end
 
   defp setup_document(session_ref) do
