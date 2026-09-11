@@ -76,16 +76,43 @@ defmodule Responder.Work.TurnChangeset do
     |> work_constraints()
   end
 
-  @spec freeze(Turn.t(), Responder.Work.Submission.t(), String.t()) :: Ecto.Changeset.t()
-  def freeze(%Turn{} = turn, submission, fingerprint) do
+  @spec freeze(Turn.t(), Responder.Work.Submission.t(), String.t(), [String.t()] | nil) ::
+          Ecto.Changeset.t()
+  def freeze(%Turn{} = turn, submission, fingerprint, selected_input_refs \\ nil) do
+    # The selected inputs are recorded beside the submission, never inside it.
+    # A turn that has no recorded selection stays null rather than claiming the
+    # empty list, because "nobody recorded which inputs this turn read" and
+    # "this turn read no inputs" are different facts about the same row.
     turn
-    |> cast(%{submission: submission, submission_fingerprint: fingerprint}, [
-      :submission,
-      :submission_fingerprint
-    ])
+    |> cast(
+      %{
+        submission: submission,
+        submission_fingerprint: fingerprint,
+        selected_input_refs: normalize_refs(selected_input_refs)
+      },
+      [:submission, :submission_fingerprint, :selected_input_refs]
+    )
     |> validate_required([:submission, :submission_fingerprint])
     |> validate_length(:submission_fingerprint, is: 64)
+    |> validate_selected_input_refs()
     |> work_constraints()
+  end
+
+  defp normalize_refs(refs) when is_list(refs) do
+    case Enum.uniq(Enum.filter(refs, &(is_binary(&1) and &1 != ""))) do
+      [] -> nil
+      refs -> refs
+    end
+  end
+
+  defp normalize_refs(_refs), do: nil
+
+  defp validate_selected_input_refs(changeset) do
+    validate_change(changeset, :selected_input_refs, fn :selected_input_refs, refs ->
+      if length(refs) <= 40 and Enum.all?(refs, &(byte_size(&1) in 1..1_024)),
+        do: [],
+        else: [selected_input_refs: "is invalid"]
+    end)
   end
 
   @spec bind_state_tools(Turn.t(), String.t(), String.t()) :: Ecto.Changeset.t()

@@ -265,17 +265,18 @@ defmodule Responder.Work.Custody do
     end
   end
 
-  @spec freeze_submission(Ecto.UUID.t(), String.t(), String.t(), Submission.t()) ::
+  @spec freeze_submission(Ecto.UUID.t(), String.t(), String.t(), Submission.t(), keyword()) ::
           {:ok, Turn.t()} | {:error, term()}
-  def freeze_submission(episode_id, turn_ref, lease_ref, submission) do
+  def freeze_submission(episode_id, turn_ref, lease_ref, submission, options \\ []) do
     with {:ok, episode_id} <- uuid(episode_id, :episode_id),
          :ok <- reference(turn_ref, :turn_ref),
          :ok <- reference(lease_ref, :lease_ref),
          {:ok, submission} <- Submission.prepare(submission) do
       fingerprint = Submission.fingerprint(submission)
+      selected = Keyword.get(options, :selected_input_refs)
 
       Repo.transaction(fn ->
-        freeze_locked(episode_id, turn_ref, lease_ref, submission, fingerprint)
+        freeze_locked(episode_id, turn_ref, lease_ref, submission, fingerprint, selected)
       end)
       |> transaction_result()
     end
@@ -1818,12 +1819,12 @@ defmodule Responder.Work.Custody do
   defp attempt_count(turn, :cancel_pending), do: turn.cancel_attempt_count
   defp attempt_count(turn, :delivery_pending), do: turn.delivery_attempt_count
 
-  defp freeze_locked(episode_id, turn_ref, lease_ref, submission, fingerprint) do
+  defp freeze_locked(episode_id, turn_ref, lease_ref, submission, fingerprint, selected) do
     case turn_for_lease(episode_id, turn_ref, lease_ref) do
       {:ok, _session, %Turn{submission: nil} = turn} ->
         frozen =
           turn
-          |> TurnChangeset.freeze(submission, fingerprint)
+          |> TurnChangeset.freeze(submission, fingerprint, selected)
           |> Repo.update()
           |> unwrap_or_rollback(:work_submission)
 

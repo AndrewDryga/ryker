@@ -18,14 +18,7 @@ defmodule Responder.ControlPlane.EpisodePage do
         assigns.snapshot[:related_episodes] || %{items: [], truncated: false}
       )
 
-    chapters =
-      assigns.snapshot
-      |> entries(assigns.timeline)
-      |> separate_routing()
-      |> EpisodeTrace.chapters(assigns.snapshot.trace.received_at)
-      |> execution_phases()
-
-    assigns = assign(assigns, :chapters, chapters)
+    assigns = assign(assigns, :chapters, chapters(assigns.snapshot, assigns.timeline))
 
     ~H"""
     <div class="episode-workbench execution-document">
@@ -223,6 +216,20 @@ defmodule Responder.ControlPlane.EpisodePage do
     """
   end
 
+  @doc """
+  The phases this page renders, grouped by the durable owner of each step.
+
+  Exposed so the grouping can be asserted without going through HTML: which
+  turn a receipt belongs to is a projection fact, not a rendering detail.
+  """
+  def chapters(snapshot, timeline) do
+    snapshot
+    |> entries(timeline)
+    |> separate_routing()
+    |> EpisodeTrace.chapters(snapshot.trace.received_at, snapshot.trace.causality)
+    |> execution_phases()
+  end
+
   defp execution_timeline(assigns) do
     ~H"""
     <section
@@ -250,6 +257,9 @@ defmodule Responder.ControlPlane.EpisodePage do
               Message {chapter.conversation_turn}
             </p>
             <h3 id={"chapter-#{index}"}>{chapter_title(chapter)}</h3>
+            <p :if={turn_association(chapter)} class="turn-association">
+              {turn_association(chapter)}
+            </p>
             <p>{chapter_description(chapter.band)}</p>
           </div>
           <span :if={chapter.span} class="chapter-span" title="Time since the first message">{chapter_span(
@@ -302,13 +312,42 @@ defmodule Responder.ControlPlane.EpisodePage do
     |> Enum.map(&%{&1 | band: phase_band(&1.band)})
     |> Enum.chunk_by(&{&1.band, &1.conversation_turn})
     |> Enum.map(fn [first | _] = group ->
+      owners = group |> Enum.flat_map(& &1.owners) |> Enum.uniq()
+      turns = Enum.filter(owners, &match?({:turn, _id}, &1))
+
       %{
         first
         | steps: Enum.flat_map(group, & &1.steps),
+          owners: owners,
+          # Merging two turns into one phase would put one turn's name on
+          # another turn's receipts, so a merged phase keeps no turn identity.
+          turn: if(match?([_one], turns), do: Enum.find_value(group, & &1.turn)),
           starts_conversation: Enum.any?(group, & &1.starts_conversation)
       }
     end)
   end
+
+  # Only say what the recorded association actually explains: a turn built from
+  # several inputs, or one that continues earlier work. Everything else is
+  # noise on a single-message request.
+  defp turn_association(%{turn: %{kind: :turn} = turn}) do
+    parts =
+      [input_association(turn.inputs), continuation(turn.continues)]
+      |> Enum.reject(&is_nil/1)
+
+    if parts != [], do: "#{turn.label} · " <> Enum.join(parts, " · ")
+  end
+
+  defp turn_association(_chapter), do: nil
+
+  defp input_association(:not_recorded), do: "Selected inputs not recorded"
+  defp input_association(ordinals) when length(ordinals) < 2, do: nil
+
+  defp input_association(ordinals),
+    do: "Inputs: " <> Enum.map_join(ordinals, " + ", &"Message #{&1}")
+
+  defp continuation(nil), do: nil
+  defp continuation(ordinal), do: "Continues Turn #{ordinal}"
 
   defp phase_band(:input), do: :ready
   defp phase_band(:outcome), do: :answer
@@ -511,6 +550,7 @@ defmodule Responder.ControlPlane.EpisodePage do
       Enum.map(snapshot.trace.case_file.conversation, fn message ->
         %{
           id: "story-message-#{message.id}",
+          owner: message[:owner] || :episode,
           at: message.at,
           kind: :message,
           message: Map.put(message, :response_reference, response_reference(message, requests)),
@@ -533,6 +573,7 @@ defmodule Responder.ControlPlane.EpisodePage do
       |> Enum.map(fn step ->
         %{
           id: "event-#{step.id}",
+          owner: step[:owner] || :episode,
           at: step.at,
           kind: :event,
           step: Map.put(step, :candidate_response, responses[step.id]),

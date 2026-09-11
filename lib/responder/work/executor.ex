@@ -219,7 +219,9 @@ defmodule Responder.Work.Executor do
              claim.episode.id,
              claim.turn.turn_ref,
              claim.lease_ref,
-             submission
+             submission,
+             # Exactly the refs the builder required present and selected.
+             selected_input_refs: Enum.uniq(claim.episode.active_input_refs)
            ) do
       {:ok, %{claim | turn: turn}}
     end

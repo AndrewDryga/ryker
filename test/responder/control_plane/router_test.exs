@@ -5,7 +5,7 @@ defmodule Responder.ControlPlane.RouterTest do
   import Plug.Test
   import Phoenix.LiveViewTest
 
-  alias Responder.ControlPlane.{CSRF, EpisodePage, HTML, Router}
+  alias Responder.ControlPlane.{CSRF, EpisodeCausality, EpisodePage, HTML, Router}
 
   @secret String.duplicate("s", 32)
 
@@ -1873,6 +1873,7 @@ defmodule Responder.ControlPlane.RouterTest do
                ],
                records: [%{kind: "evidence", status: :open, summary: "Repository checked"}],
                trace: %{
+                 causality: EpisodeCausality.index([], [], []),
                  actions: [
                    %{
                      href: "/actions/episode/episode%3Aone/resolve",
