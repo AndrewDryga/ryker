@@ -143,6 +143,12 @@ defmodule Responder.Retention.Policy do
       why: "temporary verified review patch owned by one worker command"
     },
     %{
+      table: "coop_session_evidence",
+      class: :episode_history,
+      why:
+        "worker-exported network and bound-task snapshots for one session; the bodies expire with that episode's history and are never rebuilt from a later capture"
+    },
+    %{
       table: "coop_worker_workspace_checkpoints",
       class: :cascade,
       why: "encrypted portable workspace snapshot owned by one completed worker command"

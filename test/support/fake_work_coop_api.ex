@@ -19,6 +19,11 @@ defmodule Responder.TestSupport.FakeWorkCoopAPI do
         changes_page_requests: [],
         checkpoint_keys: [],
         checkpoint_error: nil,
+        # Inspection evidence is optional on the wire. `nil` is a worker whose
+        # daemon does not serve it at all; the other values are the ways a
+        # capture fails once it does, and none of them may reach the turn.
+        session_evidence: Keyword.get(options, :session_evidence),
+        session_evidence_reads: 0,
         create_count: 0,
         create_keys: [],
         fence_create_keys: [],
@@ -184,6 +189,21 @@ defmodule Responder.TestSupport.FakeWorkCoopAPI do
 
   @impl true
   def get_session(agent, _session_id), do: {:ok, Agent.get(agent, & &1.session)}
+
+  @impl true
+  def get_session_evidence(agent, _session_id) do
+    Agent.get_and_update(agent, fn state ->
+      {state.session_evidence,
+       %{state | session_evidence_reads: state.session_evidence_reads + 1}}
+    end)
+    |> case do
+      nil -> {:error, {:coop_error, 404, "not_found", "evidence export is unavailable"}}
+      :raise -> raise "the evidence export blew up"
+      :exit -> exit(:evidence_transport_died)
+      {:error, _reason} = error -> error
+      document when is_map(document) -> {:ok, document}
+    end
+  end
 
   @impl true
   def checkpoint_workspace(agent, _session_id, key, _expected_revision) do

@@ -44,6 +44,11 @@ defmodule Responder.Coop.API do
                       capabilities: 2
   @callback get_session(client :: term(), session_id :: String.t()) ::
               {:ok, map()} | {:error, term()}
+  # Optional: a worker whose daemon predates the inspection export does not serve
+  # it, and an adapter that cannot ask must leave the evidence unknown rather
+  # than record an absence as an observation.
+  @callback get_session_evidence(client :: term(), session_id :: String.t()) ::
+              {:ok, map()} | {:error, term()}
   @callback list_events(
               client :: term(),
               session_id :: String.t(),
@@ -205,5 +210,6 @@ defmodule Responder.Coop.API do
                       submit_frozen_turn: 7,
                       fence_frozen_turn: 7,
                       validate_frozen_candidate: 7,
-                      checkpoint_workspace: 4
+                      checkpoint_workspace: 4,
+                      get_session_evidence: 2
 end

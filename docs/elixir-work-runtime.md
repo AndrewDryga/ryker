@@ -529,6 +529,32 @@ execution placement and takeover are a later boundary.
 The worker never accepts a policy, repository, provider, credential, Slack destination, or tool set
 from an incoming event. Those are admitted and pinned by their owning boundaries.
 
+## Worker inspection evidence
+
+A Coop worker can export one bounded, versioned account of a session it hosts: the network posture
+the session was admitted under, what its newest run was observed doing, the session-wide receipt,
+and the host-approved Coop task bound into its workspace. `Responder.CoopFleet.SessionEvidenceDocument`
+is the consumer half of that contract, held to the producer by the golden fixtures in
+`testdata/protocol/coop-session-evidence*.json`, which Coop's own exporter test writes.
+
+Collection is an observation and never changes what it observed. The capture runs at the completion
+boundary beside narration sync, its result is discarded, and a worker that does not advertise
+`session-evidence` is simply not asked. A failing, raising or contract-violating export cannot
+spend a model call, alter frozen prompt bytes, change a decision or add an external effect.
+
+Recording keys on the capture's content rather than its clock. A worker keeps no transition ledger,
+so what it can honestly offer is the session as it stands; Responder records a series of those
+snapshots, and a poll that found nothing changed advances the times on the state already recorded
+instead of manufacturing a history of identical rows. That is also the idempotency rule: a
+redelivered command, a retried capture and two concurrent captures of one state converge on a
+single row, with the unique index as the arbiter rather than a read-then-write.
+
+Every section of the export states its own availability, because the reads behind them fail
+independently: `unavailable`, `no_run` and `not_filtered` lead an operator to three different
+investigations. Counters cross the wire as unsigned decimal strings and are stored as canonical
+JSON text, because a collector value above 2^53 must survive both a browser and the database
+unrounded, and a null counter is a metric nobody measured rather than a zero.
+
 ## Retention and cleanup
 
 `Responder.Retention.Runtime` owns both remote workspace cleanup and local data horizons. For every
@@ -570,8 +596,11 @@ operational horizon only after all of the episode's Coop sessions are proven dis
 event stream remains coherent until `episode_history_seconds`; it is never thinned one event at a
 time. Open waits, blocked turns, pending approvals, live schedules, unpublished changes, active
 incident rooms, and unresolved state records pin that history regardless of age. Compact session and
-delivery receipts remain until `audit_data_seconds`. Pruning runs in bounded batches and short
-transactions so retention cannot monopolize a busy database. Every table has an executable retention
+delivery receipts remain until `audit_data_seconds`. Worker inspection evidence holds exported
+bodies — refused destinations, admitted rule texts, the agent's own task note — so it expires with
+the episode's history and again with the session row it describes; a capture taken after expiry
+records what is observed now and never revives the expired snapshot. Pruning runs in bounded
+batches and short transactions so retention cannot monopolize a busy database. Every table has an executable retention
 class, and every age/lease comparison uses PostgreSQL time.
 
 One cleanup pass claims repeatedly under a bounded budget: at most `batch_limit` phases, at most
