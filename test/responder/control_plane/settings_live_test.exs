@@ -190,6 +190,21 @@ defmodule Responder.ControlPlane.SettingsLiveTest do
     assert Repo.aggregate(Installation, :count) == 1
   end
 
+  test "a value whose shape does not fit its control is refused, not matched by accident" do
+    # The socket accepts whatever a client sends. A map where a prefix belongs
+    # must be a refusal, not a FunctionClauseError that takes the page down.
+    initialize!()
+
+    assert {:error, {:invalid_settings, [{:channel_prefix, :invalid}]}} =
+             Actions.callbacks().save_settings.(:slack, %{"channel_prefix" => %{"a" => "b"}}, 1)
+
+    assert {:error, {:invalid_settings, [{:section, :unknown}]}} =
+             Actions.callbacks().save_settings.(:not_a_section, %{}, 1)
+
+    assert Settings.fetch!().slack.channel_prefix == "ems"
+    assert Settings.fetch!().installation.revision == 1
+  end
+
   defp open, do: live(build_conn() |> Map.put(:host, "localhost"), "/configuration")
 
   defp initialize! do
