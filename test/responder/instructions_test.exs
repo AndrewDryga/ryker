@@ -120,6 +120,16 @@ defmodule Responder.InstructionsTest do
     assert Enum.map(Repo.all(Edit), & &1.revision) |> Enum.sort() == [1, 2]
   end
 
+  test "instruction limits apply to the normalized text that is actually saved" do
+    # Pasted Windows newlines must not reject an otherwise legal UTF-8 instruction.
+    pasted = String.duplicate("👩‍💻\r\n", 643)
+    normalized = String.replace(pasted, "\r\n", "\n")
+    assert byte_size(pasted) > Instructions.limits().bytes
+    assert byte_size(normalized) == 7_716
+    assert {:ok, saved} = Instructions.save(:global, pasted, 0, @actor)
+    assert saved.text == normalized
+  end
+
   test "invalid scopes and edit metadata never create settings" do
     for scope <- [:workspace, {:channel, "T1", "C1:other"}, {:channel, "", "C1"}] do
       assert {:error, {:invalid_instructions, :scope}} =

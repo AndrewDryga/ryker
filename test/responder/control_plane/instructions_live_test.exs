@@ -2,9 +2,10 @@ defmodule Responder.ControlPlane.InstructionsLiveTest do
   use Responder.DataCase, async: false
   import Phoenix.ConnTest
   import Phoenix.LiveViewTest
-  alias Responder.ControlPlane.{Actions, Endpoint, Projection, SlackNames}
+  alias Responder.ControlPlane.{Actions, Endpoint, InstructionSettings, Projection, SlackNames}
+  alias Responder.Fixtures.Episodes, as: EpisodeFixtures
   alias Responder.Instructions
-  alias Responder.Slack.ChannelMembership
+  alias Responder.Slack.{ChannelConfigurationChangeset, ChannelMembership}
 
   @endpoint Endpoint
   @scope {:channel, "TINSTRUCTIONS", "CTEST"}
@@ -139,6 +140,71 @@ defmodule Responder.ControlPlane.InstructionsLiveTest do
     assert Repo.aggregate(Responder.Instructions.Setting, :count) == 0
   end
 
+  test "departed channel instructions remain visible and clearable without allowing replacement" do
+    # Leaving a channel must not make its customer-authored instructions impossible to remove.
+    membership = join!()
+    assert {:ok, _} = Instructions.save(@scope, "Retired channel guidance", 0, "operator:test")
+
+    membership
+    |> Ecto.Changeset.change(status: :left, left_at: DateTime.utc_now())
+    |> Repo.update!()
+
+    {:ok, view, _} = open("/channels/TINSTRUCTIONS/CTEST")
+    assert has_element?(view, "#instructions-text", "Retired channel guidance")
+    submit(view, "Replacement is not allowed")
+    assert has_element?(view, "[role=alert]", "no longer available")
+    assert Instructions.get(@scope).text == "Retired channel guidance"
+    submit(view, " \r\n ")
+    assert Instructions.get(@scope).text == ""
+    assert Instructions.get(@scope).revision == 2
+    assert Repo.aggregate(Responder.Instructions.Edit, :count) == 2
+  end
+
+  test "configured and historically known channels need no membership row to retain instruction access" do
+    configuration = %{
+      actor_ref: "operator:test",
+      alert_policy: :offer,
+      channel_ref: "CCONFIGURED",
+      id: Ecto.UUID.generate(),
+      participation: :mentions,
+      repository_ref: "responder",
+      revision: 1,
+      saved_at: DateTime.utc_now(),
+      workspace_ref: "TINSTRUCTIONS"
+    }
+
+    configuration
+    |> ChannelConfigurationChangeset.configuration()
+    |> Repo.insert!()
+
+    id = Ecto.UUID.generate()
+
+    assert {:ok, _} =
+             Responder.Episodes.apply(
+               EpisodeFixtures.admit_input(%{
+                 episode_id: id,
+                 episode_key: "instruction-history:#{id}",
+                 native_input_id: "history:#{id}",
+                 turn_ref: "turn:#{id}",
+                 destination: %{
+                   transport: "slack",
+                   conversation_ref: "slack:TINSTRUCTIONS:CHISTORY",
+                   thread_ref: nil
+                 }
+               })
+             )
+
+    for channel <- ["CCONFIGURED", "CHISTORY"] do
+      scope = {:channel, "TINSTRUCTIONS", channel}
+      assert {:ok, _} = InstructionSettings.save(scope, "Known channel", 0)
+
+      assert {:ok, %{setting: %{text: "Known channel"}}} =
+               InstructionSettings.fetch(scope)
+    end
+
+    assert Repo.aggregate(ChannelMembership, :count) == 0
+  end
+
   test "a channel projection outage preserves the editor and uses the existing unavailable state",
        %{
          projection_failure: failure
@@ -162,6 +228,35 @@ defmodule Responder.ControlPlane.InstructionsLiveTest do
     assert has_element?(view, "#instructions-count", "1 character over the limit")
     edit(view, String.duplicate("x", 2_002))
     assert has_element?(view, "#instructions-count", "2 characters over the limit")
+  end
+
+  test "typing after a conflict keeps the explanation until the saved version is reviewed" do
+    # Losing the explanation left Save disabled without telling the operator why.
+    {:ok, view, _} = open("/instructions")
+    edit(view, "My draft")
+    assert {:ok, _} = Instructions.save(:global, "Concurrent edit", 0, "operator:other")
+    submit(view, "My draft")
+    edit(view, "My revised draft")
+    assert has_element?(view, "[role=alert]", "changed since you started editing")
+    assert has_element?(view, "#instructions-form button[type=submit][disabled]")
+    assert has_element?(view, "input[name=revision][value='0']")
+    view |> element("button[phx-click=review-current]") |> render_click()
+    refute has_element?(view, "[role=alert]")
+    assert has_element?(view, "#instructions-text", "My revised draft")
+    submit(view, "My revised draft")
+    assert Instructions.get(:global).text == "My revised draft"
+    assert Instructions.get(:global).revision == 2
+  end
+
+  test "the quiet instruction counter measures normalized saved bytes" do
+    # The counter used to announce each keystroke and count bytes that save removed.
+    {:ok, view, _} = open("/instructions")
+    pasted = String.duplicate("👩‍💻\r\n", 643)
+    edit(view, pasted)
+    assert has_element?(view, "#instructions-count", "7716 / 8,192 bytes")
+    refute has_element?(view, "#instructions-count[role=status]")
+    submit(view, pasted)
+    assert Instructions.get(:global).text == String.replace(pasted, "\r\n", "\n")
   end
 
   test "a recovered browser draft keeps its old revision and cannot overwrite a save during disconnect" do

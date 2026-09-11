@@ -101,6 +101,8 @@ defmodule Responder.Instructions do
   defp valid_layer?(_, _), do: false
 
   def normalize_text(text) when is_binary(text) do
+    text = String.replace(text, "\r\n", "\n")
+
     cond do
       not String.valid?(text) or String.contains?(text, <<0>>) ->
         {:error, {:invalid_instructions, :text}}
@@ -115,7 +117,7 @@ defmodule Responder.Instructions do
         {:ok, ""}
 
       true ->
-        {:ok, String.replace(text, "\r\n", "\n")}
+        {:ok, text}
     end
   end
 

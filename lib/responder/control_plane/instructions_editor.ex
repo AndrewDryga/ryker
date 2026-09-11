@@ -28,7 +28,11 @@ defmodule Responder.ControlPlane.InstructionsEditor do
       do:
         {:noreply,
          draft(socket, text)
-         |> assign(message: "", error: nil, expected_revision: revision(revision))}
+         |> assign(
+           message: "",
+           error: if(socket.assigns.conflict, do: socket.assigns.error),
+           expected_revision: revision(revision)
+         )}
 
   def handle_event("cancel", _, socket),
     do: {:noreply, reset(socket, socket.assigns.view.setting)}
@@ -101,12 +105,14 @@ defmodule Responder.ControlPlane.InstructionsEditor do
 
   defp revision(_), do: nil
 
-  defp draft(socket, text),
-    do:
-      assign(socket,
-        draft: text,
-        dirty: Instructions.normalize_text(text) != {:ok, socket.assigns.saved.text}
-      )
+  defp draft(socket, text) do
+    text = String.replace(text, "\r\n", "\n")
+
+    assign(socket,
+      draft: text,
+      dirty: Instructions.normalize_text(text) != {:ok, socket.assigns.saved.text}
+    )
+  end
 
   defp error({:invalid_instructions, :characters}),
     do: "Use at most 2,000 characters. Your draft is preserved."
@@ -173,7 +179,7 @@ defmodule Responder.ControlPlane.InstructionsEditor do
           }
         >{@draft}</textarea>
         <div class="instructions-meta">
-          <span id="instructions-count" role="status">{character_count(@draft)} · {byte_size(@draft)} / 8,192 bytes</span><span :if={
+          <span id="instructions-count">{character_count(@draft)} · {byte_size(@draft)} / 8,192 bytes</span><span :if={
             @saved.saved_at
           }>Saved
           <time datetime={DateTime.to_iso8601(@saved.saved_at)}>{Calendar.strftime(
