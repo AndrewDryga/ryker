@@ -362,13 +362,15 @@ defmodule Responder.Retention.Custody do
   def reconsider_reconnected_workers(error_codes, stale_seconds)
       when is_list(error_codes) and is_integer(stale_seconds) and stale_seconds > 0 do
     if Enum.all?(error_codes, &(bounded_text(&1, 128, :error_code) == :ok)) do
+      cutoff = DateTime.add(database_now!(), -stale_seconds, :second)
+
       reconnected =
         from(placement in Placement,
           join: worker in FleetWorker,
           on: worker.id == placement.worker_id,
           where: placement.session_id == parent_as(:session).id,
           where: worker.last_seen_at > parent_as(:session).updated_at,
-          where: worker.last_seen_at >= ago(^stale_seconds, "second"),
+          where: worker.last_seen_at >= ^cutoff,
           select: 1
         )
 
@@ -469,19 +471,22 @@ defmodule Responder.Retention.Custody do
   end
 
   # Cleanup runs on the worker that still owns the fork, so fair draining needs
-  # that identity before the claim, not after the call has already failed.
+  # that identity before the claim, not after the call has already failed. The
+  # lookup is lateral and indexed: a fleet-wide placement scan on every claim
+  # would make the hot path grow with fleet history.
   defp placed_query(now) do
     current =
       from(placement in Placement,
-        distinct: [asc: placement.session_id],
-        order_by: [asc: placement.session_id, desc: placement.generation],
-        select: %{session_id: placement.session_id, worker_id: placement.worker_id}
+        where: placement.session_id == parent_as(:session).id,
+        order_by: [desc: placement.generation],
+        limit: 1,
+        select: %{worker_id: placement.worker_id}
       )
 
     from([session: session] in claimable_query(now),
-      left_join: placement in subquery(current),
+      left_lateral_join: placement in subquery(current),
       as: :placement,
-      on: placement.session_id == session.id
+      on: true
     )
   end
 

@@ -1,6 +1,6 @@
 .DEFAULT_GOAL := dev-check
 
-.PHONY: product-e2e elixir-product-e2e live-acceptance live-acceptance-wrapper-check eval-world-pack eval-world-smoke eval-world eval-host-replay eval-replay model-release-check eval-trend customer-check elixir-unit elixir-test elixir-check elixir-release elixir-release-check elixir-install elixir-activate elixir-candidate-check control-plane-js-check shellcheck watchdog-check dev-check check release-check clean
+.PHONY: retention-simulation product-e2e elixir-product-e2e live-acceptance live-acceptance-wrapper-check eval-world-pack eval-world-smoke eval-world eval-host-replay eval-replay model-release-check eval-trend customer-check elixir-unit elixir-test elixir-check elixir-release elixir-release-check elixir-install elixir-activate elixir-candidate-check control-plane-js-check shellcheck watchdog-check dev-check check release-check clean
 
 ELIXIR_INSTALL_PREFIX ?= $(HOME)/.local/libexec/responder
 RESPONDER_ELIXIR_RELEASE ?= $(ELIXIR_INSTALL_PREFIX)/current/bin/responder
@@ -18,6 +18,12 @@ elixir-unit:
 
 elixir-test:
 	scripts/elixir-test.sh $(ELIXIR_TEST)
+
+# Thirty accelerated days of workspace cleanup through real custody; minutes, not
+# hours, and deliberately outside the fast gate. Evidence lands in artifacts/.
+retention-simulation:
+	RESPONDER_TEST_ISOLATED=1 scripts/elixir-test.sh --include simulation \
+		test/responder/retention/thirty_day_simulation_test.exs
 
 elixir-check:
 	bash scripts/test-release-build-isolation.sh
@@ -127,7 +133,7 @@ watchdog-check:
 dev-check:
 	+$(MAKE) --no-print-directory -j$(DEV_CHECK_JOBS) elixir-check control-plane-js-check eval-replay shellcheck watchdog-check live-acceptance-wrapper-check
 
-check: dev-check
+check: dev-check retention-simulation
 	scripts/test-eval-trend.sh
 
 release-check: check elixir-candidate-check

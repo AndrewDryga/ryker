@@ -23,7 +23,10 @@ defmodule Responder.FakeRetentionCoopAPI do
         fail_first: MapSet.new(Keyword.get(options, :fail_first, [])),
         failed: MapSet.new(),
         offline: Keyword.get(options, :offline, false),
+        offline_prefix: Keyword.get(options, :offline_prefix),
         offline_sessions: MapSet.new(Keyword.get(options, :offline_sessions, [])),
+        lose_every: Keyword.get(options, :lose_every),
+        mutations: 0,
         operations: %{},
         sessions: Map.new(sessions, &{&1["id"], &1}),
         workspaces: Keyword.get(options, :workspaces, %{})
@@ -40,6 +43,10 @@ defmodule Responder.FakeRetentionCoopAPI do
   @doc "Simulate a worker outage: every call fails as an unreachable transport."
   def set_offline(agent, offline?) when is_boolean(offline?),
     do: Agent.update(agent, &%{&1 | offline: offline?})
+
+  @doc "Take every session whose remote id starts with this prefix offline."
+  def set_offline_prefix(agent, prefix),
+    do: Agent.update(agent, &%{&1 | offline_prefix: prefix})
 
   @doc "Replace the workspace one session reports, so retained work can become clean."
   def set_workspace(agent, session_id, workspace) do
@@ -206,7 +213,13 @@ defmodule Responder.FakeRetentionCoopAPI do
             {{:error, {:coop_error, 409, "idempotency_conflict", "body changed"}}, state}
         end
 
+      state = %{state | mutations: state.mutations + 1}
       response = maybe_lose_response(response, phase, state)
+
+      response =
+        if lost_response?(state, match?({:ok, _document}, response)),
+          do: {:error, {:coop_unavailable, :response_lost}},
+          else: response
 
       failed =
         if MapSet.member?(state.fail_first, phase),
@@ -217,8 +230,18 @@ defmodule Responder.FakeRetentionCoopAPI do
     end)
   end
 
-  defp unreachable?(state, session_id),
-    do: state.offline or MapSet.member?(state.offline_sessions, session_id)
+  defp unreachable?(state, session_id) do
+    state.offline or MapSet.member?(state.offline_sessions, session_id) or
+      (is_binary(state.offline_prefix) and is_binary(session_id) and
+         String.starts_with?(session_id, state.offline_prefix))
+  end
+
+  # A response lost in transit after the mutation already committed remotely.
+  defp lost_response?(%{lose_every: every, mutations: mutations}, true)
+       when is_integer(every) and every > 0,
+       do: rem(mutations, every) == 0
+
+  defp lost_response?(_state, _succeeded?), do: false
 
   defp store_successful_operation(state, key, phase, body, {:ok, _} = response) do
     put_in(state, [:operations, key], %{body: body, phase: phase, response: response})

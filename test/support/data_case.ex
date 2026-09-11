@@ -16,6 +16,12 @@ defmodule Responder.DataCase do
     options =
       if isolation = tags[:isolation], do: [{:isolation, isolation} | options], else: options
 
+    # A long accelerated simulation owns one connection for its whole run.
+    options =
+      if timeout = tags[:ownership_timeout],
+        do: [{:ownership_timeout, timeout} | options],
+        else: options
+
     owner = Sandbox.start_owner!(Responder.Repo, options)
     on_exit(fn -> Sandbox.stop_owner(owner) end)
   end

@@ -559,6 +559,14 @@ failures retry with bounded backoff forever and never exhaust `max_attempts`; a 
 the host's own leases, and a worker heartbeat newer than the failed attempt cancels its backoff.
 A dirty retained workspace is replanned every `retained_recheck_seconds` from fresh Coop evidence.
 
+`make retention-simulation` runs thirty accelerated days of this lifecycle through the real
+custody, dispatcher and executor against a fake fleet: a pre-existing backlog, at least one
+hundred completions per simulated day in bursts, dirty, unmerged, still-running and
+publication-pinned work, a multi-day worker outage, host restarts and lost responses. It shadows
+PostgreSQL's clock on its own connection, so eligibility, grace, backoff and retained rechecks
+elapse without waiting, and writes the per-day inventory, high-water marks and latency to
+`artifacts/`. It is part of `make check`, not the fast gate, because it takes minutes.
+
 Each worker poll may carry a strictly validated `storage` object: measured capacity, free, reserve,
 watermarks, inactive disposable bytes, protected bytes, optional unattributed bytes, and the
 worker's own `open`/`refused` allocation decision. It is optional; absent means unknown, never

@@ -962,6 +962,31 @@ defmodule Responder.ControlPlane.OperatorProjection do
         safe_value(retention, :audit_data_seconds),
         source
       )
+      |> maybe_config(
+        "retention.disposable_bytes_limit",
+        safe_value(retention, :disposable_bytes_limit),
+        source
+      )
+      |> maybe_config(
+        "retention.reclaim_target_seconds",
+        safe_value(retention, :reclaim_target_seconds),
+        source
+      )
+      |> maybe_config(
+        "retention.storage_high_watermark_bytes",
+        safe_value(retention, :storage_high_watermark_bytes),
+        source
+      )
+      |> maybe_config(
+        "retention.storage_low_watermark_bytes",
+        safe_value(retention, :storage_low_watermark_bytes),
+        source
+      )
+      |> maybe_config(
+        "retention.storage_reserve_bytes",
+        safe_value(retention, :storage_reserve_bytes),
+        source
+      )
 
     presence ++ Enum.reverse(details)
   end
