@@ -115,6 +115,24 @@ defmodule Responder.ControlPlane.SettingsLiveTest do
     assert has_element?(view, "[role=status]", "Saved. Revision 2.")
   end
 
+  test "a save in another section does not turn this draft into a conflict" do
+    # The installation has one revision, so every save moves it. A draft whose
+    # own section did not change is not stale, and saying it is would make
+    # editing two sections in one sitting a fight.
+    initialize!()
+    {:ok, view, _html} = open()
+    view |> form("#settings-slack-form", %{"channel_prefix" => "ops"}) |> render_change()
+
+    view |> form("#settings-learning-form", %{"enabled" => "true"}) |> render_submit()
+    assert Settings.fetch!().learning.enabled
+
+    view |> form("#settings-slack-form", %{"channel_prefix" => "ops"}) |> render_submit()
+
+    refute has_element?(view, "[role=alert]")
+    assert Settings.fetch!().slack.channel_prefix == "ops"
+    assert Settings.fetch!().installation.revision == 3
+  end
+
   test "a live refresh never overwrites an unsaved draft" do
     initialize!()
     {:ok, view, _html} = open()

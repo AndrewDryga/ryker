@@ -18,10 +18,22 @@ defmodule Responder.ControlPlane.SettingsEditor do
 
     cond do
       not Map.has_key?(socket.assigns, :draft) -> {:ok, reset(socket)}
-      socket.assigns.dirty -> {:ok, socket}
       socket.assigns.saved_revision == assigns.view.revision -> {:ok, socket}
+      socket.assigns.dirty -> {:ok, follow(socket)}
       true -> {:ok, reset(socket)}
     end
+  end
+
+  # The installation has one revision, so saving any section moves it. A draft
+  # here is only stale if what *this* section holds changed underneath it;
+  # otherwise the editor follows the new revision and keeps the draft, instead
+  # of reporting a conflict with a version that reads exactly the same.
+  defp follow(socket) do
+    %{section: section, view: view} = socket.assigns
+
+    if SettingsSections.draft(section, view, socket.assigns.item_key) == socket.assigns.baseline,
+      do: assign(socket, expected_revision: view.revision, saved_revision: view.revision),
+      else: socket
   end
 
   @impl true
@@ -171,11 +183,14 @@ defmodule Responder.ControlPlane.SettingsEditor do
         key -> key
       end
 
+    baseline = SettingsSections.draft(section, view, item_key)
+
     assign(socket,
+      baseline: baseline,
       confirmation: nil,
       conflict: nil,
       dirty: false,
-      draft: SettingsSections.draft(section, view, item_key),
+      draft: baseline,
       error: nil,
       errors: [],
       expected_revision: view.revision,
@@ -200,15 +215,7 @@ defmodule Responder.ControlPlane.SettingsEditor do
 
   defp draft(socket, params) do
     draft = SettingsSections.submitted(socket.assigns.section, params)
-
-    baseline =
-      SettingsSections.draft(
-        socket.assigns.section,
-        socket.assigns.view,
-        Map.get(socket.assigns, :item_key)
-      )
-
-    assign(socket, draft: draft, dirty: draft != baseline)
+    assign(socket, draft: draft, dirty: draft != socket.assigns.baseline)
   end
 
   @impl true
