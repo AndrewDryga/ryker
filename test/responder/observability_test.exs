@@ -470,6 +470,11 @@ defmodule Responder.ObservabilityTest do
     Enum.each(keys, &Application.put_env(:responder, &1, false))
     Application.put_env(:responder, :control_plane, %{enabled: true})
 
+    # The owner starts its children in the shared dynamic supervisor, so this
+    # test cleans up both: a console left listening collides with every other
+    # suite that starts the endpoint.
+    before = DynamicSupervisor.which_children(Responder.Runtime.Supervisor)
+
     {:ok, owner} =
       Owner.start_link(
         name: Owner,
@@ -477,7 +482,17 @@ defmodule Responder.ObservabilityTest do
         supervisor: Responder.Runtime.Supervisor
       )
 
-    on_exit(fn -> if Process.alive?(owner), do: GenServer.stop(owner) end)
+    on_exit(fn ->
+      if Process.alive?(owner), do: GenServer.stop(owner)
+
+      started =
+        DynamicSupervisor.which_children(Responder.Runtime.Supervisor) -- before
+
+      Enum.each(started, fn {_id, pid, _type, _modules} ->
+        if is_pid(pid), do: DynamicSupervisor.terminate_child(Responder.Runtime.Supervisor, pid)
+      end)
+    end)
+
     assert Owner.running_keys() == [:control_plane]
 
     assert {_result, readiness} =
