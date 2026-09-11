@@ -232,6 +232,7 @@ defmodule Responder.ControlPlane.SettingsEditor do
         <thead>
           <tr>
             <th :for={field <- @section.fields}>{field.label}</th>
+            <th :if={@section[:row_status]}>Fleet</th>
             <th><span class="sr-only">Actions</span></th>
           </tr>
         </thead>
@@ -242,6 +243,13 @@ defmodule Responder.ControlPlane.SettingsEditor do
                 field,
                 Map.get(item, field.name)
               )}
+            </td>
+            <td
+              :if={@section[:row_status]}
+              class="settings-row-status"
+              data-tone={row_status(@section, item, @view).tone}
+            >
+              {row_status(@section, item, @view).label}
             </td>
             <td class="settings-row-actions">
               <button
@@ -280,6 +288,7 @@ defmodule Responder.ControlPlane.SettingsEditor do
             value={Map.get(@draft, SettingsSections.field_name(field), "")}
             options={options(field, @view)}
             invalid={invalid?(@errors, field)}
+            locked={field[:identity] && not is_nil(@item_key)}
           />
           <p :if={invalid?(@errors, field)} class="settings-error" role="alert">
             {field.label} {reason(@errors, field)}
@@ -351,6 +360,17 @@ defmodule Responder.ControlPlane.SettingsEditor do
   attr(:value, :string, required: true)
   attr(:options, :list, default: [])
   attr(:invalid, :boolean, default: false)
+  attr(:locked, :boolean, default: false)
+
+  # Execution evidence, shown so an operator can compare a pin against the fleet,
+  # and deliberately not an input: this value is copied from an advertisement.
+  defp control(%{field: %{kind: :evidence}} = assigns) do
+    ~H"""
+    <output id={@id} class="settings-evidence">
+      {if @value == "", do: "not pinned yet", else: @value}
+    </output>
+    """
+  end
 
   defp control(%{field: %{kind: :boolean}} = assigns) do
     ~H"""
@@ -392,6 +412,7 @@ defmodule Responder.ControlPlane.SettingsEditor do
       aria-describedby={@help}
       aria-invalid={to_string(@invalid)}
       placeholder="Comma separated"
+      readonly={@locked}
     />
     """
   end
@@ -409,6 +430,7 @@ defmodule Responder.ControlPlane.SettingsEditor do
       aria-describedby={@help}
       aria-invalid={to_string(@invalid)}
       placeholder={@field[:placeholder]}
+      readonly={@locked}
     />
     """
   end
@@ -423,6 +445,10 @@ defmodule Responder.ControlPlane.SettingsEditor do
   defp help_id(id, field), do: input_id(id, field) <> "-help"
 
   defp items(section, view), do: SettingsSections.items(section, view)
+
+  defp row_status(%{row_status: {module, function}}, item, view),
+    do: apply(module, function, [item, view])
+
   defp item_key(section, item), do: to_string(Map.get(item, section.item_key))
 
   defp options(field, view),

@@ -419,10 +419,15 @@ episode.
 ### 7. Settings — "how is it set up, and what is that costing me?"
 
 - Editors for the product decisions: Slack, GitHub and Emisar connections,
-  publication identity, the weekly report, learning, retention horizons and
-  optional token rates. Each section saves explicitly at the revision it was
-  read at, keeps its draft when a save is refused, and shows what is saved now
-  when another writer got there first
+  repositories, repository contexts, GitHub repository bindings, execution
+  policies, work placement, publication identity, the weekly report, learning,
+  retention horizons and optional token rates. Each section saves explicitly at
+  the revision it was read at, keeps its draft when a save is refused, and shows
+  what is saved now when another writer got there first
+- Execution policies are chosen by name from what enrolled, unrevoked workers
+  advertise; the digest and authority digest are copied from that advertisement,
+  never typed, and a binding the fleet no longer advertises is shown as
+  unavailable with its pin intact rather than repointed
 - Saved revision and running revision as two separate facts, with the reason a
   saved revision could not be applied
 - Which deployment credentials are configured, missing or unusable — presence

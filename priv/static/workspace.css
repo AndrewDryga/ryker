@@ -1362,6 +1362,11 @@ details.measurement-notes > summary { cursor:pointer; font-weight:600; color:var
 .settings-rows th { text-align:left; color:var(--secondary); font-size:12px; font-weight:650; letter-spacing:.04em; text-transform:uppercase; padding:0 12px 6px 0; }
 .settings-rows td { padding:8px 12px 8px 0; border-top:1px solid var(--stroke); overflow-wrap:anywhere; }
 .settings-row-actions { display:flex; gap:8px; white-space:nowrap; }
+.settings-row-status { color:var(--secondary); font-size:13px; }
+.settings-row-status[data-tone=verified] { color:#3d6446; }
+.settings-row-status[data-tone=changed] { color:#8a6420; }
+.settings-row-status[data-tone=unavailable] { color:#8e3d2e; }
+.settings-evidence { display:block; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:13px; color:var(--secondary); overflow-wrap:anywhere; }
 .settings-field { display:grid; gap:5px; margin:0 0 16px; max-width:560px; }
 .settings-field label { font-weight:600; font-size:14px; }
 .settings-field input[type=checkbox] { width:18px; height:18px; margin:2px 0; accent-color:#60795f; }
