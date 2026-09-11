@@ -64,6 +64,20 @@ defmodule Responder.Runtime.Owner do
   @spec applied_revision(GenServer.server()) :: non_neg_integer() | nil
   def applied_revision(owner \\ __MODULE__), do: GenServer.call(owner, :applied_revision)
 
+  @doc """
+  The configuration keys whose child is running right now.
+
+  Readiness asks the owner rather than pattern-matching supervisor children:
+  several of them are plain listeners whose module is the web server's, so the
+  child itself cannot say which setting started it.
+  """
+  @spec running_keys(GenServer.server()) :: [atom()]
+  def running_keys(owner \\ __MODULE__) do
+    GenServer.call(owner, :running_keys)
+  catch
+    :exit, _reason -> []
+  end
+
   @impl true
   def init(options) do
     state = %{
@@ -90,6 +104,15 @@ defmodule Responder.Runtime.Owner do
   end
 
   def handle_call(:applied_revision, _from, state), do: {:reply, state.revision, state}
+
+  def handle_call(:running_keys, _from, state) do
+    keys =
+      state.running
+      |> Enum.filter(fn {_key, %{pids: pids}} -> Enum.any?(pids, &Process.alive?/1) end)
+      |> Enum.map(&elem(&1, 0))
+
+    {:reply, keys, state}
+  end
 
   @impl true
   def handle_info(:retry, state) do

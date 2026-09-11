@@ -447,6 +447,43 @@ defmodule Responder.ObservabilityTest do
     assert readiness.missing_runtimes == []
   end
 
+  test "a listener the owner started counts as its setting's runtime" do
+    # Durable settings start the control plane, worker gateway, state tools and
+    # webhook listeners as plain web-server children, so their supervisor entry
+    # names the web server and not the setting. Readiness matched on the module
+    # and reported all four missing on a healthy installation, holding /readyz
+    # at 503 while every lane cycled and every setting was applied.
+    keys = ~w(admission coop_worker_gateway control_plane delivery emisar event_waits github
+              learning publication retention schedules slack state_tools webhooks work)a
+
+    previous = Enum.map(keys, &{&1, Application.get_env(:responder, &1, :missing)})
+
+    on_exit(fn ->
+      Enum.each(previous, fn
+        {key, :missing} -> Application.delete_env(:responder, key)
+        {key, value} -> Application.put_env(:responder, key, value)
+      end)
+    end)
+
+    Enum.each(keys, &Application.put_env(:responder, &1, false))
+    Application.put_env(:responder, :control_plane, %{enabled: true})
+
+    {:ok, owner} =
+      Responder.Runtime.Owner.start_link(
+        name: Responder.Runtime.Owner,
+        bootstrap: owner_bootstrap(),
+        supervisor: Responder.Runtime.Supervisor
+      )
+
+    on_exit(fn -> if Process.alive?(owner), do: GenServer.stop(owner) end)
+    assert Responder.Runtime.Owner.running_keys() == [:control_plane]
+
+    assert {_result, readiness} =
+             Observability.ready(check_runtimes: true, stall_after_seconds: 86_400)
+
+    assert readiness.missing_runtimes == []
+  end
+
   test "a product child under the runtime owner's supervisor is alive, not missing" do
     # Durable settings moved every product child under the runtime owner's
     # dynamic supervisor. Readiness still looked only under the application
@@ -765,4 +802,30 @@ defmodule Responder.ObservabilityTest do
 
   defp restore_env(key, :missing), do: Application.delete_env(:responder, key)
   defp restore_env(key, value), do: Application.put_env(:responder, key, value)
+
+  # A real listener needs a real port; the owner starts the console before any
+  # settings exist, which is exactly the state this test drives.
+  defp free_port do
+    {:ok, socket} = :gen_tcp.listen(0, [:binary, ip: {127, 0, 0, 1}])
+    {:ok, port} = :inet.port(socket)
+    :ok = :gen_tcp.close(socket)
+    port
+  end
+
+  defp owner_bootstrap do
+    %Responder.Bootstrap{
+      repo: [url: "ecto://responder@localhost/responder", pool_size: 2],
+      control_plane: %{ip: {127, 0, 0, 1}, port: free_port()},
+      state_tools: %{ip: {127, 0, 0, 1}, port: 0},
+      worker_gateway: nil,
+      github_listener: %{ip: {127, 0, 0, 1}, port: 0},
+      webhook_listener: %{ip: {127, 0, 0, 1}, port: 0},
+      storage_root: System.tmp_dir!(),
+      github_api_url: "https://api.github.com",
+      github_app_id: nil,
+      emisar_rpc_url: "https://emisar.dev/api/mcp/rpc",
+      log_level: :warning,
+      webhook_secret_names: []
+    }
+  end
 end

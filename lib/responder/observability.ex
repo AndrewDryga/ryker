@@ -711,6 +711,11 @@ defmodule Responder.Observability do
   end
 
   defp runtime_status do
+    # The owner knows which setting started which process; several of its
+    # children are plain listeners whose module is the web server's, so the
+    # supervisor's own child list cannot answer that question.
+    running = Responder.Runtime.Owner.running_keys()
+
     [
       admission: {:admission, {:named, Responder.Admission.Runtime}},
       learning: {:learning, {:named, Responder.Learning.Runtime}},
@@ -732,7 +737,7 @@ defmodule Responder.Observability do
       case Application.get_env(:responder, configuration_key) do
         nil -> []
         false -> []
-        _configured -> [{name, runtime_alive?(owner)}]
+        _configured -> [{name, configuration_key in running or runtime_alive?(owner)}]
       end
     end)
     |> Map.new()
