@@ -1530,8 +1530,9 @@ defmodule Responder.CoopFleet.ControlPlaneTest do
     # Control, cleanup and existing work keep running on the refused worker.
     workspace_free = session!("storage-refused-workspace-free")
 
+    # A session without a repository carries no repository source either.
     Repo.update_all(from(s in Session, where: s.id == ^workspace_free.id),
-      set: [repository_ref: nil]
+      set: [repository_ref: nil, repository_source: nil]
     )
 
     assert {:ok, placement} =
