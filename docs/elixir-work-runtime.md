@@ -73,8 +73,9 @@ tools own durable records. The generic Delivery module owns external message and
   `selected_ref`, `selected_commit`, merge-base `base_commit`, `admitted_tree`, `resolved_at`, plus
   `pull_request_number` and optional `pull_request_expected_head` for a pull request). Responder
   refuses the workspace (`coop_protocol_error: repository_source`) unless the binding answers the
-  exact persisted request, its derived ref matches, and the primary workspace starts at
-  `selected_commit`. Every non-default selection also needs its own `source` freshness receipt
+  exact persisted request, its derived ref matches, and the session's creation base is the
+  binding's `base_commit` (the workspace itself starts at `selected_commit`). Every non-default
+  selection also needs its own `source` freshness receipt
   naming the derived ref, or the exact object id for a commit, so a locally cached object is never
   accepted as remote proof (`coop_protocol_error: repository_freshness`). An intentionally local
   policy has no remote identity to bind: Coop refuses every selector but `default` there and

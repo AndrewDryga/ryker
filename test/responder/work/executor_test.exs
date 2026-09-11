@@ -2987,19 +2987,20 @@ defmodule Responder.Work.ExecutorTest do
       )
 
     freshness = [
-      source_receipt("primary", default_head, "refs/heads/main", selected),
+      source_receipt("primary", default_head, "refs/heads/main", merge_base),
       source_receipt("zulu", zulu_head, "refs/heads/main", nil),
       source_receipt("alpha", alpha_head, "refs/heads/main", nil),
       source_receipt("source", selected, "refs/pull/91/head", nil)
     ]
 
-    bind_source_session!(fake, binding, selected, companions, freshness)
+    bind_source_session!(fake, binding, merge_base, companions, freshness)
 
     assert {:ok, %{status: :accepted, turn: accepted}} = Executor.run(claim, options(fake))
     workspace = get_in(accepted.submission, ["context", "workspace"])
     assert Enum.map(workspace["companions"], & &1["name"]) == ["alpha", "zulu"]
-    assert workspace["primary"]["base_commit"] == selected
+    assert workspace["primary"]["base_commit"] == merge_base
     assert workspace["source"] == binding
+    assert workspace["source"]["selected_commit"] == selected
 
     # Selecting the primary source changes nothing about the companions: they
     # keep their operator-configured heads and stay read-only.
@@ -3084,8 +3085,8 @@ defmodule Responder.Work.ExecutorTest do
         selected_ref: nil
       )
 
-    freshness = [source_receipt("primary", default_head, "refs/heads/main", selected)]
-    bind_source_session!(fake, binding, selected, [], freshness)
+    freshness = [source_receipt("primary", default_head, "refs/heads/main", default_head)]
+    bind_source_session!(fake, binding, default_head, [], freshness)
 
     assert Executor.run(claim, options(fake)) ==
              {:error, {:coop_protocol_error, :repository_freshness}}
@@ -3109,11 +3110,11 @@ defmodule Responder.Work.ExecutorTest do
       )
 
     freshness = [
-      source_receipt("primary", default_head, "refs/heads/main", selected),
+      source_receipt("primary", default_head, "refs/heads/main", default_head),
       source_receipt("source", selected, selected, nil)
     ]
 
-    bind_source_session!(fake, binding, selected, [], freshness)
+    bind_source_session!(fake, binding, default_head, [], freshness)
 
     assert {:ok, %{status: :accepted, turn: accepted}} = Executor.run(claim, options(fake))
     assert get_in(accepted.submission, ["context", "workspace", "source"]) == binding
@@ -3133,7 +3134,7 @@ defmodule Responder.Work.ExecutorTest do
       )
 
     freshness = [
-      source_receipt("primary", default_head, "refs/heads/main", selected),
+      source_receipt("primary", default_head, "refs/heads/main", default_head),
       source_receipt("source", selected, "refs/heads/feature/payments", nil)
     ]
 
@@ -3143,9 +3144,9 @@ defmodule Responder.Work.ExecutorTest do
       |> Map.put("selected_ref", "refs/heads/feature/billing")
 
     cases = [
-      {"answers-another-request", other_request, selected},
-      {"missing-binding", nil, selected},
-      {"moved-workspace-head", binding, String.duplicate("9", 40)}
+      {"answers-another-request", other_request, default_head},
+      {"missing-binding", nil, default_head},
+      {"moved-creation-base", binding, String.duplicate("9", 40)}
     ]
 
     for {suffix, returned, base_commit} <- cases do
@@ -3180,14 +3181,14 @@ defmodule Responder.Work.ExecutorTest do
       )
 
     freshness = [
-      source_receipt("primary", default_head, "refs/heads/main", selected),
+      source_receipt("primary", default_head, "refs/heads/main", default_head),
       source_receipt("source", selected, "refs/heads/feature/legacy", nil)
     ]
 
     claim = claim_with_bound_empty_session!("source-historical-session")
     assert claim.session.repository_source == nil
     {:ok, fake} = fake_for(claim, [reply("The historical session still runs.")])
-    bind_source_session!(fake, binding, selected, [], freshness)
+    bind_source_session!(fake, binding, default_head, [], freshness)
 
     assert {:ok, %{status: :accepted, turn: accepted}} = Executor.run(claim, options(fake))
     assert get_in(accepted.submission, ["context", "workspace", "source"]) == binding
