@@ -83,7 +83,6 @@ migration="$scratch/lib/responder-$expected_version/priv/repo/migrations/2026083
 
 for asset in \
   README.md \
-  config/responder-elixir.example.yaml \
   deploy/nginx/responder.conf \
   deploy/systemd/responder.service \
   deploy/systemd/responder.env.example \

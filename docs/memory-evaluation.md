@@ -175,11 +175,24 @@ schema migrations inside those captured input bodies or add a permissive legacy 
 
 Existing credentialed commands are:
 
+Evaluation authority is supplied explicitly through the evaluation environment and is refused
+if it matches a reviewed production policy binding:
+
+```bash
+export RESPONDER_EVAL_SOCKET=/absolute/evaluation-coop/control.sock
+export RESPONDER_EVAL_NO_TOOLS_POLICY=responder-eval-no-tools-v1
+export RESPONDER_EVAL_NO_TOOLS_POLICY_DIGEST=SHA256
+export RESPONDER_EVAL_WORLD_POLICY=responder-eval-world-v1
+export RESPONDER_EVAL_WORLD_POLICY_DIGEST=SHA256
+export RESPONDER_EVAL_WORLD_BASELINE_POLICY=responder-eval-world-baseline-v1
+export RESPONDER_EVAL_WORLD_BASELINE_POLICY_DIGEST=SHA256
+```
+
 ```console
-MIX_ENV=test scripts/elixir-mix.sh responder.eval admission --config /absolute/responder-elixir-eval.yaml
-MIX_ENV=test scripts/elixir-mix.sh responder.eval work --config /absolute/responder-elixir-eval.yaml
-make eval-world-smoke CONFIG=/absolute/responder-elixir-eval.yaml
-make eval-world CONFIG=/absolute/responder-elixir-eval.yaml
+MIX_ENV=test scripts/elixir-mix.sh responder.eval admission
+MIX_ENV=test scripts/elixir-mix.sh responder.eval work
+make eval-world-smoke
+make eval-world
 ```
 
 Use dedicated evaluation policies, isolated databases, inert delivery, and the same recorded world
@@ -196,8 +209,7 @@ MIX_ENV=test PGDATABASE=responder_learning_eval_haproxy scripts/elixir-mix.sh re
 ```
 
 Create and migrate the named disposable database first; configure its PostgreSQL connection with
-the normal `PGHOST`, `PGPORT`, `PGUSER`, and `PGPASSWORD` variables. Do not set
-`RESPONDER_ELIXIR_CONFIG` or start the Responder application. The task starts only Repo and Finch,
+the normal `PGHOST`, `PGPORT`, `PGUSER`, and `PGPASSWORD` variables. Do not start the Responder application. The task starts only Repo and Finch,
 and refuses a nonempty database, a configured background runtime, or an existing report file.
 The scratch repository must have an empty committed tree and no other files; its canonical path
 and exact HEAD are checked. The public Coop session must report that HEAD as `base_commit`, the

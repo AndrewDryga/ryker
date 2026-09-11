@@ -29,7 +29,7 @@ defmodule Responder.Slack.CommandHandler do
     "work" => "Open App Home or ask in the channel."
   }
 
-  @sources [:channel, :configuration, :deployment, :incident_room, :workspace]
+  @sources [:channel, :incident_room, :installation]
 
   @spec handle(Command.t(), map()) :: {:ok, map()} | {:error, term()}
   def handle(%Command{} = command, options) when is_map(options) do
@@ -96,7 +96,7 @@ defmodule Responder.Slack.CommandHandler do
       {:ok,
        response(
          "#{label(setting)}: #{on_off(effective[setting].value)} (#{source_name(source)}). " <>
-           "`inherit` removes an override; `/responder status` explains both settings."
+           "`inherit` follows the installation default again; `/responder status` explains both settings."
        )}
     else
       {:error, :usage} -> {:ok, response(setting_usage(setting))}
@@ -246,11 +246,9 @@ defmodule Responder.Slack.CommandHandler do
   defp label(:shadow), do: "Shadow"
   defp on_off(true), do: "on"
   defp on_off(false), do: "off"
-  defp source_name(:channel), do: "channel override"
-  defp source_name(:configuration), do: "saved channel setting"
+  defp source_name(:channel), do: "saved for this channel"
   defp source_name(:incident_room), do: "incident room"
-  defp source_name(:workspace), do: "workspace override"
-  defp source_name(:deployment), do: "deployment default"
+  defp source_name(:installation), do: "installation default"
   defp assignment_verb("pause"), do: "Paused"
   defp assignment_verb("resume"), do: "Resumed"
   defp assignment_verb("delete"), do: "Deleted"

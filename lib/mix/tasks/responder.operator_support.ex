@@ -1,8 +1,8 @@
 defmodule Mix.Tasks.Responder.OperatorSupport do
   @moduledoc false
 
-  alias Responder.Repo
-  alias Responder.RuntimeConfiguration
+  alias Responder.{Bootstrap, Repo, Settings}
+  alias Responder.Runtime.Assembly
 
   def parse(arguments, switches, positional_count) do
     {options, positional, invalid} = OptionParser.parse(arguments, strict: switches)
@@ -16,12 +16,22 @@ defmodule Mix.Tasks.Responder.OperatorSupport do
     if valid, do: {:ok, options, positional}, else: {:error, :invalid_arguments}
   end
 
-  def configuration(options, required \\ false) do
-    case Keyword.get(options, :config) do
-      nil when not required -> {:ok, nil}
-      path when is_binary(path) and path != "" -> load_configuration(path)
-      _invalid -> {:error, :configuration_path_required}
+  @doc """
+  The same durable settings the release applies, assembled for this Mix process.
+
+  Operator commands read the installation's saved settings; there is no
+  configuration path to point them somewhere else, and an uninitialized or
+  unreadable database is reported rather than replaced with defaults.
+  """
+  def configuration do
+    with {:ok, settings} <- Settings.fetch(),
+         {:ok, configuration} <- Assembly.build(Bootstrap.load!(), settings) do
+      Assembly.publish(configuration)
+      {:ok, configuration}
     end
+  rescue
+    error in [ArgumentError, DBConnection.ConnectionError, Postgrex.Error] ->
+      {:error, {:settings_unavailable, error.__struct__}}
   end
 
   def with_repo(operation) when is_function(operation, 0) do
@@ -33,31 +43,35 @@ defmodule Mix.Tasks.Responder.OperatorSupport do
     end
   end
 
-  def print(value), do: Mix.shell().info(Jason.encode!(value))
-
-  def install_configuration(nil), do: :ok
-
-  def install_configuration(configuration) when is_map(configuration) do
-    Enum.each(configuration, fn {key, value} ->
-      Application.put_env(:responder, key, value, persistent: true)
+  @doc "Runs an operator command against the applied configuration."
+  def with_configuration(operation) when is_function(operation, 1) do
+    with_repo(fn ->
+      case configuration() do
+        {:ok, configuration} -> operation.(configuration)
+        {:error, _reason} = error -> error
+      end
     end)
-
-    :ok
   end
 
-  def authorized_actor(configuration, options) when is_map(configuration) and is_list(options) do
-    operator = Keyword.get(options, :operator)
-    operators = get_in(configuration, [:slack, :operators])
+  def print(value), do: Mix.shell().info(Jason.encode!(value))
 
-    if is_binary(operator) and is_list(operators) and operator in operators do
-      {:ok, "slack:user:#{operator}"}
-    else
-      {:error, :configured_slack_operator_required}
+  @doc """
+  Resolves a mutating operator identity against the saved operator membership.
+
+  Membership is a durable setting, so a disconnected Slack integration does not
+  silently revoke it, and a connected one does not grant it.
+  """
+  def authorized_actor(options) when is_list(options) do
+    operator = Keyword.get(options, :operator)
+
+    with {:ok, settings} <- Settings.fetch() do
+      if is_binary(operator) and operator in settings.slack.operators,
+        do: {:ok, "slack:user:#{operator}"},
+        else: {:error, :configured_slack_operator_required}
     end
   end
 
-  def authorized_actor(_configuration, _options),
-    do: {:error, :configured_slack_operator_required}
+  def authorized_actor(_options), do: {:error, :configured_slack_operator_required}
 
   def required_option(options, key) when is_list(options) and is_atom(key) do
     case Keyword.fetch(options, key) do
@@ -83,15 +97,5 @@ defmodule Mix.Tasks.Responder.OperatorSupport do
         argument == switch or String.starts_with?(argument, switch <> "=")
       end) <= 1
     end)
-  end
-
-  defp load_configuration(path) do
-    if Path.type(path) == :absolute do
-      {:ok, RuntimeConfiguration.load!(path)}
-    else
-      {:error, :configuration_path_must_be_absolute}
-    end
-  rescue
-    error -> {:error, {:configuration_invalid, Exception.message(error)}}
   end
 end

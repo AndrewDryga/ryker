@@ -314,7 +314,7 @@ defmodule Responder.Acceptance.LiveTest do
   end
 
   test "the environment entrypoint rejects malformed paths and timeout values" do
-    variables = ~w(RESPONDER_LIVE_CONFIG RESPONDER_LIVE_CHANNEL RESPONDER_LIVE_TIMEOUT_SECONDS)
+    variables = ~w(RESPONDER_LIVE_CHANNEL RESPONDER_LIVE_TIMEOUT_SECONDS)
     previous = Map.new(variables, &{&1, System.get_env(&1)})
 
     on_exit(fn ->
@@ -324,17 +324,18 @@ defmodule Responder.Acceptance.LiveTest do
       end)
     end)
 
-    System.delete_env("RESPONDER_LIVE_CONFIG")
     System.put_env("RESPONDER_LIVE_CHANNEL", "C-TEST")
     System.put_env("RESPONDER_LIVE_TIMEOUT_SECONDS", "600")
 
-    assert_raise RuntimeError,
-                 ~r/live acceptance failed: :live_acceptance_config_path_invalid/,
-                 fn ->
-                   Live.run_from_env!()
-                 end
+    # The harness observes a running deployment, so it takes no configuration
+    # path at all; a malformed channel or timeout still fails before any work.
+    System.delete_env("RESPONDER_LIVE_CHANNEL")
 
-    System.put_env("RESPONDER_LIVE_CONFIG", "/tmp/responder-live-does-not-need-to-exist.yaml")
+    assert_raise RuntimeError,
+                 ~r/live acceptance failed: \{:invalid_live_acceptance, :channel_ref\}/,
+                 fn -> Live.run_from_env!() end
+
+    System.put_env("RESPONDER_LIVE_CHANNEL", "C-TEST")
 
     for timeout <- ["invalid", "0", "10seconds"] do
       System.put_env("RESPONDER_LIVE_TIMEOUT_SECONDS", timeout)
@@ -387,7 +388,7 @@ defmodule Responder.Acceptance.LiveTest do
             }
           }
         },
-        watch_channels: ["C123"]
+        default_participation: :proactive
       }
     }
 

@@ -19,8 +19,8 @@ defmodule Responder.Slack.ChannelConfigurationsTest do
     repository_refs: ["backend", "infrastructure"]
   }
   @quiet %{
-    proactive: %{source: :deployment, value: false},
-    shadow: %{source: :deployment, value: false}
+    proactive: %{source: :installation, value: false},
+    shadow: %{source: :installation, value: false}
   }
 
   # Until 2026-09-11 a configuration row existed only after an operator clicked a
@@ -35,7 +35,9 @@ defmodule Responder.Slack.ChannelConfigurationsTest do
 
     assert joined.status == :joined
     assert %ChannelConfiguration{} = configuration = joined.configuration
-    assert configuration.participation == :mentions
+    # A channel nobody configured inherits the installation default rather than
+    # copying a value that would then stop following it.
+    assert configuration.participation == nil
     assert configuration.repository_ref == "infrastructure"
     assert configuration.alert_policy == :reply
     assert configuration.invite_user_refs == []
@@ -148,7 +150,7 @@ defmodule Responder.Slack.ChannelConfigurationsTest do
 
     assert audience.session.status == :confirming
     untouched = Repo.get_by!(ChannelConfiguration, channel_ref: "C456")
-    assert untouched.participation == :mentions
+    assert untouched.participation == nil
     assert untouched.revision == 1
     session = audience.session
 
@@ -519,15 +521,15 @@ defmodule Responder.Slack.ChannelConfigurationsTest do
     assert unconfigured["configuration_ref"] == nil
     assert unconfigured["revision"] == nil
     assert unconfigured["default_repository"] == "infrastructure"
-    assert unconfigured["participation"] == %{"source" => "deployment", "value" => "mentions"}
+    assert unconfigured["participation"] == %{"source" => "installation", "value" => "mentions"}
 
     joined!()
     configuration = Repo.get_by!(ChannelConfiguration, channel_ref: "C456")
 
     assert {:ok, defaults} =
              ChannelConfigurations.effective_settings("TCE3E523134AD", "C456", catalog, %{
-               proactive: %{source: :configuration, value: false},
-               shadow: %{source: :configuration, value: false}
+               proactive: %{source: :installation, value: false},
+               shadow: %{source: :installation, value: false}
              })
 
     assert defaults == %{
@@ -536,8 +538,8 @@ defmodule Responder.Slack.ChannelConfigurationsTest do
              "customized_by" => nil,
              "default_repository" => "infrastructure",
              "invitations" => %{"on_call_count" => 2, "user_group_refs" => [], "user_refs" => []},
-             "observation" => %{"on" => false, "source" => "configuration"},
-             "participation" => %{"source" => "configuration", "value" => "mentions"},
+             "observation" => %{"on" => false, "source" => "installation"},
+             "participation" => %{"source" => "installation", "value" => "mentions"},
              "repositories" => [
                %{"ref" => "backend", "url" => "https://github.com/acme/backend"},
                %{"ref" => "infrastructure", "url" => nil}
@@ -548,19 +550,19 @@ defmodule Responder.Slack.ChannelConfigurationsTest do
     assert {:ok, overridden} =
              ChannelConfigurations.effective_settings("TCE3E523134AD", "C456", catalog, %{
                proactive: %{source: :channel, value: true},
-               shadow: %{source: :configuration, value: false}
+               shadow: %{source: :installation, value: false}
              })
 
     assert overridden["participation"] == %{"source" => "channel", "value" => "proactive"}
 
     assert {:ok, observing} =
              ChannelConfigurations.effective_settings("TCE3E523134AD", "C456", catalog, %{
-               proactive: %{source: :configuration, value: true},
-               shadow: %{source: :workspace, value: true}
+               proactive: %{source: :installation, value: true},
+               shadow: %{source: :channel, value: true}
              })
 
-    assert observing["participation"] == %{"source" => "workspace", "value" => "shadow"}
-    assert observing["observation"] == %{"on" => true, "source" => "workspace"}
+    assert observing["participation"] == %{"source" => "channel", "value" => "shadow"}
+    assert observing["observation"] == %{"on" => true, "source" => "channel"}
 
     assert Repo.get_by!(ChannelConfiguration, channel_ref: "C456").revision == 1
 

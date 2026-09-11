@@ -779,7 +779,7 @@ defmodule Responder.ControlPlane.Router do
     html(
       conn,
       200,
-      "Configuration",
+      "Settings",
       HTML.configuration(options.projection.operator_configuration.())
     )
   end

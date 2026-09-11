@@ -7,7 +7,8 @@ defmodule Responder.Operator.MixTasksTest do
   alias Mix.Tasks.Responder.Failures, as: FailuresTask
   alias Responder.Ingress.Inbox
   alias Responder.Ingress.WorkProfile
-  alias Responder.RuntimeConfiguration
+  alias Responder.Runtime.Assembly
+  alias Responder.Settings
   alias Responder.Slack.Input, as: SlackInput
 
   @occurred_at ~U[2026-09-04 08:00:00Z]
@@ -57,38 +58,38 @@ defmodule Responder.Operator.MixTasksTest do
     assert capture_io(fn -> FailuresTask.run([]) end) == "[]\n"
   end
 
-  test "failure inspection rejects a relative runtime configuration" do
-    assert_raise Mix.Error, ~r/configuration_path_must_be_absolute/, fn ->
-      FailuresTask.run(["--config", "config/responder.yaml"])
+  test "operator commands take no configuration path at all" do
+    # Pointing an operator command at a file is how two sources of truth start.
+    for task <- [FailuresTask, Doctor, Status] do
+      assert_raise Mix.Error, ~r/invalid_arguments/, fn ->
+        task.run(["--config", "/etc/responder/responder-elixir.yaml"])
+      end
     end
   end
 
-  test "doctor requires an absolute runtime configuration" do
-    assert_raise Mix.Error, ~r/configuration_path_must_be_absolute/, fn ->
-      Doctor.run(["--config", "config/responder.yaml"])
-    end
-  end
+  test "doctor and status read the installation's own durable settings" do
+    settings!()
 
-  test "status requires an explicit runtime configuration" do
-    assert_raise Mix.Error, ~r/configuration_path_required/, fn ->
-      Status.run([])
-    end
-  end
-
-  test "doctor and status accept one explicit current runtime configuration" do
-    path = runtime_configuration!()
-
-    doctor = capture_io(fn -> Doctor.run(["--config", path]) end) |> Jason.decode!()
-    status = capture_io(fn -> Status.run(["--config", path]) end) |> Jason.decode!()
+    doctor = capture_io(fn -> Doctor.run([]) end) |> Jason.decode!()
+    status = capture_io(fn -> Status.run([]) end) |> Jason.decode!()
 
     assert doctor["status"] == "ok"
     assert status["preflight"]["status"] == "ok"
     assert is_map(status["failures"])
   end
 
-  test "retry requires configuration before attempting a mutation" do
-    assert_raise Mix.Error, ~r/configuration_path_required/, fn ->
-      Retry.run(["publication", "publication:not-retryable"])
+  test "an uninitialized installation is reported rather than assumed" do
+    assert_raise Mix.Error, ~r/settings_not_initialized/, fn -> Doctor.run([]) end
+
+    assert_raise Mix.Error, ~r/settings_not_initialized/, fn ->
+      Retry.run([
+        "publication",
+        "publication:not-retryable",
+        "--operator",
+        "U123",
+        "--action-ref",
+        "operator-action:retry"
+      ])
     end
   end
 
@@ -105,14 +106,12 @@ defmodule Responder.Operator.MixTasksTest do
   end
 
   test "mutating commands reject an identity absent from configured Slack operators" do
-    path = runtime_configuration!()
+    settings!()
 
     assert_raise Mix.Error, ~r/configured_slack_operator_required/, fn ->
       Retry.run([
         "admission",
         "ingress-input:any",
-        "--config",
-        path,
         "--operator",
         "U123",
         "--action-ref",
@@ -125,8 +124,6 @@ defmodule Responder.Operator.MixTasksTest do
         "slack",
         "ingress-input:any",
         "request",
-        "--config",
-        path,
         "--operator",
         "U123",
         "--action-ref",
@@ -136,7 +133,7 @@ defmodule Responder.Operator.MixTasksTest do
   end
 
   test "authorized retry and replay commands execute through audited custody" do
-    path = runtime_configuration!(slack_operator: "U123")
+    settings!(slack_operator: "U123")
     assert {:ok, input} = slack_input()
     assert {:ok, %{entry: entry}} = Inbox.record(input, work_profile: work_profile!())
 
@@ -151,8 +148,6 @@ defmodule Responder.Operator.MixTasksTest do
         Retry.run([
           "admission",
           Inbox.ref(entry),
-          "--config",
-          path,
           "--operator",
           "U123",
           "--action-ref",
@@ -167,8 +162,6 @@ defmodule Responder.Operator.MixTasksTest do
           "slack",
           Inbox.ref(entry),
           "request",
-          "--config",
-          path,
           "--operator",
           "U123",
           "--action-ref",
@@ -189,32 +182,31 @@ defmodule Responder.Operator.MixTasksTest do
     assert replay_status["source_input_ref"] == Inbox.ref(entry)
   end
 
-  test "mutation identity comes only from a configured Slack operator" do
-    configuration = %{slack: %{operators: ["U123"]}}
+  test "mutation identity comes only from saved operator membership" do
+    assert OperatorSupport.authorized_actor(operator: "U123") ==
+             {:error, :settings_not_initialized}
 
-    assert {:ok, "slack:user:U123"} =
-             OperatorSupport.authorized_actor(configuration, operator: "U123")
+    settings!(slack_operator: "U123")
 
-    assert {:error, :configured_slack_operator_required} =
-             OperatorSupport.authorized_actor(configuration, operator: "U999")
+    assert OperatorSupport.authorized_actor(operator: "U123") == {:ok, "slack:user:U123"}
 
-    assert {:error, :configured_slack_operator_required} =
-             OperatorSupport.authorized_actor(%{}, operator: "U123")
+    assert OperatorSupport.authorized_actor(operator: "U999") ==
+             {:error, :configured_slack_operator_required}
+
+    assert OperatorSupport.authorized_actor([]) ==
+             {:error, :configured_slack_operator_required}
   end
 
   test "shared option parsing rejects duplicates and missing action identities" do
-    assert {:ok, [config: "/tmp/runtime.yaml"], ["one"]} =
-             OperatorSupport.parse(["one", "--config", "/tmp/runtime.yaml"], [config: :string], 1)
+    assert {:ok, [operator: "U123"], ["one"]} =
+             OperatorSupport.parse(["one", "--operator", "U123"], [operator: :string], 1)
 
     assert {:error, :invalid_arguments} =
              OperatorSupport.parse(
-               ["--config", "/one", "--config", "/two"],
-               [config: :string],
+               ["--operator", "U1", "--operator", "U2"],
+               [operator: :string],
                0
              )
-
-    assert {:ok, nil} = OperatorSupport.configuration([])
-    assert {:error, :configuration_path_required} = OperatorSupport.configuration([], true)
 
     assert {:ok, "action:one"} =
              OperatorSupport.required_option([action_ref: "action:one"], :action_ref)
@@ -222,90 +214,73 @@ defmodule Responder.Operator.MixTasksTest do
     assert {:error, {:action_ref, :required}} = OperatorSupport.required_option([], :action_ref)
 
     assert {:error, :invalid_arguments} =
-             OperatorSupport.parse(["one"], [config: :string], [0, 2])
+             OperatorSupport.parse(["one"], [operator: :string], [0, 2])
 
-    assert {:error, :configuration_path_required} =
-             OperatorSupport.configuration(config: "")
-
-    assert {:error, :configured_slack_operator_required} =
-             OperatorSupport.authorized_actor(:invalid, [])
+    assert OperatorSupport.authorized_actor(:invalid) ==
+             {:error, :configured_slack_operator_required}
   end
 
-  defp runtime_configuration!(options \\ []) do
-    source = Path.expand("../../../testdata/release/responder-component.yaml", __DIR__)
+  # Operator commands read the installation's saved settings, so the fixture is
+  # the settings themselves rather than a file the command is pointed at.
+  defp settings!(options \\ []) do
+    # An operator command runs with the deployment environment the release has.
+    deployment = %{
+      "DATABASE_URL" => "ecto://responder:operator-test@127.0.0.1/responder_operator_test",
+      "RESPONDER_STATE_TOOLS_TOKEN" => "operator-test-state-tools-token"
+    }
 
-    path =
-      Path.join(
-        System.tmp_dir!(),
-        "responder-operator-#{System.unique_integer([:positive])}.yaml"
-      )
+    Enum.each(deployment, fn {name, value} -> put_variable(name, value) end)
 
-    document =
-      source
-      |> File.read!()
-      |> String.replace("__CONTROL_PLANE_PORT__", "4321")
-      |> add_slack_configuration(Keyword.get(options, :slack_operator))
+    actor = "control-plane:local"
+    {:ok, saved} = Settings.initialize(actor)
 
-    File.write!(path, document)
-    configuration = RuntimeConfiguration.load!(path)
+    {:ok, saved} =
+      Settings.put_repository(%{ref: "responder"}, saved.installation.revision, actor)
+
+    saved =
+      case Keyword.get(options, :slack_operator) do
+        nil ->
+          saved
+
+        operator ->
+          {:ok, saved} =
+            Settings.save_slack(
+              %{
+                enabled: false,
+                workspace_ref: "T123",
+                bot_ref: "A123",
+                bot_user_ref: "U999",
+                default_repository_ref: "responder",
+                operators: [operator]
+              },
+              saved.installation.revision,
+              actor
+            )
+
+          saved
+      end
 
     previous =
-      Map.new(configuration, fn {key, _value} -> {key, Application.fetch_env(:responder, key)} end)
+      Map.new(Assembly.managed_keys(), &{&1, Application.fetch_env(:responder, &1)})
 
     on_exit(fn ->
-      File.rm(path)
-
       Enum.each(previous, fn
         {key, {:ok, value}} -> Application.put_env(:responder, key, value, persistent: true)
         {key, :error} -> Application.delete_env(:responder, key, persistent: true)
       end)
     end)
 
-    path
+    saved
   end
 
-  defp add_slack_configuration(document, nil), do: document
-
-  defp add_slack_configuration(document, operator) do
-    repositories =
-      """
-      repositories:
-        responder:
-          path: /tmp/responder-operator-repository
-          github_repository: example/responder
-          github_binding: responder-app
-          base_branch: main
-          conversation_policy:
-            name: operator-conversation
-            digest: dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
-          contributor_policy:
-            name: operator-contributor
-            digest: eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
-          schedule_policy:
-            name: operator-schedule
-            digest: ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
-      """
-
-    String.replace(document, "repositories: {}", String.trim_trailing(repositories)) <>
-      """
-
-      slack:
-        api_url: https://slack.com/api
-        app_token_env: SLACK_APP_TOKEN
-        bot_token_env: SLACK_BOT_TOKEN
-        default_repository: responder
-        identity:
-          workspace_ref: T123
-          bot_ref: A123
-          bot_user_ref: U999
-        incident_policy:
-          name: operator-test
-          digest: cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
-        operators:
-          - #{operator}
-        watch_channels: []
-      """
+  defp put_variable(name, value) do
+    previous = System.get_env(name)
+    System.put_env(name, value)
+    on_exit(fn -> restore_variable(name, previous) end)
   end
+
+  defp restore_variable(name, nil), do: System.delete_env(name)
+  defp restore_variable(name, previous), do: System.put_env(name, previous)
 
   defp slack_input do
     SlackInput.new(%{

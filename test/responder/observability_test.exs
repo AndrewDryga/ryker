@@ -13,6 +13,7 @@ defmodule Responder.ObservabilityTest do
   alias Responder.Observability
   alias Responder.Observability.Progress
   alias Responder.Repo
+  alias Responder.Settings
   alias Responder.Slack.Input, as: SlackInput
   alias Responder.State.Learning
   alias Responder.Work.Custody
@@ -303,6 +304,36 @@ defmodule Responder.ObservabilityTest do
              Observability.ready(check_runtimes: false, stall_after_seconds: 7_200)
 
     assert readiness.stalled_queues == []
+  end
+
+  test "a saved revision that could not be applied is not a ready service" do
+    # Readiness that only looks at what assembled would call a failed apply
+    # healthy, which is exactly how an operator ends up debugging the wrong
+    # code: the settings say one thing and the process is running another.
+    {:ok, saved} = Settings.initialize("control-plane:local")
+    assert {:ok, _ready} = Observability.ready(check_progress: false)
+
+    :ok = Settings.record_application(saved.installation.revision, {:error, :assembly_failed})
+
+    assert {:error, readiness} = Observability.ready(check_progress: false)
+    assert readiness.settings.failure == "assembly_failed"
+    assert readiness.settings.revision == saved.installation.revision
+    assert readiness.settings.applied_revision == 0
+
+    :ok = Settings.record_application(saved.installation.revision, :ok)
+    assert {:ok, applied} = Observability.ready(check_progress: false)
+    assert applied.settings.applied_revision == saved.installation.revision
+  end
+
+  test "an integration this installation turned on but never started is named" do
+    {:ok, saved} = Settings.initialize("control-plane:local")
+
+    {:ok, _} =
+      Settings.save_learning(%{enabled: true}, saved.installation.revision, "control-plane:local")
+
+    assert {:error, readiness} = Observability.ready(check_progress: false)
+    assert readiness.settings.unconfigured == [:learning]
+    refute readiness.settings.failure
   end
 
   test "invalid observability thresholds and readiness options fail closed" do

@@ -299,7 +299,7 @@ defmodule Responder.Slack.GatewayRuntimeTest do
       inbox: Inbox,
       interaction_handler: Responder.Slack.InteractionHandler,
       interaction_options: %{},
-      watch_channels: MapSet.new()
+      effective_settings: &installation_participation/2
     }
   end
 
@@ -347,6 +347,13 @@ defmodule Responder.Slack.GatewayRuntimeTest do
         "user" => %{"id" => "U123"}
       },
       "type" => "interactive"
+    }
+  end
+
+  defp installation_participation(_workspace_ref, _conversation_ref) do
+    %{
+      proactive: %{source: :installation, value: false},
+      shadow: %{source: :installation, value: false}
     }
   end
 end

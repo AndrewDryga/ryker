@@ -57,9 +57,10 @@ own source identity; an HMAC request signs those absent header values as empty s
 batch is recorded atomically. The complete configuration and mapping contract is documented in
 [`webhooks.md`](webhooks.md).
 
-Routes are explicit configuration. Each route owns its secret, payload limit, clock-skew limit, and
-destination. The payload cannot override them. The listener defaults to loopback and starts only when
-`:responder, :webhooks` is configured.
+Routes are explicit settings. Each source owns its own credential reference, destination and
+repository context; the payload limit and clock-skew limit are code defaults. The payload cannot
+override any of them. The listener defaults to loopback and starts only when at least one webhook
+source is enabled.
 
 A configured Conversation Lab can be the trusted destination for a loopback/manual route by using
 `transport: control_plane` and the same exact `control-plane:lab:<uuid>` value for both
@@ -67,7 +68,8 @@ A configured Conversation Lab can be the trusted destination for a loopback/manu
 delivery without posting test traffic to Slack. Arbitrary payload fields still cannot select the Lab,
 policy, repository, or any other authority; those remain route configuration.
 
-An isolated runtime can enable both halves with ordinary application configuration:
+The settings owner publishes the assembled runtime under these application keys; a test can put the
+same shape directly:
 
 ```elixir
 config :responder, :admission,
@@ -189,46 +191,21 @@ the existing resource. Cross-thread, stale, malformed, incident-task, and public
 closed without creating model work. This syntax cannot approve reviews, merge, deploy, or write
 repository content.
 
-```yaml
-repositories:
-  responder:
-    path: /srv/responder
-    github_repository: octo/example
-    github_binding: github-main
-    base_branch: main
-    conversation_policy:
-      name: responder-conversation-v1
-      digest: <64 lowercase hexadecimal characters>
-    standard_policy:
-      name: responder-standard-v1
-      digest: <64 lowercase hexadecimal characters>
-    deep_policy:
-      name: responder-deep-v1
-      digest: <64 lowercase hexadecimal characters>
-    contributor_policy:
-      name: responder-contributor-v1
-      digest: <64 lowercase hexadecimal characters>
-    schedule_policy:
-      name: responder-scheduled-write-v1
-      digest: <64 lowercase hexadecimal characters>
+This is durable settings, edited under **Settings**, not a configuration file:
 
-github:
-  api_url: https://api.github.com
-  app_id: 12345
-  private_key_env: GITHUB_APP_PRIVATE_KEY
-  webhook_secret_env: GITHUB_WEBHOOK_SECRET
-  ip: 127.0.0.1
-  port: 4319
-  bindings:
-    github-main:
-      repository: responder
-      installation_id: 41
-      repository_id: 99
-      responder_actor_id: 7
-      authorized_actor_ids: [7, 8]
-```
+- **Repositories** holds one row per repository — its reference, display metadata, GitHub
+  repository slug, base branch and optional publication checkout path.
+- **Execution policies** binds each purpose (conversational, standard, deep, contributor,
+  schedule) to a reviewed worker policy for that repository or context. The digest and authority
+  digest are copied from the authenticated worker advertisement; nothing types one.
+- **GitHub** holds the App identity, and **GitHub repository bindings** holds one verified
+  binding per repository: installation ID, repository ID, the Responder actor ID and the exact
+  authorized actor IDs.
+- `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY` and `GITHUB_WEBHOOK_SECRET` come from the deployment
+  environment under those fixed names. Credentials being present does not enable GitHub; the saved
+  connection does, and the runtime refuses to enable it when the environment names a different app.
 
-The named environment value may be the complete PEM or its single-line standard-base64 encoding.
+The private-key environment value may be the complete PEM or its single-line standard-base64 encoding.
 Use the encoded form in the shipped systemd `EnvironmentFile`.
 The GitHub App must subscribe to issue comments, pull-request reviews, pull-request review comments,
 issues, and pull requests for the corresponding adapter and lifecycle paths to receive those events.
@@ -236,8 +213,7 @@ issues, and pull requests for the corresponding adapter and lifecycle paths to r
 The supervised runtime contains both `server` and `tokens` components: `server` owns the shared
 webhook listener and trusted bindings, while `tokens` signs short-lived App JWTs and mints the exact
 repository-scoped installation token used by delivery and publication. See
-[`config/responder-elixir.example.yaml`](../config/responder-elixir.example.yaml) for the complete
-strict runtime document.
+the Settings page of the local console for the saved settings and the effective assembled values.
 
 As with the universal listener, public exposure belongs behind the normal ingress proxy. A `202`
 means the normalized event is durably queued. `ping` is authenticated and acknowledged without

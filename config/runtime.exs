@@ -1,9 +1,9 @@
 import Config
 
 if config_env() == :prod do
-  database_url = System.fetch_env!("DATABASE_URL")
+  bootstrap = Responder.Bootstrap.load!()
 
-  config :responder, Responder.Repo,
-    pool_size: String.to_integer(System.get_env("POOL_SIZE", "10")),
-    url: database_url
+  config :responder, Responder.Repo, bootstrap.repo
+  config :responder, :bootstrap, bootstrap
+  config :logger, level: bootstrap.log_level
 end

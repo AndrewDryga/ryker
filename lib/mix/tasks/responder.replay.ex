@@ -3,7 +3,7 @@ defmodule Mix.Tasks.Responder.Replay do
   Queues or inspects a private Slack replay.
 
       MIX_ENV=prod mix responder.replay slack SOURCE_INPUT_REF REQUEST_REF \
-        --config /absolute/responder.yaml --operator SLACK_USER_ID \
+        --operator SLACK_USER_ID \
         --action-ref UNIQUE_ACTION_REF
       MIX_ENV=prod mix responder.replay show REPLAY_INPUT_REF
 
@@ -20,45 +20,32 @@ defmodule Mix.Tasks.Responder.Replay do
 
   @impl Mix.Task
   def run(arguments) do
-    switches = [config: :string, operator: :string, action_ref: :string]
+    switches = [operator: :string, action_ref: :string]
 
-    with {:ok, options, positional} <- Support.parse(arguments, switches, [2, 3]),
-         {:ok, operation} <- operation(positional, options) do
-      operation
-      |> Support.with_repo()
-      |> print_result()
-    else
+    case Support.parse(arguments, switches, [2, 3]) do
+      {:ok, options, positional} -> print_result(operation(positional, options))
       {:error, reason} -> Support.fail("operator replay", reason)
     end
   end
 
+  # Reading a recorded replay mutates nothing and needs no operator identity, so
+  # it does not require the installation to be configured.
+  defp operation(["show", replay_input_ref], []),
+    do: Support.with_repo(fn -> SlackReplay.fetch(replay_input_ref) end)
+
   defp operation(["slack", source_input_ref, request_ref], options) do
-    with {:ok, configuration} <- Support.configuration(options, true),
-         :ok <- Support.install_configuration(configuration),
-         {:ok, actor_ref} <- Support.authorized_actor(configuration, options),
-         {:ok, action_ref} <- Support.required_option(options, :action_ref) do
-      {:ok,
-       fn ->
-         SlackReplay.enqueue(source_input_ref, request_ref,
-           action_ref: action_ref,
-           actor_ref: actor_ref
-         )
-       end}
-    end
-  end
-
-  defp operation(["show", replay_input_ref], options) do
-    if Keyword.keys(options) -- [:config] == [] do
-      with {:ok, configuration} <- Support.configuration(options),
-           :ok <- Support.install_configuration(configuration) do
-        {:ok, fn -> SlackReplay.fetch(replay_input_ref) end}
+    Support.with_configuration(fn _configuration ->
+      with {:ok, actor_ref} <- Support.authorized_actor(options),
+           {:ok, action_ref} <- Support.required_option(options, :action_ref) do
+        SlackReplay.enqueue(source_input_ref, request_ref,
+          action_ref: action_ref,
+          actor_ref: actor_ref
+        )
       end
-    else
-      {:error, :invalid_arguments}
-    end
+    end)
   end
 
-  defp operation(_invalid, _options), do: {:error, :invalid_arguments}
+  defp operation(_positional, _options), do: {:error, :invalid_arguments}
 
   defp print_result({:ok, outcome}), do: Support.print(outcome)
   defp print_result({:error, reason}), do: Support.fail("operator replay", reason)

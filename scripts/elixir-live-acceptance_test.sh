@@ -5,12 +5,9 @@ root=$(cd "$(dirname "$0")/.." && pwd)
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 
-configuration="$work/responder.yaml"
-: > "$configuration"
-
 set +e
 output=$(RESPONDER_ELIXIR_RELEASE="$work/missing-release" \
-  "$root/scripts/elixir-live-acceptance.sh" "$configuration" C0BLU1GACKC 2>&1)
+  "$root/scripts/elixir-live-acceptance.sh" C0BLU1GACKC 2>&1)
 status=$?
 set -e
 
@@ -22,7 +19,7 @@ fi
 
 set +e
 output=$(RESPONDER_ELIXIR_RELEASE="$work/missing-release" \
-  "$root/scripts/elixir-live-acceptance.sh" "$configuration" invalid/channel 2>&1)
+  "$root/scripts/elixir-live-acceptance.sh" invalid/channel 2>&1)
 status=$?
 set -e
 

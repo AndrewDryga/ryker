@@ -31,7 +31,7 @@ defmodule Responder.ControlPlane.Navigation do
      ]},
     {:settings, "Connections & setup",
      [
-       {"Configuration", "/configuration"},
+       {"Settings", "/configuration"},
        {"Channels", "/channels"},
        {"Repositories", "/repositories"},
        {"Workspaces", "/workspaces"}

@@ -12,6 +12,7 @@ defmodule Responder.Observability do
   alias Responder.Ingress.Inbox
 
   alias Responder.CoopFleet.{Command, Placement, Worker, WorkspaceCheckpointTransfer}
+  alias Responder.Defaults
   alias Responder.Delivery.Reaction
   alias Responder.Emisar.Approval
   alias Responder.Episodes.Episode
@@ -21,6 +22,7 @@ defmodule Responder.Observability do
   alias Responder.Publication.{Followup, LifecycleEvent, Publication}
   alias Responder.Repo
   alias Responder.Retention.Custody, as: RetentionCustody
+  alias Responder.Settings
   alias Responder.Slack.{IncidentRoom, TaskCard}
   alias Responder.State.{Record, Schedule}
   alias Responder.Work.Custody, as: WorkCustody
@@ -66,20 +68,20 @@ defmodule Responder.Observability do
           []
         end
 
+      durable = durable_settings()
+
       readiness = %{
         fleet: snapshot.fleet,
         fleet_issues: fleet_issues(snapshot.fleet, settings.stall_after_seconds),
         missing_runtimes: Enum.sort(missing),
         queues: snapshot.queues,
+        settings: durable,
         stale_progress_lanes: stale_progress,
         stalled_active_leases: snapshot.stalled_active_leases,
         stalled_queues: snapshot.stalled_queues
       }
 
-      if missing == [] and readiness.fleet_issues == [] and stale_progress == [] and
-           snapshot.stalled_active_leases == [] and snapshot.stalled_queues == [],
-         do: {:ok, readiness},
-         else: {:error, readiness}
+      if ready?(readiness), do: {:ok, readiness}, else: {:error, readiness}
     end
   end
 
@@ -658,6 +660,55 @@ defmodule Responder.Observability do
 
   defp readiness_settings(_options),
     do: {:error, {:invalid_observability, :readiness_options}}
+
+  defp ready?(readiness) do
+    readiness.missing_runtimes == [] and readiness.fleet_issues == [] and
+      readiness.stale_progress_lanes == [] and readiness.stalled_active_leases == [] and
+      readiness.stalled_queues == [] and is_nil(readiness.settings.failure) and
+      readiness.settings.unconfigured == []
+  end
+
+  # Configuration is not health. A revision an operator saved but the runtime
+  # could not assemble, and an integration this installation turned on but that
+  # is not running, are both states where "ready" would be a lie.
+  defp durable_settings do
+    case Settings.fetch() do
+      {:ok, snapshot} ->
+        %{
+          applied_revision: snapshot.installation.applied_revision,
+          failure: snapshot.installation.failure_code,
+          revision: snapshot.installation.revision,
+          unconfigured: unconfigured_dependencies(snapshot)
+        }
+
+      {:error, :settings_not_initialized} ->
+        %{applied_revision: 0, failure: nil, revision: 0, unconfigured: []}
+    end
+  rescue
+    error in [DBConnection.ConnectionError, Ecto.NoResultsError, Postgrex.Error] ->
+      %{
+        applied_revision: 0,
+        failure: error.__struct__ |> Module.split() |> List.last() |> Macro.underscore(),
+        revision: 0,
+        unconfigured: []
+      }
+  end
+
+  defp unconfigured_dependencies(snapshot) do
+    [
+      emisar: snapshot.emisar.enabled,
+      github: snapshot.github.enabled,
+      learning: snapshot.learning.enabled,
+      publication: snapshot.publication.enabled,
+      slack: snapshot.slack.enabled,
+      webhooks: Enum.any?(snapshot.webhook_sources, & &1.enabled),
+      work: Defaults.execution() == :fleet and is_binary(snapshot.work.workspace_ref)
+    ]
+    |> Enum.filter(fn {name, desired} ->
+      desired and is_nil(Application.get_env(:responder, name))
+    end)
+    |> Enum.map(&elem(&1, 0))
+  end
 
   defp runtime_status do
     [

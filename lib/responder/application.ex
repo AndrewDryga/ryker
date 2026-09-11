@@ -1,107 +1,35 @@
 defmodule Responder.Application do
-  @moduledoc false
+  @moduledoc """
+  Starts the process in dependency order: bootstrap, then PostgreSQL, then the
+  runtime owner that applies durable settings.
+
+  Nothing product-configured is started from this module. The owner reads the
+  saved settings and supervises exactly what they describe, so a database that
+  has never been configured starts a reachable local console and nothing else.
+  """
+
   use Application
 
   @impl Application
   def start(_type, _args) do
-    :ok = Responder.RuntimeConfiguration.install_from_env!()
+    Responder.Defaults.validate!()
 
     children =
       [
         Responder.Repo,
         {Finch, name: Responder.CoopFinch},
-        {Phoenix.PubSub, name: Responder.ControlPlane.PubSub}
-      ] ++
-        admission_children() ++
-        learning_children() ++
-        work_children() ++
-        retention_children() ++
-        github_children() ++
-        publication_children() ++
-        delivery_children() ++
-        state_tools_children() ++
-        emisar_approval_children() ++
-        event_wait_children() ++
-        schedule_children() ++
-        slack_children() ++
-        webhook_children() ++ coop_worker_gateway_children() ++ control_plane_children()
+        {Phoenix.PubSub, name: Responder.ControlPlane.PubSub},
+        {DynamicSupervisor, name: Responder.Runtime.Supervisor, strategy: :one_for_one}
+      ] ++ runtime_owner()
 
     Supervisor.start_link(children, name: Responder.Supervisor, strategy: :one_for_one)
   end
 
-  defp admission_children do
-    optional_child(:admission, Responder.Admission.Runtime)
-  end
-
-  defp work_children do
-    optional_child(:work, Responder.Work.Runtime)
-  end
-
-  defp learning_children, do: optional_child(:learning, Responder.Learning.Runtime)
-
-  defp retention_children do
-    optional_child(:retention, Responder.Retention.Runtime)
-  end
-
-  defp delivery_children do
-    optional_child(:delivery, Responder.Delivery.Runtime)
-  end
-
-  defp publication_children do
-    optional_child(:publication, Responder.Publication.Runtime)
-  end
-
-  defp state_tools_children do
-    optional_child(:state_tools, Responder.StateTools.Server)
-  end
-
-  defp emisar_approval_children do
-    optional_child(:emisar, Responder.Emisar.ApprovalRuntime)
-  end
-
-  defp slack_children do
-    optional_child(:slack, Responder.Slack.Runtime)
-  end
-
-  defp event_wait_children do
-    optional_child(:event_waits, Responder.State.EventWaitWorker)
-  end
-
-  defp schedule_children do
-    optional_child(:schedules, Responder.State.ScheduleRuntime)
-  end
-
-  defp webhook_children do
-    optional_child(:webhooks, Responder.Webhooks.Server)
-  end
-
-  defp github_children do
-    optional_child(:github, Responder.GitHub.Runtime)
-  end
-
-  defp control_plane_children do
-    case optional_child(:control_plane, Responder.ControlPlane.Server) do
-      [] ->
-        []
-
-      children ->
-        [
-          {Responder.ControlPlane.Updates, []},
-          {Responder.ControlPlane.SlackNames, []},
-          {Responder.ControlPlane.CardLabWorker, []} | children
-        ]
-    end
-  end
-
-  defp coop_worker_gateway_children do
-    optional_child(:coop_worker_gateway, Responder.CoopFleet.Server)
-  end
-
-  defp optional_child(configuration_key, module) do
-    case Application.get_env(:responder, configuration_key) do
-      nil -> []
-      false -> []
-      configuration -> [{module, configuration}]
-    end
+  # Tests and development drive the owner explicitly instead of applying
+  # whatever happens to be in the local database at boot.
+  defp runtime_owner do
+    if Application.get_env(:responder, :runtime_owner, true),
+      do: [Responder.Runtime.Owner],
+      else: []
   end
 end

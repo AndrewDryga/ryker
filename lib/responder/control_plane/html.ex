@@ -1000,11 +1000,11 @@ defmodule Responder.ControlPlane.HTML do
   def channel(%{
         channel: channel,
         episodes: episodes,
-        overrides: overrides,
+        participation: participation,
         schedules: schedules,
         summaries: summaries
       }) do
-    override_rows = Enum.map(overrides, &channel_override_row/1)
+    participation_rows = Enum.map(participation, &channel_participation_row/1)
     schedule_rows = Enum.map(schedules, &channel_schedule_row/1)
     episode_rows = Enum.map(episodes, &channel_episode_row/1)
     summary_rows = Enum.map(summaries, &channel_summary_row/1)
@@ -1023,8 +1023,8 @@ defmodule Responder.ControlPlane.HTML do
         {"Configuration revision", fallback(channel.configuration_revision, "none")},
         {"Configuration saved", channel.configuration_saved_at}
       ]),
-      "<section><h2>Effective overrides</h2>",
-      table(["Setting", "Value", "Scope", "Revision", "Updated"], override_rows),
+      "<section><h2>Effective participation</h2>",
+      table(["Setting", "Value", "Decided by", "Revision", "Updated"], participation_rows),
       "</section><section><h2>Schedules here</h2>",
       table(["Schedule", "Status", "Next"], schedule_rows),
       "</section><section><h2>Conversation continuity</h2>",
@@ -1568,9 +1568,9 @@ defmodule Responder.ControlPlane.HTML do
       end)
 
     [
-      "<div class=\"configuration-guide\"><h2>Effective host configuration</h2><p>What this Responder is configured to do, and what each setting changes.</p><p>Loaded from <code>",
+      "<div class=\"configuration-guide\"><h2>Effective host configuration</h2><p>What this Responder assembled and is running, and what each setting changes.</p><p>Assembled from <code>",
       escape(source),
-      "</code>.</p><div class=\"configuration-change-note\"><strong>How to change these settings</strong><p>This page is read-only. Edit the host YAML (or application environment in a component setup), validate it, then restart Responder through the normal deployment workflow. Refreshing this page does not reload the file or change running work.</p><p>Configured means the component has configuration, not that its connection or workers are healthy. Defaults below describe the v1 loader; example YAML values are not necessarily defaults. Credentials, URLs, callback values and raw policy documents remain private.</p></div></div><div class=\"configuration-settings\" aria-label=\"Effective values and explanations\">",
+      "</code>.</p><div class=\"configuration-change-note\"><strong>How to change these settings</strong><p>This part is read-only evidence. Product settings are edited in the sections above and take effect without a deployment; the deployment environment (database, listeners, credentials) is set in the unit file. Refreshing this page does not change running work.</p><p>Configured means this installation saved a setting, not that its connection or workers are healthy. Running values can lag a save that has not been applied yet. Credentials, URLs, callback values and raw policy documents remain private.</p></div></div><div class=\"configuration-settings\" aria-label=\"Effective values and explanations\">",
       configuration_rows,
       "</div>",
       code_editing_setup(),
@@ -1596,7 +1596,7 @@ defmodule Responder.ControlPlane.HTML do
       "</p><p>The coding service must be able to save a recoverable copy of its files before it can change a repository. An administrator must complete these steps:</p><ol>",
       "<li><strong>Prepare a coding worker.</strong> Use a co:op fleet worker with persistent storage, the intended repository and reviewed execution policy. Install the repository’s build tools inside its coding environment. If the checks require Docker, verify Docker there—not just on the host. Do not grant host Docker access without reviewing that permission.</li>",
       "<li><strong>Connect the worker.</strong> Configure the authenticated worker gateway, then issue a one-time enrollment token with <code>mix responder.coop_worker enroll WORKER_ID WORKSPACE_REF OPERATOR_REF</code> using the release’s database environment. Keep the token private. Configure the worker’s gateway URL, CA, repository, actual policy digests and capabilities, then run <code>coop worker connect --config /etc/coop/worker.json</code>. Its local co:op session service must already be running under the same OS user. These names and paths are examples, not ready-to-run values.</li>",
-      "<li><strong>Select fleet execution.</strong> In the host configuration shown above, set <code>work.execution</code> to <code>fleet</code> and <code>work.workspace_ref</code> to that worker’s exact workspace. Keep the existing tool grants and policies. Check that the worker provides the required <code>work.capability_names</code> (default: <code>responder-state</code>). Validate the configuration, then restart the host through its deployment workflow.</li>",
+      "<li><strong>Select the workspace.</strong> In <strong>Settings → Work placement</strong>, select that worker’s exact enrolled workspace, and in <strong>Execution policies</strong> bind the purposes this repository needs to the policies the worker advertises. The change applies to the running host without a deployment. Check that the worker provides the required <code>responder-state</code> capability.</li>",
       "<li><strong>Verify before retrying.</strong> Confirm the worker is connected, eligible for this repository and policy, and can save and restore a disposable workspace. Run a small required check in that environment. Then return to the task and retry it. Changing the configuration alone is not a readiness check.</li>",
       "</ol><p>This page is read-only: it does not enroll workers, change permissions or retry tasks.</p>",
       code_editing_commands(),
@@ -1613,15 +1613,9 @@ defmodule Responder.ControlPlane.HTML do
     coop sessions policies --policies /etc/coop/session-policies.yaml --json</code></pre>
     <p>Enrollment requires the running release’s <code>MIX_ENV=prod</code> and <code>DATABASE_URL</code> environment. The enrollment command does not accept <code>--config</code>. Save only the returned token value in a private file with mode <code>0600</code>; do not put it in chat or command arguments.</p>
     <p>The worker JSON needs the authenticated HTTPS gateway, trusted CA, enrollment-token file, local session socket, actual policy and authority digests, repositories, capabilities and capacity. Its <code>identity_file</code> must initially be absent and its <code>journal_dir</code> persistent and private. Preserve both after enrollment. Use the worker gateway, not the operator control plane, for this connection.</p>
-    <p>Change these settings in the host configuration shown above, preserving its other settings and grants:</p>
-    <pre><code>work:
-      execution: fleet
-      workspace_ref: YOUR_ENROLLED_WORKSPACE
-      capability_names:
-        - responder-state</code></pre>
-    <p>Keep any additional required capabilities. Validate the edited configuration before restarting the host:</p>
-    <pre><code>mix responder.doctor --config /absolute/path/to/responder-elixir.yaml</code></pre>
-    <p>Finally, verify worker eligibility, workspace save/restore and required build tools before retrying. Do not rotate the gateway’s checkpoint encryption key: existing saved work depends on it.</p>
+    <p>Select the enrolled workspace in <strong>Settings → Work placement</strong> and bind its purposes in <strong>Execution policies</strong>; both apply to the running host without a deployment. Confirm what is actually running:</p>
+    <pre><code>MIX_ENV=prod mix responder.doctor</code></pre>
+    <p>It reports the applied revision beside the saved one, so a save that could not be assembled is visible rather than assumed. Finally, verify worker eligibility, workspace save/restore and required build tools before retrying. Do not rotate the gateway’s checkpoint encryption key: existing saved work depends on it.</p>
     </details>
     """
   end
@@ -2218,14 +2212,14 @@ defmodule Responder.ControlPlane.HTML do
   defp channel_visibility(true), do: "private"
   defp channel_visibility(_public_or_unknown), do: "public or unrecorded"
 
-  defp channel_override_row(item) do
+  defp channel_participation_row(item) do
     [
       "<tr><td>",
       escape(item.setting),
       "</td><td>",
-      escape(item.value),
+      escape(if(item.value, do: "on", else: "off")),
       "</td><td>",
-      escape(item.scope),
+      escape(if(item.scope == :installation, do: "installation default", else: item.scope)),
       "</td><td>",
       integer(item.revision),
       "</td><td>",

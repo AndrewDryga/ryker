@@ -17,3 +17,10 @@ config :responder, Responder.Repo,
   username: System.get_env("PGUSER", "postgres")
 
 config :logger, level: :warning
+
+# Isolated development/test topology; never the production fleet.
+config :responder, :execution, :direct
+
+# The durable-settings owner is driven explicitly here, never from whatever
+# happens to be in the local database at boot.
+config :responder, :runtime_owner, false

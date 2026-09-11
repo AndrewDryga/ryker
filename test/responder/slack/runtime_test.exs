@@ -41,7 +41,7 @@ defmodule Responder.Slack.RuntimeTest do
             }
           }
         },
-        watch_channels: ["C456"]
+        default_participation: :proactive
       })
 
     assert options.transport == MintSocketTransport
@@ -53,7 +53,7 @@ defmodule Responder.Slack.RuntimeTest do
     assert %FileClient{binary_http: %BinaryClient{}} =
              options.handler_settings.attachment_options.client
 
-    assert options.handler_settings.watch_channels == MapSet.new(["C456"])
+    assert is_function(options.handler_settings.effective_settings, 2)
     assert options.handler_settings.home_handler == Responder.Slack.AppHome
     assert options.handler_settings.home_options.api == Client
     assert options.handler_settings.home_options.client == bot_client
@@ -117,7 +117,7 @@ defmodule Responder.Slack.RuntimeTest do
                    }
                  }
                },
-               watch_channels: ["C456"]
+               default_participation: :proactive
              })
 
     assert is_function(destination_allowed, 2)
@@ -153,7 +153,7 @@ defmodule Responder.Slack.RuntimeTest do
                    }
                  }
                },
-               watch_channels: []
+               default_participation: :mentions
              })
 
     assert incident_worker.worker_ref == "slack-incident-room:T123"
@@ -182,7 +182,7 @@ defmodule Responder.Slack.RuntimeTest do
           }
         }
       },
-      watch_channels: ["C456"]
+      default_participation: :proactive
     }
 
     assert_raise ArgumentError, fn -> Runtime.options!(%{base | app_http: :raw_token}) end

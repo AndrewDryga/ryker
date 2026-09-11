@@ -132,6 +132,24 @@ defmodule Responder.ControlPlane.ReadabilityTest do
     assert Enum.map(Enum.drop(chapters, -1), & &1.conversation_turn) == [1, 1, 1, 1, 1]
   end
 
+  test "settings feedback colours stay legible on the white section panel" do
+    # A refusal an operator cannot read is a refusal they will retry blindly.
+    css = Assets.call(Plug.Test.conn(:get, "/workspace.css"), []).resp_body
+
+    for selector <- [
+          ".settings-error",
+          ".settings-row-status[data-tone=verified]",
+          ".settings-row-status[data-tone=changed]",
+          ".settings-row-status[data-tone=unavailable]"
+        ] do
+      [_, rule] = Regex.run(Regex.compile!(Regex.escape(selector) <> " \\{([^}]+)\\}"), css)
+      [_, colour] = Regex.run(~r/color:\s*(#[0-9a-f]{6})/, rule)
+
+      assert contrast(colour, "#ffffff") >= 4.5,
+             "#{selector} text #{colour} is unreadable on the section panel"
+    end
+  end
+
   defp contrast(a, b) do
     [low, high] = Enum.sort([luminance(a), luminance(b)])
     (high + 0.05) / (low + 0.05)

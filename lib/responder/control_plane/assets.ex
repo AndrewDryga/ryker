@@ -10,6 +10,7 @@ defmodule Responder.ControlPlane.Assets do
     "drafts.mjs" => {:responder, "priv/static/drafts.mjs", "text/javascript"},
     "instruction-draft.mjs" =>
       {:responder, "priv/static/instruction-draft.mjs", "text/javascript"},
+    "settings-draft.mjs" => {:responder, "priv/static/settings-draft.mjs", "text/javascript"},
     "relearn-selection.mjs" =>
       {:responder, "priv/static/relearn-selection.mjs", "text/javascript"},
     "control-plane.css" => {:responder, "priv/static/control-plane.css", "text/css"},
