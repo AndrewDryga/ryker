@@ -115,7 +115,20 @@ sudo install -o root -g root -m 0644 \
 
 Replace every placeholder in the owner-only environment file, install the worker gateway
 CA/certificate files, then start normally. The service starts with no product configuration at
-all: open the local console and connect Slack, GitHub, repositories and policies there.
+all: open `http://127.0.0.1:4321/configuration` and connect Slack, GitHub, repositories,
+execution policies, webhook sources and retention there. Saves apply to the running service
+without a deployment, and the page shows the saved revision beside the running one.
+
+An installation upgrading from the retired application YAML imports that document once, before
+the first start, instead of retyping it:
+
+```bash
+MIX_ENV=prod mix responder.import_configuration /absolute/path/responder-elixir.yaml
+MIX_ENV=prod mix responder.import_configuration /absolute/path/responder-elixir.yaml --apply
+```
+
+The dry run writes nothing and prints a redacted plan. See
+[`docs/operations.md`](docs/operations.md).
 
 ```bash
 sudo systemctl daemon-reload
