@@ -49,10 +49,10 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
   @engagement_receipts_version 20_260_911_000_500
   @default_channel_configurations_version 20_260_911_000_700
   @selection_ledger_version 20_260_911_000_900
-  @durable_settings_version 20_260_911_001_100
-  @inherited_participation_version 20_260_911_001_101
-  @work_placement_version 20_260_911_001_102
-  @import_receipts_version 20_260_911_001_103
+  @durable_settings_version 20_260_911_001_600
+  @inherited_participation_version 20_260_911_001_601
+  @work_placement_version 20_260_911_001_602
+  @import_receipts_version 20_260_911_001_603
   @learning_executions_version 20_260_911_001_500
   @latest_versions [
     @typed_question_answers_version,
