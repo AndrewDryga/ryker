@@ -369,12 +369,80 @@ defmodule Responder.ControlPlane.EpisodePage do
           :if={@entry.kind == :event && @entry.step.stage == "Tool call"}
           step={@entry.step}
         />
-        <.event :if={@entry.kind == :event && @entry.step.stage != "Tool call"} step={@entry.step} />
+        <.standing_rules
+          :if={@entry.kind == :event && @entry.step.stage == "Standing rules"}
+          step={@entry.step}
+        />
+        <.event
+          :if={@entry.kind == :event && @entry.step.stage not in ["Tool call", "Standing rules"]}
+          step={@entry.step}
+        />
         <EpisodeRequest.render :if={@entry.kind == :request} request={@entry} />
       </div>
     </article>
     """
   end
+
+  # Every rule that existed, matches first, each with the verdict it actually got.
+  # Non-matches are ordinary information, so they get neutral styling; only a
+  # match is green. An absent inventory is a distinct, visible state: it is not
+  # zero rules and it is not zero matches.
+  defp standing_rules(assigns) do
+    ~H"""
+    <div class="case-event-content standing-rules" data-rules-state={@step.rules.state}>
+      <div class="case-event-heading">
+        <h3>Standing rules</h3>
+        <span :if={@step.rules.state == :recorded && @step.rules.rule_count > 0}>
+          {@step.rules.matched_count} matched · {@step.rules.rule_count - @step.rules.matched_count} other
+        </span>
+      </div>
+      <p class="case-event-summary">{@step.summary}</p>
+      <p :if={@step.rules.truncated} class="action-error">
+        Only the first {length(@step.rules.entries)} of {@step.rules.rule_count} rules were recorded; the rest were not inspected.
+      </p>
+      <ul :if={@step.rules.entries != []} class="standing-rule-list">
+        <li
+          :for={rule <- @step.rules.entries}
+          class={"standing-rule verdict-#{rule.verdict}"}
+          data-verdict={rule.verdict}
+        >
+          <div class="standing-rule-heading">
+            <strong>{rule.title}</strong>
+            <span class={"ui-status status-#{if rule.verdict == "matched", do: "done", else: "quiet"}"}>
+              <i aria-hidden="true"></i>{verdict_label(rule.verdict)}
+            </span>
+          </div>
+          <p>{rule.reason}</p>
+          <details :if={rule.ref} class="standing-rule-definition" id={"rule-#{@step.id}-#{rule.ref}"}>
+            <summary>Rule details</summary>
+            <dl class="event-facts">
+              <div>
+                <dt>Rule</dt><dd>{rule.ref}</dd>
+              </div>
+              <div>
+                <dt>Revision at the time</dt><dd>{rule.revision || "Not recorded"}</dd>
+              </div>
+              <div>
+                <dt>Status at the time</dt><dd>{rule.status}</dd>
+              </div>
+              <div :if={rule.scope_ref}>
+                <dt>Scope</dt><dd>{rule.scope_ref}</dd>
+              </div>
+            </dl>
+          </details>
+        </li>
+      </ul>
+    </div>
+    """
+  end
+
+  defp verdict_label("matched"), do: "Matched"
+  defp verdict_label("not_matched"), do: "Not matched"
+  defp verdict_label("out_of_scope"), do: "Other channel"
+  defp verdict_label("not_considered"), do: "Not considered"
+  defp verdict_label("disabled"), do: "Paused"
+  defp verdict_label("expired"), do: "Expired"
+  defp verdict_label(other), do: label(other)
 
   defp message(assigns) do
     ~H"""

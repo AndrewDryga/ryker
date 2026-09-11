@@ -18,11 +18,13 @@ defmodule Responder.Retention.DataTest do
   alias Responder.Slack.Input, as: SlackInput
 
   alias Responder.State.{
+    Behaviors,
     RecordChangeset,
     Schedule,
     ScheduleChangeset,
     ScheduleOccurrence,
-    ScheduleOccurrenceChangeset
+    ScheduleOccurrenceChangeset,
+    StandingRuleInventory
   }
 
   alias Responder.Work.{
@@ -79,6 +81,23 @@ defmodule Responder.Retention.DataTest do
 
     refute inspect(Repo.all(ActivityEvent)) =~ "source-content"
     assert Activity.list_for_episode(work.episode.id) == []
+  end
+
+  test "a recorded rule inventory expires with episode history and is never rebuilt" do
+    # The inventory is the only record of which rules existed when an input was
+    # processed. Once it expires the page must say "not recorded", not consult
+    # today's rules; and until then it must survive operational pruning.
+    old = rule_inventory!("old", DateTime.add(DateTime.utc_now(), -3_600, :second))
+    fresh = rule_inventory!("fresh", DateTime.utc_now())
+
+    assert {:ok, result} = Data.prune(settings(episode_history_seconds: 60))
+    # Other suites accept inputs concurrently, so count only what this test owns.
+    assert result.rule_inventories >= 1
+    assert Repo.get(StandingRuleInventory, old.id) == nil
+    assert Repo.get(StandingRuleInventory, fresh.id)
+
+    assert Behaviors.rule_inventory("input:old") == nil
+    assert Behaviors.rule_inventory("input:fresh").id == fresh.id
   end
 
   test "old instruction edit receipts expire without clearing the current value or its revision" do
@@ -1061,6 +1080,21 @@ defmodule Responder.Retention.DataTest do
     Repo.query!("UPDATE ingress_inbox_entries SET updated_at = $1", [@old])
     Repo.query!("UPDATE delivery_reactions SET updated_at = $1", [@old])
     Repo.query!("UPDATE responder_operator_actions SET inserted_at = $1, updated_at = $1", [@old])
+  end
+
+  defp rule_inventory!(suffix, recorded_at) do
+    Repo.insert!(%StandingRuleInventory{
+      id: Ecto.UUID.generate(),
+      source_input_ref: "input:#{suffix}",
+      source_event_ref: "event:#{suffix}",
+      workspace_ref: "slack:T123",
+      conversation_ref: "slack:T123:C456",
+      rule_count: 0,
+      matched_count: 0,
+      truncated: false,
+      entries: [],
+      recorded_at: recorded_at
+    })
   end
 
   defp settings(overrides \\ []) do

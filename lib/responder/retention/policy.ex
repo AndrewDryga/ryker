@@ -386,6 +386,12 @@ defmodule Responder.Retention.Policy do
       why: "the account and dedupe receipt of one assignment firing"
     },
     %{
+      table: "standing_rule_inventories",
+      class: :episode_history,
+      why:
+        "the complete standing-rule inventory and verdicts recorded when one input processed; it expires with that input's history and is never rebuilt from today's rules"
+    },
+    %{
       table: "work_candidate_responses",
       class: :operational,
       why:

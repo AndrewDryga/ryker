@@ -212,8 +212,13 @@ defmodule Responder.ControlPlane.ProjectionTest do
     assert {:ok, detail} = Projection.episode(target.episode.key)
     assert detail.episode.ref == target.episode.key
     assert Enum.map(detail.events, & &1.summary) == ["input admitted", "input wait started"]
-    assert Enum.map(detail.trace.chapters, & &1.title) == ["What came in"]
-    assert Enum.map(detail.trace.steps, & &1.title) == ["Input admitted", "Input wait started"]
+    # Getting ready always carries the Standing rules card for the input, even
+    # when nothing else happened yet: an absent card would read as "no rules".
+    assert Enum.map(detail.trace.chapters, & &1.title) == ["What came in", "Getting ready"]
+
+    assert Enum.map(detail.trace.steps, & &1.title) ==
+             ["Input admitted", "Input wait started", "Standing rules"]
+
     assert detail.trace.stopped.headline == "Waiting for a person"
     assert detail.trace.stopped.action == "Reply in the bound conversation"
     assert detail.episode.next_action == "operator input"

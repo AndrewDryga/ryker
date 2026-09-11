@@ -33,6 +33,7 @@ defmodule Responder.Retention.Data do
           operational_inputs: non_neg_integer(),
           operational_turns: non_neg_integer(),
           output_artifacts: non_neg_integer(),
+          rule_inventories: non_neg_integer(),
           schedule_runs: non_neg_integer(),
           standing_runs: non_neg_integer(),
           worker_commands: non_neg_integer(),
@@ -687,12 +688,31 @@ defmodule Responder.Retention.Data do
         [~w(decided superseded), settings.episode_history_seconds]
       )
 
+    rule_inventories =
+      execute_count(
+        """
+        WITH candidates AS (
+          SELECT id
+          FROM standing_rule_inventories
+          WHERE recorded_at < clock_timestamp() - ($1 * interval '1 second')
+          ORDER BY recorded_at, id
+          LIMIT 100
+          FOR UPDATE SKIP LOCKED
+        )
+        DELETE FROM standing_rule_inventories AS inventory
+        USING candidates
+        WHERE inventory.id = candidates.id
+        """,
+        [settings.episode_history_seconds]
+      )
+
     ids = history_candidates(settings.episode_history_seconds)
     dispatched_schedule_runs = prune_history_ids(ids)
 
     %{
       result
       | episode_histories: length(ids),
+        rule_inventories: rule_inventories,
         schedule_runs: missed_schedule_runs + dispatched_schedule_runs,
         standing_runs: standing_runs
     }
@@ -1190,6 +1210,7 @@ defmodule Responder.Retention.Data do
       operational_inputs: 0,
       operational_turns: 0,
       output_artifacts: 0,
+      rule_inventories: 0,
       schedule_runs: 0,
       standing_runs: 0,
       worker_commands: 0,

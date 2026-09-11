@@ -26,7 +26,8 @@ defmodule Responder.State.Behaviors do
     RecordChangeset,
     SourceEventMatcher,
     StandingAssignmentRun,
-    StandingAssignmentRunChangeset
+    StandingAssignmentRunChangeset,
+    StandingRuleInventory
   }
 
   alias Responder.Work.Turn
@@ -36,6 +37,7 @@ defmodule Responder.State.Behaviors do
   @offer_kinds ~w(preference_offer guidance_offer standing_assignment_offer)
   @maximum_total 500
   @maximum_per_scope 100
+  @runtime_candidate_limit 100
   @statuses [:active, :disabled, :superseded, :deleted, :expired]
 
   @spec confirm(keyword() | map()) :: {:ok, map()} | {:error, term()}
@@ -488,6 +490,189 @@ defmodule Responder.State.Behaviors do
 
   def standing_match?(_input), do: false
 
+  @inventory_limit 200
+
+  @doc """
+  Records every standing rule that existed in this input's workspace, with the
+  verdict each one got.
+
+  This is observation, not scheduling. It reads a wider set than
+  `matching_assignments/2` deliberately -- including rules in other
+  conversations, paused rules and expired rules -- and none of what it reads
+  can start work. Routing the enumerated matches into scheduling would turn an
+  inspection change into a behaviour change, which is how observability breaks
+  production.
+
+  It is also optional. A failure here loses a diagnosis; failing the input
+  would lose the answer the operator asked for, so errors are swallowed and the
+  absent row honestly reads as "not recorded".
+  """
+  @spec record_rule_inventory(Input.t(), String.t()) ::
+          {:ok, StandingRuleInventory.t()} | {:error, term()}
+  def record_rule_inventory(%Input{} = input, input_ref) when is_binary(input_ref) do
+    with :ok <- reference(input_ref, :input_ref) do
+      # Its own short transaction: in production a failure here rolls back
+      # nothing else, and under a test sandbox it is a savepoint, so a poisoned
+      # statement cannot abort the caller's transaction either way.
+      Repo.transaction(fn -> record_rule_inventory_locked(input, input_ref) end)
+    end
+  rescue
+    error -> {:error, {:standing_rule_inventory_failed, error.__struct__}}
+  end
+
+  def record_rule_inventory(_input, _input_ref),
+    do: {:error, {:invalid_standing_rule_inventory, :input}}
+
+  defp record_rule_inventory_locked(input, input_ref) do
+    now = database_now!()
+    workspace = workspace_ref(input.destination.transport, input.destination.conversation_ref)
+    rules = workspace_rules(workspace)
+    listed = Enum.take(rules, @inventory_limit)
+
+    considered =
+      input
+      |> runtime_candidates(now)
+      |> select([behavior], behavior.id)
+      |> Repo.all()
+      |> MapSet.new()
+
+    entries = Enum.map(listed, &inventory_entry(&1, input, now, considered))
+
+    case Repo.insert(
+           %StandingRuleInventory{
+             id: Ecto.UUID.generate(),
+             source_input_ref: input_ref,
+             source_event_ref: input.event_ref,
+             workspace_ref: workspace,
+             conversation_ref: input.destination.conversation_ref,
+             rule_count: length(rules),
+             matched_count: Enum.count(entries, &(&1["verdict"] == "matched")),
+             truncated: length(rules) > length(listed),
+             entries: entries,
+             recorded_at: now
+           },
+           on_conflict: :nothing,
+           conflict_target: :source_input_ref
+         ) do
+      {:ok, inventory} -> inventory
+      {:error, changeset} -> Repo.rollback({:standing_rule_inventory_failed, changeset.errors})
+    end
+  end
+
+  @doc "The recorded rule inventory for one input, or nil when none was recorded."
+  @spec rule_inventory(String.t()) :: StandingRuleInventory.t() | nil
+  def rule_inventory(input_ref) when is_binary(input_ref),
+    do: Repo.one(from(row in StandingRuleInventory, where: row.source_input_ref == ^input_ref))
+
+  def rule_inventory(_input_ref), do: nil
+
+  @doc "Recorded inventories for many inputs in one query, keyed by input reference."
+  @spec rule_inventories([String.t()]) :: %{String.t() => StandingRuleInventory.t()}
+  def rule_inventories([]), do: %{}
+
+  def rule_inventories(input_refs) when is_list(input_refs) do
+    refs = Enum.filter(input_refs, &is_binary/1)
+
+    from(row in StandingRuleInventory, where: row.source_input_ref in ^refs)
+    |> Repo.all()
+    |> Map.new(&{&1.source_input_ref, &1})
+  end
+
+  # Deliberately wider than the scheduling query: a reader needs to see the rule
+  # that did not fire and why, and a rule scoped to another channel is a reason,
+  # not an absence.
+  defp workspace_rules(workspace) do
+    Repo.all(
+      from(behavior in Behavior,
+        where:
+          behavior.kind == :standing_assignment and behavior.workspace_ref == ^workspace and
+            behavior.status not in [:deleted, :superseded],
+        order_by: [asc: behavior.inserted_at, asc: behavior.id],
+        limit: @inventory_limit + 1
+      )
+    )
+  end
+
+  defp inventory_entry(behavior, input, now, considered) do
+    {verdict, reason} = inventory_verdict(behavior, input, now, considered)
+
+    %{
+      "ref" => behavior.ref,
+      "title" => assignment_title(behavior.payload),
+      "status" => Atom.to_string(behavior.status),
+      "scope_ref" => behavior.scope_ref,
+      "revision" => behavior.revision,
+      "verdict" => verdict,
+      "reason" => reason
+    }
+  end
+
+  defp inventory_verdict(%Behavior{status: status}, _input, _now, _considered)
+       when status != :active,
+       do: {Atom.to_string(status), "This rule was #{status} when the input was processed."}
+
+  defp inventory_verdict(
+         %Behavior{expires_at: %DateTime{} = expires_at} = behavior,
+         input,
+         now,
+         considered
+       ) do
+    if DateTime.compare(expires_at, now) == :gt,
+      do: inventory_verdict(%{behavior | expires_at: nil}, input, now, considered),
+      else: {"expired", "This rule had expired when the input was processed."}
+  end
+
+  defp inventory_verdict(%Behavior{scope_kind: scope_kind}, _input, _now, _considered)
+       when scope_kind != :conversation,
+       do: {"out_of_scope", "This rule is not scoped to a conversation."}
+
+  defp inventory_verdict(%Behavior{scope_ref: scope_ref} = behavior, input, _now, considered) do
+    cond do
+      scope_ref != input.destination.conversation_ref ->
+        {"out_of_scope",
+         "Applies to #{scope_ref}; this input arrived in #{input.destination.conversation_ref}."}
+
+      # Outside the runtime's candidate window the predicate was never run.
+      # Calling such a rule "matched" would credit it with an engagement it
+      # could not have caused.
+      not MapSet.member?(considered, behavior.id) ->
+        {"not_considered",
+         "Outside the #{@runtime_candidate_limit}-rule window the runtime evaluates for one conversation; its trigger was not checked."}
+
+      assignment_matches?(behavior.payload, input) ->
+        {"matched", assignment_match_reason(behavior.payload, input)}
+
+      true ->
+        {"not_matched", assignment_mismatch_reason(behavior.payload, input)}
+    end
+  end
+
+  defp assignment_title(%{"title" => title}) when is_binary(title), do: title
+  defp assignment_title(%{"task" => task}) when is_binary(task), do: task
+  defp assignment_title(_payload), do: nil
+
+  defp assignment_match_reason(%{"trigger" => trigger}, input) when is_binary(trigger),
+    do: "A #{human(trigger)} from #{human(to_string(input.actor.kind))} in this conversation."
+
+  defp assignment_match_reason(_payload, _input),
+    do: "The recorded source and event filter matched this input."
+
+  defp assignment_mismatch_reason(payload, input) do
+    cond do
+      not source_matches?(payload["source_filter"], input.actor.kind) ->
+        "Applies to #{human(to_string(payload["source_filter"]))} senders; this input came from #{human(to_string(input.actor.kind))}."
+
+      is_binary(payload["trigger"]) ->
+        "This event does not match the #{human(payload["trigger"])} trigger."
+
+      true ->
+        "The recorded source and event filter did not match this input."
+    end
+  end
+
+  defp human(value) when is_binary(value), do: String.replace(value, "_", " ")
+  defp human(value), do: to_string(value)
+
   @doc false
   @spec observe_input(Input.t(), String.t()) :: {:ok, non_neg_integer()} | {:error, term()}
   def observe_input(%Input{} = input, input_ref) do
@@ -894,25 +1079,29 @@ defmodule Responder.State.Behaviors do
   end
 
   defp matching_assignments(input, lock?) do
-    now = database_now!()
-    workspace = workspace_ref(input.destination.transport, input.destination.conversation_ref)
-
-    query =
-      from(behavior in Behavior,
-        where:
-          behavior.kind == :standing_assignment and behavior.status == :active and
-            behavior.workspace_ref == ^workspace and behavior.scope_kind == :conversation and
-            behavior.scope_ref == ^input.destination.conversation_ref and
-            (is_nil(behavior.expires_at) or behavior.expires_at > ^now),
-        order_by: [asc: behavior.inserted_at],
-        limit: 100
-      )
-
+    query = runtime_candidates(input, database_now!())
     query = if lock?, do: from(behavior in query, lock: "FOR SHARE"), else: query
 
     query
     |> Repo.all()
     |> Enum.filter(&assignment_matches?(&1.payload, input))
+  end
+
+  # The exact rules the runtime considers for one input. Shared with the
+  # inventory recorder so "not considered" there means precisely "outside this
+  # window", never a second opinion about eligibility.
+  defp runtime_candidates(input, now) do
+    workspace = workspace_ref(input.destination.transport, input.destination.conversation_ref)
+
+    from(behavior in Behavior,
+      where:
+        behavior.kind == :standing_assignment and behavior.status == :active and
+          behavior.workspace_ref == ^workspace and behavior.scope_kind == :conversation and
+          behavior.scope_ref == ^input.destination.conversation_ref and
+          (is_nil(behavior.expires_at) or behavior.expires_at > ^now),
+      order_by: [asc: behavior.inserted_at],
+      limit: @runtime_candidate_limit
+    )
   end
 
   defp observe_input_locked(input, input_ref) do
