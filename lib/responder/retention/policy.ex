@@ -175,6 +175,12 @@ defmodule Responder.Retention.Policy do
         "per-message origin projection of admitted-input events; deleted with the episode's events at the history horizon and with the episode row, and rebuilt from the ledger"
     },
     %{
+      table: "episode_association_corrections",
+      class: :kept,
+      why:
+        "immutable record of one operator-confirmed membership change; every corrected origin points at it, so the effective owner of an input can always be explained"
+    },
+    %{
       table: "episode_correlation_claims",
       class: :cascade,
       why:

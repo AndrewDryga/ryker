@@ -52,13 +52,15 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
   @episode_origins_version 20_260_911_001_000
   @routing_digests_version 20_260_911_001_100
   @delivery_targets_version 20_260_911_001_200
+  @association_corrections_version 20_260_911_001_300
   @learning_executions_version 20_260_911_001_500
   # Cross-conversation routing migrations stay named as their own group so the
   # ladder can be reconciled with sibling work.
   @routing_versions [
     @episode_origins_version,
     @routing_digests_version,
-    @delivery_targets_version
+    @delivery_targets_version,
+    @association_corrections_version
   ]
   @latest_versions [
     @typed_question_answers_version,
@@ -73,6 +75,7 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
     @episode_origins_version,
     @routing_digests_version,
     @delivery_targets_version,
+    @association_corrections_version,
     @learning_executions_version
   ]
   @memory_versions Enum.to_list(20_260_908_000_100..20_260_908_001_100//100) ++
@@ -1902,10 +1905,30 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
              ]
 
       assert Ecto.Migrator.run(repo, @migrations_path, :up, all: true, prefix: prefix, log: false) ==
-               [@routing_digests_version, @delivery_targets_version]
+               [
+                 @routing_digests_version,
+                 @delivery_targets_version,
+                 @association_corrections_version
+               ]
 
       assert table_exists?(repo, prefix, "episode_routing_digests")
+      assert table_exists?(repo, prefix, "episode_association_corrections")
       assert column_exists?(repo, prefix, "episode_work_turns", "delivery_target")
+
+      correction_id = insert_association_correction!(repo, prefix, ids.episode_id)
+
+      assert_raise Postgrex.Error, ~r/association corrections have data/, fn ->
+        Ecto.Migrator.run(repo, @migrations_path, :down, step: 1, prefix: prefix, log: false)
+      end
+
+      SQL.query!(
+        repo,
+        "DELETE FROM #{prefix}.episode_association_corrections WHERE id = $1::text::uuid",
+        [correction_id]
+      )
+
+      assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 1, prefix: prefix, log: false) ==
+               [@association_corrections_version]
 
       bind_delivery_target!(repo, prefix, ids.turn_id)
 
@@ -1925,6 +1948,7 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
                [@delivery_targets_version, @routing_digests_version]
 
       refute table_exists?(repo, prefix, "episode_routing_digests")
+      refute table_exists?(repo, prefix, "episode_association_corrections")
       refute column_exists?(repo, prefix, "episode_work_turns", "delivery_target")
 
       assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 1, prefix: prefix, log: false) ==
@@ -2694,6 +2718,27 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
     )
 
     %{episode_id: episode_id, session_id: session_id, turn_id: turn_id, ingress_id: ingress_id}
+  end
+
+  defp insert_association_correction!(repo, prefix, episode_id) do
+    id = Ecto.UUID.generate()
+
+    SQL.query!(
+      repo,
+      """
+      INSERT INTO #{prefix}.episode_association_corrections (
+        id, kind, source_episode_id, target_episode_id, input_refs, actor_ref,
+        confirmation_ref, reason, applied_at, inserted_at
+      ) VALUES (
+        $1::text::uuid, 'split', $2::text::uuid, NULL, '{admit_input:task}', 'slack:user:UOPERATOR',
+        'operator-confirmation:ladder', 'One message was separate work.',
+        clock_timestamp(), clock_timestamp()
+      )
+      """,
+      [id, episode_id]
+    )
+
+    id
   end
 
   defp bind_delivery_target!(repo, prefix, turn_id) do

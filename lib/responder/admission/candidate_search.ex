@@ -15,6 +15,7 @@ defmodule Responder.Admission.CandidateSearch do
   alias Responder.Admission.{CorrelationScope, Ranking}
 
   alias Responder.Episodes.{
+    AssociationCorrection,
     CorrelationClaims,
     Episode,
     Origin,
@@ -218,11 +219,24 @@ defmodule Responder.Admission.CandidateSearch do
   # the window only bounds how far completed history is offered.
   defp eligible(request, scope) do
     from(episode in Episode,
+      as: :episode,
       where:
         episode.execution_mode == ^request.execution_mode and
           episode.destination_conversation_ref in ^scope.conversation_refs and
           is_nil(episode.history_pruned_at),
-      where: episode.state in ^@active_states or episode.updated_at >= ^request.history_cutoff
+      where: episode.state in ^@active_states or episode.updated_at >= ^request.history_cutoff,
+      # Work an audited correction merged into another episode is not offered
+      # again. Its evidence belongs to the surviving episode now, and offering
+      # both would recreate exactly the split the operator repaired.
+      where:
+        not exists(
+          from(correction in AssociationCorrection,
+            where:
+              correction.kind == :merge and
+                correction.source_episode_id == parent_as(:episode).id,
+            select: 1
+          )
+        )
     )
   end
 
