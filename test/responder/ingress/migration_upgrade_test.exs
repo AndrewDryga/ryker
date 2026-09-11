@@ -49,6 +49,7 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
   @engagement_receipts_version 20_260_911_000_500
   @default_channel_configurations_version 20_260_911_000_700
   @selection_ledger_version 20_260_911_000_900
+  @durable_settings_version 20_260_911_001_100
   @learning_executions_version 20_260_911_001_500
   @latest_versions [
     @typed_question_answers_version,
@@ -60,6 +61,7 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
     @engagement_receipts_version,
     @default_channel_configurations_version,
     @selection_ledger_version,
+    @durable_settings_version,
     @learning_executions_version
   ]
   @memory_versions Enum.to_list(20_260_908_000_100..20_260_908_001_100//100) ++
@@ -137,6 +139,11 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
       assert table_exists?(repo, prefix, "ingress_inbox_entries")
       assert table_exists?(repo, prefix, "model_instruction_settings")
       assert table_exists?(repo, prefix, "model_instruction_edits")
+      assert table_exists?(repo, prefix, "installation_settings")
+      assert table_exists?(repo, prefix, "settings_edits")
+      assert table_exists?(repo, prefix, "retention_settings")
+      assert table_exists?(repo, prefix, "policy_bindings")
+      assert table_exists?(repo, prefix, "webhook_source_settings")
       assert table_exists?(repo, prefix, "episode_publications")
       assert table_exists?(repo, prefix, "episode_schedules")
       assert table_exists?(repo, prefix, "operator_behaviors")
@@ -1576,11 +1583,12 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
       assert_reset_notes(repo, prefix, derived["conversation_observations"])
 
       # The inspection-evidence columns and tables, the worker storage columns,
-      # the default channel configuration, the selection ledger and the learning
-      # execution kind are reversible on their own.
-      assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 8, prefix: prefix, log: false) ==
+      # the default channel configuration, the selection ledger, the empty
+      # settings tables and the learning execution kind are reversible on their own.
+      assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 9, prefix: prefix, log: false) ==
                [
                  @learning_executions_version,
+                 @durable_settings_version,
                  @selection_ledger_version,
                  @default_channel_configurations_version,
                  @engagement_receipts_version,
@@ -1684,6 +1692,9 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
         insert_learning_execution!(repo, prefix)
       end
 
+      assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 1, prefix: prefix, log: false) ==
+               [@durable_settings_version]
+
       # A recorded selection ledger is evidence about a historical selection that
       # cannot be recomputed, so its rollback refuses while any row holds one.
       SQL.query!(
@@ -1779,6 +1790,59 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
 
       assert Ecto.Migrator.run(repo, @migrations_path, :up, all: true, prefix: prefix, log: false) ==
                @latest_versions
+    after
+      SQL.query!(repo, "DROP SCHEMA IF EXISTS #{prefix} CASCADE", [])
+    end
+  end
+
+  test "durable settings roll back only while no installation exists" do
+    # Rolling the settings tables away under a live installation would silently
+    # return the next boot to fresh setup with a new identity; the guard refuses.
+    repo = start_migration_repo!()
+    prefix = "durable_settings_#{System.unique_integer([:positive])}"
+    SQL.query!(repo, "CREATE SCHEMA #{prefix}", [])
+
+    try do
+      Ecto.Migrator.run(repo, @migrations_path, :up, all: true, prefix: prefix, log: false)
+
+      SQL.query!(
+        repo,
+        """
+        INSERT INTO #{prefix}.installation_settings
+          (host_ref, singleton, revision, applied_revision, saved_by, saved_at, inserted_at)
+        VALUES ('installation:test', TRUE, 1, 0, 'control-plane:local', now(), now())
+        """,
+        []
+      )
+
+      assert_raise Postgrex.Error, ~r/durable settings have data/, fn ->
+        Ecto.Migrator.run(repo, @migrations_path, :down, step: 1, prefix: prefix, log: false)
+      end
+
+      assert table_exists?(repo, prefix, "installation_settings")
+
+      assert_raise Postgrex.Error, ~r/installation_settings_singleton_index/, fn ->
+        SQL.query!(
+          repo,
+          """
+          INSERT INTO #{prefix}.installation_settings
+            (host_ref, singleton, revision, applied_revision, saved_by, saved_at, inserted_at)
+          VALUES ('installation:second', TRUE, 1, 0, 'control-plane:local', now(), now())
+          """,
+          []
+        )
+      end
+
+      SQL.query!(repo, "DELETE FROM #{prefix}.installation_settings", [])
+
+      assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 1, prefix: prefix, log: false) ==
+               [@durable_settings_version]
+
+      refute table_exists?(repo, prefix, "installation_settings")
+      refute table_exists?(repo, prefix, "pricing_rates")
+
+      assert Ecto.Migrator.run(repo, @migrations_path, :up, all: true, prefix: prefix, log: false) ==
+               [@durable_settings_version]
     after
       SQL.query!(repo, "DROP SCHEMA IF EXISTS #{prefix} CASCADE", [])
     end

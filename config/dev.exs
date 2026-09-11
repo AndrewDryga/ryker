@@ -6,3 +6,6 @@ config :responder, Responder.Repo,
   password: System.get_env("PGPASSWORD", "postgres"),
   port: String.to_integer(System.get_env("PGPORT", "5432")),
   username: System.get_env("PGUSER", "postgres")
+
+# Isolated development/test topology; never the production fleet.
+config :responder, :execution, :direct
