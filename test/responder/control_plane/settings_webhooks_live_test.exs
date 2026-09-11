@@ -169,6 +169,32 @@ defmodule Responder.ControlPlane.SettingsWebhooksLiveTest do
     assert Repo.aggregate(Inbox.Entry, :count) == 0
   end
 
+  test "a source that changed under the editor shows what is saved now, mapping and all" do
+    installation!()
+    {:ok, view, _html} = open()
+    view |> form("#settings-webhooks-form", source_params()) |> render_submit()
+
+    assert {:ok, _} =
+             Settings.put_webhook_source(
+               %{name: "alerts", destination_conversation_ref: "slack:T0123456789:C9999999999"},
+               Settings.fetch!().installation.revision,
+               @actor
+             )
+
+    view
+    |> form("#settings-webhooks-form", %{"destination_thread_ref" => "1788000000.000100"})
+    |> render_submit()
+
+    assert has_element?(view, "[role=alert]", "changed since you started editing")
+    assert has_element?(view, ".settings-conflict dd", "C9999999999")
+    assert has_element?(view, ".settings-conflict dd", "preset shape")
+
+    assert has_element?(
+             view,
+             "#settings-webhooks-destination_thread_ref[value='1788000000.000100']"
+           )
+  end
+
   defp open, do: live(build_conn() |> Map.put(:host, "localhost"), "/configuration")
 
   defp source_params(overrides \\ %{}) do

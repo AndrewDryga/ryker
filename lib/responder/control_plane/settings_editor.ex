@@ -112,7 +112,7 @@ defmodule Responder.ControlPlane.SettingsEditor do
 
     assign(socket,
       view: current,
-      conflict: SettingsSections.draft(socket.assigns.section, current, socket.assigns.item_key),
+      conflict: current,
       errors: [],
       impact: nil,
       error:
@@ -311,7 +311,7 @@ defmodule Responder.ControlPlane.SettingsEditor do
           <dl>
             <div :for={field <- @section.fields}>
               <dt>{field.label}</dt>
-              <dd>{Map.get(@conflict, SettingsSections.field_name(field))}</dd>
+              <dd>{saved_value(@section, @conflict, @item_key, field)}</dd>
             </div>
           </dl>
           <button
@@ -459,6 +459,22 @@ defmodule Responder.ControlPlane.SettingsEditor do
   defp help_id(id, field), do: input_id(id, field) <> "-help"
 
   defp items(section, view), do: SettingsSections.items(section, view)
+
+  # What the other writer saved, rendered the same way the rows are: a mapping
+  # is "4 fields mapped", not a raw map the template cannot print.
+  defp saved_value(%{kind: :collection} = section, view, item_key, field) do
+    case SettingsSections.current_item(section, view, item_key) do
+      nil -> "not saved"
+      item -> SettingsSections.row_value(field, Map.get(item, field.name))
+    end
+  end
+
+  defp saved_value(section, view, _item_key, field),
+    do:
+      SettingsSections.row_value(
+        field,
+        Map.get(Map.fetch!(view.snapshot, section.domain), field.name)
+      )
 
   defp row_status(%{row_status: {module, function}}, item, view),
     do: apply(module, function, [item, view])
