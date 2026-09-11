@@ -297,7 +297,7 @@ defmodule Responder.ControlPlane.EpisodePage do
         %{entry | band: :work}
 
       %{kind: :event, band: :ready, step: %{stage: stage}} = entry
-      when stage in ["Preparation", "Routing"] ->
+      when stage in ["Work setup", "Routing"] ->
         %{entry | band: :work}
 
       entry ->
@@ -381,6 +381,14 @@ defmodule Responder.ControlPlane.EpisodePage do
           :if={@entry.kind == :event && @entry.step.stage == "Engagement"}
           step={@entry.step}
         />
+        <.input_queue
+          :if={@entry.kind == :event && @entry.step.stage == "Input queue"}
+          step={@entry.step}
+        />
+        <.work_setup
+          :if={@entry.kind == :event && @entry.step.stage == "Work setup"}
+          step={@entry.step}
+        />
         <.event :if={@entry.kind == :event && !card_stage?(@entry.step.stage)} step={@entry.step} />
         <EpisodeRequest.render :if={@entry.kind == :request} request={@entry} />
       </div>
@@ -390,7 +398,124 @@ defmodule Responder.ControlPlane.EpisodePage do
 
   # Stages with their own card component instead of the generic event layout.
   defp card_stage?(stage),
-    do: stage in ["Tool call", "Participation settings", "Standing rules", "Engagement"]
+    do:
+      stage in [
+        "Tool call",
+        "Participation settings",
+        "Standing rules",
+        "Engagement",
+        "Input queue",
+        "Work setup"
+      ]
+
+  @doc """
+  The Getting ready cards for an input that has no Timeline of its own yet.
+
+  The standalone input view reuses the Timeline's card components so an input
+  that was never picked up explains itself exactly the way an admitted one does.
+  """
+  def getting_ready(assigns) do
+    assigns =
+      assign(
+        assigns,
+        :entries,
+        Enum.map(assigns.steps, &%{id: "event-#{&1.id}", kind: :event, step: &1, at: &1.at})
+      )
+
+    ~H"""
+    <section class="case-timeline standalone-preparation" aria-label="Getting ready">
+      <section class="trace-chapter phase-ready" aria-labelledby="standalone-getting-ready">
+        <div class="chapter-heading">
+          <span class="phase-number" aria-hidden="true">01</span>
+          <div class="chapter-description">
+            <h3 id="standalone-getting-ready">Getting ready</h3>
+            <p>{chapter_description(:ready)}</p>
+          </div>
+        </div>
+        <div class="phase-entries">
+          <.entry :for={entry <- @entries} entry={entry} />
+        </div>
+      </section>
+    </section>
+    """
+  end
+
+  # The pinned setup against the session, worker and workspace the turn ran on.
+  # Ready carries a success icon and no repeated word; the failure reason and
+  # the current preparation step are the only sentences on the face.
+  defp work_setup(assigns) do
+    ~H"""
+    <div class="case-event-content work-setup" data-state={@step.setup.kind}>
+      <div class="case-event-heading">
+        <h3>Work setup</h3>
+        <.success_mark :if={@step.setup.kind == :ready} label="Ready" />
+        <span :if={@step.setup.kind != :ready} class={"event-state tone-#{@step.tone}"}>
+          {@step.setup.label}
+        </span>
+      </div>
+      <p :if={@step.summary} class="case-event-summary">{@step.summary}</p>
+      <dl class="event-facts setup-facts">
+        <div :for={row <- @step.setup.rows}>
+          <dt>{row.label}</dt><dd>{row.value}</dd>
+        </div>
+      </dl>
+      <details class="case-event-details" id={"setup-details-#{@step.id}"}>
+        <summary>Setup details</summary>
+        <dl class="event-facts">
+          <div :for={fact <- @step.setup.details}>
+            <dt>{fact.label}</dt><dd>{fact.value}</dd>
+          </div>
+        </dl>
+        <details :if={@step.setup.technical != []} id={"setup-technical-#{@step.id}"}>
+          <summary>Technical details</summary>
+          <dl class="event-facts">
+            <div :for={fact <- @step.setup.technical}>
+              <dt>{fact.label}</dt><dd>{fact.value}</dd>
+            </div>
+          </dl>
+        </details>
+      </details>
+    </div>
+    """
+  end
+
+  # Saved or not, waiting for what, handed to routing or not. Anything read
+  # from the live queue is labelled current; the terminal facts are durable.
+  defp input_queue(assigns) do
+    ~H"""
+    <div class="case-event-content input-queue" data-state={@step.queue.kind}>
+      <div class="case-event-heading">
+        <h3>Input queue</h3>
+        <span class={"event-state tone-#{@step.tone}"}>
+          {@step.queue.label}<small :if={@step.queue.current}> · current</small>
+        </span>
+      </div>
+      <p class="case-event-summary">{@step.summary}</p>
+      <p :if={@step.queue.blocker} class="queue-blocker">
+        <a href={@step.queue.blocker.href}>“{@step.queue.blocker.text}” · View earlier input →</a>
+      </p>
+      <p :if={@step.queue.recovery_href} class="queue-recovery">
+        <a href={@step.queue.recovery_href}>View recovery →</a>
+      </p>
+      <details class="case-event-details" id={"queue-details-#{@step.id}"}>
+        <summary>Queue details</summary>
+        <dl class="event-facts">
+          <div :for={fact <- @step.queue.facts}>
+            <dt>{fact.label}</dt><dd>{fact.value}</dd>
+          </div>
+        </dl>
+        <details :if={@step.queue.technical != []} id={"queue-technical-#{@step.id}"}>
+          <summary>Technical details</summary>
+          <dl class="event-facts">
+            <div :for={fact <- @step.queue.technical}>
+              <dt>{fact.label}</dt><dd>{fact.value}</dd>
+            </div>
+          </dl>
+        </details>
+      </details>
+    </div>
+    """
+  end
 
   # Effective proactive and shadow values with the source each one won from.
   # Settings are configuration facts, shown apart from the evaluated predicates

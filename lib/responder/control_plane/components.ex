@@ -44,6 +44,19 @@ defmodule Responder.ControlPlane.Components do
     """
   end
 
+  attr(:label, :string, default: "Completed")
+
+  @doc """
+  An accessible success mark. The icon carries the state; nothing visible
+  repeats it, because "✓ Passed" is the same fact twice and crowds out the
+  reasons that are not obvious. Assistive technology still gets the name.
+  """
+  def success_mark(assigns) do
+    ~H"""
+    <span class="success-mark" role="img" aria-label={@label}></span>
+    """
+  end
+
   attr(:path, :string, required: true)
   attr(:label, :string, required: true)
   attr(:tone, :any, default: :secondary)

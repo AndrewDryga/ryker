@@ -583,6 +583,43 @@ defmodule Responder.Ingress.InboxTest do
     assert following.id == second.id
   end
 
+  test "the named queue predecessor is the lane predicate the dispatcher claims by" do
+    # The Input queue card names what an input is waiting for. It must name the
+    # same input the dispatcher would actually claim first, and nothing outside
+    # that lane: a different conversation or execution mode never blocks it, a
+    # later input holding a live routing lease does, and an input that already
+    # left the queue has no predecessor at all.
+    {:ok, %{entry: first}} = Inbox.record(input!(event_ref: "Ev-pred-first"))
+
+    {:ok, %{entry: second}} =
+      Inbox.record(input!(event_ref: "Ev-pred-second", message_ref: "1787832001.000100"))
+
+    {:ok, %{entry: elsewhere}} =
+      Inbox.record(input!(event_ref: "Ev-pred-other", channel_ref: "C789"))
+
+    assert Inbox.queue_predecessor(second, @occurred_at).id == first.id
+    assert Inbox.queue_predecessor(first, @occurred_at) == nil
+    assert Inbox.queue_predecessor(elsewhere, @occurred_at) == nil
+
+    {:ok, %{entry: claimed, lease_ref: lease}} = Inbox.claim_next("slot:1", @occurred_at, 60)
+    assert claimed.id == first.id
+    assert Inbox.queue_predecessor(second, @occurred_at).id == first.id
+
+    # Once the first input is decided it has left the queue for good.
+    assert {:ok, _} = Inbox.block(Inbox.ref(first), lease, "blocked", "operator recovery")
+    assert Inbox.queue_predecessor(second, @occurred_at) == nil
+    assert Inbox.queue_predecessor(Repo.get!(Entry, first.id), @occurred_at) == nil
+
+    # A later input that holds a live lease keeps the lane busy for everyone else.
+    {:ok, %{entry: third}} =
+      Inbox.record(input!(event_ref: "Ev-pred-third", message_ref: "1787832002.000100"))
+
+    {:ok, %{entry: held}} = Inbox.claim_next("slot:2", @occurred_at, 60)
+    assert held.id == second.id
+    assert Inbox.queue_predecessor(third, @occurred_at).id == second.id
+    assert Inbox.queue_predecessor(third, DateTime.add(@occurred_at, 61, :second)).id == second.id
+  end
+
   test "an expired claim becomes eligible without spending or losing the input" do
     assert {:ok, %{entry: entry}} = Inbox.record(input!(event_ref: "Ev-expired"))
     assert {:ok, %{lease_ref: first_lease}} = Inbox.claim_next("executor:old", @occurred_at, 1)

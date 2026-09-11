@@ -214,10 +214,22 @@ defmodule Responder.ControlPlane.EpisodeTraceTest do
     )
 
     {:ok, after_update} = Projection.episode(episode.key)
-    earlier = fn trace -> Enum.filter(trace.steps, &(&1.band in [:input, :ready])) end
+
+    earlier = fn trace ->
+      Enum.filter(trace.steps, &(&1.band in [:input, :ready] and &1.stage != "Work setup"))
+    end
+
     assert earlier.(before.trace) == earlier.(after_update.trace)
     input_step = Enum.find(before.trace.steps, &(&1.stage == "Input"))
     refute Enum.any?(input_step.details, &(&1.label in ["Admission", "Decision"]))
+
+    # Work setup reports the turn's own preparation outcome, and only that:
+    # a blocked turn is blocked, but the session's later cleanup failure
+    # belongs to Maintenance and never reaches this card.
+    setup = fn trace -> Enum.find(trace.steps, &(&1.stage == "Work setup")) end
+    assert setup.(before.trace).setup.kind == :preparing
+    assert setup.(after_update.trace).setup.kind == :blocked
+    refute inspect(setup.(after_update.trace)) =~ "cleanup"
   end
 
   for error <- ~w(timer_deadline poll_after),

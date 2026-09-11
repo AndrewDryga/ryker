@@ -604,11 +604,12 @@ defmodule Responder.ControlPlane.WorkbenchLive do
             {Phoenix.HTML.raw(@body)}
           </div>
           <div :if={@native == :request} class="standalone-inspector">
-            <.link navigate="/" class="back-to-activity">← Activity</.link><RequestPage.render
-              view={@requests}
-              params={@params}
-              path={@path}
+            <.link navigate="/" class="back-to-activity">← Activity</.link>
+            <EpisodePage.getting_ready
+              :if={@requests[:preparation]}
+              steps={@requests.preparation}
             />
+            <RequestPage.render view={@requests} params={@params} path={@path} />
           </div>
           <section :if={@native == :not_found} class="document-unavailable">
             <h1>This record is unavailable</h1><p>
