@@ -448,6 +448,7 @@ defmodule Responder.ControlPlane.WorkbenchLive do
       :delete_settings_item,
       :initialize_settings,
       :preview_retention,
+      :preview_webhook,
       :put_settings_item,
       :save_settings
     ])
@@ -457,6 +458,7 @@ defmodule Responder.ControlPlane.WorkbenchLive do
   defp command_name(:delete_settings_item), do: :delete_item
   defp command_name(:initialize_settings), do: :initialize
   defp command_name(:preview_retention), do: :preview_retention
+  defp command_name(:preview_webhook), do: :preview_webhook
   defp command_name(:put_settings_item), do: :put_item
   defp command_name(:save_settings), do: :save
 

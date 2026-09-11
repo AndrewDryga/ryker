@@ -1366,6 +1366,20 @@ details.measurement-notes > summary { cursor:pointer; font-weight:600; color:var
 .settings-row-status[data-tone=verified] { color:#3d6446; }
 .settings-row-status[data-tone=changed] { color:#8a6420; }
 .settings-row-status[data-tone=unavailable] { color:#8e3d2e; }
+.settings-composite { border:1px solid var(--stroke); border-radius:5px; display:grid; gap:8px 16px; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); margin:0; padding:12px 14px; }
+.settings-composite > div { display:grid; gap:3px; }
+.settings-composite label { color:var(--secondary); font-size:12px; font-weight:600; }
+.webhook-preview { background:#fff; border:1px solid var(--stroke); border-radius:8px; margin:0 0 20px; padding:22px 24px; }
+.webhook-preview h2 { font-size:20px; letter-spacing:-.3px; margin:0 0 6px; }
+.webhook-preview textarea { box-sizing:border-box; width:100%; min-height:180px; padding:10px 12px; border:1px solid #b8c4b9; border-radius:5px; font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace; }
+.webhook-preview select { box-sizing:border-box; width:100%; min-height:40px; padding:8px 10px; border:1px solid #b8c4b9; border-radius:5px; background:#fff; font:inherit; font-size:14px; }
+.webhook-preview-result { border-top:1px solid var(--stroke); margin-top:18px; padding-top:16px; }
+.webhook-preview-result h3 { font-size:15px; margin:0 0 10px; }
+.webhook-preview-result dl { display:grid; grid-template-columns:max-content minmax(0,1fr); gap:4px 16px; margin:0 0 14px; font-size:14px; }
+.responder-app .webhook-preview-result dt, .responder-app .webhook-preview-result dd { padding:0; border:0; }
+.webhook-preview-result dt { color:var(--secondary); }
+.webhook-preview-result dd { margin:0; overflow-wrap:anywhere; }
+.webhook-preview-result pre { margin:0; white-space:pre-wrap; font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace; }
 .settings-evidence { display:block; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:13px; color:var(--secondary); overflow-wrap:anywhere; }
 .settings-field { display:grid; gap:5px; margin:0 0 16px; max-width:560px; }
 .settings-field label { font-weight:600; font-size:14px; }

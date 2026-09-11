@@ -9,7 +9,7 @@ defmodule Responder.ControlPlane.SettingsPage do
 
   use Phoenix.Component
 
-  alias Responder.ControlPlane.{SettingsEditor, SettingsSections}
+  alias Responder.ControlPlane.{SettingsEditor, SettingsSections, WebhookPreview}
 
   attr(:view, :any, required: true)
   attr(:commands, :map, required: true)
@@ -91,6 +91,12 @@ defmodule Responder.ControlPlane.SettingsPage do
         section={section}
         view={@view}
         commands={@commands}
+      />
+      <.live_component
+        module={WebhookPreview}
+        id="webhook-preview"
+        view={@view}
+        check={@commands.preview_webhook}
       />
       <section class="settings-effective">
         <h2>Effective host configuration</h2>

@@ -21,8 +21,11 @@ defmodule Responder.ControlPlane.SettingsSections do
     Repository,
     RepositoryContext,
     Slack,
+    WebhookSource,
     Work
   }
+
+  alias Responder.Webhooks.Presets
 
   @day 86_400
   @participation [
@@ -42,6 +45,17 @@ defmodule Responder.ControlPlane.SettingsSections do
     {"contributor", "Contributor (writes)"},
     {"schedule", "Schedule (repository)"}
   ]
+  @auth_kinds [
+    {"hmac_sha256", "Signed request (HMAC SHA-256)"},
+    {"bearer", "Bearer token"}
+  ]
+  @transports [
+    {"slack", "Slack"},
+    {"github", "GitHub"},
+    {"control_plane", "Conversation Lab"}
+  ]
+  @mapping_fields ~w(event_id status title severity summary source_url starts_at ends_at incident_id item_id labels annotations revision)
+  @lifecycle_fields ~w(environments kinds repositories targets)
   @scope_kinds [
     {"installation", "This installation"},
     {"repository", "One repository"},
@@ -317,6 +331,71 @@ defmodule Responder.ControlPlane.SettingsSections do
       ]
     },
     %{
+      key: :webhooks,
+      domain: :webhooks,
+      kind: :collection,
+      schema: WebhookSource,
+      item_key: :name,
+      title: "Webhook sources",
+      description:
+        "Each source has its own credential, destination and repository context. A source may " <>
+          "only reference a credential this deployment registered, so a form can never turn " <>
+          "into a probe of the process environment, and one source's credential never " <>
+          "authenticates another's events.",
+      fields: [
+        %{name: :name, kind: :text, label: "Source name", identity: true},
+        %{name: :enabled, kind: :boolean, label: "Accept events"},
+        %{
+          name: :adapter_kind,
+          kind: :select,
+          label: "Payload shape",
+          options: :webhook_presets,
+          help: "A preset fills in the shape and grouping; it never chooses the destination."
+        },
+        %{name: :auth_kind, kind: :select, label: "Authentication", options: @auth_kinds},
+        %{
+          name: :secret_name,
+          kind: :select,
+          label: "Credential",
+          options: :webhook_secrets,
+          help:
+            "One of the names in RESPONDER_WEBHOOK_SECRET_NAMES. The value stays in the " <>
+              "deployment environment and is never displayed here."
+        },
+        %{
+          name: :destination_transport,
+          kind: :select,
+          label: "Destination",
+          options: @transports
+        },
+        %{name: :destination_conversation_ref, kind: :text, label: "Conversation"},
+        %{name: :destination_thread_ref, kind: :text, label: "Thread"},
+        %{name: :context_ref, kind: :select, label: "Repository context", options: :scopes},
+        %{
+          name: :group_by_labels,
+          kind: :list,
+          label: "Correlate by labels",
+          help: "Events sharing these label values are treated as the same ongoing situation."
+        },
+        %{
+          name: :mapping,
+          kind: :mapping,
+          label: "Custom field mapping",
+          help:
+            "Dotted paths into the payload, for a custom shape only. Event ID, status and " <>
+              "title are required: without them an event cannot be identified, resolved or read."
+        },
+        %{
+          name: :publication_lifecycle,
+          kind: :lifecycle,
+          label: "Deployment lifecycle filter",
+          help:
+            "Optional. Restricts which deployment or Terraform events this source may report, " <>
+              "to repositories that already have reviewed policies."
+        }
+      ]
+    },
+    %{
       key: :work,
       domain: :work,
       kind: :singleton,
@@ -416,6 +495,14 @@ defmodule Responder.ControlPlane.SettingsSections do
         &{&1.name, "#{&1.name} · #{String.slice(&1.digest, 0, 12)}"}
       )
 
+  def options(%{options: :webhook_presets}, _view),
+    do: Enum.map(Presets.all(), &{Atom.to_string(&1.adapter_kind), &1.title})
+
+  def options(%{options: :webhook_secrets}, %{webhook_secret_names: names}) when is_list(names),
+    do: Enum.map(names, &{&1, &1})
+
+  def options(%{options: :webhook_secrets}, _view), do: []
+
   def options(%{options: :workspaces}, view),
     do:
       Enum.map(
@@ -431,7 +518,7 @@ defmodule Responder.ControlPlane.SettingsSections do
 
   def draft(%{kind: :collection} = section, view, item_key) do
     case current_item(section, view, item_key) do
-      nil -> Map.new(section.fields, &{field_name(&1), ""})
+      nil -> Map.new(section.fields, &{field_name(&1), form_value(&1, nil)})
       item -> Map.new(section.fields, &{field_name(&1), form_value(&1, Map.get(item, &1.name))})
     end
   end
@@ -459,6 +546,17 @@ defmodule Responder.ControlPlane.SettingsSections do
   def items(%{key: :webhooks}, view), do: view.snapshot.webhook_sources
   def items(_section, _view), do: []
 
+  @doc "The draft a submitted form describes, with every control's own empty value."
+  @spec submitted(map(), map()) :: map()
+  def submitted(section, params) do
+    Map.new(section.fields, fn field ->
+      name = field_name(field)
+      {name, Map.get(params, name, empty_value(field))}
+    end)
+  end
+
+  defp empty_value(field), do: form_value(field, nil)
+
   @doc """
   Turns one submitted form into typed attributes for the settings write path.
 
@@ -481,6 +579,34 @@ defmodule Responder.ControlPlane.SettingsSections do
 
   # Evidence is displayed, never submitted: a pinned digest is not an input.
   defp cast_field(%{kind: :evidence}, _value), do: :skip
+
+  defp cast_field(%{kind: :mapping} = field, value) when is_map(value) do
+    mapping =
+      field
+      |> subfields()
+      |> Enum.flat_map(fn name ->
+        case String.trim(Map.get(value, name, "")) do
+          "" -> []
+          path -> [{name, path}]
+        end
+      end)
+      |> Map.new()
+
+    {:ok, if(mapping == %{}, do: nil, else: mapping)}
+  end
+
+  defp cast_field(%{kind: :mapping}, _absent), do: {:ok, nil}
+
+  defp cast_field(%{kind: :lifecycle} = field, value) when is_map(value) do
+    scope =
+      Map.new(subfields(field), fn name ->
+        {name, Map.get(value, name, "") |> String.split([",", " "], trim: true)}
+      end)
+
+    {:ok, if(Enum.all?(Map.values(scope), &(&1 == [])), do: nil, else: scope)}
+  end
+
+  defp cast_field(%{kind: :lifecycle}, _absent), do: {:ok, nil}
 
   defp cast_field(%{kind: :boolean}, value), do: {:ok, value in ["true", "on", true]}
 
@@ -548,8 +674,30 @@ defmodule Responder.ControlPlane.SettingsSections do
   @spec field_name(map()) :: String.t()
   def field_name(%{name: name}), do: Atom.to_string(name)
 
+  @doc "The fields of a composite control."
+  @spec subfields(map()) :: [String.t()]
+  def subfields(%{kind: :mapping}), do: @mapping_fields
+  def subfields(%{kind: :lifecycle}), do: @lifecycle_fields
+
+  @doc "One saved value as a table cell."
+  @spec row_value(map(), term()) :: String.t()
+  def row_value(%{kind: :mapping}, nil), do: "preset shape"
+  def row_value(%{kind: :mapping}, mapping), do: "#{map_size(mapping)} fields mapped"
+  def row_value(%{kind: :lifecycle}, nil), do: "no filter"
+
+  def row_value(%{kind: :lifecycle}, scope),
+    do: @lifecycle_fields |> Enum.map_join(" · ", &Enum.join(Map.get(scope, &1, []), ","))
+
+  def row_value(field, value), do: form_value(field, value)
+
   @doc "A saved value rendered for its control."
-  @spec form_value(map(), term()) :: String.t()
+  @spec form_value(map(), term()) :: String.t() | map()
+  def form_value(%{kind: :mapping} = field, value),
+    do: Map.new(subfields(field), &{&1, Map.get(value || %{}, &1, "")})
+
+  def form_value(%{kind: :lifecycle} = field, value),
+    do: Map.new(subfields(field), &{&1, Enum.join(Map.get(value || %{}, &1, []), ", ")})
+
   def form_value(_field, nil), do: ""
   def form_value(%{kind: :boolean}, value), do: to_string(value)
   def form_value(%{kind: :list}, values), do: Enum.join(values, ", ")
