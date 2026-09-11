@@ -61,7 +61,11 @@ defmodule Responder.Slack.Event do
          action_token: action_token(event),
          audience: audience(details),
          input: input,
-         platform_thread_ref: details.thread_ref
+         platform_thread_ref: details.thread_ref,
+         # The event object as Slack delivered it, for the input's raw record,
+         # minus transport secrets: the action token and signed private file
+         # URLs are credentials, not source content, and never reach storage.
+         source_envelope: source_envelope(event)
        }}
     else
       :ignore -> :ignore
@@ -73,6 +77,26 @@ defmodule Responder.Slack.Event do
   end
 
   def from_socket(_envelope, _identity), do: :ignore
+
+  defp source_envelope(event) do
+    case Map.delete(event, "action_token") do
+      %{"files" => files} = event when is_list(files) ->
+        Map.put(event, "files", Enum.map(files, &public_file/1))
+
+      event ->
+        event
+    end
+  end
+
+  defp public_file(file) when is_map(file),
+    do: Map.reject(file, fn {key, _value} -> private_file_key?(key) end)
+
+  defp public_file(other), do: other
+
+  defp private_file_key?(key) when is_binary(key),
+    do: String.starts_with?(key, "url_private") or String.starts_with?(key, "thumb_")
+
+  defp private_file_key?(_key), do: false
 
   defp event_details(%{"type" => "app_mention"} = event) do
     message_details(event, :mention, :message)

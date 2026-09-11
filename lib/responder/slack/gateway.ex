@@ -298,6 +298,7 @@ defmodule Responder.Slack.Gateway do
              execution_mode: execution_mode,
              slack_audience: normalized.audience,
              slack_bot_user_ref: settings.identity.bot_user_ref,
+             source_envelope: normalized[:source_envelope],
              work_profile: work_profile
            ),
          :ok <- remember_action_token(enriched, settings) do

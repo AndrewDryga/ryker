@@ -727,6 +727,49 @@ defmodule Responder.Ingress.InboxTest do
     end
   end
 
+  test "the raw source envelope is kept beside the normalized content, never in its place" do
+    # The page used to show the normalized document under a "raw" heading. The
+    # envelope is what the adapter received; the content is what Responder made
+    # of it; and an input recorded without one says so instead of pretending.
+    input = input!()
+
+    envelope = %{
+      "type" => "message",
+      "text" => "A generic Slack message",
+      "ts" => "1787832000.000100"
+    }
+
+    assert {:ok, %{entry: entry}} = Inbox.record(input, source_envelope: envelope)
+    assert entry.source_envelope == envelope
+    assert entry.content == input.content
+    assert entry.event_fingerprint == Responder.Ingress.Input.fingerprint(input)
+
+    assert {:ok, %{entry: bare}} =
+             Inbox.record(input!(event_ref: "Ev-bare", message_ref: "1787832000.000200"))
+
+    assert bare.source_envelope == nil
+
+    assert bare.event_fingerprint ==
+             Responder.Ingress.Input.fingerprint(
+               input!(event_ref: "Ev-bare", message_ref: "1787832000.000200")
+             )
+  end
+
+  test "an oversized or malformed envelope is an explicit omission and never fails the input" do
+    input = input!()
+    huge = %{"blob" => String.duplicate("x", 70_000)}
+
+    assert {:ok, %{entry: entry}} = Inbox.record(input, source_envelope: huge)
+
+    assert %{"omitted" => "oversized", "bytes" => bytes, "bound" => 65_536} =
+             entry.source_envelope
+
+    assert bytes > 65_536
+
+    assert {:error, {:invalid_ingress_execution, :record_options}} =
+             Inbox.record(input!(event_ref: "Ev-list"), source_envelope: ["not", "a", "map"])
+  end
+
   defp input!(overrides \\ []) do
     attributes =
       Keyword.merge(

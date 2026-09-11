@@ -36,14 +36,31 @@ defmodule Responder.Ingress.Inbox.EntryChangeset do
     )
   end
 
-  @spec insert(Input.t(), Ecto.UUID.t(), :live | :shadow, WorkProfile.t() | nil, map()) ::
+  @envelope_bytes 65_536
+
+  @spec insert(
+          Input.t(),
+          Ecto.UUID.t(),
+          :live | :shadow,
+          WorkProfile.t() | nil,
+          map(),
+          map() | nil
+        ) ::
           Ecto.Changeset.t()
-  def insert(%Input{} = input, id, execution_mode, work_profile, slack_addressing)
+  def insert(
+        %Input{} = input,
+        id,
+        execution_mode,
+        work_profile,
+        slack_addressing,
+        source_envelope \\ nil
+      )
       when execution_mode in [:live, :shadow] do
     fields = %{
       actor_kind: input.actor.kind,
       actor_ref: input.actor.ref,
       content: input.content,
+      source_envelope: bounded_envelope(source_envelope),
       dedupe_key: Input.dedupe_key(input),
       destination_conversation_ref: input.destination.conversation_ref,
       destination_thread_ref: input.destination.thread_ref,
@@ -79,6 +96,7 @@ defmodule Responder.Ingress.Inbox.EntryChangeset do
         [
           :destination_thread_ref,
           :repository_ref,
+          :source_envelope,
           :source_item_ref,
           :slack_audience,
           :slack_bot_user_ref,
@@ -88,12 +106,34 @@ defmodule Responder.Ingress.Inbox.EntryChangeset do
         ]
     )
     |> unique_constraint(:dedupe_key)
+    |> check_constraint(:source_envelope, name: :ingress_inbox_source_envelope_valid)
     |> check_constraint(:slack_audience, name: :ingress_inbox_slack_addressing_valid)
     |> check_constraint(:execution_mode, name: :ingress_inbox_execution_mode_valid)
     |> check_constraint(:work_profile, name: :ingress_inbox_work_class_profile_valid)
     |> check_constraint(:work_policy, name: :ingress_inbox_work_profile_valid)
     |> check_constraint(:status, name: :ingress_inbox_decision_matches_status)
   end
+
+  # An oversized envelope is recorded as an explicit omission with its size, so
+  # the reader can tell "the adapter never supplied one" from "it was too big".
+  # Nothing here may fail the input.
+  defp bounded_envelope(nil), do: nil
+
+  defp bounded_envelope(envelope) when is_map(envelope) do
+    case Responder.CanonicalJSON.validate(envelope) do
+      :ok ->
+        bytes = envelope |> Responder.CanonicalJSON.encode!() |> byte_size()
+
+        if bytes <= @envelope_bytes,
+          do: envelope,
+          else: %{"omitted" => "oversized", "bytes" => bytes, "bound" => @envelope_bytes}
+
+      {:error, _reason} ->
+        %{"omitted" => "invalid"}
+    end
+  end
+
+  defp bounded_envelope(_envelope), do: %{"omitted" => "invalid"}
 
   @spec decide(Entry.t(), Decision.t(), String.t(), Ecto.UUID.t() | nil) ::
           Ecto.Changeset.t()

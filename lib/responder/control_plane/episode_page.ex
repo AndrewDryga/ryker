@@ -457,8 +457,88 @@ defmodule Responder.ControlPlane.EpisodePage do
     <div :if={!@message[:response_reference]} class="case-message-text markdown-preview">
       {message_text(@message)}
     </div>
+    <.input_details :if={@message[:details]} message={@message} />
     """
   end
+
+  # Extracted metadata is visible as soon as the disclosure opens; the raw
+  # envelope, the normalized input and the original message are each their own
+  # collapsed body underneath, loaded when opened. Raw and normalized are never
+  # shown under each other's name, and an unrecorded envelope says so.
+  defp input_details(assigns) do
+    ~H"""
+    <details class="input-details" id={"input-details-#{@message.id}"}>
+      <summary>Input details</summary>
+      <h4>Extracted metadata</h4>
+      <dl class="event-facts">
+        <div :for={fact <- @message.details.metadata}>
+          <dt>{fact.label}</dt><dd>{fact.value}</dd>
+        </div>
+      </dl>
+      <.input_body
+        id={"input-raw-#{@message.id}"}
+        title="Raw input (JSON)"
+        body={@message.details.raw}
+        absent="The adapter did not hand over its source payload for this input, so there is no raw record; the normalized input below is not a substitute."
+      />
+      <.input_body
+        id={"input-normalized-#{@message.id}"}
+        title="Normalized input (JSON)"
+        body={@message.details.normalized}
+        absent="The normalized input was not retained."
+      />
+      <details class="input-body" id={"input-original-#{@message.id}"}>
+        <summary>Original message</summary>
+        <p :if={!@message.available} class="artifact-unavailable">
+          Source content not recorded or expired.
+        </p>
+        <pre :if={@message.available}>{@message.text}</pre>
+      </details>
+    </details>
+    """
+  end
+
+  defp input_body(assigns) do
+    assigns = assign(assigns, :artifact, assigns.body.artifact)
+
+    ~H"""
+    <details
+      class="input-body"
+      id={@id}
+      data-artifact={if @artifact.state in [:collapsed, :retained], do: @body.artifact_id}
+      data-revoked={if @artifact.state in [:expired], do: "true"}
+    >
+      <summary>
+        {@title}
+        <span :if={@artifact.state == :collapsed}>{bytes(@artifact.bytes)}</span>
+        <span :if={@artifact.state == :expired}>Expired</span>
+        <span :if={@artifact.state == :not_recorded}>Not recorded</span>
+        <span :if={@artifact.state == :omitted}>Omitted</span>
+        <span :if={@artifact[:redacted]}>Secrets redacted</span>
+        <span :if={@artifact[:truncated]}>Partial display</span>
+      </summary>
+      <p :if={@artifact.state == :collapsed} class="artifact-loading" role="status">Loading…</p>
+      <p :if={@artifact.state == :not_recorded} class="artifact-unavailable">{@absent}</p>
+      <p :if={@artifact.state == :expired} class="artifact-unavailable">
+        Removed by retention. No reconstructed substitute is shown.
+      </p>
+      <p :if={@artifact.state == :omitted} class="artifact-unavailable">
+        {omission(@artifact)}
+      </p>
+      <pre :if={@artifact.state == :retained}>{@artifact.text}</pre>
+    </details>
+    """
+  end
+
+  defp omission(%{reason: "oversized", omitted_bytes: bytes}),
+    do: "The source payload was #{bytes(bytes)}, beyond the 64 KiB bound, so it was not stored."
+
+  defp omission(%{reason: reason}), do: "The source payload was not stored (#{reason})."
+
+  defp bytes(nil), do: "Size not recorded"
+  defp bytes(count) when count < 1_024, do: "#{count} bytes"
+  defp bytes(count) when count < 1_024 * 1_024, do: "#{div(count, 1_024)} KiB"
+  defp bytes(count), do: "#{Float.round(count / (1_024 * 1_024), 1)} MiB"
 
   defp message_text(%{available: false}), do: "Source content not recorded or expired"
 

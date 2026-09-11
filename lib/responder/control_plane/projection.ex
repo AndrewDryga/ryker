@@ -59,7 +59,7 @@ defmodule Responder.ControlPlane.Projection do
       configuration: &configuration/0,
       delivery: &delivery/1,
       emisar: &emisar/1,
-      episode: &episode/1,
+      episode: &episode/2,
       model_requests: &ModelRequests.project/2,
       model_timeline: &ModelRequests.timeline/2,
       admission_request: &ModelRequests.project_input/2,
@@ -400,7 +400,9 @@ defmodule Responder.ControlPlane.Projection do
     end
   end
 
-  def episode(ref) when is_binary(ref) and byte_size(ref) <= 1_024 do
+  def episode(ref, params \\ %{})
+
+  def episode(ref, params) when is_binary(ref) and byte_size(ref) <= 1_024 and is_map(params) do
     ref = ModelRequests.episode_ref(ref)
 
     case Repo.one(from(episode in Episode, where: episode.key == ^ref)) do
@@ -446,7 +448,10 @@ defmodule Responder.ControlPlane.Projection do
             }
           end)
 
-        trace = EpisodeTrace.project(episode, event_records, record_records)
+        trace =
+          EpisodeTrace.project(episode, event_records, record_records,
+            disclosed: ModelRequests.disclosed(params)
+          )
 
         accounting =
           Responder.Accounting.Query.executions(nil, "all")
@@ -475,7 +480,7 @@ defmodule Responder.ControlPlane.Projection do
     end
   end
 
-  def episode(_ref), do: :not_found
+  def episode(_ref, _params), do: :not_found
 
   defp related_episodes(episode) do
     related =

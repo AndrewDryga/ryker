@@ -633,7 +633,8 @@ defmodule Responder.Ingress.Inbox do
       Ecto.UUID.generate(),
       settings.execution_mode,
       settings.work_profile,
-      settings.slack_addressing
+      settings.slack_addressing,
+      settings.source_envelope
     )
     |> Ecto.Changeset.change(inserted_at: now, updated_at: now)
     |> Repo.insert()
@@ -714,14 +715,23 @@ defmodule Responder.Ingress.Inbox do
   defp record_options(options) when is_list(options) do
     if Keyword.keyword?(options) and Enum.uniq(Keyword.keys(options)) == Keyword.keys(options) and
          Keyword.keys(options) --
-           [:execution_mode, :revision_ties, :work_profile, :slack_audience, :slack_bot_user_ref] ==
+           [
+             :execution_mode,
+             :revision_ties,
+             :work_profile,
+             :slack_audience,
+             :slack_bot_user_ref,
+             :source_envelope
+           ] ==
            [] do
       revision_ties = Keyword.get(options, :revision_ties, :exact)
       execution_mode = Keyword.get(options, :execution_mode, :live)
       work_profile = Keyword.get(options, :work_profile)
+      source_envelope = Keyword.get(options, :source_envelope)
 
       with true <- revision_ties in [:exact, :receipt_order, :receipt_order_unbounded],
            true <- execution_mode in [:live, :shadow],
+           true <- is_nil(source_envelope) or is_map(source_envelope),
            {:ok, work_profile} <- WorkProfile.prepare(work_profile),
            {:ok, slack_addressing} <- slack_addressing_options(options) do
         {:ok,
@@ -729,6 +739,7 @@ defmodule Responder.Ingress.Inbox do
            execution_mode: execution_mode,
            revision_ties: revision_ties,
            slack_addressing: slack_addressing,
+           source_envelope: source_envelope,
            work_profile: work_profile
          }}
       else

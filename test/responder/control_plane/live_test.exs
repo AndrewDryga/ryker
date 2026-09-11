@@ -37,10 +37,10 @@ defmodule Responder.ControlPlane.LiveTest do
           activity: fn params ->
             %{items: [], total: 0, page: 1, pages: 1, mode: params["mode"] || "live"}
           end,
-          episode: fn ref ->
+          episode: fn ref, params ->
             if Agent.get(counters, & &1[:episode_fail]),
               do: {:error, :database_unavailable},
-              else: Projection.episode(ref)
+              else: Projection.episode(ref, params)
           end,
           schedules: fn _params -> [] end
         })
