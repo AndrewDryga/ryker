@@ -2,7 +2,7 @@ defmodule Mix.Tasks.Responder.Status do
   @moduledoc """
   Prints one payload-free durable operator snapshot as JSON.
 
-      MIX_ENV=prod mix responder.status --config /etc/responder/responder-elixir.yaml
+      MIX_ENV=prod mix responder.status
   """
 
   use Mix.Task
@@ -14,20 +14,16 @@ defmodule Mix.Tasks.Responder.Status do
 
   @impl Mix.Task
   def run(arguments) do
-    with {:ok, options, []} <- Support.parse(arguments, [config: :string], 0),
-         {:ok, configuration} <- Support.configuration(options, true),
-         :ok <- Support.install_configuration(configuration) do
-      Support.with_repo(fn ->
-        Status.snapshot(
-          configuration: configuration,
-          check_progress: false,
-          check_runtimes: false
-        )
-      end)
-      |> print_result()
-    else
+    case Support.parse(arguments, [], 0) do
+      {:ok, [], []} -> print_result(snapshot())
       {:error, reason} -> Support.fail("operator status", reason)
     end
+  end
+
+  defp snapshot do
+    Support.with_configuration(fn configuration ->
+      Status.snapshot(configuration: configuration, check_progress: false, check_runtimes: false)
+    end)
   end
 
   defp print_result({:ok, snapshot}), do: Support.print(snapshot)

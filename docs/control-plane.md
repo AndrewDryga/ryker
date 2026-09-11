@@ -235,7 +235,7 @@ sets everything else: no accounts, no roles, no invitations.
 ## Reach and trust
 
 **Bound to `127.0.0.1` only**, on the port Responder already serves
-(`listen:` in `responder.yaml`). Reached in a browser on the same machine, or
+(`RESPONDER_CONTROL_IP` and `RESPONDER_CONTROL_PORT`). Reached in a browser on the same machine, or
 through an SSH tunnel. No authentication, because the loopback interface is the
 authentication.
 
@@ -416,20 +416,34 @@ episode.
 **Source:** `memory_entries`, `memory_rollups`, `conversation_memories`,
 `channel_memories`.
 
-### 7. Configuration — "how is it set up, and what is that costing me?"
+### 7. Settings — "how is it set up, and what is that costing me?"
 
-- Effective configuration per deployment, and which file each value came from
+- Editors for the product decisions: Slack, GitHub and Emisar connections,
+  repositories, repository contexts, GitHub repository bindings, execution
+  policies, work placement, publication identity, the weekly report, learning,
+  retention horizons and optional token rates. Each section saves explicitly at
+  the revision it was read at, keeps its draft when a save is refused, and shows
+  what is saved now when another writer got there first
+- Execution policies are chosen by name from what enrolled, unrevoked workers
+  advertise; the digest and authority digest are copied from that advertisement,
+  never typed, and a binding the fleet no longer advertises is shown as
+  unavailable with its pin intact rather than repointed
+- Saved revision and running revision as two separate facts, with the reason a
+  saved revision could not be applied
+- Which deployment credentials are configured, missing or unusable — presence
+  only, never values
+- Effective assembled configuration, read-only, below the editors
 - Channels: participation mode, proactive, shadow, repository binding, alert
   policy — proactive and shadow are the only two a slash command still sets, and
   the rest are set by the channel setup conversation in that channel
 - Preferences and standing rules with scope and expiry
 - Schedules, with next occurrence and catch-up policy
-- Session policies and the target ladder, per repository
 - Prompt budget: static instruction size against the Coop turn cap, per prompt
   variant, with the history of that number
 
-**Source:** `config`, `channel_configurations`, `responder_preferences`,
-`standing_rules`, `scheduled_tasks`, session policy YAML.
+**Source:** `installation_settings` and the typed settings tables beside it,
+`channel_configurations`, `responder_preferences`, `standing_rules`,
+`scheduled_tasks`. There is no application configuration file.
 
 ### 8. Usage — "what is it spending?"
 
@@ -617,7 +631,7 @@ replacement, not the older dashboard or the intended final design above.
 | Standing rules | Live, with active/paused/expired counts, searchable scope/status filters, paginated confirmed instructions, original conversation, expiry, recent matches, and confirmed pause/resume/delete |
 | Preferences and Guidance | Separate live libraries with visible scope, effective expiry, full guidance, provenance, history filters, and confirmed lifecycle controls |
 | Memory | Operational mappings and stale/duplicate reviews, with confirmed keep/merge/edit/forget; rules, guidance, preferences, and schedules have their own pages |
-| Configuration | Live for an explicit allowlist of effective runtime values, source provenance, MCP/host/tool grant names, and repository-topology linkage; secrets, endpoints, callbacks, and raw policy documents are omitted |
+| Settings | Live editors for every product decision, each with explicit Save/Cancel, preserved drafts, revision conflicts, and saved-versus-running state; below them an allowlist of effective runtime values, MCP/host/tool grant names, and repository-topology linkage. Secrets, endpoints, callbacks, and raw policy documents are omitted, and credentials appear only as configured, missing or unusable |
 | Test journeys | Live, configuration-aware manual qualification for the Lab, Slack, GitHub, webhooks, state tools, and recovery |
 
 Every administrative action is a POST behind a native two-step confirm and

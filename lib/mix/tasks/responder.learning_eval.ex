@@ -90,8 +90,8 @@ defmodule Mix.Tasks.Responder.LearningEval do
   end
 
   defp start_client!(options) do
-    if System.get_env("RESPONDER_ELIXIR_CONFIG") || Process.whereis(Responder.Supervisor),
-      do: Mix.raise("run without Responder application or runtime configuration")
+    if Process.whereis(Responder.Supervisor),
+      do: Mix.raise("run without the Responder application running")
 
     unless Process.whereis(Repo) == nil,
       do: Mix.raise("Repo must not already be running")

@@ -81,8 +81,8 @@ defmodule Responder.Slack.Runtime do
     :schedule_policies,
     :task_card_interval_ms,
     :task_card_reconcile_ms,
-    :thread_status_interval_ms,
-    :watch_channels
+    :default_participation,
+    :thread_status_interval_ms
   ]
   @required_fields [
     :app_http,
@@ -91,8 +91,7 @@ defmodule Responder.Slack.Runtime do
     :identity,
     :incident_policy,
     :operators,
-    :repositories,
-    :watch_channels
+    :repositories
   ]
 
   @spec child_spec(keyword() | map()) :: Supervisor.child_spec()
@@ -145,7 +144,10 @@ defmodule Responder.Slack.Runtime do
     incident_policy = Map.fetch!(configuration, :incident_policy)
     repositories = Map.fetch!(configuration, :repositories)
     operators = configuration |> Map.fetch!(:operators) |> references!(:operators)
-    watch_channels = configuration |> Map.fetch!(:watch_channels) |> references!(:watch_channels)
+
+    default_participation =
+      participation!(Map.get(configuration, :default_participation, :mentions))
+
     channel_prefix = configuration |> Map.get(:channel_prefix, "ems") |> channel_prefix!()
 
     incident_invite_users =
@@ -288,7 +290,7 @@ defmodule Responder.Slack.Runtime do
       configurations: ChannelConfigurations,
       directory: Client,
       operators: operators,
-      settings_overrides: settings_overrides(watch_channels)
+      settings_overrides: settings_overrides(default_participation)
     }
 
     handler_settings = %{
@@ -303,19 +305,19 @@ defmodule Responder.Slack.Runtime do
       command_handler: CommandHandler,
       command_options: %{
         bot_user_ref: identity.bot_user_ref,
-        change_setting: &ChannelSettings.change/1,
+        change_setting: &ChannelSettings.change(&1, default_participation),
         client: bot_client,
         directory: Client,
-        effective_settings: effective_settings(watch_channels),
+        effective_settings: effective_settings(default_participation),
         list_assignments: &Behaviors.assignments_for_channel/2,
         manage_assignment: &manage_assignment/3,
         operators: operators,
-        settings_view: settings_view(catalog, watch_channels)
+        settings_view: settings_view(catalog, default_participation)
       },
       continuation: &Engagement.continuation?/1,
       conversation_actor_allowed: incident_actor_allowed(operators),
       directory: Client,
-      effective_settings: effective_settings(watch_channels),
+      effective_settings: effective_settings(default_participation),
       home_handler: AppHome,
       home_interaction_handler: AppHomeControls,
       home_interaction_options: home_interaction_options,
@@ -380,8 +382,7 @@ defmodule Responder.Slack.Runtime do
       setup_allowed: setup_allowed(),
       setup_handler: ChannelSetup,
       setup_options: setup_options,
-      work_profile: work_profile(default_repository, repositories),
-      watch_channels: watch_channels
+      work_profile: work_profile(default_repository, repositories)
     }
 
     gateway =
@@ -489,7 +490,7 @@ defmodule Responder.Slack.Runtime do
     }
   end
 
-  defp effective_settings(watch_channels) do
+  defp effective_settings(default_participation) do
     fn workspace_ref, conversation_ref ->
       channel_ref = conversation_ref |> String.split(":", parts: 3) |> List.last()
 
@@ -507,10 +508,7 @@ defmodule Responder.Slack.Runtime do
           }
 
         :not_found ->
-          ChannelSettings.effective(workspace_ref, conversation_ref, %{
-            proactive: MapSet.member?(watch_channels, channel_ref),
-            shadow: false
-          })
+          ChannelSettings.effective(workspace_ref, conversation_ref, default_participation)
       end
     end
   end
@@ -578,16 +576,16 @@ defmodule Responder.Slack.Runtime do
 
   # The setup surfaces need the same override view as the gateway, keyed by
   # channel rather than conversation reference.
-  defp settings_overrides(watch_channels) do
-    effective = effective_settings(watch_channels)
+  defp settings_overrides(default_participation) do
+    effective = effective_settings(default_participation)
 
     fn workspace_ref, channel_ref ->
       effective.(workspace_ref, "slack:#{workspace_ref}:#{channel_ref}")
     end
   end
 
-  defp settings_view(catalog, watch_channels) do
-    overrides = settings_overrides(watch_channels)
+  defp settings_view(catalog, default_participation) do
+    overrides = settings_overrides(default_participation)
 
     fn workspace_ref, channel_ref ->
       ChannelConfigurations.effective_settings(
@@ -653,6 +651,11 @@ defmodule Responder.Slack.Runtime do
   defp references!(_values, field) do
     raise ArgumentError, "Slack #{field} must be a list"
   end
+
+  defp participation!(value) when value in [:mentions, :proactive, :shadow], do: value
+
+  defp participation!(_value),
+    do: raise(ArgumentError, "Slack default_participation must be mentions, proactive, or shadow")
 
   defp channel_prefix!(value) do
     if is_binary(value) and Regex.match?(~r/\A[a-z0-9_-]{1,20}\z/, value),

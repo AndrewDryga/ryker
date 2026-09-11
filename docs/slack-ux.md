@@ -186,15 +186,13 @@ untouched. Saving affects listening, repository context, Slack-app alert escalat
 invitations only. It never authorizes repository changes, Emisar approvals, deployments or
 infrastructure mutations.
 
-Channel setup is more specific than the workspace override and deployment default, while an
-explicit per-channel `/responder proactive` override remains the emergency override. Confirmed
-channel deletion removes its membership observation, setup sessions and saved configuration.
+A channel either chose its participation or inherits the installation default; there is no third
+store. Confirmed channel deletion removes its membership observation, setup sessions and saved
+configuration.
 
-`slack.watch_channels` is the static default list for shared operational feeds such as
-`#infra-alerts`. Responder must be invited to every configured channel, and `responder doctor`
-checks membership. The list supports public and private channels and may overlap
-`slack.summon_channels`. The summon list is a static preflight expectation; it does not restrict
-explicit mentions in other channels where the bot has been invited.
+The installation participation default covers shared operational feeds such as `#infra-alerts`
+without naming them one by one. Responder must be invited to every channel it participates in, and
+`responder doctor` checks membership. Public and private channels behave the same way.
 
 Operators can change proactivity without editing the file or restarting Responder:
 
@@ -207,11 +205,12 @@ Operators can change proactivity without editing the file or restarting Responde
 /responder proactive global inherit
 ```
 
-The effective setting uses the explicit channel override first, then confirmed channel setup, then
-the workspace override, then the static `watch_channels` default. Global `on` watches all channels where Responder is invited and
-receives message events. A per-channel `off` can opt out of that default, and a per-channel `on`
-can opt in while the workspace default is off. `inherit` deletes the corresponding durable
-override. Responder verifies current channel membership before accepting a per-channel `on`.
+The effective setting is the channel's own saved participation when it has one, and the installation
+default otherwise. `global on` moves that default, so every channel that never chose follows it
+immediately; a per-channel `off` opts out and a per-channel `on` opts in regardless. `inherit`
+clears the channel's own setting so it follows the default again — it stores inheritance rather than
+copying today's default. Responder verifies current channel membership before accepting a
+per-channel `on`, and moving the installation default requires a saved operator.
 
 Responder durably reads ordinary messages from active full workspace members and messages posted by
 external Slack apps in each watched channel. It ignores its own messages, unsupported message
@@ -399,7 +398,7 @@ acknowledges the source thread, and enters the same channel, root-card, isolated
 policy-controlled investigation workflow as webhook and manual incidents. Every admitted watched
 message is one accepted request in its channel's ordered triage session. Responder extends exhausted
 watched and incident sessions automatically up to the effective `coop.turn_limit`. That ceiling is a
-deployment value in `responder.yaml` and no Slack control raises it. The reasoning is that a session
+shipped host bound and no Slack control raises it. The reasoning is that a session
 which has spent a thousand accepted requests is looping rather than short of room, and the card says
 so; the cost is that an operator who reaches the ceiling mid-incident cannot clear it from Slack and
 needs someone who can edit the configuration and redeploy. Coop policy and service-wide limits remain
@@ -467,7 +466,7 @@ the capability still exists somewhere.
 | `timeline`, `evidence`, `handoff`, `postmortem` | The **Record** row on the pinned incident or task card |
 | `update`, `changes`, `review`, `publish`, `stop`, `close` | The buttons already on the pinned card, or ask in the thread |
 | `extend` | Nothing. Responder allocates session capacity automatically |
-| `turn-limit` | `coop.turn_limit` in `responder.yaml`, which is a deployment change |
+| `turn-limit` | a worker execution bound, which is a deployment change |
 | `assignments create` | Ask for the standing work in words; the `offer_assignment` card shows the normalized bounds and grants nothing until confirmed |
 
 Slack does not provide application-defined autocomplete for text after a slash command, so the
@@ -490,7 +489,7 @@ setup, a `/responder` override, an incident room) and a **Configure channel** co
 Q&A in the welcome thread. A settings question addressed to Responder in a channel — "what are
 your settings?", "how are you configured here?" — posts the same view as a reply in that thread.
 Reading settings never mutates them. The view never relies on raw values such as `inherit`,
-`parked`, or `responder.yaml` to explain behavior. Proactive and shadow changes are
+`parked`, or a configuration file to explain behavior. Proactive and shadow changes are
 durable and audited. A pressed incident control acknowledges the requested effect and directs the
 operator to the pinned incident thread for the authoritative result. Slash commands and button
 controls both run in the control lane, so `proactive off` or **Stop current run** does not wait

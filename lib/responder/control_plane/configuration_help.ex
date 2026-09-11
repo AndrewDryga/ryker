@@ -1,7 +1,7 @@
 defmodule Responder.ControlPlane.ConfigurationHelp do
   @moduledoc "Operator explanations for the explicitly exposed runtime settings, not a config parser."
 
-  # Defaults describe RuntimeConfiguration's v1 loader, not example YAML values.
+  # Defaults describe the shipped operational defaults, not a configuration file.
   # Retention horizons are required inputs and deliberately have no default.
   @required_retention "Required when retention is configured; there is no implicit default."
   @settings %{

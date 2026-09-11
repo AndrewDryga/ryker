@@ -3,18 +3,21 @@ defmodule Mix.Tasks.Responder.Eval do
   Exports or executes the recorded Elixir admission and Work model corpora.
 
       mix responder.eval admission-pack
-      mix responder.eval admission --config /absolute/responder-elixir.yaml
+      mix responder.eval admission
       mix responder.eval work-pack
-      mix responder.eval work --config /absolute/responder-elixir.yaml
+      mix responder.eval work
       mix responder.eval world-pack
-      mix responder.eval world --config /absolute/responder-elixir.yaml --results /absolute/world-results.json
+      mix responder.eval world --results /absolute/world-results.json
 
   A `*-pack` command emits one JSON object per case without calling a model.
-  The live commands run the same sanitized cases through the configured
-  dedicated evaluation policies. Admission and narrow Work evals use the
-  no-tools policy; fabricated-world evals use a separate sandbox-only policy
-  that exposes the evaluated tool world without inheriting production
-  repository or external mutation authority.
+  The live commands run the same sanitized cases through the dedicated
+  evaluation policies named by the evaluation environment
+  (`RESPONDER_EVAL_SOCKET`, `RESPONDER_EVAL_NO_TOOLS_POLICY`,
+  `RESPONDER_EVAL_WORLD_POLICY` and their `_DIGEST` companions). Admission and
+  narrow Work evals use the no-tools policy; fabricated-world evals use a
+  separate sandbox-only policy. Eval authority is supplied explicitly and is
+  refused if it matches a reviewed production policy binding, so an evaluation
+  cannot inherit production repository or mutation authority.
   """
 
   use Mix.Task
@@ -39,9 +42,9 @@ defmodule Mix.Tasks.Responder.Eval do
     WorldTools
   }
 
+  alias Responder.Evals.Runtime, as: EvalRuntime
   alias Responder.Repo
   alias Responder.Retention.Dispatcher, as: RetentionDispatcher
-  alias Responder.RuntimeConfiguration
   alias Responder.Work.Session, as: WorkSession
 
   @shortdoc "Exports or runs the recorded Elixir model eval corpora"
@@ -85,18 +88,16 @@ defmodule Mix.Tasks.Responder.Eval do
 
   def run(_arguments) do
     Mix.raise(
-      "usage: mix responder.eval admission-pack | work-pack | world-pack | admission --config /absolute/config.yaml | work --config /absolute/config.yaml | world --config /absolute/config.yaml --results /absolute/world-results.json"
+      "usage: mix responder.eval admission-pack | work-pack | world-pack | admission | work | world --results /absolute/world-results.json"
     )
   end
 
   defp run_live(kind, arguments) do
-    with {:ok, config_path} <- config_path(arguments),
-         configuration <- RuntimeConfiguration.load!(config_path),
-         {:ok, %{subject: eval_policy}} <- Policy.for_kind(configuration, kind),
-         {:ok, eval_configuration} <- Map.fetch(configuration, :model_evals),
+    with :ok <- no_arguments(arguments),
+         {:ok, %{subject: eval_policy}} <- Policy.for_kind(kind),
          {:ok, cases} <- eval_cases(kind),
          {:ok, finch} <- start_finch(),
-         {:ok, client} <- eval_client(eval_configuration, finch),
+         {:ok, client} <- eval_client(finch),
          {:ok, report} <-
            CoopRunner.run(cases,
              client: client,
@@ -118,17 +119,17 @@ defmodule Mix.Tasks.Responder.Eval do
 
   defp run_world(arguments) do
     with {:ok, world} <- world_arguments(arguments),
-         %{config: config_path, results: results_path} <- world,
-         configuration <- RuntimeConfiguration.load!(config_path),
-         {:ok, eval_policies} <- Policy.for_kind(configuration, :world),
+         %{results: results_path} <- world,
+         :ok <- start_repo(),
+         {:ok, eval_policies} <- Policy.for_kind(:world),
          :ok <- baseline_configured(eval_policies, world.paired_baseline),
          :ok <- WorldCoverage.complete(),
-         :ok <- start_repo(),
+         {:ok, runtime} <- EvalRuntime.world(),
          {:ok, finch} <- start_finch(),
-         {:ok, eval_client} <- eval_client(Map.fetch!(configuration, :model_evals), finch),
+         {:ok, eval_client} <- eval_client(finch),
          {:ok, cases} <- WorldCase.all(),
          {:ok, plan} <- WorldSuite.plan(cases, plan_options(world)),
-         reports <- run_world_plan(plan, configuration, eval_policies, eval_client),
+         reports <- run_world_plan(plan, runtime, eval_policies, eval_client),
          {:ok, summary} <- WorldSuite.summarize(reports, summary_options(world)),
          :ok <- WorldReport.write(results_path, reports, summary: summary) do
       Enum.each(reports, &info(Jason.encode!(printable_world_report(&1))))
@@ -142,10 +143,10 @@ defmodule Mix.Tasks.Responder.Eval do
     end
   end
 
-  defp run_world_plan(plan, configuration, eval_policies, eval_client) do
+  defp run_world_plan(plan, runtime, eval_policies, eval_client) do
     run_world_plan(
       plan,
-      &run_world_observation(&1, configuration, eval_policies, eval_client),
+      &run_world_observation(&1, runtime, eval_policies, eval_client),
       fn observation, stopped ->
         unrun_report(
           observation,
@@ -172,12 +173,12 @@ defmodule Mix.Tasks.Responder.Eval do
     reports
   end
 
-  defp run_world_observation(observation, configuration, eval_policies, eval_client) do
+  defp run_world_observation(observation, runtime, eval_policies, eval_client) do
     policy = observation_policy(eval_policies, observation.lane)
 
     case run_world_case(
            observation.scenario,
-           configuration,
+           runtime,
            policy,
            eval_policies.judge,
            eval_client,
@@ -203,11 +204,10 @@ defmodule Mix.Tasks.Responder.Eval do
       )
   end
 
-  defp run_world_case(scenario, configuration, policy, judge_policy, eval_client, observation) do
+  defp run_world_case(scenario, runtime, policy, judge_policy, eval_client, observation) do
     with {:ok, cassette} <- WorldCassette.start_link(scenario),
-         {:ok, gateway} <- start_world_gateway(configuration, scenario, cassette) do
+         {:ok, gateway} <- start_world_gateway(runtime, scenario, cassette) do
       try do
-        work = Map.fetch!(configuration, :work)
         eval_work = %{api: Client, client: eval_client}
 
         WorldRunner.run(scenario,
@@ -221,8 +221,8 @@ defmodule Mix.Tasks.Responder.Eval do
           policy: policy.name,
           policy_digest: policy.digest,
           source_and_action_tools: gateway.source_and_action_tools,
-          state_tools_endpoint: work.state_tools_endpoint,
-          state_tools_secret: work.state_tools_secret,
+          state_tools_endpoint: runtime.state_tools_endpoint,
+          state_tools_secret: runtime.state_tools_secret,
           tool_catalog_sha256: gateway.tool_catalog_sha256,
           tool_names: gateway.tool_names,
           worker_ref: "model-world:#{observation.lane}:#{scenario.id}:#{observation.repeat_index}"
@@ -280,33 +280,32 @@ defmodule Mix.Tasks.Responder.Eval do
     end
   end
 
-  defp start_world_gateway(configuration, scenario, cassette) do
-    with %{state_tools: state_tools} = gateway <-
-           Map.get(configuration, :coop_worker_gateway),
-         true <- is_map(state_tools) do
-      with {:ok, prepared} <- WorldTools.prepare(state_tools, scenario, cassette),
-           child = {FleetServer, Map.put(gateway, :state_tools, prepared.state_tools)},
-           {:ok, supervisor} <- Supervisor.start_link([child], strategy: :one_for_one) do
-        {:ok,
-         %{
-           supervisor: supervisor,
-           source_and_action_tools: prepared.source_and_action_tools,
-           tool_catalog_sha256: prepared.catalog_sha256,
-           tool_names: prepared.tool_names
-         }}
-      end
-    else
-      _missing -> {:error, :model_world_gateway_not_configured}
+  defp start_world_gateway(runtime, scenario, cassette) do
+    with {:ok, prepared} <- WorldTools.prepare(runtime.state_tools, scenario, cassette),
+         child = {FleetServer, Map.put(runtime.gateway, :state_tools, prepared.state_tools)},
+         {:ok, supervisor} <- Supervisor.start_link([child], strategy: :one_for_one) do
+      {:ok,
+       %{
+         supervisor: supervisor,
+         source_and_action_tools: prepared.source_and_action_tools,
+         tool_catalog_sha256: prepared.catalog_sha256,
+         tool_names: prepared.tool_names
+       }}
     end
   end
 
-  defp eval_client(eval_configuration, finch) do
-    Client.new(
-      finch: finch,
-      receive_timeout: eval_configuration.receive_timeout_ms,
-      socket: eval_configuration.socket
-    )
+  defp eval_client(finch) do
+    with {:ok, socket} <- Policy.socket() do
+      Client.new(
+        finch: finch,
+        receive_timeout: EvalRuntime.receive_timeout_ms(),
+        socket: socket
+      )
+    end
   end
+
+  defp no_arguments([]), do: :ok
+  defp no_arguments(_arguments), do: {:error, :invalid_arguments}
 
   defp start_repo do
     case Process.whereis(Responder.Repo) do
@@ -336,7 +335,6 @@ defmodule Mix.Tasks.Responder.Eval do
   defp world_arguments(arguments) do
     strict = [
       {:case, :string},
-      config: :string,
       max_paired_regression: :float,
       min_case_pass_rate: :float,
       min_overall_pass_rate: :float,
@@ -368,7 +366,6 @@ defmodule Mix.Tasks.Responder.Eval do
   defp prepare_world_arguments(parsed) do
     if Enum.uniq(Keyword.keys(parsed)) == Keyword.keys(parsed) do
       world = %{
-        config: Keyword.get(parsed, :config),
         max_paired_regression: Keyword.get(parsed, :max_paired_regression, 0.1),
         min_case_pass_rate: Keyword.get(parsed, :min_case_pass_rate, 2 / 3),
         min_overall_pass_rate: Keyword.get(parsed, :min_overall_pass_rate, 0.9),
@@ -386,8 +383,7 @@ defmodule Mix.Tasks.Responder.Eval do
   end
 
   defp validate_world_arguments(world) do
-    with true <- absolute_reference?(world.config),
-         true <- absolute_reference?(world.results),
+    with true <- absolute_reference?(world.results),
          {:ok, _plan} <- WorldSuite.plan([argument_case(world)], plan_options(world)),
          {:ok, _summary} <-
            WorldSuite.summarize(argument_reports(world), summary_options(world)) do
@@ -500,13 +496,6 @@ defmodule Mix.Tasks.Responder.Eval do
     if pending == 0,
       do: :ok,
       else: {:error, {:world_cleanup_incomplete, pending}}
-  end
-
-  defp config_path(arguments) do
-    case OptionParser.parse(arguments, strict: [config: :string]) do
-      {[config: path], [], []} when is_binary(path) and path != "" -> {:ok, path}
-      _invalid -> {:error, :invalid_arguments}
-    end
   end
 
   defp start_finch do

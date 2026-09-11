@@ -4,14 +4,11 @@ set -euo pipefail
 archive=${1:-}
 expected_version=${2:-}
 expected_sha256=${3:-}
-configuration_template=${4:-}
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 compose=(docker compose --project-name responder-kernel --file "$root/compose.test.yml")
 
-if [[ -z $archive || -z $expected_version || -z $expected_sha256 || \
-      -z $configuration_template || \
-      ! -f $archive || ! -f $configuration_template ]]; then
-  echo "usage: scripts/check-elixir-candidate.sh ARCHIVE VERSION SHA256 CONFIGURATION_TEMPLATE" >&2
+if [[ -z $archive || -z $expected_version || -z $expected_sha256 || ! -f $archive ]]; then
+  echo "usage: scripts/check-elixir-candidate.sh ARCHIVE VERSION SHA256" >&2
   exit 2
 fi
 
@@ -65,9 +62,6 @@ if curl --silent --fail --max-time 1 "http://127.0.0.1:$candidate_port/healthz" 
   exit 1
 fi
 
-configuration="$scratch/responder.yaml"
-sed "s/__CONTROL_PLANE_PORT__/$candidate_port/" "$configuration_template" >"$configuration"
-
 install_prefix="$scratch/install"
 "$root/scripts/install-elixir-release.sh" \
   "$archive" "$expected_version" "$expected_sha256" "$install_prefix" \
@@ -91,7 +85,8 @@ run_candidate() {
     "POOL_SIZE=4"
     "RELEASE_DISTRIBUTION=none"
     "RELEASE_TMP=$release_tmp"
-    "RESPONDER_ELIXIR_CONFIG=$configuration"
+    "RESPONDER_CONTROL_PORT=$candidate_port"
+    "RESPONDER_STATE_DIR=$scratch/state"
   )
 
   env "${runtime_env[@]}" "$binary" eval 'Responder.Release.migrate()' >/dev/null
@@ -167,4 +162,4 @@ fi
 
 run_candidate restored "$restore_database_name"
 
-echo "Elixir release $expected_version migrated idempotently, restarted from the same database, restored a verified backup, became ready, exported metrics, and stopped cleanly"
+echo "Elixir release $expected_version started with no application configuration file, migrated idempotently, restarted from the same database, restored a verified backup, became ready, exported metrics, and stopped cleanly"

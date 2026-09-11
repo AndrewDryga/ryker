@@ -192,7 +192,7 @@ defmodule Responder.Slack.RendererTest do
 
     proactive =
       settings_document()
-      |> put_in(["participation"], %{"source" => "configuration", "value" => "proactive"})
+      |> put_in(["participation"], %{"source" => "channel", "value" => "proactive"})
       |> put_in(["alert_policy"], "offer")
       |> put_in(["invitations", "user_refs"], ["U456"])
 
@@ -211,8 +211,8 @@ defmodule Responder.Slack.RendererTest do
 
     observing =
       settings_document()
-      |> put_in(["participation"], %{"source" => "workspace", "value" => "shadow"})
-      |> put_in(["observation"], %{"on" => true, "source" => "workspace"})
+      |> put_in(["participation"], %{"source" => "channel", "value" => "shadow"})
+      |> put_in(["observation"], %{"on" => true, "source" => "channel"})
       |> put_in(["repositories"], [])
       |> put_in(["default_repository"], nil)
 
@@ -283,7 +283,7 @@ defmodule Responder.Slack.RendererTest do
       settings_document()
       |> put_in(["configuration_ref"], nil)
       |> put_in(["revision"], nil)
-      |> put_in(["participation"], %{"source" => "deployment", "value" => "mentions"})
+      |> put_in(["participation"], %{"source" => "installation", "value" => "mentions"})
 
     assert {:ok, rendered} =
              Renderer.render(%{
@@ -1933,8 +1933,8 @@ defmodule Responder.Slack.RendererTest do
       "customized_by" => nil,
       "default_repository" => "infrastructure",
       "invitations" => %{"on_call_count" => 2, "user_group_refs" => [], "user_refs" => []},
-      "observation" => %{"on" => false, "source" => "configuration"},
-      "participation" => %{"source" => "configuration", "value" => "mentions"},
+      "observation" => %{"on" => false, "source" => "installation"},
+      "participation" => %{"source" => "installation", "value" => "mentions"},
       "repositories" => [
         %{"ref" => "backend", "url" => "https://github.com/acme/backend"},
         %{"ref" => "infrastructure", "url" => nil}

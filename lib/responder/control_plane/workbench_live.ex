@@ -16,6 +16,8 @@ defmodule Responder.ControlPlane.WorkbenchLive do
     RequestFilters,
     RequestPage,
     Router,
+    SettingsPage,
+    SettingsView,
     SlackNames,
     Updates,
     UsageProjection
@@ -46,6 +48,9 @@ defmodule Responder.ControlPlane.WorkbenchLive do
        instructions: nil,
        instruction_scope: nil,
        save_instructions: nil,
+       settings: nil,
+       settings_commands: nil,
+       settings_error: nil,
        overview: nil,
        activity: nil,
        filter_draft: %{},
@@ -134,6 +139,10 @@ defmodule Responder.ControlPlane.WorkbenchLive do
     {:noreply, queue_refresh(socket)}
   end
 
+  def handle_info({:settings_saved, view}, socket) do
+    {:noreply, assign(socket, settings: {:ok, view}, settings_error: nil)}
+  end
+
   def handle_info({:refresh_projection, token}, socket) do
     if token == socket.assigns.refresh_token do
       socket = assign(socket, :refresh_token, nil)
@@ -161,6 +170,17 @@ defmodule Responder.ControlPlane.WorkbenchLive do
   @impl true
   def handle_event(event, _params, socket) when event in ["refresh", "show-new"],
     do: {:noreply, refresh(socket, true)}
+
+  def handle_event("initialize-settings", _params, socket) do
+    case initialize_settings(socket) do
+      {:ok, snapshot} ->
+        {:noreply,
+         assign(socket, settings: {:ok, SettingsView.view(snapshot)}, settings_error: nil)}
+
+      {:error, reason} ->
+        {:noreply, assign(socket, :settings_error, initialize_error(reason))}
+    end
+  end
 
   # A heavy body is prepared when the reader opens it and stays prepared while
   # they read: a refresh that closed the prompt they were halfway through would
@@ -331,6 +351,16 @@ defmodule Responder.ControlPlane.WorkbenchLive do
     end
   end
 
+  defp load_detail(socket, options, ["configuration"]) do
+    assign(socket,
+      native: :settings,
+      page_title: "Settings",
+      settings: options.projection.settings.(),
+      settings_commands: settings_commands(options),
+      body: configuration_evidence(options)
+    )
+  end
+
   defp load_detail(socket, options, ["instructions"]) do
     {:ok, view} = options.projection.instructions.(:global)
 
@@ -412,6 +442,51 @@ defmodule Responder.ControlPlane.WorkbenchLive do
   end
 
   defp load_detail(socket, options, _segments), do: load_snapshot(socket, options)
+
+  defp settings_commands(options) do
+    Map.take(options.actions, [
+      :delete_settings_item,
+      :initialize_settings,
+      :preview_retention,
+      :preview_webhook,
+      :put_settings_item,
+      :save_settings
+    ])
+    |> Map.new(fn {key, callback} -> {command_name(key), callback} end)
+  end
+
+  defp command_name(:delete_settings_item), do: :delete_item
+  defp command_name(:initialize_settings), do: :initialize
+  defp command_name(:preview_retention), do: :preview_retention
+  defp command_name(:preview_webhook), do: :preview_webhook
+  defp command_name(:put_settings_item), do: :put_item
+  defp command_name(:save_settings), do: :save
+
+  defp initialize_settings(socket) do
+    socket.assigns.settings_commands.initialize.()
+  rescue
+    _error in [DBConnection.ConnectionError, Postgrex.Error] -> {:error, :settings_unavailable}
+  end
+
+  defp initialize_error(:settings_import_required),
+    do:
+      "This database already holds product history. Import the existing configuration instead: " <>
+        "a new identity would re-key the worker, delivery and publication custody it belongs to."
+
+  defp initialize_error(:settings_forbidden),
+    do: "This console is not allowed to create settings."
+
+  defp initialize_error(_reason),
+    do: "Settings could not be created. Check that the database is reachable, then try again."
+
+  # Read-only evidence of what the running process assembled. It is rendered
+  # from the application environment the runtime published, not from settings,
+  # so a saved-but-unapplied revision is visibly not in it.
+  defp configuration_evidence(options) do
+    options.projection.operator_configuration.()
+    |> HTML.configuration()
+    |> IO.iodata_to_binary()
+  end
 
   defp load_snapshot(socket, options) do
     page = Router.snapshot(socket.assigns.path, socket.assigns.query, options)
@@ -592,6 +667,13 @@ defmodule Responder.ControlPlane.WorkbenchLive do
             announcement={@lab_announcement}
           />
           <CardLabPage.render :if={@native == :card_lab} view={@card_lab} params={@params} />
+          <SettingsPage.render
+            :if={@native == :settings}
+            view={@settings}
+            commands={@settings_commands}
+            body={@body}
+            error={@settings_error}
+          />
           <div :if={@native == :instructions} class="secondary-page instructions-page">
             <div class="secondary-page-title">
               <h1>{@page_title}</h1>

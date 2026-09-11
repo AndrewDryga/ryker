@@ -1,7 +1,8 @@
 defmodule Responder.Evals.OperatorTaskTest do
-  use ExUnit.Case, async: false
+  use Responder.DataCase, async: false
 
   alias Mix.Tasks.Responder.Eval
+  alias Responder.Settings
 
   setup do
     previous_shell = Mix.shell()
@@ -147,89 +148,59 @@ defmodule Responder.Evals.OperatorTaskTest do
            "eval-host-replay must not share the full Elixir suite's database"
   end
 
-  test "live evals refuse to inherit the production admission policy" do
-    root =
-      Path.join(
-        System.tmp_dir!(),
-        "responder-eval-authority-#{System.unique_integer([:positive])}"
+  test "live evals refuse to inherit a reviewed production authority" do
+    # The eval must not be able to acquire the installation's admission grant by
+    # naming it; isolation is checked against the database it is pointed at.
+    environment(%{
+      "RESPONDER_EVAL_SOCKET" => "/tmp/responder-eval-does-not-exist.sock",
+      "RESPONDER_EVAL_NO_TOOLS_POLICY" => "responder-admission-v1",
+      "RESPONDER_EVAL_NO_TOOLS_POLICY_DIGEST" => String.duplicate("a", 64),
+      "RESPONDER_EVAL_WORLD_POLICY" => "responder-eval-world-v1",
+      "RESPONDER_EVAL_WORLD_POLICY_DIGEST" => String.duplicate("c", 64)
+    })
+
+    {:ok, _} = Settings.initialize("control-plane:local")
+
+    {:ok, _} =
+      Settings.put_policy_binding(
+        %{
+          purpose: :admission,
+          scope_kind: :installation,
+          scope_ref: "",
+          policy_name: "responder-admission-v1",
+          policy_digest: String.duplicate("a", 64),
+          verified_by: :import
+        },
+        1,
+        "control-plane:local"
       )
 
-    File.mkdir_p!(root)
-    on_exit(fn -> File.rm_rf!(root) end)
-
-    config_path = Path.join(root, "responder.yaml")
-
-    File.write!(config_path, """
-    version: 1
-    mode: component
-    host_ref: responder-eval-test
-    coop:
-      socket: #{Path.join(root, "coop.sock")}
-      receive_timeout_ms: 100
-    repositories: {}
-    admission:
-      policy:
-        name: production-admission
-        digest: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
-    work: {}
-    """)
-
-    for kind <- ["admission", "work", "world"] do
-      arguments =
-        if kind == "world",
-          do: [kind, "--config", config_path, "--results", Path.join(root, "world.json")],
-          else: [kind, "--config", config_path]
-
-      assert_raise Mix.Error, ~r/model_eval_policies_not_configured/, fn ->
-        Eval.run(arguments)
+    for kind <- ["admission", "work"] do
+      assert_raise Mix.Error, ~r/model_eval_reuses_production_authority/, fn ->
+        Eval.run([kind])
       end
     end
   end
 
-  test "live commands fail with typed local configuration errors without reaching a model" do
+  test "live eval commands refuse missing authority and malformed arguments locally" do
     root =
       Path.join(System.tmp_dir!(), "responder-eval-command-#{System.unique_integer([:positive])}")
 
     File.mkdir_p!(root)
     on_exit(fn -> File.rm_rf!(root) end)
-
-    config_path = Path.join(root, "responder.yaml")
     results_path = Path.join(root, "world-results.json")
-    socket_path = Path.join(root, "coop-does-not-exist.sock")
 
-    File.write!(config_path, """
-    version: 1
-    mode: component
-    host_ref: responder-eval-test
-    coop:
-      socket: #{socket_path}
-      receive_timeout_ms: 100
-    repositories: {}
-    admission:
-      policy:
-        name: admission-read
-        digest: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
-    model_evals:
-      socket: #{Path.join(root, "eval-coop-does-not-exist.sock")}
-      no_tools_policy:
-        name: responder-eval-no-tools-v1
-        digest: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
-      world_policy:
-        name: responder-eval-world-v1
-        digest: cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
-    work: {}
-    """)
-
-    assert_raise Mix.Error, ~r/14 admission model eval\(s\) failed/, fn ->
-      Eval.run(["admission", "--config", config_path])
+    for kind <- ["admission", "work"] do
+      assert_raise Mix.Error, ~r/model_eval_policies_not_configured/, fn -> Eval.run([kind]) end
     end
 
-    assert_raise Mix.Error, ~r/12 work model eval\(s\) failed/, fn ->
-      Eval.run(["work", "--config", config_path])
+    assert_raise Mix.Error, ~r/model_eval_policies_not_configured/, fn ->
+      Eval.run(["world", "--results", results_path])
     end
 
-    assert_raise Mix.Error, ~r/model-world qualification failed/, fn ->
-      Eval.run(["world", "--config", config_path, "--results", results_path])
+    # A configuration path is no longer an argument any eval command accepts.
+    assert_raise Mix.Error, ~r/invalid_arguments/, fn ->
+      Eval.run(["admission", "--config", Path.join(root, "responder.yaml")])
     end
 
     world_report = results_path |> File.read!() |> Jason.decode!()
@@ -266,25 +237,13 @@ defmodule Responder.Evals.OperatorTaskTest do
         results_path,
         "--paired-baseline"
       ])
+    assert_raise Mix.Error, ~r/invalid_arguments/, fn ->
+      Eval.run(["world", "--results", results_path, "--repeat", "0"])
     end
 
     assert_raise Mix.Error, ~r/invalid_arguments/, fn ->
       Eval.run([
         "world",
-        "--config",
-        config_path,
-        "--results",
-        results_path,
-        "--repeat",
-        "0"
-      ])
-    end
-
-    assert_raise Mix.Error, ~r/invalid_arguments/, fn ->
-      Eval.run([
-        "world",
-        "--config",
-        config_path,
         "--results",
         results_path,
         "--case",
@@ -295,18 +254,8 @@ defmodule Responder.Evals.OperatorTaskTest do
     end
 
     assert_raise Mix.Error, ~r/invalid_arguments/, fn ->
-      Eval.run([
-        "world",
-        "--config",
-        config_path,
-        "--config",
-        config_path,
-        "--results",
-        results_path
-      ])
+      Eval.run(["world", "--results", results_path, "--results", results_path])
     end
-
-    assert File.exists?(results_path)
   end
 
   defp collect_info(messages) do
@@ -316,4 +265,18 @@ defmodule Responder.Evals.OperatorTaskTest do
       0 -> Enum.reverse(messages)
     end
   end
+
+  defp environment(values) do
+    Enum.each(values, fn {name, value} -> put_variable(name, value) end)
+    :ok
+  end
+
+  defp put_variable(name, value) do
+    previous = System.get_env(name)
+    System.put_env(name, value)
+    on_exit(fn -> restore_variable(name, previous) end)
+  end
+
+  defp restore_variable(name, nil), do: System.delete_env(name)
+  defp restore_variable(name, previous), do: System.put_env(name, previous)
 end

@@ -9,6 +9,7 @@ defmodule Responder.Slack.MembershipReconcilerTest do
     ChannelConfiguration,
     ChannelConfigurations,
     ChannelMembership,
+    ChannelSettings,
     ChannelSetup,
     ConfigurationSession,
     MembershipReconciler
@@ -256,11 +257,12 @@ defmodule Responder.Slack.MembershipReconcilerTest do
         configurations: ChannelConfigurations,
         directory: nil,
         operators: MapSet.new(),
-        settings_overrides: fn _workspace_ref, _channel_ref ->
-          %{
-            proactive: %{source: :configuration, value: false},
-            shadow: %{source: :configuration, value: false}
-          }
+        settings_overrides: fn workspace_ref, channel_ref ->
+          ChannelSettings.effective(
+            workspace_ref,
+            "slack:#{workspace_ref}:#{channel_ref}",
+            :mentions
+          )
         end
       },
       workspace_ref: "T9E23FDA39DE5"

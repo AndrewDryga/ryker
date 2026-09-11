@@ -1167,7 +1167,7 @@ defmodule Responder.Slack.IncidentRoomsTest do
           }
         }
       },
-      watch_channels: []
+      default_participation: :mentions
     }
   end
 

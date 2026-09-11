@@ -1056,18 +1056,17 @@ defmodule Responder.Slack.Renderer do
     |> compact_lines()
   end
 
-  defp override_sentence(%{"participation" => %{"source" => source, "value" => value}})
-       when source in ~w(channel workspace) do
+  defp override_sentence(%{"participation" => %{"source" => "channel", "value" => value}})
+       when value in ~w(proactive shadow) do
     setting = if value == "shadow", do: "shadow", else: "proactive"
 
-    "A `/responder #{setting}` override is in effect for this #{source}, so this welcome shows the effective behavior rather than the saved setting. `/responder #{setting} inherit` returns to the saved setting."
+    "This channel has its own `#{setting}` setting, so it no longer follows the installation default. `/responder #{setting} inherit` returns it to the default."
   end
 
   defp override_sentence(_settings), do: nil
 
-  defp welcome_buttons(%{"participation" => %{"source" => source}}, value)
-       when source in ~w(channel workspace incident_room),
-       do: [plain_button("responder_welcome_configure", "Configure channel", value)]
+  defp welcome_buttons(%{"participation" => %{"source" => "incident_room"}}, value),
+    do: [plain_button("responder_welcome_configure", "Configure channel", value)]
 
   defp welcome_buttons(%{"participation" => %{"value" => "shadow"}}, value),
     do: [plain_button("responder_welcome_configure", "Configure channel", value)]
@@ -1119,9 +1118,8 @@ defmodule Responder.Slack.Renderer do
   defp default_repository_fact(%{"default_repository" => ref, "repositories" => repositories}),
     do: Enum.find(repositories, %{"ref" => ref, "url" => nil}, &(&1["ref"] == ref))
 
-  defp observation_fact(%{"observation" => %{"on" => true, "source" => source}})
-       when source in ~w(channel workspace),
-       do: "On (#{source} override)"
+  defp observation_fact(%{"observation" => %{"on" => true, "source" => "incident_room"}}),
+    do: "On (incident room)"
 
   defp observation_fact(%{"observation" => %{"on" => true}}), do: "On"
   defp observation_fact(_settings), do: "Off"
@@ -1149,8 +1147,8 @@ defmodule Responder.Slack.Renderer do
   defp settings_context(settings) do
     origin =
       case settings do
-        %{"participation" => %{"source" => source}} when source in ~w(channel workspace) ->
-          "a `/responder` #{source} override is in effect"
+        %{"participation" => %{"source" => "channel"}, "customized_by" => nil} ->
+          "a `/responder` setting saved for this channel"
 
         %{"participation" => %{"source" => "incident_room"}} ->
           "this is an incident room"
@@ -1190,7 +1188,7 @@ defmodule Responder.Slack.Renderer do
     ]
   end
 
-  @settings_sources ~w(channel configuration deployment incident_room workspace)
+  @settings_sources ~w(channel incident_room installation)
 
   defp channel_settings(
          %{

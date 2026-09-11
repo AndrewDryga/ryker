@@ -5,7 +5,6 @@
 ELIXIR_INSTALL_PREFIX ?= $(HOME)/.local/libexec/responder
 RESPONDER_ELIXIR_RELEASE ?= $(ELIXIR_INSTALL_PREFIX)/current/bin/responder
 ELIXIR_VERSION ?=
-CONFIG ?= .responder/responder.yaml
 LIVE_CHANNEL ?=
 DEV_CHECK_JOBS ?= 4
 EVAL_HISTORY ?= $(HOME)/.local/state/responder/eval-history
@@ -54,9 +53,7 @@ elixir-candidate-check: elixir-release-check
 	@version=$$(awk '{print $$2}' _build/prod/rel/responder/releases/start_erl.data); \
 		archive="_build/prod/responder-$$version.tar.gz"; \
 		digest=$$(if command -v sha256sum >/dev/null 2>&1; then sha256sum "$$archive" | awk '{print $$1}'; else shasum -a 256 "$$archive" | awk '{print $$1}'; fi); \
-		scripts/check-elixir-candidate.sh \
-		"$$archive" "$$version" "$$digest" \
-		"testdata/release/responder-component.yaml"
+		scripts/check-elixir-candidate.sh "$$archive" "$$version" "$$digest"
 
 elixir-product-e2e:
 	scripts/elixir-test.sh \
@@ -83,7 +80,7 @@ product-e2e: elixir-product-e2e
 live-acceptance:
 	@test -n "$(LIVE_CHANNEL)" || { echo "LIVE_CHANNEL must be the joined Slack test channel ID"; exit 2; }
 	RESPONDER_ELIXIR_RELEASE="$(RESPONDER_ELIXIR_RELEASE)" \
-		scripts/elixir-live-acceptance.sh "$(abspath $(CONFIG))" "$(LIVE_CHANNEL)"
+		scripts/elixir-live-acceptance.sh "$(LIVE_CHANNEL)"
 
 live-acceptance-wrapper-check:
 	scripts/elixir-live-acceptance_test.sh
@@ -92,13 +89,13 @@ eval-world-pack:
 	MIX_ENV=test scripts/elixir-mix.sh responder.eval world-pack
 
 eval-world-smoke: | $(EVAL_HISTORY)
-	scripts/elixir-world-eval.sh "$(abspath $(CONFIG))" \
+	scripts/elixir-world-eval.sh \
 		"$(EVAL_HISTORY)/world-smoke-$$(date -u +%Y%m%dT%H%M%SZ).json" \
 		--tag smoke --repeat 1 \
 		--min-overall-pass-rate 1 --min-case-pass-rate 1
 
 eval-world: | $(EVAL_HISTORY)
-	scripts/elixir-world-eval.sh "$(abspath $(CONFIG))" \
+	scripts/elixir-world-eval.sh \
 		"$(EVAL_HISTORY)/world-$$(date -u +%Y%m%dT%H%M%SZ).json" \
 		--repeat 3 --paired-baseline \
 		--min-overall-pass-rate 0.9 --min-case-pass-rate 0.6666666666666666 \
