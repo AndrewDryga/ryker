@@ -95,12 +95,26 @@ defmodule Responder.ControlPlane.ToolCard do
         </ul>
       </section>
       <pre :if={@action.diff && @step.state != "started"} class="action-diff">{@action.diff}</pre>
-      <details :for={artifact <- @step.artifacts} class="action-raw">
+      <details
+        :for={artifact <- @step.artifacts}
+        class="action-raw"
+        data-artifact={
+          if artifact.artifact.state in [:collapsed, :retained], do: artifact[:artifact_id]
+        }
+        data-revoked={if artifact.artifact.state in [:expired, :not_recorded], do: "true"}
+      >
         <summary>
           {if artifact.label == "Arguments", do: "Raw arguments", else: artifact.label}{if artifact.artifact.truncated,
-            do: " · partial record"}
+            do: " · partial record"}{if artifact.artifact.state == :collapsed,
+            do: " · #{bytes(artifact.artifact.bytes)}"}
         </summary>
-        <pre>{artifact.artifact.text}</pre>
+        <p :if={artifact.artifact.state == :collapsed} class="artifact-loading" role="status">
+          Loading…
+        </p>
+        <p :if={artifact.artifact.state in [:expired, :not_recorded]} class="artifact-unavailable">
+          This body is no longer retained.
+        </p>
+        <pre :if={artifact.artifact.state == :retained}>{artifact.artifact.text}</pre>
       </details>
     </div>
     """
@@ -329,6 +343,11 @@ defmodule Responder.ControlPlane.ToolCard do
          do: value,
          else: (_ -> %{})
   end
+
+  defp bytes(nil), do: "size not recorded"
+  defp bytes(count) when count < 1_024, do: "#{count} bytes"
+  defp bytes(count) when count < 1_024 * 1_024, do: "#{div(count, 1_024)} KiB"
+  defp bytes(count), do: "#{Float.round(count / (1_024 * 1_024), 1)} MiB"
 
   defp string(value) when is_binary(value), do: value
   defp string(_), do: nil

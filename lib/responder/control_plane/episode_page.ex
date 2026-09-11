@@ -239,7 +239,14 @@ defmodule Responder.ControlPlane.EpisodePage do
     >
       <h2 class="sr-only">Execution timeline</h2>
       <p :if={@snapshot.trace.history.truncated || @timeline.truncated} class="timeline-bound">
-        History is bounded. Older model calls are available under “Model calls” in the technical record below. Long artifacts are labeled when truncated.
+        <span :for={window <- Map.get(@snapshot.trace.history, :windows, [])} :if={window.truncated}>
+          Showing {window.shown} of {window.total} retained {window.label}.
+        </span>
+        <.link
+          :if={@snapshot.trace.activity[:more]}
+          patch={base(@snapshot) <> "?events=" <> Integer.to_string(@snapshot.trace.activity.more)}
+        >Show earlier activity</.link>
+        Older model calls stay under “Model calls” in the technical record below; long artifacts are labeled when truncated.
       </p>
       <section
         :for={{chapter, index} <- Enum.with_index(@chapters, 1)}
@@ -362,6 +369,12 @@ defmodule Responder.ControlPlane.EpisodePage do
     >
       <div class="case-entry-time">
         <time title={timestamp(@entry.at)}>{clock_time(@entry.at)}</time>
+        <a
+          class="card-link"
+          href={"##{@entry.id}"}
+          title="Link to this card"
+          aria-label="Link to this card"
+        >#</a>
       </div>
       <div class="case-entry-body">
         <.message :if={@entry.kind == :message} message={@entry.message} />
@@ -809,17 +822,11 @@ defmodule Responder.ControlPlane.EpisodePage do
         </p>
       </div>
       <div :if={(@step[:artifacts] || []) != []} class="tool-evidence">
-        <details
+        <.evidence_body
           :for={{item, index} <- Enum.with_index(@step.artifacts)}
           id={"tool-evidence-#{@step.id}-#{index}"}
-        >
-          <summary>
-            {item.label}<span :if={item.artifact.truncated}> · Partial display</span><span :if={
-              item.artifact.redacted
-            }> · Secrets redacted</span>
-          </summary>
-          <pre>{item.artifact.text}</pre>
-        </details>
+          item={item}
+        />
       </div>
       <details
         :if={@step.details != [] || @step.href}
@@ -831,6 +838,34 @@ defmodule Responder.ControlPlane.EpisodePage do
         } />
       </details>
     </div>
+    """
+  end
+
+  # One retained tool body. It is not in the page until the reader opens it, and
+  # a confirmed expiry closes it instead of restoring their place around content
+  # that is gone.
+  defp evidence_body(assigns) do
+    assigns = assign(assigns, :artifact, assigns.item.artifact)
+
+    ~H"""
+    <details
+      id={@id}
+      data-artifact={if @artifact.state in [:collapsed, :retained], do: @item[:artifact_id]}
+      data-revoked={if @artifact.state in [:expired, :not_recorded], do: "true"}
+    >
+      <summary>
+        {@item.label}<span :if={@artifact.state == :collapsed}> · {bytes(@artifact.bytes)}</span><span :if={
+          @artifact.truncated
+        }> · Partial display</span><span :if={@artifact.redacted}> · Secrets redacted</span>
+      </summary>
+      <p :if={@artifact.state == :collapsed} class="artifact-loading" role="status">Loading…</p>
+      <p :if={@artifact.state in [:expired, :not_recorded]} class="artifact-unavailable">
+        {if @artifact.state == :expired,
+          do: "Removed by retention. No reconstructed substitute is shown.",
+          else: "This body was not recorded."}
+      </p>
+      <pre :if={@artifact.state == :retained}>{@artifact.text}</pre>
+    </details>
     """
   end
 

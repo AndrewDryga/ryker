@@ -46,7 +46,11 @@ defmodule Responder.ControlPlane.ModelRequests do
 
           selected ->
             options =
-              [secrets: Redactor.configured_secrets(), episode_ref: episode.key]
+              [
+                secrets: Redactor.configured_secrets(),
+                episode_ref: episode.key,
+                tool_disclosed: disclosed(params)
+              ]
               |> with_responses(List.wrap(selected), params)
 
             {:ok,
@@ -914,11 +918,20 @@ defmodule Responder.ControlPlane.ModelRequests do
         )
       )
       |> Enum.map(fn event ->
+        artifact_id = "tool-#{event.id}"
+
         %{
           id: event.id,
+          artifact_id: artifact_id,
           kind: event.kind,
           at: event.occurred_at,
-          artifact: Redactor.artifact(event.payload, Keyword.put(options, :max_bytes, 16 * 1_024))
+          artifact:
+            Redactor.artifact(
+              event.payload,
+              options
+              |> Keyword.put(:max_bytes, 16 * 1_024)
+              |> Keyword.put(:disclosed, tool_opened?(options, artifact_id))
+            )
         }
       end)
 
@@ -946,6 +959,16 @@ defmodule Responder.ControlPlane.ModelRequests do
 
   defp section(id, title, value, options),
     do: %{id: id, title: title, artifact: Redactor.artifact(value, options)}
+
+  # A retained tool payload is heavy and almost always closed, even on the page
+  # that exists to inspect one model call. The prompt on that page is what the
+  # reader navigated to; its payloads are not.
+  defp tool_opened?(options, id) do
+    case options[:tool_disclosed] do
+      %MapSet{} = disclosed -> MapSet.member?(disclosed, id)
+      _no_disclosure_tracking -> true
+    end
+  end
 
   # An artifact with no identity cannot be opened again on the next refresh, so
   # it is never collapsed: a body a reader could not restore is worse than a

@@ -53,7 +53,10 @@ defmodule Responder.ControlPlane.EpisodeTrace do
     inputs = inputs_by_ref(input_rows)
     sessions = sessions(episode.id)
     turns = turns(episode.id)
-    activity_page = Activity.page_for_episode(episode.id)
+    disclosed = Keyword.get(options, :disclosed) || MapSet.new()
+
+    activity_page =
+      Activity.page_for_episode(episode.id, Keyword.get(options, :activity_pages, 1))
 
     causality =
       EpisodeCausality.index(input_rows, turns, activity_page.events,
@@ -62,7 +65,7 @@ defmodule Responder.ControlPlane.EpisodeTrace do
 
     activity =
       activity_page.events
-      |> activity_steps(causality)
+      |> activity_steps(causality, disclosed)
       |> EvidenceLinks.attach(activity_page.events, turns, records)
 
     current_turn = List.last(turns)
@@ -98,9 +101,15 @@ defmodule Responder.ControlPlane.EpisodeTrace do
       |> chronological()
 
     %{
-      activity: Map.drop(activity_page, [:events]),
+      activity:
+        activity_page
+        |> Map.drop([:events])
+        |> Map.put(
+          :more,
+          next_activity_page(activity_page, Keyword.get(options, :activity_pages, 1))
+        ),
       actions: operator_actions(episode, current_turn, review),
-      case_file: case_file(episode.id, turns, sessions, Keyword.get(options, :disclosed)),
+      case_file: case_file(episode.id, turns, sessions, disclosed),
       startup: startup,
       causality: causality,
       chapters: chapters(steps, received_at, causality),
@@ -116,6 +125,10 @@ defmodule Responder.ControlPlane.EpisodeTrace do
       stopped: stopped
     }
   end
+
+  # Only offer another page when one exists and the bound has not been reached.
+  defp next_activity_page(%{truncated: true}, pages) when pages < 10, do: pages + 1
+  defp next_activity_page(_page, _pages), do: nil
 
   defp slack_status_steps(episode_id) do
     Enum.map(ThreadStatusReceipts.for_episode(episode_id), fn receipt ->
@@ -154,7 +167,7 @@ defmodule Responder.ControlPlane.EpisodeTrace do
     options = [
       secrets: InspectionRedactor.configured_secrets(),
       max_bytes: 12_000,
-      disclosed: disclosed || MapSet.new()
+      disclosed: disclosed
     ]
 
     base = from(entry in subquery(CurrentInputs.for_episode(episode_id)))
@@ -1578,7 +1591,7 @@ defmodule Responder.ControlPlane.EpisodeTrace do
     end)
   end
 
-  defp activity_steps(activity_events, causality) do
+  defp activity_steps(activity_events, causality, disclosed) do
     routing_ids =
       activity_events
       |> Enum.filter(&(not is_nil(&1.admission_input_id)))
@@ -1587,7 +1600,7 @@ defmodule Responder.ControlPlane.EpisodeTrace do
 
     activity_events
     |> Enum.reject(&(&1.kind == "model.thought"))
-    |> Enum.reduce({[], %{}}, &fold_activity/2)
+    |> Enum.reduce({[], %{}}, &fold_activity(&1, &2, disclosed))
     |> elem(0)
     |> Enum.map(fn step ->
       step = %{step | owner: activity_step_owner(step.id, causality)}
@@ -1603,24 +1616,25 @@ defmodule Responder.ControlPlane.EpisodeTrace do
 
   defp activity_step_owner(_id, _causality), do: :episode
 
-  defp fold_activity(%ActivityEvent{kind: "tool.started"} = event, {steps, open}) do
+  defp fold_activity(%ActivityEvent{kind: "tool.started"} = event, {steps, open}, disclosed) do
     key = activity_tool_key(event)
-    activity_step = tool_started_step(event)
+    activity_step = tool_started_step(event, disclosed)
     {steps ++ [activity_step], Map.put(open, key, length(steps))}
   end
 
-  defp fold_activity(%ActivityEvent{kind: "tool.completed"} = event, {steps, open}) do
+  defp fold_activity(%ActivityEvent{kind: "tool.completed"} = event, {steps, open}, disclosed) do
     key = activity_tool_key(event)
 
     case Map.pop(open, key) do
-      {nil, open} -> {steps ++ [tool_completed_step(event)], open}
-      {index, open} -> {steps ++ [complete_tool(Enum.at(steps, index), event)], open}
+      {nil, open} -> {steps ++ [tool_completed_step(event, disclosed)], open}
+      {index, open} -> {steps ++ [complete_tool(Enum.at(steps, index), event, disclosed)], open}
     end
   end
 
-  defp fold_activity(event, {steps, open}), do: {steps ++ [activity_step(event)], open}
+  defp fold_activity(event, {steps, open}, disclosed),
+    do: {steps ++ [activity_step(event, disclosed)], open}
 
-  defp tool_started_step(event) do
+  defp tool_started_step(event, disclosed) do
     input = event.payload["input"]
 
     step(
@@ -1629,7 +1643,7 @@ defmodule Responder.ControlPlane.EpisodeTrace do
       event.occurred_at,
       %{
         actor: "Coop",
-        artifacts: tool_artifacts(event.payload),
+        artifacts: tool_artifacts(event, disclosed),
         details:
           compact_details(
             [
@@ -1648,7 +1662,7 @@ defmodule Responder.ControlPlane.EpisodeTrace do
     )
   end
 
-  defp tool_completed_step(event) do
+  defp tool_completed_step(event, disclosed) do
     status = event.payload["status"] || "completed"
 
     step(
@@ -1657,7 +1671,7 @@ defmodule Responder.ControlPlane.EpisodeTrace do
       event.occurred_at,
       %{
         actor: "Coop",
-        artifacts: tool_artifacts(event.payload),
+        artifacts: tool_artifacts(event, disclosed),
         details:
           compact_details([
             {"Kind", event.payload["kind"]},
@@ -1675,7 +1689,7 @@ defmodule Responder.ControlPlane.EpisodeTrace do
     )
   end
 
-  defp complete_tool(step, event) do
+  defp complete_tool(step, event, disclosed) do
     status = event.payload["status"] || "completed"
     duration_ms = nonnegative_diff(event.occurred_at, step.at)
 
@@ -1683,7 +1697,7 @@ defmodule Responder.ControlPlane.EpisodeTrace do
       step
       | id: "activity-#{event.id}",
         at: event.occurred_at,
-        artifacts: merge_artifacts(step[:artifacts] || [], tool_artifacts(event.payload)),
+        artifacts: merge_artifacts(step[:artifacts] || [], tool_artifacts(event, disclosed)),
         tool_kind: event.payload["kind"] || step.tool_kind,
         path_context: safe_path_context(event.payload["path_context"] || step.path_context),
         summary: tool_outcome(event.payload, status),
@@ -1709,7 +1723,7 @@ defmodule Responder.ControlPlane.EpisodeTrace do
     end
   end
 
-  defp activity_step(%ActivityEvent{kind: "model.progress"} = event) do
+  defp activity_step(%ActivityEvent{kind: "model.progress"} = event, _disclosed) do
     step("activity-#{event.id}", :work, event.occurred_at, %{
       actor: "Model",
       details: [],
@@ -1720,7 +1734,7 @@ defmodule Responder.ControlPlane.EpisodeTrace do
     })
   end
 
-  defp activity_step(%ActivityEvent{kind: "model.plan"} = event) do
+  defp activity_step(%ActivityEvent{kind: "model.plan"} = event, disclosed) do
     count = event.payload["step_count"] || 0
 
     step(
@@ -1729,16 +1743,7 @@ defmodule Responder.ControlPlane.EpisodeTrace do
       event.occurred_at,
       %{
         actor: "Model",
-        artifacts:
-          if(event.payload["entries"] in [nil, []],
-            do: [],
-            else: [
-              %{
-                label: "Plan",
-                artifact: InspectionRedactor.artifact(event.payload["entries"], max_bytes: 20_000)
-              }
-            ]
-          ),
+        artifacts: plan_artifacts(event, disclosed),
         details: compact_details([{"Plan steps", count}]),
         stage: "Plan",
         state: "updated",
@@ -1749,7 +1754,7 @@ defmodule Responder.ControlPlane.EpisodeTrace do
     )
   end
 
-  defp activity_step(%ActivityEvent{kind: "permission.decided"} = event) do
+  defp activity_step(%ActivityEvent{kind: "permission.decided"} = event, _disclosed) do
     outcome = event.payload["outcome"] || "recorded"
 
     step(
@@ -1772,7 +1777,7 @@ defmodule Responder.ControlPlane.EpisodeTrace do
     )
   end
 
-  defp activity_step(%ActivityEvent{kind: "activity.elided"} = event) do
+  defp activity_step(%ActivityEvent{kind: "activity.elided"} = event, _disclosed) do
     step(
       "activity-#{event.id}",
       :work,
@@ -1789,7 +1794,7 @@ defmodule Responder.ControlPlane.EpisodeTrace do
     )
   end
 
-  defp activity_step(%ActivityEvent{kind: "provider.backoff"} = event) do
+  defp activity_step(%ActivityEvent{kind: "provider.backoff"} = event, _disclosed) do
     step(
       "activity-#{event.id}",
       :work,
@@ -1806,7 +1811,7 @@ defmodule Responder.ControlPlane.EpisodeTrace do
     )
   end
 
-  defp activity_step(%ActivityEvent{kind: "provider.alive"} = event) do
+  defp activity_step(%ActivityEvent{kind: "provider.alive"} = event, _disclosed) do
     step(
       "activity-#{event.id}",
       :work,
@@ -1823,7 +1828,7 @@ defmodule Responder.ControlPlane.EpisodeTrace do
     )
   end
 
-  defp activity_step(event) do
+  defp activity_step(event, _disclosed) do
     step(
       "activity-#{event.id}",
       :work,
@@ -1840,7 +1845,17 @@ defmodule Responder.ControlPlane.EpisodeTrace do
     )
   end
 
-  defp tool_artifacts(payload) do
+  # Tool evidence is the heaviest thing on a long timeline: a tool-heavy run has
+  # hundreds of calls, and each one sanitized and re-encoded up to 20 KiB per
+  # result field on every refresh, for text that is almost always closed. The
+  # result bodies now carry a durable id and load when their disclosure opens.
+  #
+  # Arguments stay prepared. The compact card face is derived from them -- the
+  # command it ran, the file it read, the observation it recorded -- so making
+  # them lazy would empty the row a reader scans instead of the body they open.
+  @lazy_tool_fields ~w(output error content locations)
+
+  defp tool_artifacts(%ActivityEvent{payload: payload, id: event_id}, disclosed) do
     for {key, label} <- [
           {"input", "Arguments"},
           {"output", "Response"},
@@ -1850,9 +1865,39 @@ defmodule Responder.ControlPlane.EpisodeTrace do
         ],
         Map.has_key?(payload, key),
         payload[key] != nil do
-      %{label: label, artifact: InspectionRedactor.artifact(payload[key], max_bytes: 20_000)}
+      artifact_id = "activity-#{event_id}-#{key}"
+      lazy? = key in @lazy_tool_fields
+
+      %{
+        label: label,
+        artifact_id: if(lazy?, do: artifact_id),
+        artifact:
+          InspectionRedactor.artifact(payload[key],
+            max_bytes: 20_000,
+            disclosed: not lazy? or MapSet.member?(disclosed, artifact_id)
+          )
+      }
     end
   end
+
+  defp plan_artifacts(%ActivityEvent{payload: %{"entries" => entries}, id: id}, disclosed)
+       when entries not in [nil, []] do
+    artifact_id = "activity-#{id}-plan"
+
+    [
+      %{
+        label: "Plan",
+        artifact_id: artifact_id,
+        artifact:
+          InspectionRedactor.artifact(entries,
+            max_bytes: 20_000,
+            disclosed: MapSet.member?(disclosed, artifact_id)
+          )
+      }
+    ]
+  end
+
+  defp plan_artifacts(_event, _disclosed), do: []
 
   defp merge_artifacts(start, finish),
     do:

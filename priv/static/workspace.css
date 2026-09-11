@@ -1324,3 +1324,9 @@ details.measurement-notes > summary { cursor:pointer; font-weight:600; color:var
 /* Counted partial summaries: what a row counted over, before opening it. */
 .prompt-source-count { font-size:13px; color:#536256; margin-left:8px; }
 .prompt-source-count-unknown { color:#7a6a3f; }
+
+/* A stable per-card link, on hover and on keyboard focus. */
+.card-link { display:block; margin-top:4px; font-size:12px; color:#8a9287; text-decoration:none; opacity:0; }
+.case-entry:hover .card-link, .card-link:focus { opacity:1; }
+.card-link:focus { outline:2px solid #345c43; outline-offset:2px; }
+.tool-evidence .artifact-loading, .action-raw .artifact-loading { margin:6px 0 0; color:#536256; }

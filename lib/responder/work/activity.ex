@@ -37,6 +37,9 @@ defmodule Responder.Work.Activity do
   @maximum_page 1_000
   @sync_page_size 1_000
   @projection_limit 1_000
+  # Loading older activity stays bounded: ten pages of retained events, not an
+  # unbounded "expand everything" that hands the reader the whole table.
+  @maximum_pages 10
 
   @doc "Capture routing activity without requiring or inventing a kernel episode."
   def sync_admission(entry, remote_id, settings) do
@@ -177,14 +180,16 @@ defmodule Responder.Work.Activity do
 
   def list_for_episode(_episode_id), do: []
 
-  @spec page_for_episode(Ecto.UUID.t()) :: %{
+  @spec page_for_episode(Ecto.UUID.t(), pos_integer()) :: %{
           events: [ActivityEvent.t()],
           shown: non_neg_integer(),
           tool_calls: non_neg_integer(),
           total: non_neg_integer(),
           truncated: boolean()
         }
-  def page_for_episode(episode_id) when is_binary(episode_id) do
+  def page_for_episode(episode_id, pages \\ 1)
+
+  def page_for_episode(episode_id, pages) when is_binary(episode_id) do
     inputs =
       from(i in Responder.Ingress.Inbox.Entry, where: i.episode_id == ^episode_id, select: i.id)
 
@@ -212,7 +217,7 @@ defmodule Responder.Work.Activity do
       Repo.all(
         from(event in query,
           order_by: [desc: event.occurred_at, desc: event.session_id, desc: event.sequence],
-          limit: @projection_limit
+          limit: ^(@projection_limit * min(max(pages, 1), @maximum_pages))
         )
       )
       |> Enum.reverse()
@@ -224,7 +229,7 @@ defmodule Responder.Work.Activity do
     })
   end
 
-  def page_for_episode(_episode_id),
+  def page_for_episode(_episode_id, _pages),
     do: %{events: [], shown: 0, tool_calls: 0, total: 0, truncated: false}
 
   defp sync_pages(_session_id, _remote_id, _cursor, _api, _client, _inserted, 0),
