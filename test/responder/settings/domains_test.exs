@@ -276,4 +276,95 @@ defmodule Responder.Settings.DomainsTest do
 
     assert {:ok, ^imported} = Settings.initialize(@actor)
   end
+
+  test "every settings save is attributed to a domain the edit log can hold" do
+    # These rows are how the importer tells its own write from an operator's
+    # later edit: `target_edited` refuses a rerun on exactly this evidence. A
+    # domain the writer names but the edit log's enum does not accept raises on
+    # insert, which fails the very save it was recording.
+    System.put_env("RESPONDER_WEBHOOK_SECRET_NAMES", "ALERTMANAGER_WEBHOOK_SECRET")
+    on_exit(fn -> System.delete_env("RESPONDER_WEBHOOK_SECRET_NAMES") end)
+
+    revision =
+      Enum.reduce(saves(), 1, fn save, revision ->
+        assert {:ok, saved} = save.(revision), "save at revision #{revision} was refused"
+        saved.installation.revision
+      end)
+
+    recorded = Repo.all(Edit) |> Enum.map(& &1.domain) |> Enum.uniq() |> Enum.sort()
+
+    assert revision == length(saves()) + 1
+    assert recorded -- Edit.domains() == []
+
+    # `:import` is recorded only by the one-time importer, which creates the
+    # installation instead of saving into one.
+    assert Edit.domains() -- recorded == [:import]
+  end
+
+  defp saves do
+    [
+      &Settings.save_retention(%{audit_data_seconds: 60 * 86_400}, &1, @actor),
+      &Settings.put_repository(%{ref: "responder"}, &1, @actor),
+      &Settings.save_slack(
+        %{
+          enabled: true,
+          workspace_ref: "T0123456789",
+          bot_ref: "A0123456789",
+          bot_user_ref: "U0123456789",
+          default_repository_ref: "responder",
+          operators: ["U1111111111"]
+        },
+        &1,
+        @actor
+      ),
+      &Settings.save_github(%{enabled: true, app_id: 12_345}, &1, @actor),
+      &Settings.save_publication(%{enabled: true}, &1, @actor),
+      &Settings.save_emisar(%{enabled: true}, &1, @actor),
+      &Settings.save_report(
+        %{weekly_self_report_enabled: true, channel_ref: "C0123456789"},
+        &1,
+        @actor
+      ),
+      &Settings.save_learning(%{enabled: true}, &1, @actor),
+      &Settings.save_work(%{workspace_ref: "responder-local-main"}, &1, @actor),
+      &Settings.put_policy_binding(
+        %{
+          purpose: :conversational,
+          scope_kind: :repository,
+          scope_ref: "responder",
+          policy_name: "responder-conversation-v1",
+          policy_digest: @digest,
+          verified_by: :import
+        },
+        &1,
+        @actor
+      ),
+      &Settings.put_webhook_source(
+        %{
+          name: "alerts",
+          adapter_kind: :universal,
+          auth_kind: :hmac_sha256,
+          secret_name: "ALERTMANAGER_WEBHOOK_SECRET",
+          destination_transport: "slack",
+          destination_conversation_ref: "slack:T0123456789:C0123456789",
+          destination_thread_ref: "slack:T0123456789:C0123456789",
+          context_ref: "responder"
+        },
+        &1,
+        @actor
+      ),
+      &Settings.put_pricing_rate(
+        %{
+          execution_target: "codex:gpt-5.6-sol",
+          input_usd_per_million: "4",
+          cached_input_usd_per_million: "0.40",
+          output_usd_per_million: "20",
+          effective_from: "2026-09-01",
+          provenance: "https://developers.openai.com/api/docs/pricing"
+        },
+        &1,
+        @actor
+      )
+    ]
+  end
 end
