@@ -280,7 +280,11 @@ defmodule Responder.ControlPlane.UsagePageTest do
         timed: 1
       })
 
-    kinds = Enum.map(~w(conversational standard deep unclassified), &Map.put(row, :work_kind, &1))
+    kinds =
+      Enum.map(
+        ~w(conversational standard deep continuation resumed task event_wait schedule publication approval unclassified),
+        &Map.put(row, :work_kind, &1)
+      )
 
     users =
       Enum.map(
@@ -299,6 +303,13 @@ defmodule Responder.ControlPlane.UsagePageTest do
           "Conversation",
           "Standard work",
           "Deep work",
+          "Continuation",
+          "Resumed work",
+          "Task",
+          "Event wait",
+          "Scheduled run",
+          "Publication follow-up",
+          "Approval",
           "1 execution without a saved work type",
           "andrew",
           "$0.0012",
