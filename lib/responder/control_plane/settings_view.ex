@@ -32,7 +32,11 @@ defmodule Responder.ControlPlane.SettingsView do
       {:error, :settings_not_initialized} -> {:error, :settings_not_initialized}
     end
   rescue
-    _error in [DBConnection.ConnectionError, Postgrex.Error] ->
+    # A table that is mid-migration, a connection that died and a domain row
+    # that is somehow missing are all "could not be read". None of them is an
+    # installation without settings, and treating them as one would offer to
+    # create a second identity over live history.
+    _error in [DBConnection.ConnectionError, Ecto.NoResultsError, Postgrex.Error] ->
       {:error, :settings_unavailable}
   end
 
