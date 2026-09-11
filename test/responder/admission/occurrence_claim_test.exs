@@ -115,6 +115,7 @@ defmodule Responder.Admission.OccurrenceClaimTest do
         "reaction" => nil,
         "relation" => "unrelated",
         "reason" => "This pull request needs a review.",
+        "repository_source" => nil,
         "work_class" => "standard"
       })
 
@@ -140,6 +141,7 @@ defmodule Responder.Admission.OccurrenceClaimTest do
         "reaction" => nil,
         "relation" => "same_work",
         "reason" => "This run belongs to the rollout already being tracked.",
+        "repository_source" => nil,
         "work_class" => "standard"
       })
 

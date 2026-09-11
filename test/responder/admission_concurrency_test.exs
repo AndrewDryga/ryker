@@ -366,6 +366,7 @@ defmodule Responder.AdmissionConcurrencyTest do
                  "reaction" => nil,
                  "relation" => "unrelated",
                  "reason" => "This pull request needs a review.",
+                 "repository_source" => nil,
                  "work_class" => "standard"
                })
 
