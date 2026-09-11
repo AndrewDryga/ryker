@@ -345,6 +345,26 @@ defmodule Responder.CoopFleet.ControlPlaneTest do
 
     assert Repo.get_by!(Command, idempotency_key: "responder:work:create:authority-drift:g1").status ==
              :queued
+
+    # A revoking placement is never selected by renewal again, so before this it
+    # stayed "current" forever: after a worker rolled to a new build, six expired
+    # revoking placements kept readiness red with :expired_current_placements
+    # with nothing able to clear them.
+    Repo.update_all(
+      from(placement in Placement, where: placement.id == ^placement.id),
+      set: [lease_expires_at: DateTime.add(DateTime.utc_now(), -60, :second)]
+    )
+
+    assert {:ok, %{"commands" => []}} =
+             ControlPlane.handle_poll(
+               "worker-a",
+               poll("worker-a", "workspace-main", "poll:worker-a:authority-drift-expired")
+             )
+
+    assert Repo.get!(Placement, placement.id).state == :replaced
+
+    assert Repo.get_by!(Command, idempotency_key: "responder:work:create:authority-drift:g1").status ==
+             :failed
   end
 
   test "a matching policy digest cannot place work on wider execution authority" do
