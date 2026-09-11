@@ -3,6 +3,7 @@ import {LiveSocket} from "/assets/phoenix_live_view.esm.js"
 import {draftKey as keyFor, captureDrafts, acceptDrafts, sendDraft, validateDraft} from "/assets/drafts.mjs"
 import {createRelearnPicker} from "/assets/relearn-selection.mjs"
 import {createInstructionDraft} from "/assets/instruction-draft.mjs"
+import {createSettingsGuard} from "/assets/settings-draft.mjs"
 const draftKey = element => element.closest?.("form[phx-change]") ? null : keyFor(element, location.pathname)
 
 const PreserveReadingState = {
@@ -172,8 +173,12 @@ const InstructionDraft = {
   updated() { this.draft.sync() },
   destroyed() { this.draft.destroy() }
 }
+const SettingsDraft = {
+  mounted() { this.guard = createSettingsGuard(this.el) },
+  destroyed() { this.guard.destroy() }
+}
 const liveSocket = new LiveSocket("/live", Socket, {
   params: {_csrf_token: csrfToken},
-  hooks: {PreserveReadingState, InstructionDraft}
+  hooks: {PreserveReadingState, InstructionDraft, SettingsDraft}
 })
 liveSocket.connect()
