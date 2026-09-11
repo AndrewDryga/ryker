@@ -66,6 +66,42 @@ defmodule Responder.Bootstrap do
   def secret!(kind, env \\ &System.fetch_env/1),
     do: required_secret!(env, Keyword.fetch!(@core_secrets, kind))
 
+  @doc """
+  Whether each fixed-name credential is present and usable.
+
+  Presence only: the value is never returned, logged or rendered. A credential
+  being configured does not enable its integration; the durable setting does.
+  """
+  @spec credential_status((String.t() -> {:ok, String.t()} | :error)) :: [
+          %{kind: atom(), name: String.t(), status: :configured | :invalid | :missing}
+        ]
+  def credential_status(env \\ &System.fetch_env/1) do
+    Enum.map(@core_secrets, fn {kind, name} ->
+      status =
+        case read_secret(env, name, 16) do
+          {:ok, _secret} -> :configured
+          {:error, {:environment_variable_missing, _name}} -> :missing
+          {:error, _reason} -> :invalid
+        end
+
+      %{kind: kind, name: name, status: status}
+    end)
+  end
+
+  @doc """
+  The custom webhook credential names this deployment registered.
+
+  A webhook source may reference one of these names and nothing else; the list
+  exists so a form can never turn into a process-environment probe.
+  """
+  @spec registered_webhook_secret_names((String.t() -> {:ok, String.t()} | :error)) ::
+          {:ok, [String.t()]} | :error
+  def registered_webhook_secret_names(env \\ &System.fetch_env/1) do
+    {:ok, webhook_secret_names!(env)}
+  rescue
+    ArgumentError -> :error
+  end
+
   def checkpoint_key!(env \\ &System.fetch_env/1) do
     name = "RESPONDER_CHECKPOINT_KEY"
     encoded = required_secret!(env, name)

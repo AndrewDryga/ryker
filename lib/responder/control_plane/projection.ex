@@ -15,6 +15,7 @@ defmodule Responder.ControlPlane.Projection do
   alias Responder.ControlPlane.CurrentInputs
   alias Responder.ControlPlane.InstructionSettings
   alias Responder.ControlPlane.ModelRequests
+  alias Responder.ControlPlane.SettingsView
   alias Responder.ControlPlane.WorkRecovery
 
   alias Responder.Artifacts.OutputArtifact
@@ -57,6 +58,7 @@ defmodule Responder.ControlPlane.Projection do
       channels: &channels/1,
       instructions: &InstructionSettings.fetch/1,
       configuration: &configuration/0,
+      settings: &SettingsView.fetch/0,
       delivery: &delivery/1,
       emisar: &emisar/1,
       episode: &episode/2,
