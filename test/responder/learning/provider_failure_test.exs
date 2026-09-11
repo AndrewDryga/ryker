@@ -71,7 +71,6 @@ defmodule Responder.Learning.ProviderFailureTest do
       |> Map.fetch!("remote_error")
 
     {:ok, fake} = FakeCoopAPI.start_link([], fail_first_turn: true)
-    on_exit(fn -> if Process.alive?(fake), do: Agent.stop(fake) end)
 
     Agent.update(fake, fn state ->
       state

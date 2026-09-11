@@ -284,7 +284,6 @@ defmodule Responder.Evals.LearningRunnerTest do
       )
     end)
 
-    on_exit(fn -> if Process.alive?(fake), do: Agent.stop(fake) end)
     %{rows: [[database]]} = Repo.query!("SELECT current_database()")
 
     %{

@@ -39,7 +39,6 @@ defmodule Responder.Evals.WorldRunnerTest do
 
     {:ok, scenario} = WorldCase.fetch(captured["scenario_id"])
     {:ok, fake} = FakeWorkCoopAPI.start_link([])
-    on_exit(fn -> if Process.alive?(fake), do: Agent.stop(fake) end)
 
     before_execute = fn claim, _scenario ->
       refs =
@@ -145,7 +144,6 @@ defmodule Responder.Evals.WorldRunnerTest do
     # bypassing the normal candidate sanitizer and copying prompts into reports.
     {:ok, scenario} = WorldCase.fetch("ordinary-thread-question-gets-natural-answer")
     {:ok, fake} = FakeWorkCoopAPI.start_link([])
-    on_exit(fn -> if Process.alive?(fake), do: Agent.stop(fake) end)
     {:ok, before_execute} = WorldHostReplay.before_execute(scenario, fake)
 
     assert {:error, {:world_eval_assertions, report}} =
@@ -242,7 +240,6 @@ defmodule Responder.Evals.WorldRunnerTest do
   test "a failed world cannot attribute another episode's remote turn to its model" do
     {:ok, scenario} = WorldCase.fetch("ordinary-thread-question-gets-natural-answer")
     {:ok, fake} = FakeWorkCoopAPI.start_link([])
-    on_exit(fn -> if Process.alive?(fake), do: Agent.stop(fake) end)
 
     FakeWorkCoopAPI.update(
       fake,
@@ -311,11 +308,9 @@ defmodule Responder.Evals.WorldRunnerTest do
 
     {:ok, scenario} = WorldCase.fetch("airflow-verification-arms-wait")
     {:ok, fake} = FakeWorkCoopAPI.start_link([])
-    on_exit(fn -> if Process.alive?(fake), do: Agent.stop(fake) end)
     {:ok, cassette} = start_supervised({WorldCassette, scenario})
     {:ok, replay} = WorldHostReplay.before_execute(scenario, fake, cassette: cassette)
     {:ok, counter} = Agent.start_link(fn -> 0 end)
-    on_exit(fn -> if Process.alive?(counter), do: Agent.stop(counter) end)
 
     before_execute = fn claim, world ->
       index = Agent.get_and_update(counter, &{&1 + 1, &1 + 1})
@@ -392,7 +387,6 @@ defmodule Responder.Evals.WorldRunnerTest do
       }
 
       {:ok, fake} = FakeWorkCoopAPI.start_link([])
-      on_exit(fn -> if Process.alive?(fake), do: Agent.stop(fake) end)
 
       before_execute = fn claim, _world ->
         goal =
@@ -458,7 +452,6 @@ defmodule Responder.Evals.WorldRunnerTest do
 
     scenario = %{scenario | host_replay: negative}
     {:ok, fake} = FakeWorkCoopAPI.start_link([])
-    on_exit(fn -> if Process.alive?(fake), do: Agent.stop(fake) end)
     assert {:ok, before_execute} = WorldHostReplay.before_execute(scenario, fake)
 
     assert {:error, {:world_eval_assertions, report}} =
@@ -519,7 +512,6 @@ defmodule Responder.Evals.WorldRunnerTest do
     # matcher named Terraform while the actual source was Slack, falsely earning reconnect credit.
     {:ok, scenario} = WorldCase.fetch("terraform-run-update-stays-in-one-session")
     {:ok, fake} = FakeWorkCoopAPI.start_link([])
-    on_exit(fn -> if Process.alive?(fake), do: Agent.stop(fake) end)
     {:ok, before_execute} = WorldHostReplay.before_execute(scenario, fake)
 
     assert {:ok, report} =
@@ -655,7 +647,6 @@ defmodule Responder.Evals.WorldRunnerTest do
     scenario = harvested_timer_scenario(scenario, harvested)
     {:ok, fake} = FakeWorkCoopAPI.start_link([])
     {:ok, cassette} = start_supervised({WorldCassette, scenario})
-    on_exit(fn -> if Process.alive?(fake), do: Agent.stop(fake) end)
     {:ok, before_execute} = WorldHostReplay.before_execute(scenario, fake, cassette: cassette)
 
     assert {:ok, report} =
@@ -719,7 +710,6 @@ defmodule Responder.Evals.WorldRunnerTest do
     }
 
     {:ok, fake} = FakeWorkCoopAPI.start_link([])
-    on_exit(fn -> if Process.alive?(fake), do: Agent.stop(fake) end)
 
     assert {:error, {:invalid_world_runner, :input_actor}} =
              WorldRunner.run(scenario,
@@ -746,7 +736,6 @@ defmodule Responder.Evals.WorldRunnerTest do
     {:ok, scenario} = WorldCase.fetch("airflow-verification-arms-wait")
     {:ok, fake} = FakeWorkCoopAPI.start_link([])
     {:ok, cassette} = start_supervised({WorldCassette, scenario})
-    on_exit(fn -> if Process.alive?(fake), do: Agent.stop(fake) end)
     before_execute = harvested_completion_replay(harvested, fake, cassette)
 
     assert {:ok, report} =
@@ -824,7 +813,6 @@ defmodule Responder.Evals.WorldRunnerTest do
     }
 
     {:ok, fake} = FakeWorkCoopAPI.start_link([])
-    on_exit(fn -> if Process.alive?(fake), do: Agent.stop(fake) end)
     {:ok, before_execute} = WorldHostReplay.before_execute(scenario, fake)
 
     assert {:error, {:world_eval_assertions, report}} =
@@ -945,7 +933,6 @@ defmodule Responder.Evals.WorldRunnerTest do
 
   defp harvested_completion_replay(harvested, fake, cassette) do
     {:ok, counter} = Agent.start_link(fn -> {0, %{}} end)
-    on_exit(fn -> if Process.alive?(counter), do: Agent.stop(counter) end)
     deadline = DateTime.utc_now() |> DateTime.add(1_200, :second) |> DateTime.to_iso8601()
 
     fn claim, _scenario ->
@@ -1164,8 +1151,6 @@ defmodule Responder.Evals.WorldRunnerTest do
 
       {:ok, turn_counter} = Agent.start_link(fn -> 0 end)
       {:ok, cassette} = start_supervised({WorldCassette, scenario})
-      on_exit(fn -> if Process.alive?(fake), do: Agent.stop(fake) end)
-      on_exit(fn -> if Process.alive?(turn_counter), do: Agent.stop(turn_counter) end)
 
       before_execute =
         if scenario.host_replay["model_events"] == [] do
@@ -1299,7 +1284,6 @@ defmodule Responder.Evals.WorldRunnerTest do
   test "an explicit operator incident request may create one confirmable incident offer" do
     {:ok, scenario} = WorldCase.fetch("explicit-operator-incident-offer")
     {:ok, fake} = FakeWorkCoopAPI.start_link([])
-    on_exit(fn -> if Process.alive?(fake), do: Agent.stop(fake) end)
 
     before_execute = fn claim, _scenario ->
       {record_ref, state, message} = record_incident_task_tool!(claim)
@@ -1344,8 +1328,6 @@ defmodule Responder.Evals.WorldRunnerTest do
     {:ok, scenario} = WorldCase.fetch("rivals-engineering-task-offer")
     {:ok, fake} = FakeWorkCoopAPI.start_link([], companions: scenario_companions(scenario))
     {:ok, turn_state} = Agent.start_link(fn -> %{index: 0, record_ref: nil} end)
-    on_exit(fn -> if Process.alive?(fake), do: Agent.stop(fake) end)
-    on_exit(fn -> if Process.alive?(turn_state), do: Agent.stop(turn_state) end)
 
     prompts = [
       "Add bounded context to Rivals Gate timeout logs.",
@@ -1427,7 +1409,6 @@ defmodule Responder.Evals.WorldRunnerTest do
     test "#{scenario_id} replays through the normalized platform destination" do
       {:ok, scenario} = WorldCase.fetch(@scenario_id)
       {:ok, fake} = FakeWorkCoopAPI.start_link([])
-      on_exit(fn -> if Process.alive?(fake), do: Agent.stop(fake) end)
       assert {:ok, before_execute} = WorldHostReplay.before_execute(scenario, fake)
 
       assert {:ok, report} =
@@ -1464,7 +1445,6 @@ defmodule Responder.Evals.WorldRunnerTest do
     test "#{scenario_id} replays the complete host journey without a model" do
       {:ok, scenario} = WorldCase.fetch(@scenario_id)
       {:ok, fake} = FakeWorkCoopAPI.start_link([])
-      on_exit(fn -> if Process.alive?(fake), do: Agent.stop(fake) end)
 
       cassette =
         if scenario.world["tool_rules"] == [] do
@@ -1608,7 +1588,6 @@ defmodule Responder.Evals.WorldRunnerTest do
 
     scenario = %{scenario | tool_catalog: tool_catalog}
     {:ok, fake} = FakeWorkCoopAPI.start_link([])
-    on_exit(fn -> if Process.alive?(fake), do: Agent.stop(fake) end)
     {:ok, cassette} = start_supervised({WorldCassette, scenario})
 
     assert {:ok, before_execute} =
@@ -1637,7 +1616,6 @@ defmodule Responder.Evals.WorldRunnerTest do
   test "live model artifact proof accepts any real generated image without weakening exact host replay" do
     {:ok, scenario} = WorldCase.fetch("artifact-delivery-survives-work-handoff")
     {:ok, fake} = FakeWorkCoopAPI.start_link([])
-    on_exit(fn -> if Process.alive?(fake), do: Agent.stop(fake) end)
 
     data = <<137, 80, 78, 71, 13, 10, 26, 10, "live-generated-chart">>
     digest = :crypto.hash(:sha256, data) |> Base.encode16(case: :lower)
@@ -1717,7 +1695,6 @@ defmodule Responder.Evals.WorldRunnerTest do
 
     assert {:ok, claim} = Custody.claim_next("world-worker:lost", 300, :work)
     {:ok, fake} = FakeWorkCoopAPI.start_link([], pause_after_submit: self())
-    on_exit(fn -> if Process.alive?(fake), do: Agent.stop(fake) end)
     assert {:ok, before_execute} = WorldHostReplay.before_execute(scenario, fake)
     assert :ok = before_execute.(claim, scenario)
 
@@ -1748,7 +1725,6 @@ defmodule Responder.Evals.WorldRunnerTest do
     assert execution.turn.status == :delivery_pending
 
     {:ok, delivery_agent} = Agent.start_link(fn -> [] end)
-    on_exit(fn -> if Process.alive?(delivery_agent), do: Agent.stop(delivery_agent) end)
 
     assert {:ok, adapters} =
              Adapters.new(%{
@@ -1800,8 +1776,6 @@ defmodule Responder.Evals.WorldRunnerTest do
           "reasoning_tokens" => 180
         }
       )
-
-    on_exit(fn -> if Process.alive?(fake), do: Agent.stop(fake) end)
 
     before_execute = successful_before_execute(scenario, fake, cassette)
 
@@ -1874,7 +1848,6 @@ defmodule Responder.Evals.WorldRunnerTest do
     {:ok, scenario} = WorldCase.fetch("va1-health-review-repairs-and-finishes")
     {:ok, cassette} = start_supervised({WorldCassette, scenario})
     {:ok, fake} = FakeWorkCoopAPI.start_link([])
-    on_exit(fn -> if Process.alive?(fake), do: Agent.stop(fake) end)
 
     destination = %{
       "conversation_ref" => "github:eval:repository:99",
@@ -1914,7 +1887,6 @@ defmodule Responder.Evals.WorldRunnerTest do
     {:ok, scenario} = WorldCase.fetch("va1-health-review-repairs-and-finishes")
     {:ok, cassette} = start_supervised({WorldCassette, scenario})
     {:ok, fake} = FakeWorkCoopAPI.start_link([])
-    on_exit(fn -> if Process.alive?(fake), do: Agent.stop(fake) end)
 
     judge = fn judged_scenario, report ->
       assert judged_scenario.id == scenario.id
@@ -1959,7 +1931,6 @@ defmodule Responder.Evals.WorldRunnerTest do
       {:ok, scenario} = WorldCase.fetch("va1-health-review-repairs-and-finishes")
       {:ok, cassette} = start_supervised({WorldCassette, scenario})
       {:ok, fake} = FakeWorkCoopAPI.start_link([])
-      on_exit(fn -> if Process.alive?(fake), do: Agent.stop(fake) end)
 
       assert {:error, {:world_eval_assertions, report}} =
                WorldRunner.run(scenario,
@@ -2024,7 +1995,6 @@ defmodule Responder.Evals.WorldRunnerTest do
       }
 
     {:ok, fake} = FakeWorkCoopAPI.start_link([])
-    on_exit(fn -> if Process.alive?(fake), do: Agent.stop(fake) end)
 
     before_execute = fn claim, _scenario ->
       candidate =
@@ -2201,7 +2171,6 @@ defmodule Responder.Evals.WorldRunnerTest do
   test "repository feedback may ask one bounded clarification without gaining write authority" do
     {:ok, scenario} = WorldCase.fetch("github-pr-review-remains-in-thread")
     {:ok, fake} = FakeWorkCoopAPI.start_link([])
-    on_exit(fn -> if Process.alive?(fake), do: Agent.stop(fake) end)
 
     before_execute = fn claim, _scenario ->
       {record_ref, state, message} = record_state_tool!("request_input", claim)
@@ -2248,7 +2217,6 @@ defmodule Responder.Evals.WorldRunnerTest do
     }
 
     {:ok, fake} = FakeWorkCoopAPI.start_link([])
-    on_exit(fn -> if Process.alive?(fake), do: Agent.stop(fake) end)
 
     before_execute = fn claim, _scenario ->
       assert {:ok, %{"record_ref" => evidence_ref}} =
@@ -2306,7 +2274,6 @@ defmodule Responder.Evals.WorldRunnerTest do
     }
 
     {:ok, fake} = FakeWorkCoopAPI.start_link([])
-    on_exit(fn -> if Process.alive?(fake), do: Agent.stop(fake) end)
 
     before_execute = fn claim, _scenario ->
       {record_ref, state, message} = record_state_tool!("request_task", claim)
