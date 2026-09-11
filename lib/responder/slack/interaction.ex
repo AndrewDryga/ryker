@@ -44,25 +44,26 @@ defmodule Responder.Slack.Interaction do
   def from_socket(
         %{
           "envelope_id" => envelope_id,
-          "payload" => %{
-            "actions" => [action],
-            "container" =>
-              %{
-                "channel_id" => channel_ref,
-                "is_ephemeral" => false,
-                "message_ts" => message_ref,
-                "type" => "message"
-              } = container,
-            "team" => %{"id" => workspace_ref},
-            "type" => "block_actions",
-            "user" => %{"id" => actor_ref}
-          },
+          "payload" =>
+            %{
+              "actions" => [action],
+              "container" =>
+                %{
+                  "channel_id" => channel_ref,
+                  "is_ephemeral" => false,
+                  "message_ts" => message_ref,
+                  "type" => "message"
+                } = container,
+              "team" => %{"id" => workspace_ref},
+              "type" => "block_actions",
+              "user" => %{"id" => actor_ref}
+            } = payload,
           "type" => "interactive"
         },
         workspace_ref,
         %DateTime{} = occurred_at
       ) do
-    case action(action) do
+    case action(action, payload) do
       {:ok, action_id, action_value} ->
         build_interaction(
           action_id,
@@ -148,19 +149,58 @@ defmodule Responder.Slack.Interaction do
   defp action_value?(_action_id, value), do: reference?(value)
 
   defp action_id?(value),
-    do: is_binary(value) and (value in @actions or Regex.match?(@repository_action, value))
+    do:
+      is_binary(value) and
+        (value in @actions or value == "responder_submit_input" or
+           Regex.match?(@repository_action, value))
 
-  defp action(%{"action_id" => action_id, "type" => "button", "value" => action_value}),
-    do: {:ok, action_id, action_value}
+  defp action(
+         %{"action_id" => "responder_submit_input", "type" => "button", "value" => ref},
+         payload
+       ) do
+    # Slack includes native state in the authenticated submitting user's payload.
+    # Selecting a radio alone is inert; no cross-user staging store is needed.
+    case get_in(payload, ["state", "values", ref, "responder_question_choice"]) do
+      %{"type" => "radio_buttons", "selected_option" => %{"value" => value}}
+      when is_binary(value) ->
+        if String.starts_with?(value, ref <> "|"),
+          do: {:ok, "responder_answer_input", value},
+          else: :ignore
 
-  defp action(%{
-         "action_id" => action_id,
-         "selected_option" => %{"value" => action_value},
-         "type" => "overflow"
-       }),
+      _missing ->
+        {:ok, "responder_submit_input", ref}
+    end
+  end
+
+  defp action(
+         %{
+           "action_id" => "responder_answer_input_" <> index,
+           "type" => "button",
+           "value" => value
+         },
+         _payload
+       )
+       when index in ~w(0 1 2 3 4) and is_binary(value) do
+    if String.ends_with?(value, "|" <> index),
+      do: {:ok, "responder_answer_input", value},
+      else: :ignore
+  end
+
+  defp action(%{"action_id" => action_id, "type" => "button", "value" => action_value}, _payload)
+       when action_id != "responder_answer_input",
        do: {:ok, action_id, action_value}
 
-  defp action(_action), do: :ignore
+  defp action(
+         %{
+           "action_id" => action_id,
+           "selected_option" => %{"value" => action_value},
+           "type" => "overflow"
+         },
+         _payload
+       ),
+       do: {:ok, action_id, action_value}
+
+  defp action(_action, _payload), do: :ignore
 
   defp utc?(%DateTime{} = value),
     do: value.time_zone == "Etc/UTC" and value.utc_offset == 0 and value.std_offset == 0

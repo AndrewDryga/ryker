@@ -557,6 +557,24 @@ defmodule Responder.Slack.GatewayTest do
     assert_received {:audited_interaction, "interaction:env-stale", :invalid}
   end
 
+  test "submit without selection gives private guidance without accepting or repainting a question" do
+    options =
+      settings()
+      |> Map.put(:interaction_handler, InteractionHandler)
+      |> Map.put(:interaction_options, %{
+        observer: self(),
+        result: {:ok, %{outcome: :selection_required}}
+      })
+
+    assert {:ack, {:interaction, :selection_required}, feedback} =
+             Gateway.handle_envelope(interaction_envelope("env-no-selection"), options)
+
+    assert feedback == %{
+             "response_type" => "ephemeral",
+             "text" => "Choose an option first, then select Submit answer."
+           }
+  end
+
   test "successful confirmations persist card feedback before acknowledgement, including redelivery" do
     # The Sep 9 automation was active in PostgreSQL while Slack still said
     # Enable automation: the success branch acknowledged without repaint custody.

@@ -17,7 +17,16 @@ defmodule Responder.Admission do
   alias Responder.Ingress.{Inbox, Input, RecallText}
   alias Responder.Ingress.Inbox.{Entry, EntryChangeset}
   alias Responder.Repo
-  alias Responder.State.{Behaviors, Knowledge, LearningSources, Observations, Records}
+
+  alias Responder.State.{
+    Behaviors,
+    InputRequests,
+    Knowledge,
+    LearningSources,
+    Observations,
+    Records
+  }
+
   alias Responder.Work.Custody
 
   @active_states [:working, :waiting_for_input, :waiting_for_event]
@@ -700,7 +709,8 @@ defmodule Responder.Admission do
         turn_ref: admit.turn_ref
       }
 
-      with {:ok, transitions} <- Episodes.apply_batch_in_transaction([resume]),
+      with :ok <- InputRequests.associate_in_transaction(current, context.input_entry),
+           {:ok, transitions} <- Episodes.apply_batch_in_transaction([resume]),
            :ok <- Records.resolve_wait_in_transaction(current.owner_ref) do
         {:ok, transitions}
       end

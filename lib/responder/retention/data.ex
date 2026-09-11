@@ -89,7 +89,8 @@ defmodule Responder.Retention.Data do
           SELECT id
           FROM operational_memory_entries
           WHERE expires_at <= clock_timestamp()
-             OR updated_at < clock_timestamp() - ($1 * interval '1 second')
+             OR ((scope_kind <> 'global' OR status <> 'active') AND
+                 updated_at < clock_timestamp() - ($1 * interval '1 second'))
           ORDER BY updated_at, id
           LIMIT 100
           FOR UPDATE SKIP LOCKED

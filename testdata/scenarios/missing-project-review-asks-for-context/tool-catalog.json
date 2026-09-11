@@ -1602,67 +1602,6 @@
           "name": "validate_final"
         }
       ]
-    },
-    {
-      "name": "fabricated-world",
-      "tools": [
-        {
-          "description": "Read a fabricated, time-pinned monitoring result.",
-          "inputSchema": {
-            "additionalProperties": false,
-            "properties": {
-              "environment": {
-                "type": "string"
-              },
-              "query": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "environment",
-              "query"
-            ],
-            "type": "object"
-          },
-          "name": "monitoring.query"
-        },
-        {
-          "description": "Read the recorded GCP deployment observation in this isolated evaluation.",
-          "inputSchema": {
-            "additionalProperties": false,
-            "properties": {
-              "environment": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "environment"
-            ],
-            "type": "object"
-          },
-          "name": "gcp.deployment"
-        },
-        {
-          "description": "Read the recorded GCP load-balancer backend health observation in this isolated evaluation.",
-          "inputSchema": {
-            "additionalProperties": false,
-            "properties": {
-              "environment": {
-                "type": "string"
-              },
-              "service": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "environment",
-              "service"
-            ],
-            "type": "object"
-          },
-          "name": "gcp.backend_health"
-        }
-      ]
     }
   ],
   "version": 1

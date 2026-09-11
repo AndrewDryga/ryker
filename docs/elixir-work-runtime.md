@@ -109,6 +109,40 @@ The memory pipeline has separate read, learn, and act decisions:
    existing owners. Learned prose cannot confirm a preference, start an incident, or grant a tool
    permission. Shadow learning never authorizes live delivery or crosses into live memory scope.
 
+### Explicit reusable answers
+
+Work checks applicable memory and authorized discovery before asking for a missing operational
+identifier. `request_input.remember` names one fact's subject and applicability; the question
+explains that an operator's answer will be remembered. A typed reply or native choice retains
+its exact question, authenticated actor and source revision. `remember_answer` interprets that
+answer as a minimal value, verifies the current live Work binding and configured operator,
+and saves through the existing operational-memory domain without another confirmation click.
+An unrelated or ambiguous reply is not a confirmed mapping. Failed saves must not be reported
+as remembered, and the durable accepted answer remains available to retry.
+
+These facts use explicit installation-global ownership: the customer installation's database,
+not a channel or an alias for workspace scope. Applicability distinguishes workloads and
+environments. Recall may cross conversations but does not expose the private source body or
+navigation. Active global facts have no automatic expiry and survive ordinary transcript
+cleanup. Explicit answer edits/deletions and source-channel deletion revoke the saved fact;
+reviewed corrections and Forget use the existing memory controls. A delayed answer cannot override
+a later answer, reviewed correction or explicit Forget. Memory never grants execution access or
+proves live health.
+
+Questions support up to ten full choices. Up to five render as distinct short buttons; longer
+answers remain visible above their numbered controls. Six to ten use a native radio group and
+an explicit Submit answer button, with no initial selection. Radio changes do not admit work;
+only the authenticated submit payload's state for this exact immutable question is accepted.
+Missing selections and selections for another question are rejected. A typed thread reply is
+an alternative. Both paths retire the original controls through the existing durable Slack
+repaint queue while retaining the question and the separate human answer.
+
+A question may retain one independent event-only source watch in the same result. The input
+request remains the sole continuation owner; source updates queue until its answer. Reconciliation
+keeps the original matcher through the question and resumed Work, including restoration of a
+missing subscription. The continuation can return to that same watch. Timers and deadline-bound
+waits retain their existing single-owner semantics.
+
 ### One subject, several updates
 
 The learning result is `{updates: [...], reason: "..."}`. Every item selects exact offered

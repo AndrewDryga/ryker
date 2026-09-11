@@ -16,6 +16,7 @@ defmodule Responder.StateTools.FixedTools do
     ConversationSummaryState,
     DerivedContext,
     KnowledgeSnapshot,
+    Memories,
     MemorySearch,
     Record,
     Records
@@ -41,6 +42,7 @@ defmodule Responder.StateTools.FixedTools do
     request_task
     search_memory
     propose_memory
+    remember_answer
     update_conversation_summary
     record_feedback
     validate_final
@@ -82,6 +84,7 @@ defmodule Responder.StateTools.FixedTools do
       request_task_tool(),
       search_memory_tool(),
       propose_memory_tool(),
+      remember_answer_tool(),
       update_conversation_summary_tool(),
       record_feedback_tool(),
       validate_final_tool()
@@ -97,18 +100,18 @@ defmodule Responder.StateTools.FixedTools do
 
   @spec call(String.t(), map(), keyword() | map()) :: {:ok, map()} | {:error, String.t()}
   def call(name, arguments, options) when name in @names and is_map(arguments) do
+    options = Map.new(options)
+
     with :ok <- capability_available(name, arguments, options),
          {:ok, binding} <- tool_binding(options),
          :ok <- exact_schema(name, arguments, options) do
-      binding = Map.put(binding, :capabilities, capabilities(options))
-      binding = Map.put(binding, :cursor_secret, Map.get(Map.new(options), :cursor_secret))
-
       binding =
-        Map.put(
-          binding,
-          :source_tools,
-          Enum.map(Map.get(Map.new(options), :additional_tools, []), & &1["name"])
-        )
+        Map.merge(binding, %{
+          capabilities: capabilities(options),
+          cursor_secret: options[:cursor_secret],
+          answer_authorizer: options[:answer_authorizer],
+          source_tools: Enum.map(options[:additional_tools] || [], & &1["name"])
+        })
 
       case dispatch(name, arguments, binding) do
         {:ok, _result} = success -> success
@@ -175,12 +178,21 @@ defmodule Responder.StateTools.FixedTools do
   defp dispatch("request_input", arguments, binding) do
     questions = arguments["questions"]
 
-    payload = %{
-      "choices" => if(length(questions) == 1, do: hd(questions)["choices"], else: []),
-      "question" => question_text(questions, arguments["context"])
-    }
+    if arguments["remember"] && length(questions) != 1 do
+      {:error, :invalid_arguments}
+    else
+      payload = %{
+        "choices" => if(length(questions) == 1, do: hd(questions)["choices"], else: []),
+        "question" => question_text(questions, arguments["context"])
+      }
 
-    create_record(binding, "request_input", arguments, "input_request", payload)
+      payload =
+        if arguments["remember"],
+          do: Map.put(payload, "remember", arguments["remember"]),
+          else: payload
+
+      create_record(binding, "request_input", arguments, "input_request", payload)
+    end
   end
 
   defp dispatch("record_finding", arguments, binding),
@@ -268,6 +280,26 @@ defmodule Responder.StateTools.FixedTools do
 
   defp dispatch("search_memory", arguments, binding) do
     MemorySearch.search(binding, arguments, binding.cursor_secret)
+  end
+
+  defp dispatch("remember_answer", arguments, binding) do
+    with {:ok, result} <-
+           Memories.confirm_answer(
+             binding,
+             arguments["question_ref"],
+             arguments["value"],
+             binding.answer_authorizer
+           ) do
+      {:ok,
+       %{
+         "memory_ref" => result.memory.ref,
+         "status" => "remembered",
+         "scope" => "global",
+         "subject" => result.memory.subject,
+         "applicability" => result.memory.payload["applicability"],
+         "value" => result.memory.payload["value"]
+       }}
+    end
   end
 
   defp dispatch("propose_memory", arguments, binding) do
@@ -969,6 +1001,10 @@ defmodule Responder.StateTools.FixedTools do
   defp error_code(:invalid_memory_time_filter), do: "invalid_memory_time_filter"
   defp error_code(:memory_search_budget_exceeded), do: "memory_search_budget_exceeded"
   defp error_code(:memory_search_result_too_large), do: "memory_search_result_too_large"
+  defp error_code(:answer_memory_unauthorized), do: "answer_memory_unauthorized"
+  defp error_code(:answer_memory_conflict), do: "answer_memory_conflict"
+  defp error_code(:invalid_answer_memory), do: "invalid_answer_memory"
+  defp error_code(:memory_capacity_reached), do: "memory_capacity_reached"
   defp error_code(:work_memory_source_capacity_exceeded), do: "memory_source_capacity_exceeded"
   defp error_code({:invalid_schedule, _field}), do: "invalid_arguments"
   defp error_code({:invalid_state_record, _field}), do: "invalid_arguments"
@@ -1012,7 +1048,7 @@ defmodule Responder.StateTools.FixedTools do
     question =
       object(
         %{
-          "choices" => array(text(240), 0, 5),
+          "choices" => array(text(240), 0, 10),
           "text" => text(2_000)
         },
         ~w(choices text)
@@ -1020,10 +1056,17 @@ defmodule Responder.StateTools.FixedTools do
 
     tool(
       "request_input",
-      "Create one durable question card for a material human decision.",
+      "Create one durable question card for a material human decision or missing fact. Briefly recap established findings in the accompanying final reply; use context to explain why the answer is needed without repeating the recap or question. For one reusable fact, set remember with its subject and exact workload/environment/repository applicability; this asks to remember an authorized answer across this customer's conversations, not to set a universal default. Omit remember for ordinary decisions, secrets, or unrelated chat. A reusable fact must have exactly one question.",
       %{
         "context" => nullable(text(2_000)),
-        "questions" => array(question, 1, 3)
+        "questions" => array(question, 1, 3),
+        "remember" =>
+          nullable(
+            object(
+              %{"subject" => text(120), "applicability" => text(1_000)},
+              ~w(subject applicability)
+            )
+          )
       },
       ~w(questions)
     )
@@ -1240,7 +1283,7 @@ defmodule Responder.StateTools.FixedTools do
         "kinds" => array(enum(~w(guidance fact continuity)), 1, 3),
         "limit" => integer(1, 20),
         "query" => Map.put(text(1_000), "minLength", 0),
-        "scope" => enum(~w(current_channel repository workspace mine))
+        "scope" => enum(~w(current_channel repository workspace mine global))
       }
     )
   end
@@ -1258,6 +1301,14 @@ defmodule Responder.StateTools.FixedTools do
         "supersedes" => array(reference(256), 0, 20),
         "value" => text(4_000)
       }
+    )
+  end
+
+  defp remember_answer_tool do
+    tool(
+      "remember_answer",
+      "Save the normalized answer to an explicitly reusable request_input question in this episode. Call only when the authenticated reply actually supplies that fact; an unrelated or ambiguous reply needs clarification. The host verifies the exact answered question, original revision and operator authority, and derives installation-global applicability from the question. No second memory confirmation is needed. Existing proposals still use propose_memory. Say remembered only after this tool succeeds; saved facts never grant action authority or prove current health.",
+      %{"question_ref" => reference(256), "value" => text(4_000)}
     )
   end
 

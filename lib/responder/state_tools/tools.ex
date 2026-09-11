@@ -7,7 +7,7 @@ defmodule Responder.StateTools.Tools do
 
   @fixed_tool_names ~w(
     get_work_state cite_source record_finding request_input wait_for list_automations get_automation
-    propose_automation plan_goal update_goal request_task search_memory propose_memory
+    propose_automation plan_goal update_goal request_task search_memory propose_memory remember_answer
     update_conversation_summary record_feedback validate_final
   )
 

@@ -3,6 +3,31 @@ defmodule Responder.Work.PromptTest do
 
   alias Responder.Work.Prompt
 
+  test "a missing operational fact leads to discovery and one useful remembered question" do
+    # The retained Terraform response stopped at an unknown project ID instead
+    # of asking for the fact that would unlock its health and backup checks.
+    recorded = File.read!("testdata/work/missing-project-clarification.json") |> Jason.decode!()
+    assert recorded["candidate"]["message"] =~ "required GCP project ID wasn’t established"
+    assert recorded["candidate"]["outcome"]["state"] == "waiting_for_event"
+
+    instructions =
+      Prompt.build(%{})
+      |> Jason.decode!()
+      |> Map.fetch!("instructions")
+      |> String.replace(~r/\s+/, " ")
+
+    assert instructions =~ "Search global memory for the exact workload"
+    assert instructions =~ "One visible project is not proof"
+    assert instructions =~ "state what is already known, then ask one concrete question"
+    assert instructions =~ "concrete recap of the established findings in the final reply"
+    assert instructions =~ "A list of missing checks is not that recap"
+    assert instructions =~ "rather than repeating its text in the final reply"
+    assert instructions =~ "request_input with remember"
+    assert instructions =~ "remember_answer"
+    assert instructions =~ "An unrelated or ambiguous reply is not confirmation"
+    assert instructions =~ "Do not ask for a second memory-confirmation click"
+  end
+
   test "tool discovery explains the generic MCP caller and a valid bounded automation lookup" do
     # The Sep 9 live check claimed tools were missing despite an available
     # generic MCP caller, then guessed limit 100 and spent another correction.

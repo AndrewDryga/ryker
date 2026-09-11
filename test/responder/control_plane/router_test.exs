@@ -2384,6 +2384,9 @@ defmodule Responder.ControlPlane.RouterTest do
               %{
                 kind: :repository_binding,
                 ref: "memory:one",
+                scope: :workspace,
+                value: "responder",
+                applicability: nil,
                 status: :active,
                 subject: "checkout-api"
               }

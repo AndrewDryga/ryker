@@ -488,6 +488,58 @@ defmodule Responder.Work.ValidatorTest do
              {:error, {:invalid_work_validation_context, :now}}
   end
 
+  test "a human question can retain one exact event-only watch without making it the active wait" do
+    # The missing-project incident needed a human answer and continued custody of
+    # the same Terraform run. Requiring a single record made those incompatible.
+    input = %{
+      "deadline_at" => nil,
+      "kind" => "wait",
+      "wait_kind" => "input",
+      "wait_ref" => "record:question"
+    }
+
+    event = %{
+      "deadline_at" => nil,
+      "kind" => "wait",
+      "wait_kind" => "event",
+      "wait_ref" => "record:watch"
+    }
+
+    records = %{
+      "record:question" => record("input_request", input),
+      "record:watch" => record("event_wait", event)
+    }
+
+    outcome =
+      empty_outcome(%{
+        "record_refs" => ["record:watch", "record:question"],
+        "state" => "waiting_for_input"
+      })
+
+    assert {:accept, accepted} =
+             Validator.validate(
+               candidate(outcome, "Which project hosts this application?"),
+               context(records: records),
+               @now
+             )
+
+    assert accepted.result.continuation == input
+
+    timed =
+      put_in(
+        records,
+        ["record:watch", "continuation", "deadline_at"],
+        "2099-08-28T12:30:00.000000Z"
+      )
+
+    assert {:reject, _} =
+             Validator.validate(
+               candidate(outcome, "Which project?"),
+               context(records: timed),
+               @now
+             )
+  end
+
   test "waiting and complete outcomes name exactly one compatible durable wait" do
     input_wait = %{
       "deadline_at" => nil,

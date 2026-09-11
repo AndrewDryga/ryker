@@ -31,6 +31,57 @@ defmodule Responder.Evals.WorldRunnerTest do
 
   @policy_digest String.duplicate("a", 64)
 
+  test "an operator's missing-context question may retain its independent read-only event watch" do
+    # The real model correctly requested a project and retained the run watch,
+    # but the world evaluator rejected event_wait under operator authority.
+    captured =
+      "testdata/work/missing-project-question-and-watch.json" |> File.read!() |> Jason.decode!()
+
+    {:ok, scenario} = WorldCase.fetch(captured["scenario_id"])
+    {:ok, fake} = FakeWorkCoopAPI.start_link([])
+    on_exit(fn -> if Process.alive?(fake), do: Agent.stop(fake) end)
+
+    before_execute = fn claim, _scenario ->
+      refs =
+        captured["records"]
+        |> Enum.reduce(%{}, fn record, refs ->
+          assert {:ok, created} =
+                   Records.create(
+                     Records.token(claim.turn),
+                     record["ref"],
+                     record["kind"],
+                     replace_harvested_refs(record["payload"], refs)
+                   )
+
+          Map.put(refs, record["ref"], created.ref)
+        end)
+
+      candidate = replace_harvested_refs(captured["candidate"], refs)
+
+      assert {:ok, %{"accepted" => true}} =
+               Tools.call("validate_final", %{"candidate" => candidate}, binding_options(claim))
+
+      FakeWorkCoopAPI.update(fake, &%{&1 | candidates: [Jason.encode!(candidate)]})
+      :ok
+    end
+
+    assert {:ok, report} =
+             WorldRunner.run(scenario,
+               api: FakeWorkCoopAPI,
+               before_execute: before_execute,
+               client: fake,
+               policy: "world-eval-read-only",
+               policy_digest: @policy_digest,
+               state_tools_endpoint: "https://eval.example/v1/state-tools/mcp",
+               state_tools_secret: "world-eval-state-tools-secret",
+               worker_ref: "world-operator-question-watch"
+             )
+
+    assert report.failures == []
+    assert Repo.get!(Responder.Episodes.Episode, report.episode_id).state == :waiting_for_input
+    assert [%{status: :active}] = Repo.all(EventSubscription)
+  end
+
   @state_scenarios [
     {"rivals-engineering-task-offer", "request_task"},
     {"material-rollout-choice-asks-once", "request_input"},

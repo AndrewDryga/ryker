@@ -322,9 +322,10 @@ defmodule Responder.State.RecordPayload do
     do: {:error, {:invalid_state_record, :conversation_ref}}
 
   defp input_request(%{} = payload, ref) do
-    with :ok <- exact_fields(payload, ~w(choices question)),
+    with :ok <- exact_fields(Map.delete(payload, "remember"), ~w(choices question)),
          :ok <- text(payload["question"], 2_000, :question),
          :ok <- choices(payload["choices"]),
+         :ok <- remembered_fact(payload["remember"]),
          :ok <- canonical(payload) do
       {:ok,
        %{
@@ -341,6 +342,20 @@ defmodule Responder.State.RecordPayload do
   end
 
   defp input_request(_payload, _ref), do: {:error, {:invalid_state_record, :payload}}
+
+  defp remembered_fact(nil), do: :ok
+
+  defp remembered_fact(%{} = intent) do
+    with :ok <- exact_fields(intent, ~w(applicability subject)),
+         :ok <- text(intent["subject"], 120, :remember),
+         :ok <- text(intent["applicability"], 1_000, :remember) do
+      :ok
+    else
+      _ -> {:error, {:invalid_state_record, :remember}}
+    end
+  end
+
+  defp remembered_fact(_intent), do: {:error, {:invalid_state_record, :remember}}
 
   defp event_wait(%{} = payload, ref) do
     with :ok <- exact_fields(payload, ~w(deadline_at event_matcher kind verification)),

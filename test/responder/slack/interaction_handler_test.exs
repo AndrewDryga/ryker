@@ -41,6 +41,7 @@ defmodule Responder.Slack.InteractionHandlerTest do
        [
          %{
            kind: "input_request",
+           status: :open,
            payload: %{"choices" => ["One percent", "Stop"], "question" => "Choose"},
            ref: "record:input_request:question"
          }
@@ -210,6 +211,19 @@ defmodule Responder.Slack.InteractionHandlerTest do
     assert answer.choice_index == 1
     assert answer.record_ref == "record:input_request:question"
     assert answer.response_ref == "interaction:engineering"
+  end
+
+  test "submit without a choice asks for a selection without answering the question" do
+    missing = %{
+      interaction("responder_start_engineering_task", "engineering")
+      | action_id: "responder_submit_input",
+        action_value: "record:input_request:question"
+    }
+
+    assert InteractionHandler.handle(missing, options(["U123"])) ==
+             {:ok, %{outcome: :selection_required}}
+
+    refute_received {:input_answered, _}
   end
 
   test "only a configured operator can queue review and approve the exact delivered review" do

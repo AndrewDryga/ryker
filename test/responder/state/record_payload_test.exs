@@ -3,6 +3,28 @@ defmodule Responder.State.RecordPayloadTest do
 
   alias Responder.State.RecordPayload
 
+  test "a reusable question freezes the fact and its applicability, not a global default" do
+    payload = %{
+      "choices" => [],
+      "question" => "Which GCP project should I use for the portal health and backup checks?",
+      "remember" => %{
+        "subject" => "GCP project",
+        "applicability" => "Production portal in AndrewDryga/emisar"
+      }
+    }
+
+    assert {:ok, prepared} = RecordPayload.prepare("input_request", payload, "record:input:1")
+    assert prepared.payload == payload
+    assert prepared.continuation["wait_kind"] == "input"
+
+    assert {:error, {:invalid_state_record, :remember}} =
+             RecordPayload.prepare(
+               "input_request",
+               put_in(payload, ["remember", "applicability"], ""),
+               "record:input:1"
+             )
+  end
+
   test "source wait validation matches the durable subscription byte limits" do
     trigger = %{
       "type" => "source_event",

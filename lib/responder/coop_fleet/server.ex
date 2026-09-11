@@ -170,6 +170,7 @@ defmodule Responder.CoopFleet.Server do
       |> maybe_put(:emisar_rpc_url, Map.get(options, :emisar_rpc_url))
       |> maybe_put(:additional_tools, Map.get(options, :additional_tools))
       |> maybe_put(:additional_call, Map.get(options, :additional_call))
+      |> maybe_put(:answer_authorizer, Map.get(options, :answer_authorizer))
 
     _validated = Responder.StateTools.Router.init(router_options)
     :ok

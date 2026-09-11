@@ -59,6 +59,7 @@ defmodule Responder.StateTools.RouterTest do
              "request_task",
              "search_memory",
              "propose_memory",
+             "remember_answer",
              "update_conversation_summary",
              "record_feedback",
              "validate_final"
@@ -1428,7 +1429,7 @@ defmodule Responder.StateTools.RouterTest do
     assert "wait_for" in names
     refute "offer_publication" in names
     refute "offer_schedule" in names
-    assert length(names) == 16
+    assert length(names) == 17
 
     automation =
       list.resp_body
@@ -1777,6 +1778,54 @@ defmodule Responder.StateTools.RouterTest do
 
     assert get_in(Jason.decode!(unknown.resp_body), ["result", "structuredContent", "error"]) ==
              "unknown_tool"
+  end
+
+  test "a remembered answer belongs to one concrete question and frozen applicability" do
+    claim = claim!("remembered-question")
+    options = bound_options(claim)
+
+    arguments = %{
+      "context" => "The plan replaces the portal template and updates its fleet and monitors.",
+      "questions" => [
+        %{
+          "choices" => [
+            "project-prod",
+            "project-stage",
+            "project-dev",
+            "project-data",
+            "project-tools",
+            "project-archive",
+            "project-sandbox"
+          ],
+          "text" => "Which GCP project should I use for the health and backup checks?"
+        }
+      ],
+      "remember" => %{
+        "subject" => "GCP project",
+        "applicability" => "Production portal in AndrewDryga/emisar"
+      }
+    }
+
+    assert {:ok, result} = Tools.call("request_input", arguments, options)
+    record = Repo.get_by!(Record, ref: result["record_ref"])
+    assert record.payload["remember"] == arguments["remember"]
+    assert record.payload["choices"] == hd(arguments["questions"])["choices"]
+    assert record.payload["question"] =~ "plan replaces the portal template"
+
+    ambiguous =
+      Map.put(
+        arguments,
+        "questions",
+        arguments["questions"] ++
+          [
+            %{
+              "choices" => [],
+              "text" => "Which region should I use?"
+            }
+          ]
+      )
+
+    assert Tools.call("request_input", ambiguous, options) == {:error, "invalid_arguments"}
   end
 
   test "an elapsed event wait is rejected before it can strand final validation" do

@@ -42,7 +42,7 @@ defmodule Responder.Slack.InteractionTest do
       envelope()
       |> put_in(
         ["payload", "actions", Access.at(0), "action_id"],
-        "responder_answer_input"
+        "responder_answer_input_1"
       )
       |> put_in(
         ["payload", "actions", Access.at(0), "value"],
@@ -55,6 +55,67 @@ defmodule Responder.Slack.InteractionTest do
 
     invalid = put_in(envelope, ["payload", "actions", Access.at(0), "value"], "arbitrary|1")
     assert Interaction.from_socket(invalid, "T123", @now) == :ignore
+  end
+
+  test "only explicit submit accepts the current question's native selection" do
+    ref = "record:input_request:def456"
+
+    submit =
+      put_in(envelope(), ["payload", "actions"], [
+        %{"type" => "button", "action_id" => "responder_submit_input", "value" => ref}
+      ])
+
+    selected =
+      put_in(submit, ["payload", "state"], %{
+        "values" => %{
+          ref => %{
+            "responder_question_choice" => %{
+              "type" => "radio_buttons",
+              "selected_option" => %{"value" => "#{ref}|6"}
+            }
+          }
+        }
+      })
+
+    assert {:ok, interaction} = Interaction.from_socket(selected, "T123", @now)
+    assert interaction.action_id == "responder_answer_input"
+    assert interaction.action_value == "#{ref}|6"
+    assert interaction.actor_ref == "U123"
+    assert {:ok, missing} = Interaction.from_socket(submit, "T123", @now)
+    assert missing.action_id == "responder_submit_input"
+    assert missing.action_value == ref
+
+    changed =
+      put_in(
+        selected,
+        [
+          "payload",
+          "state",
+          "values",
+          ref,
+          "responder_question_choice",
+          "selected_option",
+          "value"
+        ],
+        "record:input_request:other|6"
+      )
+
+    assert Interaction.from_socket(changed, "T123", @now) == :ignore
+
+    staged =
+      put_in(selected, ["payload", "actions"], [
+        %{
+          "type" => "radio_buttons",
+          "action_id" => "responder_question_choice",
+          "selected_option" => %{"value" => "#{ref}|6"}
+        }
+      ])
+
+    assert Interaction.from_socket(staged, "T123", @now) == :ignore
+    other_actor = submit |> put_in(["payload", "user", "id"], "U456")
+    assert {:ok, missing_other} = Interaction.from_socket(other_actor, "T123", @now)
+    assert missing_other.action_id == "responder_submit_input"
+    assert missing_other.actor_ref == "U456"
   end
 
   test "normalizes only the host-owned publication controls" do

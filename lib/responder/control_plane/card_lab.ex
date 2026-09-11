@@ -918,8 +918,24 @@ defmodule Responder.ControlPlane.CardLab do
       "Questions and waits",
       "Durable input, external-event, and governed-action waits.",
       :message,
-      sequence(states)
+      sequence(states ++ retired_question_states())
     )
+  end
+
+  defp retired_question_states do
+    Enum.map(~w(answered dismissed superseded), fn status ->
+      record_state(
+        "question-#{status}",
+        "Question #{status}",
+        "The original question remains visible without active controls; the human answer is separate.",
+        "input_request",
+        %{
+          "choices" => ["Roll out to 1%", "Stop the rollout"],
+          "question" => "Which rollout action should I take?"
+        },
+        status
+      )
+    end)
   end
 
   defp investigation_records do

@@ -33,7 +33,7 @@ defmodule Responder.Evals.OperatorTaskTest do
     Eval.run(["work-pack"])
 
     documents = collect_info([])
-    assert length(documents) == 10
+    assert length(documents) == 12
 
     decoded = Enum.map(documents, &Jason.decode!/1)
     assert Enum.any?(decoded, &(&1["eval_id"] == "github_and_slack_remain_platform_adapters"))
@@ -58,6 +58,8 @@ defmodule Responder.Evals.OperatorTaskTest do
                "github-pr-review-remains-in-thread",
                "grafana-firing-resolved-stays-in-cycle",
                "material-rollout-choice-asks-once",
+               "missing-project-answer-is-remembered",
+               "missing-project-review-asks-for-context",
                "noisy-context-keeps-current-request",
                "ordinary-thread-question-gets-natural-answer",
                "rivals-engineering-task-offer",
@@ -213,7 +215,7 @@ defmodule Responder.Evals.OperatorTaskTest do
       Eval.run(["admission", "--config", config_path])
     end
 
-    assert_raise Mix.Error, ~r/10 work model eval\(s\) failed/, fn ->
+    assert_raise Mix.Error, ~r/12 work model eval\(s\) failed/, fn ->
       Eval.run(["work", "--config", config_path])
     end
 
@@ -224,7 +226,7 @@ defmodule Responder.Evals.OperatorTaskTest do
     world_report = results_path |> File.read!() |> Jason.decode!()
     assert world_report["version"] == 2
     refute world_report["summary"]["passed?"]
-    assert length(world_report["results"]) == 57
+    assert length(world_report["results"]) == 63
     assert Enum.all?(world_report["results"], &(&1["status"] == "unrun"))
 
     assert_raise Mix.Error, ~r/model-world qualification failed/, fn ->

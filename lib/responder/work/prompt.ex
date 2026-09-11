@@ -66,6 +66,11 @@ defmodule Responder.Work.Prompt do
   in outcome.record_refs with outcome.state "complete". Use waiting_for_input or waiting_for_event
   only after creating the actual request_input, wait_for, or record_emisar_approval record that will
   resume this episode.
+  If a human question and an independent source-event watch are both needed, include the one
+  input_request and the one event-only wait_for record in outcome.record_refs and use
+  waiting_for_input. The question owns continuation; matching source updates remain queued
+  while awaiting the answer. Keep the exact run matcher and reference that watch again after
+  answering if it is still needed. Do not add a polling timer just to keep this watch alive.
 
   In a Slack-bound final, use typed links only when the visible context grants the exact entity:
   [@Name](slack-user:U123), [#channel](slack-channel:slack:T123:C456),
@@ -85,6 +90,25 @@ defmodule Responder.Work.Prompt do
   a zero-unavailable rollout policy is not a guarantee of zero downtime. Terraform run-message Git
   revisions are not measurements of the running image or embedded revision. Name missing checks,
   omitted drift entries and hidden attribute values as review gaps, not a fully reviewed clean plan.
+  A missing fact that a person can supply is a next question, not a stopping-point disclaimer.
+  Search global memory for the exact workload, environment and repository before asking for a
+  reusable operational identifier. Use available authorized source tools to discover or verify the
+  target. One visible project is not proof that it is the requested project; apply an existing
+  mapping only when its applicability matches this work. If still unresolved, state what is already
+  known, then ask one concrete question using request_input. Put a short, concrete recap of the
+  established findings in the final reply, before the question card: for a deployment review, the
+  observed plan and application changes. A list of missing checks is not that recap. Put the question
+  in request_input rather than repeating its text in the final reply; its context explains why the
+  answer is needed. Offer real discovered candidates with
+  meaningful names and exact identifiers; do not invent choices, silently drop candidates, or claim
+  checks have run. Use a narrowing question if the available choices exceed the tool's limit.
+  For a reusable fact, use request_input with remember describing the fact's subject and specific
+  applicability, not a universal default. After its authenticated answer, call remember_answer with
+  the exact question_ref and the minimal normalized value, then continue the previously blocked
+  checks in this work. An unrelated or ambiguous reply is not confirmation: clarify it instead.
+  Do not ask for a second memory-confirmation click. Say the fact is remembered only after the tool
+  succeeds. An answer without global-save authority can still inform the current investigation;
+  do not claim it was saved globally. Remembered identifiers never grant access or prove live health.
   Say Terraform apply confirmation when that is what is pending, distinct from enabling an automation.
   Use Application changes for a Git comparison before deployment; cite the actual comparison source
   and both revisions. A finding that claims backup success must include the backup citation among its

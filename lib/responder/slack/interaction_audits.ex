@@ -1,6 +1,6 @@
 defmodule Responder.Slack.InteractionAudits do
   @moduledoc """
-  Durable audit and repaint custody for denied, stale, or confirmed Slack controls.
+  Durable audit and repaint custody for Slack controls and typed question answers.
 
   The Socket Mode envelope is acknowledged only after this ledger records the
   authority outcome. Denials need no shared-message mutation. Stale and confirmed controls
@@ -11,7 +11,10 @@ defmodule Responder.Slack.InteractionAudits do
   import Ecto.Query
 
   alias Responder.CanonicalJSON
+  alias Responder.Ingress.Inbox.Entry
   alias Responder.Repo
+  alias Responder.State.Record
+  alias Responder.Work.Turn
 
   alias Responder.Slack.{Interaction, InteractionAudit, InteractionAuditChangeset}
 
@@ -31,6 +34,42 @@ defmodule Responder.Slack.InteractionAudits do
 
   def record(_interaction, _outcome),
     do: {:error, {:invalid_slack_interaction_audit, :request}}
+
+  @doc false
+  def record_answer_in_transaction(
+        %Entry{source_kind: "slack", actor_kind: :user} = entry,
+        %Record{} = record,
+        %Turn{external_receipt: receipt},
+        kind
+      )
+      when kind in [:typed, :choice] do
+    # InputRequests has already checked this delivered question and source. Keep
+    # the real answer identity and distinguish typed replies from native choices.
+    if Repo.in_transaction?() do
+      ["slack", workspace, channel] =
+        String.split(entry.destination_conversation_ref, ":", parts: 3)
+
+      %{
+        action_id: "#{kind}_question_answer",
+        action_value: record.ref,
+        actor_ref: entry.actor_ref,
+        channel_ref: channel,
+        event_ref: entry.event_ref,
+        message_ref: receipt["message_ref"],
+        occurred_at: entry.occurred_at,
+        thread_ref: entry.destination_thread_ref,
+        workspace_ref: workspace
+      }
+      |> attributes(:confirmed)
+      |> record_locked()
+
+      :ok
+    else
+      {:error, :state_record_transaction_required}
+    end
+  end
+
+  def record_answer_in_transaction(_entry, _record, _turn, _kind), do: :ok
 
   @spec claim_next(String.t(), pos_integer()) ::
           {:ok, InteractionAudit.t() | nil} | {:error, term()}

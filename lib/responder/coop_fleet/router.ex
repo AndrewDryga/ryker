@@ -38,6 +38,7 @@ defmodule Responder.CoopFleet.Router do
         |> maybe_put(:emisar_rpc_url, Map.get(state_tools, :emisar_rpc_url))
         |> maybe_put(:additional_tools, Map.get(state_tools, :additional_tools))
         |> maybe_put(:additional_call, Map.get(state_tools, :additional_call))
+        |> maybe_put(:answer_authorizer, Map.get(state_tools, :answer_authorizer))
         |> StateToolsRouter.init()
 
       conn

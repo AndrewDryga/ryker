@@ -271,7 +271,7 @@ defmodule Responder.Retention.Policy do
     %{
       table: "operational_memory_entries",
       class: :conversation_memory,
-      why: "bounded operator-confirmed conversational memory"
+      why: "bounded confirmed memory; active answer-confirmed global facts survive transcript TTL"
     },
     %{
       table: "operator_behaviors",

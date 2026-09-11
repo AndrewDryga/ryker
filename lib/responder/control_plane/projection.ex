@@ -882,12 +882,17 @@ defmodule Responder.ControlPlane.Projection do
       memories:
         Repo.all(
           from(memory in MemoryEntry,
-            where: memory.status == :active and memory.expires_at > ^now,
+            where:
+              memory.status == :active and
+                (is_nil(memory.expires_at) or memory.expires_at > ^now),
             order_by: [desc: memory.updated_at, desc: memory.id],
             limit: 100,
             select: %{
               kind: memory.kind,
               ref: memory.ref,
+              scope: memory.scope_kind,
+              applicability: fragment("?::jsonb->>'applicability'", memory.payload),
+              value: fragment("?::jsonb->>'value'", memory.payload),
               status: memory.status,
               subject: memory.subject
             }
