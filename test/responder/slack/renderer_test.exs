@@ -3,35 +3,141 @@ defmodule Responder.Slack.RendererTest do
 
   alias Responder.Slack.Renderer
 
-  test "a confirmed recorded automation replaces the enable button with its saved state" do
+  # Every confirmed entity used to collapse to "*Automation confirmed*" plus its
+  # title: the trigger, filter, delivery, expiry and the only way to remove it
+  # were gone the moment an operator said yes.
+  test "a confirmed offer keeps the saved entity's full detail and its exact removal control" do
     captured = Jason.decode!(File.read!("testdata/work/terraform-automation-recovery.json"))
     proposal = hd(captured["automation_arguments"]["proposals"])
+    ref = hd(captured["accepted_candidate"]["outcome"]["record_refs"])
+
+    payload = %{
+      "catch_up" => proposal["catch_up"],
+      "context_channel" => "slack:T0BHXKZJVDX:C0BHTRPHXP0",
+      "delivery_channel" => "slack:T0BHXKZJVDX:C0BHTRPHXP0",
+      "expires_at" => nil,
+      "filter" => proposal["trigger"]["filter"],
+      "hold" => nil,
+      "repository" => nil,
+      "source_kind" => proposal["trigger"]["source_kind"],
+      "task" => proposal["prompt"],
+      "title" => proposal["title"]
+    }
+
+    entity = %{
+      "facts" => [
+        ["Channel", %{"channel_ref" => "C0BHTRPHXP0"}],
+        ["Source", proposal["trigger"]["source_kind"]],
+        ["Event filter", "All #{proposal["trigger"]["source_kind"]} events posted here"],
+        ["Repository", "No fixed binding"],
+        ["Expires", "Until disabled"],
+        ["Missed events", "Run the latest missed occurrence"],
+        ["Access", "Read-only"]
+      ],
+      "instructions" => proposal["prompt"],
+      "kind" => "standing_rule",
+      "notice" => "Standing rule saved",
+      "ref" => "behavior:2f6a1c0e-9c1d-4c2e-8d3f-4a5b6c7d8e9f",
+      "removable" => true,
+      "revision" => 1,
+      "saved_at" => "2026-08-28T12:00:00.000000Z",
+      "saved_by" => "slack:user:U123",
+      "status" => "active",
+      "title" => proposal["title"]
+    }
 
     record = %{
       "kind" => "standing_assignment_offer",
-      "ref" => hd(captured["accepted_candidate"]["outcome"]["record_refs"]),
-      "status" => "confirmed",
-      "payload" => %{
-        "catch_up" => proposal["catch_up"],
-        "context_channel" => "slack:T0BHXKZJVDX:C0BHTRPHXP0",
-        "delivery_channel" => "slack:T0BHXKZJVDX:C0BHTRPHXP0",
-        "expires_at" => nil,
-        "filter" => proposal["trigger"]["filter"],
-        "hold" => nil,
-        "repository" => nil,
-        "source_kind" => proposal["trigger"]["source_kind"],
-        "task" => proposal["prompt"],
-        "title" => proposal["title"]
-      }
+      "payload" => payload,
+      "presentation" => %{"entity" => entity},
+      "ref" => ref,
+      "status" => "confirmed"
     }
 
     assert {:ok, rendered} =
              Renderer.render(%{"message" => "Confirmation saved.", "records" => [record]})
 
-    assert inspect(rendered) =~ "Automation confirmed"
-    assert inspect(rendered) =~ proposal["title"]
+    [_message, detail, facts, context, controls] = rendered["blocks"]
+    assert detail["text"]["text"] =~ "*#{proposal["title"]}*"
+    assert detail["text"]["text"] =~ proposal["prompt"]
+
+    assert Enum.map(facts["fields"], & &1["text"]) == [
+             "*Channel*\n<#C0BHTRPHXP0>",
+             "*Source*\n#{proposal["trigger"]["source_kind"]}",
+             "*Event filter*\nAll #{proposal["trigger"]["source_kind"]} events posted here",
+             "*Repository*\nNo fixed binding",
+             "*Expires*\nUntil disabled",
+             "*Missed events*\nRun the latest missed occurrence",
+             "*Access*\nRead-only"
+           ]
+
+    assert hd(context["elements"])["text"] =~ "Standing rule saved · saved by <@U123>"
+
+    assert [delete] = controls["elements"]
+    assert delete["action_id"] == "responder_delete_behavior"
+    assert delete["value"] == "behavior-control:behavior:2f6a1c0e-9c1d-4c2e-8d3f-4a5b6c7d8e9f:1"
+    assert delete["style"] == "danger"
+    assert delete["confirm"]["title"]["text"] == "Delete rule?"
+    assert delete["confirm"]["text"]["text"] =~ proposal["title"]
     refute inspect(rendered) =~ "Enable automation"
+    refute inspect(rendered) =~ "Automation confirmed"
+
+    deleted =
+      put_in(record, ["presentation", "entity"], %{
+        entity
+        | "removable" => false,
+          "status" => "deleted",
+          "notice" => "Standing rule deleted"
+      })
+
+    assert {:ok, rendered} =
+             Renderer.render(%{"message" => "Confirmation saved.", "records" => [deleted]})
+
     refute Enum.any?(rendered["blocks"], &(&1["type"] == "actions"))
+    assert inspect(rendered) =~ "Standing rule deleted"
+
+    # The offer payload alone no longer describes what was saved; a confirmed
+    # offer without its entity is an error, not a shorter card.
+    assert Renderer.render(%{
+             "message" => "Confirmation saved.",
+             "records" => [Map.delete(record, "presentation")]
+           }) ==
+             {:error, {:invalid_slack_render, :record}}
+
+    memory = %{
+      "facts" => [
+        ["Kind", "entity relationship"],
+        ["Scope", "Whole workspace"],
+        ["Visibility", "Whole workspace"],
+        ["Expires", "No expiry"]
+      ],
+      "instructions" => "portal-prod",
+      "kind" => "memory",
+      "notice" => "Memory saved",
+      "ref" => "memory:rollback-proof",
+      "removable" => true,
+      "revision" => nil,
+      "saved_at" => "2026-08-28T12:00:00.000000Z",
+      "saved_by" => "slack:user:U123",
+      "status" => "active",
+      "title" => "GCP project"
+    }
+
+    assert {:ok, rendered} = Renderer.render(%{"saved_entity" => memory})
+    assert [forget] = List.last(rendered["blocks"])["elements"]
+    assert forget["action_id"] == "responder_forget_memory"
+    assert forget["value"] == "memory:rollback-proof"
+    assert forget["confirm"]["title"]["text"] == "Forget this memory?"
+    assert forget["confirm"]["text"]["text"] =~ "GCP project"
+    assert rendered["text"] =~ "Memory saved: GCP project"
+
+    forged = put_in(memory, ["facts"], [["Kind", "<!everyone> pings"]])
+    assert {:ok, rendered} = Renderer.render(%{"saved_entity" => forged})
+    refute inspect(rendered) =~ "<!everyone>"
+    assert inspect(rendered) =~ "&lt;!everyone&gt;"
+
+    assert Renderer.render(%{"saved_entity" => %{memory | "ref" => "schedule:abc"}}) ==
+             {:error, {:invalid_slack_render, :saved_entity}}
   end
 
   test "renders host-authorized typed mentions into native Slack controls" do
@@ -157,10 +263,18 @@ defmodule Responder.Slack.RendererTest do
 
       assert hd(context["elements"])["text"] =~ "defaults; nobody has customized this channel yet"
 
-      assert Enum.map(controls["elements"], &{&1["action_id"], &1["value"]}) == [
-               {"responder_welcome_configure", "#{configuration_ref}|3"}
-             ]
+      # List controls post item cards into the thread the view was asked in;
+      # the private command reply has no thread, so it carries only Configure.
+      expected_controls =
+        if audience == "thread",
+          do: [
+            {"responder_welcome_configure", "#{configuration_ref}|3"},
+            {"responder_welcome_view_schedules", "#{configuration_ref}|3"},
+            {"responder_welcome_view_rules", "#{configuration_ref}|3"}
+          ],
+          else: [{"responder_welcome_configure", "#{configuration_ref}|3"}]
 
+      assert Enum.map(controls["elements"], &{&1["action_id"], &1["value"]}) == expected_controls
       assert rendered["text"] =~ "Conversations: Reply when mentioned"
     end
 
@@ -659,10 +773,83 @@ defmodule Responder.Slack.RendererTest do
                ]
              })
 
+    # One offer identity owns both paths; Open incident room is a link only
+    # once the room exists, never a button that hides room creation.
     assert [_, _, actions] = incident["blocks"]
-    assert [button] = actions["elements"]
-    assert button["action_id"] == "responder_open_incident"
-    assert button["text"]["text"] == "Open incident room"
+    assert [investigate, create] = actions["elements"]
+    assert investigate["action_id"] == "responder_investigate_incident"
+    assert investigate["text"]["text"] == "Investigate"
+    assert investigate["value"] == "record:task_offer:def456"
+
+    assert investigate["confirm"]["text"]["text"] =~
+             "No incident room is created and nobody is invited"
+
+    assert create["action_id"] == "responder_open_incident"
+    assert create["text"]["text"] == "Create incident room"
+    assert create["value"] == "record:task_offer:def456"
+    refute inspect(incident) =~ "Open incident room"
+
+    offer = %{
+      "kind" => "task_offer",
+      "payload" => %{
+        "kind" => "incident",
+        "prompt" => "Coordinate this incident.",
+        "repository" => nil,
+        "title" => "Checkout errors"
+      },
+      "ref" => "record:task_offer:def456",
+      "status" => "confirmed"
+    }
+
+    assert {:ok, investigating} =
+             Renderer.render(%{"message" => "Started.", "records" => [offer]})
+
+    assert inspect(investigating) =~ "✓ Investigating in this thread."
+    refute Enum.any?(investigating["blocks"], &(&1["type"] == "actions"))
+
+    room_url = "https://slack.com/app_redirect?team=T123&channel=CINCIDENT"
+
+    assert {:ok, created} =
+             Renderer.render(%{
+               "message" => "Started.",
+               "records" => [
+                 Map.put(offer, "presentation", %{"incident_room" => %{"url" => room_url}})
+               ]
+             })
+
+    assert inspect(created) =~ "✓ Incident room created."
+    assert [link] = List.last(created["blocks"])["elements"]
+    assert link["text"]["text"] == "Open incident room"
+    assert link["url"] == room_url
+
+    assert {:ok, requested} =
+             Renderer.render(%{
+               "message" => "Started.",
+               "records" => [
+                 Map.put(offer, "presentation", %{"incident_room" => %{"url" => nil}})
+               ]
+             })
+
+    assert inspect(requested) =~ "◷ Incident room requested"
+    refute Enum.any?(requested["blocks"], &(&1["type"] == "actions"))
+
+    assert {:ok, task} =
+             Renderer.render(%{
+               "message" => "Started.",
+               "records" => [
+                 %{
+                   offer
+                   | "payload" => %{
+                       "kind" => "engineering",
+                       "prompt" => "Fix it.",
+                       "repository" => "responder",
+                       "title" => "Fix parser retries"
+                     }
+                 }
+               ]
+             })
+
+    assert inspect(task) =~ "✓ Task started in this thread."
   end
 
   test "renders an inert publication offer with a host-owned review control" do

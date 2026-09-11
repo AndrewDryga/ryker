@@ -405,6 +405,51 @@ defmodule Responder.Slack.ChannelSetupTest do
              :not_setup
   end
 
+  test "collections asked for in conversation or from the settings view arrive as item cards in that thread",
+       %{options: options} do
+    assert {:ok, _joined} = ChannelSetup.handle_membership(membership(), options)
+    configuration = ChannelConfigurations.configuration(@workspace, "C456")
+
+    question = normalized("U456", "<@UBOT> what schedules are active?", "88.000001", :mention)
+
+    assert {:ok, %{outcome: :collection_shown, collection: :schedules, shown: 0, total: 0}} =
+             ChannelSetup.handle_message(question, options)
+
+    assert %{
+             document: %{"message" => "No active schedules are set up in this channel."},
+             thread: "88.000001"
+           } =
+             List.last(posts(options))
+
+    view = %{
+      welcome_interaction(configuration, "responder_welcome_view_rules", "interaction:view-rules")
+      | message_ref: "99.000001",
+        thread_ref: "77.000001"
+    }
+
+    assert {:ok, %{outcome: :collection_shown, collection: :standing_rules, shown: 0, total: 0}} =
+             ChannelSetup.handle_interaction(view, options)
+
+    assert %{
+             document: %{"message" => "No standing rules are set up in this channel."},
+             thread: "77.000001"
+           } =
+             List.last(posts(options))
+
+    stale = %{view | action_value: "#{configuration.id}|9"}
+
+    assert ChannelSetup.handle_interaction(stale, options) ==
+             {:error, :configuration_revision_stale}
+
+    assert ChannelSetup.handle_message(
+             normalized("U999", "<@UBOT> show schedules", nil, :mention),
+             options
+           ) ==
+             :not_setup
+
+    assert ChannelConfigurations.configuration(@workspace, "C456").revision == 1
+  end
+
   test "unknown users and unrelated messages remain on the ordinary ingress path", %{
     options: options
   } do

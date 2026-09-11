@@ -654,15 +654,53 @@ defmodule Responder.ControlPlane.CardLab do
         }
       ),
       record_state(
-        "incident",
-        "Incident offer",
-        "Open a coordinated incident room after confirmation.",
+        "engineering-started",
+        "Task started",
+        "The confirmed offer names the path it took; the task card follows in the thread.",
         "task_offer",
         %{
-          "kind" => "incident",
-          "prompt" => "Coordinate the current production symptoms.",
-          "repository" => nil,
-          "title" => "Checkout errors"
+          "kind" => "engineering",
+          "prompt" => "Repair the parser and run focused tests.",
+          "repository" => "responder",
+          "title" => "Fix parser retries"
+        },
+        "confirmed"
+      ),
+      record_state(
+        "incident",
+        "Incident offer",
+        "Investigate in this thread or create an incident room; one offer owns both paths.",
+        "task_offer",
+        incident_offer_payload()
+      ),
+      record_state(
+        "incident-investigating",
+        "Investigating in the thread",
+        "Durable read-only work started in this thread, with no room and no invitations.",
+        "task_offer",
+        incident_offer_payload(),
+        "confirmed"
+      ),
+      record_state(
+        "incident-room-requested",
+        "Incident room requested",
+        "The room is being created; Open incident room appears only once it exists.",
+        "task_offer",
+        incident_offer_payload(),
+        "confirmed",
+        %{"incident_room" => %{"url" => nil}}
+      ),
+      record_state(
+        "incident-room-created",
+        "Incident room created",
+        "The offer links to the room that now exists.",
+        "task_offer",
+        incident_offer_payload(),
+        "confirmed",
+        %{
+          "incident_room" => %{
+            "url" => "https://slack.com/app_redirect?team=T0BHXKZJVDX&channel=C0BHTRPHXP1"
+          }
         }
       )
     ]
@@ -674,6 +712,15 @@ defmodule Responder.ControlPlane.CardLab do
       :message,
       sequence(states)
     )
+  end
+
+  defp incident_offer_payload do
+    %{
+      "kind" => "incident",
+      "prompt" => "Coordinate the current production symptoms.",
+      "repository" => nil,
+      "title" => "Checkout errors"
+    }
   end
 
   defp publication_cards do
@@ -1398,15 +1445,158 @@ defmodule Responder.ControlPlane.CardLab do
         record_state(
           "#{id}-confirmed",
           "#{label} confirmed",
-          "Saved confirmation without an active button.",
+          "The saved entity keeps its full detail and its exact removal control.",
           kind,
           payload,
-          "confirmed"
+          "confirmed",
+          %{"entity" => saved_entity(kind, payload)}
         )
       )
     else
       specimen
     end
+  end
+
+  # Illustrative saved-entity projections for confirmed specimens. The values
+  # are proposed copy over the specimen payload, not harvested history.
+  defp saved_entity("schedule_offer", payload) do
+    entity(
+      "schedule",
+      "schedule:018f3ef7-1f62-7ee0-a83c-0c12f21d83e8",
+      payload["title"],
+      payload["task"],
+      [
+        ["When", "Daily at 13:00:00 · #{payload["timezone"]}"],
+        ["Channel", %{"channel_ref" => "C0BHTRPHXP0"}],
+        ["Next run", "05 Sep 2099, 13:00 UTC"],
+        ["Expires", "No expiry"],
+        ["Missed runs", "Run the latest missed occurrence"],
+        ["Access", "Read-only"],
+        ["Repository", payload["repository"] || "No fixed binding"]
+      ],
+      "Schedule saved"
+    )
+  end
+
+  defp saved_entity("automation_change_offer", payload) do
+    entity(
+      "schedule",
+      payload["automation_id"],
+      get_in(payload, ["after", "title"]) || "Daily health check",
+      get_in(payload, ["after", "prompt"]) || "Check service health.",
+      [
+        ["When", "Daily at 13:00:00 · Etc/UTC"],
+        ["Channel", %{"channel_ref" => "C0BHTRPHXP0"}],
+        ["Expires", "No expiry"],
+        ["Missed runs", "Run the latest missed occurrence"],
+        ["Access", "Read-only"],
+        ["Repository", "No fixed binding"]
+      ],
+      "Schedule has been updated",
+      payload["revision"] + 1
+    )
+  end
+
+  defp saved_entity("standing_assignment_offer", %{"source_kind" => source_kind} = payload) do
+    entity(
+      "standing_rule",
+      "behavior:018f3ef7-1f62-7ee0-a83c-0c12f21d83e9",
+      payload["title"],
+      payload["task"],
+      [
+        ["Channel", %{"channel_ref" => "C0BHTRPHXP0"}],
+        ["Source", source_kind],
+        ["Event filter", "All #{source_kind} events posted here"],
+        ["Repository", payload["repository"] || "No fixed binding"],
+        ["Expires", "Until disabled"],
+        ["Missed events", "Run the latest missed occurrence"],
+        ["Access", "Read-only"]
+      ],
+      "Standing rule saved"
+    )
+  end
+
+  defp saved_entity("standing_assignment_offer", payload) do
+    entity(
+      "standing_rule",
+      "behavior:018f3ef7-1f62-7ee0-a83c-0c12f21d83e9",
+      payload["trigger"],
+      payload["task"],
+      [
+        ["Trigger", "#{payload["trigger"]} → #{payload["action"]}"],
+        ["Source filter", payload["source_filter"]],
+        ["Repository", payload["repository"] || "No fixed binding"],
+        ["Expires", "Until disabled"],
+        ["Access", "Read-only"]
+      ],
+      "Standing rule saved"
+    )
+  end
+
+  defp saved_entity("preference_offer", payload) do
+    entity(
+      "preference",
+      "behavior:018f3ef7-1f62-7ee0-a83c-0c12f21d83ea",
+      payload["key"],
+      "#{payload["key"]} = #{payload["value"]}",
+      [
+        ["Scope", "Whole workspace"],
+        ["Repository", payload["repository"] || "No fixed binding"],
+        ["Expires", "27 Oct 2099, 12:00 UTC"]
+      ],
+      "Preference saved"
+    )
+  end
+
+  defp saved_entity("guidance_offer", payload) do
+    entity(
+      "guidance",
+      "behavior:018f3ef7-1f62-7ee0-a83c-0c12f21d83eb",
+      payload["subject"],
+      payload["text"],
+      [
+        ["Scope", "This conversation"],
+        ["Repository", payload["repository"] || "No fixed binding"],
+        ["Visibility", "This conversation"],
+        ["Expires", "27 Oct 2099, 12:00 UTC"],
+        ["Source", %{"channel_ref" => "C0BHTRPHXP0"}]
+      ],
+      "Guidance saved"
+    )
+  end
+
+  defp saved_entity("memory_offer", payload) do
+    entity(
+      "memory",
+      "memory:018f3ef7-1f62-7ee0-a83c-0c12f21d83ec",
+      payload["subject"],
+      payload["value"],
+      [
+        ["Kind", String.replace(payload["kind"], "_", " ")],
+        ["Scope", "Whole workspace"],
+        ["Visibility", "Whole workspace"],
+        ["Expires", "27 Oct 2099, 12:00 UTC"],
+        ["Source", %{"channel_ref" => "C0BHTRPHXP0"}]
+      ],
+      "Memory saved",
+      nil
+    )
+  end
+
+  defp entity(kind, ref, title, instructions, facts, notice, revision \\ 1) do
+    %{
+      "facts" => facts,
+      "instructions" => instructions,
+      "kind" => kind,
+      "notice" => notice,
+      "ref" => ref,
+      "removable" => true,
+      "revision" => revision,
+      "saved_at" => "2099-09-04T12:00:00.000000Z",
+      "saved_by" => "slack:user:U123",
+      "status" => "active",
+      "title" => title
+    }
   end
 
   defp publication_state(id, label, payload, status) do

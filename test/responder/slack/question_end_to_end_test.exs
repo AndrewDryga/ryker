@@ -28,7 +28,7 @@ defmodule Responder.Slack.QuestionEndToEndTest do
 
   alias Responder.StateTools.{Router, Tools}
   alias Responder.TestSupport.{FakeCoopAPI, FakeWorkCoopAPI}
-  alias Responder.Work.{Custody, Executor, Session, Turn}
+  alias Responder.Work.{Custody, Executor, Session, SubmissionBuilder, Turn}
 
   @now ~U[2026-08-31 12:00:01.000200Z]
   @policy_digest String.duplicate("a", 64)
@@ -456,6 +456,14 @@ defmodule Responder.Slack.QuestionEndToEndTest do
     assert recalled["applicability"] == "Responder canary deployments"
     refute Map.has_key?(recalled, "source")
     refute inspect(recalled) =~ "C456"
+
+    # The later conversation does not have to ask: the remembered answer is
+    # already in the submission the model receives, still without its source.
+    assert {:ok, submission} = SubmissionBuilder.build(claim)
+    assert [fact] = get_in(submission, ["context", "operator_context", "memory"])
+    assert fact["memory_ref"] == memory.ref
+    assert fact["value"] == "one percent"
+    refute inspect(fact) =~ "C456"
   end
 
   defp submit_answer!(:typed, _request, occurred_at) do

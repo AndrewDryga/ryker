@@ -81,12 +81,30 @@ defmodule Responder.Slack.InteractionHandler do
   ]
   @work_record_kinds ~w(timeline evidence handoff postmortem)
 
+  @entity_actions ~w(responder_delete_schedule responder_delete_behavior responder_forget_memory)
+  @settled_entity_errors [
+    :behavior_not_found,
+    :behavior_revision_stale,
+    :behavior_terminal,
+    :behavior_unauthorized,
+    :behavior_workspace_mismatch,
+    :memory_not_found,
+    :memory_terminal,
+    :memory_unauthorized,
+    :memory_workspace_mismatch,
+    :operator_action_conflict,
+    :schedule_not_found,
+    :schedule_revision_stale,
+    :schedule_scope_mismatch,
+    :schedule_terminal
+  ]
+
   @spec handle(Interaction.t(), map()) :: {:ok, map()} | {:error, term()}
   def handle(%Interaction{} = interaction, options) when is_map(options) do
-    if Interaction.setup_action?(interaction.action_id) do
-      handle_setup(interaction, options)
-    else
-      handle_record_action(interaction, options)
+    cond do
+      Interaction.setup_action?(interaction.action_id) -> handle_setup(interaction, options)
+      interaction.action_id in @entity_actions -> handle_entity_action(interaction, options)
+      true -> handle_record_action(interaction, options)
     end
   end
 
@@ -132,6 +150,82 @@ defmodule Responder.Slack.InteractionHandler do
 
       {:error, _reason} = error ->
         error
+    end
+  end
+
+  # A saved-entity removal control names the exact resource and revision it was
+  # rendered from. The owners in App Home already recheck workspace, status and
+  # revision; the message surface adds only the operator and membership gates.
+  defp handle_entity_action(interaction, options) do
+    with {:ok, true} <-
+           options.directory.user_allowed(
+             options.client,
+             interaction.actor_ref,
+             interaction.workspace_ref
+           ),
+         :ok <- configured_operator(interaction, options),
+         {:ok, outcome} <- remove_entity(interaction, options) do
+      {:ok, %{outcome: outcome, resource_ref: interaction.action_value}}
+    else
+      {:ok, false} -> {:ok, %{outcome: :denied}}
+      {:error, :operator_required} -> {:ok, %{outcome: :denied}}
+      {:error, :slack_action_mismatch} -> {:ok, %{outcome: :invalid}}
+      {:error, reason} when reason in @settled_entity_errors -> {:ok, %{outcome: :invalid}}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp remove_entity(%Interaction{action_id: "responder_delete_schedule"} = interaction, options) do
+    with {:ok, ref, revision} <- versioned_resource(interaction.action_value, "schedule"),
+         {:ok, _result} <-
+           options.delete_schedule.(
+             ref,
+             revision,
+             interaction.actor_ref,
+             interaction.workspace_ref,
+             interaction.event_ref
+           ) do
+      {:ok, :deleted}
+    end
+  end
+
+  defp remove_entity(%Interaction{action_id: "responder_delete_behavior"} = interaction, options) do
+    with {:ok, ref, revision} <- versioned_resource(interaction.action_value, "behavior"),
+         {:ok, _result} <-
+           options.delete_behavior.(
+             ref,
+             revision,
+             interaction.actor_ref,
+             interaction.workspace_ref,
+             interaction.event_ref
+           ) do
+      {:ok, :deleted}
+    end
+  end
+
+  defp remove_entity(%Interaction{action_id: "responder_forget_memory"} = interaction, options) do
+    with {:ok, _result} <-
+           options.forget_memory.(
+             interaction.action_value,
+             interaction.actor_ref,
+             interaction.workspace_ref
+           ) do
+      {:ok, :forgotten}
+    end
+  end
+
+  defp versioned_resource(value, kind) do
+    prefix = "#{kind}-control:"
+
+    with true <- String.starts_with?(value, prefix),
+         parts when length(parts) >= 2 <-
+           value |> String.replace_prefix(prefix, "") |> String.split(":"),
+         {revision, ""} when revision > 0 <- Integer.parse(List.last(parts)),
+         ref <- parts |> Enum.drop(-1) |> Enum.join(":"),
+         true <- String.starts_with?(ref, "#{kind}:") do
+      {:ok, ref, revision}
+    else
+      _invalid -> {:error, :slack_action_mismatch}
     end
   end
 
@@ -418,6 +512,19 @@ defmodule Responder.Slack.InteractionHandler do
   end
 
   defp apply_action(
+         %Interaction{action_id: "responder_investigate_incident"} = interaction,
+         %{kind: "task_offer", payload: %{"kind" => "incident"}} = record,
+         nil,
+         options
+       ) do
+    with :ok <- operator_authority(interaction, record, options),
+         {:ok, policy} <- policy(record, options),
+         {:ok, confirmation} <- investigate_incident(interaction, policy, options) do
+      {:ok, %{episode_id: confirmation.episode.id, outcome: confirmation.status}}
+    end
+  end
+
+  defp apply_action(
          interaction,
          %{kind: "task_offer", payload: %{"kind" => "incident"}} = record,
          nil,
@@ -531,6 +638,18 @@ defmodule Responder.Slack.InteractionHandler do
       policy: policy,
       record_ref: interaction.action_value,
       target: target(interaction)
+    })
+  end
+
+  defp investigate_incident(interaction, policy, options) do
+    options.investigate_incident.(%{
+      actor_ref: "slack:user:#{interaction.actor_ref}",
+      confirmation_ref: interaction.event_ref,
+      occurred_at: interaction.occurred_at,
+      policy: policy,
+      record_ref: interaction.action_value,
+      target: target(interaction),
+      workspace_ref: interaction.workspace_ref
     })
   end
 

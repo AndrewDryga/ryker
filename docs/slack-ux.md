@@ -250,12 +250,38 @@ request such as `remember that when you explain fixes to me, start with a plain-
 produces a confirmation card with the exact guidance, scope, and expiry. Personal guidance follows
 that operator across channels; an explicit channel or team convention uses channel or workspace
 visibility. Until the button is confirmed, nothing is stored. A later request with the same topic
-replaces the logical entry. App Home and the web control plane list active memory with individual
-forget confirmations. Guidance is advisory: it cannot trigger work, count as evidence, authorize an
+replaces the logical entry. Guidance is advisory: it cannot trigger work, count as evidence, authorize an
 incident or change, approve an action, or override the current request or host safety policy.
 Operational mappings are likewise never presented as live health or authority; future
 investigations verify them against repositories and live tools. Same-channel evidence can be
 recalled from the evidence ledger, while evidence from other private channels is never injected.
+
+### Saved entities and requested collections
+
+Confirming a schedule, standing rule, preference, guidance or memory offer re-renders that message
+as the saved entity through one shared projection: the stable title, the full readable purpose or
+instructions, real metadata (when and timezone, next run, catch-up, authority, repository binding,
+destination, scope, visibility, expiry — "Until disabled" and "No expiry" are values, never
+placeholders), a brief notice such as **Schedule saved** or **Schedule has been updated**, who saved
+it and when, and one exact-resource removal control: **Delete schedule**, **Delete rule**,
+**Delete preference**, **Delete guidance** or **Forget memory**. Each control carries the entity
+reference and the revision it was rendered from and opens a native consequence dialog naming that
+entity: removing a schedule or rule stops future work while history remains; forgetting memory does
+not erase messages already sent. The click reruns the same authorized owners App Home uses, which
+recheck workspace, current status and revision; a stale, copied or non-operator click is reported
+as denied or no longer current and never as a deletion. After removal the message repaints to its
+deleted state with no controls. An updated automation renders as the saved entity with its new
+values and the update notice rather than a bare acknowledgement.
+
+Asking Responder for the active schedules, standing rules or saved knowledge in a channel
+("what schedules are active?", "show standing rules", "what do you remember here?"), or pressing
+**View schedules** / **View standing rules** on a settings reply, posts one saved-entity card per
+item in that thread, with the same detail and removal controls. A page holds at most five items,
+ordered by next run or recency, followed by "Showing 5 of N" with the exact total from the same
+scoped query and a pointer to App Home for the complete list. Every item has its own delivery
+identity, so a failed item is retried without posting earlier items again. An empty result says
+so; a query that could not run says it could not load, and never "no schedules". Items scoped to
+other channels, operators' private guidance and deleted or expired entities are never listed.
 
 Behavior memory is a separate typed facility for deterministic controls. An explicit request such
 as `when I ask about infrastructure health, always do a deep check` can offer a
@@ -322,13 +348,18 @@ accepts only one validated decision:
   interrupt the team;
 - reply concisely where the human is speaking when they address Responder and channel context or a
   bounded read-only investigation provides enough evidence;
-- attach an `Open incident room` confirmation when a human-reported problem may benefit from
-  coordinated investigation, without creating anything yet;
+- attach an incident offer when a human-reported problem may benefit from coordinated
+  investigation, without creating anything yet. One offer owns both paths: **Investigate** starts
+  durable read-only work in the existing thread under the incident policy, with no room and no
+  invitations; **Create incident room** uses the configured incident policy and audience. The host
+  serializes the two on the offer record, so concurrent opposite clicks start exactly one path and
+  the other reports the control as no longer current. The confirmed offer says which path it took,
+  and **Open incident room** appears only as a link once the room's channel exists;
 - attach a `Start task` confirmation when a human teammate explicitly requests repository
   changes, without weakening the shared channel's read-only boundary;
 - attach a `Prepare code fix` confirmation when a decision-ready confirmed or likely issue has a
-  narrow repository-backed remediation; this can appear beside `Open incident room`, carries the
-  exact fix objective into the task, and still requires diff review before draft-PR publication;
+  narrow repository-backed remediation; this can appear beside the incident offer, carries the
+  exact fix objective into the task, and still requires review before draft-PR publication;
 - open a normal dedicated incident automatically for a credible unresolved monitoring-app alert, or
   directly when a human explicitly asks to open, create, start, or declare an incident.
 

@@ -6,7 +6,15 @@ defmodule Responder.Slack.InteractionRepaintSourcesTest do
   alias Responder.Fixtures.Knowledge, as: KnowledgeFixtures
   alias Responder.Fixtures.Learning, as: LearningFixtures
   alias Responder.Slack.{InteractionAudit, InteractionRepaint, Renderer}
-  alias Responder.State.{ConversationObservation, KnowledgeSnapshot, Observations, Records}
+
+  alias Responder.State.{
+    Behavior,
+    ConversationObservation,
+    KnowledgeSnapshot,
+    Observations,
+    Records
+  }
+
   alias Responder.StateTools.FixedTools
   alias Responder.Work.{Custody, Session, Turn}
 
@@ -156,17 +164,42 @@ defmodule Responder.Slack.InteractionRepaintSourcesTest do
     }
 
     # Structural replay: retain the recorded model content, rebind only fixture custody.
-    record
-    |> Ecto.Changeset.change(
-      kind: "standing_assignment_offer",
+    record =
+      record
+      |> Ecto.Changeset.change(
+        kind: "standing_assignment_offer",
+        payload: payload,
+        payload_fingerprint: CanonicalJSON.digest(payload),
+        status: :confirmed,
+        confirmed_at: DateTime.utc_now(),
+        confirmed_by_actor_ref: "slack:user:fixture",
+        confirmation_ref: "interaction:recorded-confirmation"
+      )
+      |> Repo.update!()
+
+    # The confirmation created the standing rule this offer now renders as.
+    behavior_id = Ecto.UUID.generate()
+
+    Repo.insert!(%Behavior{
+      id: behavior_id,
+      ref: "behavior:#{behavior_id}",
+      offer_record_id: record.id,
+      kind: :standing_assignment,
+      status: :active,
+      workspace_ref: "slack:T08MMETA3U3",
+      scope_kind: :conversation,
+      scope_ref: fixture.claim.episode.destination_conversation_ref,
+      identity_key: proposal["trigger"]["source_kind"],
       payload: payload,
-      payload_fingerprint: CanonicalJSON.digest(payload),
-      status: :confirmed,
-      confirmed_at: DateTime.utc_now(),
       confirmed_by_actor_ref: "slack:user:fixture",
-      confirmation_ref: "interaction:recorded-confirmation"
-    )
-    |> Repo.update!()
+      confirmation_ref: "interaction:recorded-confirmation",
+      confirmed_at: DateTime.utc_now(),
+      source_transport: "slack",
+      source_conversation_ref: fixture.claim.episode.destination_conversation_ref,
+      source_thread_ref: fixture.claim.episode.destination_thread_ref,
+      source_message_ref: "1787832001.000200",
+      expires_at: nil
+    })
 
     candidate = put_in(captured["accepted_candidate"], ["outcome", "record_refs"], [record.ref])
 
@@ -183,7 +216,9 @@ defmodule Responder.Slack.InteractionRepaintSourcesTest do
     assert document["message"] =~ "Confirmation saved"
     refute document["message"] =~ "not yet active"
     assert {:ok, rendered} = Renderer.render(document)
-    assert inspect(rendered) =~ "Automation confirmed"
+    assert inspect(rendered) =~ "Standing rule saved"
+    assert inspect(rendered) =~ proposal["prompt"]
+    assert inspect(rendered) =~ "responder_delete_behavior"
     refute inspect(rendered) =~ "Enable automation"
     assert Repo.get!(Turn, turn.id).delivery_document == candidate
   end

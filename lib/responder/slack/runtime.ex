@@ -342,8 +342,32 @@ defmodule Responder.Slack.Runtime do
         confirm_schedule: &Schedules.confirm/1,
         confirm_slack_post: &SlackPostOffers.confirm/1,
         confirm_task_offer: &TaskOffers.confirm/1,
+        delete_behavior: fn ref, revision, actor_ref, workspace_ref, action_ref ->
+          Behaviors.set_home_status(
+            ref,
+            :deleted,
+            revision,
+            "slack:user:#{actor_ref}",
+            "slack:#{workspace_ref}",
+            action_ref
+          )
+        end,
+        delete_schedule: fn ref, revision, actor_ref, workspace_ref, action_ref ->
+          Schedules.set_home_status(
+            ref,
+            :deleted,
+            revision,
+            "slack:user:#{actor_ref}",
+            action_ref,
+            %{conversation_prefix: "slack:#{workspace_ref}:", transport: "slack"}
+          )
+        end,
         directory: Client,
+        forget_memory: fn ref, actor_ref, workspace_ref ->
+          Memories.forget_home(ref, "slack:user:#{actor_ref}", "slack:#{workspace_ref}")
+        end,
         incident_policy: incident_policy,
+        investigate_incident: &IncidentRooms.investigate/1,
         operators: operators,
         records: Records,
         request_incident_room: request_incident_room,
