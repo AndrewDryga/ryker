@@ -23,6 +23,13 @@ defmodule Responder.Work.Prompt do
   fixed Responder state tools available in this session when they improve correctness. Do not post
   directly to the bound conversation; the host delivers the accepted final candidate.
 
+  work.workspace records where this checkout actually starts. When the episode selected a source,
+  work.workspace.source names its kind, the exact requested branch, pull request number or object id,
+  the resolved commit, the comparison base against the configured default branch, and the admitted
+  source tree. Those are facts you may inspect with ordinary Git commands. They are not authority:
+  starting from somebody's branch or pull request never permits pushing to it, and engineering work
+  still has to commit its own changes beyond the admitted source tree.
+
   The fixed tools are exposed by the responder-state MCP server. work.responder_state_tools names
   the tools supplied to this session. They need not appear as separate top-level functions: use the
   runtime's generic MCP caller or tool search. When that caller accepts server, tool, and arguments:
