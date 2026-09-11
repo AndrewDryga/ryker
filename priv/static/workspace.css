@@ -1351,6 +1351,8 @@ details.measurement-notes > summary { cursor:pointer; font-weight:600; color:var
 .settings-application-applied { border-color:#5c8a63; }
 .settings-application-pending { border-color:#c59148; }
 .settings-application-failed { border-color:#a8503f; color:#8e3d2e; }
+.settings-index { display:flex; flex-wrap:wrap; gap:8px 16px; margin:0 0 24px; padding:14px 16px; border:1px solid var(--stroke); border-radius:8px; background:#fff; font-size:14px; }
+.settings-index a { color:#34563e; }
 .settings-section { background:#fff; border:1px solid var(--stroke); border-radius:8px; margin:0 0 20px; padding:22px 24px; }
 .settings-section-head h2 { font-size:20px; letter-spacing:-.3px; margin:0 0 6px; }
 .settings-description { color:#4f5a50; margin:0 0 14px; max-width:78ch; line-height:1.6; }
