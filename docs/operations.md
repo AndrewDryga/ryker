@@ -470,9 +470,13 @@ discarding dirty or unpublished work.
 
 `disposable_bytes_limit`, `reclaim_target_seconds`,
 `storage_high_watermark_bytes`, `storage_low_watermark_bytes` and
-`storage_reserve_bytes` are the documented per-worker storage policy. Watermarks
-must be ordered and the reserve must be smaller than the high watermark;
-configuration outside those bounds fails at startup.
+`storage_reserve_bytes` are the documented per-worker storage policy. They and
+the draining settings (`batch_limit`, `batch_seconds`,
+`retained_recheck_seconds`) carry the documented defaults from
+`config/responder-elixir.example.yaml` when omitted, so an existing
+configuration keeps starting; the retention horizons remain explicit.
+Watermarks must be ordered and the reserve must be smaller than the high
+watermark; configuration outside those bounds fails at startup.
 
 Workers report their own measured storage in every poll. Responder never
 estimates it: a worker that reports no `storage` object is unknown, not zero,

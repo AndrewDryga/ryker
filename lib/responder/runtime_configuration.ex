@@ -683,21 +683,31 @@ defmodule Responder.RuntimeConfiguration do
 
   defp retention!(value, work, learning, host_ref) do
     fields =
-      ~w(poll_interval_ms lease_seconds max_attempts retry_base_seconds retry_max_seconds closed_session_grace_seconds operational_data_seconds conversation_memory_seconds closed_work_seconds episode_history_seconds audit_data_seconds batch_limit batch_seconds retained_recheck_seconds disposable_bytes_limit reclaim_target_seconds storage_high_watermark_bytes storage_low_watermark_bytes storage_reserve_bytes)
+      ~w(poll_interval_ms lease_seconds max_attempts retry_base_seconds retry_max_seconds closed_session_grace_seconds operational_data_seconds conversation_memory_seconds closed_work_seconds episode_history_seconds audit_data_seconds)
 
-    object = object!(value, fields, [], "retention")
+    # Draining and storage budgets carry the documented defaults so an existing
+    # installation keeps starting; the retention horizons above stay explicit.
+    budgets =
+      ~w(batch_limit batch_seconds retained_recheck_seconds disposable_bytes_limit reclaim_target_seconds storage_high_watermark_bytes storage_low_watermark_bytes storage_reserve_bytes)
+
+    object = object!(value, fields, budgets, "retention")
 
     learning_adapter =
       if learning,
         do: Responder.Learning.Runtime.options!(learning),
         else: work
 
+    poll_interval_ms = integer!(object, "poll_interval_ms", nil, 1, 3_600_000, "retention")
+    # One drain pass must fit inside its own poll; the default follows the poll.
+    default_batch_seconds = min(30, max(div(poll_interval_ms, 1_000), 1))
+
     retention = %{
       audit_data_seconds:
         integer!(object, "audit_data_seconds", nil, 60, 10 * 365 * 86_400, "retention"),
       api: work.api,
-      batch_limit: integer!(object, "batch_limit", nil, 1, 1_000, "retention"),
-      batch_seconds: integer!(object, "batch_seconds", nil, 1, 3_600, "retention"),
+      batch_limit: integer!(object, "batch_limit", 25, 1, 1_000, "retention"),
+      batch_seconds:
+        integer!(object, "batch_seconds", default_batch_seconds, 1, 3_600, "retention"),
       client: work.client,
       closed_session_grace_seconds:
         integer!(object, "closed_session_grace_seconds", nil, 0, 30 * 86_400, "retention"),
@@ -734,9 +744,9 @@ defmodule Responder.RuntimeConfiguration do
           10 * 365 * 86_400,
           "retention"
         ),
-      poll_interval_ms: integer!(object, "poll_interval_ms", nil, 1, 3_600_000, "retention"),
+      poll_interval_ms: poll_interval_ms,
       retained_recheck_seconds:
-        integer!(object, "retained_recheck_seconds", nil, 60, 30 * 86_400, "retention"),
+        integer!(object, "retained_recheck_seconds", 21_600, 60, 30 * 86_400, "retention"),
       retry_base_seconds: integer!(object, "retry_base_seconds", nil, 1, 3_600, "retention"),
       retry_max_seconds: integer!(object, "retry_max_seconds", nil, 1, 86_400, "retention"),
       worker_ref: "#{host_ref}:retention"
@@ -760,18 +770,20 @@ defmodule Responder.RuntimeConfiguration do
 
   # Workspace storage policy Responder documents and reports. Workers enforce
   # their own allocation refusal and low-watermark recovery from these bounds.
+  # Defaults: 10 GiB of inactive disposable forks reclaimed within an hour, a
+  # 60 GiB high and 45 GiB low watermark, and a 5 GiB reserve for cleanup.
   defp retention_storage!(object) do
-    bytes = fn field ->
-      integer!(object, field, nil, 1_048_576, 1_099_511_627_776, "retention")
+    bytes = fn field, default ->
+      integer!(object, field, default, 1_048_576, 1_099_511_627_776, "retention")
     end
 
     storage = %{
-      disposable_bytes_limit: bytes.("disposable_bytes_limit"),
+      disposable_bytes_limit: bytes.("disposable_bytes_limit", 10_737_418_240),
       reclaim_target_seconds:
-        integer!(object, "reclaim_target_seconds", nil, 60, 30 * 86_400, "retention"),
-      storage_high_watermark_bytes: bytes.("storage_high_watermark_bytes"),
-      storage_low_watermark_bytes: bytes.("storage_low_watermark_bytes"),
-      storage_reserve_bytes: bytes.("storage_reserve_bytes")
+        integer!(object, "reclaim_target_seconds", 3_600, 60, 30 * 86_400, "retention"),
+      storage_high_watermark_bytes: bytes.("storage_high_watermark_bytes", 64_424_509_440),
+      storage_low_watermark_bytes: bytes.("storage_low_watermark_bytes", 48_318_382_080),
+      storage_reserve_bytes: bytes.("storage_reserve_bytes", 5_368_709_120)
     }
 
     unless storage.storage_low_watermark_bytes < storage.storage_high_watermark_bytes and

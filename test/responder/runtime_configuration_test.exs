@@ -893,6 +893,47 @@ defmodule Responder.RuntimeConfigurationTest do
     assert retention.poll_interval_ms == 1_000
     assert retention.lease_seconds == 60
     assert retention.conversation_memory_seconds == 7_200
+    assert retention.disposable_bytes_limit == 10_737_418_240
+    assert retention.storage_reserve_bytes == 5_368_709_120
+
+    # An installation that predates the storage budget keeps its documented
+    # defaults instead of refusing to start.
+    without_budgets =
+      configured
+      |> String.split("\n")
+      |> Enum.reject(fn line ->
+        Enum.any?(
+          ~w(batch_limit batch_seconds retained_recheck disposable_bytes reclaim_target storage_),
+          &String.contains?(line, &1)
+        )
+      end)
+      |> Enum.join("\n")
+
+    defaults = RuntimeConfiguration.from_string!(without_budgets).retention
+    assert defaults.batch_limit == 25
+    # The default pass budget follows the one-second poll of this fixture.
+    assert defaults.batch_seconds == 1
+    assert defaults.retained_recheck_seconds == 21_600
+    assert defaults.disposable_bytes_limit == 10_737_418_240
+    assert defaults.reclaim_target_seconds == 3_600
+    assert defaults.storage_high_watermark_bytes == 64_424_509_440
+    assert defaults.storage_low_watermark_bytes == 48_318_382_080
+    assert defaults.storage_reserve_bytes == 5_368_709_120
+
+    assert_raise ArgumentError, ~r/storage watermarks must be ordered/, fn ->
+      configured
+      |> String.replace(
+        "storage_low_watermark_bytes: 48318382080",
+        "storage_low_watermark_bytes: 70000000000"
+      )
+      |> RuntimeConfiguration.from_string!()
+    end
+
+    assert_raise ArgumentError, ~r/one drain pass must fit its poll/, fn ->
+      configured
+      |> String.replace("batch_seconds: 1\n", "batch_seconds: 2\n")
+      |> RuntimeConfiguration.from_string!()
+    end
 
     assert_raise ArgumentError, ~r/retention horizons must be ordered/, fn ->
       configured
