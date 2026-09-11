@@ -121,7 +121,7 @@ defmodule Responder.CoopFleet.FailoverEndToEndTest do
               create_key,
               rotated.session.policy,
               rotated.session.external_ref,
-              nil
+              rotated.session.repository_source
             )
         end
       end)

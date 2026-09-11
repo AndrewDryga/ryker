@@ -2474,7 +2474,7 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
           SELECT to_jsonb(row) - 'learning_run_id' - 'summary_error_code'
             - 'source_exposure_count' - 'knowledge_exposure_count' - 'completion_receipt'
             - 'selected_input_refs' - 'selection_ledger' - 'source_envelope'
-            - 'engagement_receipt' - 'delivery_target' AS value
+            - 'engagement_receipt' - 'delivery_target' - 'repository_source' AS value
           FROM #{prefix}.#{table} row ORDER BY 1
           """,
           []
