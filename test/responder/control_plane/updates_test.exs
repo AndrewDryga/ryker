@@ -53,11 +53,11 @@ defmodule Responder.ControlPlane.UpdatesTest do
   test "each retained domain can invalidate its reader without publishing row contents" do
     tables = %{
       "execution_usage" => "usage",
-      "episode_operator_reviews" => "episodes",
+      "episode_operator_reviews" => "timeline",
       "episode_schedules" => "schedules",
       "episode_event_subscriptions" => "subscriptions",
       "episode_state_records" => "memory",
-      "episode_work_turns" => "episodes",
+      "episode_work_turns" => "timeline",
       "ingress_inbox_entries" => "admission",
       "admission_attempts" => "admission",
       "slack_incident_rooms" => "incident-rooms",
@@ -68,7 +68,7 @@ defmodule Responder.ControlPlane.UpdatesTest do
       "memory_review_items" => "memory",
       "operator_behaviors" => "configuration",
       "standing_assignment_runs" => "rules",
-      "platform_actions" => "episodes",
+      "platform_actions" => "timeline",
       "delivery_reactions" => "lab",
       "responder_operator_actions" => "failures",
       "future_table" => "configuration"
@@ -96,7 +96,8 @@ defmodule Responder.ControlPlane.UpdatesTest do
     end
 
     assert Updates.domain("/") == "activity"
-    assert Updates.domain("/episodes/an-episode/requests") == "episodes"
+    assert Updates.domain("/timeline/an-episode/model-calls") == "timeline"
+    assert Updates.domain("/activity") == "activity"
   end
 
   test "room list and detail receive every invalidation for their displayed state" do

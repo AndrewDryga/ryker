@@ -1633,7 +1633,7 @@ defmodule Responder.ControlPlane.Router do
   defp memory_review_action("dismiss"), do: :dismiss
 
   defp action_return_path("episode", resource_ref),
-    do: "/episodes/#{URI.encode(resource_ref, &URI.char_unreserved?/1)}"
+    do: "/timeline/#{URI.encode(resource_ref, &URI.char_unreserved?/1)}"
 
   defp action_return_path("delivery", _resource_ref), do: "/failures"
   defp action_return_path("retention", _resource_ref), do: "/workspaces"

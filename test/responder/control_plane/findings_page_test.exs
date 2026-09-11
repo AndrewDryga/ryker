@@ -46,7 +46,7 @@ defmodule Responder.ControlPlane.FindingsPageTest do
     assert observation =~ "deliberately disables"
     evidence = Repo.get_by!(Responder.State.Record, ref: evidence_ref)
     record = Repo.get_by!(Responder.State.Record, ref: ref)
-    episode_path = "/episodes/" <> URI.encode_www_form(claim.episode.key)
+    episode_path = "/timeline/" <> URI.encode_www_form(claim.episode.key)
     # Findings and evidence must land on actual timeline cards, not dead fragments.
     assert path == episode_path <> "#event-record-" <> evidence.id
     assert finding.path == episode_path <> "#event-record-" <> record.id
@@ -107,7 +107,7 @@ defmodule Responder.ControlPlane.FindingsPageTest do
     refute Enum.any?(detail.trace.steps, &(&1.id == "record-#{original.id}"))
     assert [finding] = Projection.findings(%{}).items
     assert finding.what == "An older useful conclusion"
-    assert finding.path == "/episodes/" <> URI.encode_www_form(claim.episode.key)
+    assert finding.path == "/timeline/" <> URI.encode_www_form(claim.episode.key)
   end
 
   test "finding prose and linked evidence cross the redaction and escaping boundary" do

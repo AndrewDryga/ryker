@@ -172,7 +172,7 @@ The direct connection (`work.execution: direct`) does not support saving and
 restoring writable task workspaces. Use fleet execution for code-editing tasks;
 do not bypass the preflight or keep retrying the unchanged setup.
 
-The episode page distinguishes this proven startup failure from an older task
+The Timeline page (`/timeline/:ref`) distinguishes this proven startup failure from an older task
 that ran and lost access to its workspace. It shows the task title, confirmation,
 setup remedy and proposal/approval history first. Technical history stays
 available below. Missing or expired telemetry alone never proves “no files

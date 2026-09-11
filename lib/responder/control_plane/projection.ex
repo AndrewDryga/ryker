@@ -501,7 +501,7 @@ defmodule Responder.ControlPlane.Projection do
           %{
             ref: other.key,
             title: get_in(titles, [other.key, :title]) || "Earlier request",
-            href: "/episodes/" <> URI.encode_www_form(other.key),
+            href: "/timeline/" <> URI.encode_www_form(other.key),
             at: other.inserted_at,
             state: other.state,
             relation:
@@ -875,7 +875,7 @@ defmodule Responder.ControlPlane.Projection do
 
   defp finding_item({record, episode_key}, evidence, visible_records, secrets) do
     payload = finding_payload(record.payload, secrets)
-    path = "/episodes/" <> URI.encode_www_form(episode_key)
+    path = "/timeline/" <> URI.encode_www_form(episode_key)
     refs = Map.get(record.payload, "cause_evidence", [])
 
     %{

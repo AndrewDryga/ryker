@@ -402,7 +402,7 @@ defmodule Responder.ControlPlane.ConversationMemory do
       request_path:
         case episodes[item.source_episode_id] do
           nil -> nil
-          key -> "/episodes/" <> URI.encode(key, &URI.char_unreserved?/1)
+          key -> "/timeline/" <> URI.encode(key, &URI.char_unreserved?/1)
         end
     }
   end

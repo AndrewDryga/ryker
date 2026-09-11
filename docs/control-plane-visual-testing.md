@@ -34,7 +34,7 @@ visual-quality verdict, nor does it establish backend or live Slack parity.
 For a focused timeline regression, use a populated real episode:
 
 ```sh
-node scripts/timeline-visual.cjs http://127.0.0.1:4321/episodes/EPISODE_REFERENCE /tmp/responder-timeline-review
+node scripts/timeline-visual.cjs http://127.0.0.1:4321/timeline/EPISODE_REFERENCE /tmp/responder-timeline-review
 ```
 
 This captures 1440px, 900px and 390px layouts, asserts that message/event/request

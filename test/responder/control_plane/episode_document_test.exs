@@ -215,7 +215,7 @@ defmodule Responder.ControlPlane.EpisodeDocumentTest do
       title: "Result",
       status: :settled,
       coverage: "Retained",
-      href: "requests",
+      href: "model-calls",
       timing: [],
       sections: [section("candidate", "Response", %{"message" => text})]
     }
@@ -264,7 +264,7 @@ defmodule Responder.ControlPlane.EpisodeDocumentTest do
       target: "codex:gpt-5.6-luna/low@emisar",
       timing: [],
       coverage: "Retained",
-      href: "/episodes/ingress-input%3Aone",
+      href: "/timeline/ingress-input%3Aone",
       sections: []
     }
 
@@ -447,7 +447,7 @@ defmodule Responder.ControlPlane.EpisodeDocumentTest do
       target: "codex:gpt-5.6-luna/low@emisar",
       status: :decided,
       coverage: "Retained submission only",
-      href: "/episodes/ingress-input%3Arecorded",
+      href: "/timeline/ingress-input%3Arecorded",
       timing: [%{label: "Agent execution", value: "37.7 s"}],
       sections: [
         section("candidate", "Committed admission decision", %{
@@ -503,7 +503,7 @@ defmodule Responder.ControlPlane.EpisodeDocumentTest do
       target: "codex:gpt-5.6-terra/medium@emisar",
       status: :settled,
       coverage: "Retained submission only",
-      href: "/episodes/example/requests?attempt=retained",
+      href: "/timeline/example/model-calls?attempt=retained",
       timing: [],
       sections: [
         section("instructions", "Responder instructions", "Retained instructions <not HTML>"),
@@ -552,7 +552,7 @@ defmodule Responder.ControlPlane.EpisodeDocumentTest do
             target: "Not recorded",
             timing: [],
             coverage: "Retained only",
-            href: "/episodes/ingress-input%3Amissing",
+            href: "/timeline/ingress-input%3Amissing",
             sections: [
               %{id: "candidate", title: "Decision", source_kind: :admission, artifact: artifact}
             ]
@@ -770,7 +770,7 @@ defmodule Responder.ControlPlane.EpisodeDocumentTest do
         target: "codex:gpt-5.6-terra/medium@emisar",
         timing: [],
         coverage: "Retained only",
-        href: "/episodes/example/requests",
+        href: "/timeline/example/model-calls",
         sections: sections
       }
     )

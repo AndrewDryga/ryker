@@ -1,6 +1,6 @@
 // Read-only timeline acceptance against real retained episodes. No actions/model calls.
 // Screenshots stay in a private directory outside the repository.
-// node scripts/episode-visual.cjs ORIGIN OUTPUT /episodes/ENCODED_REF [...]
+// node scripts/episode-visual.cjs ORIGIN OUTPUT /timeline/ENCODED_REF [...]
 const {chromium} = require(process.env.RESPONDER_PLAYWRIGHT_MODULE || 'playwright');
 const fs = require('node:fs/promises');
 const path = require('node:path');
@@ -11,7 +11,7 @@ assert(['localhost', '127.0.0.1', '[::1]'].includes(origin.hostname));
 assert(origin.protocol === 'http:' && !origin.username && !origin.password && origin.pathname === '/');
 assert(process.argv[3], 'Provide a private capture directory');
 const routes = process.argv.slice(4);
-assert(routes.length && routes.every(route => /^\/episodes\/[^/?#]+$/.test(route)), 'Supply episode paths');
+assert(routes.length && routes.every(route => /^\/timeline\/[^/?#]+$/.test(route)), 'Supply episode paths');
 
 (async () => {
   const output = await createCaptureDirectory(process.argv[3], path.resolve(__dirname, '..'));

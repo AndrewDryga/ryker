@@ -324,7 +324,7 @@ defmodule Responder.ControlPlane.UsagePage do
     [
       "<a title=\"",
       e(title),
-      "\" href=\"/episodes?",
+      "\" href=\"/activity?",
       e(URI.encode_query(params)),
       "\">",
       e(label),

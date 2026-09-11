@@ -14,7 +14,7 @@ defmodule Responder.ControlPlane.SubscriptionsPageTest do
       ref: "event-subscription:9751a3c9-bc54-4d81-8b2d-173ed92fb54c",
       episode_ref: "episode:run-monitor",
       episode_title: "Review the portal deployment",
-      episode_href: "/episodes/episode%3Arun-monitor",
+      episode_href: "/timeline/episode%3Arun-monitor",
       context_label: "Slack · #infra",
       title: "Run run-t2W6yCNeLUU9xFso",
       condition: "Next matching Slack update",
@@ -52,7 +52,7 @@ defmodule Responder.ControlPlane.SubscriptionsPageTest do
     assert LazyHTML.query(document, ".subscription-condition") |> LazyHTML.text() ==
              item.condition
 
-    assert LazyHTML.query(document, "a[href='/episodes/episode%3Arun-monitor']")
+    assert LazyHTML.query(document, "a[href='/timeline/episode%3Arun-monitor']")
            |> LazyHTML.text() == item.episode_title
 
     assert LazyHTML.text(document) =~ "When a matching update arrives"

@@ -14,7 +14,7 @@ defmodule Responder.ControlPlane.NativePagesTest do
         {"request-#{index}",
          %{
            kind: "episode",
-           href: "/episodes/request-#{index}",
+           href: "/timeline/request-#{index}",
            title: "Investigate <unsafe> #{index}",
            source: if(index == 1, do: "Conversation Lab", else: "GitHub"),
            repository: "responder",
@@ -31,7 +31,7 @@ defmodule Responder.ControlPlane.NativePagesTest do
         overview: %{counts: %{active: 2}, fleet: %{eligible_workers: 1, unavailable: true}},
         activity: %{total: 90, page: 2, pages: 3, mode: "all"},
         params: %{"q" => "trace", "repository" => "responder", "mode" => "all"},
-        path: "/episodes",
+        path: "/activity",
         now: @now,
         stream: items,
         new_items: 2,
@@ -52,7 +52,7 @@ defmodule Responder.ControlPlane.NativePagesTest do
     assert html =~ "page=1"
     assert html =~ "page=3"
     assert html =~ "repository=responder"
-    assert html =~ "2 new or reordered requests"
+    assert html =~ "2 new or reordered items"
     assert html =~ "Weekly review"
     assert html =~ "1 eligible"
     assert html =~ "Worker status is unavailable"
@@ -72,10 +72,10 @@ defmodule Responder.ControlPlane.NativePagesTest do
         schedules: []
       )
 
-    assert html =~ "No matching requests"
+    assert html =~ "No matching activity"
     assert html =~ "Clear filters"
     refute html =~ "activity-rail"
-    refute html =~ "No requests yet"
+    refute html =~ "No activity yet"
   end
 
   test "worker problems remain actionable without filling an empty inbox with decorative widgets" do
@@ -96,7 +96,7 @@ defmodule Responder.ControlPlane.NativePagesTest do
       assert html =~ "Worker attention"
       assert html =~ "Inspect configuration"
       assert html =~ "href=\"/workspaces\""
-      assert html =~ "No requests yet"
+      assert html =~ "No activity yet"
       refute html =~ "Coming up"
       refute html =~ "Test your responder"
       refute html =~ "Local operator"
@@ -116,7 +116,7 @@ defmodule Responder.ControlPlane.NativePagesTest do
       status: "Delivery confirmed",
       available: true,
       text: "A retained answer <not markup>",
-      href: "requests?kind=work&attempt=confirmed"
+      href: "model-calls?kind=work&attempt=confirmed"
     }
 
     trace =
@@ -137,7 +137,7 @@ defmodule Responder.ControlPlane.NativePagesTest do
         href: "/failures/delivery/example",
         attempted: ["Reconciled the previous request"]
       })
-      |> Map.put(:steps, [%{step | href: "/episodes/ingress-input%3Aexample"}])
+      |> Map.put(:steps, [%{step | href: "/timeline/ingress-input%3Aexample"}])
       |> Map.update!(:case_file, fn file ->
         %{file | conversation: [message], repository: "responder", reply: message.text}
       end)

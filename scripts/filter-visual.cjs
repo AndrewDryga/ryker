@@ -35,7 +35,7 @@ async function contrast(locator) {
         await page.locator('[data-connection-state=connected]').waitFor();
         await page.evaluate(() => document.fonts.ready);
       };
-      await open('/episodes?mode=all&usage_profile=emisar&usage_window=30d');
+      await open('/activity?mode=all&usage_profile=emisar&usage_window=30d');
       for (const item of await contrast(page.locator('.usage-drilldown a'))) {
         assert(item.ratio >= 4.5, `${item.text}: contrast ${item.ratio.toFixed(2)} must be at least 4.5`);
       }

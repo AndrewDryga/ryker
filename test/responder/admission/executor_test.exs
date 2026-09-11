@@ -85,7 +85,7 @@ defmodule Responder.Admission.ExecutorTest do
       render_component(&RequestPage.render/1,
         view: inspector,
         params: %{},
-        path: "/episodes/ingress-input%3A#{entry.id}"
+        path: "/timeline/ingress-input%3A#{entry.id}"
       )
 
     assert html =~ "Observed execution milestones"

@@ -48,7 +48,7 @@ defmodule Responder.ControlPlane.EpisodePage do
                 @snapshot.episode.conversation_ref
               )
             }
-          >All requests in this conversation →</a>
+          >All activity in this conversation →</a>
           <a
             :if={@snapshot.episode[:transport] == "slack" && @snapshot.episode[:thread_ref]}
             href={
@@ -125,7 +125,7 @@ defmodule Responder.ControlPlane.EpisodePage do
               @snapshot.episode.transport,
               @snapshot.episode.conversation_ref
             )
-          }>Browse all requests in this conversation →</a>
+          }>Browse all activity in this conversation →</a>
         </p>
       </section>
       <section :if={@snapshot.trace.case_file[:expired_at]} class="story-stop">
@@ -180,13 +180,13 @@ defmodule Responder.ControlPlane.EpisodePage do
           </li>
         </ul>
       </section>
-      <p :if={@requests}><.link patch={base(@snapshot)}>← Back to the episode timeline</.link></p>
+      <p :if={@requests}><.link patch={base(@snapshot)}>← Back to the timeline</.link></p>
       <details :if={@requests} open class="specific-request">
-        <summary>Selected request · exact retained artifact</summary>
+        <summary>Selected model call · exact retained artifact</summary>
         <Responder.ControlPlane.RequestPage.render
           view={@requests}
           params={@params}
-          path={base(@snapshot) <> "/requests"}
+          path={base(@snapshot) <> "/model-calls"}
         />
       </details>
       <.execution_timeline
@@ -203,7 +203,7 @@ defmodule Responder.ControlPlane.EpisodePage do
           timeline={@timeline}
           chapters={@chapters}
         />
-        <.link patch={base(@snapshot) <> "/requests"}>All model requests →</.link>
+        <.link patch={base(@snapshot) <> "/model-calls"}>Model calls →</.link>
         <p>{coverage(@snapshot[:accounting])}</p>
         <p :if={@snapshot.trace.review[:note] not in [nil, ""]}>
           {@snapshot.trace.review[:note]
@@ -232,7 +232,7 @@ defmodule Responder.ControlPlane.EpisodePage do
     >
       <h2 class="sr-only">Execution timeline</h2>
       <p :if={@snapshot.trace.history.truncated || @timeline.truncated} class="timeline-bound">
-        History is bounded. Older model requests are available under “All model requests” in the technical record below. Long artifacts are labeled when truncated.
+        History is bounded. Older model calls are available under “Model calls” in the technical record below. Long artifacts are labeled when truncated.
       </p>
       <section
         :for={{chapter, index} <- Enum.with_index(@chapters, 1)}
@@ -624,7 +624,7 @@ defmodule Responder.ControlPlane.EpisodePage do
   defp unix(at), do: DateTime.to_unix(at, :microsecond)
   defp clock_time(nil), do: "Not recorded"
   defp clock_time(at), do: Calendar.strftime(at, "%H:%M:%S")
-  defp base(snapshot), do: "/episodes/" <> URI.encode_www_form(snapshot.episode.ref)
+  defp base(snapshot), do: "/timeline/" <> URI.encode_www_form(snapshot.episode.ref)
   defp pending_answer_label(%{episode: %{state: :cancelled}}), do: "Stopped"
   defp pending_answer_label(%{episode: %{state: :complete}}), do: "No further reply was sent"
   defp pending_answer_label(%{trace: %{stopped: %{headline: headline}}}), do: headline

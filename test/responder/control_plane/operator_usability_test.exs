@@ -11,7 +11,7 @@ defmodule Responder.ControlPlane.OperatorUsabilityTest do
           condition: "Resume work at the scheduled time",
           context_label: "Source context unavailable",
           episode_title: "Follow up on the deployment",
-          episode_href: "/episodes/episode%3Atimer",
+          episode_href: "/timeline/episode%3Atimer",
           source_label: "Timer",
           target_url: nil,
           cursor_digest: nil,
@@ -83,7 +83,7 @@ defmodule Responder.ControlPlane.OperatorUsabilityTest do
 
     assert html
            |> LazyHTML.from_document()
-           |> LazyHTML.query("a[href='/episodes/episode%3Aone']")
+           |> LazyHTML.query("a[href='/timeline/episode%3Aone']")
            |> LazyHTML.text()
            |> String.trim() == "Hi"
 
@@ -309,7 +309,7 @@ defmodule Responder.ControlPlane.OperatorUsabilityTest do
           actor: "Responder",
           ref: title,
           episode_ref: title,
-          href: "/episodes/" <> URI.encode_www_form(title),
+          href: "/timeline/" <> URI.encode_www_form(title),
           request_title: title,
           repository: "emisar",
           summary: "emisar",

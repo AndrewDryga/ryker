@@ -928,12 +928,12 @@ defmodule Responder.ControlPlane.RouterTest do
       confirmation = request(:get, path)
       assert confirmation.status == 200
       assert confirmation.resp_body =~ title
-      assert confirmation.resp_body =~ "href=\"/episodes/episode%3Aone\""
+      assert confirmation.resp_body =~ "href=\"/timeline/episode%3Aone\""
       [_, token] = Regex.run(~r/name="_token" value="([^"]+)"/, confirmation.resp_body)
 
       accepted = request(:post, path, URI.encode_query(%{"_token" => token}))
       assert accepted.status == 303
-      assert get_resp_header(accepted, "location") == ["/episodes/episode%3Aone"]
+      assert get_resp_header(accepted, "location") == ["/timeline/episode%3Aone"]
       assert_received ^received
     end
   end
@@ -1005,7 +1005,7 @@ defmodule Responder.ControlPlane.RouterTest do
     failures = request(:get, "/failures")
     assert failures.status == 200
     assert failures.resp_body =~ "delivery:one"
-    assert failures.resp_body =~ "/episodes/episode%3Aone"
+    assert failures.resp_body =~ "/timeline/episode%3Aone"
     assert failures.resp_body =~ "/failures/admission/ingress-input%3Aone"
     assert failures.resp_body =~ "slack:T123:C456"
     assert failures.resp_body =~ ">3<"
@@ -1404,7 +1404,7 @@ defmodule Responder.ControlPlane.RouterTest do
   end
 
   test "native episode pages have no parallel static routes or snapshots" do
-    for path <- ["/episodes", "/episodes/episode%3Aone", "/episodes/episode%3Aone/requests"] do
+    for path <- ["/activity", "/timeline/episode%3Aone", "/timeline/episode%3Aone/model-calls"] do
       response = request(:get, path)
       assert response.status == 404
       assert get_resp_header(response, "location") == []
@@ -2518,7 +2518,7 @@ defmodule Responder.ControlPlane.RouterTest do
               title: "Matching GitHub update",
               condition: "Next matching GitHub update",
               episode_title: "Review the deployment",
-              episode_href: "/episodes/episode%3Aone",
+              episode_href: "/timeline/episode%3Aone",
               context_label: "GitHub",
               source_label: "GitHub",
               target_url: nil,

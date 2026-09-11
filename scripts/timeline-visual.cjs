@@ -10,7 +10,7 @@ const {createCaptureDirectory} = require('./visual-artifacts.cjs');
   const url = new URL(process.argv[2]);
   assert(['localhost', '127.0.0.1', '[::1]'].includes(url.hostname));
   assert(url.protocol === 'http:' && !url.username && !url.password);
-  assert(url.pathname.startsWith('/episodes/'));
+  assert(url.pathname.startsWith('/timeline/'));
   assert(process.argv[3], 'Supply a private output prefix');
   const output = await createCaptureDirectory(process.argv[3], path.resolve(__dirname, '..'));
   console.log(output);

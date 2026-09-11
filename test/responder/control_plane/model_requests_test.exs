@@ -25,7 +25,7 @@ defmodule Responder.ControlPlane.ModelRequestsTest do
       render_component(&RequestPage.render/1,
         view: view,
         params: %{},
-        path: "/episodes/#{URI.encode_www_form(episode.key)}/requests"
+        path: "/timeline/#{URI.encode_www_form(episode.key)}/model-calls"
       )
 
     assert html =~ "$.work.inputs"
@@ -40,7 +40,7 @@ defmodule Responder.ControlPlane.ModelRequestsTest do
         render_component(&RequestPage.render/1,
           view: view,
           params: %{"section" => section.id},
-          path: "/episodes/#{URI.encode_www_form(episode.key)}/requests"
+          path: "/timeline/#{URI.encode_www_form(episode.key)}/model-calls"
         )
 
       expected_title =
@@ -86,7 +86,7 @@ defmodule Responder.ControlPlane.ModelRequestsTest do
           render_component(&RequestPage.render/1,
             view: view,
             params: %{},
-            path: "/episodes/#{URI.encode_www_form(episode.key)}/requests"
+            path: "/timeline/#{URI.encode_www_form(episode.key)}/model-calls"
           )
         ] do
       document = LazyHTML.from_document(html)
@@ -148,7 +148,7 @@ defmodule Responder.ControlPlane.ModelRequestsTest do
       render_component(&RequestPage.render/1,
         view: view,
         params: %{},
-        path: "/episodes/#{URI.encode_www_form(episode.key)}/requests"
+        path: "/timeline/#{URI.encode_www_form(episode.key)}/model-calls"
       )
 
     document = LazyHTML.from_document(html)
@@ -562,7 +562,7 @@ defmodule Responder.ControlPlane.ModelRequestsTest do
       render_component(&RequestPage.render/1,
         view: view,
         params: %{"section" => "request"},
-        path: "/episodes/retained/requests"
+        path: "/timeline/retained/model-calls"
       )
 
     assert native =~ "This artifact has expired"

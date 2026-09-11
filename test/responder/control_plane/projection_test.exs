@@ -591,7 +591,7 @@ defmodule Responder.ControlPlane.ProjectionTest do
     assert target_episode.id == measured.episode_id
 
     assert target_episode.href ==
-             "/episodes/#{URI.encode_www_form(episode_key!(measured.episode_id))}"
+             "/timeline/#{URI.encode_www_form(episode_key!(measured.episode_id))}"
   end
 
   test "cost and power-user totals follow each triggering input without double counting" do
@@ -754,7 +754,7 @@ defmodule Responder.ControlPlane.ProjectionTest do
           }),
         values: options,
         params: %{},
-        path: "/episodes"
+        path: "/activity"
       })
       |> LazyHTML.from_document()
 

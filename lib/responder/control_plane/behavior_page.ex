@@ -182,7 +182,7 @@ defmodule Responder.ControlPlane.BehaviorPage do
               run.rule_ref
             )}</a><span>{outcome(run)}</span><a
               :if={run.episode_ref}
-              href={"/episodes/#{URI.encode_www_form(run.episode_ref)}"}
+              href={"/timeline/#{URI.encode_www_form(run.episode_ref)}"}
             >Open timeline →</a>
           </li>
         </ol><p :if={length(@view.runs) == 25} class="muted">
