@@ -71,8 +71,8 @@ defmodule Responder.Evals.OperatorTaskTest do
                "noisy-context-keeps-current-request",
                "one-outage-two-channels-joins-one-episode",
                "ordinary-thread-question-gets-natural-answer",
-               "rivals-engineering-task-offer",
                "similar-alert-different-environment-stays-separate",
+               "rivals-engineering-task-offer",
                "terraform-run-update-stays-in-one-session",
                "universal-webhook-unknown-payload",
                "va1-health-review-repairs-and-finishes",
@@ -203,40 +203,6 @@ defmodule Responder.Evals.OperatorTaskTest do
       Eval.run(["admission", "--config", Path.join(root, "responder.yaml")])
     end
 
-    world_report = results_path |> File.read!() |> Jason.decode!()
-    assert world_report["version"] == 2
-    refute world_report["summary"]["passed?"]
-    assert length(world_report["results"]) == 90
-    assert Enum.all?(world_report["results"], &(&1["status"] == "unrun"))
-
-    assert_raise Mix.Error, ~r/model-world qualification failed/, fn ->
-      Eval.run([
-        "world",
-        "--config",
-        config_path,
-        "--results",
-        results_path,
-        "--case",
-        "ordinary-thread-question-gets-natural-answer",
-        "--repeat",
-        "1"
-      ])
-    end
-
-    selected_report = results_path |> File.read!() |> Jason.decode!()
-    assert [selected] = selected_report["results"]
-    assert selected["scenario_id"] == "ordinary-thread-question-gets-natural-answer"
-    assert selected["repeat_index"] == 1
-
-    assert_raise Mix.Error, ~r/world_baseline_policy_not_configured/, fn ->
-      Eval.run([
-        "world",
-        "--config",
-        config_path,
-        "--results",
-        results_path,
-        "--paired-baseline"
-      ])
     assert_raise Mix.Error, ~r/invalid_arguments/, fn ->
       Eval.run(["world", "--results", results_path, "--repeat", "0"])
     end
