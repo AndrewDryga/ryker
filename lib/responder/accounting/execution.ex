@@ -1,5 +1,5 @@
 defmodule Responder.Accounting.Execution do
-  @moduledoc "Compact per-Coop-turn accounting; this is not a claim of per-provider-call visibility."
+  @moduledoc "Compact per-Coop-turn accounting for admission, Work and learning executions; this is not a claim of per-provider-call visibility."
   use Ecto.Schema
   @primary_key {:id, :binary_id, autogenerate: true}
 

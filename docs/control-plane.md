@@ -12,9 +12,10 @@ remains the capability inventory and historical design rationale.
 
 This document preserves the intended complete control-plane design. The current
 Elixir replacement exposes only projections backed by durable Elixir state.
-Usage is now one of those projections: accepted Work turns retain the effective
-Coop target, provider usage when present, and remote timing boundaries. Missing
-provider telemetry stays explicitly unmeasured rather than appearing as zero.
+Usage is now one of those projections: admission, Work and learning executions
+each retain the effective Coop target, provider usage when present, and remote
+timing boundaries in one execution ledger. Missing provider telemetry stays
+explicitly unmeasured rather than appearing as zero.
 
 ## Route map
 
@@ -360,6 +361,10 @@ Tokens, over a selectable window (24h, 7d, 30d, everything), broken down by:
 - Provider and model, as frozen on the attempt's manifest — so a turn that
   rotated to a fallback after a rate limit counts against what actually answered
 - Channel, repository and episode kind
+- Work type: admission (routing), conversation/standard/deep Work, and learning
+  (the background memory learner). Every Coop turn Responder submits is one
+  ledger row whose counters are Coop's cumulative figures for that turn,
+  including schema and semantic repairs.
 - Cache hit rate: cached input over all input read
 - A daily trend, inline SVG rendered server-side
 
@@ -389,7 +394,10 @@ bar.
 Usage is only as complete as the active adapter. Token counters and
 provider-reported USD cost are durable per turn when Coop receives them. An
 adapter may report tokens without money, or neither; those gaps remain explicit
-instead of being rendered as zero spend.
+instead of being rendered as zero spend. Coop keeps no counters for a turn that
+fails or is cancelled before it stages a candidate, so such executions appear
+with no token report rather than with the tokens the provider actually
+consumed.
 
 ### The compiled prompt — kept as text, on the episode's clock
 

@@ -48,6 +48,7 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
   @source_envelopes_version 20_260_911_000_300
   @engagement_receipts_version 20_260_911_000_500
   @default_channel_configurations_version 20_260_911_000_700
+  @learning_executions_version 20_260_911_001_500
   @latest_versions [
     @typed_question_answers_version,
     @answer_confirmed_global_facts_version,
@@ -56,7 +57,8 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
     @source_envelopes_version,
     @worker_storage_reports_version,
     @engagement_receipts_version,
-    @default_channel_configurations_version
+    @default_channel_configurations_version,
+    @learning_executions_version
   ]
   @memory_versions Enum.to_list(20_260_908_000_100..20_260_908_001_100//100) ++
                      [@bounded_sources_version]
@@ -1571,10 +1573,12 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
       assert %{rows: [[0, 0, 0]]} = reset_topic_counts(repo, prefix)
       assert_reset_notes(repo, prefix, derived["conversation_observations"])
 
-      # The inspection-evidence columns and tables, the worker storage columns and
-      # the default channel configuration are reversible on their own.
-      assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 6, prefix: prefix, log: false) ==
+      # The inspection-evidence columns and tables, the worker storage columns,
+      # the default channel configuration and the learning execution kind are
+      # reversible on their own.
+      assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 7, prefix: prefix, log: false) ==
                [
+                 @learning_executions_version,
                  @default_channel_configurations_version,
                  @engagement_receipts_version,
                  @worker_storage_reports_version,
@@ -1658,6 +1662,24 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
       Ecto.Migrator.run(repo, @migrations_path, :up, all: true, prefix: prefix, log: false)
       assert column_nullable?(repo, prefix, "operational_memory_entries", "expires_at")
       assert column_nullable?(repo, prefix, "episode_state_record_responses", "choice")
+
+      execution_id = insert_learning_execution!(repo, prefix)
+
+      assert_raise Postgrex.Error, ~r/export learning execution accounting before rollback/, fn ->
+        Ecto.Migrator.run(repo, @migrations_path, :down, step: 1, prefix: prefix, log: false)
+      end
+
+      SQL.query!(repo, "DELETE FROM #{prefix}.execution_usage WHERE id = $1::text::uuid", [
+        execution_id
+      ])
+
+      assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 1, prefix: prefix, log: false) ==
+               [@learning_executions_version]
+
+      # The narrower identity constraint is back, so learning rows are refused again.
+      assert_raise Postgrex.Error, ~r/execution_usage_identity_valid/, fn ->
+        insert_learning_execution!(repo, prefix)
+      end
 
       configuration_id = insert_default_channel_configuration!(repo, prefix)
 
@@ -2261,6 +2283,27 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
       )
       """,
       [id]
+    )
+
+    id
+  end
+
+  defp insert_learning_execution!(repo, prefix) do
+    id = Ecto.UUID.generate()
+
+    # Structural rollback fixture: one metered learning attempt, nothing else.
+    SQL.query!(
+      repo,
+      """
+      INSERT INTO #{prefix}.execution_usage (
+        id, kind, source_id, generation, transport, conversation_ref, execution_mode,
+        status, recorded_at, inserted_at, updated_at
+      ) VALUES (
+        $1::text::uuid, 'learning', $2::text::uuid, '1', 'slack', 'slack:T123:C-rollback',
+        'live', 'completed', clock_timestamp(), clock_timestamp(), clock_timestamp()
+      )
+      """,
+      [id, Ecto.UUID.generate()]
     )
 
     id

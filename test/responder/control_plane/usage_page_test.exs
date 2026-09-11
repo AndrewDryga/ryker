@@ -308,4 +308,54 @@ defmodule Responder.ControlPlane.UsagePageTest do
       assert html =~ label
     end
   end
+
+  test "learning executions are a named work type that opens the memory page" do
+    # The background memory learner spends tokens on every batch it judges, and
+    # an unnamed work type sent operators to an episode list that can never hold
+    # a learning turn.
+    snapshot = Projection.usage(%{})
+
+    row =
+      Map.merge(snapshot.totals, %{
+        attempts: 1,
+        episodes: 1,
+        usage_measured: 1,
+        tokens: 5_640,
+        input_tokens: 4_100,
+        cached_input_tokens: 900,
+        output_tokens: 640,
+        reasoning_tokens: 120,
+        provider_ms: 7_500,
+        average_provider_ms: 7_500,
+        timed: 1
+      })
+
+    kinds = [Map.put(row, :work_kind, "learning")]
+
+    performance = [
+      Map.merge(row, %{
+        work_kind: "learning",
+        provider: "codex",
+        model: "gpt-5.6-luna",
+        effort: "low",
+        corrections: 0,
+        unsuccessful: 0
+      })
+    ]
+
+    html =
+      %{snapshot | totals: row, kinds: kinds, performance: performance}
+      |> HTML.usage()
+      |> IO.iodata_to_binary()
+
+    assert html =~ "Learning"
+    refute html =~ "without a saved work type"
+    document = LazyHTML.from_document(html)
+
+    assert LazyHTML.query(document, "#usage-work-types a") |> LazyHTML.attribute("href") ==
+             ["/memory#learning-activity"]
+
+    assert LazyHTML.query(document, "#model-performance tbody a") |> LazyHTML.attribute("href") ==
+             ["/memory#learning-activity"]
+  end
 end

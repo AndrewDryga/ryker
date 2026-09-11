@@ -60,6 +60,7 @@ defmodule Responder.TestSupport.FakeCoopAPI do
         },
         submit_count: 0,
         turn_id_override: Keyword.get(options, :turn_id_override),
+        turn_report: Keyword.get(options, :turn_report, %{}),
         turn_session_id_override: Keyword.get(options, :turn_session_id_override),
         turn_keys: [],
         turn: turn,
@@ -148,7 +149,7 @@ defmodule Responder.TestSupport.FakeCoopAPI do
         |> Map.put(:turn_keys, state.turn_keys ++ [key])
 
       if state.fail_first_turn and is_nil(state.failed_turn_key) do
-        failed = failed_turn(session_id, state.first_turn_state)
+        failed = decorate_turn(failed_turn(session_id, state.first_turn_state), state)
 
         operation =
           succeeded_operation("SubmitTurn", "turn", failed["id"])
@@ -203,7 +204,8 @@ defmodule Responder.TestSupport.FakeCoopAPI do
   def cancel_turn(agent, _session_id, _turn_id, _key, _expected_revision) do
     Agent.get_and_update(agent, fn state ->
       cancelled =
-        (state.turn || %{"id" => "turn_test", "session_id" => state.session["id"]})
+        (state.turn ||
+           decorate_turn(%{"id" => "turn_test", "session_id" => state.session["id"]}, state))
         |> Map.put("candidate", nil)
         |> Map.put("state", "cancelled")
 
@@ -248,7 +250,7 @@ defmodule Responder.TestSupport.FakeCoopAPI do
           current =
             session_id
             |> awaiting_turn(candidate, attempt)
-            |> override_turn_identity(state)
+            |> decorate_turn(state)
 
           validation = %{sha256: sha256, verdict: :reject, violations: violations}
           response = %{"turn" => current}
@@ -407,7 +409,7 @@ defmodule Responder.TestSupport.FakeCoopAPI do
 
   defp successful_turn_submission(state, session_id, key, schema) do
     [candidate | remaining] = state.candidates
-    current = session_id |> awaiting_turn(candidate) |> override_turn_identity(state)
+    current = session_id |> awaiting_turn(candidate) |> decorate_turn(state)
     queued = %{current | "state" => "queued", "candidate" => nil}
     operation = succeeded_operation("SubmitTurn", "turn", current["id"])
 
@@ -530,8 +532,9 @@ defmodule Responder.TestSupport.FakeCoopAPI do
   defp maybe_exhaust(session, true), do: Map.put(session, "state", "exhausted")
   defp maybe_exhaust(session, false), do: session
 
-  defp override_turn_identity(turn, state) do
-    turn
+  defp decorate_turn(turn, state) do
+    state.turn_report
+    |> Map.merge(turn)
     |> maybe_put("id", state.turn_id_override)
     |> maybe_put("session_id", state.turn_session_id_override)
   end
