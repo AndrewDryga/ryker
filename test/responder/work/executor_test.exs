@@ -4281,6 +4281,9 @@ defmodule Responder.Work.ExecutorTest do
     %{claim | session: session}
   end
 
+  # Structural stand-ins for Coop's version-1 binding and its freshness
+  # receipts: the shapes are the frozen contract, the object ids are not
+  # harvested from a real remote.
   defp source_binding(requested, values) do
     %{
       "admitted_tree" => Keyword.get(values, :admitted_tree, String.duplicate("e", 40)),

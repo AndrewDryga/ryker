@@ -228,6 +228,85 @@ defmodule Responder.Admission.ExecutorTest do
     assert authority_digest == String.duplicate("e", 64)
   end
 
+  test "a repository-backed route offers the selector and pins the model's choice" do
+    assert {:ok, input} =
+             SlackInput.new(%{
+               actor: %{kind: :user, ref: "U123"},
+               channel_ref: "C456",
+               content: %{"text" => "Review feature/payments before it merges."},
+               event_kind: :message,
+               event_ref: "Ev-executor-source-selection",
+               message_ref: "1787832003.000100",
+               occurred_at: @now,
+               revision: 1,
+               thread_ref: nil,
+               workspace_ref: "TE5D7C8842D32"
+             })
+
+    work_profile = %{
+      policy: "work-contributor",
+      policy_digest: String.duplicate("b", 64),
+      repository_ref: "responder"
+    }
+
+    assert {:ok, %{entry: entry}} = Inbox.record(input, work_profile: work_profile)
+    lease_ref = claim!(entry)
+    branch = %{"kind" => "branch", "name" => "feature/payments"}
+
+    {:ok, fake} =
+      FakeAPI.start_link([
+        decision("start_episode")
+        |> Jason.decode!()
+        |> Map.put("repository_source", branch)
+        |> Jason.encode!()
+      ])
+
+    assert {:ok, execution} =
+             Executor.run(Inbox.ref(entry), executor_options(fake, lease_ref))
+
+    state = FakeAPI.state(fake)
+    assert state.schema["properties"]["repository_source"]["anyOf"] != nil
+
+    assert Jason.decode!(state.submitted_prompt)["context"]["repository_source_kinds"] ==
+             ~w(default branch pull_request commit)
+
+    assert %Session{repository_ref: "responder", repository_source: ^branch} =
+             Repo.one!(
+               from(session in Session,
+                 where: session.episode_id == ^execution.result.episode.id
+               )
+             )
+  end
+
+  test "a selector on a route without a repository is repaired in the same Coop turn" do
+    entry = record_slack_input!("Ev-executor-source-unbacked")
+    lease_ref = claim!(entry)
+
+    with_selector =
+      decision("start_episode")
+      |> Jason.decode!()
+      |> Map.put("repository_source", %{"kind" => "default"})
+      |> Jason.encode!()
+
+    {:ok, fake} = FakeAPI.start_link([with_selector, decision("start_episode")])
+
+    assert {:ok, execution} =
+             Executor.run(Inbox.ref(entry), executor_options(fake, lease_ref))
+
+    assert execution.result.entry.decision_action == :start_episode
+
+    state = FakeAPI.state(fake)
+    assert state.schema["properties"]["repository_source"] == %{"type" => "null"}
+
+    refute Map.has_key?(
+             Jason.decode!(state.submitted_prompt)["context"],
+             "repository_source_kinds"
+           )
+
+    assert Enum.map(state.validations, & &1.verdict) == [:reject, :accept]
+    assert hd(state.validations).violations |> hd() =~ "repository_source is unavailable"
+  end
+
   test "each abstract work class selects only its host-owned policy" do
     work_profile = %{
       authority_digest: String.duplicate("e", 64),
