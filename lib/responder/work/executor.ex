@@ -289,8 +289,11 @@ defmodule Responder.Work.Executor do
     end
   end
 
+  # The session's base commit is the creation base every later comparison is
+  # measured from: the merge base of the pinned default head and the selected
+  # head. The workspace itself starts at the binding's selected commit.
   defp exact_source_workspace(binding, primary) do
-    if binding["selected_commit"] == primary["base_commit"],
+    if binding["base_commit"] == primary["base_commit"],
       do: {:ok, binding},
       else: {:error, {:coop_protocol_error, :repository_source}}
   end

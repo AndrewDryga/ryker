@@ -16,10 +16,10 @@ defmodule Responder.Work.RepositorySource do
       {"kind":"commit","sha":"0123456789abcdef0123456789abcdef01234567"}
 
   Coop resolves it against the policy-configured remote and returns the
-  version-1 binding this module validates. Responder persists the request
-  before remote creation, sends the identical value through create, fence,
-  replay, rotation, and checkpoint, and refuses any binding that answers a
-  different request.
+  version-1 binding this module validates as the session's `source`. Responder
+  persists the request before remote creation, sends the identical value as
+  `source` through create, fence, replay, rotation, and checkpoint, and refuses
+  any binding that answers a different request.
   """
 
   @kinds ~w(default branch pull_request commit)
