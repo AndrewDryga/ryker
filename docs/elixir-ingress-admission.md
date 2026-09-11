@@ -305,6 +305,20 @@ It also chooses one abstract `work_class` for work-producing actions. `reply` re
 | `standard` | `codex:gpt-5.6-sol/medium` | normal investigations and tool-backed work |
 | `deep` | `codex:gpt-5.6-sol/xhigh` | difficult, high-ambiguity, or high-consequence reasoning |
 
+When the route already selected a repository, the context carries `repository_source_kinds` and a
+`start_episode` decision may also set `repository_source` to one of `{"kind":"default"}`,
+`{"kind":"branch","name":"feature/payments"}`, `{"kind":"pull_request","number":514}` or
+`{"kind":"commit","sha":"<full lowercase 40- or 64-character object id>"}`. The selector names only
+a source inside that repository; it never names a repository, remote, URL, path, tag or raw ref, and
+it grants no publication authority. Every other action, and every route without a repository, must
+send `null`: `continue_episode`, `reply`, `react` and `ignore` keep whatever source their work
+already pinned (`invalid_decision: repository_source`), and a selector on a route without a
+repository is rejected before an episode exists (`admission_rejected:
+repository_source_not_available`). A malformed selector is refused, never repaired. The host
+supplies `default` for a new repository-backed episode when the model chose nothing, and the chosen
+selector is frozen in the same transaction that pins the Work policy. See
+[elixir-work-runtime.md](elixir-work-runtime.md) for how Coop resolves and Responder verifies it.
+
 The model never returns a provider, model, effort, policy name, repository, credential, or write
 authority. Those remain trusted configuration. The three class policies for one route must carry
 the same Coop-computed `authority_digest`; startup, fleet placement, and session binding enforce it.

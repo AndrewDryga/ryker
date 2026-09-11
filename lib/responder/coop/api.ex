@@ -8,6 +8,12 @@ defmodule Responder.Coop.API do
 
   @callback operation_by_key(client :: term(), key :: String.t()) ::
               {:ok, map()} | :not_found | {:error, term()}
+  @doc """
+  Reports the versioned repository capabilities of the worker that runs, or will
+  run, a session: `repository_freshness_receipt_versions` (freshness receipt
+  version 2) and `repository_source_selector_versions` (selector contract
+  version 1). Selector-bound work is never created on a worker missing either.
+  """
   @callback capabilities(client :: term()) :: {:ok, map()} | {:error, term()}
   @callback capabilities(client :: term(), session :: term()) ::
               {:ok, map()} | {:error, term()}
