@@ -6,7 +6,7 @@ defmodule Responder.Slack.CommandHandler do
   confirmation-backed; slash commands can inspect, quiet, shadow, or revoke.
   """
 
-  alias Responder.Slack.Command
+  alias Responder.Slack.{Command, Renderer}
 
   @retired %{
     "changes" => "Use the task card or ask in its thread.",
@@ -28,6 +28,8 @@ defmodule Responder.Slack.CommandHandler do
     "update" => "Ask in the exact task or incident thread.",
     "work" => "Open App Home or ask in the channel."
   }
+
+  @sources [:channel, :configuration, :deployment, :incident_room, :workspace]
 
   @spec handle(Command.t(), map()) :: {:ok, map()} | {:error, term()}
   def handle(%Command{} = command, options) when is_map(options) do
@@ -102,16 +104,30 @@ defmodule Responder.Slack.CommandHandler do
     end
   end
 
+  # `/responder status` is the private form of the structured settings view
+  # the welcome and conversational settings questions share. Reading never
+  # mutates: the view is rendered from the effective saved settings only.
   defp status(command, options) do
-    with {:ok, settings} <- effective(command, options) do
-      {:ok,
-       response("""
-       Responder channel status
-       Proactive: #{on_off(settings.proactive.value)} (#{source_name(settings.proactive.source)})
-       Shadow: #{on_off(settings.shadow.value)} (#{source_name(settings.shadow.source)})
+    with {:ok, settings} <- settings_view(command, options),
+         {:ok, rendered} <-
+           Renderer.render(%{
+             "channel_settings" => %{
+               "audience" => "private",
+               "bot_user_ref" => options.bot_user_ref,
+               "configuration_ref" => settings["configuration_ref"],
+               "revision" => settings["revision"],
+               "settings" => settings
+             }
+           }) do
+      {:ok, Map.put(rendered, "response_type", "ephemeral")}
+    end
+  end
 
-       Mentions, direct messages, and exact conversation continuations remain eligible. These emergency controls use no model or Coop session.
-       """)}
+  defp settings_view(command, options) do
+    case options.settings_view.(command.workspace_ref, command.channel_ref) do
+      {:ok, %{} = settings} -> {:ok, settings}
+      {:error, _reason} = error -> error
+      _invalid -> {:error, {:invalid_slack_command, :settings}}
     end
   end
 
@@ -180,8 +196,7 @@ defmodule Responder.Slack.CommandHandler do
     case options.effective_settings.(command.workspace_ref, conversation_ref(command)) do
       %{proactive: %{source: source1, value: value1}, shadow: %{source: source2, value: value2}} =
           settings
-      when source1 in [:channel, :workspace, :deployment] and
-             source2 in [:channel, :workspace, :deployment] and is_boolean(value1) and
+      when source1 in @sources and source2 in @sources and is_boolean(value1) and
              is_boolean(value2) ->
         {:ok, settings}
 
@@ -232,6 +247,8 @@ defmodule Responder.Slack.CommandHandler do
   defp on_off(true), do: "on"
   defp on_off(false), do: "off"
   defp source_name(:channel), do: "channel override"
+  defp source_name(:configuration), do: "saved channel setting"
+  defp source_name(:incident_room), do: "incident room"
   defp source_name(:workspace), do: "workspace override"
   defp source_name(:deployment), do: "deployment default"
   defp assignment_verb("pause"), do: "Paused"

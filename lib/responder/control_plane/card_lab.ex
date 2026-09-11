@@ -35,7 +35,9 @@ defmodule Responder.ControlPlane.CardLab do
     [
       task_cards(),
       incident_rooms(),
+      channel_welcome(),
       channel_setup(),
+      channel_settings(),
       governed_actions(),
       task_offers(),
       publication_cards(),
@@ -149,10 +151,12 @@ defmodule Responder.ControlPlane.CardLab do
       incident_statuses: covered(cards, :incident_status),
       record_kinds: covered(cards, :record_kind),
       record_states: covered(cards, :record_state),
+      settings_audiences: covered(cards, :settings_audience),
       setup_states: covered(cards, :setup_state),
       setup_statuses: covered(cards, :setup_status),
       setup_steps: covered(cards, :setup_step),
       specimen_count: Enum.sum(Enum.map(cards, &length(&1.states))),
+      welcome_states: covered(cards, :welcome_state),
       surfaces: cards |> Enum.map(& &1.surface) |> MapSet.new(),
       task_statuses: covered(cards, :task_status),
       thread_phases: covered(cards, :thread_phase)
@@ -409,46 +413,166 @@ defmodule Responder.ControlPlane.CardLab do
     )
   end
 
-  defp channel_setup do
-    base = setup_document("asking", "participation")
-
+  defp channel_welcome do
     states = [
-      state("welcome", "Welcome", "Safe defaults or customization entry point.", base, %{
-        setup_state: "welcome",
-        setup_status: "asking",
-        setup_step: "participation"
-      }),
+      welcome_state("default", "Default · ready without setup", settings_document(), nil),
+      welcome_state(
+        "proactive",
+        "Proactive",
+        settings_document(participation: "proactive", customized_by: "U123", revision: 2),
+        "Update: proactive mode is on."
+      ),
+      welcome_state(
+        "customized",
+        "After Q&A",
+        settings_document(
+          alert_policy: "offer",
+          customized_by: "U123",
+          default_repository: "emisar",
+          invite_user_refs: ["U456"],
+          participation: "proactive",
+          revision: 3
+        ),
+        "Settings updated."
+      ),
+      welcome_state(
+        "shadow",
+        "Observation mode",
+        settings_document(observation: true, participation: "shadow", source: "workspace"),
+        nil
+      ),
+      welcome_state(
+        "no-repository",
+        "No repository connected",
+        settings_document(repositories: [], default_repository: nil),
+        nil
+      )
+    ]
+
+    family(
+      "channel-welcome",
+      "Channel welcome",
+      "One welcome generated from the effective saved settings; the optional Q&A re-renders it in place.",
+      :message,
+      sequence(states)
+    )
+  end
+
+  defp welcome_state(id, label, settings, notice) do
+    state(
+      id,
+      label,
+      "Welcome prose and controls follow the effective saved settings.",
+      %{
+        "channel_welcome" => %{
+          "bot_user_ref" => "UCARDLAB",
+          "configuration_ref" => settings["configuration_ref"],
+          "notice" => notice,
+          "revision" => settings["revision"],
+          "settings" => settings
+        }
+      },
+      %{welcome_state: id}
+    )
+  end
+
+  defp channel_settings do
+    states =
+      Enum.map(["thread", "private"], fn audience ->
+        settings =
+          settings_document(participation: "proactive", customized_by: "U123", revision: 2)
+
+        state(
+          audience,
+          if(audience == "thread", do: "Asked in conversation", else: "/responder status"),
+          "The same structured effective-settings view; the reply stays in its thread, the command stays private.",
+          %{
+            "channel_settings" => %{
+              "audience" => audience,
+              "bot_user_ref" => "UCARDLAB",
+              "configuration_ref" => settings["configuration_ref"],
+              "revision" => settings["revision"],
+              "settings" => settings
+            }
+          },
+          %{settings_audience: audience}
+        )
+      end)
+
+    family(
+      "channel-settings",
+      "Channel settings on request",
+      "Settings shown on request share the welcome's projection and controls.",
+      :message,
+      sequence(states)
+    )
+  end
+
+  defp settings_document(overrides \\ []) do
+    repositories =
+      Keyword.get(overrides, :repositories, [
+        %{"ref" => "responder", "url" => "https://github.com/acme/responder"},
+        %{"ref" => "emisar", "url" => "https://github.com/acme/emisar"}
+      ])
+
+    participation = Keyword.get(overrides, :participation, "mentions")
+    source = Keyword.get(overrides, :source, "configuration")
+
+    %{
+      "alert_policy" => Keyword.get(overrides, :alert_policy, "reply"),
+      "configuration_ref" => "018f3ef7-1f62-7ee0-a83c-0c12f21d83e7",
+      "customized_by" => Keyword.get(overrides, :customized_by),
+      "default_repository" =>
+        Keyword.get(
+          overrides,
+          :default_repository,
+          if(repositories == [], do: nil, else: "responder")
+        ),
+      "invitations" => %{
+        "on_call_count" => 2,
+        "user_group_refs" => [],
+        "user_refs" => Keyword.get(overrides, :invite_user_refs, [])
+      },
+      "observation" => %{"on" => Keyword.get(overrides, :observation, false), "source" => source},
+      "participation" => %{"source" => source, "value" => participation},
+      "repositories" => repositories,
+      "revision" => Keyword.get(overrides, :revision, 1)
+    }
+  end
+
+  defp channel_setup do
+    states = [
       state(
         "participation",
-        "Participation",
-        "Mentions, proactive, or shadow participation.",
-        put_in(base, ["channel_setup", "draft", "customizing"], true),
+        "1 · Conversations",
+        "Mentions only, Be proactive, or Observe only, each explained.",
+        setup_document("asking", "participation"),
         %{setup_state: "participation", setup_status: "asking", setup_step: "participation"}
       ),
       state(
         "repository",
-        "Repository",
-        "Select configured code context.",
+        "2 · Repositories",
+        "Choose the default repository for coding tasks.",
         setup_document("asking", "repository"),
         %{setup_state: "repository", setup_status: "asking", setup_step: "repository"}
       ),
       state(
         "alerts",
-        "Alert policy",
-        "Choose how authenticated app alerts escalate.",
+        "3 · Alerts",
+        "Investigate in the thread, offer a choice, or create a room automatically.",
         setup_document("asking", "alerts"),
         %{setup_state: "alerts", setup_status: "asking", setup_step: "alerts"}
       ),
       state(
         "audience",
-        "Incident audience",
-        "Choose additional incident-room audience.",
+        "4 · Invitations",
+        "Who is invited when an incident room is created.",
         setup_document("asking", "audience"),
         %{setup_state: "audience", setup_status: "asking", setup_step: "audience"}
       ),
       state(
         "confirming",
-        "Confirm",
+        "5 · Confirm",
         "Review the complete draft before saving.",
         setup_document("confirming", "confirm"),
         %{setup_state: "confirming", setup_status: "confirming", setup_step: "confirm"}
@@ -456,7 +580,7 @@ defmodule Responder.ControlPlane.CardLab do
       state(
         "saved",
         "Saved",
-        "The exact channel configuration was saved.",
+        "The wizard is retired; the welcome above was re-rendered from the saved settings.",
         setup_document("saved", "confirm"),
         %{setup_state: "saved", setup_status: "saved", setup_step: "confirm"}
       ),
@@ -479,7 +603,7 @@ defmodule Responder.ControlPlane.CardLab do
     family(
       "channel-setup",
       "Channel setup",
-      "Interactive setup wizard and every terminal state.",
+      "The optional setup Q&A: one wizard message that replaces itself in the welcome thread.",
       :message,
       sequence(states)
     )
@@ -1533,7 +1657,6 @@ defmodule Responder.ControlPlane.CardLab do
   defp setup_document(status, step) do
     draft = %{
       "alert_policy" => "offer",
-      "customizing" => false,
       "default_repository" => "responder",
       "invite_user_group_refs" => [],
       "invite_user_refs" => ["U123"],
@@ -1551,8 +1674,10 @@ defmodule Responder.ControlPlane.CardLab do
 
     %{
       "channel_setup" => %{
+        "bot_user_ref" => "UCARDLAB",
         "draft" => draft,
         "expires_at" => "2099-09-04T12:30:00.000000Z",
+        "on_call_count" => 2,
         "revision" => 1,
         "session_ref" => "018f3ef7-1f62-7ee0-a83c-0c12f21d83e6",
         "status" => status,

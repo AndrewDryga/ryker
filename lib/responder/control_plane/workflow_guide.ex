@@ -32,7 +32,8 @@ defmodule Responder.ControlPlane.WorkflowGuide do
      [{"Connections & grants", "/configuration"}], ~w(governed-action)},
     {"Slack conversations",
      "Set up a channel, continue a running conversation, or confirm an extra post to another destination. Check message and pending-response states in Card Lab.",
-     [{"Channels", "/channels"}], ~w(channel-setup slack-post message thread-status)},
+     [{"Channels", "/channels"}],
+     ~w(channel-welcome channel-setup channel-settings slack-post message thread-status)},
     {"Slack App Home",
      "Open Responder’s Home tab in Slack to manage your saved preferences, guidance, and memory reviews.",
      [{"Memory & reviews", "/memory"}], ~w(app-home app-home-modal)}

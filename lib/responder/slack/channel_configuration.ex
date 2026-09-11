@@ -16,6 +16,7 @@ defmodule Responder.Slack.ChannelConfiguration do
     field(:actor_ref, :string)
     field(:revision, :integer)
     field(:saved_at, :utc_datetime_usec)
+    field(:welcome_message_ref, :string)
     timestamps(type: :utc_datetime_usec)
   end
 end

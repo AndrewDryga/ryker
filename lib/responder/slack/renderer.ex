@@ -101,6 +101,14 @@ defmodule Responder.Slack.Renderer do
     end
   end
 
+  def render(%{"channel_welcome" => welcome} = document) when map_size(document) == 1 do
+    render_channel_welcome(welcome)
+  end
+
+  def render(%{"channel_settings" => view} = document) when map_size(document) == 1 do
+    render_channel_settings(view)
+  end
+
   def render(%{"message" => message} = document) when map_size(document) == 1,
     do: render(%{"message" => message, "records" => []})
 
@@ -722,21 +730,434 @@ defmodule Responder.Slack.Renderer do
 
   defp incident_source(_source), do: {:error, :invalid_incident_source}
 
+  defp render_channel_welcome(
+         %{
+           "bot_user_ref" => bot_user_ref,
+           "configuration_ref" => configuration_ref,
+           "notice" => notice,
+           "revision" => revision,
+           "settings" => settings
+         } = welcome
+       )
+       when map_size(welcome) == 5 and is_integer(revision) and revision > 0 do
+    with {:ok, _uuid} <- Ecto.UUID.cast(configuration_ref),
+         :ok <- slack_user(bot_user_ref),
+         :ok <- optional_notice(notice),
+         :ok <- channel_settings(settings) do
+      paragraphs = welcome_paragraphs(settings, bot_user_ref, notice)
+      value = "#{configuration_ref}|#{revision}"
+
+      blocks =
+        Enum.map(paragraphs, &section/1) ++
+          [actions("welcome:#{configuration_ref}", welcome_buttons(settings, value))]
+
+      {:ok, %{"blocks" => blocks, "text" => welcome_text(settings, notice)}}
+    else
+      _invalid -> {:error, {:invalid_slack_render, :channel_welcome}}
+    end
+  end
+
+  defp render_channel_welcome(_welcome), do: {:error, {:invalid_slack_render, :channel_welcome}}
+
+  defp render_channel_settings(
+         %{
+           "audience" => audience,
+           "bot_user_ref" => bot_user_ref,
+           "configuration_ref" => configuration_ref,
+           "revision" => revision,
+           "settings" => settings
+         } = view
+       )
+       when map_size(view) == 5 and audience in ~w(private thread) do
+    with :ok <- slack_user(bot_user_ref),
+         :ok <- optional_configuration_identity(configuration_ref, revision),
+         :ok <- channel_settings(settings) do
+      facts = settings_facts(settings)
+
+      blocks =
+        [section("*#{heading("Channel settings")}*"), fact_fields(facts)] ++
+          settings_context(settings) ++
+          settings_controls(configuration_ref, revision)
+
+      text =
+        Enum.map_join(facts, "\n", fn {label, value} ->
+          "#{heading(label)}: #{fact_text(value)}"
+        end)
+
+      {:ok, %{"blocks" => blocks, "text" => "Channel settings\n" <> text}}
+    else
+      _invalid -> {:error, {:invalid_slack_render, :channel_settings}}
+    end
+  end
+
+  defp render_channel_settings(_view), do: {:error, {:invalid_slack_render, :channel_settings}}
+
+  # Welcome and settings prose is generated from the same effective-settings
+  # projection, so the hello, the post-Q&A re-render and settings on request
+  # can never disagree about what Responder does in a channel.
+  defp welcome_paragraphs(settings, bot_user_ref, notice) do
+    [
+      "Hey there, I'm your AI teammate. I'm here to help with work in this channel.",
+      repository_access(settings),
+      "*#{heading("How to work with me")}*\n" <>
+        conversation_sentence(settings, bot_user_ref) <>
+        "\n\n" <> alert_sentence(settings),
+      "*#{heading("What I can help with")}*\n" <>
+        "• *Tasks* — “Add per-worker memory metrics to the website.” I'll plan the work, implement it, run checks and open a draft PR.\n" <>
+        "• *Scheduled tasks* — “Check our infrastructure every morning and flag any issues.”\n" <>
+        "• *Standing rules* — “Review new Terraform deployments, summarize the plan and release changes, and watch applies for failures.”",
+      welcome_closing(settings, notice)
+    ]
+    |> Enum.reject(&is_nil/1)
+  end
+
+  defp welcome_text(settings, notice) do
+    [
+      "Hey there, I'm your AI teammate. I'm here to help with work in this channel.",
+      participation_summary(settings),
+      alert_summary(settings),
+      notice && neutralize_control_syntax(notice)
+    ]
+    |> compact_lines()
+  end
+
+  defp repository_access(%{"repositories" => []}),
+    do:
+      "I don't have access to any repos, so please connect one (or more) if you want me to work on coding tasks."
+
+  defp repository_access(%{"repositories" => [repository]} = settings),
+    do:
+      "I have access to 1 repository: #{repository_link(repository)}." <>
+        default_repository_sentence(settings)
+
+  defp repository_access(%{"repositories" => repositories} = settings) do
+    links = Enum.map(repositories, &repository_link/1)
+    {head, [last]} = Enum.split(links, -1)
+
+    "I have access to #{length(repositories)} repositories: #{Enum.join(head, ", ")} and #{last}." <>
+      default_repository_sentence(settings)
+  end
+
+  defp default_repository_sentence(%{"default_repository" => nil}), do: ""
+
+  defp default_repository_sentence(%{"default_repository" => ref, "repositories" => repositories}) do
+    case Enum.find(repositories, &(&1["ref"] == ref)) do
+      nil ->
+        ""
+
+      repository ->
+        " I'll use #{repository_link(repository)} for coding tasks when you don't name one."
+    end
+  end
+
+  defp conversation_sentence(%{"observation" => %{"on" => true}}, _bot_user_ref),
+    do:
+      "I'll read the messages I can access here to build useful knowledge, but I won't send automatic replies while observation mode is on."
+
+  defp conversation_sentence(%{"participation" => %{"value" => "proactive"}}, bot_user_ref),
+    do:
+      "Talk to me like any other teammate. I'll read the messages I can access here to build useful knowledge and join conversations when I can help. You can also mention #{mention(bot_user_ref)} directly."
+
+  defp conversation_sentence(_settings, bot_user_ref),
+    do:
+      "Talk to me like any other teammate. I'll read the messages I can access here to build useful knowledge. In conversations, I'll reply when you mention #{mention(bot_user_ref)}."
+
+  defp alert_sentence(%{"observation" => %{"on" => true}}),
+    do: "I won't start proactive alert investigations while observation mode is on."
+
+  defp alert_sentence(%{"alert_policy" => "reply"}),
+    do:
+      "When an alert is posted here, I'll investigate proactively in its thread and share what I find."
+
+  defp alert_sentence(%{"alert_policy" => "offer"} = settings),
+    do:
+      "When an alert needs investigation, I'll offer to investigate in its thread or create a dedicated incident room. If you choose a room, I'll invite #{audience_phrase(settings)}."
+
+  defp alert_sentence(%{"alert_policy" => "automatic"} = settings),
+    do:
+      "When an alert needs investigation, I'll automatically create an incident room and invite #{audience_phrase(settings)}."
+
+  defp welcome_closing(settings, notice) do
+    [
+      override_sentence(settings),
+      if(notice,
+        do: "*#{neutralize_control_syntax(notice)}*",
+        else: "You're ready to go. Use the buttons below if you'd like to change how I work."
+      )
+    ]
+    |> compact_lines()
+  end
+
+  defp override_sentence(%{"participation" => %{"source" => source, "value" => value}})
+       when source in ~w(channel workspace) do
+    setting = if value == "shadow", do: "shadow", else: "proactive"
+
+    "A `/responder #{setting}` override is in effect for this #{source}, so this welcome shows the effective behavior rather than the saved setting. `/responder #{setting} inherit` returns to the saved setting."
+  end
+
+  defp override_sentence(_settings), do: nil
+
+  defp welcome_buttons(%{"participation" => %{"source" => source}}, value)
+       when source in ~w(channel workspace incident_room),
+       do: [plain_button("responder_welcome_configure", "Configure channel", value)]
+
+  defp welcome_buttons(%{"participation" => %{"value" => "shadow"}}, value),
+    do: [plain_button("responder_welcome_configure", "Configure channel", value)]
+
+  defp welcome_buttons(%{"participation" => %{"value" => "proactive"}}, value),
+    do: [
+      plain_button("responder_welcome_mentions_only", "Mentions only", value),
+      plain_button("responder_welcome_configure", "Customize", value)
+    ]
+
+  defp welcome_buttons(_settings, value),
+    do: [
+      "responder_welcome_be_proactive"
+      |> plain_button("Be proactive", value)
+      |> maybe_button_style("primary"),
+      plain_button("responder_welcome_configure", "Customize", value)
+    ]
+
+  defp settings_facts(settings) do
+    [
+      {"Conversations", participation_summary(settings)},
+      {"Alerts", alert_summary(settings)},
+      {"Repositories", repositories_fact(settings)},
+      {"Default repository", default_repository_fact(settings)},
+      {"Incident invitations", String.capitalize(audience_phrase(settings))},
+      {"Observation mode", observation_fact(settings)}
+    ]
+  end
+
+  defp participation_summary(%{"observation" => %{"on" => true}}), do: "Observe without replying"
+
+  defp participation_summary(%{"participation" => %{"value" => "proactive"}}),
+    do: "Join when useful"
+
+  defp participation_summary(_settings), do: "Reply when mentioned"
+
+  defp alert_summary(%{"observation" => %{"on" => true}}), do: "No proactive investigations"
+  defp alert_summary(%{"alert_policy" => "reply"}), do: "Investigate in the existing thread"
+  defp alert_summary(%{"alert_policy" => "offer"}), do: "Offer an in-place task or incident room"
+
+  defp alert_summary(%{"alert_policy" => "automatic"}),
+    do: "Create an incident room automatically"
+
+  defp repositories_fact(%{"repositories" => []}), do: "None connected"
+  defp repositories_fact(%{"repositories" => repositories}), do: repositories
+
+  defp default_repository_fact(%{"default_repository" => nil}), do: "None"
+
+  defp default_repository_fact(%{"default_repository" => ref, "repositories" => repositories}),
+    do: Enum.find(repositories, %{"ref" => ref, "url" => nil}, &(&1["ref"] == ref))
+
+  defp observation_fact(%{"observation" => %{"on" => true, "source" => source}})
+       when source in ~w(channel workspace),
+       do: "On (#{source} override)"
+
+  defp observation_fact(%{"observation" => %{"on" => true}}), do: "On"
+  defp observation_fact(_settings), do: "Off"
+
+  defp audience_phrase(%{"invitations" => invitations}) do
+    chosen =
+      Enum.map(invitations["user_refs"], &mention/1) ++
+        Enum.map(invitations["user_group_refs"], &group_mention/1)
+
+    case {invitations["on_call_count"], chosen} do
+      {0, []} -> "no one automatically — you can add people yourself"
+      {0, chosen} -> join_names(chosen)
+      {_count, []} -> "the configured on-call responders"
+      {_count, chosen} -> "the configured on-call responders and #{join_names(chosen)}"
+    end
+  end
+
+  defp join_names([name]), do: name
+
+  defp join_names(names) do
+    {head, [last]} = Enum.split(names, -1)
+    Enum.join(head, ", ") <> " and " <> last
+  end
+
+  defp settings_context(settings) do
+    origin =
+      case settings do
+        %{"participation" => %{"source" => source}} when source in ~w(channel workspace) ->
+          "a `/responder` #{source} override is in effect"
+
+        %{"participation" => %{"source" => "incident_room"}} ->
+          "this is an incident room"
+
+        %{"customized_by" => nil} ->
+          "defaults; nobody has customized this channel yet"
+
+        %{"customized_by" => actor_ref} ->
+          "saved by #{mention(actor_ref)}"
+      end
+
+    [context("Effective settings · #{origin}")]
+  end
+
+  defp settings_controls(nil, _revision), do: []
+
+  defp settings_controls(configuration_ref, revision) do
+    [
+      actions("settings:#{configuration_ref}", [
+        "responder_welcome_configure"
+        |> plain_button("Configure channel", "#{configuration_ref}|#{revision}")
+        |> maybe_button_style("primary")
+      ])
+    ]
+  end
+
+  @settings_sources ~w(channel configuration deployment incident_room workspace)
+
+  defp channel_settings(
+         %{
+           "alert_policy" => alert_policy,
+           "configuration_ref" => configuration_ref,
+           "customized_by" => customized_by,
+           "default_repository" => default_repository,
+           "invitations" => invitations,
+           "observation" => observation,
+           "participation" => participation,
+           "repositories" => repositories,
+           "revision" => revision
+         } = settings
+       )
+       when map_size(settings) == 9 do
+    valid =
+      alert_policy in ~w(reply offer automatic) and
+        settings_participation?(participation) and
+        settings_observation?(observation) and
+        settings_invitations?(invitations) and
+        settings_repositories?(repositories, default_repository) and
+        (is_nil(customized_by) or slack_reference?(customized_by)) and
+        optional_configuration_identity(configuration_ref, revision) == :ok
+
+    if valid, do: :ok, else: {:error, :invalid_channel_settings}
+  end
+
+  defp channel_settings(_settings), do: {:error, :invalid_channel_settings}
+
+  defp settings_participation?(%{"source" => source, "value" => value} = participation)
+       when map_size(participation) == 2,
+       do: source in @settings_sources and value in ~w(mentions proactive shadow)
+
+  defp settings_participation?(_participation), do: false
+
+  defp settings_observation?(%{"on" => on, "source" => source} = observation)
+       when map_size(observation) == 2,
+       do: is_boolean(on) and source in @settings_sources
+
+  defp settings_observation?(_observation), do: false
+
+  defp settings_invitations?(
+         %{"on_call_count" => count, "user_group_refs" => groups, "user_refs" => users} =
+           invitations
+       )
+       when map_size(invitations) == 3 and is_list(groups) and is_list(users),
+       do:
+         is_integer(count) and count >= 0 and
+           Enum.all?(users ++ groups, &slack_reference?/1)
+
+  defp settings_invitations?(_invitations), do: false
+
+  defp settings_repositories?(repositories, default_repository)
+       when is_list(repositories) and length(repositories) <= 32 do
+    Enum.all?(repositories, &repository?/1) and
+      (is_nil(default_repository) or
+         Enum.any?(repositories, &(&1["ref"] == default_repository)))
+  end
+
+  defp settings_repositories?(_repositories, _default_repository), do: false
+
+  defp optional_configuration_identity(nil, nil), do: :ok
+
+  defp optional_configuration_identity(configuration_ref, revision)
+       when is_integer(revision) and revision > 0 do
+    case Ecto.UUID.cast(configuration_ref) do
+      {:ok, _uuid} -> :ok
+      :error -> {:error, :invalid_channel_settings}
+    end
+  end
+
+  defp optional_configuration_identity(_configuration_ref, _revision),
+    do: {:error, :invalid_channel_settings}
+
+  defp optional_notice(nil), do: :ok
+
+  defp optional_notice(notice) do
+    if text?(notice) and String.length(notice) <= 200, do: :ok, else: {:error, :invalid_notice}
+  end
+
+  defp repository?(%{"ref" => ref, "url" => url} = repository) when map_size(repository) == 2,
+    do: text?(ref) and byte_size(ref) <= 256 and (is_nil(url) or optional_https_url(url) == :ok)
+
+  defp repository?(_repository), do: false
+
+  defp slack_user(value),
+    do: if(slack_reference?(value), do: :ok, else: {:error, :invalid_slack_user})
+
+  defp slack_reference?(value),
+    do: is_binary(value) and Regex.match?(~r/\A[A-Z0-9]{1,64}\z/, value)
+
+  # A repository is a typed link: label and URL are separate values. Ordinary
+  # text is escaped and never becomes clickable Slack markup.
+  defp repository_link(%{"ref" => ref, "url" => nil}), do: "`#{mrkdwn(ref)}`"
+
+  defp repository_link(%{"ref" => ref, "url" => url}),
+    do: "<#{mrkdwn(url)}|#{ref |> mrkdwn() |> String.replace("|", "&#124;")}>"
+
+  defp mention(user_ref), do: "<@#{user_ref}>"
+  defp group_mention(group_ref), do: "<!subteam^#{group_ref}>"
+
+  # All owned structural headings share one colonless renderer.
+  defp heading(label), do: label |> String.trim() |> String.trim_trailing(":")
+
+  defp fact_fields(facts) do
+    %{
+      "fields" =>
+        Enum.map(facts, fn {label, value} ->
+          %{"text" => "*#{heading(label)}*\n#{fact_markdown(value)}", "type" => "mrkdwn"}
+        end),
+      "type" => "section"
+    }
+  end
+
+  defp fact_markdown(values) when is_list(values),
+    do: Enum.map_join(values, "\n", &fact_markdown/1)
+
+  defp fact_markdown(%{"ref" => _ref} = repository), do: repository_link(repository)
+  defp fact_markdown(value), do: value
+
+  defp fact_text(values) when is_list(values), do: Enum.map_join(values, ", ", &fact_text/1)
+  defp fact_text(%{"ref" => ref}), do: ref
+  defp fact_text(value), do: neutralize_control_syntax(value)
+
   defp render_channel_setup(
          %{
+           "bot_user_ref" => bot_user_ref,
            "draft" => draft,
            "expires_at" => expires_at,
+           "on_call_count" => on_call_count,
            "revision" => revision,
            "session_ref" => session_ref,
            "status" => status,
            "step" => step
          } = setup
        )
-       when map_size(setup) == 6 and status in @setup_statuses and step in @setup_steps and
-              is_integer(revision) and revision > 0 and is_map(draft) do
-    with {:ok, _uuid} <- Ecto.UUID.cast(session_ref),
+       when map_size(setup) == 8 and status in @setup_statuses and step in @setup_steps and
+              is_integer(revision) and revision > 0 and is_map(draft) and
+              is_integer(on_call_count) and on_call_count >= 0 do
+    with :ok <- slack_user(bot_user_ref),
+         {:ok, _uuid} <- Ecto.UUID.cast(session_ref),
          {:ok, _datetime, 0} <- DateTime.from_iso8601(expires_at),
-         {:ok, blocks, text} <- setup_blocks(status, step, draft, session_ref, expires_at) do
+         {:ok, blocks, text} <-
+           setup_blocks(status, step, draft, session_ref, %{
+             bot_user_ref: bot_user_ref,
+             expires_at: expires_at,
+             on_call_count: on_call_count
+           }) do
       {:ok, blocks, text}
     else
       _invalid -> {:error, {:invalid_slack_render, :channel_setup}}
@@ -745,36 +1166,27 @@ defmodule Responder.Slack.Renderer do
 
   defp render_channel_setup(_setup), do: {:error, {:invalid_slack_render, :channel_setup}}
 
-  defp setup_blocks("asking", "participation", %{"customizing" => false}, session_ref, expires_at) do
-    text =
-      "Configure Emisar for this channel. Nothing is saved until an operator confirms it."
+  # Every step explains each option before asking for a choice. The bold label
+  # is the exact button label; the sentence says what Responder will do.
+  defp setup_blocks("asking", "participation", _draft, session_ref, presentation) do
+    text = "When should I join conversations?"
 
-    blocks = [
-      section("*Welcome to Emisar*\n#{text}\nSetup expires: `#{mrkdwn(expires_at)}`"),
-      actions("setup:#{session_ref}", [
-        setup_button(
-          "responder_setup_safe_defaults",
-          "Use safe defaults",
-          session_ref,
-          "primary"
-        ),
-        setup_button("responder_setup_be_proactive", "Be proactive", session_ref, nil),
-        setup_button("responder_setup_customize", "Customize", session_ref, nil)
-      ]),
-      section(
-        "_Setup changes listening, context, alert escalation, and room invitations only. It never grants write, approval, publish, deploy, or infrastructure authority._"
-      )
-    ]
-
-    {:ok, blocks, text}
-  end
-
-  defp setup_blocks("asking", "participation", _draft, session_ref, expires_at) do
-    text = "How should Emisar participate here?"
+    explanation =
+      [
+        "*#{heading("1 · Conversations")}*",
+        text,
+        "",
+        "*Mentions only* — I'll read along to learn about your team's work, but I'll only join a conversation when you mention #{mention(presentation.bot_user_ref)}.",
+        "",
+        "*Be proactive* — I'll read the messages in this channel and join in when I think you could use my help. You can still mention me whenever you need me.",
+        "",
+        "*Observe only* — I'll keep reading and learning, but I won't reply, even if you mention me. I also won't start alert investigations while this is on."
+      ]
+      |> Enum.join("\n")
 
     {:ok,
      [
-       section("*Channel setup · participation*\n#{text}\nExpires: `#{mrkdwn(expires_at)}`"),
+       section(explanation),
        actions("setup:#{session_ref}", [
          setup_button(
            "responder_setup_participation_mentions",
@@ -784,11 +1196,11 @@ defmodule Responder.Slack.Renderer do
          ),
          setup_button(
            "responder_setup_participation_proactive",
-           "Proactive",
+           "Be proactive",
            session_ref,
            nil
          ),
-         setup_button("responder_setup_participation_shadow", "Shadow", session_ref, nil)
+         setup_button("responder_setup_participation_shadow", "Observe only", session_ref, nil)
        ])
      ], text}
   end
@@ -798,7 +1210,7 @@ defmodule Responder.Slack.Renderer do
          "repository",
          %{"repository_options" => repositories},
          session_ref,
-         _expires_at
+         _presentation
        )
        when is_list(repositories) and length(repositories) in 1..32 do
     buttons =
@@ -813,98 +1225,141 @@ defmodule Responder.Slack.Renderer do
         )
       end)
 
-    text = "Which configured repository or repository set provides code context?"
+    text = "Which repo should I use for coding tasks when you don't name one?"
 
-    {:ok,
-     [section("*Channel setup · code context*\n#{text}")] ++
-       setup_action_groups(session_ref, buttons), text}
+    options =
+      Enum.map(repositories, fn repository ->
+        "*#{mrkdwn(repository)}* — I'll use it for coding tasks when you don't say which repo you mean."
+      end)
+
+    explanation =
+      [
+        "*#{heading("2 · Repositories")}*",
+        text,
+        "" | Enum.intersperse(options, "")
+      ] ++
+        [
+          "",
+          "You can still ask me to work in any other connected repo. This only sets the default; it doesn't give me access to anything new."
+        ]
+
+    {:ok, [section(Enum.join(explanation, "\n"))] ++ setup_action_groups(session_ref, buttons),
+     text}
   end
 
-  defp setup_blocks("asking", "alerts", _draft, session_ref, _expires_at) do
-    text = "How should authenticated Slack app alerts escalate?"
+  defp setup_blocks("asking", "alerts", _draft, session_ref, _presentation) do
+    text = "When an alert needs attention, where should I investigate it?"
+
+    explanation =
+      [
+        "*#{heading("3 · Alerts")}*",
+        text,
+        "",
+        "*Investigate* — I'll look into it in the alert's thread and share what I find. I won't create a separate room.",
+        "",
+        "*Offer a choice* — I'll ask whether you'd like me to investigate here or create an incident room, and wait for your choice before starting.",
+        "",
+        "*Create automatically* — I'll create an incident room and start investigating there. I'll invite the people you choose in the next step."
+      ]
+      |> Enum.join("\n")
 
     {:ok,
      [
-       section("*Channel setup · app alerts*\n#{text}"),
+       section(explanation),
        actions("setup:#{session_ref}", [
-         setup_button("responder_setup_alerts_reply", "Reply in place", session_ref, nil),
-         setup_button("responder_setup_alerts_offer", "Offer incident", session_ref, nil),
+         setup_button("responder_setup_alerts_reply", "Investigate", session_ref, nil),
+         setup_button("responder_setup_alerts_offer", "Offer a choice", session_ref, nil),
          setup_button(
            "responder_setup_alerts_automatic",
-           "Automatic incident",
+           "Create automatically",
            session_ref,
            "danger"
          )
-       ]),
-       section("_Human health questions never auto-create incidents._")
+       ])
      ], text}
   end
 
-  defp setup_blocks("asking", "audience", _draft, session_ref, _expires_at) do
-    text = "Who else should be invited to incident rooms from this channel?"
+  defp setup_blocks("asking", "audience", _draft, session_ref, presentation) do
+    text = "Who should I invite when I create an incident room?"
+    {label, none_sentence} = audience_none_option(presentation.on_call_count)
+
+    explanation =
+      [
+        "*#{heading("4 · Invitations")}*",
+        text,
+        "",
+        "*#{label}* — #{none_sentence}",
+        "",
+        "*Choose responders* — Reply in this thread with the people or user groups you want me to invite, as @mentions. I'll use that list for future incident rooms in this channel."
+      ]
+      |> Enum.join("\n")
 
     {:ok,
      [
-       section(
-         "*Channel setup · additional audience*\n#{text}\nReply with Slack member or user-group mentions, or choose operators only."
-       ),
+       section(explanation),
        actions(
          "setup:#{session_ref}",
-         setup_button("responder_setup_audience_none", "Operators only", session_ref, nil)
+         setup_button("responder_setup_audience_none", label, session_ref, nil)
        )
      ], text}
   end
 
-  defp setup_blocks("confirming", "confirm", draft, session_ref, expires_at) do
+  defp setup_blocks("confirming", "confirm", draft, session_ref, presentation) do
     case setup_draft?(draft) do
-      true -> setup_confirmation(draft, session_ref, expires_at)
+      true -> setup_confirmation(draft, session_ref, presentation)
       false -> {:error, {:invalid_slack_render, :channel_setup}}
     end
   end
 
-  defp setup_blocks("saved", _step, draft, _session_ref, _expires_at) do
-    text = "Channel configuration saved."
-
-    {:ok,
-     [
-       section(
-         "*Channel configuration saved*\nParticipation: `#{mrkdwn(draft["participation"])}` · Context: `#{mrkdwn(draft["repository_ref"])}` · Alerts: `#{mrkdwn(draft["alert_policy"])}`"
-       )
-     ], text}
-  end
-
-  defp setup_blocks("cancelled", _step, _draft, _session_ref, _expires_at),
+  defp setup_blocks("saved", _step, _draft, _session_ref, _presentation),
     do:
-      {:ok, [section("*Channel setup cancelled*\nNo settings were changed.")],
-       "Channel setup cancelled."}
+      {:ok, [section("*Settings saved.* I've updated my welcome message to match.")],
+       "Settings saved. I've updated my welcome message to match."}
 
-  defp setup_blocks("expired", _step, _draft, _session_ref, _expires_at),
+  defp setup_blocks("cancelled", _step, _draft, _session_ref, _presentation),
     do:
-      {:ok, [section("*Channel setup expired*\nNo settings were changed.")],
-       "Channel setup expired."}
+      {:ok, [section("*Setup cancelled.* Your settings haven't changed.")],
+       "Setup cancelled. Your settings haven't changed."}
 
-  defp setup_blocks(_status, _step, _draft, _session_ref, _expires_at),
+  defp setup_blocks("expired", _step, _draft, _session_ref, _presentation),
+    do:
+      {:ok,
+       [
+         section(
+           "*Setup expired.* Your settings haven't changed. Use *Customize* on my welcome message to start again."
+         )
+       ], "Setup expired. Your settings haven't changed."}
+
+  defp setup_blocks(_status, _step, _draft, _session_ref, _presentation),
     do: {:error, {:invalid_slack_render, :channel_setup}}
 
-  defp setup_confirmation(draft, session_ref, expires_at) do
-    audience =
-      case draft["invite_user_refs"] ++ draft["invite_user_group_refs"] do
-        [] -> "configured operators only"
-        refs -> Enum.map_join(refs, ", ", &"`#{mrkdwn(&1)}`")
-      end
+  defp audience_none_option(0),
+    do:
+      {"No invitations",
+       "I'll create the room without inviting anyone automatically. You can add people yourself."}
 
-    text = "Review the channel configuration. Nothing is saved yet."
+  defp audience_none_option(count),
+    do:
+      {"On-call responders only",
+       "I'll invite only the #{count} configured on-call #{if count == 1, do: "responder", else: "responders"}. You can add more people yourself."}
+
+  defp setup_confirmation(draft, session_ref, presentation) do
+    text = "Here's how I'll work in this channel:"
 
     summary =
       [
-        "*Channel setup · confirm*",
+        "*#{heading("5 · Confirm")}*",
         text,
-        "Participation: `#{mrkdwn(draft["participation"])}`",
-        "Code context: `#{mrkdwn(draft["repository_ref"])}`",
-        "App alerts: `#{mrkdwn(draft["alert_policy"])}`",
-        "Additional audience: #{audience}",
-        "Expires: `#{mrkdwn(expires_at)}`",
-        "_Saving never grants repository writes, approvals, publication, deployment, or infrastructure mutation._"
+        "• " <> draft_participation_sentence(draft["participation"], presentation.bot_user_ref),
+        "• " <> draft_alert_sentence(draft["alert_policy"]),
+        "• I'll use *#{mrkdwn(draft["repository_ref"])}* for coding tasks when you don't name a repo.",
+        "• If I create an incident room, I'll invite #{draft_audience_phrase(draft, presentation.on_call_count)}.",
+        "",
+        "*Save settings* — I'll start using these choices and update my welcome message to match.",
+        "",
+        "*Start over* — Go back to the first question and change your choices before saving.",
+        "",
+        "*Cancel* — I'll leave your current settings as they are."
       ]
       |> Enum.join("\n")
 
@@ -912,18 +1367,48 @@ defmodule Responder.Slack.Renderer do
      [
        section(summary),
        actions("setup:#{session_ref}", [
-         setup_button("responder_setup_save", "Save configuration", session_ref, "primary"),
+         setup_button("responder_setup_save", "Save settings", session_ref, "primary"),
          setup_button("responder_setup_restart", "Start over", session_ref, nil),
          setup_button("responder_setup_cancel", "Cancel", session_ref, "danger")
        ])
      ], text}
   end
 
+  defp draft_participation_sentence("mentions", bot_user_ref),
+    do: "I'll reply when you mention #{mention(bot_user_ref)}."
+
+  defp draft_participation_sentence("proactive", _bot_user_ref),
+    do: "I'll join conversations when I think you could use my help."
+
+  defp draft_participation_sentence("shadow", _bot_user_ref),
+    do: "I'll observe without replying or starting alert investigations."
+
+  defp draft_alert_sentence("reply"),
+    do: "When an alert needs investigation, I'll work in its thread."
+
+  defp draft_alert_sentence("offer"),
+    do:
+      "When an alert needs investigation, I'll ask whether to work in its thread or create an incident room."
+
+  defp draft_alert_sentence("automatic"),
+    do: "When an alert needs investigation, I'll create an incident room automatically."
+
+  defp draft_audience_phrase(draft, on_call_count) do
+    audience_phrase(%{
+      "invitations" => %{
+        "on_call_count" => on_call_count,
+        "user_group_refs" => draft["invite_user_group_refs"],
+        "user_refs" => draft["invite_user_refs"]
+      }
+    })
+  end
+
   defp setup_draft?(draft) do
     draft["participation"] in ~w(mentions proactive shadow) and
       draft["alert_policy"] in ~w(reply offer automatic) and
       is_binary(draft["repository_ref"]) and draft["repository_ref"] != "" and
-      is_list(draft["invite_user_refs"]) and is_list(draft["invite_user_group_refs"])
+      is_list(draft["invite_user_refs"]) and is_list(draft["invite_user_group_refs"]) and
+      Enum.all?(draft["invite_user_refs"] ++ draft["invite_user_group_refs"], &slack_reference?/1)
   end
 
   defp setup_action_groups(session_ref, buttons) do

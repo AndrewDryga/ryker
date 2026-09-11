@@ -129,7 +129,7 @@ defmodule Responder.Slack.InteractionHandlerTest do
 
   test "channel setup rechecks full membership and configured operator authority" do
     interaction = %Interaction{
-      action_id: "responder_setup_customize",
+      action_id: "responder_setup_participation_proactive",
       action_value: Ecto.UUID.generate(),
       actor_ref: "U123",
       channel_ref: "C456",
@@ -155,6 +155,22 @@ defmodule Responder.Slack.InteractionHandlerTest do
 
     assert session_ref == interaction.action_value
     assert_received {:configuration_selected, ^interaction}
+
+    welcome = %{
+      interaction
+      | action_id: "responder_welcome_configure",
+        action_value: "#{Ecto.UUID.generate()}|2",
+        event_ref: "interaction:welcome"
+    }
+
+    assert InteractionHandler.handle(welcome, denied) == {:ok, %{outcome: :denied}}
+    assert {:ok, %{outcome: :advanced}} = InteractionHandler.handle(welcome, allowed)
+    assert_received {:configuration_selected, ^welcome}
+
+    stale =
+      Map.put(allowed, :configure_channel, fn _ -> {:error, :configuration_revision_stale} end)
+
+    assert InteractionHandler.handle(welcome, stale) == {:ok, %{outcome: :invalid}}
   end
 
   test "guests cannot start tasks and incidents additionally require a configured operator" do

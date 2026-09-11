@@ -6,8 +6,13 @@ defmodule Responder.Slack.Interaction do
   is never interpreted as a control.
   """
 
-  @actions ~w(responder_answer_input responder_check_publication responder_close_work responder_confirm_automation responder_confirm_behavior responder_confirm_memory responder_confirm_schedule responder_confirm_slack_post responder_open_incident responder_open_publication responder_publish_draft responder_review_publication responder_start_engineering_task responder_stop_work responder_task_check responder_task_discard_publication responder_task_publish responder_task_retry_publication responder_task_update_publication responder_work_record responder_setup_alerts_automatic responder_setup_alerts_offer responder_setup_alerts_reply responder_setup_audience_none responder_setup_be_proactive responder_setup_cancel responder_setup_customize responder_setup_participation_mentions responder_setup_participation_proactive responder_setup_participation_shadow responder_setup_restart responder_setup_safe_defaults responder_setup_save)
+  @actions ~w(responder_answer_input responder_check_publication responder_close_work responder_confirm_automation responder_confirm_behavior responder_confirm_memory responder_confirm_schedule responder_confirm_slack_post responder_open_incident responder_open_publication responder_publish_draft responder_review_publication responder_start_engineering_task responder_stop_work responder_task_check responder_task_discard_publication responder_task_publish responder_task_retry_publication responder_task_update_publication responder_work_record responder_setup_alerts_automatic responder_setup_alerts_offer responder_setup_alerts_reply responder_setup_audience_none responder_setup_cancel responder_setup_participation_mentions responder_setup_participation_proactive responder_setup_participation_shadow responder_setup_restart responder_setup_save responder_welcome_be_proactive responder_welcome_configure responder_welcome_mentions_only)
   @repository_action ~r/\Aresponder_setup_repository_[0-9]{1,2}\z/
+  # Configure channel also lives on the private `/responder status` reply. It
+  # acts on the channel configuration named in its value, never on the message
+  # it was clicked in, so an ephemeral container is acceptable for it alone.
+  @ephemeral_actions ~w(responder_welcome_configure)
+  @welcome_value ~r/\A[0-9a-f-]{36}\|[1-9][0-9]{0,9}\z/
   @reference ~r/\A[A-Za-z0-9_.:-]{1,256}\z/
   @choice_value ~r/\Arecord:input_request:[A-Za-z0-9_.:-]{1,220}\|[0-9]{1,2}\z/
   @work_record_value ~r/\A(?:task-card|incident-room):[A-Za-z0-9_.:-]{1,220}\|(?:timeline|evidence|handoff|postmortem)\z/
@@ -49,7 +54,7 @@ defmodule Responder.Slack.Interaction do
               "container" =>
                 %{
                   "channel_id" => channel_ref,
-                  "is_ephemeral" => false,
+                  "is_ephemeral" => ephemeral,
                   "message_ts" => message_ref,
                   "type" => "message"
                 } = container,
@@ -63,7 +68,8 @@ defmodule Responder.Slack.Interaction do
         %DateTime{} = occurred_at
       ) do
     case action(action, payload) do
-      {:ok, action_id, action_value} ->
+      {:ok, action_id, action_value}
+      when ephemeral == false or (ephemeral == true and action_id in @ephemeral_actions) ->
         build_interaction(
           action_id,
           action_value,
@@ -78,7 +84,7 @@ defmodule Responder.Slack.Interaction do
           }
         )
 
-      :ignore ->
+      _ignored ->
         :ignore
     end
   end
@@ -114,6 +120,7 @@ defmodule Responder.Slack.Interaction do
 
   @spec setup_action?(String.t()) :: boolean()
   def setup_action?("responder_setup_" <> _rest = action_id), do: action_id?(action_id)
+  def setup_action?("responder_welcome_" <> _rest = action_id), do: action_id?(action_id)
   def setup_action?(_action_id), do: false
 
   defp optional_reference?(nil), do: true
@@ -134,6 +141,9 @@ defmodule Responder.Slack.Interaction do
   defp action_value?(action_id, value)
        when action_id in ~w(responder_task_retry_publication responder_task_update_publication responder_task_discard_publication),
        do: is_binary(value) and Regex.match?(@task_publication_recovery_value, value)
+
+  defp action_value?("responder_welcome_" <> _rest, value),
+    do: is_binary(value) and Regex.match?(@welcome_value, value)
 
   defp action_value?("responder_setup_" <> _rest, value) do
     case Ecto.UUID.cast(value) do

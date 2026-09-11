@@ -126,7 +126,6 @@ defmodule Responder.Slack.InteractionFeedbackTest do
         status: :cancelled,
         draft: %{
           "alert_policy" => nil,
-          "customizing" => false,
           "default_repository" => "responder",
           "invite_user_group_refs" => [],
           "invite_user_refs" => [],
@@ -145,13 +144,22 @@ defmodule Responder.Slack.InteractionFeedbackTest do
              interaction("interaction:setup")
              |> InteractionAudits.record(:invalid)
 
-    assert :ok = InteractionRepaint.repaint(audit, %{api: SlackAPI, client: self()})
+    assert InteractionRepaint.repaint(audit, %{api: SlackAPI, client: self()}) ==
+             {:error, :slack_setup_presentation_unavailable}
+
+    assert :ok =
+             InteractionRepaint.repaint(audit, %{
+               api: SlackAPI,
+               client: self(),
+               setup: %{bot_user_ref: "UBOT", on_call_count: 0}
+             })
 
     assert_received {:updated_message, "C456", "1787832001.000200", document, delivery_ref}
 
     assert document["channel_setup"]["status"] == "cancelled"
     assert document["channel_setup"]["revision"] == 2
-    assert delivery_ref == "slack-setup:#{session.id}:2"
+    assert document["channel_setup"]["bot_user_ref"] == "UBOT"
+    assert delivery_ref == "slack-setup:#{session.id}"
   end
 
   test "a failed repaint defers with bounded durable diagnostics" do

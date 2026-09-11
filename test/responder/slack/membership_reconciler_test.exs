@@ -6,6 +6,7 @@ defmodule Responder.Slack.MembershipReconcilerTest do
   alias Responder.Repo
 
   alias Responder.Slack.{
+    ChannelConfiguration,
     ChannelConfigurations,
     ChannelMembership,
     ChannelSetup,
@@ -38,6 +39,10 @@ defmodule Responder.Slack.MembershipReconcilerTest do
          }}
       end)
     end
+
+    def update_message(agent, _channel, _message_ref, _document, _delivery_ref) do
+      Agent.update(agent, &Map.update(&1, :updates, 1, fn count -> count + 1 end))
+    end
   end
 
   defmodule FailingAPI do
@@ -46,13 +51,20 @@ defmodule Responder.Slack.MembershipReconcilerTest do
 
   defmodule StaticConfigurations do
     def reconcile_joined(_workspace_ref, _channels, _catalog) do
-      {:ok, [%{session: %{status: :ready}}, %{configuration: %{status: :configured}}]}
+      {:ok,
+       [
+         %{configuration: %{revision: 1}, status: :unchanged},
+         %{configuration: nil, status: :left}
+       ]}
     end
 
     def reconcile_absent(_workspace_ref, _channels, _snapshot_started_at), do: {:ok, 0}
   end
 
-  test "a missed absent-to-present transition creates and posts exactly one durable setup" do
+  # A periodic sweep runs every five minutes against every joined channel; it
+  # may post a welcome only for a membership it repaired itself, never for one
+  # that was already joined, or every configured channel gets a hello per sweep.
+  test "a missed absent-to-present transition configures the channel and posts exactly one welcome" do
     agent =
       start_supervised!(
         {Agent,
@@ -72,15 +84,20 @@ defmodule Responder.Slack.MembershipReconcilerTest do
 
     assert Repo.aggregate(ChannelMembership, :count) == 1
     assert Repo.one!(ChannelMembership).private == false
-    assert Repo.aggregate(ConfigurationSession, :count) == 1
+    assert Repo.aggregate(ConfigurationSession, :count) == 0
+
+    assert %ChannelConfiguration{welcome_message_ref: "1.000001"} =
+             Repo.one!(ChannelConfiguration)
+
     assert Agent.get(agent, & &1.posts) == 1
 
     assert MembershipReconciler.run_once(options) ==
-             {:ok, %{channels: 1, left: 0, prompted: 1}}
+             {:ok, %{channels: 1, left: 0, prompted: 0}}
 
     assert Repo.aggregate(ChannelMembership, :count) == 1
-    assert Repo.aggregate(ConfigurationSession, :count) == 1
+    assert Repo.aggregate(ChannelConfiguration, :count) == 1
     assert Agent.get(agent, & &1.posts) == 1
+    assert Agent.get(agent, &Map.get(&1, :updates, 0)) == 0
   end
 
   test "managed incident rooms are excluded from generic channel onboarding" do
@@ -197,7 +214,20 @@ defmodule Responder.Slack.MembershipReconcilerTest do
 
     assert {:ok, %{left: 0}} = MembershipReconciler.run_once(options)
     membership = Repo.get_by!(ChannelMembership, channel_ref: "C456")
-    session = Repo.one!(ConfigurationSession)
+    configuration = Repo.one!(ChannelConfiguration)
+
+    assert {:ok, %{session: session}} =
+             ChannelConfigurations.start_reconfiguration(
+               %{
+                 actor_ref: "U123",
+                 channel_ref: "C456",
+                 event_ref: "event:reconfigure",
+                 occurred_at: DateTime.utc_now(),
+                 thread_ref: nil,
+                 workspace_ref: "T9E23FDA39DE5"
+               },
+               options.setup_options.catalog
+             )
 
     Agent.update(agent, &%{&1 | channels: []})
 
@@ -206,6 +236,7 @@ defmodule Responder.Slack.MembershipReconcilerTest do
 
     assert Repo.get!(ChannelMembership, membership.id).status == :left
     assert Repo.get!(ConfigurationSession, session.id).status == :cancelled
+    assert Repo.get!(ChannelConfiguration, configuration.id).revision == 1
   end
 
   defp options(agent) do
@@ -216,7 +247,7 @@ defmodule Responder.Slack.MembershipReconcilerTest do
       setup_handler: ChannelSetup,
       setup_options: %{
         api: API,
-        bot_user_ref: "U-BOT",
+        bot_user_ref: "UBOT",
         catalog: %{
           default_repository: "infrastructure",
           repository_refs: ["infrastructure"]
@@ -224,7 +255,13 @@ defmodule Responder.Slack.MembershipReconcilerTest do
         client: agent,
         configurations: ChannelConfigurations,
         directory: nil,
-        operators: MapSet.new()
+        operators: MapSet.new(),
+        settings_overrides: fn _workspace_ref, _channel_ref ->
+          %{
+            proactive: %{source: :configuration, value: false},
+            shadow: %{source: :configuration, value: false}
+          }
+        end
       },
       workspace_ref: "T9E23FDA39DE5"
     }

@@ -2,8 +2,10 @@ defmodule Responder.Slack.ChannelConfigurations do
   @moduledoc """
   Durable Slack channel membership and typed setup custody.
 
-  Slack presentation is deliberately outside this module. A card or message is
-  only an authenticated input to this state machine; it cannot grant authority,
+  A joined channel is configured with defaults the moment Responder is added;
+  the optional setup Q&A and the welcome controls only revise that row. Slack
+  presentation is deliberately outside this module. A card or message is only
+  an authenticated input to this state machine; it cannot grant authority,
   select an unconfigured repository, or partially save a draft.
   """
 
@@ -24,6 +26,16 @@ defmodule Responder.Slack.ChannelConfigurations do
   }
 
   @membership_fields [:actor_ref, :channel_ref, :event_ref, :kind, :occurred_at, :workspace_ref]
+  @participation_change_fields [
+    :actor_ref,
+    :channel_ref,
+    :configuration_ref,
+    :event_ref,
+    :expected_revision,
+    :occurred_at,
+    :participation,
+    :workspace_ref
+  ]
   @reconfiguration_fields [
     :actor_ref,
     :channel_ref,
@@ -50,7 +62,12 @@ defmodule Responder.Slack.ChannelConfigurations do
   @alerts [:reply, :offer, :automatic]
   @session_seconds 30 * 60
 
-  @type catalog :: %{default_repository: String.t(), repository_refs: [String.t()]}
+  @type catalog :: %{
+          optional(:on_call_count) => non_neg_integer(),
+          optional(:repository_urls) => %{String.t() => String.t()},
+          default_repository: String.t(),
+          repository_refs: [String.t()]
+        }
 
   @spec observe_membership(map() | keyword(), catalog()) :: {:ok, map()} | {:error, term()}
   def observe_membership(attributes, catalog) do
@@ -186,6 +203,127 @@ defmodule Responder.Slack.ChannelConfigurations do
   def configuration(workspace_ref, channel_ref) do
     Repo.get_by(ChannelConfiguration, workspace_ref: workspace_ref, channel_ref: channel_ref)
   end
+
+  @spec membership(String.t(), String.t()) :: ChannelMembership.t() | nil
+  def membership(workspace_ref, channel_ref) do
+    Repo.get_by(ChannelMembership, workspace_ref: workspace_ref, channel_ref: channel_ref)
+  end
+
+  @doc """
+  Changes only participation from the welcome message, preserving the saved
+  repository, alert policy and invitations. The control names the exact
+  configuration revision it was rendered from, so a stale card cannot save.
+  """
+  @spec change_participation(map() | keyword()) :: {:ok, map()} | {:error, term()}
+  def change_participation(attributes) do
+    with {:ok, attributes} <-
+           exact_map(attributes, @participation_change_fields, :participation_change),
+         :ok <- participation_change_attributes(attributes) do
+      Repo.transaction(fn -> change_participation_locked(attributes) end)
+      |> transaction_result()
+    end
+  end
+
+  @doc "Records the welcome message that presents this channel's effective settings."
+  @spec bind_welcome(String.t(), String.t(), String.t()) ::
+          {:ok, ChannelConfiguration.t()} | {:error, term()}
+  def bind_welcome(workspace_ref, channel_ref, message_ref) do
+    with :ok <- reference(workspace_ref, :workspace_ref, 256),
+         :ok <- reference(channel_ref, :channel_ref, 256),
+         :ok <- reference(message_ref, :message_ref, 256) do
+      Repo.transaction(fn -> bind_welcome_locked(workspace_ref, channel_ref, message_ref) end)
+      |> transaction_result()
+    end
+  end
+
+  @doc """
+  One effective-settings projection shared by the welcome, the setup Q&A
+  completion and settings shown on request. Reading never mutates.
+
+  `overrides` is the emergency participation view (`ChannelSettings.effective/3`
+  or the incident-room equivalent); it wins over the saved configuration.
+  """
+  @spec effective_settings(String.t(), String.t(), catalog(), map()) ::
+          {:ok, map()} | {:error, term()}
+  def effective_settings(workspace_ref, channel_ref, catalog, overrides) do
+    with :ok <- reference(workspace_ref, :workspace_ref, 256),
+         :ok <- reference(channel_ref, :channel_ref, 256),
+         {:ok, catalog} <- catalog(catalog),
+         :ok <- overrides(overrides) do
+      configuration = configuration(workspace_ref, channel_ref)
+      {:ok, settings_document(configuration, catalog, overrides)}
+    end
+  end
+
+  @doc false
+  @spec settings_document(ChannelConfiguration.t() | nil, catalog(), map()) :: map()
+  def settings_document(configuration, catalog, overrides) do
+    participation = effective_participation(overrides)
+
+    %{
+      "alert_policy" => alert_policy(configuration),
+      "configuration_ref" => configuration && configuration.id,
+      "customized_by" => configuration && configuration.actor_ref,
+      "default_repository" => default_repository(configuration, catalog),
+      "invitations" => %{
+        "on_call_count" => Map.get(catalog, :on_call_count, 0),
+        "user_group_refs" => (configuration && configuration.invite_user_group_refs) || [],
+        "user_refs" => (configuration && configuration.invite_user_refs) || []
+      },
+      "observation" => %{
+        "on" => participation.value == :shadow,
+        "source" => Atom.to_string(overrides.shadow.source)
+      },
+      "participation" => %{
+        "source" => Atom.to_string(participation.source),
+        "value" => Atom.to_string(participation.value)
+      },
+      "repositories" =>
+        Enum.map(catalog.repository_refs, fn repository_ref ->
+          %{
+            "ref" => repository_ref,
+            "url" => catalog |> Map.get(:repository_urls, %{}) |> Map.get(repository_ref)
+          }
+        end),
+      "revision" => configuration && configuration.revision
+    }
+  end
+
+  # The override view already folds the saved participation in (channel
+  # override, then configuration, then workspace, then deployment), so its
+  # source names whichever layer decided the effective value.
+  defp effective_participation(overrides) do
+    cond do
+      overrides.shadow.value -> %{source: overrides.shadow.source, value: :shadow}
+      overrides.proactive.value -> %{source: overrides.proactive.source, value: :proactive}
+      true -> %{source: overrides.proactive.source, value: :mentions}
+    end
+  end
+
+  defp alert_policy(%ChannelConfiguration{alert_policy: policy}), do: Atom.to_string(policy)
+  defp alert_policy(nil), do: "reply"
+
+  defp default_repository(%ChannelConfiguration{repository_ref: repository_ref}, catalog) do
+    if repository_ref in catalog.repository_refs, do: repository_ref, else: nil
+  end
+
+  defp default_repository(nil, catalog), do: catalog.default_repository
+
+  defp overrides(%{proactive: proactive, shadow: shadow} = overrides)
+       when map_size(overrides) == 2 do
+    if Enum.all?([proactive, shadow], &override?/1),
+      do: :ok,
+      else: {:error, {:invalid_channel_configuration, :overrides}}
+  end
+
+  defp overrides(_overrides), do: {:error, {:invalid_channel_configuration, :overrides}}
+
+  defp override?(%{source: source, value: value} = override) when map_size(override) == 2,
+    do:
+      is_boolean(value) and
+        source in [:channel, :configuration, :deployment, :incident_room, :workspace]
+
+  defp override?(_override), do: false
 
   @doc """
   Reserves one Slack channel for a host-owned artifact such as an incident room.
@@ -330,8 +468,12 @@ defmodule Responder.Slack.ChannelConfigurations do
          ) do
       %ChannelMembershipEvent{event_fingerprint: ^fingerprint} = event ->
         membership = Repo.get!(ChannelMembership, event.membership_id)
-        session = session_for_generation(membership.id, membership.generation)
-        %{membership: membership, session: session, status: :duplicate}
+
+        %{
+          configuration: configuration(membership.workspace_ref, membership.channel_ref),
+          membership: membership,
+          status: :duplicate
+        }
 
       %ChannelMembershipEvent{} ->
         Repo.rollback(:channel_membership_event_conflict)
@@ -379,7 +521,7 @@ defmodule Responder.Slack.ChannelConfigurations do
          _channel_ref,
          private,
          external_shared,
-         _catalog
+         catalog
        ) do
     membership =
       if membership.private == private and membership.external_shared == external_shared do
@@ -393,7 +535,11 @@ defmodule Responder.Slack.ChannelConfigurations do
         |> Repo.update!()
       end
 
-    %{membership: membership, session: active_or_latest_session(membership), status: :unchanged}
+    %{
+      configuration: ensure_configuration!(membership, catalog),
+      membership: membership,
+      status: :unchanged
+    }
   end
 
   defp reconcile_joined_membership(
@@ -432,22 +578,11 @@ defmodule Responder.Slack.ChannelConfigurations do
         )
       )
 
-    {membership, session, status} =
+    {membership, configuration, status} =
       case {membership, attributes.kind} do
         {nil, :joined} ->
           membership = insert_membership!(attributes, :joined, 1)
-
-          session =
-            insert_session!(
-              membership,
-              attributes.actor_ref,
-              catalog,
-              attributes.event_ref,
-              fingerprint,
-              nil
-            )
-
-          {membership, session, :joined}
+          {membership, join_configuration!(membership, catalog), :joined}
 
         {nil, :left} ->
           {insert_membership!(attributes, :left, 1), nil, :left}
@@ -458,7 +593,7 @@ defmodule Responder.Slack.ChannelConfigurations do
           {membership, nil, :deleted}
 
         {%ChannelMembership{status: :joined} = membership, :joined} ->
-          {membership, active_or_latest_session(membership), :unchanged}
+          {membership, ensure_configuration!(membership, catalog), :unchanged}
 
         {%ChannelMembership{} = membership, :joined} ->
           membership =
@@ -469,17 +604,7 @@ defmodule Responder.Slack.ChannelConfigurations do
               Map.get(attributes, :external_shared)
             )
 
-          session =
-            insert_session!(
-              membership,
-              attributes.actor_ref,
-              catalog,
-              attributes.event_ref,
-              fingerprint,
-              nil
-            )
-
-          {membership, session, :joined}
+          {membership, join_configuration!(membership, catalog), :joined}
 
         {%ChannelMembership{} = membership, :left} ->
           cancel_active_sessions!(membership, :cancelled)
@@ -491,7 +616,53 @@ defmodule Responder.Slack.ChannelConfigurations do
       end
 
     insert_membership_event!(membership, attributes, fingerprint)
-    %{membership: membership, session: session, status: status}
+    %{configuration: configuration, membership: membership, status: status}
+  end
+
+  # A join keeps any configuration the channel saved before it left, but its
+  # welcome is a new message: the old one, if still visible, is stale.
+  defp join_configuration!(membership, catalog) do
+    case ensure_configuration!(membership, catalog) do
+      %ChannelConfiguration{welcome_message_ref: nil} = configuration ->
+        configuration
+
+      %ChannelConfiguration{} = configuration ->
+        configuration
+        |> ChannelConfigurationChangeset.configuration(%{welcome_message_ref: nil})
+        |> Repo.update!()
+    end
+  end
+
+  defp ensure_configuration!(membership, catalog) do
+    case Repo.one(
+           from(configuration in ChannelConfiguration,
+             where:
+               configuration.workspace_ref == ^membership.workspace_ref and
+                 configuration.channel_ref == ^membership.channel_ref,
+             lock: "FOR UPDATE"
+           )
+         ) do
+      %ChannelConfiguration{} = configuration ->
+        configuration
+
+      nil ->
+        %{
+          actor_ref: nil,
+          alert_policy: :reply,
+          channel_ref: membership.channel_ref,
+          id: Ecto.UUID.generate(),
+          invite_user_group_refs: [],
+          invite_user_refs: [],
+          participation: :mentions,
+          repository_ref: catalog.default_repository,
+          revision: 1,
+          saved_at: database_now!(),
+          welcome_message_ref: nil,
+          workspace_ref: membership.workspace_ref
+        }
+        |> ChannelConfigurationChangeset.configuration()
+        |> Repo.insert!()
+    end
   end
 
   defp insert_membership!(attributes, status, generation) do
@@ -824,26 +995,6 @@ defmodule Responder.Slack.ChannelConfigurations do
   end
 
   defp transition(%ConfigurationSession{step: :participation}, %{
-         action: :safe_defaults,
-         value: nil
-       }) do
-    {:ok, {:save, quick_draft(:mentions)}}
-  end
-
-  defp transition(%ConfigurationSession{step: :participation}, %{
-         action: :be_proactive,
-         value: nil
-       }) do
-    {:ok, {:save, quick_draft(:proactive)}}
-  end
-
-  defp transition(%ConfigurationSession{step: :participation}, %{
-         action: :customize,
-         value: nil
-       }),
-       do: {:ok, {:draft, "customizing", true, :participation}}
-
-  defp transition(%ConfigurationSession{step: :participation}, %{
          action: :participation,
          value: value
        })
@@ -882,22 +1033,7 @@ defmodule Responder.Slack.ChannelConfigurations do
   defp transition(%ConfigurationSession{}, %{action: :cancel, value: nil}),
     do: {:ok, :cancel}
 
-  defp transition(%ConfigurationSession{}, %{action: :move_thread, value: nil}),
-    do: {:ok, {:move, :thread}}
-
-  defp transition(%ConfigurationSession{}, %{action: :move_channel, value: nil}),
-    do: {:ok, {:move, :channel}}
-
   defp transition(_session, _attributes), do: {:error, :configuration_action_mismatch}
-
-  defp persist_transition(session, attributes, {:save, quick}) do
-    draft =
-      session.draft
-      |> Map.merge(quick)
-      |> Map.put("repository_ref", session.draft["default_repository"])
-
-    save_session(session, attributes, draft)
-  end
 
   defp persist_transition(session, attributes, :save),
     do: save_session(session, attributes, session.draft)
@@ -947,17 +1083,6 @@ defmodule Responder.Slack.ChannelConfigurations do
     update_session(session, attributes, %{status: :cancelled}, :cancelled)
   end
 
-  defp persist_transition(session, attributes, {:move, location}) do
-    response_thread_ref = if location == :thread, do: session.root_message_ref, else: nil
-
-    update_session(
-      session,
-      attributes,
-      %{response_thread_ref: response_thread_ref},
-      :moved
-    )
-  end
-
   defp save_session(session, attributes, draft) do
     with :ok <- complete_draft(draft) do
       save_configuration!(session, attributes.actor_ref, draft)
@@ -971,13 +1096,13 @@ defmodule Responder.Slack.ChannelConfigurations do
     end
   end
 
+  # The wizard message is updated in place after every step, so the session
+  # keeps its bound message across revisions instead of posting a new card.
   defp update_session(session, attributes, changes, outcome) do
     changes =
       changes
-      |> Map.put(:current_message_ref, nil)
       |> Map.put(:initiator_ref, session.initiator_ref || attributes.actor_ref)
       |> Map.put(:revision, session.revision + 1)
-      |> maybe_follow_message(attributes)
 
     updated =
       session
@@ -986,14 +1111,6 @@ defmodule Responder.Slack.ChannelConfigurations do
 
     {:ok, updated, outcome}
   end
-
-  defp maybe_follow_message(%{response_thread_ref: _thread_ref} = changes, _attributes),
-    do: changes
-
-  defp maybe_follow_message(changes, %{source: :message, thread_ref: thread_ref}),
-    do: Map.put(changes, :response_thread_ref, thread_ref)
-
-  defp maybe_follow_message(changes, _attributes), do: changes
 
   defp save_configuration!(session, actor_ref, draft) do
     now = database_now!()
@@ -1030,10 +1147,90 @@ defmodule Responder.Slack.ChannelConfigurations do
         |> Map.merge(%{
           channel_ref: session.channel_ref,
           id: Ecto.UUID.generate(),
+          welcome_message_ref: nil,
           workspace_ref: session.workspace_ref
         })
         |> ChannelConfigurationChangeset.configuration()
         |> Repo.insert!()
+    end
+  end
+
+  defp change_participation_locked(attributes) do
+    lock_channel!(attributes.workspace_ref, attributes.channel_ref)
+
+    membership =
+      Repo.one(
+        from(membership in ChannelMembership,
+          where:
+            membership.workspace_ref == ^attributes.workspace_ref and
+              membership.channel_ref == ^attributes.channel_ref,
+          lock: "FOR UPDATE"
+        )
+      )
+
+    configuration =
+      Repo.one(
+        from(configuration in ChannelConfiguration,
+          where:
+            configuration.workspace_ref == ^attributes.workspace_ref and
+              configuration.channel_ref == ^attributes.channel_ref,
+          lock: "FOR UPDATE"
+        )
+      )
+
+    cond do
+      not match?(%ChannelMembership{status: :joined}, membership) ->
+        Repo.rollback(:configuration_membership_not_joined)
+
+      is_nil(configuration) ->
+        Repo.rollback(:configuration_not_found)
+
+      configuration.id != attributes.configuration_ref ->
+        Repo.rollback(:configuration_not_found)
+
+      configuration.revision != attributes.expected_revision ->
+        Repo.rollback(:configuration_revision_stale)
+
+      configuration.participation == attributes.participation ->
+        %{configuration: configuration, status: :unchanged}
+
+      true ->
+        saved =
+          configuration
+          |> ChannelConfigurationChangeset.configuration(%{
+            actor_ref: attributes.actor_ref,
+            participation: attributes.participation,
+            revision: configuration.revision + 1,
+            saved_at: database_now!()
+          })
+          |> Repo.update!()
+
+        %{configuration: saved, status: :saved}
+    end
+  end
+
+  defp bind_welcome_locked(workspace_ref, channel_ref, message_ref) do
+    case Repo.one(
+           from(configuration in ChannelConfiguration,
+             where:
+               configuration.workspace_ref == ^workspace_ref and
+                 configuration.channel_ref == ^channel_ref,
+             lock: "FOR UPDATE"
+           )
+         ) do
+      nil ->
+        Repo.rollback(:configuration_not_found)
+
+      %ChannelConfiguration{welcome_message_ref: ^message_ref} = configuration ->
+        configuration
+
+      %ChannelConfiguration{welcome_message_ref: nil} = configuration ->
+        configuration
+        |> ChannelConfigurationChangeset.configuration(%{welcome_message_ref: message_ref})
+        |> Repo.update!()
+
+      %ChannelConfiguration{} ->
+        Repo.rollback(:configuration_welcome_already_bound)
     end
   end
 
@@ -1062,34 +1259,6 @@ defmodule Responder.Slack.ChannelConfigurations do
     :ok
   end
 
-  defp active_or_latest_session(membership) do
-    Repo.one(
-      from(session in ConfigurationSession,
-        where:
-          session.workspace_ref == ^membership.workspace_ref and
-            session.channel_ref == ^membership.channel_ref and
-            session.membership_generation == ^membership.generation,
-        order_by: [desc: session.inserted_at],
-        limit: 1
-      )
-    )
-  end
-
-  defp session_for_generation(membership_id, generation) do
-    membership = Repo.get!(ChannelMembership, membership_id)
-
-    Repo.one(
-      from(session in ConfigurationSession,
-        where:
-          session.workspace_ref == ^membership.workspace_ref and
-            session.channel_ref == ^membership.channel_ref and
-            session.membership_generation == ^generation,
-        order_by: [desc: session.inserted_at],
-        limit: 1
-      )
-    )
-  end
-
   defp complete_draft(draft) do
     valid =
       draft["participation"] in Enum.map(@participation, &Atom.to_string/1) and
@@ -1100,19 +1269,9 @@ defmodule Responder.Slack.ChannelConfigurations do
     if valid, do: :ok, else: {:error, :configuration_draft_incomplete}
   end
 
-  defp quick_draft(participation) do
-    %{
-      "alert_policy" => "reply",
-      "invite_user_group_refs" => [],
-      "invite_user_refs" => [],
-      "participation" => Atom.to_string(participation)
-    }
-  end
-
   defp empty_draft(catalog) do
     %{
       "alert_policy" => nil,
-      "customizing" => false,
       "default_repository" => catalog.default_repository,
       "invite_user_group_refs" => [],
       "invite_user_refs" => [],
@@ -1169,37 +1328,66 @@ defmodule Responder.Slack.ChannelConfigurations do
   end
 
   defp action_name(value)
-       when value in [
-              :alerts,
-              :audience,
-              :be_proactive,
-              :cancel,
-              :customize,
-              :move_channel,
-              :move_thread,
-              :participation,
-              :repository,
-              :restart,
-              :safe_defaults,
-              :save
-            ],
+       when value in [:alerts, :audience, :cancel, :participation, :repository, :restart, :save],
        do: :ok
 
   defp action_name(_value), do: {:error, {:invalid_channel_configuration, :action}}
 
+  defp participation_change_attributes(attributes) do
+    with :ok <- reference(attributes.actor_ref, :actor_ref, 256),
+         :ok <- reference(attributes.workspace_ref, :workspace_ref, 256),
+         :ok <- reference(attributes.channel_ref, :channel_ref, 256),
+         :ok <- reference(attributes.event_ref, :event_ref, 512),
+         :ok <- uuid(attributes.configuration_ref, :configuration_ref),
+         :ok <- positive(attributes.expected_revision, :expected_revision),
+         :ok <- member(attributes.participation, @participation, :participation) do
+      utc(attributes.occurred_at, :occurred_at)
+    end
+  end
+
   defp catalog(%{default_repository: default, repository_refs: refs} = catalog)
-       when map_size(catalog) == 2 do
+       when map_size(catalog) in 2..4 do
+    on_call_count = Map.get(catalog, :on_call_count, 0)
+    urls = Map.get(catalog, :repository_urls, %{})
+
     with :ok <- reference(default, :default_repository, 256),
          :ok <- references(refs, :repository_refs),
-         true <- default in refs do
-      {:ok, %{default_repository: default, repository_refs: Enum.sort(refs)}}
+         true <- default in refs,
+         true <-
+           Map.keys(catalog) --
+             [:default_repository, :on_call_count, :repository_refs, :repository_urls] == [],
+         true <- is_integer(on_call_count) and on_call_count >= 0,
+         :ok <- repository_urls(urls, refs) do
+      {:ok,
+       %{
+         default_repository: default,
+         on_call_count: on_call_count,
+         repository_refs: Enum.sort(refs),
+         repository_urls: urls
+       }}
     else
-      false -> {:error, {:invalid_channel_configuration, :default_repository}}
+      false -> {:error, {:invalid_channel_configuration, :catalog}}
       {:error, _reason} = error -> error
     end
   end
 
   defp catalog(_catalog), do: {:error, {:invalid_channel_configuration, :catalog}}
+
+  defp repository_urls(urls, refs) when is_map(urls) do
+    valid =
+      Enum.all?(urls, fn
+        {repository_ref, "https://" <> _rest = url} ->
+          repository_ref in refs and reference(url, :repository_urls, 2_048) == :ok
+
+        _entry ->
+          false
+      end)
+
+    if valid, do: :ok, else: {:error, {:invalid_channel_configuration, :repository_urls}}
+  end
+
+  defp repository_urls(_urls, _refs),
+    do: {:error, {:invalid_channel_configuration, :repository_urls}}
 
   defp exact_map(attributes, fields, boundary) when is_list(attributes) do
     if Keyword.keyword?(attributes) and
@@ -1258,10 +1446,10 @@ defmodule Responder.Slack.ChannelConfigurations do
   defp positive(value, _field) when is_integer(value) and value > 0, do: :ok
   defp positive(_value, field), do: {:error, {:invalid_channel_configuration, field}}
 
-  defp uuid(value, _field) do
+  defp uuid(value, field) do
     case Ecto.UUID.cast(value) do
       {:ok, _uuid} -> :ok
-      :error -> {:error, {:invalid_channel_configuration, :session_ref}}
+      :error -> {:error, {:invalid_channel_configuration, field}}
     end
   end
 

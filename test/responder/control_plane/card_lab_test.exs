@@ -164,7 +164,10 @@ defmodule Responder.ControlPlane.CardLabTest do
              ~w(provisioning investigating action_required waiting_for_input waiting_for_event stopping resolved cancelled paused)
 
     assert coverage.setup_states ==
-             ~w(welcome participation repository alerts audience confirming saved cancelled expired)
+             ~w(participation repository alerts audience confirming saved cancelled expired)
+
+    assert coverage.welcome_states == ~w(default proactive customized shadow no-repository)
+    assert coverage.settings_audiences == ~w(thread private)
 
     assert coverage.emisar_statuses == RunState.statuses()
     assert MapSet.subset?(MapSet.new(RecordPayload.kinds()), MapSet.new(coverage.record_kinds))

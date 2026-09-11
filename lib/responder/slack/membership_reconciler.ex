@@ -106,11 +106,13 @@ defmodule Responder.Slack.MembershipReconciler do
 
   defp managed_channel_refs(_channel_refs, _options), do: []
 
+  # Only a membership the reconciler itself repaired gets a welcome. Channels
+  # that were already joined keep their existing welcome (or none): a periodic
+  # sweep must never flood configured channels with unsolicited hellos.
   defp prompt_sessions(results, options) do
     Enum.reduce_while(results, {:ok, 0}, fn
-      %{session: %{status: status} = session}, {:ok, count}
-      when status in [:asking, :confirming] ->
-        case options.setup_handler.ensure_prompt(session, options.setup_options) do
+      %{configuration: %{} = configuration, status: :joined}, {:ok, count} ->
+        case options.setup_handler.ensure_welcome(configuration, nil, options.setup_options) do
           {:ok, _outcome} -> {:cont, {:ok, count + 1}}
           {:error, _reason} = error -> {:halt, error}
         end
