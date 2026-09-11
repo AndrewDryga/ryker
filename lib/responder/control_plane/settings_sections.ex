@@ -546,14 +546,31 @@ defmodule Responder.ControlPlane.SettingsSections do
   def items(%{key: :webhooks}, view), do: view.snapshot.webhook_sources
   def items(_section, _view), do: []
 
-  @doc "The draft a submitted form describes, with every control's own empty value."
+  @doc """
+  The draft a submitted form describes, with every control's own empty value.
+
+  A value whose shape does not fit its control is discarded rather than kept:
+  the browser is not the only thing that can send this event, and a draft that
+  holds a map where a string belongs cannot even be rendered back.
+  """
   @spec submitted(map(), map()) :: map()
   def submitted(section, params) do
     Map.new(section.fields, fn field ->
-      name = field_name(field)
-      {name, Map.get(params, name, empty_value(field))}
+      {field_name(field), submitted_value(field, Map.get(params, field_name(field)))}
     end)
   end
+
+  defp submitted_value(%{kind: kind} = field, value) when kind in [:mapping, :lifecycle] do
+    if is_map(value),
+      do: Map.new(subfields(field), &{&1, text(Map.get(value, &1))}),
+      else: empty_value(field)
+  end
+
+  defp submitted_value(_field, value) when is_binary(value), do: value
+  defp submitted_value(field, _mismatched), do: empty_value(field)
+
+  defp text(value) when is_binary(value), do: value
+  defp text(_value), do: ""
 
   defp empty_value(field), do: form_value(field, nil)
 
@@ -617,51 +634,53 @@ defmodule Responder.ControlPlane.SettingsSections do
   end
 
   defp cast_field(%{kind: kind}, "") when kind in [:text, :select], do: {:ok, nil}
-  defp cast_field(%{kind: kind}, value) when kind in [:text, :select], do: {:ok, value}
+
+  defp cast_field(%{kind: kind}, value) when kind in [:text, :select] and is_binary(value),
+    do: {:ok, value}
 
   defp cast_field(%{kind: kind}, "") when kind in [:integer, :days, :decimal, :date],
     do: {:ok, nil}
 
-  defp cast_field(%{kind: :integer}, value) do
+  defp cast_field(%{kind: :integer}, value) when is_binary(value) do
     case Integer.parse(value) do
       {integer, ""} -> {:ok, integer}
       _invalid -> :error
     end
   end
 
-  defp cast_field(%{kind: :days}, value) do
+  defp cast_field(%{kind: :days}, value) when is_binary(value) do
     case Integer.parse(value) do
       {days, ""} when days > 0 -> {:ok, days * @day}
       _invalid -> :error
     end
   end
 
-  defp cast_field(%{kind: :decimal}, value) do
+  defp cast_field(%{kind: :decimal}, value) when is_binary(value) do
     case Decimal.parse(value) do
       {decimal, ""} -> {:ok, decimal}
       _invalid -> :error
     end
   end
 
-  defp cast_field(%{kind: :date}, value) do
+  defp cast_field(%{kind: :date}, value) when is_binary(value) do
     case Date.from_iso8601(value) do
       {:ok, date} -> {:ok, date}
       _invalid -> :error
     end
   end
 
-  defp cast_field(%{kind: :time}, value) do
+  defp cast_field(%{kind: :time}, value) when is_binary(value) do
     case Time.from_iso8601(pad_seconds(value)) do
       {:ok, time} -> {:ok, time}
       _invalid -> :error
     end
   end
 
-  defp pad_seconds(value) when is_binary(value) do
+  defp cast_field(_field, _mismatched), do: :error
+
+  defp pad_seconds(value) do
     if String.length(value) == 5, do: value <> ":00", else: value
   end
-
-  defp pad_seconds(value), do: value
 
   defp kind_error(:days), do: :days
   defp kind_error(:integer), do: :integer
