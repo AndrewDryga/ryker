@@ -221,9 +221,18 @@ defmodule Responder.State.TaskOffersTest do
 
     stored = Repo.get!(TaskCard, card.id)
     assert stored.card_fingerprint =~ ~r/\A[0-9a-f]{64}\z/
-    assert stored.card_ui_revision == 5
-    assert task["progress"] == []
-    assert task["goals"] == []
+    assert stored.card_ui_revision == 6
+
+    assert Enum.map(task["stages"], &{&1["stage"], &1["state"]}) == [
+             {"workspace_setup", "waiting"},
+             {"planning", "pending"},
+             {"implementation", "pending"},
+             {"self_review", "pending"},
+             {"draft_pr", "pending"},
+             {"ci", "pending"},
+             {"review_and_merge", "pending"}
+           ]
+
     refute stored.lease_ref
 
     assert {:ok, :idle} = TaskCardWorker.run_once(options)

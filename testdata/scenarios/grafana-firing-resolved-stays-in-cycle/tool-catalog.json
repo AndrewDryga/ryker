@@ -797,7 +797,7 @@
           "name": "propose_automation"
         },
         {
-          "description": "Create one durable goal node. Parent and prerequisite goals must already exist; the frozen repository context permits at most one to three independent working goals.",
+          "description": "Create one durable goal node in an explicit lifecycle stage. stage is planning, implementation or self_review; Workspace setup, Draft PR, CI and Review and merge are host-owned and can never be claimed here. A child goal belongs to its parent's stage. Parent and prerequisite goals must already exist; the frozen repository context permits at most one to three independent working goals, and a parent heading does not consume that limit. Use successor_of to record a new attempt at an already terminal goal in the same stage: the original keeps its result and is never reopened.",
           "inputSchema": {
             "additionalProperties": false,
             "properties": {
@@ -874,6 +874,27 @@
               "required": {
                 "type": "boolean"
               },
+              "stage": {
+                "enum": [
+                  "planning",
+                  "implementation",
+                  "self_review"
+                ],
+                "type": "string"
+              },
+              "successor_of": {
+                "anyOf": [
+                  {
+                    "maxLength": 120,
+                    "minLength": 1,
+                    "pattern": "^[A-Za-z0-9_.:-]+$",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "writable_repository": {
                 "anyOf": [
                   {
@@ -898,6 +919,7 @@
               "read_only_repositories",
               "requested_outcome",
               "required",
+              "stage",
               "writable_repository"
             ],
             "type": "object"
@@ -905,7 +927,7 @@
           "name": "plan_goal"
         },
         {
-          "description": "Advance one existing goal. Prerequisites must be satisfied before working or completion, and a parent cannot complete while required children remain open.",
+          "description": "Advance one existing goal. Prerequisites must be satisfied before working or completion, and a parent cannot complete while required children remain open. Completing a check reports its evidence: evidence_refs takes the cite_source record refs from this episode that observed the result. An empty list is honest for qualitative review work; a check with an independently observable result needs its receipt, and a completion claim never overrides a failing, missing or stale host check.",
           "inputSchema": {
             "additionalProperties": false,
             "properties": {
@@ -920,6 +942,18 @@
                     "type": "null"
                   }
                 ]
+              },
+              "evidence_refs": {
+                "items": {
+                  "maxLength": 256,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9_.:-]+$",
+                  "type": "string"
+                },
+                "maxItems": 12,
+                "minItems": 0,
+                "type": "array",
+                "uniqueItems": true
               },
               "goal_id": {
                 "maxLength": 120,
@@ -979,6 +1013,7 @@
                 "type": "string"
               },
               "prompt": {
+                "description": "The brief a person reads before confirming. Lead with the user-visible problem and the intended outcome, then the proposed change, the scope and what you will check. Name the repository you will edit and any you only read. Do not paste a forensic trace, a function-and-line inventory or an error transcript as the request, and never widen or narrow the requested scope while rewriting it; keep the exact original in source_refs.",
                 "maxLength": 12000,
                 "minLength": 1,
                 "type": "string"

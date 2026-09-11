@@ -9,6 +9,7 @@ defmodule Responder.ControlPlane.CardLab do
 
   alias Responder.Emisar.RunState
   alias Responder.Slack.{AppHome, AppHomeEditor, Renderer, ThreadStatusProjection}
+  alias Responder.Work.TaskStages
 
   @legacy_path Path.expand("../../../priv/card_lab/legacy_task_records.json", __DIR__)
   @external_resource @legacy_path
@@ -339,7 +340,7 @@ defmodule Responder.ControlPlane.CardLab do
         "session_generation" => nil,
         "work_state" => nil,
         "updated_at" => latest["at"],
-        "progress" => Enum.map(progress, &Map.take(&1, ~w(phase summary at)))
+        "stages" => unrecorded_stages()
       })
 
     state(
@@ -358,6 +359,25 @@ defmodule Responder.ControlPlane.CardLab do
     })
   end
 
+  # A task retained before typed stage membership existed: its stages are
+  # explicitly unrecorded rather than backfilled from prose.
+  defp unrecorded_stages do
+    Enum.map(TaskStages.stages(), fn stage ->
+      state = if stage in ~w(planning implementation self_review), do: "unknown", else: "pending"
+
+      %{
+        "current" => false,
+        "detail" => if(state == "unknown", do: "not recorded"),
+        "stage" => stage,
+        "state" => state,
+        "subtasks" => [],
+        "subtasks_total" => nil,
+        "url" => nil,
+        "your_turn" => false
+      }
+    end)
+  end
+
   defp recorded_goal_state do
     source = @legacy["portal_goals"]
 
@@ -368,8 +388,29 @@ defmodule Responder.ControlPlane.CardLab do
         "repository" => "emisar",
         "summary" =>
           "The three retained goals are complete. Overall task state is simulated for this layout study.",
-        "goals" =>
-          Enum.map(source["goals"], &Map.take(&1, ~w(id requested_outcome state parent_goal_id)))
+        "stages" =>
+          unrecorded_stages() ++
+            [
+              %{
+                "current" => false,
+                "detail" => "3 subtasks recorded without a stage",
+                "stage" => "unassigned",
+                "state" => "unknown",
+                "subtasks" =>
+                  Enum.map(source["goals"], fn goal ->
+                    %{
+                      "current" => false,
+                      "detail" => nil,
+                      "id" => goal["id"],
+                      "outcome" => goal["requested_outcome"],
+                      "state" => goal["state"]
+                    }
+                  end),
+                "subtasks_total" => length(source["goals"]),
+                "url" => nil,
+                "your_turn" => false
+              }
+            ]
       })
 
     state(
@@ -1189,7 +1230,8 @@ defmodule Responder.ControlPlane.CardLab do
                "prerequisite_goal_ids" => ["check-api"],
                "read_only_repositories" => ["runbooks"],
                "requested_outcome" => "Check worker health",
-               "required" => true
+               "required" => true,
+               "stage" => "self_review"
              }},
             "goal"
           )
@@ -1227,7 +1269,8 @@ defmodule Responder.ControlPlane.CardLab do
            "id" => "check-workers",
            "kind" => "check",
            "requested_outcome" => "Check worker health",
-           "required" => true
+           "required" => true,
+           "stage" => "self_review"
          }},
         "goal",
         "confirmed"
@@ -1705,7 +1748,9 @@ defmodule Responder.ControlPlane.CardLab do
         "episode_state" => task_episode_state(status),
         "publication" => publication,
         "repository" => "responder",
+        "repository_url" => publication && "https://github.com/acme/responder",
         "session_generation" => 2,
+        "stages" => task_stages(status, publication),
         "status" => status,
         "summary" => task_description(status),
         "task_ref" => "task-card:card-lab-123",
@@ -1715,6 +1760,110 @@ defmodule Responder.ControlPlane.CardLab do
         "work_state" => task_work_state(status)
       }
     }
+  end
+
+  # Specimen ledgers: one per supported status, so the catalog exercises every
+  # disposition the production projection can produce.
+  defp task_stages(status, publication) do
+    states = task_stage_states(status, publication)
+
+    details = %{
+      "implementation" => "2/4 subtasks",
+      "draft_pr" => draft_detail(status, publication),
+      "ci" => if(status == "published", do: "waiting for GitHub")
+    }
+
+    TaskStages.stages()
+    |> Enum.zip(states)
+    |> Enum.map(fn {stage, state} ->
+      %{
+        "current" => state in ~w(running waiting failed),
+        "detail" => details[stage],
+        "stage" => stage,
+        "state" => state,
+        "subtasks" => task_subtasks(stage, state),
+        "subtasks_total" => if(stage == "implementation", do: 4),
+        "url" => stage == "draft_pr" && publication["pull_request_url"],
+        "your_turn" => stage == "review_and_merge" and state == "waiting"
+      }
+      |> Map.update!("url", fn url -> url || nil end)
+    end)
+    |> current_only()
+  end
+
+  defp task_stage_states("action_required", %{"status" => "blocked"}),
+    do: ~w(completed completed completed completed failed pending pending)
+
+  defp task_stage_states("working", _publication),
+    do: ~w(completed completed running pending pending pending pending)
+
+  defp task_stage_states("waiting_for_input", _publication),
+    do: ~w(completed completed waiting pending pending pending pending)
+
+  defp task_stage_states("waiting_for_event", _publication),
+    do: ~w(completed completed waiting pending pending pending pending)
+
+  defp task_stage_states("action_required", _publication),
+    do: ~w(completed completed failed pending pending pending pending)
+
+  defp task_stage_states("stopping", _publication),
+    do: ~w(completed completed running pending pending pending pending)
+
+  defp task_stage_states("reviewing", _publication),
+    do: ~w(completed completed completed running pending pending pending)
+
+  defp task_stage_states("ready_to_publish", _publication),
+    do: ~w(completed completed completed completed waiting pending pending)
+
+  defp task_stage_states("published", _publication),
+    do: ~w(completed completed completed completed completed waiting pending)
+
+  defp task_stage_states("completed", _publication),
+    do: ~w(completed completed completed completed unknown pending pending)
+
+  defp task_stage_states("cancelled", _publication),
+    do: ~w(completed completed stopped pending pending pending pending)
+
+  defp draft_detail("completed", _publication), do: "not recorded"
+
+  defp draft_detail(_status, %{"pull_request_number" => number}) when is_integer(number),
+    do: "##{number}"
+
+  defp draft_detail(_status, _publication), do: nil
+
+  defp task_subtasks("implementation", state) when state in ~w(running waiting failed) do
+    [
+      %{
+        "current" => false,
+        "detail" => nil,
+        "id" => "parse-retry-budget",
+        "outcome" => "Read the retry budget from configuration",
+        "state" => "completed"
+      },
+      %{
+        "current" => true,
+        "detail" => if(state == "waiting", do: "waiting for the retry-budget answer"),
+        "id" => "retry-backoff",
+        "outcome" => "Back off between parser retries",
+        "state" => %{"running" => "working", "waiting" => "waiting", "failed" => "blocked"}[state]
+      }
+    ]
+  end
+
+  defp task_subtasks(_stage, _state), do: []
+
+  # One current stage, and subtasks only beneath it, exactly as the production
+  # projection emits them.
+  defp current_only(rows) do
+    first = Enum.find_index(rows, & &1["current"])
+
+    rows
+    |> Enum.with_index()
+    |> Enum.map(fn {row, index} ->
+      if index == first,
+        do: %{row | "current" => true},
+        else: %{row | "current" => false, "subtasks" => [], "subtasks_total" => nil}
+    end)
   end
 
   defp publication(status, controls, generation \\ 1, published \\ false) do

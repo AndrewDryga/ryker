@@ -496,6 +496,30 @@ operator to the pinned incident thread for the authoritative result. Slash comma
 controls both run in the control lane, so `proactive off` or **Stop current run** does not wait
 behind a running agent run.
 
+## Task progress
+
+The task card carries one stable stage list for the whole task: Workspace setup, Planning,
+Implementation, Self-review and checks, Draft PR, CI, and Review and merge. Stages never
+disappear — waiting, failure, stopping, an explicit skip and unrecorded history change a stage's
+glyph (`○ ▸ ◷ ✓ ! ↻ − ?`), not the list. The active stage and the active subtask are bold, and
+`← 🙋 your turn` marks the stage that needs a person.
+
+Workspace setup, Draft PR, CI and Review and merge are host facts: the Coop session binding,
+publication custody, and the `episode_publication_followups` check and merge receipts. Planning,
+Implementation and Self-review come from the model's own goals, which now carry an explicit
+`stage` (`planning`, `implementation` or `self_review`); a child goal belongs to its parent's
+stage. Implementation counts current logical leaves once — `Implementation · 4/6 subtasks` — so a
+parent heading, another stage's goal and a superseded attempt are never counted. A plan that does
+not exist yet has no denominator at all rather than `0/0`, and goals retained before typed stage
+membership existed stay in a separate unrecorded row instead of being backfilled into a guess.
+
+A completed goal is never reopened. When changed work needs a check to run again, the model plans
+a successor attempt with `successor_of` naming the terminal goal it repeats, and the earlier
+result stays exactly as recorded. `update_goal` carries `evidence_refs`, the citation records that
+observed a result; a declared completion never overrides a failing, missing or stale host check.
+Once newer implementation work lands after a publication, Self-review, Draft PR and CI show `↻`
+against the published revision rather than a green check for work that was never checked.
+
 ## Controls
 
 Card buttons change with state rather than presenting actions that cannot succeed. Publication,

@@ -866,6 +866,7 @@ defmodule Responder.Publication.CustodyTest do
                "kind" => "engineering",
                "requested_outcome" => "Implement #{suffix}",
                "required" => true,
+               "stage" => "implementation",
                "writable_repository" => "responder"
              })
 

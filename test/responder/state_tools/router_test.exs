@@ -276,6 +276,7 @@ defmodule Responder.StateTools.RouterTest do
         "read_only_repositories" => ["emisar"],
         "requested_outcome" => "Check infrastructure health and flag issues",
         "required" => true,
+        "stage" => "implementation",
         "writable_repository" => nil
       }
 
@@ -289,6 +290,83 @@ defmodule Responder.StateTools.RouterTest do
                  bound_options(claim)
                )
     end
+  end
+
+  test "plan_goal requires a lifecycle stage the model owns and never a host stage" do
+    # Stage rows on the Slack task card come from typed membership. A goal
+    # claiming CI or Draft PR would let the model paint a host-owned stage.
+    claim = claim!("goal-stage-contract")
+    options = bound_options(claim)
+
+    arguments = %{
+      "authority" => "read_only",
+      "completion_contract" => "The drain path is covered by a focused test.",
+      "id" => "drain-workers",
+      "kind" => "engineering",
+      "parent_goal_id" => nil,
+      "prerequisite_goal_ids" => [],
+      "read_only_repositories" => [],
+      "requested_outcome" => "Drain and recycle workers safely",
+      "required" => true,
+      "successor_of" => nil,
+      "writable_repository" => nil
+    }
+
+    assert {:error, "invalid_arguments"} = Tools.call("plan_goal", arguments, options)
+
+    for stage <- ~w(workspace_setup draft_pr ci review_and_merge unknown) do
+      assert {:error, "invalid_arguments"} =
+               Tools.call("plan_goal", Map.put(arguments, "stage", stage), options)
+    end
+
+    assert {:ok, %{"kind" => "goal"}} =
+             Tools.call("plan_goal", Map.put(arguments, "stage", "implementation"), options)
+
+    assert [%{"kind" => "goal", "payload" => payload}] =
+             Records.retained_records(claim.episode.id)
+
+    assert payload["stage"] == "implementation"
+
+    plan_goal = Enum.find(FixedTools.list(), &(&1["name"] == "plan_goal"))
+    assert "stage" in plan_goal["inputSchema"]["required"]
+
+    assert plan_goal["inputSchema"]["properties"]["stage"]["enum"] ==
+             ~w(planning implementation self_review)
+
+    update_goal = Enum.find(FixedTools.list(), &(&1["name"] == "update_goal"))
+    assert Map.has_key?(update_goal["inputSchema"]["properties"], "evidence_refs")
+
+    assert {:ok, evidence} =
+             Records.create(Records.token(claim.turn), "evidence-drain", "evidence", %{
+               "claim_id" => "drain.focused_test",
+               "observation" => "The focused drain test passed.",
+               "source_name" => "mix test",
+               "source_type" => "repository"
+             })
+
+    assert {:ok, %{"kind" => "goal_state"}} =
+             Tools.call(
+               "update_goal",
+               %{
+                 "detail" => "Covered by the focused drain test.",
+                 "evidence_refs" => [evidence.ref],
+                 "goal_id" => "drain-workers",
+                 "state" => "completed"
+               },
+               options
+             )
+
+    assert {:error, "invalid_arguments"} =
+             Tools.call(
+               "update_goal",
+               %{
+                 "detail" => nil,
+                 "evidence_refs" => ["not a reference"],
+                 "goal_id" => "drain-workers",
+                 "state" => "completed"
+               },
+               options
+             )
   end
 
   test "typed goal tools persist a dependency plan and preflight its live state" do
@@ -308,6 +386,7 @@ defmodule Responder.StateTools.RouterTest do
                  "read_only_repositories" => [],
                  "requested_outcome" => "Change an unbound repository",
                  "required" => true,
+                 "stage" => "implementation",
                  "writable_repository" => "unbound"
                },
                options
@@ -326,6 +405,7 @@ defmodule Responder.StateTools.RouterTest do
                  "read_only_repositories" => [],
                  "requested_outcome" => "Answer the complete request",
                  "required" => true,
+                 "stage" => "implementation",
                  "writable_repository" => nil
                },
                options
@@ -344,6 +424,7 @@ defmodule Responder.StateTools.RouterTest do
                  "read_only_repositories" => [],
                  "requested_outcome" => "Inspect current state",
                  "required" => true,
+                 "stage" => "implementation",
                  "writable_repository" => nil
                },
                options

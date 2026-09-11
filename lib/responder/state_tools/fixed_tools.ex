@@ -15,6 +15,7 @@ defmodule Responder.StateTools.FixedTools do
     Continuity,
     ConversationSummaryState,
     DerivedContext,
+    InvestigationPayload,
     KnowledgeSnapshot,
     Memories,
     MemorySearch,
@@ -1225,7 +1226,12 @@ defmodule Responder.StateTools.FixedTools do
         "authority_limits" => array(text(500), 1, 20),
         "instruction_ref" => reference(256),
         "kind" => enum(~w(engineering incident)),
-        "prompt" => text(12_000),
+        "prompt" =>
+          text(12_000)
+          |> Map.put(
+            "description",
+            "The brief a person reads before confirming. Lead with the user-visible problem and the intended outcome, then the proposed change, the scope and what you will check. Name the repository you will edit and any you only read. Do not paste a forensic trace, a function-and-line inventory or an error transcript as the request, and never widen or narrow the requested scope while rewriting it; keep the exact original in source_refs."
+          ),
         "repository" =>
           nullable(reference(256))
           |> Map.put(
@@ -1243,7 +1249,7 @@ defmodule Responder.StateTools.FixedTools do
   defp plan_goal_tool do
     tool(
       "plan_goal",
-      "Create one durable goal node. Parent and prerequisite goals must already exist; the frozen repository context permits at most one to three independent working goals.",
+      "Create one durable goal node in an explicit lifecycle stage. stage is planning, implementation or self_review; Workspace setup, Draft PR, CI and Review and merge are host-owned and can never be claimed here. A child goal belongs to its parent's stage. Parent and prerequisite goals must already exist; the frozen repository context permits at most one to three independent working goals, and a parent heading does not consume that limit. Use successor_of to record a new attempt at an already terminal goal in the same stage: the original keeps its result and is never reopened.",
       %{
         "authority" => enum(~w(read_only repository_write governed_operation)),
         "completion_contract" => text(2_000),
@@ -1254,20 +1260,25 @@ defmodule Responder.StateTools.FixedTools do
         "read_only_repositories" => array(reference(256), 0, 20),
         "requested_outcome" => text(500),
         "required" => %{"type" => "boolean"},
+        "stage" => enum(InvestigationPayload.goal_stages()),
+        "successor_of" => nullable(reference(120)),
         "writable_repository" => nullable(reference(256))
-      }
+      },
+      ~w(authority completion_contract id kind parent_goal_id prerequisite_goal_ids read_only_repositories requested_outcome required stage writable_repository)
     )
   end
 
   defp update_goal_tool do
     tool(
       "update_goal",
-      "Advance one existing goal. Prerequisites must be satisfied before working or completion, and a parent cannot complete while required children remain open.",
+      "Advance one existing goal. Prerequisites must be satisfied before working or completion, and a parent cannot complete while required children remain open. Completing a check reports its evidence: evidence_refs takes the cite_source record refs from this episode that observed the result. An empty list is honest for qualitative review work; a check with an independently observable result needs its receipt, and a completion claim never overrides a failing, missing or stale host check.",
       %{
         "detail" => nullable(text(2_000)),
+        "evidence_refs" => array(reference(256), 0, 12),
         "goal_id" => reference(120),
         "state" => enum(~w(ready working waiting completed blocked excluded cancelled))
-      }
+      },
+      ~w(detail goal_id state)
     )
   end
 

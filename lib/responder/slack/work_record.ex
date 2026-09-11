@@ -322,6 +322,8 @@ defmodule Responder.Slack.WorkRecord do
 
       relationships =
         [
+          optional_goal_relation("stage", goal.payload["stage"]),
+          optional_goal_relation("retries", goal.payload["successor_of"]),
           optional_goal_relation("parent", goal.payload["parent_goal_id"]),
           optional_goal_relation(
             "after",

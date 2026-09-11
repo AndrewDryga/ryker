@@ -276,7 +276,12 @@ defmodule Responder.Slack.TaskEndToEndTest do
     goal =
       retained_goal
       |> Map.take(~w(id requested_outcome completion_contract))
-      |> Map.merge(%{"kind" => "check", "authority" => "read_only", "required" => false})
+      |> Map.merge(%{
+        "authority" => "read_only",
+        "kind" => "check",
+        "required" => false,
+        "stage" => "implementation"
+      })
 
     assert {:ok, _} = Records.create(Records.token(task_claim.turn), "live-goal", "goal", goal)
 
@@ -291,10 +296,15 @@ defmodule Responder.Slack.TaskEndToEndTest do
 
       _ = refresh_card!(card, slack_api)
       assert_receive {:updated, "C456", "1788268001.000200", live_card, ^card_ref}
-      assert Jason.encode!(live_card) =~ goal["requested_outcome"]
+      rendered = Jason.encode!(live_card)
 
-      assert Jason.encode!(live_card) =~
-               if(state == "completed", do: "1 of 1 completed", else: "0 of 1 completed")
+      # The worker has not bound its Coop session yet, so Workspace setup is the
+      # stage waiting; the plan still counts its own subtask truthfully.
+      assert rendered =~ "◷ Workspace setup · waiting for a worker"
+
+      if state == "completed",
+        do: assert(rendered =~ "✓ Implementation · 1/1 subtasks"),
+        else: assert(rendered =~ "▸ Implementation · 0/1 subtasks")
 
       assert length(SlackAPI.state(slack_api).posts) == 1
     end
@@ -378,6 +388,19 @@ defmodule Responder.Slack.TaskEndToEndTest do
     assert {:ok, ready_projection} = TaskCardProjection.build(card)
     ready_card = ready_projection.document["task_card"]
     assert ready_card["status"] == "reviewing"
+
+    # The session is bound and the model result accepted, so the earlier stages
+    # keep their completed disposition while the host review runs.
+    assert Enum.map(ready_card["stages"], &{&1["stage"], &1["state"]}) == [
+             {"workspace_setup", "completed"},
+             {"planning", "completed"},
+             {"implementation", "completed"},
+             {"self_review", "running"},
+             {"draft_pr", "pending"},
+             {"ci", "pending"},
+             {"review_and_merge", "pending"}
+           ]
+
     assert ready_card["publication"]["publication_ref"] == automatic_review.ref
     assert ready_card["publication"]["controls"] == []
 

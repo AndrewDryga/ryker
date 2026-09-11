@@ -24,7 +24,7 @@ defmodule Responder.Slack.Renderer do
   @investigation_kinds ~w(evidence coverage finding progress goal goal_state alert_assessment)
   @incident_statuses ~w(provisioning investigating action_required waiting_for_input waiting_for_event stopping resolved cancelled paused)
   @task_statuses ~w(working waiting_for_input waiting_for_event action_required stopping reviewing ready_to_publish published completed cancelled)
-  @task_fields ~w(action_needed confirmed_at confirmed_by controls episode_state publication repository session_generation status summary task_ref title ui_revision updated_at work_state)
+  @task_fields ~w(action_needed confirmed_at confirmed_by controls episode_state publication repository session_generation stages status summary task_ref title ui_revision updated_at work_state)
   # The work document is shared with the control-plane card, which owns diff
   # reading. `view_diff` stays a valid document control there and never becomes
   # a Slack control: Slack links out and never pages a patch.
@@ -304,6 +304,7 @@ defmodule Responder.Slack.Renderer do
            "publication" => publication,
            "repository" => repository,
            "session_generation" => session_generation,
+           "stages" => _stages,
            "status" => status,
            "summary" => summary,
            "task_ref" => task_ref,
@@ -314,9 +315,9 @@ defmodule Responder.Slack.Renderer do
          } = task
        )
        when status in @task_statuses do
-    with true <-
-           Map.keys(task) --
-             (@task_fields ++ ~w(request progress goals goals_total goals_completed)) == [],
+    repository_url = Map.get(task, "repository_url")
+
+    with true <- Map.keys(task) -- (@task_fields ++ ~w(repository_url request)) == [],
          true <- TaskCardDetails.valid?(task),
          :ok <- task_reference(task_ref),
          :ok <- bounded_text(confirmed_by, 1_024),
@@ -326,6 +327,7 @@ defmodule Responder.Slack.Renderer do
          :ok <- bounded_text(title, 200),
          :ok <- optional_bounded_text(action_needed, 2_000),
          :ok <- optional_bounded_text(work_state, 120),
+         :ok <- optional_https_url(repository_url),
          :ok <- incident_generation(session_generation),
          :ok <- task_publication(publication),
          :ok <- work_controls(controls),
@@ -341,18 +343,14 @@ defmodule Responder.Slack.Renderer do
           if(action_needed, do: " Action needed: #{action_needed}", else: "")
 
       blocks =
-        ([
-           section("*#{mrkdwn(title)}*"),
-           TaskCardDetails.context("*#{mrkdwn(label)}* · #{mrkdwn(repository)}")
-         ] ++
+        ([section("*#{mrkdwn(title)}*")] ++
            TaskCardDetails.blocks(task) ++
+           [fact_fields([{"Repository", %{"ref" => repository, "url" => repository_url}}])] ++
            task_publication_blocks(task_ref, publication) ++
            [
              incident_action_block(action_needed),
              work_controls_block(task_ref, controls, :task),
-             section(
-               "Reply in this thread to continue this task.\n_Updated #{display_time(updated_at)}_"
-             )
+             TaskCardDetails.context("_Updated #{display_time(updated_at)}_")
            ])
         |> Enum.reject(&is_nil/1)
 

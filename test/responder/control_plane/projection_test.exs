@@ -1295,6 +1295,7 @@ defmodule Responder.ControlPlane.ProjectionTest do
                "read_only_repositories" => [],
                "requested_outcome" => "Verify the current runtime state",
                "required" => true,
+               "stage" => "implementation",
                "writable_repository" => nil
              })
 
