@@ -118,6 +118,20 @@ defmodule Responder.Slack.InteractionTest do
     assert missing_other.actor_ref == "U456"
   end
 
+  test "a rendered additional-post confirmation is accepted from the socket" do
+    # The button was rendered and handled but missing from the socket allowlist,
+    # so every real "Post this message" click was silently ignored. The handler
+    # test built the struct by hand and never noticed.
+    post =
+      envelope()
+      |> put_in(["payload", "actions", Access.at(0), "action_id"], "responder_confirm_slack_post")
+      |> put_in(["payload", "actions", Access.at(0), "value"], "record:slack_post_offer:abc123")
+
+    assert {:ok, interaction} = Interaction.from_socket(post, "T123", @now)
+    assert interaction.action_id == "responder_confirm_slack_post"
+    assert interaction.action_value == "record:slack_post_offer:abc123"
+  end
+
   test "normalizes only the host-owned publication controls" do
     review =
       envelope()
