@@ -91,6 +91,26 @@ defmodule Responder.Runtime.AssemblyIntegrationsTest do
     assert Settings.fetch!().github.app_id == 12_345
   end
 
+  test "an enabled approval monitor assembles into options its own runtime accepts" do
+    # Assembly merged the whole defaults map, including the HTTP client's
+    # receive_timeout_ms, into the approval runtime's options. That runtime
+    # refuses a field it does not know, so every installation with Emisar
+    # enabled failed to assemble and the release came up with no settings
+    # applied at all — found in production during the settings cutover.
+    settings = installation!()
+
+    {:ok, saved} =
+      Settings.save_emisar(%{enabled: true}, settings.installation.revision, @actor)
+
+    assert {:ok, configuration} = Assembly.build(bootstrap(), saved)
+    assert %{} = configuration[:emisar]
+
+    # The runtime is the authority on its own option set: it raises on an
+    # unknown field, so building its child spec is the assertion.
+    assert %{start: {_module, _function, _arguments}} =
+             Responder.Emisar.ApprovalRuntime.child_spec(configuration[:emisar])
+  end
+
   defp installation! do
     {:ok, _} = Settings.initialize(@actor)
     {:ok, _} = Settings.put_repository(%{ref: "responder"}, 1, @actor)

@@ -789,6 +789,10 @@ defmodule Responder.Runtime.Assembly do
 
       runtime =
         defaults
+        # The HTTP timeout is the client's, not the runtime's: the approval
+        # runtime refuses a field it does not know, and a rejected field here
+        # takes the whole installation down at boot.
+        |> Map.delete(:receive_timeout_ms)
         |> Map.merge(%{
           api: Responder.Emisar.Client,
           client: client,
