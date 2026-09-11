@@ -19,6 +19,86 @@ defmodule Responder.Retention.Policy do
 
   @policies [
     %{
+      table: "installation_settings",
+      class: :kept,
+      why:
+        "the single installation identity and monotonic settings revision; every lease owner, global fact and custody pin is keyed under it"
+    },
+    %{
+      table: "settings_edits",
+      class: :audit,
+      why:
+        "actor, domain and content fingerprints of settings saves expire at the audit horizon; current values and revisions live in their domain rows"
+    },
+    %{
+      table: "retention_settings",
+      class: :kept,
+      why: "current retention horizons; cleanup reads them, never expires them"
+    },
+    %{
+      table: "slack_settings",
+      class: :kept,
+      why: "verified Slack identity, desired enabled state, operators and incident invitees"
+    },
+    %{
+      table: "github_settings",
+      class: :kept,
+      why: "verified GitHub App identity and desired enabled state"
+    },
+    %{
+      table: "github_binding_settings",
+      class: :kept,
+      why:
+        "exact verified installation, repository and actor identities for one connected repository"
+    },
+    %{
+      table: "publication_settings",
+      class: :kept,
+      why: "publication identity and desired state; existing branch namespaces depend on it"
+    },
+    %{
+      table: "emisar_settings",
+      class: :kept,
+      why: "Emisar approval monitoring desired state"
+    },
+    %{
+      table: "report_settings",
+      class: :kept,
+      why: "weekly self report choice; the managed schedule row carries the recurrence"
+    },
+    %{
+      table: "learning_settings",
+      class: :kept,
+      why: "background learning choice; disabling pauses starts without touching budgets"
+    },
+    %{
+      table: "repository_settings",
+      class: :kept,
+      why: "connected repositories, display metadata, base branch and publication checkout"
+    },
+    %{
+      table: "repository_context_settings",
+      class: :kept,
+      why: "logical contexts with one primary and read-only companions"
+    },
+    %{
+      table: "policy_bindings",
+      class: :kept,
+      why:
+        "reviewed purpose-to-policy pins that authorize execution; active work keeps its own frozen pins"
+    },
+    %{
+      table: "webhook_source_settings",
+      class: :kept,
+      why: "inbound source presets, mappings, secret references and destinations"
+    },
+    %{
+      table: "pricing_rates",
+      class: :kept,
+      why:
+        "versioned estimate rates; historical estimates resolve against the rate effective at the time"
+    },
+    %{
       table: "model_instruction_settings",
       class: :kept,
       why:

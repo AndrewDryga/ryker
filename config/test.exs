@@ -17,3 +17,6 @@ config :responder, Responder.Repo,
   username: System.get_env("PGUSER", "postgres")
 
 config :logger, level: :warning
+
+# Isolated development/test topology; never the production fleet.
+config :responder, :execution, :direct
