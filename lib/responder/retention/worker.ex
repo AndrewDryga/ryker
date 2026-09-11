@@ -8,7 +8,7 @@ defmodule Responder.Retention.Worker do
   alias Responder.Observability.Progress
   alias Responder.Polling
 
-  alias Responder.Retention.Dispatcher
+  alias Responder.Retention.{Custody, Dispatcher}
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(options) do
@@ -30,6 +30,7 @@ defmodule Responder.Retention.Worker do
     if is_atom(dispatcher) and is_list(dispatcher_options) and
          Keyword.keyword?(dispatcher_options) and is_integer(poll_interval_ms) and
          poll_interval_ms > 0 and maintenance?(maintenance, maintenance_options) do
+      reconcile_restart(dispatcher_options)
       send(self(), :poll)
 
       {:ok,
@@ -59,6 +60,24 @@ defmodule Responder.Retention.Worker do
     {:noreply, state}
   end
 
+  # A restarted host owns none of the cleanup leases it wrote before the restart.
+  # Waiting for them to expire only delayed the same work behind the lease clock.
+  defp reconcile_restart(dispatcher_options) do
+    case Keyword.fetch(dispatcher_options, :worker_ref) do
+      {:ok, worker_ref} when is_binary(worker_ref) ->
+        case Custody.release_worker_leases(worker_ref) do
+          {:ok, 0} -> :ok
+          {:ok, released} -> Logger.info("retention released #{released} restarted leases")
+          {:error, reason} -> Logger.error("retention lease release failed: #{inspect(reason)}")
+        end
+
+      _missing ->
+        :ok
+    end
+  rescue
+    error -> Logger.error("retention lease release crashed: #{Exception.message(error)}")
+  end
+
   defp maintain_once(nil, nil), do: :ok
 
   defp maintain_once(maintenance, options) do
@@ -81,18 +100,18 @@ defmodule Responder.Retention.Worker do
   defp maintenance?(_maintenance, _options), do: false
 
   defp process_once(dispatcher, options) do
-    case dispatcher.run_once(options) do
-      {:ok, :idle} ->
+    case dispatcher.run_pass(options) do
+      {:ok, %{attempted: 0}} ->
         :ok
 
-      {:ok, {:executed, _execution}} ->
-        :ok
-
-      {:ok, {:deferred, reason}} ->
-        Logger.warning("retention cleanup deferred: #{inspect(reason)}")
-
-      {:ok, {:blocked, reason}} ->
-        Logger.error("retention cleanup blocked: #{inspect(reason)}")
+      {:ok, pass} ->
+        if pass.blocked > 0 or pass.deferred > 0,
+          do:
+            Logger.warning(
+              "retention pass executed #{pass.executed}, deferred #{pass.deferred}, " <>
+                "blocked #{pass.blocked}, stopped on #{pass.stopped}"
+            ),
+          else: :ok
 
       {:error, reason} ->
         Logger.error("retention dispatcher failed: #{inspect(reason)}")

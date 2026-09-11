@@ -7,17 +7,25 @@ defmodule Responder.Retention.Runtime do
 
   @required [
     :audit_data_seconds,
+    :batch_limit,
+    :batch_seconds,
     :client,
     :closed_session_grace_seconds,
     :closed_work_seconds,
     :conversation_memory_seconds,
+    :disposable_bytes_limit,
     :episode_history_seconds,
     :lease_seconds,
     :max_attempts,
     :operational_data_seconds,
     :poll_interval_ms,
+    :reclaim_target_seconds,
+    :retained_recheck_seconds,
     :retry_base_seconds,
     :retry_max_seconds,
+    :storage_high_watermark_bytes,
+    :storage_low_watermark_bytes,
+    :storage_reserve_bytes,
     :worker_ref
   ]
 
@@ -45,12 +53,15 @@ defmodule Responder.Retention.Runtime do
 
     dispatcher_options = [
       api: settings.api,
+      batch_limit: settings.batch_limit,
+      batch_seconds: settings.batch_seconds,
       client: settings.client,
       closed_session_grace_seconds: settings.closed_session_grace_seconds,
       learning_api: settings.learning_api,
       learning_client: settings.learning_client,
       lease_seconds: settings.lease_seconds,
       max_attempts: settings.max_attempts,
+      retained_recheck_seconds: settings.retained_recheck_seconds,
       retry_base_seconds: settings.retry_base_seconds,
       retry_max_seconds: settings.retry_max_seconds,
       worker_ref: settings.worker_ref
@@ -112,15 +123,23 @@ defmodule Responder.Retention.Runtime do
   defp validate!(settings) do
     positive_fields = [
       :audit_data_seconds,
+      :batch_limit,
+      :batch_seconds,
       :closed_work_seconds,
       :conversation_memory_seconds,
+      :disposable_bytes_limit,
       :episode_history_seconds,
       :lease_seconds,
       :max_attempts,
       :operational_data_seconds,
       :poll_interval_ms,
+      :reclaim_target_seconds,
+      :retained_recheck_seconds,
       :retry_base_seconds,
-      :retry_max_seconds
+      :retry_max_seconds,
+      :storage_high_watermark_bytes,
+      :storage_low_watermark_bytes,
+      :storage_reserve_bytes
     ]
 
     valid =
@@ -128,9 +147,20 @@ defmodule Responder.Retention.Runtime do
         positive_fields_valid?(settings, positive_fields) and
         retry_bounds_valid?(settings) and
         retention_horizons_valid?(settings) and
+        storage_budgets_valid?(settings) and
         reference?(settings.worker_ref)
 
     unless valid, do: raise(ArgumentError, "retention configuration is outside its safe bounds")
+  end
+
+  # Watermarks that cross, or a reserve larger than the high watermark, would
+  # either never release pressure or refuse allocation permanently.
+  defp storage_budgets_valid?(settings) do
+    settings.storage_low_watermark_bytes < settings.storage_high_watermark_bytes and
+      settings.storage_reserve_bytes < settings.storage_high_watermark_bytes and
+      settings.disposable_bytes_limit <= settings.storage_high_watermark_bytes and
+      settings.batch_limit <= 1_000 and
+      settings.batch_seconds * 1_000 <= settings.poll_interval_ms
   end
 
   defp runtime_dependencies_valid?(settings) do

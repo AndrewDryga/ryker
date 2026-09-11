@@ -129,6 +129,27 @@ retention:
   retry_base_seconds: 5
   retry_max_seconds: 300
   closed_session_grace_seconds: 900
+  # One drain pass advances at most this many cleanup phases and must finish
+  # inside its own poll interval. A single cleanup item can never take more than
+  # one of these slots per pass, and a worker that has already proved unreachable
+  # in the pass stops being claimed so the healthy workers still drain.
+  batch_limit: 25
+  batch_seconds: 30
+  # A workspace retained because it is dirty is replanned this often, so work the
+  # user later committed or removed is reclaimed without a manual database edit.
+  retained_recheck_seconds: 21600
+  # Storage budget for one worker. These are the documented policy Responder
+  # holds and reports; the worker enforces its own allocation refusal and
+  # low-watermark recovery, and Responder follows what it reports.
+  # Inactive disposable forks, eligible or in grace: 10 GiB.
+  disposable_bytes_limit: 10737418240
+  # Reclaim eligible disposable storage within an hour at the supported load.
+  reclaim_target_seconds: 3600
+  # Refuse new forks above the high watermark, resume below the low watermark,
+  # and never spend the reserve that cleanup itself needs to finish.
+  storage_high_watermark_bytes: 64424509440
+  storage_low_watermark_bytes: 48318382080
+  storage_reserve_bytes: 5368709120
   # Keep prompts, replies, and tool activity readable for the episode's lifetime.
   operational_data_seconds: 2592000
   conversation_memory_seconds: 7776000

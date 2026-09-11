@@ -683,7 +683,7 @@ defmodule Responder.RuntimeConfiguration do
 
   defp retention!(value, work, learning, host_ref) do
     fields =
-      ~w(poll_interval_ms lease_seconds max_attempts retry_base_seconds retry_max_seconds closed_session_grace_seconds operational_data_seconds conversation_memory_seconds closed_work_seconds episode_history_seconds audit_data_seconds)
+      ~w(poll_interval_ms lease_seconds max_attempts retry_base_seconds retry_max_seconds closed_session_grace_seconds operational_data_seconds conversation_memory_seconds closed_work_seconds episode_history_seconds audit_data_seconds batch_limit batch_seconds retained_recheck_seconds disposable_bytes_limit reclaim_target_seconds storage_high_watermark_bytes storage_low_watermark_bytes storage_reserve_bytes)
 
     object = object!(value, fields, [], "retention")
 
@@ -696,6 +696,8 @@ defmodule Responder.RuntimeConfiguration do
       audit_data_seconds:
         integer!(object, "audit_data_seconds", nil, 60, 10 * 365 * 86_400, "retention"),
       api: work.api,
+      batch_limit: integer!(object, "batch_limit", nil, 1, 1_000, "retention"),
+      batch_seconds: integer!(object, "batch_seconds", nil, 1, 3_600, "retention"),
       client: work.client,
       closed_session_grace_seconds:
         integer!(object, "closed_session_grace_seconds", nil, 0, 30 * 86_400, "retention"),
@@ -733,20 +735,52 @@ defmodule Responder.RuntimeConfiguration do
           "retention"
         ),
       poll_interval_ms: integer!(object, "poll_interval_ms", nil, 1, 3_600_000, "retention"),
+      retained_recheck_seconds:
+        integer!(object, "retained_recheck_seconds", nil, 60, 30 * 86_400, "retention"),
       retry_base_seconds: integer!(object, "retry_base_seconds", nil, 1, 3_600, "retention"),
       retry_max_seconds: integer!(object, "retry_max_seconds", nil, 1, 86_400, "retention"),
       worker_ref: "#{host_ref}:retention"
     }
 
+    retention = Map.merge(retention, retention_storage!(object))
+
     unless retention.retry_max_seconds >= retention.retry_base_seconds and
              retention.operational_data_seconds <= retention.closed_work_seconds and
              retention.closed_work_seconds <= retention.episode_history_seconds and
              retention.episode_history_seconds <= retention.audit_data_seconds and
-             retention.operational_data_seconds <= retention.conversation_memory_seconds do
-      raise ArgumentError, "retention horizons must be ordered and retry bounds must increase"
+             retention.operational_data_seconds <= retention.conversation_memory_seconds and
+             retention.batch_seconds * 1_000 <= retention.poll_interval_ms do
+      raise ArgumentError,
+            "retention horizons must be ordered, retry bounds must increase, " <>
+              "and one drain pass must fit its poll"
     end
 
     retention
+  end
+
+  # Workspace storage policy Responder documents and reports. Workers enforce
+  # their own allocation refusal and low-watermark recovery from these bounds.
+  defp retention_storage!(object) do
+    bytes = fn field ->
+      integer!(object, field, nil, 1_048_576, 1_099_511_627_776, "retention")
+    end
+
+    storage = %{
+      disposable_bytes_limit: bytes.("disposable_bytes_limit"),
+      reclaim_target_seconds:
+        integer!(object, "reclaim_target_seconds", nil, 60, 30 * 86_400, "retention"),
+      storage_high_watermark_bytes: bytes.("storage_high_watermark_bytes"),
+      storage_low_watermark_bytes: bytes.("storage_low_watermark_bytes"),
+      storage_reserve_bytes: bytes.("storage_reserve_bytes")
+    }
+
+    unless storage.storage_low_watermark_bytes < storage.storage_high_watermark_bytes and
+             storage.storage_reserve_bytes < storage.storage_high_watermark_bytes and
+             storage.disposable_bytes_limit <= storage.storage_high_watermark_bytes do
+      raise ArgumentError, "retention storage watermarks must be ordered below capacity"
+    end
+
+    storage
   end
 
   defp control_plane!(value, repository_contexts, work, schedules) do

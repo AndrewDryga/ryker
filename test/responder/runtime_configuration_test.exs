@@ -607,6 +607,14 @@ defmodule Responder.RuntimeConfigurationTest do
           retry_base_seconds: 1
           retry_max_seconds: 60
           closed_session_grace_seconds: 900
+          batch_limit: 25
+          batch_seconds: 1
+          retained_recheck_seconds: 21600
+          disposable_bytes_limit: 10737418240
+          reclaim_target_seconds: 3600
+          storage_high_watermark_bytes: 64424509440
+          storage_low_watermark_bytes: 48318382080
+          storage_reserve_bytes: 5368709120
           operational_data_seconds: 3600
           conversation_memory_seconds: 7200
           closed_work_seconds: 10800
@@ -866,6 +874,14 @@ defmodule Responder.RuntimeConfigurationTest do
         retry_base_seconds: 1
         retry_max_seconds: 60
         closed_session_grace_seconds: 900
+        batch_limit: 25
+        batch_seconds: 1
+        retained_recheck_seconds: 21600
+        disposable_bytes_limit: 10737418240
+        reclaim_target_seconds: 3600
+        storage_high_watermark_bytes: 64424509440
+        storage_low_watermark_bytes: 48318382080
+        storage_reserve_bytes: 5368709120
         operational_data_seconds: 3600
         conversation_memory_seconds: 7200
         closed_work_seconds: 10800

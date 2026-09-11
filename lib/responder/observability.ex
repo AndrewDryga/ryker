@@ -20,10 +20,11 @@ defmodule Responder.Observability do
   alias Responder.Publication.Custody, as: PublicationCustody
   alias Responder.Publication.{Followup, LifecycleEvent, Publication}
   alias Responder.Repo
+  alias Responder.Retention.Custody, as: RetentionCustody
   alias Responder.Slack.{IncidentRoom, TaskCard}
   alias Responder.State.{Record, Schedule}
   alias Responder.Work.Custody, as: WorkCustody
-  alias Responder.Work.{Session, Turn}
+  alias Responder.Work.Turn
 
   @default_stall_after_seconds 15 * 60
   @fleet_heartbeat_stale_seconds 60
@@ -245,60 +246,31 @@ defmodule Responder.Observability do
     query_queue(base, :publication_lifecycle, :inserted_at, now)
   end
 
+  # Readiness reads the same eligibility custody claims from, so a Work or
+  # learning backlog can never be counted differently by the two owners, and so
+  # conversation plus grace time is never reported as cleanup stall.
   defp retention_queue(now) do
-    unfinished_sessions =
-      from(turn in Turn,
-        where: turn.status in [:pending, :cancel_pending, :delivery_pending],
-        select: turn.session_id
+    base = RetentionCustody.eligible_query(now)
+
+    claimable =
+      from([session: session] in base,
+        where: is_nil(session.cleanup_lease_ref) or session.cleanup_lease_expires_at <= ^now
       )
 
-    published_record_ids =
-      from(publication in Publication,
-        where: publication.status == :published,
-        select: publication.record_id
+    active =
+      from([session: session] in base,
+        where: not is_nil(session.cleanup_lease_ref) and session.cleanup_lease_expires_at > ^now
       )
 
-    open_episode_ids =
-      from(record in Record,
-        where:
-          record.status == :open and
-            (record.kind != "publication_offer" or
-               record.id not in subquery(published_record_ids)),
-        select: record.episode_id
-      )
+    oldest_active = Repo.one(from([session: session] in active, select: min(session.updated_at)))
 
-    unpublished_sessions =
-      from(publication in Publication,
-        where: publication.status != :published,
-        select: publication.session_id
-      )
-
-    base =
-      from(session in Session,
-        join: episode in Episode,
-        on: episode.id == session.episode_id,
-        where: episode.state in [:complete, :cancelled],
-        where: session.id not in subquery(unfinished_sessions),
-        where: episode.id not in subquery(open_episode_ids),
-        where: session.id not in subquery(unpublished_sessions),
-        where:
-          fragment(
-            "? = 'active' OR (? IN ('close_pending', 'plan_pending', 'discard_pending') AND (? IS NULL OR ? <= ?)) OR (? = 'grace' AND ? <= ?) OR (? = 'retained' AND ? = 'unpublished_unmerged' AND ? IN (SELECT session_id FROM episode_publications WHERE status = 'published'))",
-            session.cleanup_status,
-            session.cleanup_status,
-            session.cleanup_next_attempt_at,
-            session.cleanup_next_attempt_at,
-            ^now,
-            session.cleanup_status,
-            session.discard_after,
-            ^now,
-            session.cleanup_status,
-            session.retained_reason,
-            session.id
-          )
-      )
-
-    query_cleanup_queue(base, :retention, :inserted_at, now)
+    %{
+      active_leases: Repo.aggregate(active, :count, :id),
+      claimable: Repo.aggregate(claimable, :count, :id),
+      name: :retention,
+      oldest_active_age_seconds: age_seconds(now, oldest_active),
+      oldest_age_seconds: age_seconds(now, RetentionCustody.oldest_eligible_at(claimable))
+    }
   end
 
   defp query_queue(base, name, age_field, now) do
@@ -332,20 +304,6 @@ defmodule Responder.Observability do
   end
 
   defp runnable_queue(query, _name, _now), do: query
-
-  defp query_cleanup_queue(base, name, age_field, now) do
-    claimable =
-      from(row in base,
-        where: is_nil(row.cleanup_lease_ref) or row.cleanup_lease_expires_at <= ^now
-      )
-
-    active =
-      from(row in base,
-        where: not is_nil(row.cleanup_lease_ref) and row.cleanup_lease_expires_at > ^now
-      )
-
-    queue_projection(claimable, active, name, age_field, now)
-  end
 
   defp queue_projection(claimable, active, name, age_field, now) do
     oldest_claimable = Repo.one(from(row in claimable, select: min(field(row, ^age_field))))
