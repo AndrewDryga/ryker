@@ -708,6 +708,7 @@ defmodule Responder.Work.TurnChangeset do
       :delivery_document,
       :delivery_fingerprint,
       :delivery_ref,
+      :delivery_target,
       :execution_target,
       :last_error_code,
       :last_error_detail,

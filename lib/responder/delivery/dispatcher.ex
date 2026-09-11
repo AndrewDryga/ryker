@@ -102,15 +102,17 @@ defmodule Responder.Delivery.Dispatcher do
               )
           }
 
+      target = Custody.delivery_target(claim.episode, claim.turn)
+
       Request.new(%{
         artifacts: Enum.map(artifacts, &artifact_document/1),
-        conversation_ref: claim.episode.destination_conversation_ref,
+        conversation_ref: target["conversation_ref"],
         document: document,
         kind: :message,
         ref: claim.turn.delivery_ref,
         source_item_ref: nil,
-        thread_ref: claim.episode.destination_thread_ref,
-        transport: claim.episode.destination_transport
+        thread_ref: target["thread_ref"],
+        transport: target["transport"]
       })
     end
   end

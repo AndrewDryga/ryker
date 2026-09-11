@@ -307,7 +307,7 @@ defmodule Responder.Admission.CandidateSearchTest do
 
     id = Ecto.UUID.generate()
 
-    {:ok, transition} =
+    {:ok, _transition} =
       Episodes.apply(%Command.AdmitInput{
         actor_ref: Input.actor_ref(input),
         destination: input.destination,

@@ -43,11 +43,10 @@ defmodule Responder.Episodes.CorrelationClaimsTest do
     assert {:ok, a} = claim(incident, "slack:T1", "slack:app:B1", "alert-a:started:1")
     assert {:ok, b} = claim(incident, "slack:T1", "slack:app:B1", "alert-b:started:1")
 
-    assert {:ok, %{lifecycle_state: :terminal}} =
-             Repo.transaction(fn ->
-               {:ok, updated} = CorrelationClaims.mark_terminal_in_transaction(a.id)
-               updated
-             end)
+    assert {:ok, %{id: recovered_id, lifecycle_state: :terminal}} =
+             claim(incident, "slack:T1", "slack:app:B1", "alert-a:started:1", :terminal)
+
+    assert recovered_id == a.id
 
     assert [%{id: a_id, lifecycle_state: :terminal}, %{id: b_id, lifecycle_state: :active}] =
              CorrelationClaims.for_episode(incident.id)
@@ -72,7 +71,7 @@ defmodule Responder.Episodes.CorrelationClaimsTest do
     assert {:ok, _} = claim(right, "slack:T1", "slack:app:B1", "run-1")
   end
 
-  defp claim(episode, scope_ref, namespace, occurrence_ref) do
+  defp claim(episode, scope_ref, namespace, occurrence_ref, lifecycle_state \\ :active) do
     Repo.transaction(fn ->
       case CorrelationClaims.claim_in_transaction(%{
              episode_id: episode.id,
@@ -80,6 +79,7 @@ defmodule Responder.Episodes.CorrelationClaimsTest do
              scope_ref: scope_ref,
              namespace: namespace,
              occurrence_ref: occurrence_ref,
+             lifecycle_state: lifecycle_state,
              established_at: @now
            }) do
         {:ok, claim} -> claim

@@ -27,7 +27,10 @@ tools own durable records. The generic Delivery module owns external message and
 1. Admission commits the input and pins a trusted Coop policy in the same transaction.
 2. One slot in the local worker pool claims only a `turn` owner using PostgreSQL time and
    `FOR UPDATE SKIP LOCKED`.
-3. The runtime freezes the exact self-contained first briefing. A continuation in the same healthy
+3. The runtime freezes the exact self-contained first briefing, including each input's own origin,
+   the episode's participating conversations and one home, the state of its trusted occurrence
+   signals, and the same surrounding conversation the routing decision was made against, read back
+   from that decision's frozen snapshot rather than fetched again. A continuation in the same healthy
    Coop session sends only new input plus a parent-submission reference.
 4. Coop creates the session and turn under stable operation keys derived from immutable local rows.
 5. Responder stores each candidate's exact bytes, SHA-256, and attempt before validation.
@@ -82,6 +85,12 @@ tools own durable records. The generic Delivery module owns external message and
   revoked, and a lookup miss or timeout is never treated as proof of absence.
 - The exact accepted result survives newer queued input. New input advances only after the accepted
   visible reply is delivered, or after deliberate no-delivery settlement.
+- An accepted reply is bound to the origin of the newest input that instructed it, and that target is
+  frozen on the turn at acceptance. A question asked in a new thread is answered in that thread even
+  when the episode's progress home is another channel; default progress keeps the single home, so
+  contributing conversations are never subscribed to repeated status or final replies. A later input
+  from somewhere else cannot move or erase an answer that was already accepted, and a delivery
+  receipt from any other destination still fails to settle it.
 - Delivery retries are bounded independently from model execution. Permanent platform errors and
   exhausted transient retries preserve the exact accepted result in operator-rearmable blocked
   custody instead of polling a provider forever. Operators inspect or rearm that immutable intent by

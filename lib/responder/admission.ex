@@ -18,13 +18,24 @@ defmodule Responder.Admission do
     ConversationSummaries,
     CorrelationScope,
     Decision,
+    Occurrences,
     Prompt,
     Ranking
   }
 
   alias Responder.Delivery.ReactionCustody
   alias Responder.Episodes
-  alias Responder.Episodes.{Command, ConversationLock, Episode, Event, Origins, RoutingDigests}
+
+  alias Responder.Episodes.{
+    Command,
+    ConversationLock,
+    CorrelationClaims,
+    Episode,
+    Event,
+    Origins,
+    RoutingDigests
+  }
+
   alias Responder.Ingress.{Inbox, Input, RecallText}
   alias Responder.Ingress.Inbox.{Entry, EntryChangeset}
   alias Responder.Repo
@@ -554,6 +565,7 @@ defmodule Responder.Admission do
                  entry.repository_ref,
                  context.knowledge
                ),
+             :ok <- claim_occurrences(context, episode),
              :ok <- maybe_pin_episode(episode, work_policy),
              {:ok, episode} <-
                maybe_resume_blocked_episode(episode, admitted_input_ref(transitions)),
@@ -854,6 +866,43 @@ defmodule Responder.Admission do
     end
   end
 
+  # One trusted occurrence has at most one active owning episode. Two channels
+  # reporting the same authenticated object therefore cannot both create active
+  # work: the loser sees the winner's claim and classifies again against it.
+  defp claim_occurrences(_context, nil), do: :ok
+
+  defp claim_occurrences(%Context{} = context, %Episode{} = episode) do
+    scope_ref = Occurrences.scope_ref(context.input)
+    input_ref = Inbox.ref(context.input_entry)
+
+    context.input
+    |> Occurrences.for_input()
+    |> Enum.reduce_while(:ok, fn occurrence, :ok ->
+      attributes = %{
+        episode_id: episode.id,
+        input_ref: input_ref,
+        scope_ref: scope_ref,
+        namespace: occurrence.namespace,
+        occurrence_ref: occurrence.occurrence_ref,
+        lifecycle_state: occurrence.lifecycle_state,
+        established_at: context.input.occurred_at
+      }
+
+      attributes |> CorrelationClaims.claim_in_transaction() |> claimed(episode)
+    end)
+  end
+
+  defp claimed({:ok, _claim}, _episode), do: {:cont, :ok}
+
+  defp claimed({:error, {:occurrence_claimed, owner}}, %Episode{id: id})
+       when owner.episode_id == id,
+       do: {:cont, :ok}
+
+  defp claimed({:error, {:occurrence_claimed, owner}}, _episode) do
+    {:halt,
+     {:error, {:admission_rejected, :occurrence_claimed, owner_episode_id: owner.episode_id}}}
+  end
+
   defp maybe_pin_episode(nil, _work_policy), do: :ok
   defp maybe_pin_episode(_episode, nil), do: :ok
 
@@ -907,7 +956,7 @@ defmodule Responder.Admission do
         native_input_id: input.native_input_id,
         execution_mode: entry.execution_mode,
         repository_ref: entry.repository_ref,
-        occurrences: [],
+        occurrences: Occurrences.for_input(input),
         candidate_limit: settings.candidate_limit,
         history_cutoff: DateTime.add(settings.now, -settings.history_window, :second),
         now: settings.now

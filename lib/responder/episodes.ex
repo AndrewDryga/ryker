@@ -12,6 +12,7 @@ defmodule Responder.Episodes do
   alias Responder.Episodes.{
     Command,
     ConversationLock,
+    CorrelationClaims,
     Episode,
     EpisodeChangeset,
     Event,
@@ -211,10 +212,23 @@ defmodule Responder.Episodes do
     with {:ok, episode} <- persist_episode(repo, stored, transition.episode),
          {:ok, event} <- persist_event(repo, transition.event, episode.id),
          :ok <- Origins.record_in_transaction(episode, event),
+         :ok <- release_occurrences(episode),
          :ok <- RoutingDigests.refresh_in_transaction(episode, event) do
       {:ok, %{transition | episode: episode, event: event}}
     end
   end
+
+  # The claim fences concurrent active work, not the identity forever. Once an
+  # episode is finished or cancelled its occurrences are free again, so a later
+  # report of the same pull request or run starts its own work instead of being
+  # rejected until an operator unblocks it. The retired rows stay as history.
+  defp release_occurrences(%Episode{state: state, id: id})
+       when state in [:complete, :cancelled] do
+    {:ok, _count} = CorrelationClaims.retire_in_transaction(id)
+    :ok
+  end
+
+  defp release_occurrences(%Episode{}), do: :ok
 
   defp persist_episode(repo, nil, episode) do
     episode

@@ -10,8 +10,9 @@ defmodule Responder.Work.SubmissionBuilder do
   import Ecto.Query
 
   alias Responder.CanonicalJSON
-  alias Responder.Episodes.{Episode, Event, Reactions}
+  alias Responder.Episodes.{CorrelationClaims, Episode, Event, Origins, Reactions}
   alias Responder.GitHub.SourceRef, as: GitHubSourceRef
+  alias Responder.Ingress.Inbox.Entry
   alias Responder.Ingress.RecallText
   alias Responder.Repo
   alias Responder.Slack.SourceRef, as: SlackSourceRef
@@ -310,13 +311,18 @@ defmodule Responder.Work.SubmissionBuilder do
       |> Enum.uniq_by(& &1.id)
       |> Enum.sort_by(& &1.sequence)
 
+    origins = Origins.for_episode(episode.id) |> Map.new(&{&1.input_ref, &1})
+
     context = %{
       "destination" => destination(episode),
       "execution_mode" => Atom.to_string(episode.execution_mode),
       "inputs" => %{
-        "items" => Enum.map(selected, &input_document(&1, episode)),
+        "items" => Enum.map(selected, &input_document(&1, episode, origins)),
         "omitted_count" => total_count - length(selected)
       },
+      "origins" => origin_summary(episode, origins),
+      "signals" => signal_summary(episode),
+      "conversation_context" => admission_backdrop(episode),
       "linked_history_ref" => episode.linked_episode_id,
       "mode" => "full",
       "operator_context" =>
@@ -383,9 +389,18 @@ defmodule Responder.Work.SubmissionBuilder do
         "prior_input_count" => snapshot.total_count
       },
       "current_inputs" => %{
-        "items" => Enum.map(snapshot.active, &input_document(&1, episode)),
+        "items" =>
+          Enum.map(
+            snapshot.active,
+            &input_document(
+              &1,
+              episode,
+              Map.new(Origins.for_episode(episode.id), fn origin -> {origin.input_ref, origin} end)
+            )
+          ),
         "omitted_count" => 0
       },
+      "signals" => signal_summary(episode),
       "destination" => destination(episode),
       "execution_mode" => Atom.to_string(episode.execution_mode),
       "mode" => "continuation",
@@ -568,7 +583,10 @@ defmodule Responder.Work.SubmissionBuilder do
       else: {:error, :work_active_input_missing}
   end
 
-  defp input_document(event, episode) do
+  # Every input says where it came from, so a briefing built from several
+  # conversations stays readable and a direct answer can return to the exact
+  # place its question was asked.
+  defp input_document(event, episode, origins) do
     command = event.payload
     current = event.dedupe_key in episode.active_input_refs
     sources = LearningSources.for_work_input(command["payload"])
@@ -576,6 +594,7 @@ defmodule Responder.Work.SubmissionBuilder do
     document =
       %{
         "actor_ref" => command["actor_ref"],
+        "origin" => origin_document(Map.get(origins, event.dedupe_key)),
         "content" =>
           if(current,
             do: command["payload"],
@@ -637,6 +656,72 @@ defmodule Responder.Work.SubmissionBuilder do
   end
 
   defp put_source_ref(document, _payload), do: document
+
+  # The first briefing shows the same surrounding conversation the routing
+  # decision was made against, read back from that decision's frozen snapshot.
+  # A replacement session rebuilds the identical bytes instead of fetching a
+  # newer transcript, so a retry cannot silently widen what Work was told.
+  defp admission_backdrop(%Episode{} = episode) do
+    Repo.one(
+      from(entry in Entry,
+        where: entry.episode_id == ^episode.id and not is_nil(entry.admission_context),
+        order_by: [asc: entry.occurred_at, asc: entry.id],
+        limit: 1,
+        select: entry.admission_context
+      )
+    )
+    |> case do
+      %{"conversation_context" => %{} = bundle} = snapshot ->
+        %{"bundle" => bundle, "manifest" => snapshot["context_manifest"]}
+
+      _absent ->
+        nil
+    end
+  end
+
+  defp origin_document(nil), do: nil
+
+  defp origin_document(origin) do
+    %{
+      "conversation_ref" => origin.conversation_ref,
+      "kind" => Atom.to_string(origin.origin_kind),
+      "thread_ref" => origin.thread_ref
+    }
+  end
+
+  # One noisy conversation must not erase the material finding another one
+  # contributed, so the briefing always states which conversations are in play.
+  defp origin_summary(episode, origins) do
+    home = Origins.home(episode)
+
+    %{
+      "home" => %{
+        "conversation_ref" => home.conversation_ref,
+        "thread_ref" => home.thread_ref,
+        "transport" => home.transport
+      },
+      "conversations" =>
+        origins
+        |> Map.values()
+        |> Enum.filter(& &1.effective)
+        |> Enum.map(& &1.conversation_ref)
+        |> Enum.uniq()
+        |> Enum.sort()
+    }
+  end
+
+  # Alert lifecycles stay individually tracked: recovering one signal never
+  # states that the incident itself is resolved.
+  defp signal_summary(episode) do
+    claims = CorrelationClaims.for_episode(episode.id)
+
+    %{
+      "active" => Enum.count(claims, &(&1.status == :active and &1.lifecycle_state == :active)),
+      "terminal" =>
+        Enum.count(claims, &(&1.status == :active and &1.lifecycle_state == :terminal)),
+      "all_terminal" => claims != [] and CorrelationClaims.all_terminal?(episode.id)
+    }
+  end
 
   defp continuity_input(nil), do: nil
 

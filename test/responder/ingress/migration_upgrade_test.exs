@@ -51,10 +51,15 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
   @selection_ledger_version 20_260_911_000_900
   @episode_origins_version 20_260_911_001_000
   @routing_digests_version 20_260_911_001_100
+  @delivery_targets_version 20_260_911_001_200
   @learning_executions_version 20_260_911_001_500
   # Cross-conversation routing migrations stay named as their own group so the
   # ladder can be reconciled with sibling work.
-  @routing_versions [@episode_origins_version, @routing_digests_version]
+  @routing_versions [
+    @episode_origins_version,
+    @routing_digests_version,
+    @delivery_targets_version
+  ]
   @latest_versions [
     @typed_question_answers_version,
     @answer_confirmed_global_facts_version,
@@ -67,6 +72,7 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
     @selection_ledger_version,
     @episode_origins_version,
     @routing_digests_version,
+    @delivery_targets_version,
     @learning_executions_version
   ]
   @memory_versions Enum.to_list(20_260_908_000_100..20_260_908_001_100//100) ++
@@ -1896,16 +1902,30 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
              ]
 
       assert Ecto.Migrator.run(repo, @migrations_path, :up, all: true, prefix: prefix, log: false) ==
-               [@routing_digests_version]
+               [@routing_digests_version, @delivery_targets_version]
 
       assert table_exists?(repo, prefix, "episode_routing_digests")
+      assert column_exists?(repo, prefix, "episode_work_turns", "delivery_target")
+
+      bind_delivery_target!(repo, prefix, ids.turn_id)
+
+      assert_raise Postgrex.Error, ~r/accepted deliveries have bound targets/, fn ->
+        Ecto.Migrator.run(repo, @migrations_path, :down, step: 1, prefix: prefix, log: false)
+      end
+
+      SQL.query!(
+        repo,
+        "UPDATE #{prefix}.episode_work_turns SET delivery_target = NULL WHERE id = $1::text::uuid",
+        [ids.turn_id]
+      )
 
       # The derived digest carries no evidence of its own, so it rolls back
       # freely; the projections that record decisions do not.
-      assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 1, prefix: prefix, log: false) ==
-               [@routing_digests_version]
+      assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 2, prefix: prefix, log: false) ==
+               [@delivery_targets_version, @routing_digests_version]
 
       refute table_exists?(repo, prefix, "episode_routing_digests")
+      refute column_exists?(repo, prefix, "episode_work_turns", "delivery_target")
 
       assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 1, prefix: prefix, log: false) ==
                [@episode_origins_version]
@@ -2182,7 +2202,7 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
           SELECT to_jsonb(row) - 'learning_run_id' - 'summary_error_code'
             - 'source_exposure_count' - 'knowledge_exposure_count' - 'completion_receipt'
             - 'selected_input_refs' - 'selection_ledger' - 'source_envelope'
-            - 'engagement_receipt' AS value
+            - 'engagement_receipt' - 'delivery_target' AS value
           FROM #{prefix}.#{table} row ORDER BY 1
           """,
           []
@@ -2674,6 +2694,18 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
     )
 
     %{episode_id: episode_id, session_id: session_id, turn_id: turn_id, ingress_id: ingress_id}
+  end
+
+  defp bind_delivery_target!(repo, prefix, turn_id) do
+    SQL.query!(
+      repo,
+      """
+      UPDATE #{prefix}.episode_work_turns
+         SET delivery_target = '{"conversation_ref":"slack:T1:CENGINEERING","thread_ref":"1710000009.000100","transport":"slack"}'
+       WHERE id = $1::text::uuid
+      """,
+      [turn_id]
+    )
   end
 
   defp insert_admitted_input_events!(repo, prefix, episode_id) do

@@ -21,8 +21,10 @@ defmodule Responder.Delivery.DispatcherTest do
   }
 
   alias Responder.Episodes
+  alias Responder.Episodes.Command
   alias Responder.Fixtures.Episodes, as: EpisodeFixtures
   alias Responder.Ingress.Inbox
+  alias Responder.Ingress.Input, as: IngressInput
   alias Responder.Polling
   alias Responder.Slack.Input
   alias Responder.State.Records
@@ -163,6 +165,26 @@ defmodule Responder.Delivery.DispatcherTest do
     assert request.conversation_ref == "slack:T123:C456"
     assert request.thread_ref == "1787832000.000100"
     assert request.source_item_ref == nil
+  end
+
+  test "an answer is published to the thread its question was asked in" do
+    # Evidence from several conversations meets in one episode, but the episode
+    # keeps one progress home. Deriving every reply from that home answered a
+    # colleague who asked in their own thread somewhere they were not reading.
+    accepted = delivery_pending!("cross-origin", question_from: "slack:T123:C-engineering")
+    {:ok, publisher} = Agent.start_link(fn -> %{calls: [], responses: []} end)
+
+    assert {:ok, {:delivered, :message, _delivery_ref}} =
+             Dispatcher.run_once(dispatcher_options(:message, publisher))
+
+    assert [{:message, request}] = Agent.get(publisher, &Enum.reverse(&1.calls))
+    assert request.conversation_ref == "slack:T123:C-engineering"
+    assert request.thread_ref == "1787832500.000100"
+
+    # The target is frozen on the accepted turn, so a retry or a later input
+    # from somewhere else cannot move an answer that is already accepted.
+    settled = Repo.get!(Turn, accepted.turn.id)
+    assert settled.delivery_target["conversation_ref"] == "slack:T123:C-engineering"
   end
 
   test "a cited task offer is materialized from the owning episode for platform rendering" do
@@ -691,6 +713,42 @@ defmodule Responder.Delivery.DispatcherTest do
     end)
   end
 
+  defp joined_question_refs(command, options) do
+    case Keyword.fetch(options, :question_from) do
+      {:ok, conversation_ref} -> [join_question!(command, conversation_ref)]
+      :error -> nil
+    end
+  end
+
+  # A question asked in another channel joins the episode with its own origin:
+  # membership is per message, and the place it arrived in is retained.
+  defp join_question!(command, conversation_ref) do
+    {:ok, question} =
+      Input.new(%{
+        actor: %{kind: :user, ref: "UALICE"},
+        channel_ref: conversation_ref |> String.split(":") |> List.last(),
+        content: %{"text" => "Is the failover finished?"},
+        event_kind: :message,
+        event_ref: "Ev-question-#{command.episode_id}",
+        message_ref: "1787832500.000200",
+        occurred_at: DateTime.add(@now, 60, :second),
+        revision: 1,
+        thread_ref: "1787832500.000100",
+        workspace_ref: conversation_ref |> String.split(":") |> Enum.at(1)
+      })
+
+    joined = %{
+      command
+      | actor_ref: IngressInput.actor_ref(question),
+        native_input_id: question.native_input_id,
+        occurred_at: question.occurred_at,
+        payload: IngressInput.document(question)
+    }
+
+    assert {:ok, _transition} = Episodes.apply(joined)
+    Command.dedupe_key(joined)
+  end
+
   defp dispatcher_options(kind, binding, publisher_module \\ Publisher, overrides \\ []) do
     assert {:ok, adapters} =
              Adapters.new(%{
@@ -779,6 +837,9 @@ defmodule Responder.Delivery.DispatcherTest do
       })
 
     assert {:ok, _transition} = Episodes.apply(command)
+
+    selected_input_refs = joined_question_refs(command, options)
+
     assert {:ok, _session} = Custody.pin_episode(id, "work-read-only", String.duplicate("a", 64))
     assert {:ok, claim} = Custody.claim_next("work:prepare:#{suffix}", 60, :work)
 
@@ -805,7 +866,9 @@ defmodule Responder.Delivery.DispatcherTest do
              )
 
     assert {:ok, _turn} =
-             Custody.freeze_submission(id, claim.turn.turn_ref, claim.lease_ref, submission)
+             Custody.freeze_submission(id, claim.turn.turn_ref, claim.lease_ref, submission,
+               selected_input_refs: selected_input_refs
+             )
 
     assert {:ok, session} =
              Custody.bind_session(

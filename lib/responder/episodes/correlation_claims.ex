@@ -19,6 +19,7 @@ defmodule Responder.Episodes.CorrelationClaims do
           scope_ref: String.t(),
           namespace: String.t(),
           occurrence_ref: String.t(),
+          lifecycle_state: :active | :terminal,
           established_at: DateTime.t()
         }
 
@@ -27,7 +28,9 @@ defmodule Responder.Episodes.CorrelationClaims do
 
   Retrying the same input's claim returns the existing row. The insert relies
   on the partial unique index instead of a lookup-then-insert so two
-  concurrent admissions cannot both succeed.
+  concurrent admissions cannot both succeed. When the owning episode reports
+  the same occurrence again, the adapter's newest lifecycle state is recorded
+  on that one signal; the episode's other signals keep their own state.
   """
   @spec claim_in_transaction(attributes()) ::
           {:ok, CorrelationClaim.t()} | {:error, {:occurrence_claimed, CorrelationClaim.t()}}
@@ -36,7 +39,10 @@ defmodule Responder.Episodes.CorrelationClaims do
 
     row =
       attributes
-      |> Map.take(~w(episode_id input_ref scope_ref namespace occurrence_ref established_at)a)
+      |> Map.take(
+        ~w(episode_id input_ref scope_ref namespace occurrence_ref lifecycle_state established_at)a
+      )
+      |> Map.put_new(:lifecycle_state, :active)
       |> Map.merge(%{id: Ecto.UUID.generate(), inserted_at: now, updated_at: now})
 
     case Repo.insert_all(CorrelationClaim, [row],
@@ -49,13 +55,23 @@ defmodule Responder.Episodes.CorrelationClaims do
         {:ok, claim}
 
       {0, []} ->
-        owner = owner(row.scope_ref, row.namespace, row.occurrence_ref)
-
-        if owner.episode_id == row.episode_id and owner.input_ref == row.input_ref,
-          do: {:ok, owner},
-          else: {:error, {:occurrence_claimed, owner}}
+        row.scope_ref
+        |> owner(row.namespace, row.occurrence_ref)
+        |> reconcile(row)
     end
   end
+
+  defp reconcile(%CorrelationClaim{} = owner, row) when owner.episode_id == row.episode_id do
+    if owner.lifecycle_state == row.lifecycle_state do
+      {:ok, owner}
+    else
+      owner
+      |> Ecto.Changeset.change(lifecycle_state: row.lifecycle_state)
+      |> Repo.update()
+    end
+  end
+
+  defp reconcile(%CorrelationClaim{} = owner, _row), do: {:error, {:occurrence_claimed, owner}}
 
   @spec owner(String.t(), String.t(), String.t()) :: CorrelationClaim.t() | nil
   def owner(scope_ref, namespace, occurrence_ref) do
@@ -90,23 +106,6 @@ defmodule Responder.Episodes.CorrelationClaims do
       )
     )
     |> Enum.group_by(& &1.episode_id)
-  end
-
-  @doc "Marks one signal terminal; the episode's other signals keep their own state."
-  @spec mark_terminal_in_transaction(Ecto.UUID.t()) ::
-          {:ok, CorrelationClaim.t()} | {:error, :claim_not_found}
-  def mark_terminal_in_transaction(claim_id) do
-    case Repo.one(
-           from(claim in CorrelationClaim, where: claim.id == ^claim_id, lock: "FOR UPDATE")
-         ) do
-      nil ->
-        {:error, :claim_not_found}
-
-      claim ->
-        claim
-        |> Ecto.Changeset.change(lifecycle_state: :terminal)
-        |> Repo.update()
-    end
   end
 
   @spec all_terminal?(Ecto.UUID.t()) :: boolean()
