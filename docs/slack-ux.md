@@ -138,51 +138,57 @@ be understood without forcing Emisar to interrupt it.
 
 ## Watched channels
 
-### Conversational channel setup
+### Channel welcome and optional setup
 
-Responder admits the bot's own Slack channel-join event immediately and records the event and
-membership transition in one transaction. A periodic reconciliation against the bot's joined
-conversations is the recovery path for a missed event. Membership state survives restarts,
-suppresses duplicate cards, and makes remove/re-add start a fresh setup. The
-first card offers **Use safe defaults**, **Be proactive**, and **Customize**. The first two save a
-complete safe configuration without forcing a wizard: deployment-default repository, in-place
-alert replies, and no additional incident invitees. Customize asks one question at a time:
+Responder admits the bot's own Slack channel-join event immediately and records the event, the
+membership transition and a complete default configuration in one transaction: mentions-only
+participation, the deployment-default repository, in-place alert investigation and no additional
+incident invitees. Useful defaults need no click. A periodic reconciliation against the bot's
+joined conversations is the recovery path for a missed event; it configures and welcomes only the
+memberships it repaired itself, never already-joined channels, so a sweep cannot flood configured
+channels with hellos. Membership state survives restarts, suppresses duplicate welcomes, and makes
+remove/re-add post one fresh welcome for the new membership generation.
 
-1. participation: mentions only, proactive, or shadow;
-2. code context: one exact configured repository or repository-set key;
-3. app alerts: reply in place, offer an incident, or automatically create one;
-4. additional incident audience: no one beyond configured operators, or validated Slack members
-   and user groups.
+The welcome is one message per channel, generated entirely from the effective saved settings by the
+same projection that answers `/responder status` and settings questions: repository access (typed
+links when the repository names a GitHub repository), conversation participation, the actual alert
+behavior, observation mode and incident invitations. It never says "alerts are handled separately".
+Its controls follow the saved state: **Be proactive** and **Customize** on a mentions-only
+channel, **Mentions only** and **Customize** on a proactive one, **Configure channel** alone while
+observation mode or a `/responder` override is in effect (the welcome then says which override and
+how `inherit` returns to the saved setting). Each control carries the configuration id and the
+revision it was rendered from; the host rechecks operator authority, channel membership and that
+exact revision before saving, and a participation change preserves the repository, alert policy
+and invitations chosen earlier. Every save re-renders this same welcome in place with a short
+notice such as **Settings updated.**; there is never a second introduction.
 
-Every closed typed choice is rendered as a Slack button; context choices are generated from the
-configured repository and repository-set catalog. A repository set identifies one primary
-writable/publishable repository and an operator-owned Coop policy containing pinned read-only
-companions. Configured operators are always invited to incident rooms, so the
-audience step offers **No additional invitees** and accepts member or user-group mentions for any
-additional audience. Natural-language answers remain available for operators who prefer
-conversation. Each question records its top-level message or thread root.
-Replies are admitted only from those known setup threads, while top-level answers are accepted only
-from a configured operator during the active 30-minute session. Other channel messages continue
-through normal routing. Ambiguous answers produce a scoped clarification and do not advance the
-draft.
+**Customize**, **Configure channel** and the addressed `reconfigure this channel` /
+`configure this channel` request open the optional Q&A: one wizard message in the welcome thread
+(or the thread the request was made in) that replaces itself after every step and explains each
+option before asking for a choice, pairing the exact button label with what Responder will do:
 
-The setup follows the operator rather than forcing one presentation. Answer in the channel and the
-next question appears in the channel; answer in a setup thread and it stays in that thread. Saying
-`switch to a thread`, `continue here so we do not pollute the channel`, or `back to the channel`
-re-renders the current question at that location without changing the typed draft. All later
-controls are bound to the durable setup ID, channel, actor, current step, revision, and expiry, so a
-stale button or unrelated thread cannot advance the session.
+1. conversations: **Mentions only**, **Be proactive** or **Observe only**;
+2. repositories: the default repository for coding tasks when none is named — this only sets the
+   default and never grants access;
+3. alerts: **Investigate** in the alert's thread, **Offer a choice** between the thread and an
+   incident room, or **Create automatically**;
+4. invitations: **On-call responders only** (or **No invitations** when none are configured), or a
+   reply with the members and user groups to add; configured on-call responders are always invited;
+5. confirm: a plain-English summary of the choices with **Save settings**, **Start over** and
+   **Cancel**, each explained.
 
-The confirmation card says **Nothing is saved yet**, shows every typed value, names its expiry and
-safety boundary, and carries only a stored setup ID. **Save configuration**, **Start over**, and
-**Cancel** re-read the durable session, workspace, actor, channel, thread, revision, and expiry
-before acting. Saving affects listening, repository context, Slack-app alert escalation, and room
-invitations only. It never authorizes repository changes, Emisar approvals, deployments, or
+Natural-language answers remain available for operators who prefer conversation; ambiguous answers
+produce a scoped clarification and do not advance the draft. Controls are bound to the durable setup
+id, channel, actor, current step, revision and 30-minute expiry, so a stale, copied or replayed
+button cannot advance or save. Saving retires the wizard message, revises the saved configuration
+and re-renders the welcome; cancelling or expiring leaves the saved settings and the welcome
+untouched. Saving affects listening, repository context, Slack-app alert escalation and room
+invitations only. It never authorizes repository changes, Emisar approvals, deployments or
 infrastructure mutations.
 
 Channel setup is more specific than the workspace override and deployment default, while an
 explicit per-channel `/responder proactive` override remains the emergency override. Confirmed
-channel deletion removes its membership observation, setup sessions, and saved configuration.
+channel deletion removes its membership observation, setup sessions and saved configuration.
 
 `slack.watch_channels` is the static default list for shared operational feeds such as
 `#infra-alerts`. Responder must be invited to every configured channel, and `responder doctor`
@@ -446,10 +452,14 @@ commitment card at the room. Free text is now classified by the model and execut
 `@Emisar reconfigure this channel` is the one request still read from text — it has to survive the
 model being unavailable, and it is read only when Responder is addressed.
 
-`status` leads with effective behavior, explains why that behavior won the precedence chain,
-describes proactive and shadow behavior, explains mention handling, translates each override layer,
-and documents any incident attached to the channel. It never relies on raw values such as
-`inherit`, `parked`, or `responder.yaml` to explain behavior. Proactive and shadow changes are
+`status` is the private form of the structured effective-settings view the welcome uses:
+Conversations, Alerts, Repositories, Default repository, Incident invitations and Observation mode,
+with a context line naming where the effective value came from (defaults, who saved the channel
+setup, a `/responder` override, an incident room) and a **Configure channel** control that opens the
+Q&A in the welcome thread. A settings question addressed to Responder in a channel — "what are
+your settings?", "how are you configured here?" — posts the same view as a reply in that thread.
+Reading settings never mutates them. The view never relies on raw values such as `inherit`,
+`parked`, or `responder.yaml` to explain behavior. Proactive and shadow changes are
 durable and audited. A pressed incident control acknowledges the requested effect and directs the
 operator to the pinned incident thread for the authoritative result. Slash commands and button
 controls both run in the control lane, so `proactive off` or **Stop current run** does not wait

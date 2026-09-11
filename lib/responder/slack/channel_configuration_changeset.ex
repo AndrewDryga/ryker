@@ -62,8 +62,10 @@ defmodule Responder.Slack.ChannelConfigurationChangeset do
     :repository_ref,
     :revision,
     :saved_at,
+    :welcome_message_ref,
     :workspace_ref
   ]
+  @configuration_optional_fields [:actor_ref, :welcome_message_ref]
   @action_fields [
     :action,
     :actor_ref,
@@ -132,15 +134,17 @@ defmodule Responder.Slack.ChannelConfigurationChangeset do
   def configuration(attributes) do
     %ChannelConfiguration{}
     |> cast(attributes, @configuration_fields)
-    |> validate_required(@configuration_fields)
+    |> validate_required(@configuration_fields -- @configuration_optional_fields)
     |> unique_constraint(:channel_ref)
     |> check_constraint(:participation, name: :slack_channel_configuration_valid)
   end
 
   def configuration(%ChannelConfiguration{} = configuration, attributes) do
+    fields = @configuration_fields -- [:id, :workspace_ref, :channel_ref]
+
     configuration
-    |> cast(attributes, @configuration_fields -- [:id, :workspace_ref, :channel_ref])
-    |> validate_required(@configuration_fields -- [:id, :workspace_ref, :channel_ref])
+    |> cast(attributes, fields)
+    |> validate_required(fields -- @configuration_optional_fields)
     |> check_constraint(:participation, name: :slack_channel_configuration_valid)
   end
 

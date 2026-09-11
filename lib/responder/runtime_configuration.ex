@@ -466,6 +466,7 @@ defmodule Responder.RuntimeConfiguration do
         {name,
          %{
            contributor_policy: repository.contributor_policy,
+           github_repository: repository.github_repository,
            work_profile: repository_work_profile(name, repository)
          }}
       end)
@@ -481,6 +482,7 @@ defmodule Responder.RuntimeConfiguration do
                :repository_context,
                repository_context_document(name, set)
              ),
+           github_repository: Map.fetch!(repositories, set.primary_repository).github_repository,
            work_profile: repository_set_work_profile(name, set)
          }}
       end)

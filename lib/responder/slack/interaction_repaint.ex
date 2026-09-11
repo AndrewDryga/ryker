@@ -29,9 +29,9 @@ defmodule Responder.Slack.InteractionRepaint do
   @confirmation_kinds ~w(preference_offer guidance_offer standing_assignment_offer memory_offer schedule_offer automation_change_offer)
 
   @spec repaint(InteractionAudit.t(), map()) :: :ok | {:error, term()}
-  def repaint(%InteractionAudit{} = audit, %{api: api, client: client}) do
+  def repaint(%InteractionAudit{} = audit, %{api: api, client: client} = options) do
     if repaint_api?(api) do
-      case repaint_source(audit) do
+      case repaint_source(audit, options) do
         {:ok, document, delivery_ref} ->
           api.update_message(
             client,
@@ -54,29 +54,31 @@ defmodule Responder.Slack.InteractionRepaint do
 
   def repaint(_audit, _options), do: {:error, :slack_interaction_repaint_invalid}
 
-  defp repaint_source(audit) do
+  defp repaint_source(audit, options) do
     case task_card(audit) do
       %TaskCard{} = card -> task_card_document(card)
-      nil -> repaint_non_task(audit)
+      nil -> repaint_non_task(audit, options)
     end
   end
 
-  defp repaint_non_task(audit) do
+  defp repaint_non_task(audit, options) do
     case incident_room(audit) do
       %IncidentRoom{} = room -> incident_room_document(room)
-      nil -> repaint_non_incident(audit)
+      nil -> repaint_non_incident(audit, options)
     end
   end
 
-  defp repaint_non_incident(audit) do
+  defp repaint_non_incident(audit, options) do
     case configuration_session(audit) do
-      %ConfigurationSession{} = session ->
-        {:ok, ChannelSetup.document(session), "slack-setup:#{session.id}:#{session.revision}"}
-
-      nil ->
-        turn_document(audit)
+      %ConfigurationSession{} = session -> setup_document(session, options)
+      nil -> turn_document(audit)
     end
   end
+
+  defp setup_document(session, %{setup: %{bot_user_ref: _bot, on_call_count: _count} = setup}),
+    do: {:ok, ChannelSetup.document(session, setup), "slack-setup:#{session.id}"}
+
+  defp setup_document(_session, _options), do: {:error, :slack_setup_presentation_unavailable}
 
   defp task_card(audit) do
     query =

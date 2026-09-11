@@ -54,41 +54,252 @@ defmodule Responder.Slack.RendererTest do
     assert hd(rendered["blocks"])["text"] == rendered["text"]
   end
 
-  test "renders channel setup from host-owned typed state" do
-    session_ref = Ecto.UUID.generate()
+  # Until 2026-09-11 the welcome was static system copy ("Configure Emisar for
+  # this channel. Nothing is saved until an operator confirms it.") with a
+  # 30-minute expiry; a channel that never clicked had no readable description
+  # of what Responder actually did there.
+  test "the welcome is generated from effective saved settings, with controls for the saved state" do
+    configuration_ref = Ecto.UUID.generate()
+
+    assert {:ok, rendered} =
+             Renderer.render(welcome_document(configuration_ref, settings_document()))
+
+    text = Jason.encode!(rendered)
+    assert text =~ "I have access to 2 repositories"
+    assert text =~ "<https://github.com/acme/backend|backend>"
+    assert text =~ "I'll use `infrastructure` for coding tasks when you don't name one"
+    assert text =~ "I'll reply when you mention <@UBOT>"
+    assert text =~ "When an alert is posted here, I'll investigate proactively in its thread"
+    refute text =~ "handled separately"
+    refute text =~ "Nothing is saved"
+    refute text =~ "expires"
+    assert rendered["text"] =~ "AI teammate"
+
+    assert [controls] = Enum.filter(rendered["blocks"], &(&1["type"] == "actions"))
+
+    assert Enum.map(controls["elements"], &{&1["action_id"], &1["text"]["text"], &1["value"]}) ==
+             [
+               {"responder_welcome_be_proactive", "Be proactive", "#{configuration_ref}|3"},
+               {"responder_welcome_configure", "Customize", "#{configuration_ref}|3"}
+             ]
+
+    proactive =
+      settings_document()
+      |> put_in(["participation"], %{"source" => "configuration", "value" => "proactive"})
+      |> put_in(["alert_policy"], "offer")
+      |> put_in(["invitations", "user_refs"], ["U456"])
+
+    assert {:ok, rendered} =
+             Renderer.render(welcome_document(configuration_ref, proactive, "Settings updated."))
+
+    text = Jason.encode!(rendered)
+    assert text =~ "join conversations when I can help"
+    assert text =~ "I'll offer to investigate in its thread or create a dedicated incident room"
+    assert text =~ "I'll invite the configured on-call responders and <@U456>"
+    assert text =~ "*Settings updated.*"
+
+    assert [controls] = Enum.filter(rendered["blocks"], &(&1["type"] == "actions"))
+
+    assert Enum.map(controls["elements"], & &1["text"]["text"]) == ["Mentions only", "Customize"]
+
+    observing =
+      settings_document()
+      |> put_in(["participation"], %{"source" => "workspace", "value" => "shadow"})
+      |> put_in(["observation"], %{"on" => true, "source" => "workspace"})
+      |> put_in(["repositories"], [])
+      |> put_in(["default_repository"], nil)
+
+    assert {:ok, rendered} = Renderer.render(welcome_document(configuration_ref, observing))
+    text = Jason.encode!(rendered)
+    assert text =~ "I don't have access to any repos, so please connect one (or more)"
+    assert text =~ "I won't send automatic replies while observation mode is on"
+    assert text =~ "I won't start proactive alert investigations while observation mode is on"
+    assert text =~ "/responder shadow inherit"
+
+    assert [controls] = Enum.filter(rendered["blocks"], &(&1["type"] == "actions"))
+    assert Enum.map(controls["elements"], & &1["text"]["text"]) == ["Configure channel"]
+
+    assert Renderer.render(
+             welcome_document(
+               configuration_ref,
+               put_in(settings_document(), ["alert_policy"], "loud")
+             )
+           ) ==
+             {:error, {:invalid_slack_render, :channel_welcome}}
+  end
+
+  test "settings on request share the welcome's projection in both audiences" do
+    configuration_ref = Ecto.UUID.generate()
+
+    for audience <- ["thread", "private"] do
+      assert {:ok, rendered} =
+               Renderer.render(%{
+                 "channel_settings" => %{
+                   "audience" => audience,
+                   "bot_user_ref" => "UBOT",
+                   "configuration_ref" => configuration_ref,
+                   "revision" => 3,
+                   "settings" => settings_document()
+                 }
+               })
+
+      assert [heading, facts, context, controls] = rendered["blocks"]
+      assert heading["text"]["text"] == "*Channel settings*"
+
+      assert Enum.map(facts["fields"], & &1["text"]) == [
+               "*Conversations*\nReply when mentioned",
+               "*Alerts*\nInvestigate in the existing thread",
+               "*Repositories*\n<https://github.com/acme/backend|backend>\n`infrastructure`",
+               "*Default repository*\n`infrastructure`",
+               "*Incident invitations*\nThe configured on-call responders",
+               "*Observation mode*\nOff"
+             ]
+
+      assert hd(context["elements"])["text"] =~ "defaults; nobody has customized this channel yet"
+
+      assert Enum.map(controls["elements"], &{&1["action_id"], &1["value"]}) == [
+               {"responder_welcome_configure", "#{configuration_ref}|3"}
+             ]
+
+      assert rendered["text"] =~ "Conversations: Reply when mentioned"
+    end
+
+    unconfigured =
+      settings_document()
+      |> put_in(["configuration_ref"], nil)
+      |> put_in(["revision"], nil)
+      |> put_in(["participation"], %{"source" => "deployment", "value" => "mentions"})
 
     assert {:ok, rendered} =
              Renderer.render(%{
-               "channel_setup" => %{
-                 "draft" => %{
-                   "alert_policy" => nil,
-                   "customizing" => false,
-                   "default_repository" => "infrastructure",
-                   "invite_user_group_refs" => [],
-                   "invite_user_refs" => [],
-                   "participation" => nil,
-                   "repository_options" => ["infrastructure"],
-                   "repository_ref" => nil
-                 },
-                 "expires_at" => "2026-08-28T12:30:00.000000Z",
-                 "revision" => 1,
-                 "session_ref" => session_ref,
-                 "status" => "asking",
-                 "step" => "participation"
+               "channel_settings" => %{
+                 "audience" => "private",
+                 "bot_user_ref" => "UBOT",
+                 "configuration_ref" => nil,
+                 "revision" => nil,
+                 "settings" => unconfigured
                }
              })
 
-    assert rendered["text"] =~ "Nothing is saved"
-    assert [_, actions, safety] = rendered["blocks"]
+    refute Enum.any?(rendered["blocks"], &(&1["type"] == "actions"))
+  end
 
-    assert Enum.map(actions["elements"], & &1["action_id"]) == [
-             "responder_setup_safe_defaults",
-             "responder_setup_be_proactive",
-             "responder_setup_customize"
+  # slack-presentation.md: all owned structural headings are colonless, tested as
+  # one shared invariant rather than a per-card string replacement.
+  test "owned structural headings never end in a colon across card families" do
+    configuration_ref = Ecto.UUID.generate()
+
+    documents = [
+      welcome_document(configuration_ref, settings_document()),
+      %{
+        "channel_settings" => %{
+          "audience" => "thread",
+          "bot_user_ref" => "UBOT",
+          "configuration_ref" => configuration_ref,
+          "revision" => 3,
+          "settings" => settings_document()
+        }
+      },
+      setup_document(Ecto.UUID.generate())
+    ]
+
+    for document <- documents do
+      assert {:ok, rendered} = Renderer.render(document)
+
+      headings =
+        rendered["blocks"]
+        |> Enum.flat_map(fn block ->
+          [get_in(block, ["text", "text"]) | Enum.map(block["fields"] || [], & &1["text"])]
+        end)
+        |> Enum.reject(&is_nil/1)
+        |> Enum.flat_map(&Regex.scan(~r/\*([^*\n]+)\*/, &1, capture: :all_but_first))
+        |> List.flatten()
+
+      assert headings != []
+      refute Enum.any?(headings, &String.ends_with?(&1, ":")), inspect(headings)
+    end
+  end
+
+  test "the setup wizard explains every option before asking for a choice" do
+    session_ref = Ecto.UUID.generate()
+
+    assert {:ok, rendered} = Renderer.render(setup_document(session_ref))
+    assert [explanation, actions] = rendered["blocks"]
+    text = explanation["text"]["text"]
+    assert text =~ "*1 · Conversations*"
+    assert text =~ "*Mentions only* — I'll read along"
+    assert text =~ "*Be proactive* — I'll read the messages in this channel and join in"
+    assert text =~ "*Observe only* — I'll keep reading and learning, but I won't reply"
+    assert text =~ "<@UBOT>"
+    refute text =~ "expires"
+
+    assert Enum.map(actions["elements"], &{&1["action_id"], &1["text"]["text"]}) == [
+             {"responder_setup_participation_mentions", "Mentions only"},
+             {"responder_setup_participation_proactive", "Be proactive"},
+             {"responder_setup_participation_shadow", "Observe only"}
            ]
 
     assert Enum.all?(actions["elements"], &(&1["value"] == session_ref))
-    assert safety["text"]["text"] =~ "never grants write"
+
+    alerts = put_in(setup_document(session_ref), ["channel_setup", "step"], "alerts")
+    assert {:ok, rendered} = Renderer.render(alerts)
+    [explanation, actions] = rendered["blocks"]
+
+    assert explanation["text"]["text"] =~
+             "*Investigate* — I'll look into it in the alert's thread"
+
+    assert explanation["text"]["text"] =~ "*Offer a choice* — I'll ask whether"
+    assert explanation["text"]["text"] =~ "*Create automatically* — I'll create an incident room"
+
+    assert Enum.map(actions["elements"], & &1["text"]["text"]) == [
+             "Investigate",
+             "Offer a choice",
+             "Create automatically"
+           ]
+
+    audience =
+      setup_document(session_ref)
+      |> put_in(["channel_setup", "step"], "audience")
+      |> put_in(["channel_setup", "on_call_count"], 2)
+
+    assert {:ok, rendered} = Renderer.render(audience)
+    [explanation, actions] = rendered["blocks"]
+
+    assert explanation["text"]["text"] =~
+             "*On-call responders only* — I'll invite only the 2 configured on-call responders"
+
+    assert explanation["text"]["text"] =~ "*Choose responders* — Reply in this thread"
+
+    assert Enum.map(actions["elements"], &{&1["action_id"], &1["text"]["text"]}) == [
+             {"responder_setup_audience_none", "On-call responders only"}
+           ]
+
+    confirm =
+      setup_document(session_ref)
+      |> put_in(["channel_setup", "status"], "confirming")
+      |> put_in(["channel_setup", "step"], "confirm")
+      |> put_in(["channel_setup", "draft", "participation"], "proactive")
+      |> put_in(["channel_setup", "draft", "repository_ref"], "responder")
+      |> put_in(["channel_setup", "draft", "alert_policy"], "offer")
+      |> put_in(["channel_setup", "draft", "invite_user_refs"], ["U123"])
+
+    assert {:ok, rendered} = Renderer.render(confirm)
+    [summary, actions] = rendered["blocks"]
+
+    assert summary["text"]["text"] =~
+             "• I'll join conversations when I think you could use my help."
+
+    assert summary["text"]["text"] =~ "• I'll use *responder* for coding tasks"
+    assert summary["text"]["text"] =~ "I'll invite <@U123>."
+
+    assert summary["text"]["text"] =~
+             "*Save settings* — I'll start using these choices and update my welcome message"
+
+    assert Enum.map(actions["elements"], & &1["text"]["text"]) == [
+             "Save settings",
+             "Start over",
+             "Cancel"
+           ]
   end
 
   test "renders an engineering task offer as host-owned Block Kit" do
@@ -1219,7 +1430,7 @@ defmodule Responder.Slack.RendererTest do
     base = setup_document(session_ref)
 
     documents = [
-      put_in(base, ["channel_setup", "draft", "customizing"], true),
+      base,
       base
       |> put_in(["channel_setup", "step"], "repository")
       |> put_in(
@@ -1359,9 +1570,9 @@ defmodule Responder.Slack.RendererTest do
   defp setup_document(session_ref) do
     %{
       "channel_setup" => %{
+        "bot_user_ref" => "UBOT",
         "draft" => %{
           "alert_policy" => nil,
-          "customizing" => false,
           "default_repository" => "responder",
           "invite_user_group_refs" => [],
           "invite_user_refs" => [],
@@ -1370,10 +1581,40 @@ defmodule Responder.Slack.RendererTest do
           "repository_ref" => nil
         },
         "expires_at" => "2026-08-28T12:30:00.000000Z",
+        "on_call_count" => 0,
         "revision" => 1,
         "session_ref" => session_ref,
         "status" => "asking",
         "step" => "participation"
+      }
+    }
+  end
+
+  defp settings_document do
+    %{
+      "alert_policy" => "reply",
+      "configuration_ref" => Ecto.UUID.generate(),
+      "customized_by" => nil,
+      "default_repository" => "infrastructure",
+      "invitations" => %{"on_call_count" => 2, "user_group_refs" => [], "user_refs" => []},
+      "observation" => %{"on" => false, "source" => "configuration"},
+      "participation" => %{"source" => "configuration", "value" => "mentions"},
+      "repositories" => [
+        %{"ref" => "backend", "url" => "https://github.com/acme/backend"},
+        %{"ref" => "infrastructure", "url" => nil}
+      ],
+      "revision" => 3
+    }
+  end
+
+  defp welcome_document(configuration_ref, settings, notice \\ nil) do
+    %{
+      "channel_welcome" => %{
+        "bot_user_ref" => "UBOT",
+        "configuration_ref" => configuration_ref,
+        "notice" => notice,
+        "revision" => 3,
+        "settings" => Map.put(settings, "configuration_ref", configuration_ref)
       }
     }
   end

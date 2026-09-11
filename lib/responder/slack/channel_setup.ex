@@ -2,16 +2,36 @@ defmodule Responder.Slack.ChannelSetup do
   @moduledoc """
   Slack presentation and input adapter for durable channel configuration.
 
-  This module never trusts a button value beyond the setup UUID. Repository
-  choices are resolved from the persisted offered catalog, and membership plus
-  operator authority are rechecked for every action or conversational answer.
+  A joined channel gets one welcome message rendered from its effective saved
+  settings. The welcome's own controls change participation or start the
+  optional setup Q&A; the Q&A is one wizard message that replaces itself in the
+  welcome thread and, once saved, re-renders that same welcome. Settings asked
+  for in conversation or through `/responder status` reuse the same projection.
+
+  This module never trusts a button value beyond the setup or configuration
+  identity it names. Repository choices are resolved from the persisted offered
+  catalog, and membership plus operator authority are rechecked for every action
+  or conversational answer.
   """
 
-  alias Responder.Slack.{ConfigurationSession, MembershipTransition}
+  alias Responder.Slack.{ChannelConfiguration, ConfigurationSession, MembershipTransition}
 
   @repository_action ~r/\Aresponder_setup_repository_([0-9]{1,2})\z/
+  @welcome_value ~r/\A([0-9a-f-]{36})\|([1-9][0-9]{0,9})\z/
   @user_mention ~r/<@([A-Z0-9]+)>/
   @group_mention ~r/<!subteam\^([A-Z0-9]+)(?:\|[^>]+)?>/
+  @reconfigure_requests ["reconfigure this channel", "configure this channel"]
+  @settings_requests [
+    "settings",
+    "show settings",
+    "show your settings",
+    "what are your settings",
+    "what are your settings here",
+    "how are you configured",
+    "how are you configured here",
+    "channel settings",
+    "show channel settings"
+  ]
 
   @spec handle_membership(MembershipTransition.t(), map()) :: {:ok, map()} | {:error, term()}
   def handle_membership(%MembershipTransition{} = transition, options) do
@@ -31,13 +51,19 @@ defmodule Responder.Slack.ChannelSetup do
     }
 
     with {:ok, result} <- options.configurations.observe_membership(request, options.catalog),
-         {:ok, prompted} <- maybe_prompt(result, options) do
+         {:ok, prompted} <- maybe_welcome(result, options) do
       {:ok, Map.put(result, :prompted, prompted)}
     end
   end
 
   @spec handle_interaction(Responder.Slack.Interaction.t(), map()) ::
           {:ok, map()} | {:error, term()}
+  def handle_interaction(%{action_id: "responder_welcome_" <> _rest} = interaction, options) do
+    with {:ok, configuration_ref, revision} <- welcome_value(interaction.action_value) do
+      welcome_action(interaction, configuration_ref, revision, options)
+    end
+  end
+
   def handle_interaction(interaction, options) do
     with {:ok, session} <- options.configurations.fetch_session(interaction.action_value),
          {:ok, action, value} <- interaction_action(interaction.action_id, session),
@@ -56,7 +82,8 @@ defmodule Responder.Slack.ChannelSetup do
              value: value,
              workspace_ref: interaction.workspace_ref
            }),
-         {:ok, _prompted} <- ensure_prompt(result.session, options) do
+         {:ok, _prompted} <- ensure_prompt(result.session, options),
+         :ok <- welcome_after_save(result, options) do
       {:ok, %{outcome: result.status, session_ref: result.session.id}}
     end
   end
@@ -67,13 +94,34 @@ defmodule Responder.Slack.ChannelSetup do
           audience: audience,
           input: %{actor: %{kind: :user, ref: actor_ref}} = input,
           platform_thread_ref: platform_thread_ref
-        },
+        } = normalized,
         options
       ) do
     with {:ok, workspace_ref, channel_ref} <- destination(input.destination.conversation_ref),
-         true <- MapSet.member?(options.operators, actor_ref),
-         {:ok, true} <- options.directory.user_allowed(options.client, actor_ref, workspace_ref),
-         {:ok, session, started?} <-
+         true <-
+           settings_request?(audience, input, options) or
+             MapSet.member?(options.operators, actor_ref),
+         {:ok, true} <- options.directory.user_allowed(options.client, actor_ref, workspace_ref) do
+      if settings_request?(audience, input, options),
+        do: show_settings(input, platform_thread_ref, workspace_ref, channel_ref, options),
+        else: setup_message(normalized, workspace_ref, channel_ref, options)
+    else
+      :not_setup -> :not_setup
+      false -> :not_setup
+      {:ok, false} -> :not_setup
+      {:error, _reason} = error -> error
+    end
+  end
+
+  def handle_message(_normalized, _options), do: :not_setup
+
+  defp setup_message(
+         %{audience: audience, input: input, platform_thread_ref: platform_thread_ref},
+         workspace_ref,
+         channel_ref,
+         options
+       ) do
+    with {:ok, session, started?} <-
            setup_session(
              audience,
              input,
@@ -92,22 +140,11 @@ defmodule Responder.Slack.ChannelSetup do
              channel_ref,
              options
            ),
-         {:ok, _prompted} <- ensure_prompt(result.session, options) do
+         {:ok, _prompted} <- ensure_prompt(result.session, options),
+         :ok <- welcome_after_save(result, options) do
       {:ok, %{outcome: result.status, session_ref: result.session.id}}
     else
-      nil ->
-        :not_setup
-
-      false ->
-        :not_setup
-
-      :not_setup ->
-        :not_setup
-
       {:error, :not_setup} ->
-        :not_setup
-
-      {:ok, false} ->
         :not_setup
 
       {:error, :configuration_answer_ambiguous} ->
@@ -120,8 +157,6 @@ defmodule Responder.Slack.ChannelSetup do
         error
     end
   end
-
-  def handle_message(_normalized, _options), do: :not_setup
 
   defp apply_message(true, session, _input, _thread_ref, _workspace_ref, _channel_ref, _options),
     do: {:ok, %{session: session, status: :started}}
@@ -153,9 +188,13 @@ defmodule Responder.Slack.ChannelSetup do
     end
   end
 
+  @doc """
+  Posts the wizard once, then updates that same message after every step. The
+  wizard never replaces the welcome; saving re-renders the welcome separately.
+  """
   @spec ensure_prompt(ConfigurationSession.t(), map()) ::
-          {:ok, :existing | :posted} | {:error, term()}
-  def ensure_prompt(%ConfigurationSession{} = session, options) do
+          {:ok, :existing | :posted | :updated} | {:error, term()}
+  def ensure_prompt(%ConfigurationSession{current_message_ref: nil} = session, options) do
     delivery_ref = delivery_ref(session)
 
     case options.api.find_message(
@@ -165,7 +204,9 @@ defmodule Responder.Slack.ChannelSetup do
            delivery_ref
          ) do
       {:ok, message_ref} ->
-        bind_prompt(session, message_ref, options, :existing)
+        with :ok <- update_prompt(session, message_ref, options) do
+          bind_prompt(session, message_ref, options, :existing)
+        end
 
       :not_found ->
         with {:ok, message_ref} <-
@@ -173,7 +214,7 @@ defmodule Responder.Slack.ChannelSetup do
                  options.client,
                  session.channel_ref,
                  session.response_thread_ref,
-                 document(session),
+                 document(session, presentation(options)),
                  delivery_ref
                ) do
           bind_prompt(session, message_ref, options, :posted)
@@ -184,12 +225,76 @@ defmodule Responder.Slack.ChannelSetup do
     end
   end
 
-  @spec document(ConfigurationSession.t()) :: map()
-  def document(%ConfigurationSession{} = session) do
+  def ensure_prompt(%ConfigurationSession{current_message_ref: message_ref} = session, options) do
+    with :ok <- update_prompt(session, message_ref, options) do
+      {:ok, :updated}
+    end
+  end
+
+  @doc """
+  Posts the channel welcome once per membership generation and re-renders that
+  same message from the effective saved settings afterwards.
+  """
+  @spec ensure_welcome(ChannelConfiguration.t(), String.t() | nil, map()) ::
+          {:ok, :posted | :updated} | {:error, term()}
+  def ensure_welcome(%ChannelConfiguration{} = configuration, notice, options) do
+    with {:ok, document} <- welcome_document(configuration, notice, options) do
+      deliver_welcome(configuration, document, options)
+    end
+  end
+
+  @doc false
+  @spec welcome_document(ChannelConfiguration.t(), String.t() | nil, map()) ::
+          {:ok, map()} | {:error, term()}
+  def welcome_document(%ChannelConfiguration{} = configuration, notice, options) do
+    with {:ok, settings} <-
+           settings(configuration.workspace_ref, configuration.channel_ref, options) do
+      {:ok,
+       %{
+         "channel_welcome" => %{
+           "bot_user_ref" => options.bot_user_ref,
+           "configuration_ref" => configuration.id,
+           "notice" => notice,
+           "revision" => configuration.revision,
+           "settings" => settings
+         }
+       }}
+    end
+  end
+
+  @doc false
+  @spec settings_document(String.t(), String.t(), :private | :thread, map()) ::
+          {:ok, map()} | {:error, term()}
+  def settings_document(workspace_ref, channel_ref, audience, options) do
+    with {:ok, settings} <- settings(workspace_ref, channel_ref, options) do
+      {:ok,
+       %{
+         "channel_settings" => %{
+           "audience" => Atom.to_string(audience),
+           "bot_user_ref" => options.bot_user_ref,
+           "configuration_ref" => settings["configuration_ref"],
+           "revision" => settings["revision"],
+           "settings" => settings
+         }
+       }}
+    end
+  end
+
+  @doc "The wizard document; `presentation` names the bot and the configured on-call count."
+  @spec document(ConfigurationSession.t(), %{
+          bot_user_ref: String.t(),
+          on_call_count: non_neg_integer()
+        }) :: map()
+  def document(%ConfigurationSession{} = session, %{
+        bot_user_ref: bot_user_ref,
+        on_call_count: on_call_count
+      }) do
     %{
       "channel_setup" => %{
+        "bot_user_ref" => bot_user_ref,
         "draft" => session.draft,
         "expires_at" => DateTime.to_iso8601(session.expires_at),
+        "on_call_count" => on_call_count,
         "revision" => session.revision,
         "session_ref" => session.id,
         "status" => Atom.to_string(session.status),
@@ -198,11 +303,135 @@ defmodule Responder.Slack.ChannelSetup do
     }
   end
 
-  defp maybe_prompt(%{session: %ConfigurationSession{} = session}, options)
-       when session.status in [:asking, :confirming],
-       do: ensure_prompt(session, options)
+  @doc false
+  @spec presentation(map()) :: %{bot_user_ref: String.t(), on_call_count: non_neg_integer()}
+  def presentation(options) do
+    %{
+      bot_user_ref: options.bot_user_ref,
+      on_call_count: Map.get(options.catalog, :on_call_count, 0)
+    }
+  end
 
-  defp maybe_prompt(_result, _options), do: {:ok, :none}
+  defp settings(workspace_ref, channel_ref, options) do
+    options.configurations.effective_settings(
+      workspace_ref,
+      channel_ref,
+      options.catalog,
+      options.settings_overrides.(workspace_ref, channel_ref)
+    )
+  end
+
+  defp deliver_welcome(
+         %ChannelConfiguration{welcome_message_ref: nil} = configuration,
+         document,
+         options
+       ) do
+    delivery_ref = welcome_delivery_ref(configuration, options)
+
+    case options.api.find_message(options.client, configuration.channel_ref, nil, delivery_ref) do
+      {:ok, message_ref} ->
+        with :ok <-
+               options.api.update_message(
+                 options.client,
+                 configuration.channel_ref,
+                 message_ref,
+                 document,
+                 delivery_ref
+               ),
+             {:ok, _configuration} <- bind_welcome(configuration, message_ref, options) do
+          {:ok, :updated}
+        end
+
+      :not_found ->
+        with {:ok, message_ref} <-
+               options.api.post_message(
+                 options.client,
+                 configuration.channel_ref,
+                 nil,
+                 document,
+                 delivery_ref
+               ),
+             {:ok, _configuration} <- bind_welcome(configuration, message_ref, options) do
+          {:ok, :posted}
+        end
+
+      {:error, _reason} = error ->
+        error
+    end
+  end
+
+  defp deliver_welcome(
+         %ChannelConfiguration{welcome_message_ref: message_ref} = configuration,
+         document,
+         options
+       ) do
+    with :ok <-
+           options.api.update_message(
+             options.client,
+             configuration.channel_ref,
+             message_ref,
+             document,
+             welcome_delivery_ref(configuration, options)
+           ) do
+      {:ok, :updated}
+    end
+  end
+
+  # A re-added channel gets a fresh welcome; the generation keeps a bounded
+  # history scan from rebinding the previous membership's message.
+  defp welcome_delivery_ref(configuration, options) do
+    generation =
+      case options.configurations.membership(
+             configuration.workspace_ref,
+             configuration.channel_ref
+           ) do
+        %{generation: generation} -> generation
+        nil -> 0
+      end
+
+    "slack-welcome:#{configuration.id}:#{generation}"
+  end
+
+  defp bind_welcome(configuration, message_ref, options) do
+    options.configurations.bind_welcome(
+      configuration.workspace_ref,
+      configuration.channel_ref,
+      message_ref
+    )
+  end
+
+  defp maybe_welcome(
+         %{configuration: %ChannelConfiguration{} = configuration, status: status},
+         options
+       )
+       when status in [:joined, :duplicate],
+       do: ensure_welcome(configuration, nil, options)
+
+  defp maybe_welcome(_result, _options), do: {:ok, :none}
+
+  defp welcome_after_save(%{status: :saved, session: session}, options) do
+    case options.configurations.configuration(session.workspace_ref, session.channel_ref) do
+      %ChannelConfiguration{} = configuration ->
+        with {:ok, _delivered} <- ensure_welcome(configuration, "Settings updated.", options) do
+          :ok
+        end
+
+      nil ->
+        {:error, :configuration_not_found}
+    end
+  end
+
+  defp welcome_after_save(_result, _options), do: :ok
+
+  defp update_prompt(session, message_ref, options) do
+    options.api.update_message(
+      options.client,
+      session.channel_ref,
+      message_ref,
+      document(session, presentation(options)),
+      delivery_ref(session)
+    )
+  end
 
   defp bind_prompt(session, message_ref, options, outcome) do
     case options.configurations.bind_prompt(
@@ -217,13 +446,79 @@ defmodule Responder.Slack.ChannelSetup do
     end
   end
 
-  defp interaction_action("responder_setup_safe_defaults", _session),
-    do: {:ok, :safe_defaults, nil}
+  defp welcome_value(value) when is_binary(value) do
+    case Regex.run(@welcome_value, value) do
+      [_whole, configuration_ref, revision] ->
+        {:ok, configuration_ref, String.to_integer(revision)}
 
-  defp interaction_action("responder_setup_be_proactive", _session),
-    do: {:ok, :be_proactive, nil}
+      nil ->
+        {:error, :configuration_action_mismatch}
+    end
+  end
 
-  defp interaction_action("responder_setup_customize", _session), do: {:ok, :customize, nil}
+  defp welcome_value(_value), do: {:error, :configuration_action_mismatch}
+
+  defp welcome_action(
+         %{action_id: "responder_welcome_configure"} = interaction,
+         configuration_ref,
+         revision,
+         options
+       ) do
+    with {:ok, configuration} <-
+           current_configuration(interaction, configuration_ref, revision, options),
+         {:ok, %{session: session, status: status}} <-
+           options.configurations.start_reconfiguration(
+             %{
+               actor_ref: interaction.actor_ref,
+               channel_ref: interaction.channel_ref,
+               event_ref: interaction.event_ref,
+               occurred_at: interaction.occurred_at,
+               thread_ref: configuration.welcome_message_ref,
+               workspace_ref: interaction.workspace_ref
+             },
+             options.catalog
+           ),
+         {:ok, _prompted} <- ensure_prompt(session, options) do
+      {:ok, %{outcome: status, session_ref: session.id}}
+    end
+  end
+
+  defp welcome_action(interaction, configuration_ref, revision, options) do
+    {participation, notice} =
+      case interaction.action_id do
+        "responder_welcome_be_proactive" -> {:proactive, "Update: proactive mode is on."}
+        "responder_welcome_mentions_only" -> {:mentions, "Update: I'll reply when mentioned."}
+      end
+
+    with {:ok, %{configuration: configuration, status: status}} <-
+           options.configurations.change_participation(%{
+             actor_ref: interaction.actor_ref,
+             channel_ref: interaction.channel_ref,
+             configuration_ref: configuration_ref,
+             event_ref: interaction.event_ref,
+             expected_revision: revision,
+             occurred_at: interaction.occurred_at,
+             participation: participation,
+             workspace_ref: interaction.workspace_ref
+           }),
+         {:ok, _delivered} <-
+           ensure_welcome(configuration, if(status == :saved, do: notice), options) do
+      {:ok, %{configuration_ref: configuration.id, outcome: status}}
+    end
+  end
+
+  defp current_configuration(interaction, configuration_ref, revision, options) do
+    case options.configurations.configuration(interaction.workspace_ref, interaction.channel_ref) do
+      %ChannelConfiguration{id: ^configuration_ref, revision: ^revision} = configuration ->
+        {:ok, configuration}
+
+      %ChannelConfiguration{id: ^configuration_ref} ->
+        {:error, :configuration_revision_stale}
+
+      _other ->
+        {:error, :configuration_not_found}
+    end
+  end
 
   defp interaction_action("responder_setup_participation_mentions", _session),
     do: {:ok, :participation, :mentions}
@@ -267,63 +562,49 @@ defmodule Responder.Slack.ChannelSetup do
   end
 
   defp answer(text, session, options) when is_binary(text) do
-    text =
-      text
-      |> String.replace("<@#{options.bot_user_ref}>", "")
-      |> String.trim()
-
+    text = addressed_text(text, options)
     answer_step(String.downcase(text), text, session)
   end
 
   defp answer(_text, _session, _options), do: {:error, :configuration_answer_ambiguous}
-
-  defp answer_step(text, _original, %{step: :participation, draft: %{"customizing" => false}}) do
-    case text do
-      "use safe defaults" -> {:ok, :safe_defaults, nil}
-      "safe defaults" -> {:ok, :safe_defaults, nil}
-      "be proactive" -> {:ok, :be_proactive, nil}
-      "customize" -> {:ok, :customize, nil}
-      _other -> {:error, :configuration_answer_ambiguous}
-    end
-  end
 
   defp answer_step(text, _original, %{step: :participation}) do
     case text do
       value when value in ["mentions", "mentions only", "mention only"] ->
         {:ok, :participation, :mentions}
 
-      "proactive" ->
+      value when value in ["proactive", "be proactive"] ->
         {:ok, :participation, :proactive}
 
-      "shadow" ->
+      value when value in ["shadow", "observe", "observe only"] ->
         {:ok, :participation, :shadow}
 
       _other ->
-        movement(text)
+        {:error, :configuration_answer_ambiguous}
     end
   end
 
-  defp answer_step(text, original, %{step: :repository, draft: draft}) do
+  defp answer_step(_text, original, %{step: :repository, draft: draft}) do
     repository = String.trim(original, "` ")
 
     if repository in draft["repository_options"],
       do: {:ok, :repository, repository},
-      else: movement(text)
+      else: {:error, :configuration_answer_ambiguous}
   end
 
   defp answer_step(text, _original, %{step: :alerts}) do
     case text do
-      value when value in ["reply", "reply in place"] ->
+      value when value in ["reply", "reply in place", "investigate"] ->
         {:ok, :alerts, :reply}
 
-      value when value in ["offer", "offer incident", "offer an incident"] ->
+      value when value in ["offer", "offer a choice", "offer incident", "offer an incident"] ->
         {:ok, :alerts, :offer}
 
-      value when value in ["automatic", "automatically create", "auto"] ->
+      value when value in ["automatic", "automatically create", "create automatically", "auto"] ->
         {:ok, :alerts, :automatic}
 
       _other ->
-        movement(text)
+        {:error, :configuration_answer_ambiguous}
     end
   end
 
@@ -332,36 +613,23 @@ defmodule Responder.Slack.ChannelSetup do
     groups = captures(@group_mention, original)
 
     cond do
-      text in ["none", "no one", "operators only", "no additional invitees"] ->
+      text in ["none", "no one", "no invitations", "operators only", "on-call responders only"] ->
         {:ok, :audience, :none}
 
       users != [] or groups != [] ->
         {:ok, :audience, %{user_group_refs: groups, user_refs: users}}
 
       true ->
-        movement(text)
+        {:error, :configuration_answer_ambiguous}
     end
   end
 
   defp answer_step(text, _original, %{step: :confirm}) do
     case text do
-      value when value in ["save", "save configuration"] -> {:ok, :save, nil}
+      value when value in ["save", "save settings", "save configuration"] -> {:ok, :save, nil}
       value when value in ["start over", "restart"] -> {:ok, :restart, nil}
       "cancel" -> {:ok, :cancel, nil}
-      _other -> movement(text)
-    end
-  end
-
-  defp movement(text) do
-    case text do
-      value when value in ["switch to a thread", "continue in a thread"] ->
-        {:ok, :move_thread, nil}
-
-      value when value in ["back to the channel", "continue in the channel"] ->
-        {:ok, :move_channel, nil}
-
-      _other ->
-        {:error, :configuration_answer_ambiguous}
+      _other -> {:error, :configuration_answer_ambiguous}
     end
   end
 
@@ -432,13 +700,9 @@ defmodule Responder.Slack.ChannelSetup do
   end
 
   defp start_reconfiguration(:mention, input, thread_ref, workspace_ref, channel_ref, options) do
-    text =
-      input.content["text"]
-      |> String.replace("<@#{options.bot_user_ref}>", "")
-      |> String.trim()
-      |> String.downcase()
+    text = input.content["text"] |> addressed_text(options) |> String.downcase()
 
-    if text in ["reconfigure this channel", "configure this channel"] do
+    if text in @reconfigure_requests do
       options.configurations.start_reconfiguration(
         %{
           actor_ref: input.actor.ref,
@@ -469,6 +733,46 @@ defmodule Responder.Slack.ChannelSetup do
        ),
        do: {:error, :not_setup}
 
+  defp settings_request?(:mention, %{content: %{"text" => text}}, options) when is_binary(text) do
+    text
+    |> addressed_text(options)
+    |> String.downcase()
+    |> String.trim_trailing("?")
+    |> Kernel.in(@settings_requests)
+  end
+
+  defp settings_request?(_audience, _input, _options), do: false
+
+  # A settings question is answered in the thread it was asked in, from the
+  # same projection as the welcome, and never changes anything.
+  defp show_settings(input, thread_ref, workspace_ref, channel_ref, options) do
+    thread_ref = thread_ref || input.source_item_ref
+    delivery_ref = "slack-settings:#{input.event_ref}"
+
+    with {:ok, document} <- settings_document(workspace_ref, channel_ref, :thread, options),
+         :not_found <-
+           options.api.find_message(options.client, channel_ref, thread_ref, delivery_ref),
+         {:ok, _message_ref} <-
+           options.api.post_message(
+             options.client,
+             channel_ref,
+             thread_ref,
+             document,
+             delivery_ref
+           ) do
+      {:ok, %{outcome: :settings_shown}}
+    else
+      {:ok, _message_ref} -> {:ok, %{outcome: :settings_shown}}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp addressed_text(text, options) do
+    text
+    |> String.replace("<@#{options.bot_user_ref}>", "")
+    |> String.trim()
+  end
+
   defp destination("slack:" <> rest) do
     case String.split(rest, ":", parts: 2) do
       [workspace_ref, channel_ref] -> {:ok, workspace_ref, channel_ref}
@@ -478,7 +782,7 @@ defmodule Responder.Slack.ChannelSetup do
 
   defp destination(_conversation_ref), do: :not_setup
 
-  defp delivery_ref(session), do: "slack-setup:#{session.id}:#{session.revision}"
+  defp delivery_ref(session), do: "slack-setup:#{session.id}"
 
   defp clarify(input, thread_ref, options) do
     with {:ok, workspace_ref, channel_ref} <- destination(input.destination.conversation_ref),
@@ -509,21 +813,22 @@ defmodule Responder.Slack.ChannelSetup do
   end
 
   defp clarification(%ConfigurationSession{step: :participation}),
-    do: "Please choose Mentions only, Proactive, or Shadow using the current setup card."
+    do: "Please choose Mentions only, Be proactive, or Observe only using the current setup card."
 
   defp clarification(%ConfigurationSession{step: :repository, draft: draft}),
     do:
-      "Please choose one configured code context: " <>
+      "Please choose one connected repository: " <>
         Enum.map_join(draft["repository_options"], ", ", &"`#{&1}`") <> "."
 
   defp clarification(%ConfigurationSession{step: :alerts}),
-    do: "Please choose Reply in place, Offer incident, or Automatic incident."
+    do: "Please choose Investigate, Offer a choice, or Create automatically."
 
   defp clarification(%ConfigurationSession{step: :audience}),
-    do: "Please mention full Slack members or user groups, or choose Operators only."
+    do:
+      "Please mention the full Slack members or user groups to invite, or choose the button to invite no one else."
 
   defp clarification(%ConfigurationSession{step: :confirm}),
-    do: "Please choose Save configuration, Start over, or Cancel."
+    do: "Please choose Save settings, Start over, or Cancel."
 
   defp active_session_ref(input, options) do
     with {:ok, workspace_ref, channel_ref} <- destination(input.destination.conversation_ref),

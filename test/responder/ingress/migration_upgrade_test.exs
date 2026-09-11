@@ -47,6 +47,7 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
   @rule_inventories_version 20_260_911_000_200
   @source_envelopes_version 20_260_911_000_300
   @engagement_receipts_version 20_260_911_000_500
+  @default_channel_configurations_version 20_260_911_000_700
   @latest_versions [
     @typed_question_answers_version,
     @answer_confirmed_global_facts_version,
@@ -54,7 +55,8 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
     @rule_inventories_version,
     @source_envelopes_version,
     @worker_storage_reports_version,
-    @engagement_receipts_version
+    @engagement_receipts_version,
+    @default_channel_configurations_version
   ]
   @memory_versions Enum.to_list(20_260_908_000_100..20_260_908_001_100//100) ++
                      [@bounded_sources_version]
@@ -1569,10 +1571,11 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
       assert %{rows: [[0, 0, 0]]} = reset_topic_counts(repo, prefix)
       assert_reset_notes(repo, prefix, derived["conversation_observations"])
 
-      # The inspection-evidence columns and tables and the worker storage columns
-      # are reversible on their own.
-      assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 5, prefix: prefix, log: false) ==
+      # The inspection-evidence columns and tables, the worker storage columns and
+      # the default channel configuration are reversible on their own.
+      assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 6, prefix: prefix, log: false) ==
                [
+                 @default_channel_configurations_version,
                  @engagement_receipts_version,
                  @worker_storage_reports_version,
                  @source_envelopes_version,
@@ -1655,6 +1658,26 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
       Ecto.Migrator.run(repo, @migrations_path, :up, all: true, prefix: prefix, log: false)
       assert column_nullable?(repo, prefix, "operational_memory_entries", "expires_at")
       assert column_nullable?(repo, prefix, "episode_state_record_responses", "choice")
+
+      configuration_id = insert_default_channel_configuration!(repo, prefix)
+
+      assert_raise Postgrex.Error, ~r/default channel configurations have data/, fn ->
+        Ecto.Migrator.run(repo, @migrations_path, :down, step: 1, prefix: prefix, log: false)
+      end
+
+      assert column_nullable?(repo, prefix, "slack_channel_configurations", "actor_ref")
+
+      SQL.query!(
+        repo,
+        "DELETE FROM #{prefix}.slack_channel_configurations WHERE id = $1::text::uuid",
+        [configuration_id]
+      )
+
+      assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 1, prefix: prefix, log: false) ==
+               [@default_channel_configurations_version]
+
+      refute column_exists?(repo, prefix, "slack_channel_configurations", "welcome_message_ref")
+      refute column_nullable?(repo, prefix, "slack_channel_configurations", "actor_ref")
 
       # The inspection-evidence columns and tables and the worker storage columns
       # are reversible on their own.
@@ -2235,6 +2258,29 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
         'slack:T123:C123', '1787832000.000100', NULL,
         '{"answer_ref":"answer:rollback-proof","question_ref":"record:input_request:rollback"}',
         clock_timestamp(), clock_timestamp()
+      )
+      """,
+      [id]
+    )
+
+    id
+  end
+
+  defp insert_default_channel_configuration!(repo, prefix) do
+    id = Ecto.UUID.generate()
+
+    # Structural rollback fixture: the shape of a configuration nobody clicked for.
+    SQL.query!(
+      repo,
+      """
+      INSERT INTO #{prefix}.slack_channel_configurations (
+        id, workspace_ref, channel_ref, participation, repository_ref, alert_policy,
+        invite_user_refs, invite_user_group_refs, actor_ref, revision, saved_at,
+        welcome_message_ref, inserted_at, updated_at
+      ) VALUES (
+        $1::text::uuid, 'T123', 'C-rollback', 'mentions', 'responder', 'reply',
+        ARRAY[]::text[], ARRAY[]::text[], NULL, 1, clock_timestamp(),
+        '1787832000.000100', clock_timestamp(), clock_timestamp()
       )
       """,
       [id]

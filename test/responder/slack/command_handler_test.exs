@@ -21,7 +21,7 @@ defmodule Responder.Slack.CommandHandlerTest do
              CommandHandler.handle(command("proactive global on", "event:global"), options)
 
     assert response["response_type"] == "ephemeral"
-    assert response["text"] =~ "workspace override"
+    assert response["text"] =~ "saved channel setting"
     assert response["text"] =~ "Proactive: on"
 
     assert_receive {:setting_changed, change}
@@ -30,9 +30,56 @@ defmodule Responder.Slack.CommandHandlerTest do
     assert change.value == :on
 
     assert {:ok, status} = CommandHandler.handle(command("status", "event:status"), options)
-    assert status["text"] =~ "Proactive: on"
-    assert status["text"] =~ "Shadow: off"
-    assert status["text"] =~ "no model or Coop session"
+    assert status["response_type"] == "ephemeral"
+    assert status["text"] =~ "Conversations: Join when useful"
+    assert status["text"] =~ "Alerts: Offer an in-place task or incident room"
+    refute_received {:setting_changed, _change}
+  end
+
+  # /responder status failed with {:invalid_slack_command, :settings} in every
+  # channel that had saved its setup, because the saved configuration answered
+  # with source :configuration and the command only knew three sources.
+  test "/responder status shows the saved channel settings privately without changing them" do
+    options = options()
+
+    assert {:ok, status} = CommandHandler.handle(command("status", "event:status"), options)
+    assert status["response_type"] == "ephemeral"
+
+    [heading, facts, context, controls] = status["blocks"]
+    assert heading["text"]["text"] == "*Channel settings*"
+
+    assert Enum.map(facts["fields"], & &1["text"]) == [
+             "*Conversations*\nJoin when useful",
+             "*Alerts*\nOffer an in-place task or incident room",
+             "*Repositories*\n<https://github.com/acme/responder|responder>",
+             "*Default repository*\n<https://github.com/acme/responder|responder>",
+             "*Incident invitations*\nThe configured on-call responders",
+             "*Observation mode*\nOff"
+           ]
+
+    assert hd(context["elements"])["text"] =~ "saved by <@U123>"
+
+    assert [%{"action_id" => "responder_welcome_configure", "value" => value}] =
+             controls["elements"]
+
+    assert value =~ ~r/\A[0-9a-f-]{36}\|4\z/
+    refute_received {:setting_changed, _change}
+
+    overridden =
+      %{
+        options
+        | effective_settings: fn _workspace_ref, _conversation_ref ->
+            %{
+              proactive: %{source: :workspace, value: true},
+              shadow: %{source: :incident_room, value: false}
+            }
+          end
+      }
+
+    assert {:ok, override} =
+             CommandHandler.handle(command("proactive global on", "event:override"), overridden)
+
+    assert override["text"] =~ "Proactive: on (workspace override)"
   end
 
   test "assignment creation is conversational while scoped grants can be listed or withdrawn" do
@@ -101,7 +148,7 @@ defmodule Responder.Slack.CommandHandlerTest do
       assert {:ok, response} =
                CommandHandler.handle(command(text, "event:status:#{text}"), options)
 
-      assert response["text"] =~ "Responder channel status"
+      assert response["text"] =~ "Channel settings"
     end
 
     for {text, setting, scope, value} <- [
@@ -159,13 +206,26 @@ defmodule Responder.Slack.CommandHandlerTest do
     assert CommandHandler.handle(command, %{options() | directory: ErrorDirectory}) ==
              {:error, :directory_offline}
 
-    invalid_settings = %{options() | effective_settings: fn _, _ -> %{proactive: true} end}
+    invalid_settings = %{options() | settings_view: fn _, _ -> %{proactive: true} end}
 
     assert CommandHandler.handle(command, invalid_settings) ==
              {:error, {:invalid_slack_command, :settings}}
 
-    settings_error = %{options() | effective_settings: fn _, _ -> {:error, :settings_offline} end}
+    settings_error = %{options() | settings_view: fn _, _ -> {:error, :settings_offline} end}
     assert CommandHandler.handle(command, settings_error) == {:error, :settings_offline}
+
+    malformed_view = %{
+      options()
+      | settings_view: fn _, _ -> {:ok, %{"alert_policy" => "loud"}} end
+    }
+
+    assert CommandHandler.handle(command, malformed_view) ==
+             {:error, {:invalid_slack_render, :channel_settings}}
+
+    invalid_effective = %{options() | effective_settings: fn _, _ -> %{proactive: true} end}
+
+    assert CommandHandler.handle(command("shadow off", "event:effective"), invalid_effective) ==
+             {:error, {:invalid_slack_command, :settings}}
 
     change_error = %{options() | change_setting: fn _change -> {:error, :store_offline} end}
 
@@ -210,6 +270,7 @@ defmodule Responder.Slack.CommandHandlerTest do
     observer = self()
 
     %{
+      bot_user_ref: "UBOT",
       change_setting: fn change ->
         send(observer, {:setting_changed, change})
         {:ok, %{status: :updated}}
@@ -218,9 +279,25 @@ defmodule Responder.Slack.CommandHandlerTest do
       directory: Directory,
       effective_settings: fn _workspace_ref, _conversation_ref ->
         %{
-          proactive: %{source: :workspace, value: true},
+          proactive: %{source: :configuration, value: true},
           shadow: %{source: :deployment, value: false}
         }
+      end,
+      settings_view: fn _workspace_ref, _channel_ref ->
+        {:ok,
+         %{
+           "alert_policy" => "offer",
+           "configuration_ref" => "6a2f8a5e-2f6a-4a6d-9d2f-2c3f4e5a6b7c",
+           "customized_by" => "U123",
+           "default_repository" => "responder",
+           "invitations" => %{"on_call_count" => 1, "user_group_refs" => [], "user_refs" => []},
+           "observation" => %{"on" => false, "source" => "configuration"},
+           "participation" => %{"source" => "configuration", "value" => "proactive"},
+           "repositories" => [
+             %{"ref" => "responder", "url" => "https://github.com/acme/responder"}
+           ],
+           "revision" => 4
+         }}
       end,
       list_assignments: fn _workspace_ref, _conversation_ref ->
         [

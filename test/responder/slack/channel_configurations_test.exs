@@ -18,31 +18,57 @@ defmodule Responder.Slack.ChannelConfigurationsTest do
     default_repository: "infrastructure",
     repository_refs: ["backend", "infrastructure"]
   }
+  @quiet %{
+    proactive: %{source: :deployment, value: false},
+    shadow: %{source: :deployment, value: false}
+  }
 
-  test "a duplicate join keeps one membership generation and one setup session" do
-    request = membership(:joined, "event:join-1")
-
-    assert {:ok, first} = ChannelConfigurations.observe_membership(request, @catalog)
-    assert first.status == :joined
-    assert first.membership.generation == 1
-    assert first.session.status == :asking
-    assert first.session.step == :participation
-    assert first.session.initiator_ref == "U123"
-
-    assert {:ok, duplicate} = ChannelConfigurations.observe_membership(request, @catalog)
-    assert duplicate.status == :duplicate
-    assert duplicate.session.id == first.session.id
-
-    assert Repo.aggregate(ChannelMembership, :count) == 1
-    assert Repo.aggregate(ConfigurationSession, :count) == 1
-  end
-
-  test "leave and re-add cancel the old draft and open one fresh generation" do
+  # Until 2026-09-11 a configuration row existed only after an operator clicked a
+  # setup button; a channel whose 30-minute setup card expired unanswered ran on
+  # implicit deployment defaults that nothing could display or explain.
+  test "a joined channel is configured with defaults before anyone clicks" do
     assert {:ok, joined} =
              ChannelConfigurations.observe_membership(
                membership(:joined, "event:join-1"),
                @catalog
              )
+
+    assert joined.status == :joined
+    assert %ChannelConfiguration{} = configuration = joined.configuration
+    assert configuration.participation == :mentions
+    assert configuration.repository_ref == "infrastructure"
+    assert configuration.alert_policy == :reply
+    assert configuration.invite_user_refs == []
+    assert configuration.invite_user_group_refs == []
+    assert configuration.actor_ref == nil
+    assert configuration.revision == 1
+    assert configuration.welcome_message_ref == nil
+    assert Repo.aggregate(ConfigurationSession, :count) == 0
+
+    assert {:ok, duplicate} =
+             ChannelConfigurations.observe_membership(
+               membership(:joined, "event:join-1"),
+               @catalog
+             )
+
+    assert duplicate.status == :duplicate
+    assert duplicate.configuration.id == configuration.id
+    assert duplicate.membership.generation == 1
+    assert Repo.aggregate(ChannelMembership, :count) == 1
+    assert Repo.aggregate(ChannelConfiguration, :count) == 1
+  end
+
+  test "leave and re-add keep the saved configuration and retire its old welcome" do
+    assert {:ok, joined} =
+             ChannelConfigurations.observe_membership(
+               membership(:joined, "event:join-1"),
+               @catalog
+             )
+
+    assert {:ok, _bound} =
+             ChannelConfigurations.bind_welcome("TCE3E523134AD", "C456", "1000.000001")
+
+    session = reconfiguration!("event:reconfigure-before-leave") |> bind!("1000.000002", nil)
 
     assert {:ok, left} =
              ChannelConfigurations.observe_membership(
@@ -51,7 +77,8 @@ defmodule Responder.Slack.ChannelConfigurationsTest do
              )
 
     assert left.membership.status == :left
-    assert Repo.get!(ConfigurationSession, joined.session.id).status == :cancelled
+    assert left.configuration == nil
+    assert Repo.get!(ConfigurationSession, session.id).status == :cancelled
 
     assert {:ok, rejoined} =
              ChannelConfigurations.observe_membership(
@@ -61,8 +88,9 @@ defmodule Responder.Slack.ChannelConfigurationsTest do
 
     assert rejoined.status == :joined
     assert rejoined.membership.generation == 2
-    assert rejoined.session.id != joined.session.id
-    assert rejoined.session.membership_generation == 2
+    assert rejoined.configuration.id == joined.configuration.id
+    assert rejoined.configuration.welcome_message_ref == nil
+    assert Repo.aggregate(ChannelConfiguration, :count) == 1
   end
 
   test "absence reconciliation cannot overwrite a join newer than its Slack snapshot" do
@@ -81,16 +109,9 @@ defmodule Responder.Slack.ChannelConfigurationsTest do
   end
 
   test "customization keeps every choice in a draft until exact confirmation saves it" do
-    session = joined_session!()
-    session = bind!(session, "1000.000001", nil)
-
-    assert {:ok, customized} =
-             ChannelConfigurations.apply_action(
-               control(session, :customize, nil, "event:customize")
-             )
-
-    refute Repo.get_by(ChannelConfiguration, workspace_ref: "TCE3E523134AD", channel_ref: "C456")
-    session = bind!(customized.session, "1000.000002", nil)
+    joined!()
+    assert {:ok, _bound} = ChannelConfigurations.bind_welcome("TCE3E523134AD", "C456", "welcome")
+    session = reconfiguration!() |> bind!("1000.000001", "welcome")
 
     assert {:ok, participation} =
              ChannelConfigurations.apply_action(
@@ -98,7 +119,8 @@ defmodule Responder.Slack.ChannelConfigurationsTest do
              )
 
     assert participation.session.step == :repository
-    session = bind!(participation.session, "1000.000003", "1000.000001")
+    assert participation.session.current_message_ref == "1000.000001"
+    session = participation.session
 
     assert {:ok, repository} =
              ChannelConfigurations.apply_action(
@@ -106,13 +128,13 @@ defmodule Responder.Slack.ChannelConfigurationsTest do
              )
 
     assert repository.session.step == :alerts
-    session = bind!(repository.session, "1000.000004", "1000.000001")
+    session = repository.session
 
     assert {:ok, alerts} =
              ChannelConfigurations.apply_action(control(session, :alerts, :offer, "event:alerts"))
 
     assert alerts.session.step == :audience
-    session = bind!(alerts.session, "1000.000005", "1000.000001")
+    session = alerts.session
 
     assert {:ok, audience} =
              ChannelConfigurations.apply_action(
@@ -125,66 +147,114 @@ defmodule Responder.Slack.ChannelConfigurationsTest do
              )
 
     assert audience.session.status == :confirming
-    refute Repo.get_by(ChannelConfiguration, workspace_ref: "TCE3E523134AD", channel_ref: "C456")
-    session = bind!(audience.session, "1000.000006", "1000.000001")
+    untouched = Repo.get_by!(ChannelConfiguration, channel_ref: "C456")
+    assert untouched.participation == :mentions
+    assert untouched.revision == 1
+    session = audience.session
 
     assert {:ok, saved} =
              ChannelConfigurations.apply_action(control(session, :save, nil, "event:save"))
 
     assert saved.status == :saved
     assert saved.session.status == :saved
+    assert saved.session.current_message_ref == "1000.000001"
 
     configuration =
       Repo.get_by!(ChannelConfiguration, workspace_ref: "TCE3E523134AD", channel_ref: "C456")
 
+    assert configuration.id == untouched.id
     assert configuration.participation == :shadow
     assert configuration.repository_ref == "backend"
     assert configuration.alert_policy == :offer
     assert configuration.invite_user_refs == ["U456"]
     assert configuration.invite_user_group_refs == ["S123"]
     assert configuration.actor_ref == "U123"
-    assert configuration.revision == 1
+    assert configuration.revision == 2
+    assert configuration.welcome_message_ref == "welcome"
   end
 
-  test "safe defaults and proactive are complete idempotent quick saves" do
-    defaults = joined_session!("event:join-defaults") |> bind!("2000.000001", nil)
+  # Changing participation from the welcome must not throw away the repository,
+  # alert policy or invitations somebody chose in the Q&A.
+  test "the welcome changes participation only, and only for its exact revision" do
+    joined!()
+    session = reconfiguration!() |> bind!("card", nil)
 
-    assert {:ok, result} =
-             ChannelConfigurations.apply_action(
-               control(defaults, :safe_defaults, nil, "event:defaults")
-             )
+    Enum.reduce(
+      [
+        {:participation, :mentions},
+        {:repository, "backend"},
+        {:alerts, :automatic},
+        {:audience, %{user_group_refs: [], user_refs: ["U456"]}},
+        {:save, nil}
+      ],
+      session,
+      fn {action, value}, session ->
+        assert {:ok, %{session: session}} =
+                 ChannelConfigurations.apply_action(
+                   control(session, action, value, "event:#{action}")
+                 )
 
-    assert result.status == :saved
+        session
+      end
+    )
 
     configuration = Repo.get_by!(ChannelConfiguration, channel_ref: "C456")
-    assert configuration.participation == :mentions
-    assert configuration.repository_ref == "infrastructure"
-    assert configuration.alert_policy == :reply
+    assert configuration.revision == 2
 
-    assert {:ok, duplicate} =
-             ChannelConfigurations.apply_action(
-               control(defaults, :safe_defaults, nil, "event:defaults")
+    assert {:ok, saved} =
+             ChannelConfigurations.change_participation(
+               participation_change(configuration, :proactive, "event:proactive")
              )
 
-    assert duplicate.status == :duplicate
-    assert Repo.aggregate(ConfigurationAction, :count) == 1
+    assert saved.status == :saved
+    assert saved.configuration.participation == :proactive
+    assert saved.configuration.repository_ref == "backend"
+    assert saved.configuration.alert_policy == :automatic
+    assert saved.configuration.invite_user_refs == ["U456"]
+    assert saved.configuration.revision == 3
+    assert saved.configuration.actor_ref == "U123"
+
+    assert ChannelConfigurations.change_participation(
+             participation_change(configuration, :mentions, "event:stale")
+           ) == {:error, :configuration_revision_stale}
+
+    assert ChannelConfigurations.change_participation(%{
+             participation_change(saved.configuration, :mentions, "event:foreign")
+             | configuration_ref: Ecto.UUID.generate()
+           }) == {:error, :configuration_not_found}
+
+    assert {:ok, unchanged} =
+             ChannelConfigurations.change_participation(
+               participation_change(saved.configuration, :proactive, "event:same")
+             )
+
+    assert unchanged.status == :unchanged
+    assert unchanged.configuration.revision == 3
+
+    assert {:ok, _left} =
+             ChannelConfigurations.observe_membership(membership(:left, "event:left"), @catalog)
+
+    assert ChannelConfigurations.change_participation(
+             participation_change(saved.configuration, :mentions, "event:after-leave")
+           ) == {:error, :configuration_membership_not_joined}
   end
 
   test "controls are fenced by actor channel current card revision and expiry" do
-    session = joined_session!() |> bind!("3000.000001", nil)
+    joined!()
+    session = reconfiguration!() |> bind!("3000.000001", nil)
 
     assert ChannelConfigurations.apply_action(%{
-             control(session, :customize, nil, "event:cross-actor")
+             control(session, :participation, :mentions, "event:cross-actor")
              | actor_ref: "U999"
            }) == {:error, :configuration_actor_mismatch}
 
     assert ChannelConfigurations.apply_action(%{
-             control(session, :customize, nil, "event:cross-channel")
+             control(session, :participation, :mentions, "event:cross-channel")
              | channel_ref: "C999"
            }) == {:error, :configuration_channel_mismatch}
 
     assert ChannelConfigurations.apply_action(%{
-             control(session, :customize, nil, "event:stale-message")
+             control(session, :participation, :mentions, "event:stale-message")
              | message_ref: "old-card"
            }) == {:error, :configuration_message_mismatch}
 
@@ -193,19 +263,16 @@ defmodule Responder.Slack.ChannelConfigurationsTest do
       set: [expires_at: DateTime.add(DateTime.utc_now(), -1, :second)]
     )
 
-    assert ChannelConfigurations.apply_action(control(session, :customize, nil, "event:expired")) ==
-             {:error, :configuration_expired}
+    assert ChannelConfigurations.apply_action(
+             control(session, :participation, :mentions, "event:expired")
+           ) == {:error, :configuration_expired}
 
     assert Repo.get!(ConfigurationSession, session.id).status == :expired
   end
 
   test "channel deletion removes saved configuration and every setup draft" do
-    session = joined_session!() |> bind!("4000.000001", nil)
-
-    assert {:ok, _saved} =
-             ChannelConfigurations.apply_action(
-               control(session, :safe_defaults, nil, "event:save-before-delete")
-             )
+    joined!()
+    _session = reconfiguration!() |> bind!("4000.000001", nil)
 
     assert {:ok, deleted} =
              ChannelConfigurations.observe_membership(
@@ -219,29 +286,11 @@ defmodule Responder.Slack.ChannelConfigurationsTest do
   end
 
   test "reserving a managed artifact channel cancels setup and removes feed configuration" do
-    session = joined_session!() |> bind!("4100.000001", nil)
-
-    assert {:ok, _saved} =
-             ChannelConfigurations.apply_action(
-               control(session, :safe_defaults, nil, "event:save-before-reservation")
-             )
-
-    assert {:ok, %{session: active}} =
-             ChannelConfigurations.start_reconfiguration(
-               %{
-                 actor_ref: "U123",
-                 channel_ref: "C456",
-                 event_ref: "event:race-before-reservation",
-                 occurred_at: @now,
-                 thread_ref: nil,
-                 workspace_ref: "TCE3E523134AD"
-               },
-               @catalog
-             )
+    joined!()
+    active = reconfiguration!("event:race-before-reservation")
 
     assert :ok = ChannelConfigurations.reserve_managed_channel("TCE3E523134AD", "C456")
 
-    assert Repo.get!(ConfigurationSession, session.id).status == :saved
     assert Repo.get!(ConfigurationSession, active.id).status == :cancelled
     refute Repo.get_by(ChannelConfiguration, workspace_ref: "TCE3E523134AD", channel_ref: "C456")
 
@@ -252,12 +301,7 @@ defmodule Responder.Slack.ChannelConfigurationsTest do
   end
 
   test "an addressed operator can start one idempotent reconfiguration in its current thread" do
-    original = joined_session!() |> bind!("5000.000001", nil)
-
-    assert {:ok, _saved} =
-             ChannelConfigurations.apply_action(
-               control(original, :safe_defaults, nil, "event:initial-save")
-             )
+    joined!()
 
     request = %{
       actor_ref: "U123",
@@ -270,9 +314,10 @@ defmodule Responder.Slack.ChannelConfigurationsTest do
 
     assert {:ok, started} = ChannelConfigurations.start_reconfiguration(request, @catalog)
     assert started.status == :started
+    assert started.session.step == :participation
     assert started.session.root_message_ref == "4999.000001"
     assert started.session.response_thread_ref == "4999.000001"
-    assert started.session.id != original.id
+    refute Map.has_key?(started.session.draft, "customizing")
 
     assert {:ok, duplicate} = ChannelConfigurations.start_reconfiguration(request, @catalog)
     assert duplicate.status == :duplicate
@@ -287,7 +332,7 @@ defmodule Responder.Slack.ChannelConfigurationsTest do
              )
 
     assert left.status == :left
-    assert left.session == nil
+    assert left.configuration == nil
     assert left.membership.joined_at == @now
 
     deleted_request =
@@ -310,7 +355,9 @@ defmodule Responder.Slack.ChannelConfigurationsTest do
 
     assert Enum.map(repaired, & &1.membership.channel_ref) == ["C456", "C789", "C999"]
     assert Enum.all?(repaired, &(&1.membership.status == :joined))
-    assert Enum.all?(repaired, &match?(%ConfigurationSession{}, &1.session))
+    assert Enum.all?(repaired, &(&1.status == :joined))
+    assert Enum.all?(repaired, &match?(%ChannelConfiguration{revision: 1}, &1.configuration))
+    assert Repo.aggregate(ConfigurationSession, :count) == 0
 
     assert {:ok, unchanged} =
              ChannelConfigurations.reconcile_joined(
@@ -320,6 +367,7 @@ defmodule Responder.Slack.ChannelConfigurationsTest do
              )
 
     assert hd(unchanged).status == :unchanged
+    assert hd(unchanged).configuration.id == hd(repaired).configuration.id
 
     assert {:ok, [private]} =
              ChannelConfigurations.reconcile_joined(
@@ -346,7 +394,8 @@ defmodule Responder.Slack.ChannelConfigurationsTest do
     assert ChannelConfigurations.start_reconfiguration(request, @catalog) ==
              {:error, :configuration_membership_not_joined}
 
-    session = joined_session!()
+    joined!()
+    session = reconfiguration!()
 
     assert {:ok, existing} =
              ChannelConfigurations.start_reconfiguration(
@@ -379,94 +428,152 @@ defmodule Responder.Slack.ChannelConfigurationsTest do
              {:error, :configuration_session_not_found}
   end
 
-  test "quick setup, movement, restart, cancellation, and audience choices preserve one session" do
-    proactive = joined_session!("event:join-proactive") |> bind!("card:proactive", nil)
-
-    assert {:ok, saved} =
-             ChannelConfigurations.apply_action(
-               control(proactive, :be_proactive, nil, "event:be-proactive")
-             )
-
-    assert saved.status == :saved
-    assert Repo.get_by!(ChannelConfiguration, channel_ref: "C456").participation == :proactive
-
-    # Use a second membership generation so every remaining transition has an active draft.
-    assert {:ok, _left} =
-             ChannelConfigurations.observe_membership(
-               membership(:left, "event:left-after-proactive"),
-               @catalog
-             )
-
-    session = joined_session!("event:rejoin-transitions") |> bind!("card:root", nil)
-
-    assert {:ok, moved} =
-             ChannelConfigurations.apply_action(
-               control(session, :move_thread, nil, "event:move-thread")
-             )
-
-    assert moved.status == :moved
-    assert moved.session.response_thread_ref == "card:root"
-    moved = bind!(moved.session, "card:moved-thread", "card:root")
-
-    assert {:ok, channel} =
-             ChannelConfigurations.apply_action(
-               control(moved, :move_channel, nil, "event:move-channel")
-             )
-
-    assert channel.session.response_thread_ref == nil
-    channel = bind!(channel.session, "card:moved-channel", nil)
-
-    assert {:ok, restarted} =
-             ChannelConfigurations.apply_action(control(channel, :restart, nil, "event:restart"))
-
-    assert restarted.status == :restarted
-    assert restarted.session.step == :participation
-    restarted = bind!(restarted.session, "card:restarted", nil)
-
-    assert {:ok, customized} =
-             ChannelConfigurations.apply_action(
-               control(restarted, :customize, nil, "event:customize-none")
-             )
-
-    customized = bind!(customized.session, "card:participation", nil)
+  test "restart, cancellation, and audience choices preserve one session and its message" do
+    joined!()
+    session = reconfiguration!() |> bind!("card:root", nil)
 
     assert {:ok, participation} =
              ChannelConfigurations.apply_action(
-               control(customized, :participation, :mentions, "event:mentions")
+               control(session, :participation, :mentions, "event:mentions")
              )
 
-    participation = bind!(participation.session, "card:repository", nil)
+    assert {:ok, restarted} =
+             ChannelConfigurations.apply_action(
+               control(participation.session, :restart, nil, "event:restart")
+             )
+
+    assert restarted.status == :restarted
+    assert restarted.session.step == :participation
+    assert restarted.session.current_message_ref == "card:root"
+    assert restarted.session.draft["participation"] == nil
+
+    assert {:ok, duplicate} =
+             ChannelConfigurations.apply_action(
+               control(participation.session, :restart, nil, "event:restart")
+             )
+
+    assert duplicate.status == :duplicate
+    assert Repo.aggregate(ConfigurationAction, :count) == 2
+
+    assert {:ok, participation} =
+             ChannelConfigurations.apply_action(
+               control(restarted.session, :participation, :mentions, "event:mentions-again")
+             )
 
     assert ChannelConfigurations.apply_action(
-             control(participation, :repository, "not-offered", "event:not-offered")
+             control(participation.session, :repository, "not-offered", "event:not-offered")
            ) == {:error, :configuration_repository_not_offered}
 
     assert {:ok, repository} =
              ChannelConfigurations.apply_action(
-               control(participation, :repository, "backend", "event:repository-none")
+               control(participation.session, :repository, "backend", "event:repository-none")
              )
-
-    repository = bind!(repository.session, "card:alerts", nil)
 
     assert {:ok, alerts} =
              ChannelConfigurations.apply_action(
-               control(repository, :alerts, :reply, "event:alerts-none")
+               control(repository.session, :alerts, :reply, "event:alerts-none")
              )
-
-    alerts = bind!(alerts.session, "card:audience", nil)
 
     assert {:ok, audience} =
              ChannelConfigurations.apply_action(
-               control(alerts, :audience, :none, "event:audience-none")
+               control(alerts.session, :audience, :none, "event:audience-none")
              )
 
     assert audience.session.status == :confirming
-    audience = bind!(audience.session, "card:confirm", nil)
 
     assert {:ok, cancelled} =
-             ChannelConfigurations.apply_action(control(audience, :cancel, nil, "event:cancel"))
+             ChannelConfigurations.apply_action(
+               control(audience.session, :cancel, nil, "event:cancel")
+             )
 
     assert cancelled.status == :cancelled
+    assert Repo.get_by!(ChannelConfiguration, channel_ref: "C456").revision == 1
+  end
+
+  test "the welcome binds one message per configuration" do
+    assert ChannelConfigurations.bind_welcome("TCE3E523134AD", "C456", "1.000001") ==
+             {:error, :configuration_not_found}
+
+    joined!()
+
+    assert {:ok, bound} = ChannelConfigurations.bind_welcome("TCE3E523134AD", "C456", "1.000001")
+    assert bound.welcome_message_ref == "1.000001"
+
+    assert {:ok, same} = ChannelConfigurations.bind_welcome("TCE3E523134AD", "C456", "1.000001")
+    assert same.revision == bound.revision
+
+    assert ChannelConfigurations.bind_welcome("TCE3E523134AD", "C456", "2.000002") ==
+             {:error, :configuration_welcome_already_bound}
+  end
+
+  test "effective settings fold emergency overrides over the saved configuration without mutating" do
+    catalog =
+      Map.merge(@catalog, %{
+        on_call_count: 2,
+        repository_urls: %{"backend" => "https://github.com/acme/backend"}
+      })
+
+    assert {:ok, unconfigured} =
+             ChannelConfigurations.effective_settings("TCE3E523134AD", "C456", catalog, @quiet)
+
+    assert unconfigured["configuration_ref"] == nil
+    assert unconfigured["revision"] == nil
+    assert unconfigured["default_repository"] == "infrastructure"
+    assert unconfigured["participation"] == %{"source" => "deployment", "value" => "mentions"}
+
+    joined!()
+    configuration = Repo.get_by!(ChannelConfiguration, channel_ref: "C456")
+
+    assert {:ok, defaults} =
+             ChannelConfigurations.effective_settings("TCE3E523134AD", "C456", catalog, %{
+               proactive: %{source: :configuration, value: false},
+               shadow: %{source: :configuration, value: false}
+             })
+
+    assert defaults == %{
+             "alert_policy" => "reply",
+             "configuration_ref" => configuration.id,
+             "customized_by" => nil,
+             "default_repository" => "infrastructure",
+             "invitations" => %{"on_call_count" => 2, "user_group_refs" => [], "user_refs" => []},
+             "observation" => %{"on" => false, "source" => "configuration"},
+             "participation" => %{"source" => "configuration", "value" => "mentions"},
+             "repositories" => [
+               %{"ref" => "backend", "url" => "https://github.com/acme/backend"},
+               %{"ref" => "infrastructure", "url" => nil}
+             ],
+             "revision" => 1
+           }
+
+    assert {:ok, overridden} =
+             ChannelConfigurations.effective_settings("TCE3E523134AD", "C456", catalog, %{
+               proactive: %{source: :channel, value: true},
+               shadow: %{source: :configuration, value: false}
+             })
+
+    assert overridden["participation"] == %{"source" => "channel", "value" => "proactive"}
+
+    assert {:ok, observing} =
+             ChannelConfigurations.effective_settings("TCE3E523134AD", "C456", catalog, %{
+               proactive: %{source: :configuration, value: true},
+               shadow: %{source: :workspace, value: true}
+             })
+
+    assert observing["participation"] == %{"source" => "workspace", "value" => "shadow"}
+    assert observing["observation"] == %{"on" => true, "source" => "workspace"}
+
+    assert Repo.get_by!(ChannelConfiguration, channel_ref: "C456").revision == 1
+
+    assert ChannelConfigurations.effective_settings("TCE3E523134AD", "C456", catalog, %{
+             proactive: true
+           }) == {:error, {:invalid_channel_configuration, :overrides}}
+
+    assert ChannelConfigurations.effective_settings(
+             "TCE3E523134AD",
+             "C456",
+             Map.put(catalog, :repository_urls, %{"backend" => "http://insecure.example"}),
+             @quiet
+           ) == {:error, {:invalid_channel_configuration, :repository_urls}}
   end
 
   test "all public configuration boundaries reject malformed source authority" do
@@ -486,7 +593,7 @@ defmodule Responder.Slack.ChannelConfigurationsTest do
     assert ChannelConfigurations.observe_membership(
              membership(:joined, "event:bad-catalog"),
              %{default_repository: "missing", repository_refs: ["backend"]}
-           ) == {:error, {:invalid_channel_configuration, :default_repository}}
+           ) == {:error, {:invalid_channel_configuration, :catalog}}
 
     assert ChannelConfigurations.observe_membership(
              membership(:joined, "event:bad-catalog-shape"),
@@ -509,31 +616,69 @@ defmodule Responder.Slack.ChannelConfigurationsTest do
     assert ChannelConfigurations.bind_prompt("bad", 0, "", :invalid) ==
              {:error, {:invalid_channel_configuration, :session_ref}}
 
+    assert ChannelConfigurations.bind_welcome("", "C456", "1.000001") ==
+             {:error, {:invalid_channel_configuration, :workspace_ref}}
+
     assert ChannelConfigurations.apply_action(%{}) ==
              {:error, {:invalid_channel_configuration, :action}}
 
-    session = joined_session!("event:join-invalid-actions") |> bind!("card:invalid", nil)
+    assert ChannelConfigurations.change_participation(%{}) ==
+             {:error, {:invalid_channel_configuration, :participation_change}}
+
+    joined!()
+    configuration = Repo.get_by!(ChannelConfiguration, channel_ref: "C456")
+
+    assert ChannelConfigurations.change_participation(%{
+             participation_change(configuration, :proactive, "event:bad-participation")
+             | participation: :loud
+           }) == {:error, {:invalid_channel_configuration, :participation}}
+
+    assert ChannelConfigurations.change_participation(%{
+             participation_change(configuration, :proactive, "event:bad-ref")
+             | configuration_ref: "not-a-uuid"
+           }) == {:error, {:invalid_channel_configuration, :configuration_ref}}
+
+    session = reconfiguration!("event:join-invalid-actions") |> bind!("card:invalid", nil)
 
     assert ChannelConfigurations.apply_action(%{
-             control(session, :customize, nil, "event:wrong-thread")
+             control(session, :participation, :mentions, "event:wrong-thread")
              | thread_ref: "other-thread"
            }) == {:error, :configuration_thread_mismatch}
 
-    assert ChannelConfigurations.apply_action(%{
-             control(session, :customize, nil, "event:unknown-action")
-             | action: :unknown
-           }) == {:error, {:invalid_channel_configuration, :action}}
+    for retired <- [:safe_defaults, :be_proactive, :customize, :move_thread, :move_channel] do
+      assert ChannelConfigurations.apply_action(%{
+               control(session, :participation, :mentions, "event:#{retired}")
+               | action: retired
+             }) == {:error, {:invalid_channel_configuration, :action}}
+    end
 
     assert ChannelConfigurations.apply_action(
              control(session, :audience, %{unexpected: true}, "event:wrong-step")
            ) == {:error, :configuration_action_mismatch}
   end
 
-  defp joined_session!(event_ref \\ "event:join") do
+  defp joined!(event_ref \\ "event:join") do
     assert {:ok, result} =
              ChannelConfigurations.observe_membership(membership(:joined, event_ref), @catalog)
 
-    result.session
+    result
+  end
+
+  defp reconfiguration!(event_ref \\ "event:reconfigure") do
+    assert {:ok, %{session: session}} =
+             ChannelConfigurations.start_reconfiguration(
+               %{
+                 actor_ref: "U123",
+                 channel_ref: "C456",
+                 event_ref: event_ref,
+                 occurred_at: @now,
+                 thread_ref: nil,
+                 workspace_ref: "TCE3E523134AD"
+               },
+               @catalog
+             )
+
+    session
   end
 
   defp bind!(session, message_ref, thread_ref) do
@@ -571,6 +716,19 @@ defmodule Responder.Slack.ChannelConfigurationsTest do
       source: :control,
       thread_ref: session.response_thread_ref,
       value: value,
+      workspace_ref: "TCE3E523134AD"
+    }
+  end
+
+  defp participation_change(configuration, participation, event_ref) do
+    %{
+      actor_ref: "U123",
+      channel_ref: "C456",
+      configuration_ref: configuration.id,
+      event_ref: event_ref,
+      expected_revision: configuration.revision,
+      occurred_at: @now,
+      participation: participation,
       workspace_ref: "TCE3E523134AD"
     }
   end

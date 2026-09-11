@@ -325,6 +325,68 @@ defmodule Responder.Slack.InteractionTest do
 
     crossed = put_in(setup, ["payload", "actions", Access.at(0), "value"], "backend")
     assert Interaction.from_socket(crossed, "T123", @now) == :ignore
+
+    for retired <-
+          ~w(responder_setup_safe_defaults responder_setup_be_proactive responder_setup_customize) do
+      assert setup
+             |> put_in(["payload", "actions", Access.at(0), "action_id"], retired)
+             |> Interaction.from_socket("T123", @now) == :ignore
+    end
+  end
+
+  test "welcome controls carry the exact configuration revision they were rendered from" do
+    configuration_ref = Ecto.UUID.generate()
+
+    welcome =
+      envelope()
+      |> put_in(
+        ["payload", "actions", Access.at(0), "action_id"],
+        "responder_welcome_be_proactive"
+      )
+      |> put_in(["payload", "actions", Access.at(0), "value"], "#{configuration_ref}|3")
+
+    assert {:ok, interaction} = Interaction.from_socket(welcome, "T123", @now)
+    assert interaction.action_value == "#{configuration_ref}|3"
+    assert Interaction.setup_action?(interaction.action_id)
+
+    for value <- [
+          configuration_ref,
+          "#{configuration_ref}|0",
+          "backend|3",
+          "#{configuration_ref}|3|1"
+        ] do
+      assert welcome
+             |> put_in(["payload", "actions", Access.at(0), "value"], value)
+             |> Interaction.from_socket("T123", @now) == :ignore
+    end
+  end
+
+  # Configure channel also lives on the private `/responder status` reply. Its
+  # value names the channel configuration, not the message it was clicked in,
+  # so it is the one control an ephemeral container may deliver.
+  test "only Configure channel is accepted from an ephemeral settings reply" do
+    configuration_ref = Ecto.UUID.generate()
+
+    ephemeral =
+      envelope()
+      |> put_in(["payload", "container", "is_ephemeral"], true)
+      |> put_in(["payload", "actions", Access.at(0), "action_id"], "responder_welcome_configure")
+      |> put_in(["payload", "actions", Access.at(0), "value"], "#{configuration_ref}|3")
+
+    assert {:ok, interaction} = Interaction.from_socket(ephemeral, "T123", @now)
+    assert interaction.action_id == "responder_welcome_configure"
+
+    for action_id <-
+          ~w(responder_welcome_be_proactive responder_welcome_mentions_only responder_setup_save) do
+      assert ephemeral
+             |> put_in(["payload", "actions", Access.at(0), "action_id"], action_id)
+             |> Interaction.from_socket("T123", @now) == :ignore
+    end
+
+    assert ephemeral
+           |> put_in(["payload", "actions", Access.at(0), "action_id"], "responder_stop_work")
+           |> put_in(["payload", "actions", Access.at(0), "value"], "task-card:abc123")
+           |> Interaction.from_socket("T123", @now) == :ignore
   end
 
   defp envelope do

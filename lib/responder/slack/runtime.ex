@@ -35,6 +35,7 @@ defmodule Responder.Slack.Runtime do
     InteractionAudits,
     InteractionFeedbackWorker,
     InteractionHandler,
+    InteractionRepaint,
     MembershipReconciler,
     Mentions,
     MintSocketTransport,
@@ -272,17 +273,22 @@ defmodule Responder.Slack.Runtime do
       end
     end
 
+    catalog = %{
+      default_repository: default_repository,
+      on_call_count: length(incident_invite_users),
+      repository_refs: repositories |> Map.keys() |> Enum.sort(),
+      repository_urls: repository_urls(repositories)
+    }
+
     setup_options = %{
       api: Client,
       bot_user_ref: identity.bot_user_ref,
-      catalog: %{
-        default_repository: default_repository,
-        repository_refs: repositories |> Map.keys() |> Enum.sort()
-      },
+      catalog: catalog,
       client: bot_client,
       configurations: ChannelConfigurations,
       directory: Client,
-      operators: operators
+      operators: operators,
+      settings_overrides: settings_overrides(watch_channels)
     }
 
     handler_settings = %{
@@ -296,13 +302,15 @@ defmodule Responder.Slack.Runtime do
       client: bot_client,
       command_handler: CommandHandler,
       command_options: %{
+        bot_user_ref: identity.bot_user_ref,
         change_setting: &ChannelSettings.change/1,
         client: bot_client,
         directory: Client,
         effective_settings: effective_settings(watch_channels),
         list_assignments: &Behaviors.assignments_for_channel/2,
         manage_assignment: &manage_assignment/3,
-        operators: operators
+        operators: operators,
+        settings_view: settings_view(catalog, watch_channels)
       },
       continuation: &Engagement.continuation?/1,
       conversation_actor_allowed: incident_actor_allowed(operators),
@@ -417,6 +425,8 @@ defmodule Responder.Slack.Runtime do
         worker_ref: "slack-task-card:#{identity.workspace_ref}"
       })
 
+    setup_presentation = ChannelSetup.presentation(setup_options)
+
     interaction_feedback_worker =
       InteractionFeedbackWorker.options!(%{
         api: Client,
@@ -425,6 +435,7 @@ defmodule Responder.Slack.Runtime do
         lease_seconds: 300,
         max_attempts: 8,
         name: InteractionFeedbackWorker,
+        repaint: &InteractionRepaint.repaint(&1, Map.put(&2, :setup, setup_presentation)),
         retry_base_seconds: 1,
         worker_ref: "slack-interaction-feedback:#{identity.workspace_ref}"
       })
@@ -541,6 +552,29 @@ defmodule Responder.Slack.Runtime do
     end
   end
 
+  # The setup surfaces need the same override view as the gateway, keyed by
+  # channel rather than conversation reference.
+  defp settings_overrides(watch_channels) do
+    effective = effective_settings(watch_channels)
+
+    fn workspace_ref, channel_ref ->
+      effective.(workspace_ref, "slack:#{workspace_ref}:#{channel_ref}")
+    end
+  end
+
+  defp settings_view(catalog, watch_channels) do
+    overrides = settings_overrides(watch_channels)
+
+    fn workspace_ref, channel_ref ->
+      ChannelConfigurations.effective_settings(
+        workspace_ref,
+        channel_ref,
+        catalog,
+        overrides.(workspace_ref, channel_ref)
+      )
+    end
+  end
+
   defp setup_allowed do
     fn workspace_ref, conversation_ref ->
       channel_ref = conversation_ref |> String.split(":", parts: 3) |> List.last()
@@ -628,7 +662,12 @@ defmodule Responder.Slack.Runtime do
 
         case WorkProfile.prepare(work_profile) do
           {:ok, profile} ->
-            {name, %{contributor_policy: contributor_policy, work_profile: profile}}
+            {name,
+             %{
+               contributor_policy: contributor_policy,
+               github_repository: github_repository!(Map.get(attributes, :github_repository)),
+               work_profile: profile
+             }}
 
           {:error, _reason} ->
             raise ArgumentError, "Slack repositories must contain a valid Work profile"
@@ -641,6 +680,26 @@ defmodule Responder.Slack.Runtime do
 
   defp repositories!(_repositories) do
     raise ArgumentError, "Slack repositories must be a map"
+  end
+
+  defp github_repository!(nil), do: nil
+
+  defp github_repository!(value) do
+    if is_binary(value) and Regex.match?(~r/\A[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\z/, value),
+      do: value,
+      else: raise(ArgumentError, "Slack repositories must name GitHub repositories as owner/name")
+  end
+
+  defp repository_urls(repositories) do
+    repositories
+    |> Enum.flat_map(fn
+      {name, %{github_repository: full_name}} when is_binary(full_name) ->
+        [{name, "https://github.com/#{full_name}"}]
+
+      _repository ->
+        []
+    end)
+    |> Map.new()
   end
 
   defp default_repository!(repository, repositories) do
