@@ -483,6 +483,71 @@ defmodule Responder.CoopFleet.ControlPlaneTest do
     assert recovered.state == :active
   end
 
+  # A session the worker still holds is not lost work — only the placement that addressed it is.
+  # Replacing the session is the right answer when its material is gone, and the wrong one when the
+  # material is there: it discards the material, and a publication review cannot survive that at all
+  # because the session IS what it reviews. Publication e11291b3 deferred once a minute for 1500
+  # attempts on exactly this. Re-placement stays on the SAME worker, and the new generation fences
+  # every command the old placement had.
+  test "a bound session reacquires its worker after its placement is replaced" do
+    authorize_and_poll!("worker-a")
+    session = session!("bound-placement-recovery")
+
+    requirements = %{
+      capability_names: ["responder-state"],
+      repository_ref: "responder",
+      workspace_ref: "workspace-main"
+    }
+
+    assert {:ok, placement} = ControlPlane.place_session(session.id, requirements, 60)
+
+    assert {:ok, stranded} =
+             ControlPlane.enqueue_command(
+               placement.id,
+               "get_session",
+               %{"session_ref" => session.id},
+               "responder:test:bound-placement-stranded-read"
+             )
+
+    {1, nil} =
+      Repo.update_all(
+        from(value in Session, where: value.id == ^session.id),
+        set: [coop_session_id: "coop-bound-placement-recovery"]
+      )
+
+    Repo.update_all(
+      from(value in Placement, where: value.id == ^placement.id),
+      set: [lease_expires_at: DateTime.add(database_now!(), -1, :second)]
+    )
+
+    # The first call after the lease ends retires the placement and says so; the next one re-places.
+    assert {:error, {:coop_session_replacement_required, _, 1}} =
+             ControlPlane.place_session(session.id, requirements, 60)
+
+    assert {:ok, recovered} = ControlPlane.place_session(session.id, requirements, 60)
+    assert recovered.generation == placement.generation + 1
+    assert recovered.worker_id == placement.worker_id
+    assert recovered.state == :active
+    assert Repo.get!(Placement, placement.id).state == :replaced
+
+    # The old placement's undelivered command is fenced, not carried onto the new generation.
+    assert Repo.get!(Command, stranded.id).status == :failed
+
+    # An UNBOUND session still fails closed: nothing proves a worker holds its material.
+    unbound = place!("unbound-placement-recovery")
+
+    Repo.update_all(
+      from(value in Placement, where: value.id == ^unbound.id),
+      set: [lease_expires_at: DateTime.add(database_now!(), -1, :second)]
+    )
+
+    assert {:error, {:coop_session_replacement_required, _, 1}} =
+             ControlPlane.place_session(unbound.session_id, requirements, 60)
+
+    assert {:error, {:coop_session_replacement_required, _, 1}} =
+             ControlPlane.place_session(unbound.session_id, requirements, 60)
+  end
+
   test "a revoking placement cannot be replaced before its worker lease expires" do
     authorize_and_poll!("worker-a")
     placement = place!("revoking-placement")
