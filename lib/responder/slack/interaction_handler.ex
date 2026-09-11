@@ -77,7 +77,6 @@ defmodule Responder.Slack.InteractionHandler do
     :work_control_stale,
     :work_control_target_mismatch,
     :work_delivery_must_settle,
-    :work_diff_message_mismatch,
     :work_record_not_available
   ]
   @work_record_kinds ~w(timeline evidence handoff postmortem)
@@ -175,29 +174,6 @@ defmodule Responder.Slack.InteractionHandler do
     with :ok <- configured_operator(interaction, options) do
       options.close_work.(work_attributes(interaction, work_ref))
     end
-  end
-
-  defp dispatch_action(
-         %Interaction{action_id: "responder_view_diff"} = interaction,
-         work_ref,
-         nil,
-         options
-       ) do
-    options.show_work_diff.(work_attributes(interaction, work_ref))
-  end
-
-  defp dispatch_action(
-         %Interaction{action_id: "responder_diff_page"} = interaction,
-         work_ref,
-         %{patch_offset: patch_offset, snapshot_digest: snapshot_digest},
-         options
-       ) do
-    attributes =
-      interaction
-      |> work_attributes(work_ref)
-      |> Map.merge(%{patch_offset: patch_offset, snapshot_digest: snapshot_digest})
-
-    options.show_work_diff_page.(attributes)
   end
 
   defp dispatch_action(
@@ -591,25 +567,6 @@ defmodule Responder.Slack.InteractionHandler do
     case String.split(action_value, "|", parts: 2) do
       [work_ref, kind] when kind in @work_record_kinds ->
         {:ok, work_ref, String.to_existing_atom(kind)}
-
-      _invalid ->
-        {:error, :slack_action_mismatch}
-    end
-  end
-
-  defp selection(%Interaction{
-         action_id: "responder_diff_page",
-         action_value: action_value
-       }) do
-    case String.split(action_value, "|", parts: 3) do
-      [work_ref, snapshot_digest, patch_offset] ->
-        case Integer.parse(patch_offset) do
-          {patch_offset, ""} when patch_offset >= 0 ->
-            {:ok, work_ref, %{patch_offset: patch_offset, snapshot_digest: snapshot_digest}}
-
-          _invalid ->
-            {:error, :slack_action_mismatch}
-        end
 
       _invalid ->
         {:error, :slack_action_mismatch}

@@ -63,8 +63,6 @@ defmodule Responder.Slack.Runtime do
     :app_http,
     :bot_client,
     :channel_prefix,
-    :coop_api,
-    :coop_client,
     :default_repository,
     :handshake_timeout_ms,
     :identity,
@@ -176,7 +174,6 @@ defmodule Responder.Slack.Runtime do
     repositories = repositories!(repositories)
     default_repository = default_repository!(default_repository, repositories)
     file_client = file_client!(bot_client)
-    work_presentation_options = work_presentation_options!(configuration, bot_client)
     schedule_policy_resolver = schedule_policy_resolver(configuration)
 
     work_record_options = %{slack_api: Client, slack_client: bot_client}
@@ -344,8 +341,6 @@ defmodule Responder.Slack.Runtime do
         request_incident_room: request_incident_room,
         request_publication_review: &Custody.request_review/1,
         repositories: repositories,
-        show_work_diff: work_diff_callback(work_presentation_options),
-        show_work_diff_page: work_diff_page_callback(work_presentation_options),
         show_work_record: &WorkControls.show_record(&1, work_record_options),
         stop_work: &WorkControls.stop/1
       },
@@ -485,16 +480,6 @@ defmodule Responder.Slack.Runtime do
     end
   end
 
-  defp work_diff_callback(nil),
-    do: fn _attributes -> {:error, :work_changes_not_configured} end
-
-  defp work_diff_callback(options), do: &WorkControls.show_diff(&1, options)
-
-  defp work_diff_page_callback(nil),
-    do: fn _attributes -> {:error, :work_changes_not_configured} end
-
-  defp work_diff_page_callback(options), do: &WorkControls.show_diff_page(&1, options)
-
   defp schedule_policy_resolver(configuration) do
     case Map.get(configuration, :schedule_policies) do
       %{} = policies ->
@@ -505,26 +490,6 @@ defmodule Responder.Slack.Runtime do
 
       nil ->
         fn _schedule -> {:error, :schedule_policy_unavailable} end
-    end
-  end
-
-  defp work_presentation_options!(configuration, bot_client) do
-    case {Map.get(configuration, :coop_api), Map.get(configuration, :coop_client)} do
-      {nil, nil} ->
-        nil
-
-      {api, client}
-      when is_atom(api) and not is_nil(client) ->
-        if Code.ensure_loaded?(api) and function_exported?(api, :get_changes_page, 4) do
-          WorkControls.production_options(api, client, bot_client)
-        else
-          raise ArgumentError,
-                "Slack Work execution boundary must provide get_changes_page/4"
-        end
-
-      _incomplete ->
-        raise ArgumentError,
-              "Slack Work execution boundary requires both coop_api and coop_client"
     end
   end
 

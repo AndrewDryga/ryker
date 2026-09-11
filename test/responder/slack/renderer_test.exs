@@ -176,7 +176,6 @@ defmodule Responder.Slack.RendererTest do
 
     assert Enum.map(controls["elements"], & &1["action_id"]) == [
              "responder_stop_work",
-             "responder_view_diff",
              "responder_close_work",
              "responder_work_record"
            ]
@@ -190,32 +189,78 @@ defmodule Responder.Slack.RendererTest do
            ]
   end
 
-  test "renders snapshot-bound workspace diff navigation" do
+  # Diff reading is web-only since 2026-09-09. `view_diff` survives on the shared
+  # work document because the control-plane card still links out to the exact
+  # retained snapshot; Slack must render no diff button and accept no diff
+  # document, or the retired paging loop comes back one message at a time.
+  test "no work card emits a Slack diff control" do
     digest = String.duplicate("a", 64)
 
-    assert {:ok, rendered} =
-             Renderer.render(%{
-               "work_diff" => %{
-                 "message" => "Workspace diff for task-card:abc123\nPatch page",
-                 "patch_bytes" => 7_200,
-                 "patch_digest" => digest,
-                 "patch_has_more" => true,
-                 "patch_next_offset" => 4_800,
-                 "patch_offset" => 2_400,
-                 "work_ref" => "task-card:abc123"
-               }
-             })
+    assert Renderer.render(%{
+             "work_diff" => %{
+               "message" => "Workspace diff for task-card:abc123\nPatch page",
+               "patch_bytes" => 7_200,
+               "patch_digest" => digest,
+               "patch_has_more" => true,
+               "patch_next_offset" => 4_800,
+               "patch_offset" => 2_400,
+               "work_ref" => "task-card:abc123"
+             }
+           }) == {:error, {:invalid_slack_render, :document}}
 
-    assert rendered["text"] =~ "Workspace diff"
-    assert [controls] = Enum.filter(rendered["blocks"], &(&1["type"] == "actions"))
+    task = %{
+      "action_needed" => nil,
+      "confirmed_at" => "2026-08-28T12:00:00.000000Z",
+      "confirmed_by" => "slack:user:U123",
+      "controls" => ["stop", "view_diff", "close", "timeline", "evidence", "handoff"],
+      "episode_state" => "working",
+      "publication" => nil,
+      "repository" => "responder",
+      "session_generation" => 1,
+      "status" => "working",
+      "summary" => "The parser fix is being validated.",
+      "task_ref" => "task-card:abc123",
+      "title" => "Fix parser retries",
+      "ui_revision" => 2,
+      "updated_at" => "2026-08-28T12:01:00.000000Z",
+      "work_state" => "pending"
+    }
 
-    assert Enum.map(controls["elements"], &{&1["text"]["text"], &1["value"]}) == [
-             {"Previous", "task-card:abc123|#{digest}|0"},
-             {"Refresh", "task-card:abc123|#{digest}|2400"},
-             {"Next", "task-card:abc123|#{digest}|4800"}
-           ]
+    room = %{
+      "action_needed" => nil,
+      "alert" => nil,
+      "controls" => ["stop", "view_diff", "close", "timeline", "evidence", "handoff"],
+      "episode_state" => "working",
+      "opened_at" => "2026-08-28T12:00:00.000000Z",
+      "opened_by" => "slack:user:U123",
+      "repository" => "responder",
+      "room_ref" => "incident-room:82208f8f-2ef4-4f1b-a011-626aabdc9342",
+      "session_generation" => 1,
+      "severity" => "not supplied",
+      "signals" => %{"firing" => nil, "total" => nil},
+      "source" => %{
+        "channel_ref" => "C123",
+        "message_ref" => "1787832000.000100",
+        "thread_ref" => nil
+      },
+      "status" => "investigating",
+      "summary" => "Checking the production symptoms.",
+      "title" => "Checkout errors",
+      "ui_revision" => 2,
+      "updated_at" => "2026-08-28T12:01:00.000000Z"
+    }
 
-    assert Enum.all?(controls["elements"], &(&1["action_id"] == "responder_diff_page"))
+    for document <- [%{"task_card" => task}, %{"incident_room" => room}] do
+      assert {:ok, rendered} = Renderer.render(document)
+
+      action_ids =
+        rendered["blocks"]
+        |> Enum.flat_map(&Map.get(&1, "elements", []))
+        |> Enum.map(& &1["action_id"])
+
+      refute Enum.any?(action_ids, &(is_binary(&1) and &1 =~ "diff"))
+      refute Jason.encode!(rendered) =~ "View diff"
+    end
   end
 
   test "renders only publication actions valid for the durable task state" do
@@ -1249,11 +1294,8 @@ defmodule Responder.Slack.RendererTest do
     end)
   end
 
-  test "rejects malformed cards, diffs, controls, publication identities, and dates" do
+  test "rejects malformed cards, controls, publication identities, and dates" do
     assert Renderer.render(:not_a_document) == {:error, {:invalid_slack_render, :document}}
-
-    assert Renderer.render(%{"work_diff" => %{}}) ==
-             {:error, {:invalid_slack_render, :work_diff}}
 
     assert Renderer.render(%{"incident_room" => %{}}) ==
              {:error, {:invalid_slack_render, :incident_room}}

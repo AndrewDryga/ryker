@@ -1,5 +1,11 @@
-defmodule Responder.Slack.WorkDiff do
-  @moduledoc false
+defmodule Responder.ControlPlane.WorkChanges do
+  @moduledoc """
+  Renders one snapshot-bound page of a Coop working copy for the web changes
+  page.
+
+  Diff reading is web-only: Slack links out to the exact retained snapshot and
+  never pages a patch itself.
+  """
 
   @path_groups ~w(committed staged unstaged untracked conflicts)
   @maximum_paths 20
@@ -20,15 +26,12 @@ defmodule Responder.Slack.WorkDiff do
          :ok <- metadata(changes, patch) do
       {:ok,
        %{
-         "work_diff" => %{
-           "message" => message(work_ref, changes, patch),
-           "patch_bytes" => changes["patch_bytes"],
-           "patch_digest" => changes["patch_digest"],
-           "patch_has_more" => changes["patch_has_more"],
-           "patch_next_offset" => changes["patch_next_offset"],
-           "patch_offset" => changes["patch_offset"],
-           "work_ref" => work_ref
-         }
+         "message" => message(work_ref, changes, patch),
+         "patch_bytes" => changes["patch_bytes"],
+         "patch_digest" => changes["patch_digest"],
+         "patch_has_more" => changes["patch_has_more"],
+         "patch_next_offset" => changes["patch_next_offset"],
+         "patch_offset" => changes["patch_offset"]
        }}
     else
       false -> {:error, :work_diff_invalid}
@@ -63,7 +66,7 @@ defmodule Responder.Slack.WorkDiff do
 
     footer =
       if changes["patch_has_more"],
-        do: ["More patch bytes remain. Use Next page from this diff message."],
+        do: ["More patch bytes remain on the next page."],
         else: ["This is the final patch page."]
 
     Enum.join(header ++ body ++ footer, "\n")

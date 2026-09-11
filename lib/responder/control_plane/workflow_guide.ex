@@ -5,9 +5,9 @@ defmodule Responder.ControlPlane.WorkflowGuide do
 
   @workflows [
     {"Engineering tasks",
-     "Ask for a code change. Review the task offer, follow live progress and subtasks, inspect the diff, then review the draft pull request.",
+     "Ask for a code change. Review the task offer, follow live progress and subtasks, inspect the changes on the web, then review the draft pull request.",
      [{"Repositories", "/repositories"}, {"Working copies", "/workspaces"}],
-     ~w(task-offer task-card work-diff publication)},
+     ~w(task-offer task-card publication)},
     {"Investigations",
      "Ask Responder to investigate an incident. Follow its evidence, findings, open questions, and resolution in one timeline.",
      [{"Incident rooms", "/incident-rooms"}, {"Findings", "/findings"}],

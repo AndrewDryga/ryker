@@ -37,7 +37,6 @@ defmodule Responder.ControlPlane.CardLab do
       incident_rooms(),
       channel_setup(),
       governed_actions(),
-      work_diffs(),
       task_offers(),
       publication_cards(),
       schedule_offers(),
@@ -513,25 +512,6 @@ defmodule Responder.ControlPlane.CardLab do
       "Read-only Slack projection of every Emisar run status.",
       :message,
       states
-    )
-  end
-
-  defp work_diffs do
-    digest = String.duplicate("a", 64)
-
-    states = [
-      diff_state("first-page", "First page", 0, 2_400, 7_200, true, digest),
-      diff_state("middle-page", "Middle page", 2_400, 4_800, 7_200, true, digest),
-      diff_state("last-page", "Last page", 4_800, 7_200, 7_200, false, digest),
-      diff_state("single-page", "Single page", 0, 1_200, 1_200, false, digest)
-    ]
-
-    family(
-      "work-diff",
-      "Workspace diff",
-      "Snapshot-bound diff paging controls.",
-      :message,
-      sequence(states)
     )
   end
 
@@ -1601,27 +1581,6 @@ defmodule Responder.ControlPlane.CardLab do
     approval_status("pending_approval", nil)
     |> Map.delete("remote_error")
     |> Map.delete("run_url")
-  end
-
-  defp diff_state(id, label, offset, next_offset, bytes, more, digest) do
-    state(
-      id,
-      label,
-      "Snapshot-bound patch page at byte #{offset}.",
-      %{
-        "work_diff" => %{
-          "message" =>
-            "Workspace diff for task-card:card-lab-123\n@@ parser.ex @@\n- retry(old)\n+ retry(current)",
-          "patch_bytes" => bytes,
-          "patch_digest" => digest,
-          "patch_has_more" => more,
-          "patch_next_offset" => next_offset,
-          "patch_offset" => offset,
-          "work_ref" => "task-card:card-lab-123"
-        }
-      },
-      %{}
-    )
   end
 
   defp automation_document(status, revision),

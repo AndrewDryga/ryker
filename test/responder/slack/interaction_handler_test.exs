@@ -417,31 +417,17 @@ defmodule Responder.Slack.InteractionHandlerTest do
 
     assert_receive {:work_closed, %{request_ref: "interaction:close"}}
 
-    diff = %{stop | action_id: "responder_view_diff", event_ref: "interaction:diff"}
-
-    assert InteractionHandler.handle(diff, member_options) ==
-             {:ok, %{outcome: :shown, work_ref: "task-card:abc123"}}
-
-    assert_receive {:work_diff_shown, %{request_ref: "interaction:diff"}}
-
-    digest = String.duplicate("a", 64)
-
-    page = %{
-      diff
-      | action_id: "responder_diff_page",
-        action_value: "task-card:abc123|#{digest}|2400",
-        event_ref: "interaction:diff-page"
+    record = %{
+      stop
+      | action_id: "responder_work_record",
+        action_value: "task-card:abc123|timeline",
+        event_ref: "interaction:record"
     }
 
-    assert InteractionHandler.handle(page, member_options) ==
-             {:ok, %{outcome: :shown, work_ref: "task-card:abc123"}}
+    assert InteractionHandler.handle(record, member_options) ==
+             {:ok, %{outcome: :shown, record_kind: :timeline, work_ref: "task-card:abc123"}}
 
-    assert_receive {:work_diff_page_shown,
-                    %{
-                      patch_offset: 2_400,
-                      request_ref: "interaction:diff-page",
-                      snapshot_digest: ^digest
-                    }}
+    assert_receive {:work_record_shown, %{request_ref: "interaction:record"}}
   end
 
   test "a record overflow selection dispatches one bounded host projection" do
@@ -583,14 +569,6 @@ defmodule Responder.Slack.InteractionHandlerTest do
       request_publication_review: fn attributes ->
         send(observer, {:publication_review_requested, attributes})
         {:ok, %{publication: %{ref: "publication:1"}, status: :requested}}
-      end,
-      show_work_diff: fn attributes ->
-        send(observer, {:work_diff_shown, attributes})
-        {:ok, %{outcome: :shown, work_ref: attributes.work_ref}}
-      end,
-      show_work_diff_page: fn attributes ->
-        send(observer, {:work_diff_page_shown, attributes})
-        {:ok, %{outcome: :shown, work_ref: attributes.work_ref}}
       end,
       show_work_record: fn attributes ->
         send(observer, {:work_record_shown, attributes})

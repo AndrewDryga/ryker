@@ -72,10 +72,8 @@ defmodule Responder.RuntimeConfigurationTest do
     assert configuration.learning.client == configuration.retention.learning_client
     assert configuration.retention.learning_api == Responder.CoopFleet.Client
     assert configuration.work.client == configuration.publication.coop_client
-    assert configuration.work.client == configuration.slack.coop_client
     assert configuration.retention.api == Responder.CoopFleet.Client
     assert configuration.publication.coop_api == Responder.CoopFleet.Client
-    assert configuration.slack.coop_api == Responder.CoopFleet.Client
     assert configuration.delivery.worker_ref == "responder-a:delivery"
     assert configuration.delivery.action_concurrency == 2
     assert configuration.publication.worker_ref == "responder-a:publication"

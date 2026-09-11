@@ -11,7 +11,7 @@ defmodule Responder.Slack.Renderer do
 
   alias Responder.Emisar.ApprovalStatus
   alias Responder.Publication.Card, as: PublicationCard
-  alias Responder.Slack.{Mentions, ReplyRecords, TaskCardDetails, WorkDiff}
+  alias Responder.Slack.{Mentions, ReplyRecords, TaskCardDetails}
   alias Responder.State.RecordPayload
 
   @maximum_message_characters 20_000
@@ -25,7 +25,11 @@ defmodule Responder.Slack.Renderer do
   @incident_statuses ~w(provisioning investigating action_required waiting_for_input waiting_for_event stopping resolved cancelled paused)
   @task_statuses ~w(working waiting_for_input waiting_for_event action_required stopping reviewing ready_to_publish published completed cancelled)
   @task_fields ~w(action_needed confirmed_at confirmed_by controls episode_state publication repository session_generation status summary task_ref title ui_revision updated_at work_state)
+  # The work document is shared with the control-plane card, which owns diff
+  # reading. `view_diff` stays a valid document control there and never becomes
+  # a Slack control: Slack links out and never pages a patch.
   @work_controls ~w(stop view_diff close timeline evidence handoff postmortem)
+  @work_buttons ~w(stop close)
   @record_controls ~w(timeline evidence handoff postmortem)
   @confirmation_labels %{
     "standing_assignment_offer" => "Automation confirmed",
@@ -95,10 +99,6 @@ defmodule Responder.Slack.Renderer do
     with {:ok, blocks, text} <- render_channel_setup(setup) do
       {:ok, %{"blocks" => blocks, "text" => text}}
     end
-  end
-
-  def render(%{"work_diff" => diff} = document) when map_size(document) == 1 do
-    render_work_diff(diff)
   end
 
   def render(%{"message" => message} = document) when map_size(document) == 1,
@@ -204,94 +204,6 @@ defmodule Responder.Slack.Renderer do
 
   defp approval_error_line(nil), do: nil
   defp approval_error_line(error), do: "Error: #{mrkdwn(error)}"
-
-  defp render_work_diff(
-         %{
-           "message" => diff_message,
-           "patch_bytes" => _patch_bytes,
-           "patch_digest" => patch_digest,
-           "patch_has_more" => patch_has_more,
-           "patch_next_offset" => patch_next_offset,
-           "patch_offset" => patch_offset,
-           "work_ref" => work_ref
-         } = diff
-       )
-       when map_size(diff) == 7 do
-    with true <- valid_work_diff?(diff),
-         :ok <- message(diff_message) do
-      render_work_diff_document(
-        diff_message,
-        work_ref,
-        patch_digest,
-        patch_offset,
-        patch_next_offset,
-        patch_has_more
-      )
-    else
-      _invalid -> {:error, {:invalid_slack_render, :work_diff}}
-    end
-  end
-
-  defp render_work_diff(_diff), do: {:error, {:invalid_slack_render, :work_diff}}
-
-  defp valid_work_diff?(diff) do
-    Enum.all?([
-      valid_work_ref?(diff["work_ref"]),
-      valid_digest?(diff["patch_digest"]),
-      non_negative_integer?(diff["patch_bytes"]),
-      valid_offset?(diff["patch_offset"], 0, diff["patch_bytes"]),
-      valid_offset?(diff["patch_next_offset"], diff["patch_offset"], diff["patch_bytes"]),
-      is_boolean(diff["patch_has_more"]),
-      diff["patch_has_more"] == diff["patch_next_offset"] < diff["patch_bytes"]
-    ])
-  end
-
-  defp valid_work_ref?(value) do
-    is_binary(value) and
-      Regex.match?(~r/\A(?:task-card|incident-room):[A-Za-z0-9_.:-]{1,220}\z/, value)
-  end
-
-  defp valid_digest?(value),
-    do: is_binary(value) and Regex.match?(~r/\A[0-9a-f]{64}\z/, value)
-
-  defp non_negative_integer?(value), do: is_integer(value) and value >= 0
-
-  defp valid_offset?(value, minimum, maximum),
-    do: is_integer(value) and value >= minimum and value <= maximum
-
-  defp render_work_diff_document(
-         message,
-         work_ref,
-         digest,
-         offset,
-         next_offset,
-         has_more
-       ) do
-    buttons = diff_page_buttons(work_ref, digest, offset, next_offset, has_more)
-    block_ref = "work-diff:" <> String.slice(digest, 0, 24)
-
-    {:ok,
-     %{
-       "blocks" => message_blocks(message) ++ [actions(block_ref, buttons)],
-       "text" => message
-     }}
-  end
-
-  defp diff_page_buttons(work_ref, digest, offset, next_offset, has_more) do
-    previous_offset = max(offset - WorkDiff.page_bytes(), 0)
-
-    [
-      if(offset > 0, do: diff_page_button("Previous", work_ref, digest, previous_offset)),
-      diff_page_button("Refresh", work_ref, digest, offset),
-      if(has_more, do: diff_page_button("Next", work_ref, digest, next_offset))
-    ]
-    |> Enum.reject(&is_nil/1)
-  end
-
-  defp diff_page_button(label, work_ref, patch_digest, patch_offset) do
-    value = "#{work_ref}|#{patch_digest}|#{patch_offset}"
-    plain_button("responder_diff_page", label, value)
-  end
 
   defp render_incident_room(
          %{
@@ -459,7 +371,7 @@ defmodule Responder.Slack.Renderer do
   defp work_controls_block(work_ref, controls, kind) do
     buttons =
       controls
-      |> Enum.filter(&(&1 in ~w(stop view_diff close)))
+      |> Enum.filter(&(&1 in @work_buttons))
       |> Enum.map(&work_button(&1, work_ref, kind))
 
     records = Enum.filter(controls, &(&1 in @record_controls))
@@ -483,9 +395,6 @@ defmodule Responder.Slack.Renderer do
       "Stop run"
     )
   end
-
-  defp work_button("view_diff", work_ref, _kind),
-    do: plain_button("responder_view_diff", "View diff", work_ref)
 
   defp work_button("close", work_ref, :incident) do
     button(
