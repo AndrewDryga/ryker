@@ -177,7 +177,8 @@ defmodule Responder.ControlPlane.UsageProjection do
           ),
         work_kind:
           fragment(
-            "CASE WHEN ? = 'admission' THEN 'admission' ELSE COALESCE(?::jsonb ->> 'work_class', 'unclassified') END",
+            "CASE WHEN ? = 'admission' THEN 'admission' WHEN ? = 'learning' THEN 'learning' ELSE COALESCE(?::jsonb ->> 'work_class', 'unclassified') END",
+            e.kind,
             e.kind,
             entry.decision_document
           ),

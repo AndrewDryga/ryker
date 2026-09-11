@@ -81,13 +81,35 @@ defmodule Responder.Learning.Executor do
   defp remote_turn(claim, run, session, settings, mode) do
     run = Repo.get!(Responder.State.LearningRun, run.id)
 
-    if run.coop_turn_id do
-      with {:ok, turn} <- call(claim, settings, :get_turn, [session["id"], run.coop_turn_id]),
-           :ok <- exact_turn(turn, session["id"], run.coop_turn_id),
-           do: {:ok, turn}
-    else
-      locate_turn(claim, run, session, settings, mode)
-    end
+    result =
+      if run.coop_turn_id do
+        with {:ok, turn} <- call(claim, settings, :get_turn, [session["id"], run.coop_turn_id]),
+             :ok <- exact_turn(turn, session["id"], run.coop_turn_id),
+             do: {:ok, turn}
+      else
+        locate_turn(claim, run, session, settings, mode)
+      end
+
+    with {:ok, %{} = turn} <- result,
+         {:ok, _} <- observe(claim, run, session, turn),
+         do: {:ok, turn}
+  end
+
+  # Every observed learning turn is metered under the batch lease, like admission
+  # under its input lock.
+  defp observe(claim, run, session, turn) do
+    Batches.with_lease(claim, fn ->
+      local = Repo.get_by!(Session, execution_kind: :learning, learning_run_id: run.id)
+
+      Responder.Accounting.observe_learning_in_transaction(
+        claim.batch,
+        run,
+        local.id,
+        turn,
+        session,
+        DateTime.utc_now()
+      )
+    end)
   end
 
   defp locate_turn(claim, run, session, settings, mode) do
@@ -115,7 +137,8 @@ defmodule Responder.Learning.Executor do
   defp dispatch_turn(claim, frozen, session, settings, mode) do
     action = if mode == :submit, do: :submit_frozen_turn, else: :fence_frozen_turn
 
-    with :ok <- authorize_disclosure(claim, frozen, mode) do
+    with :ok <- authorize_disclosure(claim, frozen, mode),
+         {:ok, _} <- requested(claim, frozen, session, mode) do
       call(claim, settings, action, [
         session["id"],
         Learning.operation_key(frozen, :submit),
@@ -126,6 +149,12 @@ defmodule Responder.Learning.Executor do
       ])
     end
   end
+
+  # A lost submit response must not lose the target this attempt is spending on.
+  defp requested(_claim, _frozen, _session, :fence), do: {:ok, :fenced}
+
+  defp requested(claim, frozen, session, :submit),
+    do: observe(claim, frozen, session, %{"state" => "requested"})
 
   defp freeze_revision(claim, %{submit_revision: revision} = run, _session, _mode)
        when is_integer(revision) do
@@ -166,7 +195,8 @@ defmodule Responder.Learning.Executor do
              turn["candidate"]["sha256"],
              :accept
            ]),
-         {:ok, completed} <- call(claim, settings, :get_turn, [session["id"], turn["id"]]) do
+         {:ok, completed} <- call(claim, settings, :get_turn, [session["id"], turn["id"]]),
+         {:ok, _} <- observe(claim, run, session, completed) do
       if completed["state"] == "completed",
         do: complete(claim, saved, completed),
         else: {:ok, :waiting}

@@ -71,6 +71,34 @@ defmodule Responder.Accounting do
     {:ok, saved}
   end
 
+  @doc "The caller already owns the learning batch lease; one ledger row per frozen learning attempt."
+  def observe_learning_in_transaction(batch, run, session_id, remote_turn, remote_session, now) do
+    measurement = Measurement.prepare(remote_turn, remote_session)
+
+    measurement =
+      if remote_turn["state"] == "completed",
+        do: Measurement.acceptance_attributes(measurement, now),
+        else: measurement
+
+    {:ok,
+     record(
+       %{
+         kind: "learning",
+         source_id: run.id,
+         generation: to_string(run.generation),
+         episode_id: nil,
+         session_id: session_id,
+         transport: batch.transport,
+         conversation_ref: batch.conversation_ref,
+         repository_ref: batch.repository_ref,
+         execution_mode: to_string(batch.execution_mode)
+       },
+       remote_turn,
+       measurement,
+       now
+     )}
+  end
+
   @doc "Records host acceptance timing in the same transaction as result acceptance."
   def accepted_in_transaction(episode, session, turn) do
     record(
@@ -160,7 +188,7 @@ defmodule Responder.Accounting do
     }
     |> merge_tokens(current, measurement)
     |> merge_cost(current, measurement)
-    |> merge_timing(measurement)
+    |> merge_timing(current, measurement)
   end
 
   defp merge_tokens(attributes, current, %{usage_recorded: true} = measurement) do
@@ -185,14 +213,17 @@ defmodule Responder.Accounting do
 
   defp merge_cost(attributes, _current, _measurement), do: attributes
 
-  defp merge_timing(attributes, %{timing_recorded: true} = measurement) do
+  defp merge_timing(attributes, current, %{timing_recorded: true} = measurement) do
     timing =
       Map.take(measurement, @timing_fields) |> Map.reject(fn {_key, value} -> is_nil(value) end)
+
+    # The host span is measured once, when the host first sees the finished turn.
+    timing = if current.usage_host_ms, do: Map.delete(timing, :usage_host_ms), else: timing
 
     attributes |> Map.merge(timing) |> Map.put(:timing_recorded, true)
   end
 
-  defp merge_timing(attributes, _measurement), do: attributes
+  defp merge_timing(attributes, _current, _measurement), do: attributes
 
   defp result({:ok, _}), do: :ok
   defp result({:error, _} = error), do: error

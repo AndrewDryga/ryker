@@ -3,6 +3,9 @@ defmodule Responder.ControlPlane.UsagePage do
   alias Responder.Accounting.Pricing
   alias Responder.ControlPlane.{Components, SlackNames, UsageChart}
 
+  # Every work type the projection can name; anything else is a missing identity.
+  @work_kinds ~w(admission learning conversational standard deep)
+
   def render(snapshot) do
     totals = snapshot.totals
 
@@ -57,7 +60,8 @@ defmodule Responder.ControlPlane.UsagePage do
       Enum.map(Enum.take(rows, 500), fn row ->
         [
           "<tr><td>",
-          entity_link(
+          kind_link(
+            row.work_kind,
             kind_name(row.work_kind),
             %{
               work_kind: row.work_kind,
@@ -222,8 +226,7 @@ defmodule Responder.ControlPlane.UsagePage do
 
   defp missing_identity?(row, :profile), do: is_nil(row.profile)
 
-  defp missing_identity?(row, :kind),
-    do: row.work_kind not in ~w(admission conversational standard deep)
+  defp missing_identity?(row, :kind), do: row.work_kind not in @work_kinds
 
   defp missing_identity?(row, :person), do: is_nil(row.actor)
 
@@ -301,7 +304,7 @@ defmodule Responder.ControlPlane.UsagePage do
       )
 
   defp identity(row, snapshot, :kind),
-    do: entity_link(kind_name(row.work_kind), %{work_kind: row.work_kind}, snapshot)
+    do: kind_link(row.work_kind, kind_name(row.work_kind), %{work_kind: row.work_kind}, snapshot)
 
   defp identity(row, snapshot, :person),
     do:
@@ -310,6 +313,12 @@ defmodule Responder.ControlPlane.UsagePage do
         %{actor: row.actor, actor_kind: "user", workspace: row.workspace, source: row.source},
         snapshot
       )
+
+  # Learning spends on batches of conversation inputs, never on an episode.
+  defp kind_link("learning", label, _params, _snapshot),
+    do: ["<a title=\"Learning\" href=\"/memory#learning-activity\">", e(label), "</a>"]
+
+  defp kind_link(_kind, label, params, snapshot), do: entity_link(label, params, snapshot)
 
   defp entity_link(label, params, snapshot) do
     title = Map.get(params, :target, label)
@@ -339,6 +348,7 @@ defmodule Responder.ControlPlane.UsagePage do
   defp heading(:kind), do: "Work type"
   defp heading(:person), do: "Person"
   defp kind_name("admission"), do: "Admission"
+  defp kind_name("learning"), do: "Learning"
   defp kind_name("conversational"), do: "Conversation"
   defp kind_name("standard"), do: "Standard work"
   defp kind_name("deep"), do: "Deep work"
