@@ -166,48 +166,17 @@ defmodule Responder.Slack.Renderer do
   defp render_emisar_approval_status(status) do
     case ApprovalStatus.prepare(status) do
       {:ok, status} ->
-        label = ApprovalStatus.label(status["status"])
-
-        summary =
-          "Governed action #{status["action_id"]}: #{label}. " <>
-            "Approval and policy decisions remain authoritative in Emisar."
-
-        details =
-          [
-            "*Governed action · #{mrkdwn(status["action_id"])}*",
-            "_Status: #{mrkdwn(label)}_",
-            "Run: `#{mrkdwn(status["run_id"])}` · Runner: `#{mrkdwn(status["runner_ref"])}`",
-            "Pack: `#{mrkdwn(status["pack_ref"])}`",
-            approval_error_line(status["remote_error"]),
-            "_Slack cannot approve this action._"
-          ]
-          |> compact_lines()
-
-        buttons =
-          [
-            url_button(
-              "responder_open_emisar_approval",
-              "Review in Emisar",
-              status["request_id"],
-              status["approval_url"]
-            ),
-            status["run_url"] &&
-              url_button(
-                "responder_open_emisar_run",
-                "Open exact run",
-                status["run_id"],
-                status["run_url"]
-              )
-          ]
-          |> Enum.reject(&is_nil/1)
+        review = ApprovalStatus.review_summary(status)
 
         {:ok,
          %{
-           "blocks" => [
-             section(details),
-             actions("emisar-approval:#{status["request_id"]}", buttons)
-           ],
-           "text" => summary
+           "blocks" =>
+             emisar_review_blocks(
+               status,
+               review,
+               "emisar-approval:#{status["request_id"]}"
+             ),
+           "text" => emisar_review_text(status, review)
          }}
 
       _invalid ->
@@ -215,8 +184,131 @@ defmodule Responder.Slack.Renderer do
     end
   end
 
-  defp approval_error_line(nil), do: nil
-  defp approval_error_line(error), do: "Error: #{mrkdwn(error)}"
+  # One governed-review message, whether it is being posted from the durable
+  # record or repainted from the authoritative poll. Both render the same card,
+  # so the operator watches one message change rather than reading two designs.
+  defp emisar_review_blocks(status, review, block_ref) do
+    review_facts = status["review"] || %{}
+
+    rationale = [
+      section("*Emisar review*"),
+      emisar_rationale("Reason", review_facts["reason"]),
+      emisar_rationale("Evidence", review_facts["evidence"]),
+      emisar_rationale("Expected outcome", review_facts["expected"])
+    ]
+
+    # The immutable refs stay one authorized link away: this card leads with the
+    # human decision, not with machine provenance.
+    identity = [
+      section("*Runner*\n`#{mrkdwn(status["runner_ref"])}`"),
+      emisar_status_block(status, review),
+      emisar_review_actions(status, block_ref)
+    ]
+
+    Enum.reject(
+      rationale ++ emisar_command_blocks(status, review_facts) ++ identity,
+      &is_nil/1
+    )
+  end
+
+  defp emisar_rationale(_heading, nil), do: nil
+  defp emisar_rationale(heading, text), do: section("*#{heading}*\n#{mrkdwn(text)}")
+
+  # `Command to run` is said only for a trusted, secret-masked preview Emisar
+  # stands behind, and `Executed command` only for a real run receipt. With
+  # neither, the card names the action it is reviewing and says how many
+  # arguments stayed in Emisar — it never reconstructs a command line.
+  defp emisar_command_blocks(_status, %{"command" => %{} = command}) do
+    heading = if command["kind"] == "executed", do: "Executed command", else: "Command to run"
+
+    [
+      section("*#{heading}*"),
+      code_block(command["text"]),
+      if(command["truncated"], do: context("Command truncated · the full command is in Emisar."))
+    ]
+  end
+
+  defp emisar_command_blocks(status, review_facts) do
+    [
+      section("*Action*"),
+      code_block(status["action_id"]),
+      emisar_argument_note(review_facts["argument_count"])
+    ]
+  end
+
+  defp emisar_argument_note(count) when is_integer(count) and count > 0,
+    do: context("#{count} #{plural(count, "argument", "arguments")} in Emisar.")
+
+  defp emisar_argument_note(_count), do: nil
+
+  # Current status first, one blank line, then the decisions oldest first — one
+  # event per line, with a terminal decision left where it happened.
+  defp emisar_status_block(status, nil),
+    do: section("*Status*\n#{mrkdwn(ApprovalStatus.label(status["status"]))}")
+
+  defp emisar_status_block(_status, %{summary: summary, history: history}) do
+    section(
+      "*Status*\n" <>
+        Enum.join([mrkdwn(summary) | history_lines(history)], "\n")
+    )
+  end
+
+  defp history_lines([]), do: []
+  defp history_lines(history), do: ["" | Enum.map(history, &mrkdwn/1)]
+
+  # Review happens in Emisar, so its link is the card's primary action while a
+  # decision is still open; afterwards the same message links the decided record.
+  defp emisar_review_actions(status, block_ref) do
+    open? = pending_review?(status)
+
+    buttons =
+      [
+        status["approval_url"] &&
+          url_button(
+            "responder_open_emisar_approval",
+            if(open?, do: "Review in Emisar", else: "Open in Emisar"),
+            status["request_id"],
+            status["approval_url"]
+          )
+          |> maybe_button_style(if(open?, do: "primary")),
+        status["run_url"] &&
+          url_button(
+            "responder_open_emisar_run",
+            "Open exact run",
+            status["run_id"],
+            status["run_url"]
+          )
+      ]
+      |> Enum.reject(&is_nil/1)
+
+    actions(block_ref, buttons)
+  end
+
+  defp pending_review?(%{"review" => %{"status" => status}}), do: status == "pending"
+  defp pending_review?(%{"status" => status}), do: status == "pending_approval"
+
+  defp emisar_review_text(status, nil),
+    do: "Emisar review · #{status["action_id"]} · #{ApprovalStatus.label(status["status"])}"
+
+  defp emisar_review_text(status, %{summary: summary}),
+    do: "Emisar review · #{status["action_id"]} · #{summary}"
+
+  defp code_block(text) do
+    %{
+      "type" => "rich_text",
+      "elements" => [
+        %{
+          "type" => "rich_text_preformatted",
+          "elements" => [
+            %{"type" => "text", "text" => truncate(text, @maximum_section_characters)}
+          ]
+        }
+      ]
+    }
+  end
+
+  defp plural(1, singular, _plural), do: singular
+  defp plural(_count, _singular, plural), do: plural
 
   defp render_incident_room(
          %{
@@ -1970,28 +2062,13 @@ defmodule Responder.Slack.Renderer do
   defp incident_room_presentation(_presentation),
     do: {:error, :invalid_incident_room_presentation}
 
+  # The first card of a governed review, before the monitor has polled anything.
+  # It is the SAME card the authoritative status repaints, so the operator sees
+  # one message gain its decisions rather than two different designs.
   defp emisar_approval_blocks(ref, payload) do
-    summary =
-      [
-        "*Approval required in Emisar*",
-        "`#{mrkdwn(payload["action_id"])}` is paused before execution on `#{mrkdwn(payload["runner_ref"])}`.",
-        "Pack: `#{mrkdwn(payload["pack_ref"])}` · Expires: `#{mrkdwn(payload["expires_at"])}`",
-        "_Review the exact target, arguments, blast radius, and policy decision in Emisar. Slack cannot approve this action._"
-      ]
-      |> compact_lines()
+    status = Map.merge(payload, %{"remote_error" => nil, "review" => nil, "run_url" => nil})
 
-    [
-      section(summary),
-      actions(
-        ref,
-        url_button(
-          "responder_open_emisar_approval",
-          "Review approval in Emisar",
-          payload["request_id"],
-          payload["approval_url"]
-        )
-      )
-    ]
+    emisar_review_blocks(status, ApprovalStatus.review_summary(status), ref)
   end
 
   defp engineering_button(ref, repository) do

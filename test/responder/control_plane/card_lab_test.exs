@@ -175,6 +175,12 @@ defmodule Responder.ControlPlane.CardLabTest do
     assert coverage.settings_audiences == ~w(thread private)
 
     assert coverage.emisar_statuses == RunState.statuses()
+
+    # Every review outcome the card can report has a specimen: the run status
+    # barely moves across them, so enumerating run statuses alone never covered
+    # the decisions this card exists for.
+    assert coverage.emisar_review_outcomes == ~w(pending approved denied expired cancelled)
+
     assert MapSet.subset?(MapSet.new(RecordPayload.kinds()), MapSet.new(coverage.record_kinds))
     assert "publication_review" in coverage.record_kinds
     assert "publication_result" in coverage.record_kinds

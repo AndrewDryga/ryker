@@ -22,6 +22,7 @@ defmodule Responder.Emisar.Approval do
     field(:remote_status, :string)
     field(:run_url, :string)
     field(:remote_error, :string)
+    field(:review_digest, :string)
     field(:last_observed_at, :utc_datetime_usec)
     field(:terminal_at, :utc_datetime_usec)
     field(:resumed_at, :utc_datetime_usec)

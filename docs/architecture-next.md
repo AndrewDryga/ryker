@@ -659,6 +659,17 @@ Responder may request a governed Emisar action in the current thread. If Emisar 
 Emisar URL, releases all execution leases, and continues processing unrelated work. Approval or
 denial resumes the same episode for verification.
 
+That card reports the review, not the run. Emisar publishes a trusted `review` receipt on every run
+summary — the masked dispatch rationale its approvers were shown, the runner's own recorded command,
+each vote with its actor and note, the distinct-approver tally against the snapshotted requirement,
+and an override only from its own audit event. Responder validates that receipt against an exact
+key-set allowlist, renders it once (Reason, Evidence, Expected outcome, the command in a native code
+block, the runner, then current status followed by the decisions oldest first), and repaints the
+message only when the receipt, the run URL or the poll error changes. A released run's own march
+through `sent`, `running` and `success` therefore repaints nothing: execution belongs to the episode.
+Because the allowlist is an exact key-set check on both sides, an Emisar receipt change and this
+host's allowlist must be deployed together, Emisar first.
+
 Slack never approves the infrastructure action. A dedicated incident room is optional and governed
 by channel policy or operator choice.
 

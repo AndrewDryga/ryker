@@ -2,7 +2,16 @@ defmodule Responder.Emisar.EndToEndTest do
   use Responder.DataCase, async: true
 
   alias Responder.Delivery.Adapters
-  alias Responder.Emisar.{Approval, ApprovalDispatcher, ApprovalPresenter, Approvals, RunState}
+
+  alias Responder.Emisar.{
+    Approval,
+    ApprovalDispatcher,
+    ApprovalPresenter,
+    Approvals,
+    Review,
+    RunState
+  }
+
   alias Responder.Episodes
   alias Responder.Fixtures.Episodes, as: EpisodeFixtures
   alias Responder.Repo
@@ -223,6 +232,147 @@ defmodule Responder.Emisar.EndToEndTest do
              :wait_resumed,
              :result_accepted
            ]
+  end
+
+  test "the governed-review card repaints on a decision and not on the run's own progress" do
+    claim = claim_episode!("approval-repaints")
+    assert :ok = KnowledgeSnapshot.expose(claim, [])
+
+    assert {:ok, recorded} =
+             Tools.call(
+               "record_emisar_approval",
+               approval_arguments(),
+               binding: %{state_token: Records.token(claim.turn)},
+               emisar_rpc_url: "https://emisar.example/mcp"
+             )
+
+    {:ok, fake} =
+      FakeWorkCoopAPI.start_link([
+        approval_reply(recorded["record_ref"]),
+        final_reply("The governed action completed.")
+      ])
+
+    assert {:ok, first} = Executor.run(claim, executor_options(fake))
+    assert first.status == :accepted
+    assert first.turn.delivery_document["outcome"]["state"] == "waiting_for_event"
+    assert {:ok, delivery} = Custody.claim_next("repaint-card-delivery", 60, :delivery)
+
+    assert {:ok, receipt} =
+             DeliveryReceipt.new(
+               first.turn.delivery_ref,
+               first.episode.destination_transport,
+               first.episode.destination_conversation_ref,
+               first.episode.destination_thread_ref,
+               "1788019200.000200"
+             )
+
+    assert {:ok, delivered} =
+             Custody.confirm_delivery(
+               first.episode.id,
+               first.episode.key,
+               first.turn.turn_ref,
+               delivery.lease_ref,
+               receipt
+             )
+
+    assert delivered.episode.state == :waiting_for_event
+    {:ok, slack} = SlackAPI.start_link(self())
+
+    assert {:ok, adapters} =
+             Adapters.new(%{
+               "slack" => %{
+                 binding: %{workspaces: %{"TEC879C5EE335" => %{api: SlackAPI, client: slack}}},
+                 message_publisher: Publisher,
+                 reaction_publisher: Publisher
+               }
+             })
+
+    approval = Approvals.get_by_request_id("apr-e2e")
+    held = held_run_state(review(1, "pending"))
+
+    # The first receipt is a change: the card gains the tally and the rationale.
+    assert :ok = ApprovalPresenter.publish(approval, held, adapters)
+    assert_receive {:approval_status_update, _, _, %{"emisar_approval_status" => shown}, _}
+    assert shown["review"]["approved_count"] == 1
+
+    approval = Approvals.get_by_request_id("apr-e2e")
+    held = held_run_state(review(1, "pending"))
+
+    # The first receipt is a change: the card gains the tally and the rationale.
+    assert :ok = ApprovalPresenter.publish(approval, held, adapters)
+    assert_receive {:approval_status_update, _, _, %{"emisar_approval_status" => shown}, _}
+    assert shown["review"]["approved_count"] == 1
+
+    assert {:ok, %{approval: observed}} =
+             Approvals.observe("apr-e2e", lease!(), held, 5)
+
+    assert observed.review_digest == Review.digest(held.review)
+
+    # Emisar re-reporting the same review is not news, however often the monitor
+    # polls it.
+    assert :ok = ApprovalPresenter.publish(observed, held, adapters)
+    refute_receive {:approval_status_update, _, _, _, _}
+
+    # A decision is.
+    released = %{held | status: "sent", review: review(2, "approved")}
+    assert :ok = ApprovalPresenter.publish(observed, released, adapters)
+    assert_receive {:approval_status_update, _, _, %{"emisar_approval_status" => decided}, _}
+    assert decided["review"]["status"] == "approved"
+
+    # Once that decision is on the card, the released run's own march through
+    # execution changes nothing on it: execution belongs to the episode, not to
+    # a stream of repaints of a settled review. (The monitor's next observation
+    # is parked behind its poll interval, so the presented row is spelled out
+    # rather than claimed a second time.)
+    presented = %{observed | remote_status: "sent", review_digest: Review.digest(released.review)}
+
+    for status <- ~w(running success) do
+      assert :ok = ApprovalPresenter.publish(presented, %{released | status: status}, adapters)
+      refute_receive {:approval_status_update, _, _, _, _}
+    end
+  end
+
+  defp lease! do
+    assert {:ok, %{lease_ref: lease_ref}} = Approvals.claim_next("repaint-monitor", 60)
+    lease_ref
+  end
+
+  defp held_run_state(review) do
+    %{terminal_run_state() | status: "pending_approval", review: review}
+  end
+
+  defp review(approved_count, status) do
+    decisions =
+      Enum.take(
+        [
+          %{
+            "actor" => "Jane Doe",
+            "decision" => "approve",
+            "decided_at" => "2026-09-11T08:07:23.379141Z"
+          },
+          %{
+            "actor" => "Sam Reviewer",
+            "decision" => "approve",
+            "decided_at" => "2026-09-11T08:09:10.100000Z"
+          }
+        ],
+        approved_count
+      )
+
+    %{
+      "request_id" => "apr-e2e",
+      "status" => status,
+      "required_approvals" => 2,
+      "approved_count" => approved_count,
+      "argument_count" => 1,
+      "reason" => "Restart the exact governed allocation and verify it.",
+      "command" => %{
+        "kind" => "preview",
+        "text" => "nomad alloc restart 9f2c",
+        "truncated" => false
+      },
+      "decisions" => decisions
+    }
   end
 
   defp claim_episode!(suffix) do

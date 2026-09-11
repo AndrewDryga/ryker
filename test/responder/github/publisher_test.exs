@@ -301,6 +301,7 @@ defmodule Responder.GitHub.PublisherTest do
       "pack_ref" => "nomad@1#sha256:abc",
       "remote_error" => nil,
       "request_id" => "apr-1",
+      "review" => nil,
       "run_id" => "run-1",
       "run_url" => "https://emisar.example/app/acme/runs/run-1",
       "runner_ref" => "production-runner",

@@ -25,6 +25,7 @@ defmodule Responder.Emisar.ApprovalChangeset do
     :remote_status,
     :request_id,
     :resumed_at,
+    :review_digest,
     :run_id,
     :run_url,
     :runner_ref,
@@ -78,11 +79,13 @@ defmodule Responder.Emisar.ApprovalChangeset do
     |> validate_length(:approval_url, min: 1, max: 2_048)
     |> validate_length(:run_url, min: 1, max: 2_048)
     |> validate_length(:remote_error, min: 1, max: 1_000)
+    |> validate_length(:review_digest, is: 64)
     |> validate_length(:last_error, min: 1, max: 4_096)
     |> validate_number(:failure_count, greater_than_or_equal_to: 0)
     |> validate_inclusion(:status, [:monitoring, :resumed, :blocked])
     |> validate_inclusion(:remote_status, RunState.statuses())
     |> check_constraint(:status, name: :episode_emisar_approval_identity_valid)
     |> check_constraint(:lease_ref, name: :episode_emisar_approval_lease_valid)
+    |> check_constraint(:review_digest, name: :episode_emisar_approval_review_valid)
   end
 end

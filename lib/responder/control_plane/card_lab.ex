@@ -148,6 +148,7 @@ defmodule Responder.ControlPlane.CardLab do
 
     %{
       card_count: length(cards),
+      emisar_review_outcomes: covered(cards, :emisar_review),
       emisar_statuses: covered(cards, :emisar_status),
       incident_statuses: covered(cards, :incident_status),
       record_kinds: covered(cards, :record_kind),
@@ -682,9 +683,8 @@ defmodule Responder.ControlPlane.CardLab do
   end
 
   defp governed_actions do
-    states =
-      RunState.statuses()
-      |> Enum.map(fn status ->
+    run_states =
+      Enum.map(RunState.statuses(), fn status ->
         error =
           if status in ~w(failed error validation_failed unknown_action),
             do: "The exact remote run reported a bounded failure.",
@@ -694,21 +694,138 @@ defmodule Responder.ControlPlane.CardLab do
           slug(status),
           humanize(status),
           "Authoritative Emisar run status: #{status}.",
-          %{
-            "emisar_approval_status" => approval_status(status, error)
-          },
+          %{"emisar_approval_status" => approval_status(status, error)},
           %{emisar_status: status}
         )
       end)
-      |> sequence()
 
     family(
       "governed-action",
       "Governed action",
-      "Read-only Slack projection of every Emisar run status.",
+      "One Emisar review message: its rationale, the command it is judged on, and every recorded decision.",
       :message,
-      states
+      sequence(run_states ++ review_states())
     )
+  end
+
+  # The review outcomes the card exists to report. The run status barely moves
+  # across them — which is the point: these are decisions, not execution.
+  defp review_states do
+    Enum.map(review_specimens(), fn {slug, label, run_status, review} ->
+      state(
+        "review-#{slug}",
+        label,
+        "Authoritative Emisar review outcome: #{review["status"]}.",
+        %{
+          "emisar_approval_status" =>
+            approval_status(run_status, nil) |> Map.put("review", review)
+        },
+        %{emisar_status: run_status, emisar_review: review["status"]}
+      )
+    end)
+  end
+
+  defp review_specimens do
+    [
+      {"pending", "Review · pending", "pending_approval", review_specimen(%{})},
+      {"partial", "Review · one of two", "pending_approval",
+       review_specimen(%{
+         "approved_count" => 1,
+         "decisions" => [lab_decision("approve", "Amara Osei")]
+       })},
+      {"granted", "Review · granted", "success",
+       review_specimen(%{
+         "status" => "approved",
+         "required_approvals" => 1,
+         "approved_count" => 1,
+         "decisions" => [
+           lab_decision("approve", "Amara Osei", "Read-only query; no configuration changes.")
+         ]
+       })},
+      {"granted-many", "Review · quorum granted", "success",
+       review_specimen(%{
+         "status" => "approved",
+         "approved_count" => 2,
+         "decisions" => [
+           lab_decision("approve", "Amara Osei"),
+           lab_decision("approve", "Jonas Weber", "The runner and query scope are correct.")
+         ]
+       })},
+      {"denied", "Review · denied", "denied",
+       review_specimen(%{
+         "status" => "denied",
+         "approved_count" => 1,
+         "decisions" => [
+           lab_decision("approve", "Amara Osei"),
+           lab_decision("deny", "Jonas Weber", "Please narrow the query to the affected service.")
+         ]
+       })},
+      {"expired", "Review · window expired", "cancelled",
+       review_specimen(%{
+         "status" => "expired",
+         "approved_count" => 1,
+         "decisions" => [lab_decision("approve", "Amara Osei")]
+       })},
+      {"cancelled", "Review · cancelled", "cancelled",
+       review_specimen(%{"status" => "cancelled"})},
+      {"override", "Review · admin override", "success",
+       review_specimen(%{
+         "status" => "approved",
+         "approved_count" => 1,
+         "decisions" => [lab_decision("approve", "Amara Osei")],
+         "override" => %{
+           "actor" => "Priya Raman",
+           "reason" =>
+             "A second reviewer is unavailable; we need this read-only check during the incident.",
+           "approved_count" => 1,
+           "required_approvals" => 2,
+           "waived_approvals" => 1,
+           "decided_at" => "2099-09-04T12:20:00.000000Z"
+         }
+       })},
+      {"executed", "Review · executed receipt", "success",
+       review_specimen(%{
+         "status" => "approved",
+         "approved_count" => 2,
+         "decisions" => [
+           lab_decision("approve", "Amara Osei"),
+           lab_decision("approve", "Jonas Weber")
+         ],
+         "command" => %{
+           "kind" => "executed",
+           "text" => "nomad alloc restart 9f2c1b7e",
+           "truncated" => false
+         }
+       })}
+    ]
+  end
+
+  defp review_specimen(fields) do
+    Map.merge(
+      %{
+        "request_id" => "apr-card-lab",
+        "status" => "pending",
+        "required_approvals" => 2,
+        "approved_count" => 0,
+        "argument_count" => 2,
+        "reason" => "Restart the stuck allocation so the ingest queue drains.",
+        "evidence" =>
+          "The allocation has been unhealthy for 18 minutes and the queue is growing.",
+        "expected" => "A healthy allocation and a falling queue depth within five minutes.",
+        "command" => %{
+          "kind" => "preview",
+          "text" => "nomad alloc restart 9f2c1b7e",
+          "truncated" => false
+        },
+        "decisions" => []
+      },
+      fields
+    )
+  end
+
+  defp lab_decision(decision, actor, reason \\ nil) do
+    %{"actor" => actor, "decision" => decision, "decided_at" => "2099-09-04T12:15:00.000000Z"}
+    |> then(&if reason, do: Map.put(&1, "reason", reason), else: &1)
   end
 
   defp task_offers do
@@ -2066,6 +2183,7 @@ defmodule Responder.ControlPlane.CardLab do
 
   defp approval_status(status, error) do
     %{
+      "review" => nil,
       "action_id" => "nomad.alloc_restart",
       "approval_url" => "https://emisar.example/app/acme/approvals/apr-card-lab",
       "expires_at" => "2099-09-04T12:30:00.000000Z",
@@ -2082,8 +2200,7 @@ defmodule Responder.ControlPlane.CardLab do
 
   defp approval_record do
     approval_status("pending_approval", nil)
-    |> Map.delete("remote_error")
-    |> Map.delete("run_url")
+    |> Map.drop(["remote_error", "review", "run_url"])
   end
 
   defp automation_document(status, revision),

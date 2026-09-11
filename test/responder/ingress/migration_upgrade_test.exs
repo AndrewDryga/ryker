@@ -61,6 +61,7 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
   @learning_executions_version 20_260_911_001_500
   @coop_session_evidence_version 20_260_911_001_900
   @repository_source_version 20_260_911_001_700
+  @emisar_review_digests_version 20_260_911_002_000
   # Cross-conversation routing migrations stay named as their own group so the
   # ladder can be reconciled with sibling work.
   @routing_versions [
@@ -91,7 +92,8 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
     @work_placement_version,
     @import_receipts_version,
     @repository_source_version,
-    @coop_session_evidence_version
+    @coop_session_evidence_version,
+    @emisar_review_digests_version
   ]
   @memory_versions Enum.to_list(20_260_908_000_100..20_260_908_001_100//100) ++
                      [@bounded_sources_version]
@@ -1627,11 +1629,12 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
       # projections, the learning execution kind and the recorded worker session
       # evidence and the empty settings tables are reversible on their own.
       assert Ecto.Migrator.run(repo, @migrations_path, :down,
-               step: 14 + length(@routing_versions),
+               step: 15 + length(@routing_versions),
                prefix: prefix,
                log: false
              ) ==
                [
+                 @emisar_review_digests_version,
                  @coop_session_evidence_version,
                  @repository_source_version,
                  @import_receipts_version,
@@ -1729,6 +1732,25 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
 
       # The worker session evidence sits above the learning rungs and is empty in
       # this schema, so it rolls back on its own first.
+      approval_id = insert_presented_review!(repo, prefix, ids, record_id)
+
+      assert_raise Postgrex.Error, ~r/presented Emisar review receipts have data/, fn ->
+        Ecto.Migrator.run(repo, @migrations_path, :down, step: 1, prefix: prefix, log: false)
+      end
+
+      assert column_exists?(repo, prefix, "episode_emisar_approvals", "review_digest")
+
+      SQL.query!(
+        repo,
+        "DELETE FROM #{prefix}.episode_emisar_approvals WHERE id = $1::text::uuid",
+        [approval_id]
+      )
+
+      assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 1, prefix: prefix, log: false) ==
+               [@emisar_review_digests_version]
+
+      refute column_exists?(repo, prefix, "episode_emisar_approvals", "review_digest")
+
       assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 6, prefix: prefix, log: false) ==
                [
                  @coop_session_evidence_version,
@@ -1969,7 +1991,8 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
                  @work_placement_version,
                  @import_receipts_version,
                  @repository_source_version,
-                 @coop_session_evidence_version
+                 @coop_session_evidence_version,
+                 @emisar_review_digests_version
                ]
 
       assert table_exists?(repo, prefix, "episode_routing_digests")
@@ -1983,8 +2006,9 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
       # Six newer migrations sit above the routing rungs; all are reversible in
       # this schema, which recorded no worker evidence, no settings and no
       # metered learning execution.
-      assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 7, prefix: prefix, log: false) ==
+      assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 8, prefix: prefix, log: false) ==
                [
+                 @emisar_review_digests_version,
                  @coop_session_evidence_version,
                  @repository_source_version,
                  @import_receipts_version,
@@ -2110,6 +2134,10 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
 
       assert table_exists?(repo, prefix, "coop_session_evidence")
 
+      # The review digests sit above this table and hold nothing here.
+      assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 1, prefix: prefix, log: false) ==
+               [@emisar_review_digests_version]
+
       session_id = insert_admission_session!(repo, prefix)
       evidence_id = insert_session_evidence!(repo, prefix, session_id)
 
@@ -2137,7 +2165,7 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
       refute table_exists?(repo, prefix, "coop_session_evidence")
 
       assert Ecto.Migrator.run(repo, @migrations_path, :up, all: true, prefix: prefix, log: false) ==
-               [@coop_session_evidence_version]
+               [@coop_session_evidence_version, @emisar_review_digests_version]
     after
       SQL.query!(repo, "DROP SCHEMA IF EXISTS #{prefix} CASCADE", [])
     end
@@ -2181,8 +2209,12 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
 
       # The worker session evidence and the repository source column sit above the
       # settings tables and hold nothing here, so they roll back on their own.
-      assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 2, prefix: prefix, log: false) ==
-               [@coop_session_evidence_version, @repository_source_version]
+      assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 3, prefix: prefix, log: false) ==
+               [
+                 @emisar_review_digests_version,
+                 @coop_session_evidence_version,
+                 @repository_source_version
+               ]
 
       # The receipt is the only proof that a rerun of the importer is already
       # applied; dropping it under a live installation would let a rerun write
@@ -2240,7 +2272,8 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
                  @work_placement_version,
                  @import_receipts_version,
                  @repository_source_version,
-                 @coop_session_evidence_version
+                 @coop_session_evidence_version,
+                 @emisar_review_digests_version
                ]
     after
       SQL.query!(repo, "DROP SCHEMA IF EXISTS #{prefix} CASCADE", [])
@@ -3187,6 +3220,32 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
     )
 
     session_id
+  end
+
+  # One monitored approval that has already presented a review receipt — the row
+  # the rollback guard must refuse to drop the digest from.
+  defp insert_presented_review!(repo, prefix, ids, record_id) do
+    approval_id = Ecto.UUID.generate()
+
+    SQL.query!(
+      repo,
+      """
+      INSERT INTO #{prefix}.episode_emisar_approvals (
+        id, record_id, episode_id, request_id, run_id, operation_id, action_id,
+        pack_ref, runner_ref, approval_url, expires_at, status, remote_status,
+        review_digest, failure_count, inserted_at, updated_at
+      ) VALUES (
+        $1::text::uuid, $2::text::uuid, $3::text::uuid, 'apr-ladder', 'run-ladder',
+        'op-ladder', 'nomad.alloc_restart', 'nomad@1#sha256:abc', 'production-runner',
+        'https://emisar.example/app/acme/approvals/apr-ladder', clock_timestamp(),
+        'monitoring', 'pending_approval', repeat('a', 64), 0,
+        clock_timestamp(), clock_timestamp()
+      )
+      """,
+      [approval_id, record_id, ids.episode_id]
+    )
+
+    approval_id
   end
 
   defp insert_stale_head_recovery_rows!(repo, prefix, ids) do
