@@ -3,6 +3,7 @@ defmodule Responder.ObservabilityTest do
 
   import Ecto.Query
 
+  alias Responder.Bootstrap
   alias Responder.CoopFleet.{Client, ControlPlane, Worker}
   alias Responder.Episodes
   alias Responder.Fixtures.Episodes, as: EpisodeFixtures
@@ -13,6 +14,7 @@ defmodule Responder.ObservabilityTest do
   alias Responder.Observability
   alias Responder.Observability.Progress
   alias Responder.Repo
+  alias Responder.Runtime.Owner
   alias Responder.Settings
   alias Responder.Slack.Input, as: SlackInput
   alias Responder.State.Learning
@@ -469,14 +471,14 @@ defmodule Responder.ObservabilityTest do
     Application.put_env(:responder, :control_plane, %{enabled: true})
 
     {:ok, owner} =
-      Responder.Runtime.Owner.start_link(
-        name: Responder.Runtime.Owner,
+      Owner.start_link(
+        name: Owner,
         bootstrap: owner_bootstrap(),
         supervisor: Responder.Runtime.Supervisor
       )
 
     on_exit(fn -> if Process.alive?(owner), do: GenServer.stop(owner) end)
-    assert Responder.Runtime.Owner.running_keys() == [:control_plane]
+    assert Owner.running_keys() == [:control_plane]
 
     assert {_result, readiness} =
              Observability.ready(check_runtimes: true, stall_after_seconds: 86_400)
