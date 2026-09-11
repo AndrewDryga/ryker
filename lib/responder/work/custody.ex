@@ -25,6 +25,7 @@ defmodule Responder.Work.Custody do
     FinalPreflight,
     Measurement,
     RepositoryContext,
+    RepositorySource,
     Result,
     Session,
     SessionChangeset,
@@ -89,6 +90,35 @@ defmodule Responder.Work.Custody do
         repository_ref,
         repository_context
       ) do
+    pin_episode(
+      episode_id,
+      policy,
+      policy_digest,
+      authority_digest,
+      repository_ref,
+      repository_context,
+      nil
+    )
+  end
+
+  @spec pin_episode(
+          Ecto.UUID.t(),
+          String.t(),
+          String.t(),
+          String.t() | nil,
+          String.t() | nil,
+          map() | nil,
+          map() | nil
+        ) :: {:ok, Session.t()} | {:error, term()}
+  def pin_episode(
+        episode_id,
+        policy,
+        policy_digest,
+        authority_digest,
+        repository_ref,
+        repository_context,
+        repository_source
+      ) do
     Repo.transaction(fn ->
       case pin_episode_in_transaction(
              episode_id,
@@ -96,7 +126,8 @@ defmodule Responder.Work.Custody do
              policy_digest,
              authority_digest,
              repository_ref,
-             repository_context
+             repository_context,
+             repository_source
            ) do
         {:ok, session} -> session
         {:error, reason} -> Repo.rollback(reason)
@@ -162,13 +193,43 @@ defmodule Responder.Work.Custody do
         repository_ref,
         repository_context
       ) do
+    pin_episode_in_transaction(
+      episode_id,
+      policy,
+      policy_digest,
+      authority_digest,
+      repository_ref,
+      repository_context,
+      nil
+    )
+  end
+
+  @spec pin_episode_in_transaction(
+          Ecto.UUID.t(),
+          String.t(),
+          String.t(),
+          String.t() | nil,
+          String.t() | nil,
+          map() | nil,
+          map() | nil
+        ) :: {:ok, Session.t()} | {:error, term()}
+  def pin_episode_in_transaction(
+        episode_id,
+        policy,
+        policy_digest,
+        authority_digest,
+        repository_ref,
+        repository_context,
+        repository_source
+      ) do
     with :ok <- transaction_open(),
          {:ok, episode_id} <- uuid(episode_id, :episode_id),
          :ok <- reference(policy, :policy),
          :ok <- sha256(policy_digest, :policy_digest),
          :ok <- optional_sha256(authority_digest, :authority_digest),
          :ok <- optional_reference(repository_ref, :repository_ref),
-         :ok <- repository_context(repository_context, repository_ref) do
+         :ok <- repository_context(repository_context, repository_ref),
+         {:ok, repository_source} <- repository_source(repository_source, repository_ref) do
       {:ok,
        pin_episode_locked(
          episode_id,
@@ -176,7 +237,8 @@ defmodule Responder.Work.Custody do
          policy_digest,
          authority_digest,
          repository_ref,
-         repository_context
+         repository_context,
+         repository_source
        )}
     end
   end
@@ -223,6 +285,36 @@ defmodule Responder.Work.Custody do
         repository_context,
         workspace_task
       ) do
+    pin_task_episode_in_transaction(
+      episode_id,
+      policy,
+      policy_digest,
+      repository_ref,
+      repository_context,
+      workspace_task,
+      nil
+    )
+  end
+
+  @doc false
+  @spec pin_task_episode_in_transaction(
+          Ecto.UUID.t(),
+          String.t(),
+          String.t(),
+          String.t(),
+          map() | nil,
+          map(),
+          map() | nil
+        ) :: {:ok, Session.t()} | {:error, term()}
+  def pin_task_episode_in_transaction(
+        episode_id,
+        policy,
+        policy_digest,
+        repository_ref,
+        repository_context,
+        workspace_task,
+        repository_source
+      ) do
     with {:ok, session} <-
            pin_episode_in_transaction(
              episode_id,
@@ -230,7 +322,8 @@ defmodule Responder.Work.Custody do
              policy_digest,
              nil,
              repository_ref,
-             repository_context
+             repository_context,
+             repository_source
            ) do
       case session.workspace_task do
         nil ->
@@ -1443,7 +1536,8 @@ defmodule Responder.Work.Custody do
          policy_digest,
          authority_digest,
          repository_ref,
-         repository_context
+         repository_context,
+         repository_source
        ) do
     case Repo.one(
            from(episode in Episode,
@@ -1470,6 +1564,7 @@ defmodule Responder.Work.Custody do
               %{
                 authority_digest: authority_digest,
                 repository_context: repository_context,
+                repository_source: repository_source,
                 workspace_task: nil
               }
             )
@@ -1483,12 +1578,7 @@ defmodule Responder.Work.Custody do
             insert_session_or_rollback(
               episode.id,
               session.generation + 1,
-              session.policy,
-              session.policy_digest,
-              session.authority_digest,
-              session.repository_ref,
-              session.workspace_task,
-              session.repository_context
+              session_authority(session)
             )
         end
     end
@@ -1608,16 +1698,7 @@ defmodule Responder.Work.Custody do
         {:ok, session}
 
       %Session{} = session ->
-        insert_session(
-          episode.id,
-          session.generation + 1,
-          session.policy,
-          session.policy_digest,
-          session.authority_digest,
-          session.repository_ref,
-          session.workspace_task,
-          session.repository_context
-        )
+        insert_session(episode.id, session.generation + 1, session_authority(session))
     end
   end
 
@@ -1692,16 +1773,7 @@ defmodule Responder.Work.Custody do
       turns ->
         case block_transferred_turns(turns) do
           :ok ->
-            insert_session(
-              episode.id,
-              session.generation + 1,
-              session.policy,
-              session.policy_digest,
-              session.authority_digest,
-              session.repository_ref,
-              session.workspace_task,
-              session.repository_context
-            )
+            insert_session(episode.id, session.generation + 1, session_authority(session))
 
           {:error, _reason} = error ->
             error
@@ -1734,56 +1806,44 @@ defmodule Responder.Work.Custody do
     end)
   end
 
-  defp insert_session(
-         episode_id,
-         generation,
-         policy,
-         policy_digest,
-         authority_digest,
-         repository_ref,
-         workspace_task,
-         repository_context
-       ) do
+  # Replacement generations copy the predecessor's authority verbatim, including
+  # an absent selector. A rotation is the same custody, never a new resolution.
+  defp session_authority(%Session{} = session) do
+    %{
+      authority_digest: session.authority_digest,
+      policy: session.policy,
+      policy_digest: session.policy_digest,
+      repository_context: session.repository_context,
+      repository_ref: session.repository_ref,
+      repository_source: session.repository_source,
+      workspace_task: session.workspace_task
+    }
+  end
+
+  defp insert_session(episode_id, generation, authority) do
     session_id = Ecto.UUID.generate()
 
     session_id
     |> SessionChangeset.insert_with_authority(
       episode_id,
       generation,
-      policy,
-      policy_digest,
-      repository_ref,
+      authority.policy,
+      authority.policy_digest,
+      authority.repository_ref,
       session_external_ref(episode_id, generation),
       %{
-        authority_digest: authority_digest,
-        repository_context: repository_context,
-        workspace_task: workspace_task
+        authority_digest: authority.authority_digest,
+        repository_context: authority.repository_context,
+        repository_source: authority.repository_source,
+        workspace_task: authority.workspace_task
       }
     )
     |> Repo.insert()
     |> persistence_result(:work_session)
   end
 
-  defp insert_session_or_rollback(
-         episode_id,
-         generation,
-         policy,
-         policy_digest,
-         authority_digest,
-         repository_ref,
-         workspace_task,
-         repository_context
-       ) do
-    case insert_session(
-           episode_id,
-           generation,
-           policy,
-           policy_digest,
-           authority_digest,
-           repository_ref,
-           workspace_task,
-           repository_context
-         ) do
+  defp insert_session_or_rollback(episode_id, generation, authority) do
+    case insert_session(episode_id, generation, authority) do
       {:ok, session} -> session
       {:error, reason} -> Repo.rollback(reason)
     end
@@ -1959,12 +2019,7 @@ defmodule Responder.Work.Custody do
                insert_session(
                  session.episode_id,
                  session.generation + 1,
-                 session.policy,
-                 session.policy_digest,
-                 session.authority_digest,
-                 session.repository_ref,
-                 session.workspace_task,
-                 session.repository_context
+                 session_authority(session)
                ),
              {:ok, turn} <-
                turn
@@ -3141,12 +3196,7 @@ defmodule Responder.Work.Custody do
     case insert_session(
            session.episode_id,
            session.generation + 1,
-           session.policy,
-           session.policy_digest,
-           session.authority_digest,
-           session.repository_ref,
-           session.workspace_task,
-           session.repository_context
+           session_authority(session)
          ) do
       {:ok, _session} -> :ok
       {:error, _reason} = error -> error
@@ -3842,6 +3892,21 @@ defmodule Responder.Work.Custody do
     case RepositoryContext.restore(value, repository_ref) do
       {:ok, _context} -> :ok
       {:error, :invalid} -> {:error, {:invalid_work_custody, :repository_context}}
+    end
+  end
+
+  # Repository-backed work always carries a source; the host supplies `default`
+  # when nobody chose. Workspace-free work never carries one.
+  defp repository_source(nil, nil), do: {:ok, nil}
+  defp repository_source(nil, _repository_ref), do: {:ok, RepositorySource.default()}
+
+  defp repository_source(_value, nil),
+    do: {:error, {:invalid_work_custody, :repository_source}}
+
+  defp repository_source(value, _repository_ref) do
+    case RepositorySource.parse(value) do
+      {:ok, source} -> {:ok, source}
+      {:error, _reason} -> {:error, {:invalid_work_custody, :repository_source}}
     end
   end
 

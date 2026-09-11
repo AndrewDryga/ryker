@@ -16,6 +16,7 @@ defmodule Responder.Work.Session do
     field(:authority_digest, :string)
     field(:repository_ref, :string)
     field(:repository_context, Responder.CanonicalJSON.Type)
+    field(:repository_source, Responder.CanonicalJSON.Type)
     field(:external_ref, :string)
     field(:generation, :integer, default: 1)
     field(:create_generation, :integer, default: 1)
@@ -80,6 +81,7 @@ defmodule Responder.Work.Session do
           authority_digest: String.t() | nil,
           repository_ref: String.t() | nil,
           repository_context: map() | nil,
+          repository_source: map() | nil,
           external_ref: String.t() | nil,
           generation: pos_integer(),
           create_generation: pos_integer(),
