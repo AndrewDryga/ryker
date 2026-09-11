@@ -26,7 +26,9 @@ defmodule Responder.TestSupport.FakeWorkCoopAPI do
         session_evidence_reads: 0,
         create_count: 0,
         create_keys: [],
+        create_sources: [],
         fence_create_keys: [],
+        fence_create_sources: [],
         fence_submit_keys: [],
         known_operations: %{},
         lose_first_cancel_response: Keyword.get(options, :lose_first_cancel_response, false),
@@ -110,7 +112,12 @@ defmodule Responder.TestSupport.FakeWorkCoopAPI do
 
   @impl true
   def capabilities(_agent),
-    do: {:ok, %{"repository_freshness_receipt_versions" => [2]}}
+    do:
+      {:ok,
+       %{
+         "repository_freshness_receipt_versions" => [2],
+         "repository_source_selector_versions" => [1]
+       }}
 
   def update(agent, function) when is_function(function, 1),
     do: Agent.update(agent, function)
@@ -147,7 +154,7 @@ defmodule Responder.TestSupport.FakeWorkCoopAPI do
   end
 
   @impl true
-  def create_session(agent, key, policy, task) do
+  def create_session(agent, key, policy, task, source) do
     Agent.get_and_update(agent, fn state ->
       session_id =
         if state.session["state"] in ~w(exhausted closed discarded),
@@ -174,6 +181,7 @@ defmodule Responder.TestSupport.FakeWorkCoopAPI do
         state
         | create_count: state.create_count + 1,
           create_keys: state.create_keys ++ [key],
+          create_sources: state.create_sources ++ [source],
           known_operations: Map.put(state.known_operations, key, operation),
           session: session
       }
@@ -183,7 +191,11 @@ defmodule Responder.TestSupport.FakeWorkCoopAPI do
   end
 
   @impl true
-  def fence_create_session(agent, key, _policy, _task) do
+  def fence_create_session(agent, key, _policy, _task, source) do
+    Agent.update(agent, fn state ->
+      %{state | fence_create_sources: state.fence_create_sources ++ [source]}
+    end)
+
     fence_operation(agent, key, "CreateRemoteSession", :fence_create_keys)
   end
 

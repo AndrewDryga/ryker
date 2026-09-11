@@ -13,13 +13,13 @@ defmodule Responder.Learning.ProviderFailureTest do
     defdelegate get_session(client, id), to: Fake
     defdelegate get_turn(client, sid, tid), to: Fake
 
-    def create_session(client, key, policy, ref) do
+    def create_session(client, key, policy, ref, source) do
       Agent.update(client, fn state ->
         session = Map.put(state.session, "id", "host-contract-session:#{ref}")
         %{state | session: session}
       end)
 
-      Fake.create_session(client, key, policy, ref)
+      Fake.create_session(client, key, policy, ref, source)
     end
 
     def submit_frozen_turn(client, sid, key, revision, submission, nil, []) do

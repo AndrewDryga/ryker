@@ -35,8 +35,8 @@ defmodule Responder.Evals.LearningRunner do
     # Reject a crossed policy repository before any retained source is submitted.
     def get_session(client, id), do: client.api.get_session(client.client, id) |> checked(client)
 
-    def create_session(client, key, policy, ref),
-      do: client.api.create_session(client.client, key, policy, ref) |> checked(client)
+    def create_session(client, key, policy, ref, source),
+      do: client.api.create_session(client.client, key, policy, ref, source) |> checked(client)
 
     defp checked({:ok, %{"session" => session} = response}, client) do
       with {:ok, _} <- checked({:ok, session}, client), do: {:ok, response}
@@ -53,7 +53,7 @@ defmodule Responder.Evals.LearningRunner do
           capabilities: 0,
           operation_by_key: 1,
           get_turn: 2,
-          fence_create_session: 3,
+          fence_create_session: 4,
           submit_frozen_turn: 6,
           fence_frozen_turn: 6,
           validate_frozen_candidate: 6,

@@ -11,35 +11,47 @@ defmodule Responder.Coop.API do
   @callback capabilities(client :: term()) :: {:ok, map()} | {:error, term()}
   @callback capabilities(client :: term(), session :: term()) ::
               {:ok, map()} | {:error, term()}
+  @typedoc """
+  The authorized source a new repository-backed session starts from.
+
+  `nil` means workspace-free work. Create and fence carry the identical value so
+  a fence request hashes exactly what create would have sent.
+  """
+  @type repository_source :: map() | nil
+
   @callback create_session(
               client :: term(),
               key :: String.t(),
               policy :: String.t(),
-              task :: String.t()
+              task :: String.t(),
+              repository_source :: repository_source()
             ) :: {:ok, map()} | {:error, term()}
   @callback create_bound_session(
               client :: term(),
               key :: String.t(),
               policy :: String.t(),
               task :: String.t(),
-              responder_binding :: map()
+              responder_binding :: map(),
+              repository_source :: repository_source()
             ) :: {:ok, map()} | {:error, term()}
   @callback fence_create_session(
               client :: term(),
               key :: String.t(),
               policy :: String.t(),
-              task :: String.t()
+              task :: String.t(),
+              repository_source :: repository_source()
             ) :: {:ok, map()} | {:error, term()}
   @callback fence_bound_session(
               client :: term(),
               key :: String.t(),
               policy :: String.t(),
               task :: String.t(),
-              responder_binding :: map()
+              responder_binding :: map(),
+              repository_source :: repository_source()
             ) :: {:ok, map()} | {:error, term()}
 
-  @optional_callbacks create_bound_session: 5,
-                      fence_bound_session: 5,
+  @optional_callbacks create_bound_session: 6,
+                      fence_bound_session: 6,
                       capabilities: 1,
                       capabilities: 2
   @callback get_session(client :: term(), session_id :: String.t()) ::

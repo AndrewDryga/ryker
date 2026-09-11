@@ -23,7 +23,7 @@ defmodule Responder.CoopFleet.Client do
   }
 
   alias Responder.Repo
-  alias Responder.Work.{Session, StateBinding}
+  alias Responder.Work.{RepositorySource, Session, StateBinding}
 
   @fields [:bridge, :bridge_options]
   @option_keys [
@@ -42,6 +42,7 @@ defmodule Responder.CoopFleet.Client do
   @type t :: %__MODULE__{bridge: module(), bridge_options: keyword()}
 
   @repository_freshness_capability "repository-freshness"
+  @repository_source_selector_capability "repository-source-selector"
 
   @spec new(keyword() | map()) :: {:ok, t()} | {:error, term()}
   def new(options) do
@@ -67,17 +68,11 @@ defmodule Responder.CoopFleet.Client do
   end
 
   @impl true
-  def create_session(client, key, policy, task) do
+  def create_session(client, key, policy, task, source) do
     with {:ok, session} <- session_by_task_ref(task),
          true <- session.policy == policy,
-         {:ok, remote} <-
-           execute(
-             client,
-             session,
-             "create_session",
-             create_session_payload(session, policy, task, nil),
-             key
-           ) do
+         {:ok, payload} <- create_session_payload(session, policy, task, nil, source),
+         {:ok, remote} <- execute(client, session, "create_session", payload, key) do
       ensure_workspace(client, session, remote, key)
     else
       false -> {:error, {:coop_fleet_authority_mismatch, :policy}}
@@ -86,18 +81,12 @@ defmodule Responder.CoopFleet.Client do
   end
 
   @impl true
-  def create_bound_session(client, key, policy, task, binding) do
+  def create_bound_session(client, key, policy, task, binding, source) do
     with {:ok, session} <- session_by_task_ref(task),
          true <- session.policy == policy,
          :ok <- optional_responder_binding(binding),
-         {:ok, remote} <-
-           execute(
-             client,
-             session,
-             "create_session",
-             create_session_payload(session, policy, task, binding),
-             key
-           ) do
+         {:ok, payload} <- create_session_payload(session, policy, task, binding, source),
+         {:ok, remote} <- execute(client, session, "create_session", payload, key) do
       ensure_workspace(client, session, remote, key)
     else
       false -> {:error, {:coop_fleet_authority_mismatch, :policy}}
@@ -164,16 +153,11 @@ defmodule Responder.CoopFleet.Client do
   end
 
   @impl true
-  def fence_create_session(client, key, policy, task) do
+  def fence_create_session(client, key, policy, task, source) do
     with {:ok, session} <- session_by_task_ref(task),
-         true <- session.policy == policy do
-      fence_durable_operation(
-        client,
-        session,
-        key,
-        "create_session",
-        create_session_payload(session, policy, task, nil)
-      )
+         true <- session.policy == policy,
+         {:ok, payload} <- create_session_payload(session, policy, task, nil, source) do
+      fence_durable_operation(client, session, key, "create_session", payload)
     else
       false -> {:error, {:coop_fleet_authority_mismatch, :policy}}
       {:error, _reason} = error -> error
@@ -181,17 +165,12 @@ defmodule Responder.CoopFleet.Client do
   end
 
   @impl true
-  def fence_bound_session(client, key, policy, task, binding) do
+  def fence_bound_session(client, key, policy, task, binding, source) do
     with {:ok, session} <- session_by_task_ref(task),
          true <- session.policy == policy,
-         :ok <- optional_responder_binding(binding) do
-      fence_durable_operation(
-        client,
-        session,
-        key,
-        "create_session",
-        create_session_payload(session, policy, task, binding)
-      )
+         :ok <- optional_responder_binding(binding),
+         {:ok, payload} <- create_session_payload(session, policy, task, binding, source) do
+      fence_durable_operation(client, session, key, "create_session", payload)
     else
       false -> {:error, {:coop_fleet_authority_mismatch, :policy}}
       {:error, _reason} = error -> error
@@ -249,26 +228,41 @@ defmodule Responder.CoopFleet.Client do
 
   defp placed_freshness_capabilities(worker, expires_at, now) do
     if DateTime.compare(expires_at, now) == :gt,
-      do: freshness_capability_document(worker.capabilities),
+      do: {:ok, advertised_capability_document(worker.capabilities)},
       else: {:error, {:coop_upgrade_required, :repository_freshness_v2}}
   end
 
+  # Before placement the configured fleet requirement is the only evidence; a
+  # worker that has not advertised the capability is never eligible anyway.
   defp configured_freshness_capabilities(client) do
     versions = Keyword.get(client.bridge_options, :capability_versions, %{})
 
-    if versions[@repository_freshness_capability] == "2",
-      do: {:ok, %{"repository_freshness_receipt_versions" => [2]}},
-      else: {:ok, %{"repository_freshness_receipt_versions" => []}}
+    {:ok,
+     %{
+       "repository_freshness_receipt_versions" =>
+         capability_versions(versions[@repository_freshness_capability] == "2", 2),
+       "repository_source_selector_versions" =>
+         capability_versions(versions[@repository_source_selector_capability] == "1", 1)
+     }}
   end
 
-  defp freshness_capability_document(capabilities) do
-    if Enum.any?(
-         capabilities,
-         &(&1["name"] == @repository_freshness_capability and &1["version"] == "2")
-       ),
-       do: {:ok, %{"repository_freshness_receipt_versions" => [2]}},
-       else: {:ok, %{"repository_freshness_receipt_versions" => []}}
+  defp advertised_capability_document(capabilities) do
+    %{
+      "repository_freshness_receipt_versions" =>
+        capability_versions(advertised?(capabilities, @repository_freshness_capability, "2"), 2),
+      "repository_source_selector_versions" =>
+        capability_versions(
+          advertised?(capabilities, @repository_source_selector_capability, "1"),
+          1
+        )
+    }
   end
+
+  defp advertised?(capabilities, name, version),
+    do: Enum.any?(capabilities, &(&1["name"] == name and &1["version"] == version))
+
+  defp capability_versions(true, version), do: [version]
+  defp capability_versions(false, _version), do: []
 
   @impl true
   def get_changes(client, coop_session_id) do
@@ -1151,15 +1145,32 @@ defmodule Responder.CoopFleet.Client do
   defp maybe_put_responder_binding(document, binding),
     do: Map.put(document, "responder_binding", responder_binding_descriptor(binding))
 
-  defp create_session_payload(session, policy, task, responder_binding) do
-    %{
-      "authority_digest" => session.authority_digest,
-      "external_ref" => task,
-      "policy" => policy,
-      "policy_digest" => session.policy_digest
-    }
-    |> maybe_put_responder_binding(responder_binding)
+  # Create and fence build the identical payload, so a fence request hashes the
+  # exact selector create would have sent.
+  defp create_session_payload(session, policy, task, responder_binding, source) do
+    case RepositorySource.parse_optional(source) do
+      {:ok, source} ->
+        payload =
+          %{
+            "authority_digest" => session.authority_digest,
+            "external_ref" => task,
+            "policy" => policy,
+            "policy_digest" => session.policy_digest
+          }
+          |> maybe_put_responder_binding(responder_binding)
+          |> maybe_put_repository_source(source)
+
+        {:ok, payload}
+
+      {:error, _reason} ->
+        {:error, {:invalid_coop_request, :repository_source}}
+    end
   end
+
+  defp maybe_put_repository_source(payload, nil), do: payload
+
+  defp maybe_put_repository_source(payload, source),
+    do: Map.put(payload, "repository_source", source)
 
   defp submit_turn_payload(coop_session_id, revision, submission, responder_binding) do
     %{

@@ -587,7 +587,7 @@ defmodule Responder.Work.Executor do
          settings
        )
        when is_binary(repository_ref),
-       do: repository_freshness_v2_capability(claim, settings)
+       do: repository_capabilities(claim, settings)
 
   defp replace_lost_session(claim, settings) do
     with {:ok, rotated} <-
@@ -659,6 +659,30 @@ defmodule Responder.Work.Executor do
        do: Enum.any?(receipts, &(is_map(&1) and Map.get(&1, "version") == 1))
 
   defp legacy_repository_freshness?(_remote), do: false
+
+  # Selector-bound work is never dispatched to a worker that cannot resolve a
+  # selector. There is no legacy fallback: an old or partially upgraded worker is
+  # ineligible before any session is created.
+  defp repository_capabilities(claim, settings) do
+    with {:ok, capability_call} <- repository_freshness_capability_call(claim, settings),
+         capabilities <- api_call(settings, capability_call),
+         :ok <- validate_repository_freshness_capability(capabilities) do
+      validate_repository_source_capability(capabilities, claim.session.repository_source)
+    end
+  end
+
+  defp validate_repository_source_capability(_capabilities, nil), do: :ok
+
+  defp validate_repository_source_capability({:ok, capabilities}, _source) do
+    versions = Map.get(capabilities, "repository_source_selector_versions")
+
+    if capability_versions?(versions) and 1 in versions,
+      do: :ok,
+      else: {:error, {:coop_upgrade_required, :repository_source_selector_v1}}
+  end
+
+  defp validate_repository_source_capability(_capabilities, _source),
+    do: {:error, {:coop_upgrade_required, :repository_source_selector_v1}}
 
   defp repository_freshness_v2_capability(claim, settings) do
     with {:ok, capability_call} <- repository_freshness_capability_call(claim, settings) do
@@ -2145,7 +2169,13 @@ defmodule Responder.Work.Executor do
   end
 
   defp create_remote_session(settings, claim, key, task) do
-    settings.api.create_session(settings.client, key, claim.session.policy, task)
+    settings.api.create_session(
+      settings.client,
+      key,
+      claim.session.policy,
+      task,
+      claim.session.repository_source
+    )
   end
 
   defp fence_remote_session(settings, claim, key) do
@@ -2153,7 +2183,8 @@ defmodule Responder.Work.Executor do
       settings.client,
       key,
       claim.session.policy,
-      Session.coop_task_ref(claim.session)
+      Session.coop_task_ref(claim.session),
+      claim.session.repository_source
     )
   end
 

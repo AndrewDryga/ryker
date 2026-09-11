@@ -69,7 +69,9 @@ defmodule Responder.Learning.Executor do
       key,
       "CreateRemoteSession",
       "session",
-      fn -> call(claim, settings, action, [key, run.policy, FleetSession.external_ref(run)]) end,
+      fn ->
+        call(claim, settings, action, [key, run.policy, FleetSession.external_ref(run), nil])
+      end,
       fn id -> call(claim, settings, :get_session, [id]) end,
       :create
     )

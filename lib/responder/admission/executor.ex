@@ -169,7 +169,7 @@ defmodule Responder.Admission.Executor do
     task = session_external_ref(entry)
 
     with :ok <- renew_lease(settings) do
-      settings.api.create_session(settings.client, key, settings.policy, task)
+      settings.api.create_session(settings.client, key, settings.policy, task, nil)
     end
     |> case do
       {:ok, %{"session" => session}} when is_map(session) ->

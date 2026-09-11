@@ -145,7 +145,8 @@ defmodule Responder.Evals.CoopRunner do
            settings.client,
            key,
            settings.policy,
-           external_ref
+           external_ref,
+           nil
          ) do
       {:ok, %{"session" => session}} when is_map(session) ->
         validate_session(session, external_ref, nil, ["open"], settings)

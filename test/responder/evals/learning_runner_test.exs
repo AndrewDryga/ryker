@@ -6,9 +6,16 @@ defmodule Responder.Evals.LearningRunnerTest do
 
   defmodule HostAPI do
     @moduledoc "Offline dispatcher plumbing: constructed contract output, never a recorded model answer."
-    def capabilities(_client), do: {:ok, %{"repository_freshness_receipt_versions" => [2]}}
+    def capabilities(_client),
+      do:
+        {:ok,
+         %{
+           "repository_freshness_receipt_versions" => [2],
+           "repository_source_selector_versions" => [1]
+         }}
+
     defdelegate operation_by_key(client, key), to: Fake
-    defdelegate fence_create_session(client, key, policy, ref), to: Fake
+    defdelegate fence_create_session(client, key, policy, ref, source), to: Fake
     defdelegate cancel_turn(client, sid, tid, key, revision), to: Fake
 
     def get_session(client, sid),
@@ -26,7 +33,7 @@ defmodule Responder.Evals.LearningRunnerTest do
     def discard_session(client, sid, key, plan),
       do: in_session(client, sid, fn -> Fake.discard_session(client, sid, key, plan) end)
 
-    def create_session(client, key, policy, ref) do
+    def create_session(client, key, policy, ref, source) do
       Agent.update(client, fn state ->
         sessions =
           Map.put(
@@ -46,7 +53,7 @@ defmodule Responder.Evals.LearningRunnerTest do
         )
       end)
 
-      Fake.create_session(client, key, policy, ref)
+      Fake.create_session(client, key, policy, ref, source)
     end
 
     def submit_frozen_turn(
