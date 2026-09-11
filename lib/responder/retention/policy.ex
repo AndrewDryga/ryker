@@ -72,6 +72,11 @@ defmodule Responder.Retention.Policy do
       why: "background learning choice; disabling pauses starts without touching budgets"
     },
     %{
+      table: "work_settings",
+      class: :kept,
+      why: "the enrolled worker workspace Work is placed on; losing it strands placement"
+    },
+    %{
       table: "repository_settings",
       class: :kept,
       why: "connected repositories, display metadata, base branch and publication checkout"
@@ -419,7 +424,8 @@ defmodule Responder.Retention.Policy do
     %{
       table: "slack_channel_setting_overrides",
       class: :kept,
-      why: "current explicit channel setting overrides"
+      why:
+        "retired participation overrides retained as operator history after the importer folded them into channel configurations; nothing writes here"
     },
     %{
       table: "slack_configuration_actions",

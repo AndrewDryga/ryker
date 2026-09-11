@@ -15,6 +15,7 @@ defmodule Responder.Settings.Edit do
     :policies,
     :webhooks,
     :pricing,
+    :work,
     :import
   ]
   @primary_key {:id, :binary_id, autogenerate: false}

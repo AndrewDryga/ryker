@@ -1,18 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-configuration=${1:-}
-channel_ref=${2:-}
+channel_ref=${1:-}
 release=${RESPONDER_ELIXIR_RELEASE:-"$HOME/.local/libexec/responder/current/bin/responder"}
 timeout_seconds=${RESPONDER_LIVE_TIMEOUT_SECONDS:-600}
 
-if [[ -z $configuration || -z $channel_ref || ! -f $configuration ]]; then
-  echo "usage: scripts/elixir-live-acceptance.sh /absolute/responder.yaml SLACK_TEST_CHANNEL" >&2
-  exit 2
-fi
-
-if [[ $configuration != /* ]]; then
-  echo "live acceptance configuration must be an absolute path" >&2
+if [[ -z $channel_ref ]]; then
+  echo "usage: scripts/elixir-live-acceptance.sh SLACK_TEST_CHANNEL" >&2
+  echo "the harness reads the deployment's own durable settings" >&2
   exit 2
 fi
 
@@ -32,7 +27,6 @@ if [[ ! -x $release ]]; then
   exit 1
 fi
 
-RESPONDER_LIVE_CONFIG=$configuration \
 RESPONDER_LIVE_CHANNEL=$channel_ref \
 RESPONDER_LIVE_TIMEOUT_SECONDS=$timeout_seconds \
   "$release" eval 'Responder.Acceptance.Live.run_from_env!()'

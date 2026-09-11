@@ -15,8 +15,6 @@ Run exactly one service against a production platform identity and database.
 
 Install these owner-controlled files before starting the service:
 
-- `/etc/responder/responder-elixir.yaml`, derived from
-  `config/responder-elixir.example.yaml`;
 - `/etc/responder/responder.env`, derived from
   `deploy/systemd/responder.env.example` and mode `0600`;
 - `/etc/systemd/system/responder.service`;
@@ -26,10 +24,11 @@ Install these owner-controlled files before starting the service:
   execution endpoints named by the reviewed configuration.
 
 The environment file carries PostgreSQL, platform, checkpoint, and state-tool
-secrets. The YAML file carries trusted platform bindings, repositories, Work
-profiles and their immutable policy digests, delivery adapters, runtime
-listeners, retention, and control-plane configuration. Webhook payloads and
-fleet workers cannot choose any of those authorities.
+secrets, plus the listener and endpoint overrides a deployment needs. Product
+decisions — platform connections, repositories and their reviewed policy
+bindings, channel participation, webhook sources, retention horizons — are typed
+PostgreSQL rows changed through the local console, not a file on the host.
+Webhook payloads and fleet workers cannot choose any of those authorities.
 
 Before every start, validate that:
 
@@ -120,15 +119,15 @@ Run the short-lived Mix tasks with the same `MIX_ENV=prod`, `DATABASE_URL`, and
 absolute runtime configuration path as the release:
 
 ```bash
-mix responder.doctor --config /etc/responder/responder-elixir.yaml
-mix responder.status --config /etc/responder/responder-elixir.yaml
-mix responder.failures --config /etc/responder/responder-elixir.yaml
+mix responder.doctor
+mix responder.status
+mix responder.failures
 mix responder.retry admission 'ingress-input:...' \
-  --config /etc/responder/responder-elixir.yaml --operator U123 --action-ref retry-admission-20260904-1
+  --operator U123 --action-ref retry-admission-20260904-1
 mix responder.replay slack 'ingress-input:...' 'post-fix-check-1' \
-  --config /etc/responder/responder-elixir.yaml --operator U123 --action-ref replay-slack-20260904-1
+  --operator U123 --action-ref replay-slack-20260904-1
 mix responder.replay show 'ingress-input:...' \
-  --config /etc/responder/responder-elixir.yaml
+
 ```
 
 The commands start only temporary database dependencies, never the Responder
@@ -215,7 +214,8 @@ authority. Keep the current runtime configuration's other policies and tool gran
    This command prints the enrollment token once. Save only its token value in
    the worker's owner-private `enrollment_token_file` (mode `0600`); do not paste
    it into chat, command arguments or the worker JSON. This command does **not**
-   accept `--config`. It uses the database environment, not the host YAML path.
+   accept `--config`; no operator command does. Every one of them reads the
+   installation's own durable settings from the database.
 
    Complete co:op's `docs/examples/worker.json` with real identities, HTTPS origin,
    CA, socket, policy/authority digests, repositories, capabilities and capacity.
@@ -229,24 +229,12 @@ authority. Keep the current runtime configuration's other policies and tool gran
    Preserve its generated identity and complete journal across restarts.
    A quiet connector process is not proof that the worker is eligible.
 
-4. In the existing host YAML, change only the relevant Work settings:
-
-   ```yaml
-   work:
-     execution: fleet
-     workspace_ref: YOUR_ENROLLED_WORKSPACE
-     capability_names:
-       - responder-state
-     # Preserve the existing Work settings and source/action-tool grants.
-   ```
-
-   The workspace must exactly match enrollment. Preserve any additional required
-   capabilities; do not remove requirements just to make placement succeed.
-   Verify the selected worker advertises the task's repository, pinned policy and
-   authority, compatible sandbox, required capabilities and available capacity.
-   Validate the edited configuration with `mix responder.doctor --config
-   /absolute/path/to/responder-elixir.yaml`, then restart the host through its
-   normal deployment workflow. Do not restart or upgrade co:op as an incidental
+4. Select the enrolled workspace in the console's Work placement setting. The
+   workspace must exactly match enrollment. Verify the selected worker advertises
+   the task's repository, pinned policy and authority, compatible sandbox,
+   required capabilities and available capacity. The save is applied by the
+   running process; `mix responder.doctor` reports whether the saved revision is
+   the applied one. No restart is required for a settings change. Do not restart or upgrade co:op as an incidental
    part of deploying a host UI change.
 
 5. Before retrying the task, verify that a disposable workspace can be saved and
@@ -472,11 +460,10 @@ discarding dirty or unpublished work.
 `storage_high_watermark_bytes`, `storage_low_watermark_bytes` and
 `storage_reserve_bytes` are the documented per-worker storage policy. They and
 the draining settings (`batch_limit`, `batch_seconds`,
-`retained_recheck_seconds`) carry the documented defaults from
-`config/responder-elixir.example.yaml` when omitted, so an existing
-configuration keeps starting; the retention horizons remain explicit.
-Watermarks must be ordered and the reserve must be smaller than the high
-watermark; configuration outside those bounds fails at startup.
+`retained_recheck_seconds`) are shipped code defaults in `Responder.Defaults`;
+only the retention horizons are operator settings. Watermarks must be ordered
+and the reserve must be smaller than the high watermark; defaults outside those
+bounds fail at startup.
 
 Workers report their own measured storage in every poll. Responder never
 estimates it: a worker that reports no `storage` object is unknown, not zero,

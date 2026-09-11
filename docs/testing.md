@@ -59,19 +59,32 @@ MIX_ENV=test scripts/elixir-mix.sh responder.eval work-pack
 MIX_ENV=test scripts/elixir-mix.sh responder.eval world-pack
 ```
 
-Admission and Work can be run through the configured isolated Coop daemon:
+Admission and Work can be run through the isolated evaluation Coop daemon:
+
+Evaluation authority is supplied explicitly through the evaluation environment and is refused
+if it matches a reviewed production policy binding:
 
 ```bash
-MIX_ENV=test scripts/elixir-mix.sh responder.eval admission --config /absolute/responder-elixir.yaml
-MIX_ENV=test scripts/elixir-mix.sh responder.eval work --config /absolute/responder-elixir.yaml
+export RESPONDER_EVAL_SOCKET=/absolute/evaluation-coop/control.sock
+export RESPONDER_EVAL_NO_TOOLS_POLICY=responder-eval-no-tools-v1
+export RESPONDER_EVAL_NO_TOOLS_POLICY_DIGEST=SHA256
+export RESPONDER_EVAL_WORLD_POLICY=responder-eval-world-v1
+export RESPONDER_EVAL_WORLD_POLICY_DIGEST=SHA256
+export RESPONDER_EVAL_WORLD_BASELINE_POLICY=responder-eval-world-baseline-v1
+export RESPONDER_EVAL_WORLD_BASELINE_POLICY_DIGEST=SHA256
+```
+
+```bash
+MIX_ENV=test scripts/elixir-mix.sh responder.eval admission
+MIX_ENV=test scripts/elixir-mix.sh responder.eval work
 ```
 
 The world evaluation exercises the real episode kernel, Work executor, lease-scoped state tools,
 semantic repair, and inert evaluation delivery against checked-in deterministic worlds:
 
 ```bash
-make eval-world-smoke CONFIG=/absolute/responder-elixir-eval.yaml
-make eval-world CONFIG=/absolute/responder-elixir-eval.yaml
+make eval-world-smoke
+make eval-world
 ```
 
 `eval-world-smoke` runs the representative smoke scenarios once. `eval-world` runs the complete
@@ -114,9 +127,7 @@ Elixir release and posts only to an existing joined, non-Connect channel named `
 set -a
 source ../emisar/.responder/local.env
 set +a
-make live-acceptance \
-  CONFIG=../emisar/.responder/responder.yaml \
-  LIVE_CHANNEL=C0123TEST
+make live-acceptance LIVE_CHANNEL=C0123TEST
 ```
 
 The lane injects uniquely identified synthetic configured-operator inputs because a bot token

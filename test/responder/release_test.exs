@@ -2,7 +2,6 @@ defmodule Responder.ReleaseTest do
   use Responder.DataCase, async: false
 
   alias Responder.Release
-  alias Responder.RuntimeConfiguration
 
   test "the Elixir release preserves import history without shipping retired Go migration commands" do
     # Removing the Go gates left their obsolete importer and rollback command in
@@ -60,7 +59,6 @@ defmodule Responder.ReleaseTest do
 
     for path <- ~w(
       README.md
-      config/responder-elixir.example.yaml
       deploy/nginx/responder.conf
       deploy/systemd/responder.service
       deploy/systemd/responder.env.example
@@ -228,7 +226,10 @@ defmodule Responder.ReleaseTest do
     environment = File.read!(Path.expand("../../deploy/systemd/responder.env.example", __DIR__))
     nginx = File.read!(Path.expand("../../deploy/nginx/responder.conf", __DIR__))
 
-    assert service =~ "Environment=RESPONDER_ELIXIR_CONFIG=/etc/responder/responder-elixir.yaml"
+    # There is no application configuration file to point the unit at: product
+    # settings live in PostgreSQL and the environment carries only deployment
+    # connections and credentials.
+    refute service =~ "RESPONDER_ELIXIR_CONFIG"
     assert service =~ "ExecStartPre=/usr/local/lib/responder/current/bin/responder eval"
     assert service =~ "Responder.Release.migrate()"
     assert service =~ "ExecStart=/usr/local/lib/responder/current/bin/responder start"
@@ -249,9 +250,10 @@ defmodule Responder.ReleaseTest do
       SLACK_BOT_TOKEN
       SLACK_APP_TOKEN
       EMISAR_API_TOKEN
+      GITHUB_APP_ID
       GITHUB_APP_PRIVATE_KEY
       GITHUB_WEBHOOK_SECRET
-      RESPONDER_WEBHOOK_SECRET
+      RESPONDER_WEBHOOK_SECRET_NAMES
     ) do
       assert environment =~ "#{name}="
     end
@@ -263,24 +265,23 @@ defmodule Responder.ReleaseTest do
     refute nginx =~ "127.0.0.1:8080"
   end
 
-  test "the candidate proves a PostgreSQL backup can boot the packaged release" do
+  test "the candidate boots the packaged release with no configuration file at all" do
     candidate = File.read!(Path.expand("../../scripts/check-elixir-candidate.sh", __DIR__))
-
-    configuration_document =
-      Path.expand("../../testdata/release/responder-component.yaml", __DIR__)
-      |> File.read!()
-      |> String.replace("__CONTROL_PLANE_PORT__", "44123")
-
-    configuration =
-      RuntimeConfiguration.from_string!(configuration_document)
 
     assert candidate =~ "pg_dump --format=custom"
     assert candidate =~ "pg_restore --list"
     assert candidate =~ "pg_restore --exit-on-error"
     assert candidate =~ "run_candidate restored"
 
-    assert configuration.delivery.adapters["control_plane"].message_publisher ==
-             Responder.ControlPlane.Publisher
+    # A clean install must start its local setup from the database and the
+    # bootstrap environment alone.
+    refute candidate =~ "RESPONDER_ELIXIR_CONFIG"
+    refute candidate =~ "configuration_template"
+    assert candidate =~ "DATABASE_URL=$candidate_database_url"
+    assert candidate =~ "RESPONDER_CONTROL_PORT=$candidate_port"
+
+    refute File.exists?(Path.expand("../../config/responder-elixir.example.yaml", __DIR__))
+    refute File.exists?(Path.expand("../../testdata/release/responder-component.yaml", __DIR__))
   end
 
   test "release migration entrypoints are idempotent and rollback is exact" do
@@ -356,7 +357,6 @@ defmodule Responder.ReleaseTest do
 
     for asset <- ~w(
           README.md
-          config/responder-elixir.example.yaml
           deploy/nginx/responder.conf
           deploy/systemd/responder.service
           deploy/systemd/responder.env.example

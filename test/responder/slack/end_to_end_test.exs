@@ -269,7 +269,7 @@ defmodule Responder.Slack.EndToEndTest do
       inbox: Inbox,
       interaction_handler: InteractionHandler,
       interaction_options: %{},
-      watch_channels: MapSet.new(),
+      effective_settings: &installation_participation/2,
       work_profile: fn "TSLACKENDTOEND", "slack:TSLACKENDTOEND:C456" ->
         {:ok,
          %{
@@ -396,5 +396,12 @@ defmodule Responder.Slack.EndToEndTest do
         "state" => "complete"
       }
     })
+  end
+
+  defp installation_participation(_workspace_ref, _conversation_ref) do
+    %{
+      proactive: %{source: :installation, value: false},
+      shadow: %{source: :installation, value: false}
+    }
   end
 end

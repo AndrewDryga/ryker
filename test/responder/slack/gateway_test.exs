@@ -364,7 +364,7 @@ defmodule Responder.Slack.GatewayTest do
     assert Gateway.handle_envelope(message_envelope("Ev-unwatched", "message"), settings()) ==
              {:ack, {:ignored, :not_engaged}}
 
-    watched = %{settings() | watch_channels: MapSet.new(["C456"])}
+    watched = %{settings() | effective_settings: &participation(&1, &2, :proactive)}
 
     assert {:ack, {:recorded, _input_ref}} =
              Gateway.handle_envelope(message_envelope("Ev-watched", "message"), watched)
@@ -406,7 +406,7 @@ defmodule Responder.Slack.GatewayTest do
           %{"audience" => "mention", "responder_user_ref" => "UOTHER"}
         ])
 
-      watched = %{settings() | watch_channels: MapSet.new([channel])}
+      watched = %{settings() | effective_settings: &participation(&1, &2, :proactive)}
       assert {:ack, {:recorded, ref}} = Gateway.handle_envelope(envelope, watched)
       assert {:ok, entry} = Inbox.fetch(ref)
       assert Map.get(entry, :slack_audience) == expected
@@ -747,7 +747,7 @@ defmodule Responder.Slack.GatewayTest do
         |> Map.put("subtype", "bot_message")
       end)
 
-    watched = %{settings() | watch_channels: MapSet.new(["C456"])}
+    watched = %{settings() | effective_settings: &participation(&1, &2, :proactive)}
     assert {:ack, {:recorded, _ref}} = Gateway.handle_envelope(app_event, watched)
 
     continuation = Map.put(settings(), :continuation, fn _normalized -> true end)
@@ -860,7 +860,16 @@ defmodule Responder.Slack.GatewayTest do
       inbox: Inbox,
       interaction_handler: Responder.Slack.InteractionHandler,
       interaction_options: %{},
-      watch_channels: MapSet.new()
+      effective_settings: &participation(&1, &2, :mentions)
+    }
+  end
+
+  # One installation default resolved for every channel, matching the
+  # consolidated resolver's shape.
+  defp participation(_workspace_ref, _conversation_ref, default) do
+    %{
+      proactive: %{source: :installation, value: default == :proactive},
+      shadow: %{source: :installation, value: default == :shadow}
     }
   end
 

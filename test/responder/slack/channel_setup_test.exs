@@ -4,6 +4,7 @@ defmodule Responder.Slack.ChannelSetupTest do
   alias Responder.Slack.{
     ChannelConfiguration,
     ChannelConfigurations,
+    ChannelSettings,
     ChannelSetup,
     ConfigurationSession,
     Input,
@@ -133,32 +134,16 @@ defmodule Responder.Slack.ChannelSetupTest do
       configurations: ChannelConfigurations,
       directory: Directory,
       operators: MapSet.new(["U123"]),
-      settings_overrides: fn _workspace_ref, _channel_ref ->
-        %{
-          proactive: %{source: :configuration, value: false},
-          shadow: %{source: :configuration, value: false}
-        }
-        |> fold_saved_participation()
+      settings_overrides: fn workspace_ref, channel_ref ->
+        ChannelSettings.effective(
+          workspace_ref,
+          "slack:#{workspace_ref}:#{channel_ref}",
+          :mentions
+        )
       end
     }
 
     %{options: options}
-  end
-
-  # The override view in production folds the saved participation in; the
-  # test double reads the configuration the same way so the welcome reflects
-  # what the Q&A or the welcome buttons saved.
-  defp fold_saved_participation(overrides) do
-    case ChannelConfigurations.configuration(@workspace, "C456") do
-      %ChannelConfiguration{participation: :proactive} ->
-        put_in(overrides, [:proactive, :value], true)
-
-      %ChannelConfiguration{participation: :shadow} ->
-        put_in(overrides, [:shadow, :value], true)
-
-      _other ->
-        overrides
-    end
   end
 
   # The 30-minute setup card used to be the only path to a saved configuration;
@@ -180,7 +165,7 @@ defmodule Responder.Slack.ChannelSetupTest do
     assert welcome["notice"] == nil
 
     assert welcome["settings"]["participation"] == %{
-             "source" => "configuration",
+             "source" => "installation",
              "value" => "mentions"
            }
 
@@ -358,7 +343,7 @@ defmodule Responder.Slack.ChannelSetupTest do
 
     updates_before = updates(options)
     assert ChannelConfigurations.configuration(@workspace, "C456").revision == 1
-    assert ChannelConfigurations.configuration(@workspace, "C456").participation == :mentions
+    assert ChannelConfigurations.configuration(@workspace, "C456").participation == nil
 
     shadow = interaction(session, "responder_setup_participation_shadow", "interaction:shadow")
     assert {:ok, %{outcome: :advanced}} = ChannelSetup.handle_interaction(shadow, options)
@@ -772,7 +757,7 @@ defmodule Responder.Slack.ChannelSetupTest do
              ChannelSetup.handle_message(normalized("U123", "cancel", nil), options)
 
     configuration = ChannelConfigurations.configuration(@workspace, "C456")
-    assert configuration.participation == :mentions
+    assert configuration.participation == nil
     assert configuration.revision == 1
   end
 

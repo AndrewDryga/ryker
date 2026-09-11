@@ -1800,13 +1800,20 @@ defmodule Responder.ControlPlane.RouterTest do
                    updated_at: ~U[2026-08-28 12:00:00Z]
                  }
                ],
-               overrides: [
+               participation: [
                  %{
                    revision: 2,
                    scope: :channel,
                    setting: :proactive,
                    updated_at: ~U[2026-08-28 12:00:00Z],
                    value: true
+                 },
+                 %{
+                   revision: 2,
+                   scope: :installation,
+                   setting: :shadow,
+                   updated_at: ~U[2026-08-28 12:00:00Z],
+                   value: false
                  }
                ],
                schedules: [

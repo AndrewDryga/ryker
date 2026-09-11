@@ -236,7 +236,7 @@ issues, and pull requests for the corresponding adapter and lifecycle paths to r
 The supervised runtime contains both `server` and `tokens` components: `server` owns the shared
 webhook listener and trusted bindings, while `tokens` signs short-lived App JWTs and mints the exact
 repository-scoped installation token used by delivery and publication. See
-[`config/responder-elixir.example.yaml`](../config/responder-elixir.example.yaml) for the complete
+the Configuration page of the local console for the complete
 strict runtime document.
 
 As with the universal listener, public exposure belongs behind the normal ingress proxy. A `202`

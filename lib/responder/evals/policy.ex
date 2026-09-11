@@ -1,5 +1,18 @@
 defmodule Responder.Evals.Policy do
-  @moduledoc false
+  @moduledoc """
+  Dedicated evaluation authority, supplied explicitly and never inherited.
+
+  Eval policies come from the evaluation environment, not from the product's
+  durable settings: an eval must not be able to acquire production repository or
+  mutation authority by reading the installation it happens to run beside. The
+  resolver refuses any policy whose name or digest matches a reviewed production
+  binding present in the database it is pointed at.
+  """
+
+  import Ecto.Query
+
+  alias Responder.Repo
+  alias Responder.Settings.PolicyBinding
 
   @type authority :: %{name: String.t(), digest: String.t()}
   @type selection :: %{
@@ -8,43 +21,100 @@ defmodule Responder.Evals.Policy do
           optional(:baseline) => authority() | nil
         }
 
-  @spec for_kind(map(), :admission | :work | :world) ::
-          {:ok, selection()} | {:error, atom()}
-  def for_kind(%{model_evals: configuration}, kind)
-      when kind in [:admission, :work, :world] do
-    no_tools = %{
-      name: configuration.no_tools_policy,
-      digest: configuration.no_tools_policy_digest
-    }
+  @variables %{
+    no_tools: "RESPONDER_EVAL_NO_TOOLS_POLICY",
+    world: "RESPONDER_EVAL_WORLD_POLICY",
+    world_baseline: "RESPONDER_EVAL_WORLD_BASELINE_POLICY"
+  }
 
-    case kind do
-      :world ->
-        {:ok,
-         %{
-           baseline: baseline(configuration),
-           subject: %{
-             name: configuration.world_policy,
-             digest: configuration.world_policy_digest
-           },
-           judge: no_tools
-         }}
+  @doc "The eval socket the dedicated evaluation Coop listens on."
+  @spec socket() :: {:ok, Path.t()} | {:error, atom()}
+  def socket do
+    case System.fetch_env("RESPONDER_EVAL_SOCKET") do
+      {:ok, socket} ->
+        if Path.type(socket) == :absolute,
+          do: {:ok, socket},
+          else: {:error, :model_eval_socket_must_be_absolute}
 
-      _no_tools_lane ->
-        {:ok, %{subject: no_tools, judge: nil}}
+      :error ->
+        {:error, :model_eval_socket_not_configured}
     end
   end
 
-  def for_kind(%{model_evals: _configuration}, _kind),
-    do: {:error, :invalid_model_eval_kind}
+  @spec for_kind(:admission | :work | :world) :: {:ok, selection()} | {:error, atom()}
+  def for_kind(kind) when kind in [:admission, :work, :world] do
+    with {:ok, no_tools} <- policy(:no_tools) do
+      case kind do
+        :world -> world_selection(no_tools)
+        _no_tools_lane -> {:ok, %{judge: nil, subject: no_tools}}
+      end
+    end
+  end
 
-  def for_kind(_configuration, _kind),
-    do: {:error, :model_eval_policies_not_configured}
+  def for_kind(_kind), do: {:error, :invalid_model_eval_kind}
 
-  defp baseline(%{
-         world_baseline_policy: name,
-         world_baseline_policy_digest: digest
-       }),
-       do: %{name: name, digest: digest}
+  defp world_selection(no_tools) do
+    with {:ok, world} <- policy(:world),
+         {:ok, baseline} <- optional_policy(:world_baseline),
+         :ok <- distinct([no_tools, world, baseline]) do
+      {:ok, %{baseline: baseline, judge: no_tools, subject: world}}
+    end
+  end
 
-  defp baseline(_configuration), do: nil
+  defp policy(name) do
+    case optional_policy(name) do
+      {:ok, nil} -> {:error, :model_eval_policies_not_configured}
+      other -> other
+    end
+  end
+
+  defp optional_policy(name) do
+    variable = Map.fetch!(@variables, name)
+
+    case System.fetch_env(variable) do
+      :error -> {:ok, nil}
+      {:ok, value} -> authority(value, variable <> "_DIGEST")
+    end
+  end
+
+  defp authority(name, digest_variable) do
+    digest = System.get_env(digest_variable)
+
+    cond do
+      not (is_binary(name) and String.trim(name) != "" and byte_size(name) <= 256) ->
+        {:error, :invalid_model_eval_policy}
+
+      not (is_binary(digest) and Regex.match?(~r/\A[0-9a-f]{64}\z/, digest)) ->
+        {:error, :invalid_model_eval_policy_digest}
+
+      true ->
+        isolated(%{digest: digest, name: name})
+    end
+  end
+
+  # Production authority is never an eval authority, whichever database this is
+  # pointed at.
+  defp isolated(%{name: name, digest: digest} = authority) do
+    reused? =
+      Repo.exists?(
+        from(binding in PolicyBinding,
+          where: binding.policy_name == ^name or binding.policy_digest == ^digest
+        )
+      )
+
+    if reused?, do: {:error, :model_eval_reuses_production_authority}, else: {:ok, authority}
+  rescue
+    # An eval may run before any settings exist; that is isolation, not failure.
+    _error in [DBConnection.ConnectionError, Postgrex.Error] -> {:ok, authority}
+  end
+
+  defp distinct(policies) do
+    present = Enum.reject(policies, &is_nil/1)
+    names = Enum.map(present, & &1.name)
+    digests = Enum.map(present, & &1.digest)
+
+    if Enum.uniq(names) == names and Enum.uniq(digests) == digests,
+      do: :ok,
+      else: {:error, :model_eval_policies_must_be_distinct}
+  end
 end

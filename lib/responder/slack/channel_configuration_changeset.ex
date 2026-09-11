@@ -65,7 +65,9 @@ defmodule Responder.Slack.ChannelConfigurationChangeset do
     :welcome_message_ref,
     :workspace_ref
   ]
-  @configuration_optional_fields [:actor_ref, :welcome_message_ref]
+  # A configuration with no participation inherits the installation default;
+  # an absent actor is a configuration nobody was asked to make.
+  @configuration_optional_fields [:actor_ref, :participation, :welcome_message_ref]
   @action_fields [
     :action,
     :actor_ref,

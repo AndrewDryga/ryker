@@ -34,7 +34,8 @@ defmodule Responder.Settings do
     RetentionImpact,
     Slack,
     Validation,
-    WebhookSource
+    WebhookSource,
+    Work
   }
 
   @actor "control-plane:local"
@@ -77,6 +78,7 @@ defmodule Responder.Settings do
           installation: Installation.t(),
           retention: Retention.t(),
           slack: Slack.t(),
+          work: Work.t(),
           github: GitHub.t(),
           publication: Publication.t(),
           emisar: Emisar.t(),
@@ -295,6 +297,31 @@ defmodule Responder.Settings do
   def save_learning(attributes, expected_revision, actor_ref),
     do: save_singleton(:learning, Learning, attributes, expected_revision, actor_ref)
 
+  def save_work(attributes, expected_revision, actor_ref),
+    do: save_singleton(:work, Work, attributes, expected_revision, actor_ref)
+
+  @doc """
+  Sets the installation-wide participation default from a Slack operator command.
+
+  The Slack surface has no editor draft to protect, so it writes against the
+  revision it reads under the same lock; the authorization check is the operator
+  membership saved in these settings, never the Slack payload's own claim.
+  """
+  def save_default_participation(value, actor_ref)
+      when value in [:mentions, :proactive, :shadow] do
+    with :ok <- authorize(actor_ref) do
+      save(:slack, :current, actor_ref, fn snapshot ->
+        write_changeset(
+          snapshot.slack,
+          Slack.changeset(snapshot.slack, %{default_participation: value}, snapshot)
+        )
+      end)
+    end
+  end
+
+  def save_default_participation(_value, _actor_ref),
+    do: {:error, {:invalid_settings, [{:default_participation, :inclusion}]}}
+
   defp save_singleton(domain, schema, attributes, expected_revision, actor_ref) do
     with :ok <- authorize(actor_ref),
          {:ok, attributes} <- Validation.attributes(attributes, schema.fields()) do
@@ -394,7 +421,7 @@ defmodule Responder.Settings do
   # Shared write path ---------------------------------------------------------
 
   defp save(domain, expected_revision, actor_ref, operation) do
-    with :ok <- Validation.revision(expected_revision) do
+    with :ok <- expected(expected_revision) do
       transaction(fn -> save_locked(domain, expected_revision, actor_ref, operation) end)
     end
   end
@@ -409,6 +436,18 @@ defmodule Responder.Settings do
       {:changed, values} ->
         record_edit!(snapshot.installation, domain, actor_ref, values)
         fetch!()
+    end
+  end
+
+  defp expected(:current), do: :ok
+  defp expected(revision), do: Validation.revision(revision)
+
+  defp current!(:current) do
+    lock!()
+
+    case Repo.one(Installation) do
+      nil -> Repo.rollback(:settings_not_initialized)
+      %Installation{} = installation -> load(installation)
     end
   end
 
@@ -479,7 +518,8 @@ defmodule Responder.Settings do
           {Publication, :publication},
           {Emisar, :emisar},
           {Report, :report},
-          {Learning, :learning}
+          {Learning, :learning},
+          {Work, :work}
         ] do
       Repo.insert!(struct!(schema, Map.put(Map.get(domains, key, %{}), :id, host_ref)))
     end
@@ -507,6 +547,7 @@ defmodule Responder.Settings do
       emisar: Repo.get!(Emisar, host_ref),
       report: Repo.get!(Report, host_ref),
       learning: Repo.get!(Learning, host_ref),
+      work: Repo.get!(Work, host_ref),
       repositories: Repo.all(from(r in Repository, order_by: r.ref)),
       contexts: Repo.all(from(c in RepositoryContext, order_by: c.ref)),
       github_bindings: Repo.all(from(b in GitHubBinding, order_by: b.name)),
@@ -540,7 +581,21 @@ defmodule Responder.Settings do
     end
   end
 
+  # The local console is trusted by reach. A Slack actor is trusted only when
+  # the saved operator membership already names it; the payload's own claim of
+  # who sent it is never the grant.
   defp authorize(@actor), do: :ok
+
+  defp authorize("slack:user:" <> user_ref) when byte_size(user_ref) in 1..255 do
+    case Repo.one(from(slack in Slack, select: slack.operators)) do
+      operators when is_list(operators) ->
+        if user_ref in operators, do: :ok, else: {:error, :settings_forbidden}
+
+      nil ->
+        {:error, :settings_forbidden}
+    end
+  end
+
   defp authorize(_actor), do: {:error, :settings_forbidden}
 
   @doc false

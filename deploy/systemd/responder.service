@@ -11,7 +11,6 @@ UMask=0077
 StateDirectory=responder
 StateDirectoryMode=0700
 EnvironmentFile=/etc/responder/responder.env
-Environment=RESPONDER_ELIXIR_CONFIG=/etc/responder/responder-elixir.yaml
 Environment=RELEASE_DISTRIBUTION=none
 Environment=RELEASE_TMP=/var/lib/responder/tmp
 WorkingDirectory=/var/lib/responder
