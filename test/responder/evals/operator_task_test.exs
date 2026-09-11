@@ -59,6 +59,13 @@ defmodule Responder.Evals.OperatorTaskTest do
                "grafana-firing-resolved-stays-in-cycle",
                "material-rollout-choice-asks-once",
                "missing-project-answer-is-remembered",
+               "missing-project-answer-unblocks-blocked-checks",
+               "missing-project-candidates-need-one-question",
+               "missing-project-denied-access-asks-about-access",
+               "missing-project-discovery-failure-stays-honest",
+               "missing-project-discovery-proves-one-target",
+               "missing-project-empty-discovery-still-asks",
+               "missing-project-many-candidates-narrow-first",
                "missing-project-review-asks-for-context",
                "noisy-context-keeps-current-request",
                "ordinary-thread-question-gets-natural-answer",
@@ -226,7 +233,7 @@ defmodule Responder.Evals.OperatorTaskTest do
     world_report = results_path |> File.read!() |> Jason.decode!()
     assert world_report["version"] == 2
     refute world_report["summary"]["passed?"]
-    assert length(world_report["results"]) == 63
+    assert length(world_report["results"]) == 84
     assert Enum.all?(world_report["results"], &(&1["status"] == "unrun"))
 
     assert_raise Mix.Error, ~r/model-world qualification failed/, fn ->

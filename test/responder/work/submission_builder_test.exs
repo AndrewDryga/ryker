@@ -6,8 +6,8 @@ defmodule Responder.Work.SubmissionBuilderTest do
   alias Responder.Fixtures.Knowledge, as: KnowledgeFixtures
   alias Responder.GitHub.SourceRef, as: GitHubSourceRef
   alias Responder.Slack.SourceRef
-  alias Responder.State.{BehaviorChangeset, MemoryEntryChangeset, RecordChangeset, Records}
-  alias Responder.State.{Continuity, ConversationObservation, KnowledgeSnapshot}
+  alias Responder.State.{BehaviorChangeset, Memories, MemoryEntryChangeset, RecordChangeset}
+  alias Responder.State.{Continuity, ConversationObservation, KnowledgeSnapshot, Records}
   alias Responder.Work.{Custody, DeliveryReceipt, Final, Result, Submission, SubmissionBuilder}
 
   @now ~U[2026-08-28 12:00:00.000000Z]
@@ -450,6 +450,60 @@ defmodule Responder.Work.SubmissionBuilderTest do
              "list_slack_channels",
              "find_actions"
            ]
+  end
+
+  test "a turn after the remembered answer carries the mapping and its retained watch" do
+    # The reported deployment review stopped because the GCP project was
+    # unknown, and the exact Terraform run still had to be followed while the
+    # question was open. Once the answer is saved, the work that was blocked has
+    # to see the mapping and still own that watch, or the question bought
+    # nothing. The global row and the wait record here are store setup; the
+    # authorized save path itself is covered by QuestionEndToEndTest.
+    claim = claim_episode!("answered-project", "Finish the deployment verification.")
+    # Normal Executor exposure precedes tools; initialize that empty custody
+    # before the wait record rather than attesting it afterwards.
+    assert :ok = KnowledgeSnapshot.expose(claim, [])
+
+    assert {:ok, watch} =
+             Records.create(Records.token(claim.turn), "run-watch", "event_wait", %{
+               "deadline_at" => nil,
+               "event_matcher" => %{
+                 "type" => "source_event",
+                 "source_kind" => "slack",
+                 "match" => %{"attachments" => [%{"title" => "Run run-t2W6yCNeLUU9xFso"}]},
+                 "poll_after" => nil,
+                 "on_timeout" => nil
+               },
+               "kind" => "source_event",
+               "verification" => "Read the exact run and report material changes."
+             })
+
+    memory = insert_answered_mapping!()
+
+    next = next_claim!(claim, ["The apply finished. Verify infrastructure health and backups."])
+    assert next.session.id == claim.session.id
+    assert {:ok, submission} = SubmissionBuilder.build(next)
+
+    assert [mapping] = get_in(submission, ["context", "operator_context", "memory"])
+    assert mapping["memory_ref"] == memory.ref
+    assert mapping["value"] == "emisar-project-qa"
+    assert mapping["applicability"] == "Production portal in Dryga/emisar"
+    assert mapping["scope"] == "global"
+
+    assert Enum.any?(
+             submission["context"]["records"],
+             &(&1["ref"] == watch.ref and &1["kind"] == "event_wait")
+           ),
+           "the resumed turn must still own the exact source-event watch"
+
+    assert submission["prompt"] =~ "emisar-project-qa"
+    assert submission["prompt"] =~ "run-t2W6yCNeLUU9xFso"
+
+    # Forgetting is not advice the next turn may ignore.
+    assert {:ok, _} = Memories.forget(memory.ref)
+    assert {:ok, revoked} = SubmissionBuilder.build(next)
+    assert get_in(revoked, ["context", "operator_context", "memory"]) == []
+    refute revoked["prompt"] =~ "emisar-project-qa"
   end
 
   test "confirmed preferences and advisory guidance enter the frozen turn context" do
@@ -1117,6 +1171,47 @@ defmodule Responder.Work.SubmissionBuilderTest do
 
     assert {:ok, claim} = Custody.claim_next("worker:#{suffix}", 60)
     claim
+  end
+
+  defp insert_answered_mapping! do
+    applicability = "Production portal in Dryga/emisar"
+    payload = %{"value" => "emisar-project-qa", "applicability" => applicability}
+    %{rows: [[now]]} = Repo.query!("SELECT clock_timestamp()")
+    id = Ecto.UUID.generate()
+
+    assert {:ok, memory} =
+             %{
+               answer_provenance: %{
+                 "answer_ref" => "answer:#{id}",
+                 "question_ref" => "record:input_request:#{id}",
+                 "question_sha256" => Responder.CanonicalJSON.digest("Which GCP project?"),
+                 "source_revision" => 1,
+                 "answer_sha256" => Responder.CanonicalJSON.digest("emisar-project-qa")
+               },
+               confirmation_ref: "answer:#{id}",
+               confirmed_at: now,
+               confirmed_by_actor_ref: "slack:user:U1",
+               expires_at: nil,
+               id: id,
+               kind: :entity_relationship,
+               payload: payload,
+               payload_fingerprint: Responder.CanonicalJSON.digest(payload),
+               ref: "memory:#{id}",
+               scope_kind: :global,
+               scope_ref: "installation:#{Responder.CanonicalJSON.digest(applicability)}",
+               source_conversation_ref: "slack:TOTHER:CELSEWHERE",
+               source_message_ref: "1789038001.000001",
+               source_thread_ref: "1789038000.000001",
+               source_transport: "slack",
+               status: :active,
+               subject: "GCP project",
+               visibility: :global,
+               workspace_ref: "installation"
+             }
+             |> MemoryEntryChangeset.insert()
+             |> Repo.insert()
+
+    memory
   end
 
   defp insert_behavior!(offer, kind, scope_kind, scope_ref, identity_key) do

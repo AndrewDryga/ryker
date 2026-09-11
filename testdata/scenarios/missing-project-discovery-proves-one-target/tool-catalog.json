@@ -1,0 +1,1665 @@
+{
+  "servers": [
+    {
+      "name": "responder-state",
+      "tools": [
+        {
+          "description": "Read bounded durable state for this exact episode.",
+          "inputSchema": {
+            "additionalProperties": false,
+            "properties": {
+              "history": {
+                "enum": [
+                  "current",
+                  "include_linked"
+                ],
+                "type": "string"
+              },
+              "limit": {
+                "maximum": 100,
+                "minimum": 1,
+                "type": "integer"
+              },
+              "since": {
+                "anyOf": [
+                  {
+                    "maxLength": 256,
+                    "minLength": 1,
+                    "pattern": "^[A-Za-z0-9_.:-]+$",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "types": {
+                "items": {
+                  "enum": [
+                    "source_revision",
+                    "citation",
+                    "input",
+                    "wait",
+                    "proposal",
+                    "action",
+                    "artifact",
+                    "outcome"
+                  ],
+                  "type": "string"
+                },
+                "maxItems": 8,
+                "minItems": 1,
+                "type": "array",
+                "uniqueItems": true
+              }
+            },
+            "required": [
+              "history",
+              "limit",
+              "types"
+            ],
+            "type": "object"
+          },
+          "name": "get_work_state"
+        },
+        {
+          "description": "Preserve one source-backed observation for this episode.",
+          "inputSchema": {
+            "additionalProperties": false,
+            "properties": {
+              "observation": {
+                "maxLength": 4000,
+                "minLength": 1,
+                "type": "string"
+              },
+              "relation": {
+                "enum": [
+                  "supports",
+                  "contradicts",
+                  "context"
+                ],
+                "type": "string"
+              },
+              "source_ref": {
+                "maxLength": 256,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9_.:-]+$",
+                "type": "string"
+              },
+              "subject": {
+                "maxLength": 120,
+                "minLength": 1,
+                "type": "string"
+              },
+              "supersedes": {
+                "items": {
+                  "maxLength": 256,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9_.:-]+$",
+                  "type": "string"
+                },
+                "maxItems": 10,
+                "minItems": 0,
+                "type": "array",
+                "uniqueItems": true
+              }
+            },
+            "required": [
+              "observation",
+              "relation",
+              "source_ref",
+              "subject",
+              "supersedes"
+            ],
+            "type": "object"
+          },
+          "name": "cite_source"
+        },
+        {
+          "description": "Save a useful investigation conclusion, not one record per alert. This does not send a message, change infrastructure or open an incident. Use cause_evidence refs returned by cite_source in this episode. Explained requires evidence; expected and out_of_scope require a reason. Distinguish checked-out intent from verified deployed state.",
+          "inputSchema": {
+            "additionalProperties": false,
+            "properties": {
+              "cause_evidence": {
+                "items": {
+                  "maxLength": 256,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9_.:-]+$",
+                  "type": "string"
+                },
+                "maxItems": 10,
+                "minItems": 0,
+                "type": "array",
+                "uniqueItems": true
+              },
+              "reason": {
+                "anyOf": [
+                  {
+                    "maxLength": 2000,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "scope": {
+                "anyOf": [
+                  {
+                    "maxLength": 2000,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "status": {
+                "enum": [
+                  "unexplained",
+                  "explained",
+                  "expected",
+                  "out_of_scope"
+                ],
+                "type": "string"
+              },
+              "what": {
+                "maxLength": 4000,
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "cause_evidence",
+              "reason",
+              "scope",
+              "status",
+              "what"
+            ],
+            "type": "object"
+          },
+          "name": "record_finding"
+        },
+        {
+          "description": "Create one durable question card for a material human decision or missing fact. Briefly recap established findings in the accompanying final reply; use context to explain why the answer is needed without repeating the recap or question. For one reusable fact, set remember with its subject and exact workload/environment/repository applicability; this asks to remember an authorized answer across this customer's conversations, not to set a universal default. Omit remember for ordinary decisions, secrets, or unrelated chat. A reusable fact must have exactly one question.",
+          "inputSchema": {
+            "additionalProperties": false,
+            "properties": {
+              "context": {
+                "anyOf": [
+                  {
+                    "maxLength": 2000,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "questions": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "choices": {
+                      "items": {
+                        "maxLength": 240,
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "maxItems": 10,
+                      "minItems": 0,
+                      "type": "array",
+                      "uniqueItems": true
+                    },
+                    "text": {
+                      "maxLength": 2000,
+                      "minLength": 1,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "choices",
+                    "text"
+                  ],
+                  "type": "object"
+                },
+                "maxItems": 3,
+                "minItems": 1,
+                "type": "array",
+                "uniqueItems": true
+              },
+              "remember": {
+                "anyOf": [
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "applicability": {
+                        "maxLength": 1000,
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "subject": {
+                        "maxLength": 120,
+                        "minLength": 1,
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "applicability",
+                      "subject"
+                    ],
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "questions"
+            ],
+            "type": "object"
+          },
+          "name": "request_input"
+        },
+        {
+          "description": "Create one durable wait. For reliable lifecycle notifications use an event-only source_event: set poll_after, deadline, and on_timeout to null, specify source_kind and a nonempty stable identity match. No timer or polling is scheduled; the next matching notification resumes this episode. Add an explicit deadline and timeout action only when a timeout is required; a null poll_after then wakes only at that deadline. A non-null poll_after adds a fallback check at or before deadline. after and at require a future deadline and timeout action.",
+          "inputSchema": {
+            "additionalProperties": false,
+            "properties": {
+              "deadline": {
+                "anyOf": [
+                  {
+                    "format": "date-time",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "on_timeout": {
+                "anyOf": [
+                  {
+                    "maxLength": 2000,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "trigger": {
+                "oneOf": [
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "delay": {
+                        "description": "Positive duration using s, m and h, for example 10m, 1h30m or 1.5h; exact microsecond precision, maximum 365 days. Measured from this wait record's original creation, not the final reply or a retry. The scheduled wake must be strictly before deadline.",
+                        "maxLength": 64,
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "type": {
+                        "const": "after",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "delay",
+                      "type"
+                    ],
+                    "type": "object"
+                  },
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "at": {
+                        "description": "Explicit UTC timestamp strictly before deadline. This is the scheduled wake; deadline is only the hard timeout.",
+                        "format": "date-time",
+                        "type": "string"
+                      },
+                      "type": {
+                        "const": "at",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "at",
+                      "type"
+                    ],
+                    "type": "object"
+                  },
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "cursor": {
+                        "anyOf": [
+                          {
+                            "additionalProperties": true,
+                            "type": "object"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "match": {
+                        "additionalProperties": true,
+                        "description": "Recursive subset of input.content (the raw event payload), using exact values for stable lifecycle identity (for example run_id). In work.inputs.items or work.current_inputs.items, the raw payload is item.content.content, below the ingress envelope. Do not wrap match in content. If that payload contains run_id and status, match only run_id, not {content: {run_id: ...}}. Preserve any nesting within the raw payload. This is not JSONPath or a query language. Do not match a transient status that the next update will change.",
+                        "type": "object"
+                      },
+                      "poll_after": {
+                        "anyOf": [
+                          {
+                            "format": "date-time",
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "description": "Null for event-only monitoring. Set a timestamp only when a fallback check is actually needed; it must not exceed deadline."
+                      },
+                      "source_kind": {
+                        "anyOf": [
+                          {
+                            "maxLength": 120,
+                            "minLength": 1,
+                            "pattern": "^[A-Za-z0-9_.:-]+$",
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "description": "Exact input envelope's source.kind for the expected event, not a vendor name inside input.content. In a Work input item, read item.content.source.kind. A Terraform or Grafana Slack notification uses slack, even if its content says terraform or grafana. Null leaves the source kind unconstrained."
+                      },
+                      "type": {
+                        "const": "source_event",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "match",
+                      "poll_after",
+                      "type"
+                    ],
+                    "type": "object"
+                  }
+                ]
+              },
+              "verification": {
+                "maxLength": 2000,
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "deadline",
+              "on_timeout",
+              "trigger",
+              "verification"
+            ],
+            "type": "object"
+          },
+          "name": "wait_for"
+        },
+        {
+          "description": "Find visible durable automations before reading or changing one.",
+          "inputSchema": {
+            "additionalProperties": false,
+            "properties": {
+              "channel_ref": {
+                "anyOf": [
+                  {
+                    "maxLength": 256,
+                    "minLength": 1,
+                    "pattern": "^[A-Za-z0-9_.:-]+$",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "cursor": {
+                "anyOf": [
+                  {
+                    "maxLength": 256,
+                    "minLength": 1,
+                    "pattern": "^[A-Za-z0-9_.:-]+$",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "enabled": {
+                "anyOf": [
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "limit": {
+                "maximum": 50,
+                "minimum": 1,
+                "type": "integer"
+              },
+              "query": {
+                "anyOf": [
+                  {
+                    "maxLength": 500,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "relationship": {
+                "enum": [
+                  "context",
+                  "delivery",
+                  "either"
+                ],
+                "type": "string"
+              },
+              "trigger_type": {
+                "anyOf": [
+                  {
+                    "enum": [
+                      "time",
+                      "source_event"
+                    ],
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "limit",
+              "relationship"
+            ],
+            "type": "object"
+          },
+          "name": "list_automations"
+        },
+        {
+          "description": "Read one exact visible automation and recent run state.",
+          "inputSchema": {
+            "additionalProperties": false,
+            "properties": {
+              "automation_id": {
+                "maxLength": 256,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9_.:-]+$",
+                "type": "string"
+              },
+              "run_limit": {
+                "maximum": 20,
+                "minimum": 1,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "automation_id",
+              "run_limit"
+            ],
+            "type": "object"
+          },
+          "name": "get_automation"
+        },
+        {
+          "description": "Offer one atomic set of automation changes for confirmation.",
+          "inputSchema": {
+            "additionalProperties": false,
+            "properties": {
+              "proposals": {
+                "items": {
+                  "oneOf": [
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "action": {
+                          "const": "create",
+                          "type": "string"
+                        },
+                        "automation_id": {
+                          "anyOf": [
+                            {
+                              "maxLength": 256,
+                              "minLength": 1,
+                              "pattern": "^[A-Za-z0-9_.:-]+$",
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "catch_up": {
+                          "enum": [
+                            "latest",
+                            "skip"
+                          ],
+                          "type": "string"
+                        },
+                        "context_channel": {
+                          "anyOf": [
+                            {
+                              "maxLength": 256,
+                              "minLength": 1,
+                              "pattern": "^[A-Za-z0-9_.:-]+$",
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "delivery_channel": {
+                          "anyOf": [
+                            {
+                              "maxLength": 256,
+                              "minLength": 1,
+                              "pattern": "^[A-Za-z0-9_.:-]+$",
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "expires_at": {
+                          "anyOf": [
+                            {
+                              "format": "date-time",
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "hold": {
+                          "anyOf": [
+                            {
+                              "maxLength": 128,
+                              "minLength": 1,
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "patch": {
+                          "additionalProperties": true,
+                          "type": "object"
+                        },
+                        "prompt": {
+                          "maxLength": 12000,
+                          "minLength": 1,
+                          "type": "string"
+                        },
+                        "repository": {
+                          "anyOf": [
+                            {
+                              "maxLength": 256,
+                              "minLength": 1,
+                              "pattern": "^[A-Za-z0-9_.:-]+$",
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "revision": {
+                          "anyOf": [
+                            {
+                              "maximum": 2147483647,
+                              "minimum": 1,
+                              "type": "integer"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "title": {
+                          "maxLength": 120,
+                          "minLength": 1,
+                          "type": "string"
+                        },
+                        "trigger": {
+                          "additionalProperties": true,
+                          "properties": {
+                            "at": {
+                              "format": "date-time",
+                              "type": "string"
+                            },
+                            "day": {
+                              "maximum": 31,
+                              "minimum": 1,
+                              "type": "integer"
+                            },
+                            "every_seconds": {
+                              "maximum": 31536000,
+                              "minimum": 300,
+                              "type": "integer"
+                            },
+                            "filter": {
+                              "additionalProperties": true,
+                              "description": "Exact recursive subset of the observed input.content payload. Read a real matching event to choose stable fields. This is not a text search or query language; an empty filter matches every event from this input adapter in the bound channel.",
+                              "type": "object"
+                            },
+                            "recurrence": {
+                              "enum": [
+                                "once",
+                                "interval",
+                                "daily",
+                                "weekly",
+                                "monthly"
+                              ],
+                              "type": "string"
+                            },
+                            "source_kind": {
+                              "description": "Exact input envelope source.kind, not a vendor mentioned inside it. Terraform and Grafana notifications posted to Slack use slack. Derive the filter from an observed event, not its vendor name.",
+                              "enum": [
+                                "github",
+                                "slack",
+                                "webhook"
+                              ],
+                              "type": "string"
+                            },
+                            "starts_at": {
+                              "anyOf": [
+                                {
+                                  "format": "date-time",
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "time": {
+                              "maxLength": 32,
+                              "minLength": 1,
+                              "type": "string"
+                            },
+                            "timezone": {
+                              "maxLength": 128,
+                              "minLength": 1,
+                              "type": "string"
+                            },
+                            "type": {
+                              "enum": [
+                                "time",
+                                "source_event"
+                              ],
+                              "type": "string"
+                            },
+                            "weekday": {
+                              "enum": [
+                                "monday",
+                                "tuesday",
+                                "wednesday",
+                                "thursday",
+                                "friday",
+                                "saturday",
+                                "sunday"
+                              ],
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "type"
+                          ],
+                          "type": "object"
+                        }
+                      },
+                      "required": [
+                        "action",
+                        "catch_up",
+                        "patch",
+                        "prompt",
+                        "title",
+                        "trigger"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "action": {
+                          "enum": [
+                            "update",
+                            "pause",
+                            "resume",
+                            "delete"
+                          ],
+                          "type": "string"
+                        },
+                        "automation_id": {
+                          "maxLength": 256,
+                          "minLength": 1,
+                          "pattern": "^[A-Za-z0-9_.:-]+$",
+                          "type": "string"
+                        },
+                        "patch": {
+                          "additionalProperties": true,
+                          "type": "object"
+                        },
+                        "revision": {
+                          "maximum": 2147483647,
+                          "minimum": 1,
+                          "type": "integer"
+                        }
+                      },
+                      "required": [
+                        "action",
+                        "automation_id",
+                        "patch",
+                        "revision"
+                      ],
+                      "type": "object"
+                    }
+                  ]
+                },
+                "maxItems": 4,
+                "minItems": 1,
+                "type": "array",
+                "uniqueItems": true
+              }
+            },
+            "required": [
+              "proposals"
+            ],
+            "type": "object"
+          },
+          "name": "propose_automation"
+        },
+        {
+          "description": "Create one durable goal node. Parent and prerequisite goals must already exist; the frozen repository context permits at most one to three independent working goals.",
+          "inputSchema": {
+            "additionalProperties": false,
+            "properties": {
+              "authority": {
+                "enum": [
+                  "read_only",
+                  "repository_write",
+                  "governed_operation"
+                ],
+                "type": "string"
+              },
+              "completion_contract": {
+                "maxLength": 2000,
+                "minLength": 1,
+                "type": "string"
+              },
+              "id": {
+                "maxLength": 120,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9_.:-]+$",
+                "type": "string"
+              },
+              "kind": {
+                "enum": [
+                  "check",
+                  "engineering",
+                  "operation",
+                  "schedule"
+                ],
+                "type": "string"
+              },
+              "parent_goal_id": {
+                "anyOf": [
+                  {
+                    "maxLength": 120,
+                    "minLength": 1,
+                    "pattern": "^[A-Za-z0-9_.:-]+$",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "prerequisite_goal_ids": {
+                "items": {
+                  "maxLength": 120,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9_.:-]+$",
+                  "type": "string"
+                },
+                "maxItems": 20,
+                "minItems": 0,
+                "type": "array",
+                "uniqueItems": true
+              },
+              "read_only_repositories": {
+                "items": {
+                  "maxLength": 256,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9_.:-]+$",
+                  "type": "string"
+                },
+                "maxItems": 20,
+                "minItems": 0,
+                "type": "array",
+                "uniqueItems": true
+              },
+              "requested_outcome": {
+                "maxLength": 500,
+                "minLength": 1,
+                "type": "string"
+              },
+              "required": {
+                "type": "boolean"
+              },
+              "writable_repository": {
+                "anyOf": [
+                  {
+                    "maxLength": 256,
+                    "minLength": 1,
+                    "pattern": "^[A-Za-z0-9_.:-]+$",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "authority",
+              "completion_contract",
+              "id",
+              "kind",
+              "parent_goal_id",
+              "prerequisite_goal_ids",
+              "read_only_repositories",
+              "requested_outcome",
+              "required",
+              "writable_repository"
+            ],
+            "type": "object"
+          },
+          "name": "plan_goal"
+        },
+        {
+          "description": "Advance one existing goal. Prerequisites must be satisfied before working or completion, and a parent cannot complete while required children remain open.",
+          "inputSchema": {
+            "additionalProperties": false,
+            "properties": {
+              "detail": {
+                "anyOf": [
+                  {
+                    "maxLength": 2000,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "goal_id": {
+                "maxLength": 120,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9_.:-]+$",
+                "type": "string"
+              },
+              "state": {
+                "enum": [
+                  "ready",
+                  "working",
+                  "waiting",
+                  "completed",
+                  "blocked",
+                  "excluded",
+                  "cancelled"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "detail",
+              "goal_id",
+              "state"
+            ],
+            "type": "object"
+          },
+          "name": "update_goal"
+        },
+        {
+          "description": "Create one inert engineering or incident-task proposal, or refine the exact open task_offer ref, under trusted authority. A supplied read-only repository permits an inert proposal, not execution. Engineering requires a configured target from work.repository_ref or the relevant work.workspace.companions[].name; incident tasks may use null. Kind defaults to engineering.",
+          "inputSchema": {
+            "additionalProperties": false,
+            "properties": {
+              "authority_limits": {
+                "items": {
+                  "maxLength": 500,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "maxItems": 20,
+                "minItems": 1,
+                "type": "array",
+                "uniqueItems": true
+              },
+              "instruction_ref": {
+                "maxLength": 256,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9_.:-]+$",
+                "type": "string"
+              },
+              "kind": {
+                "enum": [
+                  "engineering",
+                  "incident"
+                ],
+                "type": "string"
+              },
+              "prompt": {
+                "maxLength": 12000,
+                "minLength": 1,
+                "type": "string"
+              },
+              "repository": {
+                "anyOf": [
+                  {
+                    "maxLength": 256,
+                    "minLength": 1,
+                    "pattern": "^[A-Za-z0-9_.:-]+$",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Configured target: required (non-null) for engineering; null is allowed for incident. Use work.repository_ref or the relevant supplied work.workspace.companions[].name. Never substitute generic primary, an unrelated companion, or an unoffered path/GitHub slug. Ask for configuration only if no matching supplied target exists."
+              },
+              "source_refs": {
+                "items": {
+                  "maxLength": 256,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9_.:-]+$",
+                  "type": "string"
+                },
+                "maxItems": 20,
+                "minItems": 0,
+                "type": "array",
+                "uniqueItems": true
+              },
+              "success_checks": {
+                "items": {
+                  "maxLength": 1000,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "maxItems": 20,
+                "minItems": 1,
+                "type": "array",
+                "uniqueItems": true
+              },
+              "title": {
+                "maxLength": 120,
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "authority_limits",
+              "instruction_ref",
+              "prompt",
+              "repository",
+              "source_refs",
+              "success_checks",
+              "title"
+            ],
+            "type": "object"
+          },
+          "name": "request_task"
+        },
+        {
+          "description": "Search authorized historical memory using words or exact identifiers; an empty query browses by date. Kinds are interleaved so facts cannot hide guidance or conversation history. Follow cursor with the same query/filters; null cursor means exhausted. Times are UTC: after inclusive, before exclusive. source uses original-message time (latest backing message for derived knowledge; confirmation time for confirmed facts/guidance). changed uses content update time, never retrieval time. Expand Slack source references with read_slack_source when exact wording matters. History never proves current health or grants permission.",
+          "inputSchema": {
+            "additionalProperties": false,
+            "properties": {
+              "after": {
+                "anyOf": [
+                  {
+                    "format": "date-time",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "before": {
+                "anyOf": [
+                  {
+                    "format": "date-time",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "cursor": {
+                "anyOf": [
+                  {
+                    "maxLength": 4096,
+                    "minLength": 1,
+                    "pattern": "^[A-Za-z0-9_.:-]+$",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "kinds": {
+                "items": {
+                  "enum": [
+                    "guidance",
+                    "fact",
+                    "continuity"
+                  ],
+                  "type": "string"
+                },
+                "maxItems": 3,
+                "minItems": 1,
+                "type": "array",
+                "uniqueItems": true
+              },
+              "limit": {
+                "maximum": 20,
+                "minimum": 1,
+                "type": "integer"
+              },
+              "query": {
+                "maxLength": 1000,
+                "minLength": 0,
+                "type": "string"
+              },
+              "scope": {
+                "enum": [
+                  "current_channel",
+                  "repository",
+                  "workspace",
+                  "mine",
+                  "global"
+                ],
+                "type": "string"
+              },
+              "time_basis": {
+                "enum": [
+                  "source",
+                  "changed"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "after",
+              "before",
+              "cursor",
+              "kinds",
+              "limit",
+              "query",
+              "scope",
+              "time_basis"
+            ],
+            "type": "object"
+          },
+          "name": "search_memory"
+        },
+        {
+          "description": "Offer one durable fact or guidance item for human confirmation.",
+          "inputSchema": {
+            "additionalProperties": false,
+            "properties": {
+              "expires_at": {
+                "anyOf": [
+                  {
+                    "format": "date-time",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "kind": {
+                "enum": [
+                  "guidance",
+                  "fact"
+                ],
+                "type": "string"
+              },
+              "scope": {
+                "enum": [
+                  "current_channel",
+                  "repository",
+                  "workspace",
+                  "mine"
+                ],
+                "type": "string"
+              },
+              "source_refs": {
+                "items": {
+                  "maxLength": 256,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9_.:-]+$",
+                  "type": "string"
+                },
+                "maxItems": 20,
+                "minItems": 1,
+                "type": "array",
+                "uniqueItems": true
+              },
+              "subject": {
+                "maxLength": 120,
+                "minLength": 1,
+                "type": "string"
+              },
+              "supersedes": {
+                "items": {
+                  "maxLength": 256,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9_.:-]+$",
+                  "type": "string"
+                },
+                "maxItems": 20,
+                "minItems": 0,
+                "type": "array",
+                "uniqueItems": true
+              },
+              "value": {
+                "maxLength": 4000,
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "expires_at",
+              "kind",
+              "scope",
+              "source_refs",
+              "subject",
+              "supersedes",
+              "value"
+            ],
+            "type": "object"
+          },
+          "name": "propose_memory"
+        },
+        {
+          "description": "Save the normalized answer to an explicitly reusable request_input question in this episode. Call only when the authenticated reply actually supplies that fact; an unrelated or ambiguous reply needs clarification. The host verifies the exact answered question, original revision and operator authority, and derives installation-global applicability from the question. No second memory confirmation is needed. Existing proposals still use propose_memory. Say remembered only after this tool succeeds; saved facts never grant action authority or prove current health.",
+          "inputSchema": {
+            "additionalProperties": false,
+            "properties": {
+              "question_ref": {
+                "maxLength": 256,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9_.:-]+$",
+                "type": "string"
+              },
+              "value": {
+                "maxLength": 4000,
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "question_ref",
+              "value"
+            ],
+            "type": "object"
+          },
+          "name": "remember_answer"
+        },
+        {
+          "description": "Stage a bounded derived situation summary. It becomes durable only if this turn's exact final candidate is accepted.",
+          "inputSchema": {
+            "additionalProperties": false,
+            "properties": {
+              "state": {
+                "additionalProperties": false,
+                "properties": {
+                  "active_topics": {
+                    "items": {
+                      "maxLength": 2000,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "maxItems": 20,
+                    "minItems": 0,
+                    "type": "array",
+                    "uniqueItems": true
+                  },
+                  "decisions": {
+                    "items": {
+                      "maxLength": 2000,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "maxItems": 20,
+                    "minItems": 0,
+                    "type": "array",
+                    "uniqueItems": true
+                  },
+                  "evidence_refs": {
+                    "items": {
+                      "maxLength": 1024,
+                      "minLength": 1,
+                      "pattern": "^[A-Za-z0-9_.:/-]+$",
+                      "type": "string"
+                    },
+                    "maxItems": 20,
+                    "minItems": 0,
+                    "type": "array",
+                    "uniqueItems": true
+                  },
+                  "goal": {
+                    "anyOf": [
+                      {
+                        "maxLength": 2000,
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "open_loops": {
+                    "items": {
+                      "maxLength": 2000,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "maxItems": 20,
+                    "minItems": 0,
+                    "type": "array",
+                    "uniqueItems": true
+                  },
+                  "participants": {
+                    "items": {
+                      "maxLength": 2000,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "maxItems": 20,
+                    "minItems": 0,
+                    "type": "array",
+                    "uniqueItems": true
+                  },
+                  "purpose": {
+                    "anyOf": [
+                      {
+                        "maxLength": 2000,
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "situation": {
+                    "anyOf": [
+                      {
+                        "maxLength": 2000,
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "topology": {
+                    "items": {
+                      "maxLength": 2000,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "maxItems": 20,
+                    "minItems": 0,
+                    "type": "array",
+                    "uniqueItems": true
+                  },
+                  "unresolved_questions": {
+                    "items": {
+                      "maxLength": 2000,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "maxItems": 20,
+                    "minItems": 0,
+                    "type": "array",
+                    "uniqueItems": true
+                  }
+                },
+                "required": [
+                  "active_topics",
+                  "decisions",
+                  "evidence_refs",
+                  "goal",
+                  "open_loops",
+                  "participants",
+                  "purpose",
+                  "situation",
+                  "topology",
+                  "unresolved_questions"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "state"
+            ],
+            "type": "object"
+          },
+          "name": "update_conversation_summary"
+        },
+        {
+          "description": "Record one actionable product-feedback item without replacing the reply.",
+          "inputSchema": {
+            "additionalProperties": false,
+            "properties": {
+              "category": {
+                "enum": [
+                  "correctness",
+                  "usefulness",
+                  "ux",
+                  "latency",
+                  "routing",
+                  "other"
+                ],
+                "type": "string"
+              },
+              "details": {
+                "anyOf": [
+                  {
+                    "maxLength": 4000,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "needs_response": {
+                "type": "boolean"
+              },
+              "response_question": {
+                "anyOf": [
+                  {
+                    "maxLength": 2000,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "sentiment": {
+                "enum": [
+                  "negative",
+                  "suggestion",
+                  "positive"
+                ],
+                "type": "string"
+              },
+              "summary": {
+                "maxLength": 1000,
+                "minLength": 1,
+                "type": "string"
+              },
+              "target_message_ref": {
+                "anyOf": [
+                  {
+                    "maxLength": 256,
+                    "minLength": 1,
+                    "pattern": "^[A-Za-z0-9_.:-]+$",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "category",
+              "details",
+              "needs_response",
+              "response_question",
+              "sentiment",
+              "summary",
+              "target_message_ref"
+            ],
+            "type": "object"
+          },
+          "name": "record_feedback"
+        },
+        {
+          "description": "Preflight the complete final candidate against current host-owned state. Pass one candidate object containing decision_reason, delivery, message, and outcome; outcome requires state, record_refs, and artifact_refs. Return only the accepted candidate unchanged.",
+          "inputSchema": {
+            "additionalProperties": false,
+            "properties": {
+              "candidate": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "additionalProperties": false,
+                "oneOf": [
+                  {
+                    "properties": {
+                      "decision_reason": {
+                        "type": "null"
+                      },
+                      "delivery": {
+                        "const": "reply"
+                      },
+                      "message": {
+                        "maxLength": 20000,
+                        "minLength": 1,
+                        "pattern": "^[^\\x00]*[^\\s\\x00][^\\x00]*$",
+                        "type": "string"
+                      }
+                    }
+                  },
+                  {
+                    "properties": {
+                      "decision_reason": {
+                        "maxLength": 240,
+                        "minLength": 1,
+                        "pattern": "^[^\\x00]*[^\\s\\x00][^\\x00]*$",
+                        "type": "string"
+                      },
+                      "delivery": {
+                        "const": "none"
+                      },
+                      "message": {
+                        "type": "null"
+                      }
+                    }
+                  }
+                ],
+                "properties": {
+                  "decision_reason": {
+                    "anyOf": [
+                      {
+                        "maxLength": 240,
+                        "minLength": 1,
+                        "pattern": "^[^\\x00]*[^\\s\\x00][^\\x00]*$",
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "delivery": {
+                    "enum": [
+                      "reply",
+                      "none"
+                    ]
+                  },
+                  "message": {
+                    "anyOf": [
+                      {
+                        "maxLength": 20000,
+                        "minLength": 1,
+                        "pattern": "^[^\\x00]*[^\\s\\x00][^\\x00]*$",
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "outcome": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "artifact_refs": {
+                        "items": {
+                          "maxLength": 256,
+                          "minLength": 1,
+                          "pattern": "^[A-Za-z0-9_.:-]{1,256}$",
+                          "type": "string"
+                        },
+                        "maxItems": 5,
+                        "type": "array",
+                        "uniqueItems": true
+                      },
+                      "record_refs": {
+                        "items": {
+                          "maxLength": 256,
+                          "minLength": 1,
+                          "pattern": "^[A-Za-z0-9_.:-]{1,256}$",
+                          "type": "string"
+                        },
+                        "maxItems": 64,
+                        "type": "array",
+                        "uniqueItems": true
+                      },
+                      "state": {
+                        "enum": [
+                          "complete",
+                          "waiting_for_input",
+                          "waiting_for_event"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "artifact_refs",
+                      "record_refs",
+                      "state"
+                    ],
+                    "type": "object"
+                  }
+                },
+                "required": [
+                  "decision_reason",
+                  "delivery",
+                  "message",
+                  "outcome"
+                ],
+                "title": "Responder episode result",
+                "type": "object"
+              }
+            },
+            "required": [
+              "candidate"
+            ],
+            "type": "object"
+          },
+          "name": "validate_final"
+        }
+      ]
+    },
+    {
+      "name": "fabricated-world",
+      "tools": [
+        {
+          "description": "List the fabricated, time-pinned GCP projects this isolated evaluation can see. Read-only; no Google Cloud account is reachable. A listed project is a routing candidate, never proof of access or health.",
+          "inputSchema": {
+            "additionalProperties": false,
+            "properties": {
+              "query": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "query"
+            ],
+            "type": "object"
+          },
+          "name": "gcp.projects.list"
+        },
+        {
+          "description": "Read the recorded GCP load-balancer backend health observation for one exact project in this isolated evaluation.",
+          "inputSchema": {
+            "additionalProperties": false,
+            "properties": {
+              "project_id": {
+                "type": "string"
+              },
+              "service": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "project_id",
+              "service"
+            ],
+            "type": "object"
+          },
+          "name": "gcp.backend_health"
+        },
+        {
+          "description": "Read the recorded Cloud SQL backup schedule and last backup runs for one exact project in this isolated evaluation.",
+          "inputSchema": {
+            "additionalProperties": false,
+            "properties": {
+              "project_id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "project_id"
+            ],
+            "type": "object"
+          },
+          "name": "gcp.backup_config"
+        }
+      ]
+    }
+  ],
+  "version": 1
+}

@@ -28,7 +28,8 @@
     ],
     "memory_feedback": [
       "confirmed-guidance-becomes-memory",
-      "missing-project-answer-is-remembered"
+      "missing-project-answer-is-remembered",
+      "missing-project-answer-unblocks-blocked-checks"
     ],
     "multi_user_threads": [
       "rivals-engineering-task-offer"
@@ -51,9 +52,12 @@
       "concurrent-human-feedback-serializes"
     ],
     "denied_authority": [
-      "github-pr-review-remains-in-thread"
+      "github-pr-review-remains-in-thread",
+      "missing-project-denied-access-asks-about-access"
     ],
     "missing_stale_contradictory_evidence": [
+      "missing-project-discovery-failure-stays-honest",
+      "missing-project-empty-discovery-still-asks",
       "missing-project-review-asks-for-context",
       "va1-health-review-repairs-and-finishes"
     ],
