@@ -429,10 +429,10 @@ host-valid but behaviorally wrong result fails instead of being silently accepte
 ```console
 scripts/elixir-test.sh test/responder/evals
 MIX_ENV=test mix responder.eval work-pack
-MIX_ENV=test mix responder.eval work --config /absolute/responder-elixir.yaml
+MIX_ENV=test mix responder.eval work
 MIX_ENV=test mix responder.eval world-pack
-make eval-world-smoke CONFIG=/absolute/responder-elixir-eval.yaml
-make eval-world CONFIG=/absolute/responder-elixir-eval.yaml
+make eval-world-smoke
+make eval-world
 ```
 
 `work-pack` compiles the sanitized narrow final-contract corpus without a model. Its live command runs each case through

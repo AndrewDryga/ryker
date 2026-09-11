@@ -21,7 +21,7 @@ defmodule Responder.Slack.CommandHandlerTest do
              CommandHandler.handle(command("proactive global on", "event:global"), options)
 
     assert response["response_type"] == "ephemeral"
-    assert response["text"] =~ "saved channel setting"
+    assert response["text"] =~ "saved for this channel"
     assert response["text"] =~ "Proactive: on"
 
     assert_receive {:setting_changed, change}
@@ -70,7 +70,7 @@ defmodule Responder.Slack.CommandHandlerTest do
         options
         | effective_settings: fn _workspace_ref, _conversation_ref ->
             %{
-              proactive: %{source: :workspace, value: true},
+              proactive: %{source: :installation, value: true},
               shadow: %{source: :incident_room, value: false}
             }
           end
@@ -79,7 +79,7 @@ defmodule Responder.Slack.CommandHandlerTest do
     assert {:ok, override} =
              CommandHandler.handle(command("proactive global on", "event:override"), overridden)
 
-    assert override["text"] =~ "Proactive: on (workspace override)"
+    assert override["text"] =~ "Proactive: on (installation default)"
   end
 
   test "assignment creation is conversational while scoped grants can be listed or withdrawn" do
@@ -279,8 +279,8 @@ defmodule Responder.Slack.CommandHandlerTest do
       directory: Directory,
       effective_settings: fn _workspace_ref, _conversation_ref ->
         %{
-          proactive: %{source: :configuration, value: true},
-          shadow: %{source: :deployment, value: false}
+          proactive: %{source: :channel, value: true},
+          shadow: %{source: :installation, value: false}
         }
       end,
       settings_view: fn _workspace_ref, _channel_ref ->
@@ -291,8 +291,8 @@ defmodule Responder.Slack.CommandHandlerTest do
            "customized_by" => "U123",
            "default_repository" => "responder",
            "invitations" => %{"on_call_count" => 1, "user_group_refs" => [], "user_refs" => []},
-           "observation" => %{"on" => false, "source" => "configuration"},
-           "participation" => %{"source" => "configuration", "value" => "proactive"},
+           "observation" => %{"on" => false, "source" => "channel"},
+           "participation" => %{"source" => "channel", "value" => "proactive"},
            "repositories" => [
              %{"ref" => "responder", "url" => "https://github.com/acme/responder"}
            ],

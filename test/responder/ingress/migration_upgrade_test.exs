@@ -50,6 +50,8 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
   @default_channel_configurations_version 20_260_911_000_700
   @selection_ledger_version 20_260_911_000_900
   @durable_settings_version 20_260_911_001_100
+  @inherited_participation_version 20_260_911_001_101
+  @work_placement_version 20_260_911_001_102
   @learning_executions_version 20_260_911_001_500
   @latest_versions [
     @typed_question_answers_version,
@@ -62,6 +64,8 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
     @default_channel_configurations_version,
     @selection_ledger_version,
     @durable_settings_version,
+    @inherited_participation_version,
+    @work_placement_version,
     @learning_executions_version
   ]
   @memory_versions Enum.to_list(20_260_908_000_100..20_260_908_001_100//100) ++
@@ -142,6 +146,8 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
       assert table_exists?(repo, prefix, "installation_settings")
       assert table_exists?(repo, prefix, "settings_edits")
       assert table_exists?(repo, prefix, "retention_settings")
+      assert table_exists?(repo, prefix, "work_settings")
+      assert column_nullable?(repo, prefix, "slack_channel_configurations", "participation")
       assert table_exists?(repo, prefix, "policy_bindings")
       assert table_exists?(repo, prefix, "webhook_source_settings")
       assert table_exists?(repo, prefix, "episode_publications")
@@ -1585,9 +1591,11 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
       # The inspection-evidence columns and tables, the worker storage columns,
       # the default channel configuration, the selection ledger, the empty
       # settings tables and the learning execution kind are reversible on their own.
-      assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 9, prefix: prefix, log: false) ==
+      assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 11, prefix: prefix, log: false) ==
                [
                  @learning_executions_version,
+                 @work_placement_version,
+                 @inherited_participation_version,
                  @durable_settings_version,
                  @selection_ledger_version,
                  @default_channel_configurations_version,
@@ -1692,8 +1700,12 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
         insert_learning_execution!(repo, prefix)
       end
 
-      assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 1, prefix: prefix, log: false) ==
-               [@durable_settings_version]
+      assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 3, prefix: prefix, log: false) ==
+               [
+                 @work_placement_version,
+                 @inherited_participation_version,
+                 @durable_settings_version
+               ]
 
       # A recorded selection ledger is evidence about a historical selection that
       # cannot be recomputed, so its rollback refuses while any row holds one.
@@ -1815,6 +1827,21 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
         []
       )
 
+      SQL.query!(
+        repo,
+        "INSERT INTO #{prefix}.work_settings (id, workspace_ref) VALUES ('installation:test', 'responder-main')",
+        []
+      )
+
+      assert_raise Postgrex.Error, ~r/work placement settings have data/, fn ->
+        Ecto.Migrator.run(repo, @migrations_path, :down, step: 1, prefix: prefix, log: false)
+      end
+
+      SQL.query!(repo, "DELETE FROM #{prefix}.work_settings", [])
+
+      assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 2, prefix: prefix, log: false) ==
+               [@work_placement_version, @inherited_participation_version]
+
       assert_raise Postgrex.Error, ~r/durable settings have data/, fn ->
         Ecto.Migrator.run(repo, @migrations_path, :down, step: 1, prefix: prefix, log: false)
       end
@@ -1840,9 +1867,14 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
 
       refute table_exists?(repo, prefix, "installation_settings")
       refute table_exists?(repo, prefix, "pricing_rates")
+      refute table_exists?(repo, prefix, "work_settings")
 
       assert Ecto.Migrator.run(repo, @migrations_path, :up, all: true, prefix: prefix, log: false) ==
-               [@durable_settings_version]
+               [
+                 @durable_settings_version,
+                 @inherited_participation_version,
+                 @work_placement_version
+               ]
     after
       SQL.query!(repo, "DROP SCHEMA IF EXISTS #{prefix} CASCADE", [])
     end

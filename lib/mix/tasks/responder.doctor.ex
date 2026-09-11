@@ -2,7 +2,7 @@ defmodule Mix.Tasks.Responder.Doctor do
   @moduledoc """
   Runs every read-only operator preflight check.
 
-      MIX_ENV=prod mix responder.doctor --config /etc/responder/responder-elixir.yaml
+      MIX_ENV=prod mix responder.doctor
 
   The separate Mix process checks configuration, PostgreSQL, migrations, and
   durable queue readiness. Live runtime PID and progress checks remain owned by
@@ -18,20 +18,16 @@ defmodule Mix.Tasks.Responder.Doctor do
 
   @impl Mix.Task
   def run(arguments) do
-    with {:ok, options, []} <- Support.parse(arguments, [config: :string], 0),
-         {:ok, configuration} <- Support.configuration(options, true),
-         :ok <- Support.install_configuration(configuration) do
-      Support.with_repo(fn ->
-        Preflight.run(
-          configuration: configuration,
-          check_progress: false,
-          check_runtimes: false
-        )
-      end)
-      |> print_result()
-    else
+    case Support.parse(arguments, [], 0) do
+      {:ok, [], []} -> print_result(preflight())
       {:error, reason} -> Support.fail("operator preflight", reason)
     end
+  end
+
+  defp preflight do
+    Support.with_configuration(fn configuration ->
+      Preflight.run(configuration: configuration, check_progress: false, check_runtimes: false)
+    end)
   end
 
   defp print_result({:ok, report}), do: Support.print(report)

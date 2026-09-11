@@ -235,7 +235,7 @@ sets everything else: no accounts, no roles, no invitations.
 ## Reach and trust
 
 **Bound to `127.0.0.1` only**, on the port Responder already serves
-(`listen:` in `responder.yaml`). Reached in a browser on the same machine, or
+(`RESPONDER_CONTROL_IP` and `RESPONDER_CONTROL_PORT`). Reached in a browser on the same machine, or
 through an SSH tunnel. No authentication, because the loopback interface is the
 authentication.
 

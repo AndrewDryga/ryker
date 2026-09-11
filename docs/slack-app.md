@@ -20,7 +20,7 @@ webhooks, and token rotation.
    `xapp-` token as `SLACK_APP_TOKEN`.
 5. Install the app to the workspace and store its `xoxb-` token as `SLACK_BOT_TOKEN`.
 6. Put the workspace, operator, invite-user, summon-channel, and watch-channel IDs into
-   `/etc/responder/responder-elixir.yaml`, derived from `config/responder-elixir.example.yaml`.
+   the console's Slack connection settings, which record the verified workspace, bot and bot-user identities.
    Invite `@Emisar` to every configured summon and watch channel.
 7. Enroll the reviewed remote Coop workers, install the Slack tokens in the owner-only service
    environment, start `responder.service`, and require both `/healthz` and `/readyz` before running
@@ -73,7 +73,7 @@ the emergency kit — `status`, `proactive`, `shadow`, and `help` — and the fu
 guide carries that the hint does not: it reads a channel's standing grants and pauses, resumes or
 deletes one. Creating one is `offer_assignment` and its confirmation card, not a verb. Anything else the command used to do is
 now on App Home, on a pinned card's buttons, in the web control plane, or in
-`responder-elixir.yaml`; a
+the saved Slack connection; a
 retired verb answers with the one line naming which.
 
 Inviting `@Emisar` to a channel first offers safe mention-only and proactive defaults plus a
@@ -107,9 +107,9 @@ created incident room and triage configured operational feeds. Configured incide
 need to mention the bot in incident rooms. Human messages in effectively proactive channels are
 classified as ignore or a reply that follows the human's channel or thread location; a reply can
 offer an operator-confirmed incident without creating it. Credible unresolved external-app alerts
-and explicit human incident requests can create an incident directly. Static defaults come from
-`slack.watch_channels`; `/responder proactive`
-stores workspace or channel overrides. Current-state questions can use policy-authorized read-only
+and explicit human incident requests can create an incident directly. The installation participation default
+decides channels that never chose for themselves; `/responder proactive` saves an explicit choice
+for one channel, or moves the installation default when it is given `global`. Current-state questions can use policy-authorized read-only
 Emisar investigation before that decision. Slack sends mentioned messages through both event
 subscriptions, so Responder admits only `app_mention` for messages containing its bot mention.
 

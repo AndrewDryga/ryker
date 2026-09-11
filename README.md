@@ -66,8 +66,8 @@ Requirements:
 
 - PostgreSQL and the released Linux amd64 Elixir archive;
 - at least one enrolled Coop fleet worker with the reviewed policy digests;
-- the platform credentials for the adapters enabled in
-  [`config/responder-elixir.example.yaml`](config/responder-elixir.example.yaml); and
+- the platform credentials for the integrations you enable in settings, listed in
+  [`deploy/systemd/responder.env.example`](deploy/systemd/responder.env.example); and
 - TLS termination for `/v1/github` and `/v1/hooks/<route>`.
 
 Download the Elixir archive, `checksums.txt`, `checksums.txt.bundle`,
@@ -105,8 +105,6 @@ getent passwd responder >/dev/null || \
 sudo install -d -o root -g responder -m 0750 /etc/responder
 sudo install -d -o responder -g responder -m 0700 /var/lib/responder
 assets=/usr/local/lib/responder/current/share/responder
-sudo install -o root -g responder -m 0640 \
-  "$assets/config/responder-elixir.example.yaml" /etc/responder/responder-elixir.yaml
 sudo install -o root -g responder -m 0600 \
   "$assets/deploy/systemd/responder.env.example" /etc/responder/responder.env
 sudo install -o root -g root -m 0644 \
@@ -115,8 +113,9 @@ sudo install -o root -g root -m 0644 \
   "$assets/deploy/nginx/responder.conf" /etc/nginx/conf.d/responder.conf
 ```
 
-Replace every placeholder in the strict YAML and owner-only environment file, install the worker
-gateway CA/certificate files, verify the Slack and GitHub App installations, then start normally:
+Replace every placeholder in the owner-only environment file, install the worker gateway
+CA/certificate files, then start normally. The service starts with no product configuration at
+all: open the local console and connect Slack, GitHub, repositories and policies there.
 
 ```bash
 sudo systemctl daemon-reload
@@ -212,8 +211,8 @@ The conversational surface is primary: ask `@Emisar` in your own words and the m
 you meant, then the host executes it deterministically. Nothing is matched on substrings — a plain
 sentence in a channel is never a command, whichever words are in it. The one exception is
 `@Emisar reconfigure this channel`, which is read from text so it still works when the model is
-unavailable, and it is read only when Responder is addressed. `slack.watch_channels` supplies
-deployment defaults and `/responder` remains the recovery surface:
+unavailable, and it is read only when Responder is addressed. The installation participation default
+covers channels that never chose, and `/responder` remains the recovery surface:
 
 ```text
 /responder status
@@ -241,10 +240,10 @@ want watched — "review every terraform plan here and open PRs for the drift, 2
 and Responder answers with a confirmation card showing the normalized bounds it would grant. The
 typed `create` still answers, with a pointer to that conversation.
 
-The effective order is explicit channel override, confirmed channel setup, workspace override, then
-`responder.yaml`. Global `on`
+The effective setting is the channel's own saved participation, or the installation default when it
+never chose. Global `on`
 therefore watches every channel where Responder is a member and receives events, while a channel
-override can opt in or out. `inherit` removes that Slack override. Responder reads human and
+setting can opt in or out. `inherit` clears the channel's own setting so it follows the default. Responder reads human and
 external-app messages in Slack timestamp order and gives each decision a chronological transcript
 centered on the target message. The default 20-message window includes the thread root, nearest
 preceding replies, the target, and up to three immediately following messages; top-level requests
@@ -436,15 +435,15 @@ and external Slack Connect identities are denied. See
 These commands operate the current Elixir/PostgreSQL service.
 
 ```bash
-MIX_ENV=prod mix responder.doctor --config /etc/responder/responder-elixir.yaml
-MIX_ENV=prod mix responder.status --config /etc/responder/responder-elixir.yaml
-MIX_ENV=prod mix responder.failures --config /etc/responder/responder-elixir.yaml
+MIX_ENV=prod mix responder.doctor
+MIX_ENV=prod mix responder.status
+MIX_ENV=prod mix responder.failures
 MIX_ENV=prod mix responder.retry delivery 'delivery:...' \
-  --config /etc/responder/responder-elixir.yaml --operator U123 --action-ref retry-delivery-20260904-1
+  --operator U123 --action-ref retry-delivery-20260904-1
 MIX_ENV=prod mix responder.replay slack 'ingress-input:...' 'post-fix-check-1' \
-  --config /etc/responder/responder-elixir.yaml --operator U123 --action-ref replay-slack-20260904-1
+  --operator U123 --action-ref replay-slack-20260904-1
 MIX_ENV=prod mix responder.replay show 'ingress-input:...' \
-  --config /etc/responder/responder-elixir.yaml
+
 curl -f http://127.0.0.1:4321/healthz
 curl -f http://127.0.0.1:4321/readyz
 curl -f http://127.0.0.1:4321/metrics
@@ -524,7 +523,7 @@ make check
 ```
 
 Use `make customer-check` for the Elixir product journeys and deterministic host replay.
-Use `make model-release-check CONFIG=/absolute/responder-elixir-eval.yaml` only when the
+Use `make model-release-check` (with the `RESPONDER_EVAL_*` environment set) only when the
 model contract changes. Build and qualify the immutable Elixir release with:
 
 ```bash

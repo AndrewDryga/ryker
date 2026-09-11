@@ -18,7 +18,7 @@ defmodule Responder.ControlPlane.OperatorProjection do
   alias Responder.Slack.{
     ChannelConfiguration,
     ChannelMembership,
-    ChannelSettingOverride,
+    ChannelSettings,
     IncidentRoom,
     IncidentRoomLifecycleEvent
   }
@@ -438,7 +438,7 @@ defmodule Responder.ControlPlane.OperatorProjection do
          channel:
            channel_detail(configuration, membership, incident_room, workspace_ref, channel_ref),
          episodes: episodes,
-         overrides: channel_overrides(workspace_ref, conversation_ref),
+         participation: channel_participation(workspace_ref, conversation_ref, configuration),
          schedules: channel_schedules(conversation_ref),
          summaries: channel_summaries(workspace_ref, conversation_ref)
        }}
@@ -520,24 +520,31 @@ defmodule Responder.ControlPlane.OperatorProjection do
     )
   end
 
-  defp channel_overrides(workspace_ref, conversation_ref) do
-    Repo.all(
-      from(setting in ChannelSettingOverride,
-        where:
-          setting.workspace_ref == ^workspace_ref and
-            ((setting.scope_kind == :channel and setting.scope_ref == ^conversation_ref) or
-               (setting.scope_kind == :workspace and setting.scope_ref == ^workspace_ref)),
-        order_by: [asc: setting.setting, desc: setting.scope_kind, desc: setting.revision],
-        limit: 20,
-        select: %{
-          revision: setting.revision,
-          scope: setting.scope_kind,
-          setting: setting.setting,
-          updated_at: setting.updated_at,
-          value: setting.value
-        }
-      )
-    )
+  # One effective participation with the layer that decided it. There is no
+  # second override store to reconcile: a channel either chose, or inherits.
+  defp channel_participation(workspace_ref, conversation_ref, configuration) do
+    case ChannelSettings.effective(workspace_ref, conversation_ref, installation_participation()) do
+      %{} = effective ->
+        Enum.map([:proactive, :shadow], fn setting ->
+          %{
+            revision: configuration && configuration.revision,
+            scope: effective[setting].source,
+            setting: setting,
+            updated_at: configuration && configuration.saved_at,
+            value: effective[setting].value
+          }
+        end)
+
+      {:error, _reason} ->
+        []
+    end
+  end
+
+  defp installation_participation do
+    case Responder.Settings.fetch() do
+      {:ok, settings} -> settings.slack.default_participation
+      {:error, :settings_not_initialized} -> :mentions
+    end
   end
 
   defp channel_summaries(workspace_ref, conversation_ref) do
@@ -627,7 +634,7 @@ defmodule Responder.ControlPlane.OperatorProjection do
   def repositories(_params), do: repositories(%{})
 
   def operator_configuration do
-    source = System.get_env("RESPONDER_ELIXIR_CONFIG") || "application environment"
+    source = "durable settings"
 
     %{
       grants: mcp_grants(source),

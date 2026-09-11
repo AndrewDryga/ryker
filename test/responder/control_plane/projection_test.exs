@@ -2284,7 +2284,6 @@ defmodule Responder.ControlPlane.ProjectionTest do
   test "effective configuration exposes provenance and grant names but never secrets or callbacks" do
     keys = [:state_tools, :work]
     previous = Map.new(keys, &{&1, Application.get_env(:responder, &1, :missing)})
-    previous_path = System.get_env("RESPONDER_ELIXIR_CONFIG")
 
     Application.put_env(:responder, :state_tools, %{
       additional_call: fn _, _, _ -> :secret_callback end,
@@ -2303,21 +2302,17 @@ defmodule Responder.ControlPlane.ProjectionTest do
       poll_interval_ms: 250
     })
 
-    System.put_env("RESPONDER_ELIXIR_CONFIG", "/etc/responder/emisar.yaml")
-
     on_exit(fn ->
       Enum.each(previous, fn
         {key, :missing} -> Application.delete_env(:responder, key)
         {key, value} -> Application.put_env(:responder, key, value)
       end)
-
-      if previous_path,
-        do: System.put_env("RESPONDER_ELIXIR_CONFIG", previous_path),
-        else: System.delete_env("RESPONDER_ELIXIR_CONFIG")
     end)
 
     snapshot = Projection.operator_configuration()
-    assert snapshot.source == "/etc/responder/emisar.yaml"
+    # Effective values come from the applied settings, not from a file path an
+    # operator could be pointed at.
+    assert snapshot.source == "durable settings"
 
     assert %{key: "work.concurrency", value: "4"} =
              Enum.find(snapshot.rows, &(&1.key == "work.concurrency"))

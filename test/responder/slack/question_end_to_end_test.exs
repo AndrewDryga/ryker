@@ -565,7 +565,7 @@ defmodule Responder.Slack.QuestionEndToEndTest do
         records: Records,
         answer_input_request: &InputRequests.answer/1
       },
-      watch_channels: MapSet.new(),
+      effective_settings: &installation_participation/2,
       work_profile: fn "TQUESTIONENDTOEND", "slack:TQUESTIONENDTOEND:C456" ->
         {:ok,
          %{
@@ -728,4 +728,11 @@ defmodule Responder.Slack.QuestionEndToEndTest do
   end
 
   defp input_id("ingress-input:" <> id), do: id
+
+  defp installation_participation(_workspace_ref, _conversation_ref) do
+    %{
+      proactive: %{source: :installation, value: false},
+      shadow: %{source: :installation, value: false}
+    }
+  end
 end

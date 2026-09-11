@@ -60,7 +60,13 @@ defmodule Responder.ControlPlane.ServerTest do
       Server.options!(port: 4_090, port: 4_091, work_profile: @profile)
     end
 
-    assert_raise ArgumentError, fn -> Server.options!(port: 4_090) end
+    # A fresh installation has no reviewed policy yet; the console still starts
+    # so setup is reachable, and simply has no profile to submit Work with.
+    assert Server.options!(port: 4_090).work_profile == nil
+
+    assert_raise ArgumentError, fn ->
+      Server.options!(port: 4_090, work_profile: %{policy: "browser-choice"})
+    end
 
     assert_raise ArgumentError, fn ->
       Server.options!(port: 4_090, coop_api: Responder.Coop.Client, work_profile: @profile)

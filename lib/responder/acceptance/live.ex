@@ -10,10 +10,11 @@ defmodule Responder.Acceptance.Live do
 
   import Ecto.Query
 
+  alias Responder.{Bootstrap, Settings}
   alias Responder.CoopFleet.Placement
   alias Responder.Ingress.Inbox.Entry
   alias Responder.Repo
-  alias Responder.RuntimeConfiguration
+  alias Responder.Runtime.Assembly
   alias Responder.Slack.{Client, Gateway, Runtime}
   alias Responder.Work.Turn
 
@@ -76,16 +77,14 @@ defmodule Responder.Acceptance.Live do
 
   @spec run_from_env!() :: :ok
   def run_from_env! do
-    config_path = System.get_env("RESPONDER_LIVE_CONFIG")
     channel_ref = System.get_env("RESPONDER_LIVE_CHANNEL")
     timeout_seconds = System.get_env("RESPONDER_LIVE_TIMEOUT_SECONDS", "600")
 
-    with :ok <- absolute_path(config_path),
-         :ok <- reference(channel_ref, :channel_ref),
+    with :ok <- reference(channel_ref, :channel_ref),
          {timeout_seconds, ""} <- Integer.parse(timeout_seconds),
          true <- timeout_seconds in 1..div(@maximum_timeout_ms, 1_000),
-         configuration <- RuntimeConfiguration.load!(config_path),
-         {:ok, report} <- with_repo_and_finch(configuration, channel_ref, timeout_seconds * 1_000) do
+         {:ok, report} <-
+           with_repo_and_finch(:durable_settings, channel_ref, timeout_seconds * 1_000) do
       IO.puts(Jason.encode!(string_keys(report)))
       :ok
     else
@@ -105,6 +104,15 @@ defmodule Responder.Acceptance.Live do
          ) do
       {:ok, result, _started_apps} -> result
       {:error, reason} -> {:error, {:live_acceptance_repository_unavailable, reason}}
+    end
+  end
+
+  defp run_with_finch(_repo, :durable_settings, channel_ref, timeout_ms) do
+    # The harness observes the deployment that is already running, so it reads
+    # the same durable settings that deployment applied.
+    with {:ok, settings} <- Settings.fetch(),
+         {:ok, configuration} <- Assembly.build(Bootstrap.load!(), settings) do
+      with_finch(fn -> run(configuration, channel_ref, timeout_ms: timeout_ms) end)
     end
   end
 
@@ -567,12 +575,6 @@ defmodule Responder.Acceptance.Live do
       nil -> "unknown"
       version -> to_string(version)
     end
-  end
-
-  defp absolute_path(value) do
-    if is_binary(value) and value != "" and Path.type(value) == :absolute,
-      do: :ok,
-      else: {:error, :live_acceptance_config_path_invalid}
   end
 
   defp reference(value, _field)

@@ -8,6 +8,7 @@ defmodule Responder.Slack.ChannelConfiguration do
   schema "slack_channel_configurations" do
     field(:workspace_ref, :string)
     field(:channel_ref, :string)
+    # nil means the channel inherits the installation default participation.
     field(:participation, Ecto.Enum, values: [:mentions, :proactive, :shadow])
     field(:repository_ref, :string)
     field(:alert_policy, Ecto.Enum, values: [:reply, :offer, :automatic])

@@ -86,9 +86,12 @@ defmodule Responder.ControlPlane.Server do
     unless is_binary(csrf_secret) and byte_size(csrf_secret) == 32,
       do: raise(ArgumentError, "control-plane CSRF secret must be 32 bytes")
 
+    # A fresh installation has no reviewed policy yet. The console still starts
+    # so setup is reachable; it simply cannot submit Work until one exists.
     work_profile =
       case WorkProfile.prepare(work_profile) do
         {:ok, %WorkProfile{} = profile} -> profile
+        {:ok, nil} -> nil
         _invalid -> raise ArgumentError, "control-plane work profile is invalid"
       end
 
@@ -119,12 +122,12 @@ defmodule Responder.ControlPlane.Server do
   defp normalize!(%{} = configuration) do
     keys = Map.keys(configuration)
 
-    if :port in keys and :work_profile in keys and keys -- @fields == [],
+    if :port in keys and keys -- @fields == [],
       do: configuration,
       else:
         raise(
           ArgumentError,
-          "control-plane configuration must contain a port and work profile plus optional IP and CSRF secret"
+          "control-plane configuration must contain a port plus optional work profile, IP and CSRF secret"
         )
   end
 

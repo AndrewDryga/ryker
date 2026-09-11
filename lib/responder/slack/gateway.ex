@@ -650,9 +650,6 @@ defmodule Responder.Slack.Gateway do
   defp setting_document(_setting), do: nil
 
   defp effective_channel_settings(input, settings) do
-    fallback =
-      MapSet.member?(settings.watch_channels, slack_channel(input.destination.conversation_ref))
-
     case Map.get(settings, :effective_settings) do
       callback when is_function(callback, 2) ->
         case callback.(input.source.ref, input.destination.conversation_ref) do
@@ -677,13 +674,7 @@ defmodule Responder.Slack.Gateway do
         end
 
       _none ->
-        {:ok,
-         %{
-           proactive: fallback,
-           shadow: false,
-           proactive_setting: %{value: fallback, source: :watch_channels},
-           shadow_setting: %{value: false, source: :deployment}
-         }}
+        {:error, {:invalid_slack_settings, :effective}}
     end
   end
 
@@ -703,13 +694,6 @@ defmodule Responder.Slack.Gateway do
     case Map.get(settings, :standing_matcher) do
       callback when is_function(callback, 1) -> callback.(input)
       _none -> false
-    end
-  end
-
-  defp slack_channel(conversation_ref) do
-    case String.split(conversation_ref, ":", parts: 3) do
-      ["slack", _workspace_ref, channel_ref] -> channel_ref
-      _invalid -> ""
     end
   end
 

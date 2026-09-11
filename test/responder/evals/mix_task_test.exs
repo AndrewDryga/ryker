@@ -12,21 +12,27 @@ defmodule Responder.Evals.MixTaskTest do
     assert_pack("world-pack", WorldCase)
   end
 
-  test "live commands fail closed before loading configuration without one exact path" do
+  test "live commands fail closed on unknown arguments and unconfigured authority" do
+    # Nothing reaches a model before the local arguments and the dedicated
+    # evaluation authority have both been resolved.
     assert_raise Mix.Error, ~r/admission eval failed: :invalid_arguments/, fn ->
-      Eval.run(["admission"])
+      Eval.run(["admission", "--config", "/tmp/responder.yaml"])
     end
 
     assert_raise Mix.Error, ~r/work eval failed: :invalid_arguments/, fn ->
-      Eval.run(["work", "--config", ""])
+      Eval.run(["work", "extra"])
     end
 
     assert_raise Mix.Error, ~r/world eval failed: :invalid_arguments/, fn ->
-      Eval.run(["world", "--unknown", "config.yaml"])
+      Eval.run(["world", "--unknown", "value"])
     end
 
     assert_raise Mix.Error, ~r/world eval failed: :invalid_arguments/, fn ->
-      Eval.run(["world", "--config", "/tmp/config.yaml", "--results", "relative.json"])
+      Eval.run(["world", "--results", "relative.json"])
+    end
+
+    assert_raise Mix.Error, ~r/admission eval failed: :model_eval_policies_not_configured/, fn ->
+      Eval.run(["admission"])
     end
 
     assert_raise Mix.Error, ~r/usage: mix responder.eval/, fn ->

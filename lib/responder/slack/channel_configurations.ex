@@ -21,6 +21,7 @@ defmodule Responder.Slack.ChannelConfigurations do
     ChannelFence,
     ChannelMembership,
     ChannelMembershipEvent,
+    ChannelSettings,
     ConfigurationAction,
     ConfigurationSession
   }
@@ -240,8 +241,8 @@ defmodule Responder.Slack.ChannelConfigurations do
   One effective-settings projection shared by the welcome, the setup Q&A
   completion and settings shown on request. Reading never mutates.
 
-  `overrides` is the emergency participation view (`ChannelSettings.effective/3`
-  or the incident-room equivalent); it wins over the saved configuration.
+  `overrides` is the resolved participation view (`ChannelSettings.effective/3`
+  or the incident-room equivalent) and already names the layer that decided it.
   """
   @spec effective_settings(String.t(), String.t(), catalog(), map()) ::
           {:ok, map()} | {:error, term()}
@@ -258,7 +259,7 @@ defmodule Responder.Slack.ChannelConfigurations do
   @doc false
   @spec settings_document(ChannelConfiguration.t() | nil, catalog(), map()) :: map()
   def settings_document(configuration, catalog, overrides) do
-    participation = effective_participation(overrides)
+    participation = ChannelSettings.effective_participation(overrides)
 
     %{
       "alert_policy" => alert_policy(configuration),
@@ -289,17 +290,6 @@ defmodule Responder.Slack.ChannelConfigurations do
     }
   end
 
-  # The override view already folds the saved participation in (channel
-  # override, then configuration, then workspace, then deployment), so its
-  # source names whichever layer decided the effective value.
-  defp effective_participation(overrides) do
-    cond do
-      overrides.shadow.value -> %{source: overrides.shadow.source, value: :shadow}
-      overrides.proactive.value -> %{source: overrides.proactive.source, value: :proactive}
-      true -> %{source: overrides.proactive.source, value: :mentions}
-    end
-  end
-
   defp alert_policy(%ChannelConfiguration{alert_policy: policy}), do: Atom.to_string(policy)
   defp alert_policy(nil), do: "reply"
 
@@ -319,9 +309,7 @@ defmodule Responder.Slack.ChannelConfigurations do
   defp overrides(_overrides), do: {:error, {:invalid_channel_configuration, :overrides}}
 
   defp override?(%{source: source, value: value} = override) when map_size(override) == 2,
-    do:
-      is_boolean(value) and
-        source in [:channel, :configuration, :deployment, :incident_room, :workspace]
+    do: is_boolean(value) and source in [:channel, :incident_room, :installation]
 
   defp override?(_override), do: false
 
@@ -653,7 +641,8 @@ defmodule Responder.Slack.ChannelConfigurations do
           id: Ecto.UUID.generate(),
           invite_user_group_refs: [],
           invite_user_refs: [],
-          participation: :mentions,
+          # No explicit choice yet: the channel inherits the installation default.
+          participation: nil,
           repository_ref: catalog.default_repository,
           revision: 1,
           saved_at: database_now!(),

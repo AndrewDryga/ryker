@@ -479,7 +479,7 @@ defmodule Responder.ControlPlane.CardLab do
       welcome_state(
         "shadow",
         "Observation mode",
-        settings_document(observation: true, participation: "shadow", source: "workspace"),
+        settings_document(observation: true, participation: "shadow"),
         nil
       ),
       welcome_state(
@@ -557,12 +557,17 @@ defmodule Responder.ControlPlane.CardLab do
       ])
 
     participation = Keyword.get(overrides, :participation, "mentions")
-    source = Keyword.get(overrides, :source, "configuration")
+    customized_by = Keyword.get(overrides, :customized_by)
+
+    # A channel that chose for itself reports "channel"; one that never did
+    # reports the installation default it follows.
+    source =
+      Keyword.get(overrides, :source, if(customized_by, do: "channel", else: "installation"))
 
     %{
       "alert_policy" => Keyword.get(overrides, :alert_policy, "reply"),
       "configuration_ref" => "018f3ef7-1f62-7ee0-a83c-0c12f21d83e7",
-      "customized_by" => Keyword.get(overrides, :customized_by),
+      "customized_by" => customized_by,
       "default_repository" =>
         Keyword.get(
           overrides,

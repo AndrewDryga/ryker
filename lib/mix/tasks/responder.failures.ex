@@ -2,7 +2,7 @@ defmodule Mix.Tasks.Responder.Failures do
   @moduledoc """
   Lists bounded retryable failure context as JSON.
 
-      MIX_ENV=prod mix responder.failures --config /etc/responder/responder-elixir.yaml
+      MIX_ENV=prod mix responder.failures
   """
 
   use Mix.Task
@@ -14,11 +14,8 @@ defmodule Mix.Tasks.Responder.Failures do
 
   @impl Mix.Task
   def run(arguments) do
-    with {:ok, options, []} <- Support.parse(arguments, [config: :string], 0),
-         {:ok, _configuration} <- Support.configuration(options) do
-      Support.with_repo(&Failures.list/0)
-      |> print_result()
-    else
+    case Support.parse(arguments, [], 0) do
+      {:ok, [], []} -> print_result(Support.with_repo(&Failures.list/0))
       {:error, reason} -> Support.fail("operator failures", reason)
     end
   end

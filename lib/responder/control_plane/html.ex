@@ -1000,11 +1000,11 @@ defmodule Responder.ControlPlane.HTML do
   def channel(%{
         channel: channel,
         episodes: episodes,
-        overrides: overrides,
+        participation: participation,
         schedules: schedules,
         summaries: summaries
       }) do
-    override_rows = Enum.map(overrides, &channel_override_row/1)
+    participation_rows = Enum.map(participation, &channel_participation_row/1)
     schedule_rows = Enum.map(schedules, &channel_schedule_row/1)
     episode_rows = Enum.map(episodes, &channel_episode_row/1)
     summary_rows = Enum.map(summaries, &channel_summary_row/1)
@@ -1023,8 +1023,8 @@ defmodule Responder.ControlPlane.HTML do
         {"Configuration revision", fallback(channel.configuration_revision, "none")},
         {"Configuration saved", channel.configuration_saved_at}
       ]),
-      "<section><h2>Effective overrides</h2>",
-      table(["Setting", "Value", "Scope", "Revision", "Updated"], override_rows),
+      "<section><h2>Effective participation</h2>",
+      table(["Setting", "Value", "Decided by", "Revision", "Updated"], participation_rows),
       "</section><section><h2>Schedules here</h2>",
       table(["Schedule", "Status", "Next"], schedule_rows),
       "</section><section><h2>Conversation continuity</h2>",
@@ -2218,14 +2218,14 @@ defmodule Responder.ControlPlane.HTML do
   defp channel_visibility(true), do: "private"
   defp channel_visibility(_public_or_unknown), do: "public or unrecorded"
 
-  defp channel_override_row(item) do
+  defp channel_participation_row(item) do
     [
       "<tr><td>",
       escape(item.setting),
       "</td><td>",
-      escape(item.value),
+      escape(if(item.value, do: "on", else: "off")),
       "</td><td>",
-      escape(item.scope),
+      escape(if(item.scope == :installation, do: "installation default", else: item.scope)),
       "</td><td>",
       integer(item.revision),
       "</td><td>",

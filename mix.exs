@@ -6,7 +6,6 @@ defmodule Responder.MixProject do
     CHANGELOG.md
     LICENSE
     SECURITY.md
-    config/responder-elixir.example.yaml
     deploy/nginx/responder.conf
     deploy/systemd/responder.service
     deploy/systemd/responder.env.example

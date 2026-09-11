@@ -11,7 +11,6 @@ defmodule Responder.Evals.WorldEvalScriptTest do
                "bash",
                [
                  @script,
-                 "/absolute/eval.yaml",
                  "/absolute/results.json",
                  "--tag",
                  "smoke",
@@ -25,7 +24,7 @@ defmodule Responder.Evals.WorldEvalScriptTest do
     assert output == ""
     calls = File.read!(fixture.log)
     assert calls =~ "world_eval=1"
-    assert calls =~ "responder.eval world --config /absolute/eval.yaml"
+    assert calls =~ "responder.eval world"
     assert calls =~ "--results /absolute/results.json --tag smoke --repeat 1"
     assert calls =~ "ecto.drop"
   end
@@ -36,7 +35,7 @@ defmodule Responder.Evals.WorldEvalScriptTest do
     assert {output, 7} =
              System.cmd(
                "bash",
-               [@script, "/absolute/eval.yaml", "/absolute/results.json"],
+               [@script, "/absolute/results.json"],
                env: fixture.env,
                stderr_to_stdout: true
              )
