@@ -171,9 +171,6 @@ defmodule Responder.ControlPlane.WorkbenchLive do
   def handle_event(event, _params, socket) when event in ["refresh", "show-new"],
     do: {:noreply, refresh(socket, true)}
 
-  # A heavy body is prepared when the reader opens it and stays prepared while
-  # they read: a refresh that closed the prompt they were halfway through would
-  # make the page unusable during exactly the work it exists to explain.
   def handle_event("initialize-settings", _params, socket) do
     case initialize_settings(socket) do
       {:ok, snapshot} ->
@@ -185,6 +182,9 @@ defmodule Responder.ControlPlane.WorkbenchLive do
     end
   end
 
+  # A heavy body is prepared when the reader opens it and stays prepared while
+  # they read: a refresh that closed the prompt they were halfway through would
+  # make the page unusable during exactly the work it exists to explain.
   def handle_event("disclose", %{"artifact" => id}, socket)
       when is_binary(id) and byte_size(id) <= 256 do
     if MapSet.member?(socket.assigns.disclosed, id) do

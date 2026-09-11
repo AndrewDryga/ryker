@@ -1851,6 +1851,11 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
         [String.duplicate("a", 64), String.duplicate("b", 64)]
       )
 
+      # A newer migration sits above the settings tables; it is reversible in this
+      # schema because nothing metered a learning execution here.
+      assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 1, prefix: prefix, log: false) ==
+               [@learning_executions_version]
+
       # The receipt is the only proof that a rerun of the importer is already
       # applied; dropping it under a live installation would let a rerun write
       # again over settings an operator has since edited.
@@ -1905,7 +1910,8 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
                  @durable_settings_version,
                  @inherited_participation_version,
                  @work_placement_version,
-                 @import_receipts_version
+                 @import_receipts_version,
+                 @learning_executions_version
                ]
     after
       SQL.query!(repo, "DROP SCHEMA IF EXISTS #{prefix} CASCADE", [])
