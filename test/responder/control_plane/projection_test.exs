@@ -217,7 +217,13 @@ defmodule Responder.ControlPlane.ProjectionTest do
     assert Enum.map(detail.trace.chapters, & &1.title) == ["What came in", "Getting ready"]
 
     assert Enum.map(detail.trace.steps, & &1.title) ==
-             ["Input admitted", "Input wait started", "Standing rules"]
+             [
+               "Input admitted",
+               "Input wait started",
+               "Participation settings",
+               "Standing rules",
+               "Engagement"
+             ]
 
     assert detail.trace.stopped.headline == "Waiting for a person"
     assert detail.trace.stopped.action == "Reply in the bound conversation"

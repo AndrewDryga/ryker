@@ -259,9 +259,18 @@ defmodule Responder.Slack.Gateway do
 
   defp handle_ingress_event(normalized, settings) do
     case engagement_mode(normalized, settings) do
-      {:ok, execution_mode} -> record_ingress(normalized, execution_mode, settings)
-      {:engaged, false} -> {:ack, {:ignored, :not_engaged}}
-      {:error, reason} -> {:retry, reason}
+      {:ok, execution_mode, receipt} ->
+        record_ingress(
+          Map.put(normalized, :engagement_receipt, receipt),
+          execution_mode,
+          settings
+        )
+
+      {:engaged, false} ->
+        {:ack, {:ignored, :not_engaged}}
+
+      {:error, reason} ->
+        {:retry, reason}
     end
   end
 
@@ -283,7 +292,19 @@ defmodule Responder.Slack.Gateway do
   defp handle_shortcut(normalized, settings) do
     with {:ok, true} <- actor_allowed(normalized.input.actor, settings),
          {:ok, true} <- conversation_actor_allowed(normalized.input, settings) do
-      record_ingress(normalized, :live, settings)
+      # An explicit shortcut bypasses the ordinary engagement gate entirely; the
+      # receipt says so rather than claiming channel settings were applied.
+      receipt = %{
+        "version" => 1,
+        "path" => "slack_shortcut",
+        "result" => "process",
+        "reason" => "Explicitly submitted through a Slack shortcut.",
+        "checks" => [],
+        "settings" => nil,
+        "execution_mode" => "live"
+      }
+
+      record_ingress(Map.put(normalized, :engagement_receipt, receipt), :live, settings)
     else
       {:ok, false} -> {:ack, {:ignored, :actor_not_authorized}}
       {:error, reason} -> {:retry, reason}
@@ -299,6 +320,7 @@ defmodule Responder.Slack.Gateway do
              slack_audience: normalized.audience,
              slack_bot_user_ref: settings.identity.bot_user_ref,
              source_envelope: normalized[:source_envelope],
+             engagement_receipt: normalized[:engagement_receipt],
              work_profile: work_profile
            ),
          :ok <- remember_action_token(enriched, settings) do
@@ -531,21 +553,95 @@ defmodule Responder.Slack.Gateway do
     end
   end
 
+  # The gate is a short-circuiting disjunction, and the receipt records exactly
+  # that: each predicate is evaluated in the same order and only as far as the
+  # decision needs, and a predicate the gate never reached is recorded as
+  # "not checked" rather than as a "no" nobody established.
   defp engagement_mode(%{input: input} = normalized, settings) do
     with {:ok, channel_settings} <- effective_channel_settings(input, settings) do
-      engaged =
-        normalized.audience in [:direct, :mention] or
-          (normalized.audience == :ambient and
-             (continuation?(normalized, settings) or standing_match?(input, settings) or
-                channel_settings.proactive or channel_settings.shadow))
+      {engaged, checks} = engagement_checks(normalized, channel_settings, settings)
 
       cond do
-        not engaged -> {:engaged, false}
-        channel_settings.shadow -> {:ok, :shadow}
-        true -> {:ok, :live}
+        not engaged ->
+          {:engaged, false}
+
+        channel_settings.shadow ->
+          {:ok, :shadow, engagement_receipt(checks, channel_settings, :shadow)}
+
+        true ->
+          {:ok, :live, engagement_receipt(checks, channel_settings, :live)}
       end
     end
   end
+
+  defp engagement_checks(%{audience: audience} = normalized, channel_settings, settings) do
+    cond do
+      audience in [:direct, :mention] -> {true, [{"direct_or_mention", "yes"}]}
+      audience != :ambient -> {false, [{"direct_or_mention", "no"}]}
+      true -> ambient_checks(normalized, channel_settings, settings)
+    end
+  end
+
+  defp ambient_checks(normalized, channel_settings, settings) do
+    checks = [{"direct_or_mention", "no"}]
+
+    cond do
+      continuation?(normalized, settings) ->
+        {true, checks ++ [{"existing_episode_thread", "yes"}]}
+
+      standing_match?(normalized.input, settings) ->
+        {true, checks ++ [{"existing_episode_thread", "no"}, {"standing_rule", "matched"}]}
+
+      true ->
+        {channel_settings.proactive or channel_settings.shadow,
+         checks ++
+           [
+             {"existing_episode_thread", "no"},
+             {"standing_rule", "not_matched"},
+             {"proactive_participation", on_off(channel_settings.proactive)},
+             {"shadow_evaluation", on_off(channel_settings.shadow)}
+           ]}
+    end
+  end
+
+  defp on_off(true), do: "on"
+  defp on_off(_value), do: "off"
+
+  defp engagement_receipt(checks, channel_settings, execution_mode) do
+    %{
+      "version" => 1,
+      "path" => "slack_event",
+      "result" => if(execution_mode == :shadow, do: "evaluate_only", else: "process"),
+      "reason" => engagement_reason(checks, execution_mode),
+      "checks" =>
+        Enum.map(checks, fn {check, outcome} -> %{"check" => check, "outcome" => outcome} end),
+      "settings" => %{
+        "proactive" => setting_document(channel_settings.proactive_setting),
+        "shadow" => setting_document(channel_settings.shadow_setting)
+      },
+      "execution_mode" => Atom.to_string(execution_mode)
+    }
+  end
+
+  defp engagement_reason(checks, :shadow) do
+    "Shadow mode is enabled for this channel; " <>
+      String.downcase(engagement_reason(checks, :live))
+  end
+
+  defp engagement_reason(checks, _mode) do
+    case List.last(checks) do
+      {"direct_or_mention", "yes"} -> "Responder was mentioned in or sent this message."
+      {"existing_episode_thread", "yes"} -> "The message is in a thread with existing work."
+      {"standing_rule", "matched"} -> "A standing rule matched this message."
+      {"shadow_evaluation", _} -> "Ambient participation is enabled for this channel."
+      _other -> "The engagement gate admitted this message."
+    end
+  end
+
+  defp setting_document(%{value: value, source: source}),
+    do: %{"value" => value, "source" => Atom.to_string(source)}
+
+  defp setting_document(_setting), do: nil
 
   defp effective_channel_settings(input, settings) do
     fallback =
@@ -555,11 +651,17 @@ defmodule Responder.Slack.Gateway do
       callback when is_function(callback, 2) ->
         case callback.(input.source.ref, input.destination.conversation_ref) do
           %{
-            proactive: %{value: proactive},
-            shadow: %{value: shadow}
+            proactive: %{value: proactive} = proactive_setting,
+            shadow: %{value: shadow} = shadow_setting
           }
           when is_boolean(proactive) and is_boolean(shadow) ->
-            {:ok, %{proactive: proactive, shadow: shadow}}
+            {:ok,
+             %{
+               proactive: proactive,
+               shadow: shadow,
+               proactive_setting: setting_source(proactive_setting),
+               shadow_setting: setting_source(shadow_setting)
+             }}
 
           {:error, _reason} = error ->
             error
@@ -569,9 +671,20 @@ defmodule Responder.Slack.Gateway do
         end
 
       _none ->
-        {:ok, %{proactive: fallback, shadow: false}}
+        {:ok,
+         %{
+           proactive: fallback,
+           shadow: false,
+           proactive_setting: %{value: fallback, source: :watch_channels},
+           shadow_setting: %{value: false, source: :deployment}
+         }}
     end
   end
+
+  defp setting_source(%{value: value, source: source}) when is_atom(source),
+    do: %{value: value, source: source}
+
+  defp setting_source(%{value: value}), do: %{value: value, source: :not_recorded}
 
   defp continuation?(normalized, settings) do
     case Map.get(settings, :continuation) do

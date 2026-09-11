@@ -1281,3 +1281,8 @@ details.measurement-notes > summary { cursor:pointer; font-weight:600; color:var
 .input-body > summary > span { margin-left:8px; font-size:12px; color:#6a7162; }
 .input-body pre { margin:8px 0 0; max-height:480px; overflow:auto; font-size:12px; white-space:pre-wrap; overflow-wrap:anywhere; background:#f7f9f4; padding:10px; border-radius:6px; }
 .input-body .artifact-unavailable { margin:6px 0 0; color:#7a6a3f; }
+
+/* Participation settings and the engagement decision. */
+.participation-facts dd strong { color:#2f4433; }
+.engagement-decision .event-state.tone-good { color:#59765a; background:#edf4e9; }
+.engagement-decision .case-event-details p { margin:8px 0 0; font-size:13px; color:#536256; }

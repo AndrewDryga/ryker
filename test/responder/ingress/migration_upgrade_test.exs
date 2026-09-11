@@ -46,13 +46,15 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
   @selected_work_inputs_version 20_260_911_000_100
   @rule_inventories_version 20_260_911_000_200
   @source_envelopes_version 20_260_911_000_300
+  @engagement_receipts_version 20_260_911_000_500
   @latest_versions [
     @typed_question_answers_version,
     @answer_confirmed_global_facts_version,
     @selected_work_inputs_version,
     @rule_inventories_version,
     @source_envelopes_version,
-    @worker_storage_reports_version
+    @worker_storage_reports_version,
+    @engagement_receipts_version
   ]
   @memory_versions Enum.to_list(20_260_908_000_100..20_260_908_001_100//100) ++
                      [@bounded_sources_version]
@@ -1569,8 +1571,9 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
 
       # The inspection-evidence columns and tables and the worker storage columns
       # are reversible on their own.
-      assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 4, prefix: prefix, log: false) ==
+      assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 5, prefix: prefix, log: false) ==
                [
+                 @engagement_receipts_version,
                  @worker_storage_reports_version,
                  @source_envelopes_version,
                  @rule_inventories_version,
@@ -1655,8 +1658,9 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
 
       # The inspection-evidence columns and tables and the worker storage columns
       # are reversible on their own.
-      assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 4, prefix: prefix, log: false) ==
+      assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 5, prefix: prefix, log: false) ==
                [
+                 @engagement_receipts_version,
                  @worker_storage_reports_version,
                  @source_envelopes_version,
                  @rule_inventories_version,
@@ -1931,7 +1935,7 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
           """
           SELECT to_jsonb(row) - 'learning_run_id' - 'summary_error_code'
             - 'source_exposure_count' - 'knowledge_exposure_count' - 'completion_receipt'
-            - 'selected_input_refs' - 'source_envelope' AS value
+            - 'selected_input_refs' - 'source_envelope' - 'engagement_receipt' AS value
           FROM #{prefix}.#{table} row ORDER BY 1
           """,
           []
