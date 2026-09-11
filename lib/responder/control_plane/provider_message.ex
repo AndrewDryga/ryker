@@ -24,6 +24,7 @@ defmodule Responder.ControlPlane.ProviderMessage do
           tone: :planning | :confirmation | :failure | :applied | :firing | :resolved | nil,
           subject: String.t() | nil,
           facts: [%{label: String.t(), value: String.t()}],
+          groups: [%{label: String.t(), entries: [%{label: String.t(), value: String.t()}]}],
           links: [%{label: String.t(), href: String.t()}]
         }
 
@@ -70,6 +71,7 @@ defmodule Responder.ControlPlane.ProviderMessage do
       tone: terraform_tone(state),
       subject: terraform_workspace(run["pretext"]),
       facts: facts,
+      groups: [],
       links:
         links([
           {"Open run", run["title_link"]},
@@ -142,6 +144,7 @@ defmodule Responder.ControlPlane.ProviderMessage do
 
   defp grafana(payload) do
     labels = map(payload["labels"])
+    annotations = map(payload["annotations"])
     status = string(payload["status"])
 
     %{
@@ -157,10 +160,45 @@ defmodule Responder.ControlPlane.ProviderMessage do
           {"Instance", labels["instance"]},
           {"Severity", string(payload["severity"])},
           {"Started", string(payload["starts_at"])},
-          {"Ended", if(status == "resolved", do: string(payload["ends_at"]))}
+          {"Ended", if(status == "resolved", do: string(payload["ends_at"]))},
+          # The webhook adapter records one input per alert and gives every
+          # member of a grouped notification the same correlation key. This
+          # alert is one of that group; how many others there were is not
+          # something this input can say, so it does not.
+          {"Alert group", string(payload["source_incident_id"])}
         ]),
-      links: links([{"Open alert", payload["source_url"]}])
+      groups:
+        label_groups([
+          {"Labels", labels},
+          {"Annotations", annotations}
+        ]),
+      links:
+        links([
+          {"Open alert", payload["source_url"]},
+          {"Runbook", annotations["runbook_url"]}
+        ])
     }
+  end
+
+  # Every retained label and annotation stays inspectable. Promoting a few to
+  # the face is presentation; dropping the rest would be an edit.
+  defp label_groups(pairs) do
+    for {label, %{} = values} <- pairs, values != %{} do
+      %{
+        label: label,
+        entries:
+          values
+          |> Enum.sort()
+          |> Enum.take(40)
+          |> Enum.flat_map(fn
+            {key, value} when is_binary(key) and is_binary(value) ->
+              [%{label: key, value: value}]
+
+            _other ->
+              []
+          end)
+      }
+    end
   end
 
   defp grafana_tone("firing"), do: :firing

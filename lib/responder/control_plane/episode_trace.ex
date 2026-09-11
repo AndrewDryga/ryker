@@ -19,6 +19,7 @@ defmodule Responder.ControlPlane.EpisodeTrace do
   alias Responder.ControlPlane.EpisodeCausality
   alias Responder.ControlPlane.EvidenceLinks
   alias Responder.ControlPlane.InspectionRedactor
+  alias Responder.ControlPlane.LearningActivity
   alias Responder.ControlPlane.ProviderMessage
   alias Responder.ControlPlane.SourceText
   alias Responder.ControlPlane.WorkRecovery
@@ -28,11 +29,12 @@ defmodule Responder.ControlPlane.EpisodeTrace do
   alias Responder.Episodes.{Episode, Event}
   alias Responder.Ingress.Inbox
   alias Responder.Ingress.Inbox.Entry
+  alias Responder.Learning.InputMembership
   alias Responder.Operator.EpisodeReview
   alias Responder.Publication.Publication
   alias Responder.Repo
   alias Responder.Slack.IncidentRoom
-  alias Responder.State.{Behaviors, Record, Schedule}
+  alias Responder.State.{Behaviors, LearningRun, Record, Schedule}
   alias Responder.Work.{Activity, ActivityEvent, ActivityPaths, Custody, Session, Turn}
 
   @chapters [
@@ -41,7 +43,11 @@ defmodule Responder.ControlPlane.EpisodeTrace do
     {:routing, "Routing", "The routing model's briefing, activity, and decision."},
     {:work, "The work", "What ran, what it recorded, and whether the provider stayed active."},
     {:answer, "The answer", "Candidate validation, the accepted result, and any refusal."},
-    {:outcome, "What came of it", "Delivery, durable side effects, waits, and follow-up work."}
+    {:outcome, "What came of it", "Delivery, durable side effects, waits, and follow-up work."},
+    {:learning, "Learning",
+     "Background learning from these messages. It runs on its own and sends no reply."},
+    {:maintenance, "Maintenance",
+     "What happened to the temporary session and workspace afterwards."}
   ]
 
   @spec project(Episode.t(), [Event.t()], [Record.t()], keyword()) :: map()
@@ -98,6 +104,8 @@ defmodule Responder.ControlPlane.EpisodeTrace do
       |> Kernel.++(incident_steps(episode.id))
       |> Kernel.++(publication_steps(publications))
       |> Kernel.++(schedule_steps(episode.id))
+      |> Kernel.++(learning_steps(input_rows))
+      |> Kernel.++(maintenance_steps(sessions))
       |> chronological()
 
     %{
@@ -914,10 +922,17 @@ defmodule Responder.ControlPlane.EpisodeTrace do
     }
 
   defp engagement(%{"result" => result} = receipt) do
-    recorded = Map.new(receipt["checks"] || [], &{&1["check"], &1["outcome"]})
+    # A receipt is retained JSON written by an older version of the gate. One
+    # whose shape no longer parses is one card's absence; crashing here would
+    # take the whole page with it.
+    recorded =
+      receipt["checks"]
+      |> List.wrap()
+      |> Enum.filter(&is_map/1)
+      |> Map.new(&{&1["check"], &1["outcome"]})
 
     checks =
-      if receipt["checks"] == [] do
+      if recorded == %{} do
         []
       else
         Enum.map(@engagement_checks, fn {key, label} ->
@@ -938,6 +953,7 @@ defmodule Responder.ControlPlane.EpisodeTrace do
 
   defp engagement(_receipt), do: engagement(nil)
 
+  defp engagement_result(result) when is_map(result) or is_list(result), do: "Not recorded"
   defp engagement_result("process"), do: "Process"
   defp engagement_result("evaluate_only"), do: "Evaluate only"
   defp engagement_result("not_engaged"), do: "Not picked up"
@@ -2257,6 +2273,260 @@ defmodule Responder.ControlPlane.EpisodeTrace do
     end)
   end
 
+  # Learning is a peer of the work, not a step inside it: it runs on decided
+  # inputs whether or not this episode ever replied. A batch appears here only
+  # when one of this episode's own inputs is a recorded member of it, never
+  # because it shares a channel, and a cross-episode batch says how much of it
+  # belongs here rather than borrowing the rest.
+  defp learning_steps([]), do: []
+
+  defp learning_steps(input_rows) do
+    input_ids = Enum.map(input_rows, & &1.id)
+
+    memberships =
+      Repo.all(
+        from(membership in InputMembership,
+          where: membership.input_id in ^input_ids,
+          select: {membership.batch_id, membership.input_id}
+        )
+      )
+
+    local_counts =
+      memberships
+      |> Enum.group_by(&elem(&1, 0))
+      |> Map.new(fn {batch, rows} -> {batch, length(rows)} end)
+
+    batch_ids = Map.keys(local_counts)
+
+    if batch_ids == [] do
+      []
+    else
+      Repo.all(
+        from(run in LearningRun,
+          where: run.batch_id in ^batch_ids,
+          order_by: [asc: run.inserted_at, asc: run.id],
+          limit: 50
+        )
+      )
+      |> Enum.map(&learning_step(&1, Map.get(local_counts, &1.batch_id, 0)))
+    end
+  end
+
+  defp learning_step(run, local_inputs) do
+    outcome = learning_outcome(run)
+    total_inputs = length(List.wrap(run.inputs))
+
+    step("learning-#{run.id}", :learning, run.applied_at || run.inserted_at, %{
+      actor: "Responder",
+      stage: "Learning",
+      state: outcome.label,
+      title: "Learning",
+      summary: outcome.summary,
+      tone: outcome.tone,
+      href: LearningActivity.attempt_path(run.batch_id, run.id),
+      details:
+        compact_details([
+          {"Messages read", learning_membership(total_inputs, local_inputs)},
+          {"Model", get_in(run.producer || %{}, ["target"]) || "Not recorded"},
+          {"Prompt", if(run.prompt_sha256, do: short_digest(run.prompt_sha256))},
+          {"Result", if(run.result_sha256, do: short_digest(run.result_sha256))},
+          {"Outcome", outcome.detail},
+          {"Applied", run.applied_at},
+          {"Bodies", if(run.pruned_at, do: "Expired #{timestamp_precise(run.pruned_at)}")}
+        ])
+    })
+  end
+
+  # A batch can read inputs from several episodes. Saying "3 messages" when one
+  # of them is this episode's would credit this page with another one's sources.
+  defp learning_membership(total, local) when total > local,
+    do: "#{local} of #{total} from this request"
+
+  defp learning_membership(total, _local), do: plural(total, "message")
+
+  defp learning_outcome(%LearningRun{status: :applied, result: result}) when is_binary(result) do
+    case Jason.decode(result) do
+      {:ok, %{"updates" => updates}} when is_list(updates) ->
+        {deferred, saved} = Enum.split_with(updates, &match?(%{"action" => "defer"}, &1))
+
+        cond do
+          saved == [] and deferred == [] ->
+            %{
+              label: "no change",
+              summary: "Nothing new to save from these messages.",
+              tone: nil,
+              detail: "Empty result"
+            }
+
+          saved == [] ->
+            %{
+              label: "deferred",
+              summary: "The model deferred every judgment; nothing was saved.",
+              tone: nil,
+              detail: "#{length(deferred)} deferred"
+            }
+
+          true ->
+            %{
+              label: "knowledge saved",
+              summary: "Saved #{plural(length(saved), "topic update")} from these messages.",
+              tone: :good,
+              detail: "#{length(saved)} saved · #{length(deferred)} deferred"
+            }
+        end
+
+      _unreadable ->
+        %{label: "applied", summary: "The learning result was applied.", tone: :good, detail: nil}
+    end
+  end
+
+  defp learning_outcome(%LearningRun{status: :applied}),
+    do: %{label: "applied", summary: "The learning result was applied.", tone: :good, detail: nil}
+
+  defp learning_outcome(%LearningRun{status: :rejected, error_code: code}),
+    do: %{
+      label: "rejected",
+      summary: "The host rejected this learning result. Nothing was saved.",
+      tone: :warn,
+      detail: error_label(code)
+    }
+
+  defp learning_outcome(%LearningRun{status: :stale, error_code: code}),
+    do: %{
+      label: "stale",
+      summary: "The sources or the target topic changed before this result could be applied.",
+      tone: :warn,
+      detail: error_label(code)
+    }
+
+  defp learning_outcome(%LearningRun{status: status, error_code: code}),
+    do: %{
+      label: human(status),
+      summary: "A learning pass read these messages. It sent no reply.",
+      tone: nil,
+      detail: error_label(code)
+    }
+
+  # Cleanup is what happened to the temporary session and workspace, at its own
+  # time. Closing is not removing, a kept workspace is not a failure, and a
+  # local session that never bound a remote one had nothing to delete.
+  defp maintenance_steps(sessions) do
+    sessions
+    |> Enum.filter(&(&1.cleanup_status != :active))
+    |> Enum.flat_map(fn session ->
+      closed =
+        if session.closed_at do
+          [
+            step("maintenance-#{session.id}-closed", :maintenance, session.closed_at, %{
+              actor: "Responder",
+              stage: "Maintenance",
+              state: "session closed",
+              title: "Session closed",
+              summary: cleanup_repository(session),
+              tone: nil,
+              details:
+                compact_details([
+                  {"Repository", session.repository_ref},
+                  {"Cleanup eligible after", session.discard_after},
+                  {"Session", session.coop_session_id || "No remote session was bound"}
+                ])
+            })
+          ]
+        else
+          []
+        end
+
+      closed ++ cleanup_outcome_step(session)
+    end)
+  end
+
+  defp cleanup_outcome_step(%Session{cleanup_status: :discarded} = session) do
+    [
+      step("maintenance-#{session.id}-discarded", :maintenance, session.discarded_at, %{
+        actor: "Responder",
+        stage: "Maintenance",
+        state: "workspace removed",
+        title: "Workspace removed",
+        summary: cleanup_receipt_summary(session),
+        tone: nil,
+        details:
+          compact_details([
+            {"Repository", session.repository_ref},
+            {"Receipt", get_in(session.cleanup_receipt || %{}, ["outcome"])},
+            {"Session", session.coop_session_id}
+          ])
+      })
+    ]
+  end
+
+  defp cleanup_outcome_step(%Session{cleanup_status: :retained} = session) do
+    [
+      step("maintenance-#{session.id}-retained", :maintenance, session.updated_at, %{
+        actor: "Responder",
+        stage: "Maintenance",
+        state: "workspace kept",
+        title: "Workspace kept",
+        summary: retained_reason(session.retained_reason),
+        tone: nil,
+        details:
+          compact_details([
+            {"Repository", session.repository_ref},
+            {"Reason", session.retained_reason},
+            {"Session", session.coop_session_id}
+          ])
+      })
+    ]
+  end
+
+  defp cleanup_outcome_step(%Session{cleanup_status: :blocked} = session) do
+    [
+      step("maintenance-#{session.id}-blocked", :maintenance, session.updated_at, %{
+        actor: "Responder",
+        stage: "Maintenance",
+        state: "cleanup blocked",
+        title: "Cleanup blocked",
+        summary:
+          "Cleanup stopped and needs attention. The delivered answer is unaffected." <>
+            queue_error_sentence(session.cleanup_last_error_code),
+        tone: :warn,
+        details:
+          compact_details([
+            {"Repository", session.repository_ref},
+            {"Blocked from", session.cleanup_blocked_from},
+            {"Attempts", session.cleanup_attempt_count},
+            {"Next attempt", session.cleanup_next_attempt_at}
+          ])
+      })
+    ]
+  end
+
+  defp cleanup_outcome_step(_session), do: []
+
+  defp cleanup_repository(%Session{repository_ref: nil}),
+    do: "The worker session was closed. No repository working copy was bound to it."
+
+  defp cleanup_repository(%Session{repository_ref: repository}),
+    do: "#{repository}'s worker session was closed. Closing is not removing its workspace."
+
+  defp cleanup_receipt_summary(%Session{cleanup_receipt: %{"outcome" => "never_bound"}}),
+    do: "No remote session was ever bound, so there was no remote workspace to delete."
+
+  defp cleanup_receipt_summary(%Session{cleanup_receipt: %{"outcome" => "already_discarded"}}),
+    do:
+      "The worker reported the workspace was already gone; this pass observed that, it did not delete it."
+
+  defp cleanup_receipt_summary(_session),
+    do: "The temporary workspace was discarded. Retained inspection evidence is unaffected."
+
+  defp retained_reason("dirty" <> _),
+    do: "The workspace was kept: it still holds uncommitted changes."
+
+  defp retained_reason("unmerged" <> _),
+    do: "The workspace was kept: it still holds commits that were never published."
+
+  defp retained_reason(nil), do: "The workspace was kept. No reason was recorded."
+  defp retained_reason(reason), do: "The workspace was kept: " <> human(reason) <> "."
+
   defp totals(episode_id, events, records, sessions, turns) do
     turn_totals =
       Repo.one!(
@@ -3182,6 +3452,9 @@ defmodule Responder.ControlPlane.EpisodeTrace do
   defp human(nil), do: "unrecorded"
   defp human(value) when is_atom(value), do: value |> Atom.to_string() |> human()
   defp human(value) when is_binary(value), do: String.replace(value, "_", " ")
+  # Retained payloads carry whatever an older worker wrote. A structured value
+  # where a label was expected is unreadable, not a reason to lose the page.
+  defp human(value) when is_map(value) or is_list(value), do: "unreadable"
   defp human(value), do: to_string(value)
 
   defp capitalize(value), do: String.capitalize(value)
