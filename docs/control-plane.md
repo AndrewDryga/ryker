@@ -61,6 +61,16 @@ recorded empty inventory renders "No standing rules existed"; an absent row
 renders "Standing-rule evaluation was not recorded", and the two are never
 conflated with "0 matched". The inventory expires with episode history.
 
+Recognized notification formats get a provider card in place of the generic
+byline: HCP Terraform run notifications (recognized from the retained Slack
+attachments, harvested in `testdata/slack/hcp-terraform-planning.json`) and
+native Grafana webhook alerts. The card promotes a few labelled facts, a textual
+state and https-only source links placed after Input details; recognition is a
+presentation projection over retained content that proves a format, never a
+sender, and it changes nothing about engagement, routing or prompts. Unknown
+formats keep the generic card and an expired input loses the recognized card
+rather than borrowing a later revision.
+
 Each received input's **Input details** open on extracted metadata (source,
 event, identifiers, revision, the source event time with its provenance and
 the time Responder recorded it), followed by three independently collapsed

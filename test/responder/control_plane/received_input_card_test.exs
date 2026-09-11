@@ -133,6 +133,44 @@ defmodule Responder.ControlPlane.ReceivedInputCardTest do
     assert html =~ ~s(data-revoked="true")
   end
 
+  test "a recognized Terraform notification leads with provider, state and facts and ends with links" do
+    fixture = "testdata/slack/hcp-terraform-planning.json" |> File.read!() |> Jason.decode!()
+    content = Map.take(fixture, ["text", "attachments", "subtype", "bot_id"])
+    {entry, episode} = admitted!([], content: content, actor: %{kind: :bot, ref: "B0BHPQTBMA7"})
+    html = rendered(episode, [])
+    document = LazyHTML.from_document(html)
+
+    card = LazyHTML.query(document, ".provider-message.provider-terraform")
+    assert Enum.count(card) == 1
+    text = LazyHTML.text(card)
+    assert text =~ "HCP Terraform · via Slack"
+    assert text =~ "Planning"
+    assert text =~ "Dryga/emisar"
+    assert text =~ "run-k9CpPp3nWjQrkCMG"
+
+    # Links sit after Input details, outside the disclosure, visible when collapsed.
+    details_at = :binary.match(html, ~s(id="input-details-#{entry.id}")) |> elem(0)
+    links_at = :binary.match(html, "provider-links") |> elem(0)
+    assert links_at > details_at
+    assert html =~ "Open run ↗"
+    assert html =~ "Open workspace ↗"
+    refute html =~ "javascript:"
+  end
+
+  test "an expired input loses its recognized card rather than showing a later revision" do
+    fixture = "testdata/slack/hcp-terraform-planning.json" |> File.read!() |> Jason.decode!()
+    content = Map.take(fixture, ["text", "attachments"])
+    {entry, episode} = admitted!([], content: content, actor: %{kind: :bot, ref: "B0BHPQTBMA7"})
+
+    Repo.update_all(from(saved in Entry, where: saved.id == ^entry.id),
+      set: [operational_pruned_at: DateTime.utc_now(), content: %{"retention" => "pruned"}]
+    )
+
+    html = rendered(episode, [])
+    refute html =~ "provider-terraform"
+    refute html =~ "run-k9CpPp3nWjQrkCMG"
+  end
+
   defp rendered(episode, disclosed) do
     {:ok, detail} = Projection.episode(episode.key, %{"disclosed" => disclosed})
     {:ok, timeline} = ModelRequests.timeline(episode.key, %{})
@@ -145,12 +183,12 @@ defmodule Responder.ControlPlane.ReceivedInputCardTest do
     )
   end
 
-  defp admitted!(options) do
+  defp admitted!(options, overrides \\ []) do
     {:ok, input} =
       Input.new(%{
-        actor: %{kind: :user, ref: "U123"},
+        actor: Keyword.get(overrides, :actor, %{kind: :user, ref: "U123"}),
         channel_ref: "C456",
-        content: %{"text" => "Terraform plan: 2 to add"},
+        content: Keyword.get(overrides, :content, %{"text" => "Terraform plan: 2 to add"}),
         event_kind: :message,
         event_ref: "Ev-received-#{Ecto.UUID.generate()}",
         message_ref: "1788562304.000100",
