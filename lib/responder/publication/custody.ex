@@ -254,9 +254,10 @@ defmodule Responder.Publication.Custody do
   Recovers one exact publication generation.
 
   Retry rearms a deferred executable phase without changing its frozen review
-  state. Update invalidates the prior review and queues a fresh one. Discard is
-  terminal and preserves the prior review as operator evidence. Every action is
-  fenced by `recovery_generation`, and an active executor lease always wins.
+  state. Update invalidates the prior review and queues a fresh one, including a
+  review_pending phase whose own failure no retry can clear. Discard is terminal
+  and preserves the prior review as operator evidence. Every action is fenced by
+  `recovery_generation`, and an active executor lease always wins.
   """
   @spec recover(String.t(), :retry | :update | :discard, pos_integer()) ::
           {:ok, %{previous: map(), publication: Publication.t()}} | {:error, term()}
@@ -373,6 +374,29 @@ defmodule Responder.Publication.Custody do
          recovery_generation: generation + 1
        })}
     end
+  end
+
+  # A review phase can fail in a way no retry can clear: the operation it is reconciling belongs to
+  # a placement that has been replaced, and reconciliation never re-places that lookup. Retry only
+  # rearms the same doomed call, and before this clause nothing else applied to review_pending — so
+  # the publication deferred once a minute forever with no operator exit. Update queues a FRESH
+  # review generation, which asks a new question instead of re-asking the unanswerable one. It
+  # requires a recorded failure: a review that is merely slow is not stuck.
+  defp recovery_attributes(
+         %Publication{
+           status: :review_pending,
+           approval_ref: nil,
+           last_error_code: code,
+           recovery_generation: generation
+         } = publication,
+         :update,
+         now
+       )
+       when is_binary(code) do
+    {:ok,
+     publication
+     |> fresh_review_attributes(now)
+     |> Map.put(:recovery_generation, generation + 1)}
   end
 
   defp recovery_attributes(
