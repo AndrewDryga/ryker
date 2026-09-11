@@ -361,6 +361,37 @@ defmodule Responder.Slack.InteractionTest do
     end
   end
 
+  test "saved-entity removal controls carry one exact versioned resource" do
+    id = Ecto.UUID.generate()
+
+    for {action_id, value} <- [
+          {"responder_delete_schedule", "schedule-control:schedule:#{id}:3"},
+          {"responder_delete_behavior", "behavior-control:behavior:#{id}:1"},
+          {"responder_forget_memory", "memory:#{id}"}
+        ] do
+      control =
+        envelope()
+        |> put_in(["payload", "actions", Access.at(0), "action_id"], action_id)
+        |> put_in(["payload", "actions", Access.at(0), "value"], value)
+
+      assert {:ok, interaction} = Interaction.from_socket(control, "T123", @now)
+      assert interaction.action_value == value
+      refute Interaction.setup_action?(interaction.action_id)
+    end
+
+    for {action_id, value} <- [
+          {"responder_delete_schedule", "schedule-control:schedule:#{id}"},
+          {"responder_delete_schedule", "behavior-control:behavior:#{id}:1"},
+          {"responder_delete_behavior", "behavior-control:behavior:#{id}:0"},
+          {"responder_forget_memory", "schedule:#{id}"}
+        ] do
+      assert envelope()
+             |> put_in(["payload", "actions", Access.at(0), "action_id"], action_id)
+             |> put_in(["payload", "actions", Access.at(0), "value"], value)
+             |> Interaction.from_socket("T123", @now) == :ignore
+    end
+  end
+
   # Configure channel also lives on the private `/responder status` reply. Its
   # value names the channel configuration, not the message it was clicked in,
   # so it is the one control an ephemeral container may deliver.

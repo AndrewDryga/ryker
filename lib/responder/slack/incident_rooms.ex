@@ -24,7 +24,7 @@ defmodule Responder.Slack.IncidentRooms do
     MembershipTransition
   }
 
-  alias Responder.State.{Record, RecordChangeset}
+  alias Responder.State.{Record, RecordChangeset, TaskOffers}
   alias Responder.Work.{Custody, Session, Turn}
 
   @request_fields [
@@ -37,6 +37,15 @@ defmodule Responder.Slack.IncidentRooms do
     :occurred_at,
     :policy,
     :private,
+    :record_ref,
+    :target,
+    :workspace_ref
+  ]
+  @investigation_fields [
+    :actor_ref,
+    :confirmation_ref,
+    :occurred_at,
+    :policy,
     :record_ref,
     :target,
     :workspace_ref
@@ -75,6 +84,23 @@ defmodule Responder.Slack.IncidentRooms do
     else
       false -> {:error, {:invalid_incident_room_request, :private}}
       {:error, _reason} = error -> error
+    end
+  end
+
+  @doc """
+  Starts the in-place path of an incident offer: durable read-only work in the
+  offer's own thread, under the incident policy, with no room and no invitations.
+
+  The offer owns both paths. The record lock serializes this with a room
+  request, so concurrent opposite clicks start exactly one of them.
+  """
+  @spec investigate(map() | keyword()) :: {:ok, TaskOffers.confirmation()} | {:error, term()}
+  def investigate(attributes) do
+    with {:ok, attributes} <- exact_map(attributes, @investigation_fields, :investigation),
+         :ok <- reference(attributes.record_ref, :record_ref),
+         :ok <- slack_id(attributes.workspace_ref, :workspace_ref) do
+      Repo.transaction(fn -> investigate_locked(attributes) end)
+      |> transaction_result()
     end
   end
 
@@ -634,6 +660,33 @@ defmodule Responder.Slack.IncidentRooms do
       :eq ->
         is_nil(room.channel_state_event_ref) or
           transition.event_ref > room.channel_state_event_ref
+    end
+  end
+
+  defp investigate_locked(attributes) do
+    lock_workspace!(attributes.workspace_ref)
+
+    with {:ok, record, source_episode, _turn, _session} <- lock_offer(attributes.record_ref),
+         :ok <- workspace_source?(source_episode, attributes.workspace_ref),
+         :ok <- no_room_for(record),
+         {:ok, confirmation} <-
+           TaskOffers.confirm(Map.delete(attributes, :workspace_ref)) do
+      confirmation
+    else
+      {:error, :task_offer_stale} -> Repo.rollback(:incident_offer_stale)
+      {:error, :task_offer_not_found} -> Repo.rollback(:incident_offer_not_found)
+      {:error, :task_offer_delivery_mismatch} -> Repo.rollback(:incident_offer_delivery_mismatch)
+      {:error, :task_offer_not_delivered} -> Repo.rollback(:incident_offer_not_delivered)
+      {:error, reason} -> Repo.rollback(reason)
+    end
+  end
+
+  defp no_room_for(record) do
+    case Repo.one(
+           from(room in IncidentRoom, where: room.record_id == ^record.id, lock: "FOR UPDATE")
+         ) do
+      nil -> :ok
+      %IncidentRoom{} -> {:error, :incident_offer_stale}
     end
   end
 
@@ -1220,20 +1273,26 @@ defmodule Responder.Slack.IncidentRooms do
     end
   end
 
-  defp exact_map(attributes, fields) when is_list(attributes) do
+  defp exact_map(attributes, fields, boundary \\ :request)
+
+  defp exact_map(attributes, fields, boundary) when is_list(attributes) do
     if Keyword.keyword?(attributes) and
          Enum.uniq(Keyword.keys(attributes)) == Keyword.keys(attributes),
-       do: attributes |> Map.new() |> exact_map(fields),
-       else: {:error, {:invalid_incident_room_request, :fields}}
+       do: attributes |> Map.new() |> exact_map(fields, boundary),
+       else: {:error, {invalid_boundary(boundary), :fields}}
   end
 
-  defp exact_map(%{} = attributes, fields) do
+  defp exact_map(%{} = attributes, fields, boundary) do
     if Map.keys(attributes) |> Enum.sort() == Enum.sort(fields),
       do: {:ok, attributes},
-      else: {:error, {:invalid_incident_room_request, :fields}}
+      else: {:error, {invalid_boundary(boundary), :fields}}
   end
 
-  defp exact_map(_attributes, _fields), do: {:error, {:invalid_incident_room_request, :fields}}
+  defp exact_map(_attributes, _fields, boundary),
+    do: {:error, {invalid_boundary(boundary), :fields}}
+
+  defp invalid_boundary(:request), do: :invalid_incident_room_request
+  defp invalid_boundary(:investigation), do: :invalid_incident_investigation
 
   defp policy(%{} = policy) do
     if Map.keys(policy) |> Enum.sort() == Enum.sort(@policy_fields) do

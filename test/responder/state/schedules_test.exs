@@ -7,7 +7,7 @@ defmodule Responder.State.SchedulesTest do
   alias Responder.Episodes.Episode
   alias Responder.Fixtures.Episodes, as: EpisodeFixtures
   alias Responder.Repo
-  alias Responder.Slack.AppHomeProjection
+  alias Responder.Slack.{AppHomeProjection, ReplyRecords}
 
   alias Responder.State.{
     Automations,
@@ -148,6 +148,55 @@ defmodule Responder.State.SchedulesTest do
 
     assert Schedules.set_status(confirmation.schedule.ref, :active, scope) ==
              {:error, :schedule_terminal}
+  end
+
+  # The confirmed offer message is rebuilt from its records on every repaint;
+  # the schedule it created, with its current revision and status, must travel
+  # with the record or the message can neither describe nor remove it.
+  test "a confirmed schedule offer carries its saved schedule through the reply projection" do
+    fixture = delivered_offer!("projection")
+    assert {:ok, confirmation} = Schedules.confirm(confirmation(fixture, "projection"))
+    record = Repo.get!(Record, fixture.record.id)
+
+    assert [%{"presentation" => %{"entity" => entity}}] =
+             ReplyRecords.documents("slack", fixture.episode.id, [record])
+
+    assert entity["kind"] == "schedule"
+    assert entity["ref"] == confirmation.schedule.ref
+    assert entity["revision"] == confirmation.schedule.revision
+    assert entity["status"] == "active"
+    assert entity["removable"] == true
+    assert entity["notice"] == "Schedule saved"
+    assert entity["title"] == "Daily service health"
+    assert entity["instructions"] == "Inspect current service health."
+    assert entity["saved_by"] == "slack:user:U123"
+
+    assert ["When", "Daily at 13:00:00 · Etc/UTC"] in entity["facts"]
+    assert ["Channel", %{"channel_ref" => "C456"}] in entity["facts"]
+    assert ["Expires", "No expiry"] in entity["facts"]
+    assert ["Missed runs", "Run the latest missed occurrence"] in entity["facts"]
+    assert ["Access", "Read-only"] in entity["facts"]
+    assert Enum.any?(entity["facts"], &match?(["Next run", _], &1))
+
+    assert {:ok, deleted} =
+             Schedules.set_status(confirmation.schedule.ref, :deleted, %{
+               conversation_prefix: "slack:T123:",
+               transport: "slack"
+             })
+
+    assert [%{"presentation" => %{"entity" => gone}}] =
+             ReplyRecords.documents("slack", fixture.episode.id, [record])
+
+    assert gone["status"] == "deleted"
+    assert gone["removable"] == false
+    assert gone["revision"] == deleted.revision
+    assert gone["notice"] == "Schedule deleted"
+    refute Enum.any?(gone["facts"], &match?(["Next run", _], &1))
+
+    assert [%{"status" => "open"} = open] =
+             ReplyRecords.documents("slack", fixture.episode.id, [%{record | status: :open}])
+
+    refute Map.has_key?(open, "presentation")
   end
 
   test "a stale skipped occurrence is recorded without starting work" do

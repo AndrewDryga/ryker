@@ -14,8 +14,11 @@ defmodule Responder.Slack.ReplyRecords do
   import Ecto.Query
 
   alias Responder.Repo
-  alias Responder.State.EventWaitTiming
+  alias Responder.Slack.{IncidentRoom, SavedEntity}
+  alias Responder.State.{Behavior, EventWaitTiming, MemoryEntry, Schedule}
   alias Responder.Work.{ActivityEvent, ActivityRetention}
+
+  @saved_offer_kinds ~w(guidance_offer memory_offer preference_offer schedule_offer standing_assignment_offer)
 
   @spec documents(String.t(), String.t(), [map()]) :: [map()]
   def documents(transport, episode_id, records) do
@@ -29,11 +32,78 @@ defmodule Responder.Slack.ReplyRecords do
             is_binary(id),
             do: id
 
-      enrich(documents, receipts(episode_id, Enum.uniq(sources)), times)
+      documents
+      |> enrich(receipts(episode_id, Enum.uniq(sources)), times)
+      |> Enum.zip_with(records, &present_saved_entity/2)
     else
       documents
     end
   end
+
+  # A confirmed offer is shown as the entity it saved, with the entity's current
+  # status: the offer payload alone cannot say whether the schedule still runs.
+  defp present_saved_entity(document, %{status: :confirmed, kind: kind} = record)
+       when kind in @saved_offer_kinds do
+    case saved_entity(kind, record) do
+      nil ->
+        document
+
+      entity ->
+        Map.put(document, "presentation", %{"entity" => SavedEntity.document(entity, :saved)})
+    end
+  end
+
+  defp present_saved_entity(
+         document,
+         %{status: :confirmed, kind: "automation_change_offer", payload: payload}
+       ) do
+    case updated_automation(payload["automation_id"]) do
+      nil ->
+        document
+
+      entity ->
+        Map.put(document, "presentation", %{"entity" => SavedEntity.document(entity, :updated)})
+    end
+  end
+
+  # A confirmed incident offer says which path it took; the room link appears
+  # only once the room's channel exists.
+  defp present_saved_entity(
+         document,
+         %{status: :confirmed, kind: "task_offer", payload: %{"kind" => "incident"}} = record
+       ) do
+    case Repo.get_by(IncidentRoom, record_id: record.id) do
+      nil -> document
+      room -> Map.put(document, "presentation", %{"incident_room" => %{"url" => room_url(room)}})
+    end
+  end
+
+  defp present_saved_entity(document, _record), do: document
+
+  defp room_url(%IncidentRoom{channel_ref: channel_ref, workspace_ref: workspace_ref})
+       when is_binary(channel_ref) and is_binary(workspace_ref) do
+    if Regex.match?(~r/\A[A-Z0-9]+\z/, channel_ref) and
+         Regex.match?(~r/\A[A-Z0-9]+\z/, workspace_ref),
+       do:
+         "https://slack.com/app_redirect?" <>
+           URI.encode_query(team: workspace_ref, channel: channel_ref),
+       else: nil
+  end
+
+  defp room_url(_room), do: nil
+
+  defp saved_entity("schedule_offer", record),
+    do: Repo.get_by(Schedule, offer_record_id: record.id)
+
+  defp saved_entity("memory_offer", record),
+    do: Repo.get_by(MemoryEntry, offer_record_id: record.id)
+
+  defp saved_entity(_behavior_offer, record),
+    do: Repo.get_by(Behavior, offer_record_id: record.id)
+
+  defp updated_automation("schedule:" <> _rest = ref), do: Repo.get_by(Schedule, ref: ref)
+  defp updated_automation("behavior:" <> _rest = ref), do: Repo.get_by(Behavior, ref: ref)
+  defp updated_automation(_ref), do: nil
 
   @doc false
   def enrich(documents, receipts, times \\ %{}) do

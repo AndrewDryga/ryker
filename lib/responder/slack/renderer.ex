@@ -31,15 +31,9 @@ defmodule Responder.Slack.Renderer do
   @work_controls ~w(stop view_diff close timeline evidence handoff postmortem)
   @work_buttons ~w(stop close)
   @record_controls ~w(timeline evidence handoff postmortem)
-  @confirmation_labels %{
-    "standing_assignment_offer" => "Automation confirmed",
-    "preference_offer" => "Preference saved",
-    "guidance_offer" => "Guidance saved",
-    "memory_offer" => "Memory saved",
-    "schedule_offer" => "Schedule confirmed",
-    "automation_change_offer" => "Automation change confirmed"
-  }
-  @confirmation_kinds Map.keys(@confirmation_labels)
+  @confirmation_kinds ~w(automation_change_offer guidance_offer memory_offer preference_offer schedule_offer standing_assignment_offer)
+  @saved_entity_kinds ~w(schedule standing_rule preference guidance memory)
+  @saved_entity_statuses ~w(active paused disabled completed expired deleted superseded)
   @publication_controls ~w(publish open check retry update discard)
   @setup_statuses ~w(asking confirming saved cancelled expired)
   @setup_steps ~w(participation repository alerts audience confirm)
@@ -51,6 +45,7 @@ defmodule Responder.Slack.Renderer do
       [
         "emisar_approval:open",
         "task_offer:open",
+        "task_offer:confirmed",
         "publication_offer:open",
         "automation_change_offer:open",
         "schedule_offer:open",
@@ -107,6 +102,16 @@ defmodule Responder.Slack.Renderer do
 
   def render(%{"channel_settings" => view} = document) when map_size(document) == 1 do
     render_channel_settings(view)
+  end
+
+  def render(%{"saved_entity" => entity} = document) when map_size(document) == 1 do
+    case saved_entity(entity) do
+      :ok ->
+        {:ok, %{"blocks" => saved_entity_blocks(entity), "text" => saved_entity_text(entity)}}
+
+      {:error, _reason} ->
+        {:error, {:invalid_slack_render, :saved_entity}}
+    end
   end
 
   def render(%{"message" => message} = document) when map_size(document) == 1,
@@ -730,6 +735,152 @@ defmodule Responder.Slack.Renderer do
 
   defp incident_source(_source), do: {:error, :invalid_incident_source}
 
+  defp saved_entity_blocks(entity) do
+    title = "*#{mrkdwn(entity["title"])}*"
+
+    body =
+      case entity["instructions"] do
+        nil -> title
+        instructions -> "#{title}\n#{mrkdwn(instructions)}"
+      end
+
+    [section(body), fact_fields(Enum.map(entity["facts"], &List.to_tuple/1))] ++
+      [context(saved_entity_context(entity))] ++ saved_entity_controls(entity)
+  end
+
+  defp saved_entity_text(entity) do
+    facts =
+      Enum.map_join(entity["facts"], "\n", fn [label, value] ->
+        "#{heading(label)}: #{fact_text(value)}"
+      end)
+
+    "#{entity["notice"]}: #{entity["title"]}\n#{entity["instructions"] || ""}\n#{facts}"
+  end
+
+  defp saved_entity_context(entity) do
+    saved_by =
+      case entity["saved_by"] do
+        "slack:user:" <> user_ref -> "saved by #{mention(user_ref)}"
+        other -> "saved by `#{mrkdwn(other)}`"
+      end
+
+    "#{mrkdwn(entity["notice"])} · #{saved_by} · #{display_time(entity["saved_at"])}"
+  end
+
+  defp saved_entity_controls(%{"removable" => false}), do: []
+
+  defp saved_entity_controls(%{"kind" => "memory", "ref" => ref, "title" => title}) do
+    [
+      actions("#{ref}:controls", [
+        button(
+          "responder_forget_memory",
+          "Forget memory",
+          ref,
+          "danger",
+          "Forget this memory?",
+          "I'll stop recalling “#{title}”. Messages I already sent and the original conversation stay as they are.",
+          "Forget memory"
+        )
+      ])
+    ]
+  end
+
+  defp saved_entity_controls(%{
+         "kind" => kind,
+         "ref" => ref,
+         "revision" => revision,
+         "title" => title
+       }) do
+    {label, action_id, value, consequence} =
+      case kind do
+        "schedule" ->
+          {"Delete schedule", "responder_delete_schedule", "schedule-control:#{ref}:#{revision}",
+           "Stop future runs of “#{title}”. Already-started work and its history remain."}
+
+        "standing_rule" ->
+          {"Delete rule", "responder_delete_behavior", "behavior-control:#{ref}:#{revision}",
+           "Stop reacting to “#{title}”. Work it already started and its history remain."}
+
+        "preference" ->
+          {"Delete preference", "responder_delete_behavior",
+           "behavior-control:#{ref}:#{revision}",
+           "Stop applying “#{title}”. Replies I already sent stay as they are."}
+
+        "guidance" ->
+          {"Delete guidance", "responder_delete_behavior", "behavior-control:#{ref}:#{revision}",
+           "Stop following “#{title}”. Replies I already sent stay as they are."}
+      end
+
+    [
+      actions("#{ref}:controls", [
+        button(action_id, label, value, "danger", "#{label}?", consequence, label)
+      ])
+    ]
+  end
+
+  defp saved_entity(
+         %{
+           "facts" => facts,
+           "instructions" => instructions,
+           "kind" => kind,
+           "notice" => notice,
+           "ref" => ref,
+           "removable" => removable,
+           "revision" => revision,
+           "saved_at" => saved_at,
+           "saved_by" => saved_by,
+           "status" => status,
+           "title" => title
+         } = entity
+       )
+       when map_size(entity) == 11 do
+    valid =
+      kind in @saved_entity_kinds and status in @saved_entity_statuses and
+        is_boolean(removable) and saved_entity_texts?(title, instructions, notice, saved_by) and
+        match?({:ok, _, 0}, DateTime.from_iso8601(saved_at)) and
+        saved_entity_ref?(kind, ref, revision) and saved_entity_facts?(facts)
+
+    if valid, do: :ok, else: {:error, :invalid_saved_entity}
+  end
+
+  defp saved_entity(_entity), do: {:error, :invalid_saved_entity}
+
+  defp saved_entity_texts?(title, instructions, notice, saved_by) do
+    text?(title) and String.length(title) <= 300 and
+      (is_nil(instructions) or (text?(instructions) and String.length(instructions) <= 2_000)) and
+      text?(notice) and text?(saved_by)
+  end
+
+  defp saved_entity_ref?("memory", "memory:" <> _rest = ref, nil), do: entity_ref?(ref)
+
+  defp saved_entity_ref?("schedule", "schedule:" <> _rest = ref, revision),
+    do: entity_ref?(ref) and positive?(revision)
+
+  defp saved_entity_ref?(kind, "behavior:" <> _rest = ref, revision)
+       when kind in ~w(standing_rule preference guidance),
+       do: entity_ref?(ref) and positive?(revision)
+
+  defp saved_entity_ref?(_kind, _ref, _revision), do: false
+
+  defp entity_ref?(ref), do: Regex.match?(~r/\A[a-z]+:[A-Za-z0-9_.:-]{1,240}\z/, ref)
+
+  defp positive?(value), do: is_integer(value) and value > 0
+
+  defp saved_entity_facts?(facts) when is_list(facts) and length(facts) <= 10 do
+    Enum.all?(facts, fn
+      [label, %{"channel_ref" => channel_ref} = value] when map_size(value) == 1 ->
+        text?(label) and is_binary(channel_ref)
+
+      [label, value] ->
+        text?(label) and text?(value) and String.length(value) <= 1_000
+
+      _other ->
+        false
+    end)
+  end
+
+  defp saved_entity_facts?(_facts), do: false
+
   defp render_channel_welcome(
          %{
            "bot_user_ref" => bot_user_ref,
@@ -777,7 +928,7 @@ defmodule Responder.Slack.Renderer do
       blocks =
         [section("*#{heading("Channel settings")}*"), fact_fields(facts)] ++
           settings_context(settings) ++
-          settings_controls(configuration_ref, revision)
+          settings_controls(audience, configuration_ref, revision)
 
       text =
         Enum.map_join(facts, "\n", fn {label, value} ->
@@ -924,7 +1075,7 @@ defmodule Responder.Slack.Renderer do
       {"Alerts", alert_summary(settings)},
       {"Repositories", repositories_fact(settings)},
       {"Default repository", default_repository_fact(settings)},
-      {"Incident invitations", String.capitalize(audience_phrase(settings))},
+      {"Incident invitations", {:markup, String.capitalize(audience_phrase(settings))}},
       {"Observation mode", observation_fact(settings)}
     ]
   end
@@ -997,14 +1148,27 @@ defmodule Responder.Slack.Renderer do
     [context("Effective settings · #{origin}")]
   end
 
-  defp settings_controls(nil, _revision), do: []
+  defp settings_controls(_audience, nil, _revision), do: []
 
-  defp settings_controls(configuration_ref, revision) do
+  # The private command reply can only carry Configure channel: list controls
+  # post cards into a thread, and an ephemeral reply has no thread to post in.
+  defp settings_controls(audience, configuration_ref, revision) do
+    value = "#{configuration_ref}|#{revision}"
+
+    lists =
+      if audience == "thread",
+        do: [
+          plain_button("responder_welcome_view_schedules", "View schedules", value),
+          plain_button("responder_welcome_view_rules", "View standing rules", value)
+        ],
+        else: []
+
     [
       actions("settings:#{configuration_ref}", [
         "responder_welcome_configure"
-        |> plain_button("Configure channel", "#{configuration_ref}|#{revision}")
+        |> plain_button("Configure channel", value)
         |> maybe_button_style("primary")
+        | lists
       ])
     ]
   end
@@ -1124,15 +1288,25 @@ defmodule Responder.Slack.Renderer do
     }
   end
 
+  # Fact values are escaped text unless the host typed them: a repository link,
+  # a channel reference, or markup it assembled itself from validated refs.
   defp fact_markdown(values) when is_list(values),
     do: Enum.map_join(values, "\n", &fact_markdown/1)
 
   defp fact_markdown(%{"ref" => _ref} = repository), do: repository_link(repository)
-  defp fact_markdown(value), do: value
+  defp fact_markdown(%{"channel_ref" => channel_ref}), do: channel_mention(channel_ref)
+  defp fact_markdown({:markup, text}), do: text
+  defp fact_markdown(value), do: mrkdwn(value)
 
   defp fact_text(values) when is_list(values), do: Enum.map_join(values, ", ", &fact_text/1)
   defp fact_text(%{"ref" => ref}), do: ref
+  defp fact_text(%{"channel_ref" => channel_ref}), do: channel_mention(channel_ref)
+  defp fact_text({:markup, text}), do: text
   defp fact_text(value), do: neutralize_control_syntax(value)
+
+  defp channel_mention(channel_ref) do
+    if slack_reference?(channel_ref), do: "<##{channel_ref}>", else: "`#{mrkdwn(channel_ref)}`"
+  end
 
   defp render_channel_setup(
          %{
@@ -1485,15 +1659,24 @@ defmodule Responder.Slack.Renderer do
     end
   end
 
+  # A confirmed offer keeps the saved entity's full detail and its exact
+  # removal control on the message; the host attaches the entity projection
+  # because the offer payload alone no longer describes what was saved.
   defp render_record(
-         %{"kind" => kind, "payload" => payload, "ref" => ref, "status" => "confirmed"} = record
+         %{
+           "kind" => kind,
+           "payload" => payload,
+           "presentation" => %{"entity" => entity} = presentation,
+           "ref" => ref,
+           "status" => "confirmed"
+         } = record
        )
-       when map_size(record) == 4 and kind in @confirmation_kinds do
+       when map_size(record) == 5 and map_size(presentation) == 1 and
+              kind in @confirmation_kinds do
     with :ok <- reference(ref),
-         {:ok, %{payload: prepared}} <- RecordPayload.prepare(kind, payload, ref) do
-      summary = prepared["title"] || prepared["subject"] || prepared["key"] || prepared["task"]
-      text = ["*#{@confirmation_labels[kind]}*", summary && mrkdwn(summary)] |> compact_lines()
-      {:ok, [section(text)]}
+         {:ok, _prepared} <- RecordPayload.prepare(kind, payload, ref),
+         :ok <- saved_entity(entity) do
+      {:ok, saved_entity_blocks(entity)}
     else
       _invalid -> {:error, {:invalid_slack_render, :record}}
     end
@@ -1529,6 +1712,26 @@ defmodule Responder.Slack.Renderer do
     with :ok <- reference(ref),
          {:ok, %{payload: prepared}} <- RecordPayload.prepare("task_offer", payload, ref) do
       {:ok, task_offer_blocks(ref, prepared)}
+    else
+      _invalid -> {:error, {:invalid_slack_render, :record}}
+    end
+  end
+
+  defp render_record(
+         %{
+           "kind" => "task_offer",
+           "payload" => payload,
+           "ref" => ref,
+           "status" => "confirmed"
+         } = record
+       )
+       when map_size(record) in [4, 5] do
+    presentation = Map.get(record, "presentation", %{})
+
+    with :ok <- reference(ref),
+         :ok <- incident_room_presentation(presentation),
+         {:ok, %{payload: prepared}} <- RecordPayload.prepare("task_offer", payload, ref) do
+      {:ok, confirmed_task_offer_blocks(prepared, presentation)}
     else
       _invalid -> {:error, {:invalid_slack_render, :record}}
     end
@@ -1705,6 +1908,7 @@ defmodule Responder.Slack.Renderer do
     ]
   end
 
+  # One offer owns both incident paths; the host starts exactly one of them.
   defp task_offer_blocks(ref, %{
          "kind" => "incident",
          "repository" => repository,
@@ -1718,9 +1922,38 @@ defmodule Responder.Slack.Renderer do
 
     [
       section(summary),
-      actions(ref, incident_button(ref))
+      actions(ref, [investigate_button(ref), incident_button(ref)])
     ]
   end
+
+  defp confirmed_task_offer_blocks(%{"kind" => "engineering", "title" => title}, _presentation),
+    do: [section("*#{mrkdwn(title)}*\n✓ Task started in this thread.")]
+
+  defp confirmed_task_offer_blocks(%{"title" => title}, %{"incident_room" => %{"url" => url}})
+       when is_binary(url) do
+    [
+      section("*#{mrkdwn(title)}*\n✓ Incident room created."),
+      actions(
+        "incident-room-link",
+        url_button("responder_open_incident_room", "Open incident room", "room", url)
+      )
+    ]
+  end
+
+  defp confirmed_task_offer_blocks(%{"title" => title}, %{"incident_room" => _room}),
+    do: [section("*#{mrkdwn(title)}*\n◷ Incident room requested · creating the channel")]
+
+  defp confirmed_task_offer_blocks(%{"title" => title}, _presentation),
+    do: [section("*#{mrkdwn(title)}*\n✓ Investigating in this thread.")]
+
+  defp incident_room_presentation(presentation) when map_size(presentation) == 0, do: :ok
+
+  defp incident_room_presentation(%{"incident_room" => %{"url" => url} = room} = presentation)
+       when map_size(presentation) == 1 and map_size(room) == 1,
+       do: optional_https_url(url)
+
+  defp incident_room_presentation(_presentation),
+    do: {:error, :invalid_incident_room_presentation}
 
   defp emisar_approval_blocks(ref, payload) do
     summary =
@@ -1761,15 +1994,27 @@ defmodule Responder.Slack.Renderer do
     )
   end
 
+  defp investigate_button(ref) do
+    button(
+      "responder_investigate_incident",
+      "Investigate",
+      ref,
+      "primary",
+      "Investigate in this thread",
+      "Start read-only investigation work in this thread. No incident room is created and nobody is invited.",
+      "Investigate"
+    )
+  end
+
   defp incident_button(ref) do
     button(
       "responder_open_incident",
-      "Open incident room",
+      "Create incident room",
       ref,
       "danger",
-      "Open incident room",
-      "Open a coordinated incident room for this work?",
-      "Open incident"
+      "Create incident room",
+      "Create a coordinated incident room for this work and invite the configured responders?",
+      "Create room"
     )
   end
 

@@ -14,7 +14,12 @@ defmodule Responder.Slack.ChannelSetup do
   or conversational answer.
   """
 
-  alias Responder.Slack.{ChannelConfiguration, ConfigurationSession, MembershipTransition}
+  alias Responder.Slack.{
+    ChannelConfiguration,
+    Collections,
+    ConfigurationSession,
+    MembershipTransition
+  }
 
   @repository_action ~r/\Aresponder_setup_repository_([0-9]{1,2})\z/
   @welcome_value ~r/\A([0-9a-f-]{36})\|([1-9][0-9]{0,9})\z/
@@ -32,6 +37,25 @@ defmodule Responder.Slack.ChannelSetup do
     "channel settings",
     "show channel settings"
   ]
+  @collection_requests %{
+    "active schedules" => :schedules,
+    "list schedules" => :schedules,
+    "show schedules" => :schedules,
+    "what schedules are active" => :schedules,
+    "which schedules are active" => :schedules,
+    "active rules" => :standing_rules,
+    "active standing rules" => :standing_rules,
+    "list rules" => :standing_rules,
+    "list standing rules" => :standing_rules,
+    "show rules" => :standing_rules,
+    "show standing rules" => :standing_rules,
+    "what rules are active" => :standing_rules,
+    "list saved knowledge" => :knowledge,
+    "show saved knowledge" => :knowledge,
+    "show what you remember" => :knowledge,
+    "what do you remember here" => :knowledge,
+    "what have you saved here" => :knowledge
+  }
 
   @spec handle_membership(MembershipTransition.t(), map()) :: {:ok, map()} | {:error, term()}
   def handle_membership(%MembershipTransition{} = transition, options) do
@@ -98,13 +122,19 @@ defmodule Responder.Slack.ChannelSetup do
         options
       ) do
     with {:ok, workspace_ref, channel_ref} <- destination(input.destination.conversation_ref),
-         true <-
-           settings_request?(audience, input, options) or
-             MapSet.member?(options.operators, actor_ref),
+         request = read_request(audience, input, options),
+         true <- request != nil or MapSet.member?(options.operators, actor_ref),
          {:ok, true} <- options.directory.user_allowed(options.client, actor_ref, workspace_ref) do
-      if settings_request?(audience, input, options),
-        do: show_settings(input, platform_thread_ref, workspace_ref, channel_ref, options),
-        else: setup_message(normalized, workspace_ref, channel_ref, options)
+      case request do
+        :settings ->
+          show_settings(input, platform_thread_ref, workspace_ref, channel_ref, options)
+
+        nil ->
+          setup_message(normalized, workspace_ref, channel_ref, options)
+
+        kind ->
+          show_collection(kind, input, platform_thread_ref, workspace_ref, channel_ref, options)
+      end
     else
       :not_setup -> :not_setup
       false -> :not_setup
@@ -483,6 +513,33 @@ defmodule Responder.Slack.ChannelSetup do
     end
   end
 
+  defp welcome_action(
+         %{action_id: "responder_welcome_view_" <> collection} = interaction,
+         configuration_ref,
+         revision,
+         options
+       )
+       when collection in ~w(schedules rules) do
+    kind = if collection == "schedules", do: :schedules, else: :standing_rules
+
+    with {:ok, _configuration} <-
+           current_configuration(interaction, configuration_ref, revision, options),
+         {:ok, result} <-
+           Collections.deliver(
+             kind,
+             %{
+               channel_ref: interaction.channel_ref,
+               request_ref: interaction.event_ref,
+               thread_ref: interaction.thread_ref || interaction.message_ref,
+               workspace_ref: interaction.workspace_ref
+             },
+             options
+           ) do
+      {:ok,
+       %{collection: kind, outcome: :collection_shown, shown: result.shown, total: result.total}}
+    end
+  end
+
   defp welcome_action(interaction, configuration_ref, revision, options) do
     {participation, notice} =
       case interaction.action_id do
@@ -733,15 +790,41 @@ defmodule Responder.Slack.ChannelSetup do
        ),
        do: {:error, :not_setup}
 
-  defp settings_request?(:mention, %{content: %{"text" => text}}, options) when is_binary(text) do
-    text
-    |> addressed_text(options)
-    |> String.downcase()
-    |> String.trim_trailing("?")
-    |> Kernel.in(@settings_requests)
+  # Settings and collections are read-only answers any full member may ask
+  # for; they are recognized deterministically when Responder is addressed.
+  defp read_request(:mention, %{content: %{"text" => text}}, options) when is_binary(text) do
+    request =
+      text
+      |> addressed_text(options)
+      |> String.downcase()
+      |> String.trim_trailing("?")
+      |> String.trim_trailing(".")
+
+    cond do
+      request in @settings_requests -> :settings
+      Map.has_key?(@collection_requests, request) -> Map.fetch!(@collection_requests, request)
+      true -> nil
+    end
   end
 
-  defp settings_request?(_audience, _input, _options), do: false
+  defp read_request(_audience, _input, _options), do: nil
+
+  defp show_collection(kind, input, thread_ref, workspace_ref, channel_ref, options) do
+    with {:ok, result} <-
+           Collections.deliver(
+             kind,
+             %{
+               channel_ref: channel_ref,
+               request_ref: input.event_ref,
+               thread_ref: thread_ref || input.source_item_ref,
+               workspace_ref: workspace_ref
+             },
+             options
+           ) do
+      {:ok,
+       %{outcome: :collection_shown, collection: kind, shown: result.shown, total: result.total}}
+    end
+  end
 
   # A settings question is answered in the thread it was asked in, from the
   # same projection as the welcome, and never changes anything.

@@ -167,6 +167,52 @@ defmodule Responder.Slack.IncidentRoomsTest do
              KnowledgeSnapshot.authorize_session(fixture.episode, fixture.session)
   end
 
+  # One offer owns both paths. Before 2026-09-11 an incident offer had only
+  # "Open incident room"; the in-place path did not exist, and nothing stopped a
+  # room request and a thread investigation from both starting on one offer.
+  test "one incident offer starts exactly one path: investigate in the thread or create a room" do
+    fixture = delivered_offer!()
+    other = delivered_offer!()
+    save_channel_configuration!()
+
+    assert {:ok, investigation} = IncidentRooms.investigate(investigate(fixture))
+    assert investigation.status == :confirmed
+    assert investigation.episode.destination_conversation_ref == "slack:T123:C456"
+    assert investigation.episode.destination_thread_ref == "1787832000.000100"
+    assert investigation.session.policy == "incident-investigate"
+    assert investigation.session.repository_ref == nil
+
+    record = Repo.get!(Record, fixture.record.id)
+    assert record.status == :confirmed
+    assert record.confirmed_episode_id == investigation.episode.id
+    refute Repo.get_by(IncidentRoom, record_id: record.id)
+
+    assert IncidentRooms.request(request(fixture)) == {:error, :incident_offer_stale}
+    refute Repo.get_by(IncidentRoom, record_id: record.id)
+
+    assert {:ok, duplicate} = IncidentRooms.investigate(investigate(fixture))
+    assert duplicate.status == :duplicate
+    assert duplicate.episode.id == investigation.episode.id
+
+    assert {:ok, requested} = IncidentRooms.request(request(other))
+    assert requested.status == :requested
+
+    assert IncidentRooms.investigate(investigate(other)) == {:error, :incident_offer_stale}
+    assert Repo.get!(Record, other.record.id).confirmed_episode_id == nil
+
+    assert IncidentRooms.investigate(%{
+             investigate(fixture)
+             | record_ref: "record:task_offer:missing"
+           }) ==
+             {:error, :incident_offer_not_found}
+
+    assert IncidentRooms.investigate(%{investigate(fixture) | workspace_ref: "T999"}) ==
+             {:error, :incident_offer_workspace_mismatch}
+
+    assert IncidentRooms.investigate(Map.delete(investigate(fixture), :policy)) ==
+             {:error, {:invalid_incident_investigation, :fields}}
+  end
+
   test "a delivered incident offer provisions one usable room before starting linked work" do
     fixture = delivered_offer!()
     save_channel_configuration!()
@@ -1154,6 +1200,23 @@ defmodule Responder.Slack.IncidentRoomsTest do
       occurred_at: DateTime.add(@now, 2, :second),
       policy: %{digest: @policy_digest, name: "incident-investigate"},
       private: true,
+      record_ref: fixture.record.ref,
+      target: %{
+        conversation_ref: "slack:T123:C456",
+        message_ref: fixture.receipt["message_ref"],
+        thread_ref: "1787832000.000100",
+        transport: "slack"
+      },
+      workspace_ref: "T123"
+    }
+  end
+
+  defp investigate(fixture) do
+    %{
+      actor_ref: "slack:user:U123",
+      confirmation_ref: "interaction:investigate",
+      occurred_at: DateTime.add(@now, 2, :second),
+      policy: %{digest: @policy_digest, name: "incident-investigate"},
       record_ref: fixture.record.ref,
       target: %{
         conversation_ref: "slack:T123:C456",

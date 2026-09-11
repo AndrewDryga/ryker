@@ -198,6 +198,41 @@ defmodule Responder.Slack.InteractionHandlerTest do
 
     assert_receive {:incident_requested, confirmation}
     assert confirmation.policy.name == "incident-investigate"
+
+    # Investigate shares the offer identity, the operator gate and the incident
+    # policy with Create incident room; it never touches a repository.
+    assert {:ok, %{outcome: :denied}} =
+             InteractionHandler.handle(
+               interaction("responder_investigate_incident", "incident"),
+               options(["U123"])
+             )
+
+    refute_received {:incident_investigated, _attributes}
+
+    assert {:ok, %{outcome: :confirmed, episode_id: "episode-incident"}} =
+             InteractionHandler.handle(
+               interaction("responder_investigate_incident", "incident"),
+               %{options(["U123"]) | operators: MapSet.new(["U123"])}
+             )
+
+    assert_receive {:incident_investigated, investigation}
+
+    assert investigation.policy == %{
+             digest: String.duplicate("c", 64),
+             name: "incident-investigate"
+           }
+
+    assert investigation.record_ref == "record:task_offer:incident"
+    assert investigation.workspace_ref == "T123"
+    assert investigation.target.thread_ref == "1787832000.000100"
+
+    assert {:ok, %{outcome: :invalid}} =
+             InteractionHandler.handle(
+               interaction("responder_investigate_incident", "engineering"),
+               %{options(["U123"]) | operators: MapSet.new(["U123"])}
+             )
+
+    refute_received {:incident_investigated, _attributes}
   end
 
   test "cross-kind controls and missing repository authority fail closed" do
@@ -446,6 +481,89 @@ defmodule Responder.Slack.InteractionHandlerTest do
     assert_receive {:work_record_shown, %{request_ref: "interaction:record"}}
   end
 
+  # A saved-entity card's Delete/Forget control names one exact resource and the
+  # revision it was rendered from. A copied, stale or non-operator click must
+  # never be reported as a deletion.
+  test "message-surface removal controls resolve their exact resource and cannot claim a stale deletion" do
+    observer = self()
+    schedule_id = Ecto.UUID.generate()
+
+    options =
+      Map.merge(options(["U123", "U456"]), %{
+        delete_behavior: fn ref, revision, actor_ref, workspace_ref, action_ref ->
+          send(observer, {:behavior_deleted, ref, revision, actor_ref, workspace_ref, action_ref})
+          {:ok, %{outcome: %{"status" => "deleted"}}}
+        end,
+        delete_schedule: fn ref, revision, _actor_ref, _workspace_ref, _action_ref ->
+          send(observer, {:schedule_deleted, ref, revision})
+
+          if revision == 2,
+            do: {:ok, %{outcome: %{"status" => "deleted"}}},
+            else: {:error, :schedule_revision_stale}
+        end,
+        forget_memory: fn ref, actor_ref, workspace_ref ->
+          send(observer, {:memory_forgotten, ref, actor_ref, workspace_ref})
+          {:ok, %{ref: ref}}
+        end,
+        operators: MapSet.new(["U123"])
+      })
+
+    delete = %{
+      interaction("responder_delete_schedule", "schedule")
+      | action_value: "schedule-control:schedule:#{schedule_id}:2",
+        event_ref: "interaction:delete-schedule"
+    }
+
+    assert InteractionHandler.handle(delete, options) ==
+             {:ok,
+              %{outcome: :deleted, resource_ref: "schedule-control:schedule:#{schedule_id}:2"}}
+
+    assert_received {:schedule_deleted, "schedule:" <> ^schedule_id, 2}
+
+    stale = %{delete | action_value: "schedule-control:schedule:#{schedule_id}:1"}
+    assert InteractionHandler.handle(stale, options) == {:ok, %{outcome: :invalid}}
+    assert_received {:schedule_deleted, _ref, 1}
+
+    member = %{delete | actor_ref: "U456"}
+    assert InteractionHandler.handle(member, options) == {:ok, %{outcome: :denied}}
+    refute_received {:schedule_deleted, _ref, _revision}
+
+    guest = %{delete | actor_ref: "U999"}
+    assert InteractionHandler.handle(guest, options) == {:ok, %{outcome: :denied}}
+
+    malformed = %{delete | action_value: "schedule-control:schedule:#{schedule_id}"}
+    assert InteractionHandler.handle(malformed, options) == {:ok, %{outcome: :invalid}}
+    refute_received {:schedule_deleted, _ref, _revision}
+
+    behavior = %{
+      delete
+      | action_id: "responder_delete_behavior",
+        action_value: "behavior-control:behavior:#{schedule_id}:3",
+        event_ref: "interaction:delete-behavior"
+    }
+
+    assert {:ok, %{outcome: :deleted}} = InteractionHandler.handle(behavior, options)
+
+    assert_received {:behavior_deleted, "behavior:" <> ^schedule_id, 3, "U123", "T123",
+                     "interaction:delete-behavior"}
+
+    forget = %{
+      delete
+      | action_id: "responder_forget_memory",
+        action_value: "memory:#{schedule_id}"
+    }
+
+    assert {:ok, %{outcome: :forgotten}} = InteractionHandler.handle(forget, options)
+    assert_received {:memory_forgotten, "memory:" <> ^schedule_id, "U123", "T123"}
+
+    offline =
+      Map.put(options, :forget_memory, fn _ref, _actor_ref, _workspace_ref ->
+        {:error, :store_offline}
+      end)
+
+    assert InteractionHandler.handle(forget, offline) == {:error, :store_offline}
+  end
+
   test "a record overflow selection dispatches one bounded host projection" do
     interaction =
       interaction("responder_work_record", "record")
@@ -577,6 +695,10 @@ defmodule Responder.Slack.InteractionHandlerTest do
       close_work: fn attributes ->
         send(observer, {:work_closed, attributes})
         {:ok, %{outcome: :closing, work_ref: attributes.work_ref}}
+      end,
+      investigate_incident: fn attributes ->
+        send(observer, {:incident_investigated, attributes})
+        {:ok, %{episode: %{id: "episode-incident"}, status: :confirmed}}
       end,
       request_incident_room: fn attributes ->
         send(observer, {:incident_requested, attributes})
