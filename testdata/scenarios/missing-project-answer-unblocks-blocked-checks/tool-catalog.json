@@ -1032,6 +1032,85 @@
                 ],
                 "description": "Configured target: required (non-null) for engineering; null is allowed for incident. Use work.repository_ref or the relevant supplied work.workspace.companions[].name. Never substitute generic primary, an unrelated companion, or an unoffered path/GitHub slug. Ask for configuration only if no matching supplied target exists."
               },
+              "repository_source": {
+                "anyOf": [
+                  {
+                    "oneOf": [
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "kind": {
+                            "const": "default"
+                          }
+                        },
+                        "required": [
+                          "kind"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "kind": {
+                            "const": "branch"
+                          },
+                          "name": {
+                            "maxLength": 255,
+                            "minLength": 1,
+                            "pattern": "^[A-Za-z0-9][A-Za-z0-9._/-]*$",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "kind",
+                          "name"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "kind": {
+                            "const": "pull_request"
+                          },
+                          "number": {
+                            "maximum": 10000000,
+                            "minimum": 1,
+                            "type": "integer"
+                          }
+                        },
+                        "required": [
+                          "kind",
+                          "number"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "kind": {
+                            "const": "commit"
+                          },
+                          "sha": {
+                            "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "kind",
+                          "sha"
+                        ],
+                        "type": "object"
+                      }
+                    ],
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Optional source inside the task's repository that the new linked work starts from: {\"kind\":\"default\"}, {\"kind\":\"branch\",\"name\":\"<branch>\"}, {\"kind\":\"pull_request\",\"number\":<n>} or {\"kind\":\"commit\",\"sha\":\"<full lowercase object id>\"}. Null means the configured default branch. It requires a non-null repository, never changes this session's workspace, and never authorizes pushing to the selected branch or pull request."
+              },
               "source_refs": {
                 "items": {
                   "maxLength": 256,

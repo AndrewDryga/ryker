@@ -1074,7 +1074,7 @@
                             "const": "pull_request"
                           },
                           "number": {
-                            "maximum": 1000000,
+                            "maximum": 10000000,
                             "minimum": 1,
                             "type": "integer"
                           }
