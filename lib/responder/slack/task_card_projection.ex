@@ -10,7 +10,7 @@ defmodule Responder.Slack.TaskCardProjection do
 
   alias Responder.CanonicalJSON
   alias Responder.Episodes.Episode
-  alias Responder.Publication.{Followup, Publication}
+  alias Responder.Publication.{Followup, Publication, Review}
   alias Responder.Repo
   alias Responder.Slack.TaskCard
   alias Responder.State.{DerivedContext, Record, Records}
@@ -459,9 +459,22 @@ defmodule Responder.Slack.TaskCardProjection do
       "pull_request_number" => publication.pull_request_number,
       "pull_request_url" => publication.pull_request_url,
       "recovery_generation" => publication.recovery_generation,
-      "status" => Atom.to_string(publication.status)
+      "status" => Atom.to_string(publication.status),
+      "unverified" => unverified(publication)
     }
   end
+
+  # Which required check has no result, in the operator's words. Without it a
+  # blocked candidate can only say that something is missing, which is how a
+  # missing tool, a failed assertion and a policy finding read the same.
+  defp unverified(%Publication{status: :blocked, review_document: review}) do
+    case Review.draft_verdict(review) do
+      %{"shareable" => true, "incomplete_checks" => [reason | _rest]} -> compact(reason, 500)
+      _decided -> nil
+    end
+  end
+
+  defp unverified(_publication), do: nil
 
   defp publication_controls(%Publication{
          status: status,
@@ -483,10 +496,19 @@ defmodule Responder.Slack.TaskCardProjection do
               is_binary(code),
        do: ["retry"]
 
+  # A reviewed candidate only rests here when no task grant covers its draft,
+  # so this is the genuinely unauthorized path; an authorized one is already
+  # publishing and offers nothing to click.
   defp publication_controls(%Publication{status: :reviewed}),
     do: ["publish", "update", "discard"]
 
-  defp publication_controls(%Publication{status: :blocked}), do: ["update", "discard"]
+  # A safe snapshot whose checks could not run is a person's decision, not the
+  # host's: offer the draft explicitly, never open it automatically.
+  defp publication_controls(%Publication{status: :blocked} = publication) do
+    if Review.draft_shareable?(publication.review_document),
+      do: ["publish", "update", "discard"],
+      else: ["update", "discard"]
+  end
 
   defp publication_controls(%Publication{status: :published, expected_remote_head_sha: head_sha})
        when is_binary(head_sha),

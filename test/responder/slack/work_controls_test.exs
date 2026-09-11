@@ -148,6 +148,54 @@ defmodule Responder.Slack.WorkControlsTest do
     assert Repo.get!(Publication, fixture.publication.id).status == :publish_pending
   end
 
+  # Andrew's 2026-09-09 hosted-runner recovery: the gate could not start, so the
+  # candidate was never publishable and the card offered nothing at all, even
+  # though the host held one exact snapshot a person could read. The card's own
+  # fence has to use the draft-shareability verdict, not merge readiness, and it
+  # must still refuse a candidate whose gate actually failed.
+  test "a blocked candidate reaches a draft only when its snapshot is shareable" do
+    fixture =
+      PublicationFixture.published!("task-card-unverified", conversation_ref: "slack:T123:C456")
+
+    card = publication_task_card!(fixture.publication, "unverified")
+
+    Repo.delete_all(
+      from(followup in Followup, where: followup.publication_id == ^fixture.publication.id)
+    )
+
+    attributes =
+      card
+      |> publication_attributes()
+      |> Map.put(:publication_ref, fixture.publication.ref)
+
+    review = fixture.publication.review_document
+
+    block_publication!(fixture.publication, %{
+      review
+      | "gate" => "failed",
+        "not_publishable_reasons" => ["The trusted gate failed."],
+        "publishable" => false
+    })
+
+    assert WorkControls.approve_publication(attributes) == {:error, :task_publication_not_ready}
+    assert Repo.get!(Publication, fixture.publication.id).status == :blocked
+
+    block_publication!(
+      fixture.publication,
+      review
+      |> Map.merge(%{
+        "gate" => "startup_error",
+        "gate_error" => "docker: command not found",
+        "not_publishable_reasons" => ["The trusted gate could not start."],
+        "publishable" => false
+      })
+    )
+
+    assert {:ok, result} = WorkControls.approve_publication(attributes)
+    assert result.outcome == :approved
+    assert Repo.get!(Publication, fixture.publication.id).status == :publish_pending
+  end
+
   test "a task card refreshes only its own published GitHub lifecycle" do
     fixture =
       PublicationFixture.published!("task-card-check", conversation_ref: "slack:T123:C456")
@@ -502,6 +550,32 @@ defmodule Responder.Slack.WorkControlsTest do
     }
     |> TaskCardChangeset.insert()
     |> Repo.insert!()
+  end
+
+  defp block_publication!(publication, review) do
+    {1, _rows} =
+      Repo.update_all(
+        from(row in Publication, where: row.id == ^publication.id),
+        set: [
+          approval_ref: nil,
+          approved_at: nil,
+          approved_by_actor_ref: nil,
+          branch_ref: nil,
+          commit_sha: nil,
+          github_repository: nil,
+          publication_receipt: nil,
+          publication_receipt_fingerprint: nil,
+          published_at: nil,
+          published_delivery_receipt: nil,
+          published_delivery_receipt_fingerprint: nil,
+          pull_request_number: nil,
+          pull_request_url: nil,
+          review_document: review,
+          status: :blocked
+        ]
+      )
+
+    :ok
   end
 
   defp publication_attributes(card) do

@@ -3,7 +3,7 @@ defmodule Responder.ControlPlane.Card do
 
   alias Responder.ControlPlane.InspectionRedactor
   alias Responder.Publication.Card, as: PublicationCard
-  alias Responder.Publication.Publication
+  alias Responder.Publication.{Publication, Review}
   alias Responder.Slack.TaskCardProjection
   alias Responder.State.{Record, RecordPayload}
 
@@ -58,12 +58,16 @@ defmodule Responder.ControlPlane.Card do
   defp diagnostic_deadline(_payload), do: nil
 
   @spec project_publication(Publication.t(), String.t()) :: {:ok, map()} | :ignore
+  # Only a candidate nobody granted a draft for rests in `:reviewed` or
+  # `:blocked`; an authorized one is already publishing. So this surface always
+  # projects the unauthorized verdict, and offers the same approval the Slack
+  # card and publication custody agree on.
   def project_publication(%Publication{status: status} = publication, record_ref)
       when status in [:reviewed, :blocked] and is_binary(record_ref) do
     publication
-    |> PublicationCard.review()
+    |> PublicationCard.review(false)
     |> PublicationCard.prepare_record()
-    |> project_publication_review(status, record_ref)
+    |> project_publication_review(status, record_ref, approvable?(publication))
   end
 
   def project_publication(%Publication{status: :published} = publication, record_ref)
@@ -98,10 +102,10 @@ defmodule Responder.ControlPlane.Card do
 
   def project_publication(_publication, _record_ref), do: :ignore
 
-  defp project_publication_review({:ok, payload}, status, record_ref) do
+  defp project_publication_review({:ok, payload}, status, record_ref, approvable?) do
     {:ok,
      %{
-       action: if(status == :reviewed and payload["publishable"], do: :approve_publication),
+       action: if(approvable?, do: :approve_publication),
        choices: [],
        details: [
          {"Repository", payload["repository"]},
@@ -120,7 +124,18 @@ defmodule Responder.ControlPlane.Card do
      }}
   end
 
-  defp project_publication_review({:error, _reason}, _status, _record_ref), do: :ignore
+  defp project_publication_review({:error, _reason}, _status, _record_ref, _approvable?),
+    do: :ignore
+
+  # Merge readiness releases the ordinary publish path; a blocked candidate is
+  # releasable only on the separate draft-shareability verdict. Publication
+  # custody re-decides both, so this only keeps the surface from offering an
+  # approval the host would refuse.
+  defp approvable?(%Publication{status: :reviewed, review_document: review}),
+    do: Review.publishable?(review)
+
+  defp approvable?(%Publication{status: :blocked, review_document: review}),
+    do: Review.draft_shareable?(review)
 
   defp publication_review_summary(%{"publishable" => true}) do
     "The exact candidate passed trusted review and is ready for explicit publication approval."

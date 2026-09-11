@@ -3,16 +3,26 @@ defmodule Responder.Publication.Card do
 
   alias Responder.Publication.{Publication, Review}
 
-  @review_fields ~w(candidate_tree gate patch_bytes patch_digest policy_findings publishable reasons rebase repository title)
+  @review_fields ~w(candidate_tree draft_authorized gate patch_bytes patch_digest policy_findings publishable reasons rebase repository title)
   @result_fields ~w(branch_ref commit_sha pull_request_number pull_request_url repository title)
 
-  def review(%Publication{review_document: review} = publication) when is_map(review) do
+  @doc """
+  Projects one trusted review verdict, saying whether Responder opens the draft.
+
+  `draft_authorized?` is the host's own answer, never the model's: when it is
+  true the publication already carries the confirming person's grant, so the
+  card states what is happening instead of asking for a click that changes
+  nothing.
+  """
+  def review(%Publication{review_document: review} = publication, draft_authorized?)
+      when is_map(review) and is_boolean(draft_authorized?) do
     reasons = review["not_publishable_reasons"]
 
     %{
       "kind" => "publication_review",
       "payload" => %{
         "candidate_tree" => review["candidate_tree"],
+        "draft_authorized" => draft_authorized?,
         "gate" => review["gate"],
         "patch_bytes" => review["patch_bytes"],
         "patch_digest" => review["patch_digest"],
@@ -59,6 +69,7 @@ defmodule Responder.Publication.Card do
          true <- is_integer(payload["patch_bytes"]) and payload["patch_bytes"] >= 0,
          true <- optional_digest?(payload["patch_digest"]),
          true <- is_boolean(payload["publishable"]),
+         true <- is_boolean(payload["draft_authorized"]),
          true <- bounded_list?(payload["policy_findings"], 64, 4_096),
          true <- bounded_list?(payload["reasons"], 64, 256) do
       {:ok, payload}

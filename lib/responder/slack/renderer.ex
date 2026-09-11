@@ -346,7 +346,7 @@ defmodule Responder.Slack.Renderer do
         ([section("*#{mrkdwn(title)}*")] ++
            TaskCardDetails.blocks(task) ++
            [fact_fields([{"Repository", %{"ref" => repository, "url" => repository_url}}])] ++
-           task_publication_blocks(task_ref, publication) ++
+           task_publication_blocks(task_ref, repository, publication) ++
            [
              incident_action_block(action_needed),
              work_controls_block(task_ref, controls, :task),
@@ -471,15 +471,17 @@ defmodule Responder.Slack.Renderer do
            "pull_request_number" => number,
            "pull_request_url" => url,
            "recovery_generation" => recovery_generation,
-           "status" => status
+           "status" => status,
+           "unverified" => unverified
          } = publication
        )
-       when map_size(publication) == 6 do
+       when map_size(publication) == 7 do
     with :ok <- bounded_text(status, 120),
          :ok <- publication_controls(controls),
          :ok <- optional_publication_reference(publication_ref),
          :ok <- optional_positive_integer(number),
          :ok <- optional_positive_integer(recovery_generation),
+         :ok <- optional_bounded_text(unverified, 500),
          :ok <- optional_https_url(url) do
       publication_control_identity(
         controls,
@@ -493,22 +495,23 @@ defmodule Responder.Slack.Renderer do
 
   defp task_publication(_publication), do: {:error, :invalid_task_publication}
 
-  defp task_publication_blocks(_task_ref, nil), do: []
+  defp task_publication_blocks(_task_ref, _repository, nil), do: []
 
-  defp task_publication_blocks(task_ref, %{
+  defp task_publication_blocks(task_ref, repository, %{
          "controls" => controls,
          "publication_ref" => publication_ref,
          "pull_request_number" => number,
          "pull_request_url" => url,
          "recovery_generation" => recovery_generation,
-         "status" => status
+         "status" => status,
+         "unverified" => unverified
        }) do
     detail =
       if is_binary(url) and is_integer(number),
         do: " · <#{url}|Open draft PR ##{number}>",
         else: ""
 
-    summary = section("#{publication_status_message(status, controls)}#{detail}")
+    summary = section("#{publication_status_message(status, controls, unverified)}#{detail}")
 
     buttons =
       Enum.map(controls, fn
@@ -519,7 +522,7 @@ defmodule Responder.Slack.Renderer do
             "#{task_ref}|#{publication_ref}",
             "primary",
             "Create draft pull request",
-            "Publish the exact reviewed candidate as a draft pull request? This does not merge or deploy it.",
+            publish_confirmation(repository, unverified),
             "Create draft PR"
           )
 
@@ -572,29 +575,45 @@ defmodule Responder.Slack.Renderer do
       else: [summary, actions("#{task_ref}:publication", buttons)]
   end
 
-  defp publication_status_message("reviewed", _),
-    do: "Readiness review complete. Create a draft PR when you are ready."
-
-  defp publication_status_message("blocked", _),
+  # A draft-authorized task never rests in "reviewed": its checks passing is
+  # enough for the draft the confirming person already granted. What is left
+  # here is a candidate nobody granted a draft for.
+  defp publication_status_message("reviewed", _controls, _unverified),
     do:
-      "PR creation is blocked. Review the latest state to check the changes again, or discard this candidate to stop publishing it."
+      "The changes passed their checks. I don't have a draft-PR grant for this task, so open the draft when you want one."
 
-  defp publication_status_message("published", _),
+  defp publication_status_message("blocked", controls, unverified) do
+    if "publish" in controls and is_binary(unverified) do
+      "I couldn't finish the checks (#{unverified}). The exact change is saved, so I can open it as an explicitly unverified draft pull request, or check the latest state again."
+    else
+      "PR creation is blocked. Review the latest state to check the changes again, or discard this candidate to stop publishing it."
+    end
+  end
+
+  defp publication_status_message("published", _controls, _unverified),
     do: "Draft PR created. Open it to review the changes."
 
-  defp publication_status_message("published_ready", _),
+  defp publication_status_message("published_ready", _controls, _unverified),
     do: "Draft PR created. Sending the publication update."
 
-  defp publication_status_message("discarded", _),
+  defp publication_status_message("discarded", _controls, _unverified),
     do: "PR preparation stopped. The review history is saved."
 
-  defp publication_status_message(status, controls) do
+  defp publication_status_message(status, controls, _unverified) do
     cond do
       "retry" in controls -> "PR preparation stopped after an error. Retry the saved step below."
       status == "publish_pending" -> "Creating the draft PR. Waiting for GitHub to confirm."
       true -> "Checking the changes before creating a PR."
     end
   end
+
+  defp publish_confirmation(repository, nil),
+    do:
+      "Publish the exact reviewed candidate to #{repository} as a draft pull request? This does not merge or deploy it."
+
+  defp publish_confirmation(repository, unverified),
+    do:
+      "Open a draft pull request in #{repository} from this exact saved change? The checks did not finish (#{unverified}). A draft does not waive them, and it does not merge or deploy anything."
 
   defp publication_controls(controls) when is_list(controls) do
     if controls == Enum.uniq(controls) and length(controls) <= length(@publication_controls) and
@@ -2298,24 +2317,30 @@ defmodule Responder.Slack.Renderer do
 
     blocks = [section(detail)]
 
-    if payload["publishable"] do
-      blocks ++
-        [
-          actions(
-            ref,
-            button(
-              "responder_publish_draft",
-              "Publish draft PR",
+    cond do
+      payload["draft_authorized"] ->
+        blocks ++
+          [section("I'm opening the draft pull request for this candidate now.")]
+
+      payload["publishable"] ->
+        blocks ++
+          [
+            actions(
               ref,
-              "primary",
-              "Publish reviewed draft PR",
-              "Publish only this exact reviewed candidate as a draft pull request? Merge and deployment remain separate external decisions.",
-              "Publish draft"
+              button(
+                "responder_publish_draft",
+                "Publish draft PR",
+                ref,
+                "primary",
+                "Publish reviewed draft PR",
+                "Publish only this exact reviewed candidate as a draft pull request? Merge and deployment remain separate external decisions.",
+                "Publish draft"
+              )
             )
-          )
-        ]
-    else
-      blocks
+          ]
+
+      true ->
+        blocks
     end
   end
 

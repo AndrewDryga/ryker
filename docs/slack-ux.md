@@ -560,19 +560,35 @@ host rejects them for nonoperators before any repository or session mutation:
 - A confirmed coding task automatically checks its completed, checkpoint-backed changes. There is
   no separate readiness permission button. The review compares the isolated changes with the
   current repository, checks rebase, runs configured validation and policy gates, and reports
-  whether the result is ready for external review. The current Elixir publication path requires
-  a passed gate, clean rebase, no policy findings and a verified complete patch. Missing or failed
-  checks remain blockers; preparing a safe draft with incomplete checks is not implemented yet.
+  whether the result is ready for external review. Merge readiness requires a passed gate, clean
+  rebase, no policy findings and a verified complete patch. A separate draft-shareability verdict
+  decides whether one exact, security-clean snapshot is safe for a person to read: a gate that
+  could not start, did not run or is not configured leaves the change shareable and names the
+  missing check, while a failed gate, a rebase conflict, a policy finding, an inexact snapshot and
+  any refusal the typed verdict cannot explain are never shareable. Shareability waives no check
+  and grants no authority: the host never opens an unverified draft by itself, it offers one.
   Readiness never merges, signs, or deploys.
   Checks and follow-up Work share session custody, so a normal reply waits for an active review
   without consuming an execution attempt. Delivery and unrelated sessions continue independently.
+- A confirmed coding task carries its own draft grant. When the person who confirmed the task named
+  this repository and the exact reviewed candidate came from that task's work, Responder opens the
+  draft pull request itself: the card says it is opening the draft and offers no publication click,
+  because a click could not change the candidate, the repository or the scope. Revoking the
+  confirmation, confirming for a different repository, or a task with no repository leaves the
+  candidate at **Create draft PR** for a person. The grant is publication only — merge, deployment
+  and any other repository stay separate decisions — and an operator's **Discard candidate** is the
+  last word on publishing that candidate.
 - **Create draft PR** explicitly approves the retained review and its verified complete,
   content-addressed patch. The publisher reproduces that exact approved tree in an isolated
   checkout and publishes only a lease-protected Responder branch, using the configured GitHub
-  App repository binding. Automatic task-scoped draft authorization remains separate work;
-  automatically running checks does not grant publication, merge or deployment authority.
+  App repository binding. On a blocked candidate whose checks could not finish, the same control
+  offers an explicitly unverified draft: its confirmation names the repository and the check that
+  never ran, and says that a draft waives nothing and neither merges nor deploys.
   After publication the task shows **Open PR** and **Check delivery**. Responder polls GitHub for
-  check and merge transitions without occupying a model turn. After merge, matching deployment and
+  check and merge transitions without occupying a model turn. Checks that fail on that exact head
+  return the task to in-scope correction once, without a click and without widening the task; a
+  hard deadline, a head that moved outside the publication, a close and a merge stay history for a
+  person. After merge, matching deployment and
   Terraform app messages from other watched channels return to the original task thread only when
   the source message contains that publication's exact PR, branch, head SHA, or merge SHA. Loose
   topic, repository-name, and timing matches are rejected. An exact reference activates this
