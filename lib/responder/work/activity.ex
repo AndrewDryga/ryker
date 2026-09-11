@@ -30,6 +30,7 @@ defmodule Responder.Work.Activity do
     activity.elided
     provider.backoff
     provider.alive
+    network
   )
   @event_fields ~w(id session_id sequence turn_id type version occurred_at payload)
   @required_event_fields ~w(id session_id sequence type version occurred_at)
@@ -638,6 +639,37 @@ defmodule Responder.Work.Activity do
       |> optional_public_timestamp("all_limited_until", payload["all_limited_until"])
 
     {:ok, result}
+  end
+
+  # One sealed filtered run's outcome, as the worker grouped it. The daemon
+  # already applied its policy's destination projection, so a withheld name
+  # arrives as the literal "name withheld"; this bounds and types the fields and
+  # discloses nothing further. Counts stay counts: unknown is never zero.
+  defp public_payload("network", payload) do
+    denials =
+      payload
+      |> Map.get("denials", [])
+      |> Enum.filter(&is_map/1)
+      |> Enum.take(32)
+      |> Enum.map(&Map.take(&1, ~w(destination basis count)))
+
+    result =
+      %{"evidence_version" => 1, "denials" => sanitize_evidence(denials)}
+      |> optional_public_text("run_id", payload["run_id"], 256)
+      |> optional_public_text("allowed_traffic", payload["allowed_traffic"], 512)
+      |> optional_public_text("evidence_id", payload["evidence_id"], 256)
+      |> optional_public_integer("omitted_destinations", payload["omitted_destinations"])
+
+    result =
+      case payload["alerts"] do
+        alerts when is_list(alerts) ->
+          Map.put(result, "alerts", alerts |> Enum.filter(&is_binary/1) |> Enum.take(16))
+
+        _absent ->
+          result
+      end
+
+    {:ok, Map.put(result, "detail_truncated", payload["detail_truncated"] == true)}
   end
 
   defp public_payload("provider.alive", payload) do

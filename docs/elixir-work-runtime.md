@@ -555,6 +555,13 @@ investigations. Counters cross the wire as unsigned decimal strings and are stor
 JSON text, because a collector value above 2^53 must survive both a browser and the database
 unrounded, and a null counter is a metric nobody measured rather than a zero.
 
+One sealed filtered run also appends a `network` session event carrying its grouped refusals, which
+lands in the Work activity timeline in chronological position while the session-wide totals stay in
+the capture. The fleet protocol must admit that event kind: a validator that knew only the activity
+kinds rejected the whole poll when one arrived, so a single filtered run would have stopped the
+worker polling at all. Only the three promised denial fields cross, and a destination the session
+policy withheld arrives as the literal "name withheld".
+
 ## Retention and cleanup
 
 `Responder.Retention.Runtime` owns both remote workspace cleanup and local data horizons. For every

@@ -371,4 +371,47 @@ defmodule Responder.CoopFleet.ProtocolTest do
     assert {:error, {:invalid_coop_worker_protocol, :event_payload}} =
              Protocol.poll(unserializable)
   end
+
+  test "a sealed run's network refusals are carried, not rejected as an unknown payload" do
+    # The worker exports the `network` session event with a bounded payload. A
+    # protocol that only knew the activity kinds rejected the WHOLE poll when one
+    # arrived, so a single filtered run would have stopped a worker from polling
+    # at all -- the compatibility break is the poll, not the event.
+    poll = @fixture |> File.read!() |> Jason.decode!() |> Map.fetch!("poll")
+
+    event = %{
+      "id" => "event-network-1",
+      "session_id" => "coop-session-1",
+      "sequence" => 1,
+      "type" => "network",
+      "version" => 1,
+      "occurred_at" => "2026-09-11T14:32:40Z",
+      "payload" => %{
+        "version" => 1,
+        "run_id" => "run-7f3a",
+        "denials" => [%{"destination" => "name withheld", "basis" => "tls", "count" => 3}],
+        "omitted_destinations" => 4,
+        "alerts" => ["collector degraded"],
+        "allowed_traffic" => "1 connection, 10 B sent",
+        "detail_truncated" => true,
+        "evidence_id" => "evt-0031"
+      }
+    }
+
+    batch = %{
+      "session_ref" => "018f04f4-2222-7000-8000-000000000001",
+      "placement_generation" => 1,
+      "after_sequence" => 0,
+      "events" => [%{"sequence" => 1, "kind" => "session_event", "payload" => event}]
+    }
+
+    assert {:ok, prepared} = Protocol.poll(Map.put(poll, "event_batches", [batch]))
+    [carried] = prepared["event_batches"]
+    assert [%{"payload" => %{"payload" => payload}}] = carried["events"]
+    assert payload["run_id"] == "run-7f3a"
+
+    assert payload["denials"] == [
+             %{"destination" => "name withheld", "basis" => "tls", "count" => 3}
+           ]
+  end
 end

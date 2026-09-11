@@ -511,6 +511,68 @@ defmodule Responder.Work.ActivityTest do
     assert {:noreply, ^state} = ActivitySyncWorker.handle_info(:poll, state)
   end
 
+  test "a sealed run's network refusals reach the timeline as counts, never as names" do
+    # Coop appends the `network` event when a filtered run hits its boundary. It
+    # is the run's own chronological record of what was refused; the session-wide
+    # totals live in the evidence capture. The daemon already applied its policy's
+    # destination projection, so a withheld name arrives as the literal
+    # "name withheld" -- and no field the worker did not promise may cross.
+    {:ok, started} = Episodes.apply(EpisodeFixtures.admit_input())
+
+    {:ok, session} =
+      Custody.pin_episode(started.episode.id, "policy:network", String.duplicate("a", 64))
+
+    {:ok, claim} = Custody.claim_next("network-activity", 60, :work)
+
+    {:ok, session} =
+      Custody.bind_session(
+        started.episode.id,
+        claim.turn.turn_ref,
+        claim.lease_ref,
+        session.generation,
+        session.create_generation,
+        "remote:network-activity"
+      )
+
+    payload = %{
+      "version" => 1,
+      "run_id" => "run-7f3a",
+      "denials" => [
+        %{
+          "destination" => "name withheld",
+          "basis" => "tls",
+          "count" => 3,
+          "peer" => "203.0.113.9"
+        }
+      ],
+      "omitted_destinations" => 4,
+      "alerts" => ["collector degraded"],
+      "allowed_traffic" => "1 connection, 10 B sent",
+      "detail_truncated" => true,
+      "evidence_id" => "evt-0031",
+      "internal_note" => "do not export"
+    }
+
+    assert {:ok, %{inserted: 1}} =
+             Activity.ingest(session.id, [event(session, 1, "network", payload)])
+
+    assert [stored] = Activity.list_for_episode(started.episode.id)
+    assert stored.kind == "network"
+    assert stored.payload["run_id"] == "run-7f3a"
+    assert stored.payload["omitted_destinations"] == 4
+    assert stored.payload["detail_truncated"] == true
+    assert stored.payload["alerts"] == ["collector degraded"]
+    assert [denial] = stored.payload["denials"]
+    assert denial["destination"] == "name withheld"
+    assert denial["count"] == 3
+
+    # Only the three promised denial fields cross, and nothing else in the event.
+    refute Map.has_key?(denial, "peer")
+    refute inspect(stored.payload) =~ "203.0.113.9"
+    refute inspect(stored.payload) =~ "internal_note"
+    refute inspect(stored.payload) =~ "do not export"
+  end
+
   defp event(session, sequence, type, payload) do
     %{
       "id" => "event-#{sequence}",
