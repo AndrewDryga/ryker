@@ -6,7 +6,7 @@ defmodule Responder.ControlPlane.SubscriptionPresentationTest do
   @episode %{
     source_available: true,
     title: "Review the portal deployment",
-    href: "/episodes/run-monitor",
+    href: "/timeline/run-monitor",
     source: "Slack",
     conversation: "slack:T0BHXKZJVDX:C0BLU1GACKC",
     repository: "emisar"

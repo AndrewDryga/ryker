@@ -220,7 +220,7 @@ defmodule Responder.ControlPlane.EpisodeTrace do
               %{
                 label: "Task proposed",
                 at: offer.inserted_at,
-                href: "/episodes/" <> segment(offer.episode_key)
+                href: "/timeline/" <> segment(offer.episode_key)
               },
             offer && offer.confirmed_at &&
               %{label: "Task approved", at: offer.confirmed_at, href: nil},
@@ -252,7 +252,7 @@ defmodule Responder.ControlPlane.EpisodeTrace do
         status: case_reply_status(turn),
         text: artifact.text,
         available: artifact.state == :retained,
-        href: "requests?attempt=#{turn.id}&section=delivery"
+        href: "model-calls?attempt=#{turn.id}&section=delivery"
       }
     ]
   end
@@ -287,7 +287,7 @@ defmodule Responder.ControlPlane.EpisodeTrace do
       available: artifact.state == :retained,
       repository: input.repository_ref,
       expired_at: input.operational_pruned_at,
-      href: "/episodes/ingress-input%3A#{input.id}"
+      href: "/timeline/ingress-input%3A#{input.id}"
     }
   end
 

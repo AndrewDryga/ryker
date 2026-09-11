@@ -12,7 +12,7 @@ defmodule Responder.ControlPlane.Activity do
   def conversation_path(transport, conversation, thread \\ nil) do
     params = %{"transport" => transport, "conversation" => conversation, "mode" => "all"}
     params = if thread in [nil, ""], do: params, else: Map.put(params, "thread", thread)
-    "/episodes?" <> URI.encode_query(params)
+    "/activity?" <> URI.encode_query(params)
   end
 
   def conversation_filter_options do
@@ -216,7 +216,7 @@ defmodule Responder.ControlPlane.Activity do
       title: title,
       source: source,
       href:
-        "/episodes/#{URI.encode_www_form(if row.kind == "episode", do: row.ref, else: "ingress-input:#{row.ref}")}"
+        "/timeline/#{URI.encode_www_form(if row.kind == "episode", do: row.ref, else: "ingress-input:#{row.ref}")}"
     })
   end
 

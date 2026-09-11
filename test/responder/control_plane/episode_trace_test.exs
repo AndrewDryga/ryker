@@ -401,7 +401,7 @@ defmodule Responder.ControlPlane.EpisodeTraceTest do
 
     assert Enum.all?(timeline.items, fn request ->
              request.source_kind != :admission ||
-               (request.href =~ "/requests?" && request.href =~ "kind=admission" &&
+               (request.href =~ "/model-calls?" && request.href =~ "kind=admission" &&
                   request.href =~ entry.id)
            end)
   end
@@ -484,7 +484,7 @@ defmodule Responder.ControlPlane.EpisodeTraceTest do
     html = render_component(&EpisodePage.render/1, snapshot: detail, requests: nil, params: %{})
     assert html =~ "execution-timeline"
     assert html =~ "Investigate &lt;script&gt;"
-    assert html =~ "All model requests"
+    assert html =~ "Model calls"
     assert html =~ "Technical details"
     assert html =~ "Created"
     assert html =~ URI.encode_www_form(episode.key)

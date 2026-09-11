@@ -16,6 +16,20 @@ Usage is now one of those projections: accepted Work turns retain the effective
 Coop target, provider usage when present, and remote timing boundaries. Missing
 provider telemetry stays explicitly unmeasured rather than appearing as zero.
 
+## Route map
+
+Execution reading uses three named surfaces, and their routes match those names.
+There are no compatibility aliases for earlier paths.
+
+| Surface | Route | What it holds |
+| --- | --- | --- |
+| **Activity** | `/` and `/activity` | The global list of inputs, running work and delivered answers, with its filters in the query string. `/` is the application root and renders the same list. |
+| **Timeline** | `/timeline/:ref` | One request's chronological case file, titled by its subject. `:ref` is a durable episode key or `ingress-input:<id>` for an input with no episode yet. |
+| **Model calls** | `/timeline/:ref/model-calls` | The technical inspection of the retained model requests behind that Timeline, with `kind`, `attempt` and `generation` selecting the exact retained artifact. |
+
+Live invalidation domains follow the first path segment, so `activity` and
+`timeline` are also the PubSub domain names in `ControlPlane.Updates`.
+
 The **Incident rooms** page at `/incident-rooms` tracks Slack incident rooms from
 setup through closure, with channel status and linked investigation work. Each
 room opens at `/incident-rooms/:ref`. The list includes requested and blocked

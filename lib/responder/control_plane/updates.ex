@@ -66,41 +66,41 @@ defmodule Responder.ControlPlane.Updates do
   def domain(path), do: path |> String.split("/", trim: true) |> List.first()
 
   defp domains("card_lab_" <> _), do: ["card-lab"]
-  defp domains("execution_usage"), do: ~w(activity admission episodes lab usage)
-  defp domains("episode_operator_reviews"), do: ~w(activity episodes findings)
-  defp domains("episode_schedule" <> _), do: ~w(activity schedules channels episodes lab)
-  defp domains("episode_event_subscriptions"), do: ~w(activity subscriptions episodes lab)
+  defp domains("execution_usage"), do: ~w(activity admission timeline lab usage)
+  defp domains("episode_operator_reviews"), do: ~w(activity timeline findings)
+  defp domains("episode_schedule" <> _), do: ~w(activity schedules channels timeline lab)
+  defp domains("episode_event_subscriptions"), do: ~w(activity subscriptions timeline lab)
 
   defp domains("episode_state_" <> _),
-    do: ~w(activity episodes incident-rooms lab findings memory)
+    do: ~w(activity timeline incident-rooms lab findings memory)
 
   defp domains("episode_" <> _),
-    do: ~w(activity episodes incident-rooms lab usage workspaces failures)
+    do: ~w(activity timeline incident-rooms lab usage workspaces failures)
 
-  defp domains("ingress_" <> _), do: ~w(activity admission episodes lab usage failures channels)
+  defp domains("ingress_" <> _), do: ~w(activity admission timeline lab usage failures channels)
 
   defp domains("admission_" <> _),
-    do: ~w(activity admission episodes lab usage failures)
+    do: ~w(activity admission timeline lab usage failures)
 
   defp domains("slack_incident_" <> _),
-    do: ~w(activity incident-rooms episodes lab channels failures)
+    do: ~w(activity incident-rooms timeline lab channels failures)
 
   defp domains("slack_" <> _),
-    do: ~w(activity channels incident-rooms episodes lab failures configuration repositories)
+    do: ~w(activity channels incident-rooms timeline lab failures configuration repositories)
 
   defp domains("coop_" <> _),
-    do: ~w(activity workspaces episodes lab repositories configuration failures)
+    do: ~w(activity workspaces timeline lab repositories configuration failures)
 
-  defp domains("conversation_" <> _), do: ~w(memory lab channels episodes)
-  defp domains("operational_memory_" <> _), do: ~w(memory lab episodes)
-  defp domains("memory_" <> _), do: ~w(memory lab episodes)
+  defp domains("conversation_" <> _), do: ~w(memory lab channels timeline)
+  defp domains("operational_memory_" <> _), do: ~w(memory lab timeline)
+  defp domains("memory_" <> _), do: ~w(memory lab timeline)
 
   defp domains("operator_behaviors"),
-    do: ~w(rules preferences guidance memory configuration channels episodes)
+    do: ~w(rules preferences guidance memory configuration channels timeline)
 
-  defp domains("standing_assignment_runs"), do: ~w(rules episodes)
-  defp domains("platform_actions"), do: ~w(activity episodes lab failures)
-  defp domains("delivery_" <> _), do: ~w(activity episodes lab failures)
+  defp domains("standing_assignment_runs"), do: ~w(rules timeline)
+  defp domains("platform_actions"), do: ~w(activity timeline lab failures)
+  defp domains("delivery_" <> _), do: ~w(activity timeline lab failures)
   defp domains("responder_operator_actions"), do: ~w(activity failures)
   defp domains(_table), do: ~w(activity usage configuration)
 end

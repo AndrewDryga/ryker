@@ -97,7 +97,7 @@ defmodule Responder.ControlPlane.RequestFiltersTest do
         draft: RequestFilters.draft(%{"usage_profile" => "<script>"}),
         values: [],
         params: %{"usage_profile" => "<script>", "mode" => %{"bad" => "nested"}},
-        path: "/episodes"
+        path: "/activity"
       })
 
     assert html =~ "&lt;script&gt;"
@@ -113,7 +113,7 @@ defmodule Responder.ControlPlane.RequestFiltersTest do
         draft: draft,
         values: [],
         params: params,
-        path: "/episodes"
+        path: "/activity"
       })
 
     for key <- RequestFilters.keys(), do: assert(html =~ "criteria[#{key}][value]")
@@ -130,11 +130,11 @@ defmodule Responder.ControlPlane.RequestFiltersTest do
         ],
         do: assert(html =~ label)
 
-    assert RequestFilters.clear_usage("/episodes", %{
+    assert RequestFilters.clear_usage("/activity", %{
              "q" => "health",
              "mode" => "all",
              "state" => "complete",
              "usage_profile" => "emisar"
-           }) == "/episodes?mode=all&q=health&state=complete"
+           }) == "/activity?mode=all&q=health&state=complete"
   end
 end

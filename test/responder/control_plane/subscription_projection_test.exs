@@ -117,7 +117,7 @@ defmodule Responder.ControlPlane.SubscriptionProjectionTest do
       assert item.episode_title == item.title
       assert item.condition == "Next matching Slack update"
       assert item.target_url =~ "https://app.terraform.io/"
-      assert item.episode_href == "/episodes/#{context.episode.key}"
+      assert item.episode_href == "/timeline/#{context.episode.key}"
       refute Map.has_key?(item, :matcher)
       refute inspect(item) =~ "never-display-this-body"
     end

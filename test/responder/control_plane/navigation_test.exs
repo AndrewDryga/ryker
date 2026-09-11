@@ -54,7 +54,7 @@ defmodule Responder.ControlPlane.NavigationTest do
       refute html =~ "operator-identity"
       assert html =~ "Execution"
       assert html =~ "Testing"
-      assert html =~ "Requests"
+      assert html =~ "Activity"
 
       document = LazyHTML.from_document(html)
 

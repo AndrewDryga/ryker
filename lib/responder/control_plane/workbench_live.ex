@@ -35,7 +35,7 @@ defmodule Responder.ControlPlane.WorkbenchLive do
        query: "",
        params: %{},
        body: "",
-       page_title: "Requests",
+       page_title: "Activity",
        connected: connected?(socket),
        unavailable: false,
        refresh_token: nil,
@@ -257,14 +257,14 @@ defmodule Responder.ControlPlane.WorkbenchLive do
   end
 
   defp load_page(%{assigns: %{path: path}} = socket, options, reset)
-       when path in ["/", "/episodes"] do
+       when path in ["/", "/activity"] do
     activity = options.projection.activity.(socket.assigns.params)
     schedules = options.projection.schedules.(%{"status" => "active"}) |> Enum.take(4)
 
     socket
     |> assign(
       native: :activity,
-      page_title: "Requests",
+      page_title: "Activity",
       activity: Map.delete(activity, :items),
       filter_values:
         if(reset,
@@ -283,13 +283,13 @@ defmodule Responder.ControlPlane.WorkbenchLive do
     load_detail(socket, options, String.split(socket.assigns.path, "/", trim: true))
   end
 
-  defp load_detail(socket, options, ["episodes", _ref | _rest]) do
+  defp load_detail(socket, options, ["timeline", _ref | _rest]) do
     with {:ok, episode} <- options.projection.episode.(socket.assigns.params["ref"]),
          {:ok, requests} <- episode_requests(socket, options, episode.episode.ref),
          {:ok, timeline} <- options.projection.model_timeline.(socket.assigns.params["ref"], %{}) do
       assign(socket,
         native: :episode,
-        page_title: "Episode",
+        page_title: "Timeline",
         episode: episode,
         timeline: timeline,
         requests: requests,
@@ -425,7 +425,7 @@ defmodule Responder.ControlPlane.WorkbenchLive do
           params
       end
 
-    if String.ends_with?(socket.assigns.path, "/requests") or selection["kind"] == "admission",
+    if String.ends_with?(socket.assigns.path, "/model-calls") or selection["kind"] == "admission",
       do: options.projection.model_requests.(episode_ref, selection),
       else: {:ok, nil}
   end

@@ -129,9 +129,9 @@ defmodule Responder.ControlPlane.LearningActivity do
           response_status:
             if(item.delivered_at, do: "Response sent", else: "Delivery not confirmed"),
           request_path:
-            "/episodes/" <>
+            "/timeline/" <>
               URI.encode(item.episode_key, &URI.char_unreserved?/1) <>
-              "/requests?" <> URI.encode_query(%{"attempt" => item.turn_id})
+              "/model-calls?" <> URI.encode_query(%{"attempt" => item.turn_id})
         }
       end)
 

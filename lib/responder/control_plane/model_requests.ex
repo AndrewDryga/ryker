@@ -154,7 +154,7 @@ defmodule Responder.ControlPlane.ModelRequests do
           turn.remote_finished_at,
           turn.candidate != nil or turn.validation_history != [] or turn.accepted_at != nil,
           timing,
-          "/episodes/#{URI.encode_www_form(episode.key)}/requests?attempt=#{turn.id}",
+          "/timeline/#{URI.encode_www_form(episode.key)}/model-calls?attempt=#{turn.id}",
           :work
         )
       end)
@@ -204,7 +204,7 @@ defmodule Responder.ControlPlane.ModelRequests do
       completed,
       attempt != nil and attempt.phase in ~w(response_received host_validation committed),
       timing,
-      "/episodes/#{URI.encode_www_form(options[:episode_ref])}/requests?kind=admission&attempt=#{entry.id}&generation=#{generation}",
+      "/timeline/#{URI.encode_www_form(options[:episode_ref])}/model-calls?kind=admission&attempt=#{entry.id}&generation=#{generation}",
       :admission
     )
   end
@@ -585,7 +585,7 @@ defmodule Responder.ControlPlane.ModelRequests do
   end
 
   defp response_request_path(turn, options, params) do
-    "/episodes/#{URI.encode_www_form(options[:episode_ref])}/requests?" <>
+    "/timeline/#{URI.encode_www_form(options[:episode_ref])}/model-calls?" <>
       URI.encode_query(Map.put(params, :attempt, turn.id))
   end
 

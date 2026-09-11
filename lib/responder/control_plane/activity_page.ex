@@ -25,7 +25,7 @@ defmodule Responder.ControlPlane.ActivityPage do
       <section class="activity-primary">
         <div class="page-intro">
           <div>
-            <h1>Requests</h1><p>Inspect incoming messages, running work, and delivered answers.</p>
+            <h1>Activity</h1><p>Inspect incoming messages, running work, and delivered answers.</p>
           </div>
           <a :if={@activity.total > 0} class="ui-button secondary" href="/lab/new"><.icon name={:plus} />Test a message</a>
         </div>
@@ -37,13 +37,13 @@ defmodule Responder.ControlPlane.ActivityPage do
           blocked <.icon name={:arrow} /></a>
           <a class="pulse-usage" href="/usage">Usage & cost <.icon name={:arrow} /></a>
         </div>
-        <section class="activity-inbox" aria-label="Requests">
+        <section class="activity-inbox" aria-label="Activity">
           <div class="inbox-toolbar">
             <nav class="ui-tabs" aria-label="Activity status">
               <.link
                 :for={
                   {key, name} <- [
-                    {"all", "All requests"},
+                    {"all", "All activity"},
                     {"attention", "Needs you"},
                     {"running", "In progress"},
                     {"done", "Finished"}
@@ -53,7 +53,7 @@ defmodule Responder.ControlPlane.ActivityPage do
                 aria-current={if (@params["filter"] || "all") == key, do: "page"}
               >{name}</.link>
             </nav>
-            <span class="inbox-total">{@activity.total} requests</span>
+            <span class="inbox-total">{@activity.total} items</span>
           </div>
           <form
             id="activity-filters"
@@ -70,7 +70,7 @@ defmodule Responder.ControlPlane.ActivityPage do
                 value={@params["q"] || ""}
                 phx-debounce="300"
                 maxlength="200"
-                placeholder="Search requests or repositories…"
+                placeholder="Search activity or repositories…"
                 autocomplete="off"
               />
             </div>
@@ -94,11 +94,11 @@ defmodule Responder.ControlPlane.ActivityPage do
             params={@params}
             path={@path}
           />
-          <button :if={@new_items > 0} class="new-activity" phx-click="show-new">{@new_items} new or reordered requests · Show latest
+          <button :if={@new_items > 0} class="new-activity" phx-click="show-new">{@new_items} new or reordered items · Show latest
           <.icon name={:arrow} /></button>
           <div :if={@activity.total == 0} class="activity-empty">
             <h2>
-              {if filtered?(@params), do: "No matching requests", else: "No requests yet"}
+              {if filtered?(@params), do: "No matching activity", else: "No activity yet"}
             </h2>
             <p>
               {if filtered?(@params),

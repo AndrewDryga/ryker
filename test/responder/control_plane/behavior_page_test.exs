@@ -78,7 +78,7 @@ defmodule Responder.ControlPlane.BehaviorPageTest do
     assert html =~ "No expiry"
     assert html =~ "No response needed"
     assert html =~ "Original conversation"
-    assert html =~ "/episodes/episode%3Aone"
+    assert html =~ "/timeline/episode%3Aone"
     assert html =~ "page=1"
     assert html =~ "page=3"
     document = LazyHTML.from_fragment(html)

@@ -18,8 +18,8 @@ const repository = path.resolve(__dirname, '..');
 assert(output !== repository && !output.startsWith(repository + path.sep), 'Do not commit organization screenshots');
 const allCards = process.argv.includes('--cards');
 const filtersOnly = process.argv.includes('--filters');
-const routes = filtersOnly ? [['requests', '/'], ['episodes', '/episodes?state=complete']] : [
-  ['requests', '/'], ['lab', '/lab'], ['episodes', '/episodes'],
+const routes = filtersOnly ? [['activity-root', '/'], ['episodes', '/activity?state=complete']] : [
+  ['activity-root', '/'], ['lab', '/lab'], ['activity', '/activity'],
   ['incident-rooms', '/incident-rooms'], ['failures', '/failures'], ['usage', '/usage'],
   ['schedules', '/schedules'], ['subscriptions', '/subscriptions'],
   ['rules', '/rules'], ['preferences', '/preferences'], ['guidance', '/guidance'],
@@ -27,7 +27,7 @@ const routes = filtersOnly ? [['requests', '/'], ['episodes', '/episodes?state=c
   ['calibration', '/calibration'], ['configuration', '/configuration'],
   ['channels', '/channels'], ['repositories', '/repositories'], ['workspaces', '/workspaces'],
   ['journeys', '/manual-tests'], ['task-working', '/card-lab/task-card/working'],
-  ['task-goals', '/card-lab/task-card/recorded-goals'], ['missing-episode', '/episodes/missing']
+  ['task-goals', '/card-lab/task-card/recorded-goals'], ['missing-episode', '/timeline/missing']
 ];
 
 async function connected(page) {
@@ -65,7 +65,7 @@ async function checkFilterAlignment(page) {
 async function discover(page) {
   const absent = [];
   for (const [name, route, selector] of [
-    ['episode-detail', '/', '.activity-title[href^="/episodes/"]'],
+    ['episode-detail', '/', '.activity-title[href^="/timeline/"]'],
     ['lab-chat', '/lab', '.lab-directory-list a[href^="/lab/"]'],
     ['channel-detail', '/channels', 'a[href^="/channels/"]'],
     ['incident-room-detail', '/incident-rooms', 'a[href^="/incident-rooms/"]'],
@@ -77,7 +77,7 @@ async function discover(page) {
     if (await link.count()) {
       const href = await link.getAttribute('href');
       routes.push([name, href]);
-      if (name === 'episode-detail') routes.push(['request-detail', href + '/requests']);
+      if (name === 'episode-detail') routes.push(['request-detail', href + '/model-calls']);
     } else absent.push(name);
   }
   if (allCards) {
@@ -167,7 +167,7 @@ async function interactions(page) {
               assert(!/(?:…|\.\.\.)$/.test(label.trim()), 'Action labels must not end in ellipses');
             }
             assert(result.layout.scrollWidth <= width, 'Page overflows horizontally');
-            if (name === 'requests' || name === 'episodes') await checkFilterAlignment(page);
+            if (name === 'activity-root' || name === 'activity') await checkFilterAlignment(page);
             if (name === 'task-working') {
               assert(result.layout.previewTop < height - 120, 'Card preview is buried below the first screen');
               if (width > 1000) {

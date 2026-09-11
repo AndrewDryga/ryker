@@ -39,14 +39,14 @@ defmodule Responder.ControlPlane.FailurePage do
 
       <div :if={@row[:episode_ref]} class="failure-request">
         <span>Related request</span>
-        <a href={"/episodes/" <> URI.encode_www_form(@row.episode_ref)}>
+        <a href={"/timeline/" <> URI.encode_www_form(@row.episode_ref)}>
           {Map.get(@row, :request_title) || "Open request"}
         </a>
       </div>
 
       <div :if={@row.kind == "admission" && !@row[:episode_ref]} class="failure-request">
         <span>Original input</span>
-        <a href={"/episodes/" <> URI.encode_www_form(@row.ref)}>Open message and routing</a>
+        <a href={"/timeline/" <> URI.encode_www_form(@row.ref)}>Open message and routing</a>
       </div>
 
       <div class="failure-explanation">

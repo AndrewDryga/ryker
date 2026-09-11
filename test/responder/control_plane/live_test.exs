@@ -67,8 +67,8 @@ defmodule Responder.ControlPlane.LiveTest do
   } do
     conn = build_conn() |> Map.put(:host, "localhost")
     assert {:ok, view, html} = live(conn, "/")
-    assert html =~ "Requests"
-    assert html =~ "No requests yet"
+    assert html =~ "Activity"
+    assert html =~ "No activity yet"
     refute html =~ "class=\"metric\""
     assert has_element?(view, "[data-connection-state=connected]")
     assert has_element?(view, "[data-active-count]", "1")
@@ -118,10 +118,10 @@ defmodule Responder.ControlPlane.LiveTest do
           "usage_profile=" <> String.duplicate("x", 513)
         ] do
       conn = build_conn() |> Map.put(:host, "localhost")
-      assert {:ok, view, _html} = live(conn, "/episodes?" <> query)
-      assert render(view) =~ "Requests"
+      assert {:ok, view, _html} = live(conn, "/activity?" <> query)
+      assert render(view) =~ "Activity"
       view |> element("#activity-filters") |> render_change(%{"q" => "hello", "mode" => "live"})
-      assert render(view) =~ "Requests"
+      assert render(view) =~ "Activity"
     end
   end
 
@@ -149,7 +149,7 @@ defmodule Responder.ControlPlane.LiveTest do
 
   test "usage drilldowns expose editable criteria and clearing one keeps the other filters" do
     # The old banner hid the selected profile, model and scope behind generic text.
-    path = "/episodes?mode=all&q=health&usage_profile=emisar&usage_model=&usage_window=30d"
+    path = "/activity?mode=all&q=health&usage_profile=emisar&usage_model=&usage_window=30d"
     {:ok, view, _} = live(build_conn() |> Map.put(:host, "localhost"), path)
 
     assert has_element?(
@@ -209,7 +209,7 @@ defmodule Responder.ControlPlane.LiveTest do
   end
 
   test "editing search preserves pending criteria but clearing all resets them" do
-    {:ok, view, _} = live(build_conn() |> Map.put(:host, "localhost"), "/episodes?q=old")
+    {:ok, view, _} = live(build_conn() |> Map.put(:host, "localhost"), "/activity?q=old")
     render_change(view, "edit-request-filters", %{"add_filter" => "usage_profile"})
 
     render_change(view, "edit-request-filters", %{
@@ -219,10 +219,10 @@ defmodule Responder.ControlPlane.LiveTest do
     })
 
     render_change(view, "search-activity", %{"q" => "new", "mode" => "all"})
-    assert_patch(view, "/episodes?mode=all&q=new")
+    assert_patch(view, "/activity?mode=all&q=new")
     assert has_element?(view, "#criterion-usage_profile[value=emisar]")
     view |> element("a", "Clear all filters") |> render_click()
-    assert_patch(view, "/episodes")
+    assert_patch(view, "/activity")
     refute has_element?(view, "#criterion-usage_profile")
   end
 
@@ -235,7 +235,7 @@ defmodule Responder.ControlPlane.LiveTest do
     refute html =~ "empty-orbit"
     refute html =~ "empty-capabilities"
     refute html =~ "Test your responder"
-    assert has_element?(view, "h1", "Requests")
+    assert has_element?(view, "h1", "Activity")
     refute has_element?(view, ".app-topbar")
     refute has_element?(view, "button[phx-click=toggle-live]")
     refute has_element?(view, "#live-controls")
@@ -258,9 +258,9 @@ defmodule Responder.ControlPlane.LiveTest do
     assert has_element?(cards, ".specimen-workbench")
 
     for path <- [
-          "/episodes/missing",
+          "/timeline/missing",
           "/card-lab/missing/state",
-          "/episodes/ingress-input%3A#{Ecto.UUID.generate()}"
+          "/timeline/ingress-input%3A#{Ecto.UUID.generate()}"
         ] do
       {:ok, missing, _} = live(conn, path)
       assert has_element?(missing, "a", "Back to activity")
@@ -371,23 +371,23 @@ defmodule Responder.ControlPlane.LiveTest do
     {:ok, %{episode: episode}} =
       Responder.Episodes.apply(Responder.Fixtures.Episodes.admit_input())
 
-    path = "/episodes/" <> URI.encode_www_form(episode.key)
+    path = "/timeline/" <> URI.encode_www_form(episode.key)
     {:ok, view, _html} = live(build_conn() |> Map.put(:host, "localhost"), path)
     assert has_element?(view, "#execution-timeline", "Execution timeline")
     assert has_element?(view, ".case-event", "Input admitted")
     refute has_element?(view, "button.execution-event")
     refute has_element?(view, "nav[aria-label='Episode view']")
-    view |> element("a", "All model requests") |> render_click()
-    assert_patch(view, path <> "/requests")
+    view |> element("a", "Model calls") |> render_click()
+    assert_patch(view, path <> "/model-calls")
     assert has_element?(view, ".model-inspector", "What the model received")
-    assert has_element?(view, ".document-unavailable", "No requests recorded")
+    assert has_element?(view, ".document-unavailable", "No model calls recorded")
     refute has_element?(view, "#execution-timeline")
-    view |> element("a", "Back to the episode timeline") |> render_click()
+    view |> element("a", "Back to the timeline") |> render_click()
     assert_patch(view, path)
     assert has_element?(view, "#execution-timeline", "Input admitted")
 
     # Direct inspector entry must use the same native reader as in-page navigation.
-    {:ok, direct, _} = live(build_conn() |> Map.put(:host, "localhost"), path <> "/requests")
+    {:ok, direct, _} = live(build_conn() |> Map.put(:host, "localhost"), path <> "/model-calls")
     assert has_element?(direct, ".model-inspector", "What the model received")
     refute has_element?(direct, ".request-workbench")
     refute has_element?(direct, "#execution-timeline")
@@ -399,13 +399,13 @@ defmodule Responder.ControlPlane.LiveTest do
     conn = build_conn() |> Map.put(:host, "localhost")
 
     for ref <- ["missing", String.duplicate("a", 3_073)] do
-      {:ok, missing, _} = live(conn, "/episodes/" <> ref)
+      {:ok, missing, _} = live(conn, "/timeline/" <> ref)
       assert has_element?(missing, ".document-unavailable", "This record is unavailable")
       refute has_element?(missing, ".app-warning", "This view could not refresh")
     end
 
     Agent.update(counters, &Map.put(&1, :episode_fail, true))
-    {:ok, unavailable, _} = live(conn, "/episodes/unavailable")
+    {:ok, unavailable, _} = live(conn, "/timeline/unavailable")
 
     assert has_element?(
              unavailable,
@@ -520,7 +520,7 @@ defmodule Responder.ControlPlane.LiveTest do
   test "refreshing admission never changes the execution the operator is reading" do
     {entry, _id} = lab_input!()
     conn = build_conn() |> Map.put(:host, "localhost")
-    {:ok, view, _} = live(conn, "/episodes/ingress-input%3A#{entry.id}")
+    {:ok, view, _} = live(conn, "/timeline/ingress-input%3A#{entry.id}")
     assert has_element?(view, ".request-reader-heading", "Admission · execution 1")
     entry |> Ecto.Changeset.change(execution_generation: 2) |> Repo.update!()
     render_hook(view, "refresh", %{})
@@ -551,7 +551,7 @@ defmodule Responder.ControlPlane.LiveTest do
     assert has_element?(view, ".request-reader .ui-pagination", "1 / 2")
 
     {:ok, reopened, _} =
-      live(conn, "/episodes/ingress-input%3A#{entry.id}?generation=1")
+      live(conn, "/timeline/ingress-input%3A#{entry.id}?generation=1")
 
     assert has_element?(reopened, ".request-reader[data-generation='1']")
   end
@@ -564,7 +564,7 @@ defmodule Responder.ControlPlane.LiveTest do
     |> Repo.update!()
 
     conn = build_conn() |> Map.put(:host, "localhost")
-    {:ok, view, _} = live(conn, "/episodes/ingress-input%3A#{entry.id}")
+    {:ok, view, _} = live(conn, "/timeline/ingress-input%3A#{entry.id}")
     assert has_element?(view, ".admission-recovery", "Provider unavailable")
     href = "/actions/admission/#{URI.encode_www_form(Inbox.ref(entry))}/rearm"
     refute has_element?(view, "a[href='#{href}']")
@@ -581,19 +581,19 @@ defmodule Responder.ControlPlane.LiveTest do
 
   test "activity search and status links preserve existing Usage drill-down filters" do
     conn = build_conn() |> Map.put(:host, "localhost")
-    {:ok, view, _} = live(conn, "/episodes?target=sol%2Fmedium&repository=emisar&state=active")
+    {:ok, view, _} = live(conn, "/activity?target=sol%2Fmedium&repository=emisar&state=active")
     view |> element("a", "Needs you") |> render_click()
 
     assert_patch(
       view,
-      "/episodes?filter=attention&repository=emisar&state=active&target=sol%2Fmedium"
+      "/activity?filter=attention&repository=emisar&state=active&target=sol%2Fmedium"
     )
 
     view |> form("#activity-filters", %{q: "investigate", mode: "live"}) |> render_change()
 
     assert_patch(
       view,
-      "/episodes?filter=attention&mode=live&q=investigate&repository=emisar&state=active&target=sol%2Fmedium"
+      "/activity?filter=attention&mode=live&q=investigate&repository=emisar&state=active&target=sol%2Fmedium"
     )
   end
 

@@ -160,7 +160,7 @@ defmodule Responder.ControlPlane.LabPage do
         </article>
         <.link
           :for={{episode, index} <- Enum.with_index(@snapshot.episodes, 1)}
-          navigate={"/episodes/#{URI.encode_www_form(episode.ref)}"}
+          navigate={"/timeline/#{URI.encode_www_form(episode.ref)}"}
           class="lab-episode-link"
         ><span class="ui-eyebrow">EPISODE {index}</span><strong>{label(episode.state)}</strong><p>
           {episode.next_action}

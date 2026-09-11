@@ -126,7 +126,7 @@ defmodule Responder.ControlPlane.ActivityTest do
     assert %{items: [item], total: 1} = Activity.list(%{})
     assert item.title == "Inspect the slow admission request"
     assert item.state == "pending"
-    assert item.href == "/episodes/ingress-input%3A#{entry.id}"
+    assert item.href == "/timeline/ingress-input%3A#{entry.id}"
     assert item.bucket == "running"
     assert item.conversation == "slack:T123:C456"
     assert Activity.list(%{"q" => "slow admission"}).total == 1
@@ -147,7 +147,7 @@ defmodule Responder.ControlPlane.ActivityTest do
 
     assert %{items: [item], total: 1} = Activity.list(%{})
     assert item.title == "Inspect the slow admission request"
-    assert item.href == "/episodes/#{URI.encode_www_form(episode.key)}"
+    assert item.href == "/timeline/#{URI.encode_www_form(episode.key)}"
 
     assert %{title: "Inspect the slow admission request"} =
              Activity.request_titles([episode.key])[episode.key]
@@ -177,7 +177,7 @@ defmodule Responder.ControlPlane.ActivityTest do
         activity: activity,
         overview: %{counts: %{}},
         params: %{},
-        path: "/episodes",
+        path: "/activity",
         now: DateTime.utc_now(),
         stream: [{"request-#{item.id}", item}],
         new_items: 0,
@@ -204,7 +204,7 @@ defmodule Responder.ControlPlane.ActivityTest do
 
     assert %{items: [item]} = Activity.list(%{"state" => "working", "q" => "paging"})
     assert item.id == episode.id
-    assert item.href == "/episodes/paging"
+    assert item.href == "/timeline/paging"
 
     # The native search keeps its own 200-character bound, not the removed
     # listing's behavior of silently ignoring any query over 120 bytes.
@@ -288,7 +288,7 @@ defmodule Responder.ControlPlane.ActivityTest do
       links =
         html
         |> LazyHTML.from_fragment()
-        |> LazyHTML.query("a[href^='/episodes?']")
+        |> LazyHTML.query("a[href^='/activity?']")
         |> LazyHTML.attribute("href")
 
       assert length(links) == 3

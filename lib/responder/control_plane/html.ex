@@ -433,7 +433,7 @@ defmodule Responder.ControlPlane.HTML do
     episodes =
       Enum.map(snapshot.episodes, fn episode ->
         [
-          "<li><a href=\"/episodes/",
+          "<li><a href=\"/timeline/",
           segment(episode.ref),
           "\">",
           escape(episode.ref),
@@ -1041,7 +1041,7 @@ defmodule Responder.ControlPlane.HTML do
         [
           "<article class=\"repository-card\"><header class=\"repository-heading\"><h2>",
           escape(item.ref),
-          "</h2><a href=\"/episodes?repository=",
+          "</h2><a href=\"/activity?repository=",
           segment(item.ref),
           "\">View requests →</a></header>",
           "<div class=\"repository-summary\"><span><strong>",
@@ -1459,7 +1459,7 @@ defmodule Responder.ControlPlane.HTML do
           "</strong>",
           if(row[:episode_ref],
             do: [
-              "<br><a class=\"workspace-request-title\" href=\"/episodes/",
+              "<br><a class=\"workspace-request-title\" href=\"/timeline/",
               segment(row.episode_ref),
               "\">",
               workspace_request_label(row),
@@ -2043,7 +2043,7 @@ defmodule Responder.ControlPlane.HTML do
         [
           "<a title=\"",
           escape(ref),
-          "\" href=\"/episodes/",
+          "\" href=\"/timeline/",
           segment(ref),
           "\">",
           escape(Map.get(row, :request_title) || "Open request"),
@@ -2283,7 +2283,7 @@ defmodule Responder.ControlPlane.HTML do
 
   defp episode_link(ref) do
     IO.iodata_to_binary([
-      "<a href=\"/episodes/",
+      "<a href=\"/timeline/",
       segment(ref),
       "\"><code>",
       escape(ref),

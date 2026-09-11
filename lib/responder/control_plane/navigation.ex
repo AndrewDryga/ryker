@@ -4,7 +4,7 @@ defmodule Responder.ControlPlane.Navigation do
   import Responder.ControlPlane.Components
 
   @primary [
-    {:activity, "Requests", "/"},
+    {:activity, "Activity", "/"},
     {:incident, "Incident rooms", "/incident-rooms"},
     {:incident, "Failures", "/failures"},
     {:usage, "Usage & cost", "/usage"}
@@ -110,7 +110,9 @@ defmodule Responder.ControlPlane.Navigation do
   end
 
   defp selected?(path, "/"),
-    do: path == "/" or String.starts_with?(path, "/episodes")
+    do:
+      path in ["/", "/activity"] or String.starts_with?(path, "/activity?") or
+        String.starts_with?(path, "/timeline")
 
   defp selected?(path, href), do: path == href or String.starts_with?(path, href <> "/")
 end

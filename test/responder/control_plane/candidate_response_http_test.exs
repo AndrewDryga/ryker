@@ -74,7 +74,7 @@ defmodule Responder.ControlPlane.CandidateResponseHTTPTest do
   end
 
   test "the initial HTTP response honors activity query filters before connecting" do
-    html = raw_get("/episodes?q=retained&usage_profile=emisar&mode=all")
+    html = raw_get("/activity?q=retained&usage_profile=emisar&mode=all")
     document = LazyHTML.from_document(html)
 
     assert Enum.count(LazyHTML.query(document, "#activity-filters input[name=q][value=retained]")) ==
@@ -93,7 +93,7 @@ defmodule Responder.ControlPlane.CandidateResponseHTTPTest do
   end
 
   defp request_path(episode),
-    do: "/episodes/#{URI.encode_www_form(episode.key)}/requests"
+    do: "/timeline/#{URI.encode_www_form(episode.key)}/model-calls"
 
   defp fixture_responses,
     do: @fixture |> File.read!() |> Jason.decode!() |> Map.fetch!("responses")

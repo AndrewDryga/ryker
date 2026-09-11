@@ -1,5 +1,5 @@
 defmodule Responder.ControlPlane.RequestPage do
-  @moduledoc "Continuous inspector of retained requests, honoring artifact deep links."
+  @moduledoc "Continuous inspector of retained model calls, honoring artifact deep links."
   use Phoenix.Component
   import Responder.ControlPlane.Components
   alias Responder.ControlPlane.RequestContextHTML
@@ -11,7 +11,7 @@ defmodule Responder.ControlPlane.RequestPage do
       |> assign_sections()
 
     ~H"""
-    <section class="model-inspector" aria-label="Model request inspector">
+    <section class="model-inspector" aria-label="Model calls">
       <div class="inspector-intro">
         <div>
           <p class="ui-eyebrow">THE MODEL'S DESK</p><h2>What the model received</h2><p>
@@ -21,7 +21,7 @@ defmodule Responder.ControlPlane.RequestPage do
       </div>
       <div class="inspector-layout">
         <aside class="request-directory">
-          <nav class="ui-tabs" aria-label="Request type">
+          <nav class="ui-tabs" aria-label="Model call type">
             <.link
               :if={@view.episode_ref}
               patch={path(@path, %{}, %{kind: "work"})}
@@ -31,13 +31,13 @@ defmodule Responder.ControlPlane.RequestPage do
               aria-current={if @view.kind == :admission, do: "page"}
             >Admission</.link>
           </nav>
-          <p class="request-count">{@view.total} retained requests</p>
+          <p class="request-count">{@view.total} retained model calls</p>
           <.link
             :for={{request, index} <- Enum.with_index(@view.items)}
             patch={path(@path, @params, %{attempt: request.id})}
             class="request-directory-item"
             aria-current={if @view.selected && request.id == @view.selected.id, do: "page"}
-          ><span>Request {@view.total - ((@view.page - 1) * 20 + index)}</span><strong>{label(
+          ><span>Model call {@view.total - ((@view.page - 1) * 20 + index)}</span><strong>{label(
             request.status
           )}</strong><time>{timestamp(request.at)}</time></.link>
           <.paging path={@path} params={@params} page={@view.page} pages={@view.pages} key="page" />
@@ -56,7 +56,7 @@ defmodule Responder.ControlPlane.RequestPage do
           <p class="coverage-note">{@view.selected.coverage}</p>
           <section :if={@view.selected[:recovery]} class="admission-recovery story-stop">
             <h3>Admission needs attention</h3><p>{label(@view.selected.recovery.summary)}</p>
-            <p>The input is retained. Review recovery to reconcile the same request.</p>
+            <p>The input is retained. Review recovery to reconcile the same model call.</p>
             <.action_button path={@view.selected.recovery.href} label="Review recovery" />
           </section>
           <.paging
@@ -110,7 +110,7 @@ defmodule Responder.ControlPlane.RequestPage do
             />
           </section>
           <details class="document-provenance">
-            <summary>Request identity and policy</summary><dl>
+            <summary>Model call identity and policy</summary><dl>
               <dt>Request</dt><dd>{@view.selected.id}</dd><dt>Policy</dt><dd>
                 {@view.selected.policy}
               </dd><dt>Fingerprint</dt><dd>{@view.selected.fingerprint || "Not recorded"}</dd>
@@ -118,7 +118,7 @@ defmodule Responder.ControlPlane.RequestPage do
           </details>
         </article>
         <div :if={!@view.selected} class="document-unavailable">
-          <.icon name={:book} /><h3>No requests recorded</h3><p>
+          <.icon name={:book} /><h3>No model calls recorded</h3><p>
             This episode may still be preparing its first request. Live updates will show it when it is retained.
           </p>
         </div>
