@@ -40,6 +40,8 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
   @completion_receipts_version 20_260_909_160_000
   @model_instructions_version 20_260_910_000_100
   @wait_list_order_version 20_260_910_000_200
+  @typed_question_answers_version 20_260_910_000_300
+  @answer_confirmed_global_facts_version 20_260_910_000_400
   @memory_versions Enum.to_list(20_260_908_000_100..20_260_908_001_100//100) ++
                      [@bounded_sources_version]
   @workspace_versions [
@@ -107,7 +109,9 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
                      @event_only_waits_version,
                      @completion_receipts_version,
                      @model_instructions_version,
-                     @wait_list_order_version
+                     @wait_list_order_version,
+                     @typed_question_answers_version,
+                     @answer_confirmed_global_facts_version
                    ]
              ]
 
@@ -1526,7 +1530,9 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
                    @event_only_waits_version,
                    @completion_receipts_version,
                    @model_instructions_version,
-                   @wait_list_order_version
+                   @wait_list_order_version,
+                   @typed_question_answers_version,
+                   @answer_confirmed_global_facts_version
                  ]
 
       # Existing sessions have unknown disclosure custody. New columns must not
@@ -1553,8 +1559,10 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
       assert %{rows: [[0, 0, 0]]} = reset_topic_counts(repo, prefix)
       assert_reset_notes(repo, prefix, derived["conversation_observations"])
 
-      assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 5, prefix: prefix, log: false) ==
+      assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 7, prefix: prefix, log: false) ==
                [
+                 @answer_confirmed_global_facts_version,
+                 @typed_question_answers_version,
                  @wait_list_order_version,
                  @model_instructions_version,
                  @completion_receipts_version,
@@ -1595,6 +1603,79 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
       restore_schema!(repo, prefix, backup)
       assert reset_preserved_rows(repo, prefix) == preserved
       assert reset_derived_rows(repo, prefix) == derived
+    after
+      SQL.query!(repo, "DROP SCHEMA IF EXISTS #{prefix} CASCADE", [])
+    end
+  end
+
+  test "typed answers and global facts refuse rollback only while their data exists" do
+    # Both cuts are reversible on a schema that never used them; once a typed
+    # answer or an answer-confirmed fact exists, rolling back would erase it.
+    repo = start_migration_repo!()
+    prefix = "answer_memory_rollback_#{System.unique_integer([:positive])}"
+    SQL.query!(repo, "CREATE SCHEMA #{prefix}", [])
+
+    try do
+      Ecto.Migrator.run(repo, @migrations_path, :up,
+        to: @work_custody_version,
+        prefix: prefix,
+        log: false
+      )
+
+      ids = insert_stage3_rows!(repo, prefix)
+
+      Ecto.Migrator.run(repo, @migrations_path, :up,
+        to: @candidate_responses_version,
+        prefix: prefix,
+        log: false
+      )
+
+      {record_id, _publication_id} = insert_stale_head_recovery_rows!(repo, prefix, ids)
+      Ecto.Migrator.run(repo, @migrations_path, :up, all: true, prefix: prefix, log: false)
+      assert column_nullable?(repo, prefix, "operational_memory_entries", "expires_at")
+      assert column_nullable?(repo, prefix, "episode_state_record_responses", "choice")
+
+      fact_id = insert_global_fact!(repo, prefix)
+
+      assert_raise Postgrex.Error, ~r/global facts have data/, fn ->
+        Ecto.Migrator.run(repo, @migrations_path, :down, step: 1, prefix: prefix, log: false)
+      end
+
+      assert column_exists?(repo, prefix, "operational_memory_entries", "answer_provenance")
+
+      SQL.query!(
+        repo,
+        "DELETE FROM #{prefix}.operational_memory_entries WHERE id = $1::text::uuid",
+        [fact_id]
+      )
+
+      assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 1, prefix: prefix, log: false) ==
+               [@answer_confirmed_global_facts_version]
+
+      refute column_exists?(repo, prefix, "operational_memory_entries", "answer_provenance")
+      refute column_nullable?(repo, prefix, "operational_memory_entries", "expires_at")
+
+      response_id = insert_typed_answer!(repo, prefix, record_id, ids.ingress_id)
+
+      assert_raise Postgrex.Error, ~r/typed question answers have data/, fn ->
+        Ecto.Migrator.run(repo, @migrations_path, :down, step: 1, prefix: prefix, log: false)
+      end
+
+      assert column_nullable?(repo, prefix, "episode_state_record_responses", "choice")
+
+      SQL.query!(
+        repo,
+        "DELETE FROM #{prefix}.episode_state_record_responses WHERE id = $1::text::uuid",
+        [response_id]
+      )
+
+      assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 1, prefix: prefix, log: false) ==
+               [@typed_question_answers_version]
+
+      refute column_nullable?(repo, prefix, "episode_state_record_responses", "choice")
+
+      assert Ecto.Migrator.run(repo, @migrations_path, :up, all: true, prefix: prefix, log: false) ==
+               [@typed_question_answers_version, @answer_confirmed_global_facts_version]
     after
       SQL.query!(repo, "DROP SCHEMA IF EXISTS #{prefix} CASCADE", [])
     end
@@ -2084,6 +2165,69 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
       )
 
     exists?
+  end
+
+  defp column_nullable?(repo, prefix, table, column) do
+    %{rows: [[nullable?]]} =
+      SQL.query!(
+        repo,
+        """
+        SELECT is_nullable = 'YES'
+        FROM information_schema.columns
+        WHERE table_schema = $1 AND table_name = $2 AND column_name = $3
+        """,
+        [prefix, table, column]
+      )
+
+    nullable?
+  end
+
+  defp insert_global_fact!(repo, prefix) do
+    id = Ecto.UUID.generate()
+
+    # Structural rollback fixture: the shape of an answer-confirmed fact, not a saved answer.
+    SQL.query!(
+      repo,
+      """
+      INSERT INTO #{prefix}.operational_memory_entries (
+        id, ref, kind, status, workspace_ref, scope_kind, scope_ref, visibility, subject,
+        payload, payload_fingerprint, confirmed_by_actor_ref, confirmation_ref, confirmed_at,
+        source_transport, source_conversation_ref, source_message_ref, expires_at,
+        answer_provenance, inserted_at, updated_at
+      ) VALUES (
+        $1::text::uuid, 'memory:rollback-proof', 'entity_relationship', 'active',
+        'installation', 'global', 'installation:' || repeat('a', 64), 'global', 'GCP project',
+        '{"applicability":"Production portal","value":"portal-prod"}', repeat('b', 64),
+        'slack:user:U123', 'answer:rollback-proof', clock_timestamp(), 'slack',
+        'slack:T123:C123', '1787832000.000100', NULL,
+        '{"answer_ref":"answer:rollback-proof","question_ref":"record:input_request:rollback"}',
+        clock_timestamp(), clock_timestamp()
+      )
+      """,
+      [id]
+    )
+
+    id
+  end
+
+  defp insert_typed_answer!(repo, prefix, record_id, inbox_entry_id) do
+    id = Ecto.UUID.generate()
+
+    SQL.query!(
+      repo,
+      """
+      INSERT INTO #{prefix}.episode_state_record_responses (
+        id, record_id, inbox_entry_id, response_ref, actor_ref, choice_index, choice,
+        occurred_at, inserted_at, updated_at
+      ) VALUES (
+        $1::text::uuid, $2::text::uuid, $3::text::uuid, 'answer:typed-rollback', 'U123',
+        NULL, NULL, clock_timestamp(), clock_timestamp(), clock_timestamp()
+      )
+      """,
+      [id, record_id, inbox_entry_id]
+    )
+
+    id
   end
 
   defp column_exists?(repo, prefix, table, column) do
