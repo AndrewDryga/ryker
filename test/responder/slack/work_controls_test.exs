@@ -11,7 +11,6 @@ defmodule Responder.Slack.WorkControlsTest do
 
   alias Responder.Slack.{TaskCardChangeset, WorkControls, WorkRecord, WorkTarget}
   alias Responder.State.Records
-  alias Responder.TestSupport.FakeWorkCoopAPI
   alias Responder.Work.Custody
 
   @now ~U[2026-08-28 12:00:00.000000Z]
@@ -65,159 +64,6 @@ defmodule Responder.Slack.WorkControlsTest do
     episode = Repo.get!(Responder.Episodes.Episode, fixture.episode.id)
     assert episode.state == :working
     assert episode.owner_ref == fixture.claim.turn.turn_ref
-  end
-
-  test "a full member can inspect one exact bounded Coop diff in the task thread" do
-    fixture = task_fixture!("diff", bind_session: true)
-    patch = "diff --git a/lib/responder.ex b/lib/responder.ex\n+safe change\n"
-    patch_digest = :crypto.hash(:sha256, patch) |> Base.encode16(case: :lower)
-
-    changes = %{
-      "base_commit" => String.duplicate("a", 40),
-      "committed" => [%{"path" => "lib/responder.ex", "status" => "modified"}],
-      "conflicts" => [],
-      "fork_head" => String.duplicate("b", 40),
-      "fork_tree" => String.duplicate("c", 40),
-      "parent_head" => String.duplicate("d", 40),
-      "parent_divergence" => %{
-        "ahead" => 1,
-        "base_to_fork" => 1,
-        "base_to_parent" => 0,
-        "behind" => 0,
-        "diverged" => false
-      },
-      "patch" => Base.encode64(patch),
-      "patch_bytes" => byte_size(patch),
-      "patch_digest" => patch_digest,
-      "patch_has_more" => false,
-      "patch_next_offset" => byte_size(patch),
-      "patch_offset" => 0,
-      "staged" => [],
-      "truncated" => false,
-      "unstaged" => [],
-      "untracked" => []
-    }
-
-    coop =
-      start_supervised!(%{
-        id: {:work_diff_coop, Ecto.UUID.generate()},
-        start: {FakeWorkCoopAPI, :start_link, [[], [changes: [changes]]]}
-      })
-
-    slack = start_supervised!({Agent, fn -> %{messages: %{}, posts: [], updates: []} end})
-
-    assert {:ok, result} =
-             WorkControls.show_diff(attributes(fixture.card.ref), %{
-               coop_api: FakeWorkCoopAPI,
-               coop_client: coop,
-               slack_api: SlackAPI,
-               slack_client: slack
-             })
-
-    assert result.outcome == :shown
-    assert result.message_ref == "1787832999.000100"
-
-    assert [
-             {"C456", "1787832000.000100", %{"work_diff" => diff}, delivery_ref}
-           ] =
-             Agent.get(slack, & &1.posts)
-
-    assert delivery_ref == "work-diff:#{fixture.card.ref}"
-    message = diff["message"]
-    assert message =~ "lib/responder.ex"
-    assert message =~ patch_digest
-    assert message =~ "+safe change"
-
-    assert FakeWorkCoopAPI.state(coop).changes_page_requests == [
-             {"remote-work-controls-diff", 0, 2_400}
-           ]
-  end
-
-  test "diff navigation updates only its exact message and restarts at page zero after a snapshot change" do
-    fixture = task_fixture!("diff-page", bind_session: true)
-    old_patch = String.duplicate("a", 2_400) <> String.duplicate("b", 600)
-    old_digest = digest(old_patch)
-    new_patch = "new snapshot\n"
-    new_digest = digest(new_patch)
-
-    old_first = changes_page(old_patch, old_digest, 0, 2_400)
-    new_first = changes_page(new_patch, new_digest, 0, 2_400)
-
-    coop =
-      start_supervised!(%{
-        id: {:work_diff_page_coop, Ecto.UUID.generate()},
-        start: {FakeWorkCoopAPI, :start_link, [[], [changes: [old_first, new_first]]]}
-      })
-
-    slack = start_supervised!({Agent, fn -> %{messages: %{}, posts: [], updates: []} end})
-    options = presentation_options(coop, slack)
-
-    assert {:ok, %{message_ref: message_ref}} =
-             WorkControls.show_diff(attributes(fixture.card.ref), options)
-
-    page_attributes =
-      fixture.card.ref
-      |> attributes()
-      |> put_in([:target, :message_ref], message_ref)
-      |> Map.merge(%{patch_offset: 2_400, snapshot_digest: old_digest})
-
-    assert {:ok, %{outcome: :shown}} = WorkControls.show_diff_page(page_attributes, options)
-
-    assert [{"C456", ^message_ref, %{"work_diff" => page}, _delivery_ref}] =
-             Agent.get(slack, & &1.updates)
-
-    assert page["patch_digest"] == new_digest
-    assert page["patch_offset"] == 0
-    assert page["message"] =~ "new snapshot"
-
-    assert FakeWorkCoopAPI.state(coop).changes_page_requests == [
-             {"remote-work-controls-diff-page", 0, 2_400},
-             {"remote-work-controls-diff-page", 0, 2_400}
-           ]
-
-    copied = put_in(page_attributes, [:target, :message_ref], "1787832999.999999")
-    assert WorkControls.show_diff_page(copied, options) == {:error, :work_diff_message_mismatch}
-  end
-
-  test "diff navigation fetches the requested page only for the exact current snapshot" do
-    fixture = task_fixture!("diff-stable-page", bind_session: true)
-    patch = String.duplicate("a", 2_400) <> String.duplicate("b", 600)
-    patch_digest = digest(patch)
-    first = changes_page(patch, patch_digest, 0, 2_400)
-    second = changes_page(patch, patch_digest, 2_400, 2_400)
-
-    coop =
-      start_supervised!(%{
-        id: {:work_diff_stable_page_coop, Ecto.UUID.generate()},
-        start: {FakeWorkCoopAPI, :start_link, [[], [changes: [first, first, second]]]}
-      })
-
-    slack = start_supervised!({Agent, fn -> %{messages: %{}, posts: [], updates: []} end})
-    options = presentation_options(coop, slack)
-
-    assert {:ok, %{message_ref: message_ref}} =
-             WorkControls.show_diff(attributes(fixture.card.ref), options)
-
-    page_attributes =
-      fixture.card.ref
-      |> attributes()
-      |> put_in([:target, :message_ref], message_ref)
-      |> Map.merge(%{patch_offset: 2_400, snapshot_digest: patch_digest})
-
-    assert {:ok, %{outcome: :shown}} = WorkControls.show_diff_page(page_attributes, options)
-
-    assert [{"C456", ^message_ref, %{"work_diff" => page}, _delivery_ref}] =
-             Agent.get(slack, & &1.updates)
-
-    assert page["patch_digest"] == patch_digest
-    assert page["patch_offset"] == 2_400
-    assert page["message"] =~ String.duplicate("b", 20)
-
-    assert FakeWorkCoopAPI.state(coop).changes_page_requests == [
-             {"remote-work-controls-diff-stable-page", 0, 2_400},
-             {"remote-work-controls-diff-stable-page", 0, 2_400},
-             {"remote-work-controls-diff-stable-page", 2_400, 2_400}
-           ]
   end
 
   test "work records are evidence-backed and say when material conclusions are unknown" do
@@ -443,18 +289,6 @@ defmodule Responder.Slack.WorkControlsTest do
     fixture = task_fixture!("invalid-presentation")
     exact = attributes(fixture.card.ref)
 
-    assert WorkControls.show_diff(exact, %{}) == {:error, :invalid_work_control_options}
-    assert WorkControls.show_diff(exact, :options) == {:error, :invalid_work_control}
-
-    assert WorkControls.show_diff(exact, %{
-             coop_api: FakeWorkCoopAPI,
-             coop_client: self(),
-             slack_api: SlackAPI,
-             slack_client: self()
-           }) == {:error, :work_changes_not_available}
-
-    assert WorkControls.show_diff_page(exact, %{}) == {:error, :invalid_work_control}
-    assert WorkControls.show_diff_page(exact, :options) == {:error, :invalid_work_control}
     assert WorkControls.show_record(exact, %{}) == {:error, :invalid_work_control}
     assert WorkControls.show_record(exact, :options) == {:error, :invalid_work_control}
     assert WorkControls.stop(%{}) == {:error, :invalid_work_control}
@@ -698,47 +532,4 @@ defmodule Responder.Slack.WorkControlsTest do
       work_ref: work_ref
     }
   end
-
-  defp presentation_options(coop, slack) do
-    %{
-      coop_api: FakeWorkCoopAPI,
-      coop_client: coop,
-      slack_api: SlackAPI,
-      slack_client: slack
-    }
-  end
-
-  defp changes_page(full_patch, patch_digest, offset, limit) do
-    size = byte_size(full_patch)
-    page = binary_part(full_patch, offset, min(limit, size - offset))
-    next_offset = offset + byte_size(page)
-
-    %{
-      "base_commit" => String.duplicate("a", 40),
-      "committed" => [%{"path" => "lib/responder.ex", "status" => "modified"}],
-      "conflicts" => [],
-      "fork_head" => String.duplicate("b", 40),
-      "fork_tree" => String.duplicate("c", 40),
-      "parent_head" => String.duplicate("d", 40),
-      "parent_divergence" => %{
-        "ahead" => 1,
-        "base_to_fork" => 1,
-        "base_to_parent" => 0,
-        "behind" => 0,
-        "diverged" => false
-      },
-      "patch" => Base.encode64(page),
-      "patch_bytes" => size,
-      "patch_digest" => patch_digest,
-      "patch_has_more" => next_offset < size,
-      "patch_next_offset" => next_offset,
-      "patch_offset" => offset,
-      "staged" => [],
-      "truncated" => false,
-      "unstaged" => [],
-      "untracked" => []
-    }
-  end
-
-  defp digest(value), do: :crypto.hash(:sha256, value) |> Base.encode16(case: :lower)
 end

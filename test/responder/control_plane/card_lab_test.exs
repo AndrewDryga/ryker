@@ -63,8 +63,8 @@ defmodule Responder.ControlPlane.CardLabTest do
   end
 
   test "confirmation dialogs never become inline card rows and remain in native Slack payloads" do
-    # The inline confirmation disclosure split the Stop/View diff/Close button
-    # row and gave operators a preview that Slack itself would never render.
+    # The inline confirmation disclosure split the Stop/Close button row and
+    # gave operators a preview that Slack itself would never render.
     {:ok, snapshot} = CardLab.fetch("task-card", "working")
 
     buttons =
@@ -85,7 +85,7 @@ defmodule Responder.ControlPlane.CardLabTest do
            |> LazyHTML.from_document()
            |> LazyHTML.query(".slack-actions > *")
            |> LazyHTML.attribute("class") ==
-             ["slack-button danger", "slack-button", "slack-button danger", "slack-overflow"]
+             ["slack-button danger", "slack-button danger", "slack-overflow"]
 
     {:ok, payload} = CardLab.slack_message("task-card", "working")
 

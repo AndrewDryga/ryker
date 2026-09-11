@@ -6,6 +6,7 @@ defmodule Responder.ControlPlane.Actions do
   alias Responder.CanonicalJSON
   alias Responder.ControlPlane.{CardLabDelivery, CardLabFeedback, ConversationLab}
   alias Responder.ControlPlane.InstructionSettings
+  alias Responder.ControlPlane.WorkChanges
   alias Responder.Episodes
   alias Responder.Episodes.{Command, Episode}
   alias Responder.Ingress.WorkProfile
@@ -14,7 +15,7 @@ defmodule Responder.ControlPlane.Actions do
   alias Responder.Publication.{Followups, Operator, Publication}
   alias Responder.Repo
   alias Responder.Retention.Operator, as: RetentionOperator
-  alias Responder.Slack.{WorkDiff, WorkRecord}
+  alias Responder.Slack.WorkRecord
 
   alias Responder.State.{
     Automations,
@@ -197,9 +198,9 @@ defmodule Responder.ControlPlane.Actions do
          %Session{coop_session_id: session_id} when is_binary(session_id) <-
            latest_bound_session(episode.id),
          {:ok, changes} <-
-           coop_api.get_changes_page(coop_client, session_id, offset, WorkDiff.page_bytes()),
+           coop_api.get_changes_page(coop_client, session_id, offset, WorkChanges.page_bytes()),
          :ok <- exact_snapshot(expected_digest, offset, changes["patch_digest"]),
-         {:ok, %{"work_diff" => diff}} <- WorkDiff.render(record.ref, changes) do
+         {:ok, diff} <- WorkChanges.render(record.ref, changes) do
       {:ok,
        %{
          body: diff["message"],
@@ -254,7 +255,7 @@ defmodule Responder.ControlPlane.Actions do
   defp exact_snapshot(_expected, _offset, _actual), do: {:error, :work_diff_snapshot_changed}
 
   defp diff_navigation(diff) do
-    previous = max(diff["patch_offset"] - WorkDiff.page_bytes(), 0)
+    previous = max(diff["patch_offset"] - WorkChanges.page_bytes(), 0)
 
     []
     |> maybe_diff_page(diff["patch_offset"] > 0, "Previous", previous, diff["patch_digest"])

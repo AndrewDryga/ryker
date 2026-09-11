@@ -13,13 +13,13 @@ defmodule Responder.ControlPlane.ConversationLabTest do
   alias Responder.Artifacts
   alias Responder.Artifacts.Artifact
   alias Responder.ControlPlane.{Actions, ConversationLab, Projection}
+  alias Responder.ControlPlane.WorkChanges
   alias Responder.Episodes
   alias Responder.Fixtures.Episodes, as: EpisodeFixtures
   alias Responder.Ingress.Inbox
   alias Responder.Ingress.Inbox.Entry
   alias Responder.Ingress.WorkProfile
   alias Responder.Repo
-  alias Responder.Slack.WorkDiff
   alias Responder.State.{Behavior, Records, Schedule}
   alias Responder.TestSupport.FakeWorkCoopAPI
 
@@ -1304,9 +1304,9 @@ defmodule Responder.ControlPlane.ConversationLabTest do
            ) == {:error, :work_diff_snapshot_changed}
 
     assert FakeWorkCoopAPI.state(coop).changes_page_requests == [
-             {"remote_work", 0, WorkDiff.page_bytes()},
-             {"remote_work", page_boundary, WorkDiff.page_bytes()},
-             {"remote_work", 0, WorkDiff.page_bytes()}
+             {"remote_work", 0, WorkChanges.page_bytes()},
+             {"remote_work", page_boundary, WorkChanges.page_bytes()},
+             {"remote_work", 0, WorkChanges.page_bytes()}
            ]
 
     assert view_actions.view_lab_task_record.(

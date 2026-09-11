@@ -219,7 +219,11 @@ defmodule Responder.Slack.InteractionTest do
     assert Interaction.from_socket(forged, "T123", @now) == :ignore
   end
 
-  test "normalizes only a snapshot-bound diff page control" do
+  # Diff reading moved to the web on 2026-09-09. A retained Slack message still
+  # carries the old buttons, so every historical envelope keeps arriving after
+  # the cut; the parser must drop them rather than reach a handler that no
+  # longer exists.
+  test "a retired Slack diff control never becomes an interaction" do
     digest = String.duplicate("a", 64)
 
     page =
@@ -233,18 +237,14 @@ defmodule Responder.Slack.InteractionTest do
         "task-card:abc123|#{digest}|2400"
       )
 
-    assert {:ok, interaction} = Interaction.from_socket(page, "T123", @now)
-    assert interaction.action_id == "responder_diff_page"
-    assert interaction.action_value == "task-card:abc123|#{digest}|2400"
+    assert Interaction.from_socket(page, "T123", @now) == :ignore
 
-    forged =
-      put_in(
-        page,
-        ["payload", "actions", Access.at(0), "value"],
-        "task-card:abc123|not-a-digest|2400"
-      )
+    view =
+      envelope()
+      |> put_in(["payload", "actions", Access.at(0), "action_id"], "responder_view_diff")
+      |> put_in(["payload", "actions", Access.at(0), "value"], "task-card:abc123")
 
-    assert Interaction.from_socket(forged, "T123", @now) == :ignore
+    assert Interaction.from_socket(view, "T123", @now) == :ignore
   end
 
   test "normalizes only an exact task and publication pair" do

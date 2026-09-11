@@ -462,42 +462,36 @@ stop, close, and discard buttons may remain visible to make the operator handoff
 host rejects them for nonoperators before any repository or session mutation:
 
 - provisioning or holding: **Close incident**;
-- active turn: **Stop current run**, and **View diff** only when Coop reports changed
-  files;
-- waiting for input: **Ask agent for update**, **Close incident**, and change controls only when
-  Coop reports changed files;
+- active turn: **Stop current run**;
+- waiting for input: **Ask agent for update** and **Close incident**;
 - reviewing or publishing a draft PR: the card activity names the current publication stage,
-  keeps **View diff** and any existing **Open PR** link, and hides review, publish, update, and
+  keeps any existing **Open PR** link, and hides review, publish, update, and
   close controls until the attempt finishes. Rendering this progress does not wait for another
   Coop change inspection;
-- transient publication failure: the card shows the bounded last error, preserves **View diff** and
+- transient publication failure: the card shows the bounded last error, preserves
   any existing **Open PR** link, and offers **Retry publication** for that exact recovery
   generation;
 - push or pull-request identity conflict: automatic retry stops. When Responder proves an exact
   App-owned PR and observed head, the card preserves **Open PR** and offers **Review latest state**
   plus **Discard candidate**. Without that remote identity, only the local **Discard candidate**
   action is available;
-- stale draft PR: **View diff**, **Review latest state**, **Open PR**, **Check delivery**, and
+- stale draft PR: **Review latest state**, **Open PR**, **Check delivery**, and
   **Discard candidate** render from durable publication state without waiting for a fresh Coop
   inspection. Review latest state invalidates the prior approval and review, records the exact
   observed GitHub head, reruns Coop review, and can update the same PR only with a
   `--force-with-lease` compare-and-swap against that observed head;
 - published draft PR: **Open PR** and **Check delivery** remain available independently of a
   transient Coop inspection failure;
-- safety-ceiling blocked: **Close incident**, an action-needed explanation naming `coop.turn_limit`
-  and saying plainly that raising it needs a deployment change, and change controls only when Coop
-  reports changed files;
-- closed: read-only change controls only when the preserved working copy contains changed files;
-  otherwise no controls.
+- safety-ceiling blocked: **Close incident** and an action-needed explanation naming
+  `coop.turn_limit`, saying plainly that raising it needs a deployment change;
+- closed: read-only record controls only; otherwise no controls.
 
 - **Ask agent for update** requests fresh verified facts, hypothesis, changes, blockers, and next
   action.
-- **View diff** reads Coop's typed fork summary and posts a bounded, sanitized first page in the
-  task thread. **Previous page**, **Next page**, and **Refresh diff** update that same message
-  instead of adding thread noise. Every page carries the complete patch digest and byte range; if
-  the fork changes between clicks, Responder restarts at page one rather than combining snapshots.
-  File groups show their total count and say how many paths are omitted from the compact summary.
-  It does not start an agent turn.
+- Diff reading is web-only. Slack never renders or pages a patch: the control plane owns the
+  changes page, which reads Coop's typed fork summary one snapshot-bound page at a time, carries
+  the complete patch digest and byte range, and says how many paths are omitted from the compact
+  summary. Once a candidate has a pull request, **Open PR** is the change link on the card.
 - A confirmed coding task automatically checks its completed, checkpoint-backed changes. There is
   no separate readiness permission button. The review compares the isolated changes with the
   current repository, checks rebase, runs configured validation and policy gates, and reports
@@ -567,7 +561,7 @@ approval in Emisar** link. Opening the link is navigation, not approval; no acti
 decision remains in Emisar's authenticated console and audit trail.
 There is no text spelling of a control. An unadvertised `!respond <verb>` router used to read every
 message in a thread carrying an incident and match eight verbs against it; it was removed on
-2026-08-15. The pinned card above the thread carries stop, diff, publish and close as buttons that
+2026-08-15. The pinned card above the thread carries stop, publish and close as buttons that
 name what they do and refuse the people who may not press them, and a slash command run from the
 composer cannot select a thread at all.
 

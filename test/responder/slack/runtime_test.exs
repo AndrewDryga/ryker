@@ -1,11 +1,6 @@
 defmodule Responder.Slack.RuntimeTest do
   use ExUnit.Case, async: true
 
-  defmodule WorkAPI do
-    def get_changes_page(_client, _session_id, _offset, _limit),
-      do: {:error, :work_changes_not_available}
-  end
-
   alias Responder.Delivery.{BinaryClient, JSONClient}
 
   alias Responder.Slack.{
@@ -93,8 +88,6 @@ defmodule Responder.Slack.RuntimeTest do
     assert is_function(options.handler_settings.interaction_options.request_incident_room, 1)
     assert is_function(options.handler_settings.interaction_options.stop_work, 1)
     assert is_function(options.handler_settings.interaction_options.close_work, 1)
-    assert is_function(options.handler_settings.interaction_options.show_work_diff, 1)
-    assert is_function(options.handler_settings.interaction_options.show_work_diff_page, 1)
     assert is_function(options.handler_settings.interaction_options.show_work_record, 1)
     assert is_function(options.handler_settings.interaction_options.approve_task_publication, 1)
     assert is_function(options.handler_settings.interaction_options.check_task_publication, 1)
@@ -167,44 +160,6 @@ defmodule Responder.Slack.RuntimeTest do
     assert incident_worker.lease_seconds == 300
     assert thread_status_worker.workspace_ref == "T123"
     assert thread_status_worker.api == Client
-  end
-
-  test "work presentation follows the configured Work execution boundary" do
-    app_http = json_client("xapp-test")
-    bot_http = json_client("xoxb-test")
-    {:ok, bot_client} = Client.new(http: bot_http, requester: JSONClient)
-
-    base = %{
-      app_http: app_http,
-      bot_client: bot_client,
-      default_repository: "responder",
-      identity: %{bot_ref: "B123", bot_user_ref: "U999", workspace_ref: "T123"},
-      incident_policy: %{digest: String.duplicate("c", 64), name: "incident-observe"},
-      operators: ["U123"],
-      repositories: %{
-        "responder" => %{
-          contributor_policy: %{
-            digest: String.duplicate("b", 64),
-            name: "responder-contributor"
-          }
-        }
-      },
-      watch_channels: ["C456"]
-    }
-
-    assert %{handler_settings: %{interaction_options: interaction_options}} =
-             Runtime.options!(Map.merge(base, %{coop_api: WorkAPI, coop_client: self()}))
-
-    assert is_function(interaction_options.show_work_diff, 1)
-    assert is_function(interaction_options.show_work_diff_page, 1)
-
-    assert_raise ArgumentError, ~r/Slack Work execution boundary/, fn ->
-      Runtime.options!(Map.put(base, :coop_client, self()))
-    end
-
-    assert_raise ArgumentError, ~r/Slack Work execution boundary/, fn ->
-      Runtime.options!(Map.put(base, :coop_api, WorkAPI))
-    end
   end
 
   test "refuses untrusted identity, authority, and transport configuration" do

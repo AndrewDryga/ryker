@@ -162,7 +162,7 @@ defmodule Responder.RuntimeConfiguration do
       optional(
         root,
         "slack",
-        &slack!(&1, repository_contexts, work, schedules, env_provider)
+        &slack!(&1, repository_contexts, schedules, env_provider)
       )
 
     control_plane =
@@ -1137,7 +1137,7 @@ defmodule Responder.RuntimeConfiguration do
     end
   end
 
-  defp slack!(value, repository_contexts, work, schedules, env_provider) do
+  defp slack!(value, repository_contexts, schedules, env_provider) do
     object =
       object!(
         value,
@@ -1175,8 +1175,6 @@ defmodule Responder.RuntimeConfiguration do
         app_http: app_http,
         bot_client: bot_client,
         channel_prefix: Map.get(object, "channel_prefix", "ems"),
-        coop_api: work.api,
-        coop_client: work.client,
         default_repository: reference!(object["default_repository"], "slack.default_repository"),
         handshake_timeout_ms:
           integer!(object, "handshake_timeout_ms", 10_000, 100, 60_000, "slack"),

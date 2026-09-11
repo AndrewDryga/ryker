@@ -7,18 +7,15 @@ defmodule Responder.Slack.WorkControls do
   request. Copied and stale controls therefore grant no authority.
   """
 
-  import Ecto.Query
-
   alias Responder.Episodes
   alias Responder.Episodes.Command
   alias Responder.Publication.Custody, as: PublicationCustody
   alias Responder.Publication.{Followups, Operator, Publication}
   alias Responder.Repo
-  alias Responder.Slack.{Client, WorkDiff, WorkRecord, WorkTarget}
-  alias Responder.Work.{Custody, Session, Turn}
+  alias Responder.Slack.{WorkRecord, WorkTarget}
+  alias Responder.Work.{Custody, Turn}
 
   @control_fields [:actor_ref, :occurred_at, :request_ref, :target, :work_ref]
-  @page_fields @control_fields ++ [:patch_offset, :snapshot_digest]
   @publication_fields @control_fields ++ [:publication_ref]
   @publication_recovery_fields @publication_fields ++ [:expected_generation]
   @record_fields @control_fields ++ [:record_kind]
@@ -52,64 +49,6 @@ defmodule Responder.Slack.WorkControls do
       close_resolved(resolved, attributes)
     end
   end
-
-  @spec show_diff(map(), map()) :: {:ok, map()} | {:error, term()}
-  def show_diff(attributes, options) when is_map(options) do
-    with {:ok, attributes} <- attributes(attributes, @control_fields),
-         {:ok, options} <- presentation_options(options),
-         {:ok, resolved} <- WorkTarget.resolve(attributes.work_ref, attributes.target),
-         {:ok, session} <- bound_session(resolved.episode.id),
-         {:ok, changes} <-
-           options.coop_api.get_changes_page(
-             options.coop_client,
-             session.coop_session_id,
-             0,
-             WorkDiff.page_bytes()
-           ),
-         {:ok, document} <- WorkDiff.render(resolved.work_ref, changes),
-         {:ok, message_ref} <-
-           publish(
-             resolved,
-             document,
-             "work-diff:#{resolved.work_ref}",
-             options
-           ) do
-      {:ok, %{message_ref: message_ref, outcome: :shown, work_ref: resolved.work_ref}}
-    end
-  end
-
-  def show_diff(_attributes, _options), do: {:error, :invalid_work_control}
-
-  @spec show_diff_page(map(), map()) :: {:ok, map()} | {:error, term()}
-  def show_diff_page(attributes, options) when is_map(options) do
-    with {:ok, attributes} <- attributes(attributes, @page_fields),
-         {:ok, options} <- presentation_options(options),
-         {:ok, resolved} <- WorkTarget.resolve_thread(attributes.work_ref, attributes.target),
-         delivery_ref = "work-diff:#{resolved.work_ref}",
-         {:ok, message_ref} <-
-           exact_published_message(resolved, attributes.target.message_ref, delivery_ref, options),
-         {:ok, session} <- bound_session(resolved.episode.id),
-         {:ok, document} <-
-           diff_document(
-             resolved.work_ref,
-             session.coop_session_id,
-             attributes.snapshot_digest,
-             attributes.patch_offset,
-             options
-           ),
-         :ok <-
-           options.slack_api.update_message(
-             options.slack_client,
-             resolved.channel_ref,
-             message_ref,
-             document,
-             delivery_ref
-           ) do
-      {:ok, %{message_ref: message_ref, outcome: :shown, work_ref: resolved.work_ref}}
-    end
-  end
-
-  def show_diff_page(_attributes, _options), do: {:error, :invalid_work_control}
 
   @spec show_record(map(), map()) :: {:ok, map()} | {:error, term()}
   def show_record(attributes, options) when is_map(options) do
@@ -281,19 +220,6 @@ defmodule Responder.Slack.WorkControls do
 
   defp stoppable_turn(_episode), do: {:error, :work_control_stale}
 
-  defp bound_session(episode_id) do
-    case Repo.one(
-           from(session in Session,
-             where: session.episode_id == ^episode_id and not is_nil(session.coop_session_id),
-             order_by: [desc: session.generation],
-             limit: 1
-           )
-         ) do
-      %Session{} = session -> {:ok, session}
-      nil -> {:error, :work_changes_not_available}
-    end
-  end
-
   defp publication(episode_id, publication_ref, expected_status) do
     case Repo.get_by(Publication, episode_id: episode_id, ref: publication_ref) do
       %Publication{status: ^expected_status} = publication -> {:ok, publication}
@@ -361,80 +287,6 @@ defmodule Responder.Slack.WorkControls do
     end
   end
 
-  defp exact_published_message(resolved, target_message_ref, delivery_ref, options) do
-    case options.slack_api.find_message(
-           options.slack_client,
-           resolved.channel_ref,
-           resolved.output_thread_ref,
-           delivery_ref
-         ) do
-      {:ok, ^target_message_ref} -> {:ok, target_message_ref}
-      {:ok, _other_message_ref} -> {:error, :work_diff_message_mismatch}
-      :not_found -> {:error, :work_diff_message_mismatch}
-      {:error, _reason} = error -> error
-    end
-  end
-
-  defp diff_document(work_ref, session_id, snapshot_digest, patch_offset, options) do
-    with {:ok, first} <-
-           options.coop_api.get_changes_page(
-             options.coop_client,
-             session_id,
-             0,
-             WorkDiff.page_bytes()
-           ),
-         {:ok, first_document} <- WorkDiff.render(work_ref, first) do
-      if refresh_diff?(first, snapshot_digest, patch_offset),
-        do: {:ok, first_document},
-        else:
-          requested_diff_document(
-            work_ref,
-            session_id,
-            snapshot_digest,
-            patch_offset,
-            first_document,
-            options
-          )
-    end
-  end
-
-  defp refresh_diff?(first, snapshot_digest, patch_offset) do
-    patch_offset == 0 or first["patch_digest"] != snapshot_digest or
-      patch_offset > first["patch_bytes"]
-  end
-
-  defp requested_diff_document(
-         work_ref,
-         session_id,
-         snapshot_digest,
-         patch_offset,
-         first_document,
-         options
-       ) do
-    with {:ok, requested} <-
-           options.coop_api.get_changes_page(
-             options.coop_client,
-             session_id,
-             patch_offset,
-             WorkDiff.page_bytes()
-           ),
-         {:ok, requested_document} <- WorkDiff.render(work_ref, requested) do
-      exact_diff_document(
-        requested,
-        requested_document,
-        snapshot_digest,
-        patch_offset,
-        first_document
-      )
-    end
-  end
-
-  defp exact_diff_document(requested, requested_document, snapshot_digest, patch_offset, fallback) do
-    if requested["patch_digest"] == snapshot_digest and requested["patch_offset"] == patch_offset,
-      do: {:ok, requested_document},
-      else: {:ok, fallback}
-  end
-
   defp attributes(%{} = attributes, fields) do
     valid =
       Enum.all?([
@@ -444,8 +296,6 @@ defmodule Responder.Slack.WorkControls do
         present_binary?(Map.get(attributes, :work_ref)),
         match?(%DateTime{}, Map.get(attributes, :occurred_at)),
         is_map(Map.get(attributes, :target)),
-        valid_patch_offset?(attributes, fields),
-        valid_snapshot_digest?(attributes, fields),
         valid_expected_generation?(attributes, fields),
         valid_publication_ref?(attributes, fields),
         valid_record_ref?(attributes, fields),
@@ -462,15 +312,6 @@ defmodule Responder.Slack.WorkControls do
   defp attributes(_attributes, _fields), do: {:error, :invalid_work_control}
 
   defp present_binary?(value), do: is_binary(value) and value != ""
-
-  defp valid_patch_offset?(attributes, fields) do
-    :patch_offset not in fields or
-      (is_integer(Map.get(attributes, :patch_offset)) and Map.get(attributes, :patch_offset) >= 0)
-  end
-
-  defp valid_snapshot_digest?(attributes, fields) do
-    :snapshot_digest not in fields or digest?(Map.get(attributes, :snapshot_digest))
-  end
 
   defp valid_expected_generation?(attributes, fields) do
     :expected_generation not in fields or
@@ -499,21 +340,7 @@ defmodule Responder.Slack.WorkControls do
       Map.get(attributes, :record_kind) in [:timeline, :evidence, :handoff, :postmortem]
   end
 
-  defp digest?(value), do: reference?(value, ~r/\A[0-9a-f]{64}\z/)
   defp reference?(value, regex), do: is_binary(value) and Regex.match?(regex, value)
-
-  defp presentation_options(%{} = options) do
-    required = [:coop_api, :coop_client, :slack_api, :slack_client]
-
-    if Map.keys(options) |> Enum.sort() == Enum.sort(required) and
-         is_atom(options.coop_api) and Code.ensure_loaded?(options.coop_api) and
-         function_exported?(options.coop_api, :get_changes_page, 4) and
-         slack_api?(options.slack_api) do
-      {:ok, options}
-    else
-      {:error, :invalid_work_control_options}
-    end
-  end
 
   defp record_options(%{} = options) do
     options = Map.put_new(options, :work_record, WorkRecord)
@@ -531,15 +358,5 @@ defmodule Responder.Slack.WorkControls do
   defp slack_api?(api) do
     is_atom(api) and Code.ensure_loaded?(api) and function_exported?(api, :find_message, 4) and
       function_exported?(api, :post_message, 5) and function_exported?(api, :update_message, 5)
-  end
-
-  @doc false
-  def production_options(coop_api, coop_client, slack_client) do
-    %{
-      coop_api: coop_api,
-      coop_client: coop_client,
-      slack_api: Client,
-      slack_client: slack_client
-    }
   end
 end
