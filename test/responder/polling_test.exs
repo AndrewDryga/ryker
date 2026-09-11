@@ -8,7 +8,7 @@ defmodule Responder.PollingTest do
   alias Responder.Retention.Worker
 
   defmodule DatabaseDispatcher do
-    def run_once(options) do
+    def run_pass(options) do
       parent = Keyword.fetch!(options, :parent)
       pool = Keyword.fetch!(options, :pool)
       send(parent, {:poll_attempt, self(), System.monotonic_time(:millisecond)})
@@ -25,7 +25,7 @@ defmodule Responder.PollingTest do
       end
 
       send(parent, {:query_completed, self()})
-      {:ok, :idle}
+      {:ok, %{attempted: 0, blocked: 0, deferred: 0, executed: 0, idle: true, stopped: :idle}}
     end
   end
 
@@ -37,9 +37,9 @@ defmodule Responder.PollingTest do
   end
 
   defmodule FailingDispatcher do
-    def run_once(kind: :argument), do: raise(ArgumentError, "invalid polling operation")
-    def run_once(kind: :throw), do: throw(:invalid_polling_operation)
-    def run_once(kind: :exit), do: exit(:invalid_polling_operation)
+    def run_pass(kind: :argument), do: raise(ArgumentError, "invalid polling operation")
+    def run_pass(kind: :throw), do: throw(:invalid_polling_operation)
+    def run_pass(kind: :exit), do: exit(:invalid_polling_operation)
   end
 
   # Pool starvation killed 17 poller processes in 328 ms, spending the supervisor
