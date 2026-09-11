@@ -267,6 +267,25 @@ defmodule Responder.Work.SubmissionBuilderTest do
            }
   end
 
+  test "rebuilding the same claim produces byte-identical frozen prompt schema and context" do
+    # Custody stores one frozen submission and refuses a second with different
+    # bytes, so a replayed or retried turn is only safe if the builder is
+    # deterministic. Nothing held that: an unstable ordering or a clock reading
+    # would have turned an ordinary retry into a submission conflict.
+    claim = claim_episode!("replayed-submission", "Verify the deployment and report.")
+
+    assert {:ok, first} = SubmissionBuilder.build(claim)
+    assert {:ok, second} = SubmissionBuilder.build(claim)
+
+    assert second == first
+    assert second["prompt"] == first["prompt"]
+    assert second["output_schema"] == Final.json_schema()
+    assert second["contract_version"] == "work-final-v1"
+
+    assert Responder.CanonicalJSON.encode!(second["context"]) ==
+             Responder.CanonicalJSON.encode!(first["context"])
+  end
+
   test "a frozen claim cannot see reaction feedback recorded for a later snapshot" do
     claim = claim_episode!("reaction-snapshot", "FIRST_TURN_ONLY")
 

@@ -2132,6 +2132,65 @@ defmodule Responder.StateTools.RouterTest do
     assert not_found.status == 404
   end
 
+  test "a platform read runs its provider call outside the memory transaction" do
+    # Enrichment opens a transaction with a five-second statement timeout. A
+    # provider read that drifted inside it would hold a database connection for
+    # a whole Slack round trip, so every other search waits on the network. The
+    # order is structural today and nothing failed if a refactor moved it.
+    claim =
+      claim!("provider-transaction", %{
+        destination: %{
+          conversation_ref: "slack:TROUTER:CROUTER",
+          thread_ref: "1789058307.523479",
+          transport: "slack"
+        }
+      })
+
+    assert :ok = KnowledgeSnapshot.expose(claim, [])
+    test_pid = self()
+
+    reader = %{
+      "description" => "Search retained Slack conversation.",
+      "inputSchema" => %{
+        "additionalProperties" => false,
+        "properties" => %{"query" => %{"type" => "string"}},
+        "required" => ["query"],
+        "type" => "object"
+      },
+      "name" => "search_slack"
+    }
+
+    options =
+      Router.init(
+        token: "trusted-state-tools-token",
+        binding: %{
+          episode: claim.episode,
+          session: claim.session,
+          state_token: Records.token(claim.turn),
+          turn: claim.turn
+        },
+        cursor_secret: "host-owned-source-cursor-secret",
+        additional_tools: [reader],
+        additional_call: fn "search_slack", _arguments, _binding ->
+          send(test_pid, {:provider_transaction, Repo.in_transaction?()})
+          {:ok, %{"complete" => true, "results" => %{"messages" => []}}}
+        end
+      )
+
+    response =
+      rpc(
+        "tools/call",
+        %{"arguments" => %{"query" => "readiness"}, "name" => "search_slack"},
+        options
+      )
+
+    assert response.status == 200
+    assert_received {:provider_transaction, false}
+
+    assert get_in(Jason.decode!(response.resp_body), ["result", "structuredContent", "results"]) ==
+             %{"messages" => []}
+  end
+
   defp rpc(method, params, options \\ @options) do
     conn(:post, "/mcp", Jason.encode!(request(method, params)))
     |> put_req_header("authorization", "Bearer trusted-state-tools-token")

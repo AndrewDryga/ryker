@@ -366,6 +366,99 @@ defmodule Responder.Slack.CapabilityToolsTest do
     end
   end
 
+  defmodule DenseChannelThreadAPI do
+    defdelegate conversation_info(observer, channel_ref), to: FakeAPI
+    defdelegate list_conversations(observer, document), to: FakeAPI
+    defdelegate list_bookmarks(observer, channel_ref), to: FakeAPI
+    defdelegate file_info(observer, file_ref), to: FakeAPI
+    defdelegate search_context(observer, token, document), to: FakeAPI
+
+    @root_ts "1789058307.523479"
+
+    def read_messages(observer, _channel, thread, document) when is_binary(thread) do
+      send(observer, {:read_thread, document})
+      [root, reply | _] = originals()
+      {:ok, %{"messages" => [root, reply], "cursor" => ""}}
+    end
+
+    def read_messages(observer, _channel, nil, document) do
+      send(observer, {:read_channel, document})
+      rows = channel_rows() |> Enum.filter(&selected?(&1, document)) |> Enum.reverse()
+      offset = if document["cursor"], do: String.to_integer(document["cursor"]), else: 0
+      page = Enum.slice(rows, offset, document["limit"])
+
+      cursor =
+        if offset + length(page) < length(rows), do: to_string(offset + length(page)), else: ""
+
+      {:ok, %{"messages" => page, "cursor" => cursor}}
+    end
+
+    defp selected?(row, document) do
+      inclusive = document["inclusive"] == true
+
+      above?(row["ts"], document["oldest"], inclusive) and
+        below?(row["ts"], document["latest"], inclusive)
+    end
+
+    defp above?(_value, nil, _inclusive), do: true
+    defp above?(value, bound, true), do: value >= bound
+    defp above?(value, bound, _inclusive), do: value > bound
+    defp below?(_value, nil, _inclusive), do: true
+    defp below?(value, bound, true), do: value <= bound
+    defp below?(value, bound, _inclusive), do: value < bound
+
+    # A dense channel whose newest page is nowhere near the thread root.
+    def channel_rows do
+      [root | _] = originals()
+
+      generated =
+        for n <- 1..250,
+            do: %{"ts" => "#{1_789_058_200 + n}.000001", "text" => "channel row #{n}"}
+
+      Enum.sort_by([root | generated], & &1["ts"])
+    end
+
+    def root_ts, do: @root_ts
+
+    defp originals,
+      do: Path.join(__DIR__, "fixtures/readiness_thread.json") |> File.read!() |> Jason.decode!()
+  end
+
+  test "a dense channel still returns the originals around a thread root, not its newest page" do
+    # The thread reader asks for a small window around the root. In a busy
+    # channel that window is hundreds of messages behind the newest page, and a
+    # reader that answers with the newest page describes a different
+    # conversation while looking complete.
+    source = SourceRef.thread("T123", "C456", DenseChannelThreadAPI.root_ts())
+    anchor = SourceRef.message("T123", "C456", "1789058455.189229")
+    arguments = %{"source_ref" => source, "anchor_ref" => anchor, "view" => "thread"}
+
+    assert {:ok, result} =
+             CapabilityTools.call("read_slack_source", arguments, work_binding(), %{
+               options()
+               | api: DenseChannelThreadAPI
+             })
+
+    assert result["thread_root"]["ts"] == DenseChannelThreadAPI.root_ts()
+    context = result["channel_context"]
+    stamps = Enum.map(context["messages"], & &1["ts"])
+
+    assert stamps != [], "a dense channel must still yield the root's neighbours"
+    refute DenseChannelThreadAPI.root_ts() in stamps
+
+    newest = DenseChannelThreadAPI.channel_rows() |> List.last() |> Map.fetch!("ts")
+    refute newest in stamps
+
+    assert Enum.all?(stamps, fn stamp ->
+             abs(String.to_integer(hd(String.split(stamp, "."))) - 1_789_058_307) <= 4
+           end),
+           "channel context must centre on the root: #{inspect(stamps)}"
+
+    assert context["coverage"]["before"]["status"] in ~w(complete partial previous_page)
+    assert context["coverage"]["after"]["status"] in ~w(complete partial previous_page)
+    assert context["coverage"]["provider_pages"] <= context["coverage"]["page_limit"]
+  end
+
   test "thread expansion fetches a missing root and separates surrounding channel originals" do
     source = SourceRef.thread("T123", "C456", "1789058307.523479")
     anchor = SourceRef.message("T123", "C456", "1789058455.189229")
@@ -986,6 +1079,43 @@ defmodule Responder.Slack.CapabilityToolsTest do
     end
   end
 
+  defmodule ThrottledExpansionAPI do
+    defdelegate conversation_info(observer, channel), to: FakeAPI
+    defdelegate list_conversations(observer, document), to: FakeAPI
+    defdelegate list_bookmarks(observer, channel), to: FakeAPI
+    defdelegate file_info(observer, file), to: FakeAPI
+    defdelegate search_context(observer, token, document), to: MissingContextSearchAPI
+
+    def read_messages(observer, _channel, _thread, _document) do
+      send(observer, {:throttled_read, :conversations_history})
+      {:error, {:delivery_rate_limited, 30, {:slack_http_error, 429, "upstream rate limit"}}}
+    end
+  end
+
+  test "a throttled neighbour read fails the lookup instead of inventing the context" do
+    # Slack rate limits the neighbour read a hit needs to be interpreted.
+    # Returning the hit anyway with empty neighbours would describe a
+    # conversation the reader never saw, and the emptiness would look verified.
+    assert CapabilityTools.call(
+             "search_slack",
+             %{"query" => "Engineering task"},
+             work_binding(),
+             %{options() | api: ThrottledExpansionAPI}
+           ) == {:error, "temporarily_unavailable"}
+
+    assert_received {:throttled_read, :conversations_history}
+
+    assert CapabilityTools.call(
+             "read_slack_source",
+             %{
+               "source_ref" => SourceRef.message("T123", "C456", "1789058455.189229"),
+               "view" => "surrounding"
+             },
+             work_binding(),
+             %{options() | api: ThrottledExpansionAPI}
+           ) == {:error, "temporarily_unavailable"}
+  end
+
   test "missing provider context triggers a bounded original read with nonmatching neighbors" do
     assert {:ok, result} =
              CapabilityTools.call(
@@ -1248,6 +1378,53 @@ defmodule Responder.Slack.CapabilityToolsTest do
                options
              ) == {:error, "invalid_source_cursor"}
     end
+  end
+
+  test "a source continuation expires with its own signature rather than living forever" do
+    # Cursors are signed with a one-hour maximum age, and only tampering and
+    # scope changes were ever tested. An age check that stopped working would
+    # let a cursor minted in one turn keep reading a conversation indefinitely,
+    # and nothing would have noticed.
+    source = SourceRef.message("T123", "C456", "1789058307.523479")
+    options = %{options() | api: PagedSourceAPI}
+    arguments = %{"source_ref" => source, "view" => "surrounding", "limit" => 20}
+    binding = work_binding()
+
+    assert {:ok, first} = CapabilityTools.call("read_slack_source", arguments, binding, options)
+    assert is_binary(first["cursor"]) and first["cursor"] != ""
+
+    assert {:ok, sealed} =
+             Plug.Crypto.verify(
+               binding.cursor_secret,
+               "slack-source-read",
+               first["cursor"],
+               max_age: :infinity
+             )
+
+    fresh =
+      Plug.Crypto.sign(binding.cursor_secret, "slack-source-read", sealed,
+        signed_at: System.system_time(:second) - 60
+      )
+
+    assert {:ok, _} =
+             CapabilityTools.call(
+               "read_slack_source",
+               Map.put(arguments, "cursor", fresh),
+               binding,
+               options
+             )
+
+    stale =
+      Plug.Crypto.sign(binding.cursor_secret, "slack-source-read", sealed,
+        signed_at: System.system_time(:second) - 3_601
+      )
+
+    assert CapabilityTools.call(
+             "read_slack_source",
+             Map.put(arguments, "cursor", stale),
+             binding,
+             options
+           ) == {:error, "invalid_source_cursor"}
   end
 
   test "a thread source can preserve an exact reply anchor without confusing it with the root" do

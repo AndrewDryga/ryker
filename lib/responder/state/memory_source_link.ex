@@ -135,6 +135,19 @@ defmodule Responder.State.MemorySourceLink do
       do:
         Enum.flat_map(document["source_reads"] || [], &read_target(&1, workspace)) |> Enum.uniq()
 
+  # A compacted Lab rollup is scoped by its own conversation rather than a Slack
+  # workspace. Without this clause the descriptors a caller could follow while
+  # the memory was still a summary became no targets at all after compaction.
+  def context_targets(
+        %{
+          "source_ref" => "continuity-rollup:" <> _,
+          "workspace_ref" => "control-plane:lab:" <> _ = conversation
+        } = document
+      ),
+      do:
+        Enum.flat_map(document["source_reads"] || [], &lab_read_target(&1, conversation))
+        |> Enum.uniq()
+
   def context_targets(_document), do: []
 
   defp lab_read_target(

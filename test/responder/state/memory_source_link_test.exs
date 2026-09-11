@@ -97,4 +97,72 @@ defmodule Responder.State.MemorySourceLinkTest do
 
     refute Map.has_key?(rollup, "thread_ref")
   end
+
+  test "a compacted Lab rollup keeps the local originals its summary already had" do
+    # Retention compacts a Lab summary into a rollup whose workspace is the Lab
+    # conversation, not a Slack workspace. The rollup clause only understood
+    # "slack:", so the same descriptors the caller could follow a moment earlier
+    # produced no targets and related memory was reported unavailable.
+    conversation = "control-plane:lab:018f3ef7-1f62-7ee0-a83c-0c12f21d83e6"
+
+    read =
+      MemorySourceLink.message(
+        "control_plane",
+        conversation,
+        "admit_input:retained",
+        conversation
+      )
+
+    summary = %{"conversation_ref" => conversation, "source_reads" => [read]}
+
+    rollup = %{
+      "source_ref" => "continuity-rollup:fixture",
+      "scope_kind" => "conversation",
+      "scope_ref" => conversation,
+      "workspace_ref" => conversation,
+      "source_reads" => [read]
+    }
+
+    assert MemorySourceLink.context_targets(rollup) == [
+             %{
+               "conversation_ref" => conversation,
+               "thread_ref" => conversation,
+               "message_ref" => "admit_input:retained"
+             }
+           ]
+
+    assert MemorySourceLink.context_targets(rollup) == MemorySourceLink.context_targets(summary)
+  end
+
+  test "a rollup cannot turn another transport's originals into local Lab targets" do
+    conversation = "control-plane:lab:018f3ef7-1f62-7ee0-a83c-0c12f21d83e6"
+
+    slack_read =
+      MemorySourceLink.message(
+        "slack",
+        "slack:T123:C456",
+        "1789058455.189229",
+        "1789058307.523479"
+      )
+
+    lab_rollup = %{
+      "source_ref" => "continuity-rollup:fixture",
+      "scope_kind" => "conversation",
+      "scope_ref" => conversation,
+      "workspace_ref" => conversation,
+      "source_reads" => [slack_read]
+    }
+
+    assert MemorySourceLink.context_targets(lab_rollup) == []
+
+    github_rollup = %{
+      "source_ref" => "continuity-rollup:fixture",
+      "scope_kind" => "conversation",
+      "scope_ref" => "github:binding:issue:7",
+      "workspace_ref" => "github:binding",
+      "source_reads" => [slack_read]
+    }
+
+    assert MemorySourceLink.context_targets(github_rollup) == []
+  end
 end
