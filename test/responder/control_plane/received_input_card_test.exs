@@ -221,6 +221,7 @@ defmodule Responder.ControlPlane.ReceivedInputCardTest do
     decision = %{
       "action" => "reply",
       "reason" => "A direct reply.",
+      "repository_source" => nil,
       "work_class" => "conversational"
     }
 

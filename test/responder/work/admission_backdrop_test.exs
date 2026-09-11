@@ -74,6 +74,7 @@ defmodule Responder.Work.AdmissionBackdropTest do
         "reaction" => nil,
         "relation" => "unrelated",
         "reason" => "This needs investigation.",
+        "repository_source" => nil,
         "work_class" => "standard"
       })
 

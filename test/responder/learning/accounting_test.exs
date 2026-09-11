@@ -16,8 +16,8 @@ defmodule Responder.Learning.AccountingTest do
     defdelegate operation_by_key(client, key), to: Fake
     defdelegate get_session(client, id), to: Fake
     defdelegate get_turn(client, sid, tid), to: Fake
-    defdelegate create_session(client, key, policy, ref), to: Fake
-    defdelegate fence_create_session(client, key, policy, ref), to: Fake
+    defdelegate create_session(client, key, policy, ref, source), to: Fake
+    defdelegate fence_create_session(client, key, policy, ref, source), to: Fake
     defdelegate cancel_turn(client, sid, tid, key, revision), to: Fake
 
     def submit_frozen_turn(client, sid, key, revision, submission, nil, []) do

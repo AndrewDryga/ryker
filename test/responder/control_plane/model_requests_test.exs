@@ -495,7 +495,11 @@ defmodule Responder.ControlPlane.ModelRequestsTest do
         decision_ref: "decision:#{entry.id}",
         decision_fingerprint: String.duplicate("a", 64),
         execution_generation: 2,
-        decision_document: %{"action" => "reply", "work_class" => "conversational"}
+        decision_document: %{
+          "action" => "reply",
+          "repository_source" => nil,
+          "work_class" => "conversational"
+        }
       )
       |> Repo.update!()
 
@@ -544,7 +548,11 @@ defmodule Responder.ControlPlane.ModelRequestsTest do
       decision_action: :reply,
       decision_ref: "decision:#{newer.id}",
       decision_fingerprint: String.duplicate("a", 64),
-      decision_document: %{"action" => "reply", "work_class" => "conversational"}
+      decision_document: %{
+        "action" => "reply",
+        "repository_source" => nil,
+        "work_class" => "conversational"
+      }
     )
     |> Repo.update!()
 

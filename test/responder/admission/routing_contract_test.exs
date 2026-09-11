@@ -197,6 +197,7 @@ defmodule Responder.Admission.RoutingContractTest do
         "reaction" => nil,
         "relation" => Atom.to_string(relation),
         "reason" => "The evidence names the same unreachable primary.",
+        "repository_source" => nil,
         "work_class" => "standard"
       })
 
