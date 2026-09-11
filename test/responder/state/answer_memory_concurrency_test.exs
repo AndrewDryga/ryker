@@ -103,7 +103,7 @@ defmodule Responder.State.AnswerMemoryConcurrencyTest do
       from(o in ConversationObservation, where: o.conversation_ref == ^conversation)
     )
 
-    Repo.delete_all(from(e in Entry, where: e.source_ref == ^workspace))
+    delete_entries!(from(e in Entry, where: e.source_ref == ^workspace))
     Repo.delete_all(from(t in Turn, where: t.episode_id == ^episode_id))
     Repo.delete_all(from(s in Session, where: s.episode_id == ^episode_id))
     Repo.delete_all(from(e in Event, where: e.episode_id == ^episode_id))

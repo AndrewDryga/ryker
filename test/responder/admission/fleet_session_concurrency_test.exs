@@ -7,7 +7,6 @@ defmodule Responder.Admission.FleetSessionConcurrencyTest do
   alias Responder.Ingress.Inbox.Entry
   alias Responder.Repo
   alias Responder.Slack.Input, as: SlackInput
-  alias Responder.State.ConversationObservation
   alias Responder.Work.Session
 
   @policy %{name: "admission-read-only", digest: String.duplicate("a", 64)}
@@ -69,11 +68,7 @@ defmodule Responder.Admission.FleetSessionConcurrencyTest do
       after
         stop_tasks(contenders)
         Repo.delete_all(from(session in Session, where: session.execution_kind == :admission))
-        Repo.delete_all(from(candidate in Entry, where: candidate.id == ^entry.id))
-
-        Repo.delete_all(
-          from(note in ConversationObservation, where: note.source_input_id == ^entry.id)
-        )
+        delete_entries!(from(candidate in Entry, where: candidate.id == ^entry.id))
       end
     end)
   end

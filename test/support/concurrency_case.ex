@@ -3,8 +3,13 @@ defmodule Responder.ConcurrencyCase do
 
   use ExUnit.CaseTemplate
 
+  import Ecto.Query
+
   alias Ecto.Adapters.SQL.Sandbox
+  alias Responder.Ingress.Inbox
+  alias Responder.Ingress.Inbox.Entry
   alias Responder.Repo
+  alias Responder.State.{ConversationObservation, StandingRuleInventory}
 
   using do
     quote do
@@ -25,6 +30,29 @@ defmodule Responder.ConcurrencyCase do
         :ok = Sandbox.checkin(Repo)
       end
     end)
+  end
+
+  @doc """
+  Deletes committed inbox entries together with the evidence keyed by them.
+
+  Unboxed tests commit for real and own their cleanup. Observations and
+  standing-rule inventories reference the entry without a foreign key, so an
+  entry deleted on its own strands them, and the next test that needs an empty
+  database (the learning runner preflight) fails on rows no sandbox can see.
+  Nineteen such failures in one dev-check on 2026-09-11.
+  """
+  def delete_entries!(entry_query) do
+    entries = Repo.all(entry_query)
+    ids = Enum.map(entries, & &1.id)
+    refs = Enum.map(entries, &Inbox.ref/1)
+
+    Repo.delete_all(from(note in ConversationObservation, where: note.source_input_id in ^ids))
+
+    Repo.delete_all(
+      from(inventory in StandingRuleInventory, where: inventory.source_input_ref in ^refs)
+    )
+
+    Repo.delete_all(from(entry in Entry, where: entry.id in ^ids))
   end
 
   def backend_pid do
