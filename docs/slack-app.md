@@ -141,9 +141,11 @@ Confirmation by any active full workspace member starts an engineering task in t
 thread and creates an isolated writable Coop fork; the rest of the shared channel remains read-only.
 Active full members can collaborate there, edit, test, and commit repository files under Coop
 contributor policy and review the changes. The contributor session omits shared operational MCP and
-environment credentials. A configured operator must publish a draft PR, stop or close the task, or
-discard retained work. The task cannot merge, deploy, sign, or mutate infrastructure. Replies in
-that thread continue the same task without an `@mention`.
+environment credentials. The confirmation itself grants the draft pull request for that repository,
+so Responder opens it from the exact reviewed candidate without a further click; stopping or
+closing the task and discarding retained work stay operator decisions. The task cannot merge,
+deploy, sign, or mutate infrastructure. Replies in that thread continue the same task without an
+`@mention`.
 
 The public and private channel archive, unarchive, and deletion subscriptions keep incident-room
 lifecycle state durable. Responder blocks an open incident when its room is archived or deleted,

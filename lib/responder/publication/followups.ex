@@ -614,6 +614,15 @@ defmodule Responder.Publication.Followups do
 
   defp transition(_followup, _publication, _status, _pr_state), do: nil
 
+  # Failing checks on the exact reviewed head are the agent's own work to finish
+  # inside the scope the task already granted, so they resume the episode. The
+  # hard deadline, a head that moved outside this publication, a close and a
+  # merge are not fixable there: they are facts a person owns, and they stay
+  # history. The lifecycle key carries the head SHA, so one red run wakes the
+  # task once however often it is polled.
+  defp correction_wakeup?("checks", "failed"), do: true
+  defp correction_wakeup?(_kind, _state), do: false
+
   defp transition_poll(followup, publication, status, attributes, transition, next_poll_at, now) do
     attributes =
       Map.merge(attributes, %{
@@ -648,7 +657,7 @@ defmodule Responder.Publication.Followups do
               source: nil,
               state: state,
               summary: summary,
-              wakeup?: false
+              wakeup?: correction_wakeup?(kind, state)
             })
 
           {Map.put(attributes, :last_event_key, key), event}
@@ -1222,26 +1231,28 @@ defmodule Responder.Publication.Followups do
     {:ok, input} =
       Input.new(%{
         actor: %{kind: :system, ref: "publication-lifecycle"},
-        content: %{
-          "kind" => "publication_lifecycle",
-          "lifecycle" => %{
-            "kind" => event.kind,
-            "observation" => event.observation,
-            "publication_event_ref" => event.ref,
-            "state" => event.state,
-            "summary" => event.summary
-          },
-          "publication" => %{
-            "branch_ref" => publication.branch_ref,
-            "head_sha" => publication.commit_sha,
-            "merge_sha" => publication_followup_merge(publication.id),
-            "pull_request_number" => publication.pull_request_number,
-            "pull_request_url" => publication.pull_request_url,
-            "repository" => publication.repository
-          },
-          "verification_request" =>
-            "Verify the deployed change against current authoritative evidence and report the result in the source task thread."
-        },
+        content:
+          Map.merge(
+            %{
+              "kind" => "publication_lifecycle",
+              "lifecycle" => %{
+                "kind" => event.kind,
+                "observation" => event.observation,
+                "publication_event_ref" => event.ref,
+                "state" => event.state,
+                "summary" => event.summary
+              },
+              "publication" => %{
+                "branch_ref" => publication.branch_ref,
+                "head_sha" => publication.commit_sha,
+                "merge_sha" => publication_followup_merge(publication.id),
+                "pull_request_number" => publication.pull_request_number,
+                "pull_request_url" => publication.pull_request_url,
+                "repository" => publication.repository
+              }
+            },
+            wakeup_request(event)
+          ),
         destination: %{
           conversation_ref: episode.destination_conversation_ref,
           thread_ref: episode.destination_thread_ref,
@@ -1260,6 +1271,21 @@ defmodule Responder.Publication.Followups do
 
     input
   end
+
+  # A red check asks the agent to finish its own change; a deployment or
+  # Terraform signal asks it to verify one that already shipped. Naming the two
+  # differently is what keeps a correction from being reported as a verification.
+  defp wakeup_request(%LifecycleEvent{kind: "checks"}),
+    do: %{
+      "correction_request" =>
+        "The checks on this exact pull request are failing. Fix them inside the task's existing scope and update the same branch, or say precisely what is blocking them. Do not widen the task, and do not merge or deploy."
+    }
+
+  defp wakeup_request(_event),
+    do: %{
+      "verification_request" =>
+        "Verify the deployed change against current authoritative evidence and report the result in the source task thread."
+    }
 
   defp admit_command(episode, input, event) do
     %Command.AdmitInput{

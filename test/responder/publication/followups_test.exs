@@ -96,6 +96,74 @@ defmodule Responder.Publication.FollowupsTest do
     assert stored_followup.verification_sequence > 0
   end
 
+  # A draft PR whose checks fail is work the agent can still finish: the change
+  # is its own, the scope is the task's, and a Slack line saying "checks are
+  # failing, open the PR for the exact failures" teaches an operator nothing they
+  # can act on faster than the agent can. Before this the failure was a
+  # history-only fact and the episode stayed settled, so every red run waited for
+  # a person to notice and retype the task.
+  test "failing checks on the exact reviewed head return the task to in-scope correction" do
+    %{episode: episode, publication: publication} = PublicationFixture.published!("ci-correction")
+
+    assert {:ok, claim} = Followups.claim_poll("publication-followup:ci", 60)
+
+    failing =
+      publication
+      |> lifecycle_status("failing", false)
+      |> Map.merge(%{"checks_failed" => 2, "checks_passed" => 5, "checks_total" => 7})
+
+    assert {:ok, _followup} = Followups.store_poll(publication.ref, claim.lease_ref, failing, 120)
+
+    assert %LifecycleEvent{state: "failed", wakeup_state: :pending} =
+             event = Repo.get_by!(LifecycleEvent, publication_id: publication.id, kind: "checks")
+
+    # The same red run observed again is the same fact, not a second correction.
+    Repo.update_all(
+      from(saved in Followup, where: saved.publication_id == ^publication.id),
+      set: [next_poll_at: @now]
+    )
+
+    assert {:ok, repeat} = Followups.claim_poll("publication-followup:ci-repeat", 60)
+    assert {:ok, _same} = Followups.store_poll(publication.ref, repeat.lease_ref, failing, 120)
+
+    assert [only] =
+             Repo.all(
+               from(saved in LifecycleEvent,
+                 where: saved.publication_id == ^publication.id and saved.kind == "checks"
+               )
+             )
+
+    assert only.id == event.id
+
+    deliver_pending!()
+
+    assert {:ok, resumed} = Episodes.fetch_by_key(episode.key)
+    assert resumed.state == :working
+    assert resumed.owner_ref == "turn:publication-verification:#{event.id}"
+
+    assert [wake] =
+             Repo.all(
+               from(saved in Event,
+                 where:
+                   saved.episode_id == ^episode.id and saved.kind == :input_admitted and
+                     fragment(
+                       "?::jsonb -> 'payload' -> 'content' ->> 'kind' = ?",
+                       saved.payload,
+                       "publication_lifecycle"
+                     )
+               )
+             )
+
+    content = wake.payload["payload"]["content"]
+
+    # The agent is asked to fix its own change inside the scope the task already
+    # granted, not to verify a deployment and not to widen the work.
+    assert content["correction_request"] =~ "existing scope"
+    refute content["verification_request"]
+    assert content["lifecycle"]["state"] == "failed"
+    assert content["publication"]["head_sha"] == publication.commit_sha
+  end
+
   test "only the exact verification turn can satisfy a queued deployment wakeup" do
     %{episode: episode, publication: publication} =
       PublicationFixture.published!("exact-verification-turn")
@@ -905,6 +973,56 @@ defmodule Responder.Publication.FollowupsTest do
     assert expired_followup.pr_state == "expired"
   end
 
+  # The agent corrected the failure and the host republished, so the pull request
+  # tracks a newer head. A poll that was already in flight carries the older
+  # head's result; letting it through would report checks green for an attempt
+  # that observation predates. Two independent fences refuse it, and the test
+  # names both because either one alone is a single point of failure.
+  test "a late poll for an older head cannot green a newer attempt" do
+    %{publication: publication} = PublicationFixture.published!("late-callback")
+    older_head = publication.commit_sha
+
+    assert {:ok, in_flight} = Followups.claim_poll("publication-followup:late", 60)
+    assert in_flight.publication.id == publication.id
+
+    # This poller's GitHub call outlived its lease, and meanwhile the corrected
+    # candidate reached the same pull request, so the publication now records a
+    # newer head.
+    Repo.update_all(
+      from(saved in Followup, where: saved.publication_id == ^publication.id),
+      set: [lease_expires_at: @now]
+    )
+
+    newer_head = String.duplicate("f", 40)
+    republish!(publication, newer_head)
+
+    late =
+      publication
+      |> lifecycle_status("passing", false)
+      |> Map.put("head_sha", older_head)
+
+    # The recovery reset this follow-up, so the in-flight lease is no longer the
+    # one that owns the poll.
+    assert Followups.store_poll(publication.ref, in_flight.lease_ref, late, 120) ==
+             {:error, :publication_followup_lease_lost}
+
+    assert Repo.get_by!(Followup, publication_id: publication.id).checks_state == "unknown"
+
+    # Even from a live lease, a result describing a head this publication is no
+    # longer at cannot record a passing check.
+    assert {:ok, fresh} = Followups.claim_poll("publication-followup:late-fresh", 60)
+
+    assert {:ok, fenced} = Followups.store_poll(publication.ref, fresh.lease_ref, late, 120)
+    assert fenced.pr_state == "stale"
+    assert fenced.checks_state == "unknown"
+
+    refute Repo.get_by(LifecycleEvent,
+             publication_id: publication.id,
+             kind: "checks",
+             state: "succeeded"
+           )
+  end
+
   test "a stale published draft can be review-refreshed by exact generation" do
     %{publication: update_publication} = PublicationFixture.published!("stale-update")
     observed_update_head = String.duplicate("d", 40)
@@ -1092,6 +1210,18 @@ defmodule Responder.Publication.FollowupsTest do
       "state" => if(merged, do: "closed", else: "open"),
       "url" => publication.pull_request_url
     }
+  end
+
+  # Exactly the row state `persist_publication/3` leaves once the corrected
+  # candidate reaches the same pull request: a newer head, nothing outstanding.
+  defp republish!(publication, head_sha) do
+    {1, _rows} =
+      Repo.update_all(
+        from(row in Publication, where: row.id == ^publication.id),
+        set: [commit_sha: head_sha, expected_remote_head_sha: nil]
+      )
+
+    :ok
   end
 
   defp mark_stale!(publication, head_sha) do

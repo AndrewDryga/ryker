@@ -148,17 +148,17 @@ defmodule Responder.Publication.Custody do
 
   @spec delivery_request(Publication.t()) :: {:ok, Request.t()} | {:error, term()}
   def delivery_request(%Publication{status: :review_ready} = publication) do
-    message =
-      if Review.publishable?(publication.review_document),
-        do:
-          "The committed change passed the trusted review. An operator may publish this exact candidate as a draft pull request.",
-        else: "The committed change is not publishable. The trusted review details are below."
+    authorized? =
+      Review.publishable?(publication.review_document) and
+        is_binary(draft_grant(publication))
+
+    message = review_delivery_message(publication, authorized?)
 
     delivery_request(
       publication,
       "publication-review:#{publication.id}",
       message,
-      Card.review(publication)
+      Card.review(publication, authorized?)
     )
   end
 
@@ -175,6 +175,18 @@ defmodule Responder.Publication.Custody do
   end
 
   def delivery_request(_publication), do: {:error, :publication_delivery_not_pending}
+
+  defp review_delivery_message(_publication, true),
+    do:
+      "The committed change passed the trusted review. I'm opening the draft pull request for it now; merging and deploying stay with you."
+
+  defp review_delivery_message(publication, false) do
+    if Review.publishable?(publication.review_document) do
+      "The committed change passed the trusted review. An operator may publish this exact candidate as a draft pull request."
+    else
+      "The committed change is not publishable. The trusted review details are below."
+    end
+  end
 
   def confirm_delivery(publication_ref, lease_ref, external_receipt) do
     with :ok <- reference(publication_ref, :publication_ref),
@@ -853,20 +865,20 @@ defmodule Responder.Publication.Custody do
   end
 
   defp confirm_phase_delivery(%Publication{status: :review_ready} = publication, receipt, fp, now) do
-    next = if Review.publishable?(publication.review_document), do: :reviewed, else: :blocked
+    delivered = %{
+      lease_expires_at: nil,
+      lease_owner: nil,
+      lease_ref: nil,
+      review_delivery_receipt: receipt,
+      review_delivery_receipt_fingerprint: fp
+    }
 
-    update!(
-      publication,
-      %{
-        lease_expires_at: nil,
-        lease_owner: nil,
-        lease_ref: nil,
-        review_delivery_receipt: receipt,
-        review_delivery_receipt_fingerprint: fp,
-        status: next
-      },
-      now
-    )
+    attributes =
+      if Review.publishable?(publication.review_document),
+        do: reviewed_or_authorized_draft(publication, delivered, now),
+        else: Map.put(delivered, :status, :blocked)
+
+    update!(publication, attributes, now)
   end
 
   defp confirm_phase_delivery(
@@ -896,6 +908,45 @@ defmodule Responder.Publication.Custody do
   defp confirm_phase_delivery(_publication, _receipt, _fp, _now),
     do: Repo.rollback(:publication_delivery_not_pending)
 
+  # The person who confirmed the task already authorized this work in the
+  # repository they named, so opening a draft pull request from the exact
+  # candidate that work produced asks them for nothing new. Merge, deployment
+  # and any other repository remain separate decisions, and a candidate the
+  # gate did not clear never reaches here.
+  defp reviewed_or_authorized_draft(publication, delivered, now) do
+    case draft_grant(publication) do
+      actor_ref when is_binary(actor_ref) ->
+        Map.merge(delivered, %{
+          approval_ref: "host:publication:draft:#{publication.id}",
+          approved_at: now,
+          approved_by_actor_ref: actor_ref,
+          status: :publish_pending
+        })
+
+      nil ->
+        Map.put(delivered, :status, :reviewed)
+    end
+  end
+
+  # The grant is the confirmed task record itself: revoke the confirmation or
+  # name a different repository and there is no authority left to carry.
+  defp draft_grant(%Publication{episode_id: episode_id, repository: repository})
+       when is_binary(episode_id) and is_binary(repository) do
+    Repo.one(
+      from(task in Record,
+        where:
+          task.kind == "task_offer" and task.status == :confirmed and
+            task.confirmed_episode_id == ^episode_id and
+            fragment("(?::jsonb) ->> 'repository' = ?", task.payload, ^repository),
+        order_by: [asc: task.sequence],
+        limit: 1,
+        select: task.confirmed_by_actor_ref
+      )
+    )
+  end
+
+  defp draft_grant(_publication), do: nil
+
   defp approve_locked(attributes) do
     case lock_publication(attributes.publication_ref) do
       nil ->
@@ -906,8 +957,8 @@ defmodule Responder.Publication.Custody do
           do: %{publication: publication, status: :duplicate},
           else: Repo.rollback(:publication_approval_conflict)
 
-      %Publication{status: :reviewed} = publication ->
-        with true <- Review.publishable?(publication.review_document),
+      %Publication{status: status} = publication when status in [:reviewed, :blocked] ->
+        with true <- approvable?(publication),
              :ok <- exact_approval_target(publication, attributes.target) do
           approved =
             update!(
@@ -931,6 +982,15 @@ defmodule Responder.Publication.Custody do
         Repo.rollback(:publication_not_reviewed)
     end
   end
+
+  # Merge readiness releases the ordinary publish path. A blocked candidate is
+  # releasable only on the separate draft-shareability verdict, and only by an
+  # explicit operator approval: the host never opens an unverified draft itself.
+  defp approvable?(%Publication{status: :reviewed, review_document: review}),
+    do: Review.publishable?(review)
+
+  defp approvable?(%Publication{status: :blocked, review_document: review}),
+    do: Review.draft_shareable?(review)
 
   defp exact_approval?(publication, attributes) do
     publication.approval_ref == attributes.approval_ref and
@@ -1021,13 +1081,16 @@ defmodule Responder.Publication.Custody do
   defp exact_review_policy(_review, _session),
     do: {:error, :publication_review_policy_mismatch}
 
+  # A snapshot that only a person may share still has to be exactly the change
+  # the review described. Retaining it is preservation, not a claim that any
+  # check passed.
   defp exact_patch(review, patch) do
     cond do
-      Review.publishable?(review) and is_binary(patch) and patch != "" and
+      Review.draft_shareable?(review) and is_binary(patch) and patch != "" and
         byte_size(patch) == review["patch_bytes"] and digest(patch) == review["patch_digest"] ->
         {:ok, patch}
 
-      not Review.publishable?(review) and is_nil(patch) ->
+      not Review.draft_shareable?(review) and is_nil(patch) ->
         {:ok, nil}
 
       true ->

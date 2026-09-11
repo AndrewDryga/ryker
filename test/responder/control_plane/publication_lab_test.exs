@@ -248,12 +248,19 @@ defmodule Responder.ControlPlane.PublicationLabTest do
 
     assert {:ok, review_receipt} = Publisher.publish_message(review_request, nil)
 
-    assert {:ok, %Publication{status: :reviewed}} =
+    # The person who confirmed this task named the repository and the scope, so
+    # the exact candidate their work produced opens as a draft on that same
+    # grant. The operator-owned approval path stays proved on a standalone
+    # publication offer, which carries no task grant, in the first test here.
+    assert {:ok, %Publication{status: :publish_pending} = authorized} =
              PublicationCustody.confirm_delivery(
                readiness.publication.ref,
                review_delivery_claim.lease_ref,
                review_receipt
              )
+
+    assert authorized.approval_ref == "host:publication:draft:#{authorized.id}"
+    assert authorized.approved_by_actor_ref == "control-plane:local"
 
     assert {:ok, reviewed_conversation} = Projection.lab_conversation(@conversation_id)
 
@@ -262,9 +269,7 @@ defmodule Responder.ControlPlane.PublicationLabTest do
       |> Enum.flat_map(& &1.cards)
       |> Enum.find(&(&1.ref == task_offer.ref))
 
-    assert :approve_task_publication in reviewed_task.actions
-    assert :update_task_publication in reviewed_task.actions
-    assert :discard_task_publication in reviewed_task.actions
+    refute :approve_task_publication in reviewed_task.actions
     assert reviewed_task.recovery_generation == 1
     assert reviewed_task.publication_ref == readiness.publication.ref
 
@@ -293,68 +298,22 @@ defmodule Responder.ControlPlane.PublicationLabTest do
     assert newer_publication.ref != readiness.publication.ref
     assert newer_publication.recovery_generation == reviewed_task.recovery_generation
 
-    assert {:ok, recovery} =
-             actions.act_on_lab_record.(
-               @conversation_id,
-               task_offer.ref,
-               :update_task_publication,
-               %{
-                 generation: reviewed_task.recovery_generation,
-                 publication_ref: reviewed_task.publication_ref
-               }
-             )
+    # A recovery control carried over from the pre-autonomous card cannot
+    # re-open a draft the host already committed to, and it must never resolve
+    # onto the newer publication that shares its generation.
+    assert actions.act_on_lab_record.(
+             @conversation_id,
+             task_offer.ref,
+             :update_task_publication,
+             %{
+               generation: reviewed_task.recovery_generation,
+               publication_ref: reviewed_task.publication_ref
+             }
+           ) == {:error, :publication_recovery_not_allowed}
 
-    assert recovery.status == :recorded
-    assert recovery.outcome["status"] == "review_pending"
     assert Repo.get!(Publication, newer_publication.id).status == :review_pending
+    assert Repo.get!(Publication, readiness.publication.id).status == :publish_pending
     Repo.delete!(newer_publication)
-
-    assert {:ok, refreshed_review_claim} =
-             PublicationCustody.claim_next("lab-task-refreshed-review", 60)
-
-    assert {:ok, refreshed_frozen} =
-             PublicationCustody.freeze_review_revision(
-               readiness.publication.ref,
-               refreshed_review_claim.lease_ref,
-               7
-             )
-
-    assert refreshed_frozen.review_generation == 2
-
-    assert {:ok, %{status: :review_ready}} =
-             PublicationCustody.store_review(
-               readiness.publication.ref,
-               refreshed_review_claim.lease_ref,
-               refreshed_frozen.review_generation,
-               review,
-               patch
-             )
-
-    assert {:ok, refreshed_delivery_claim} =
-             PublicationCustody.claim_next("lab-task-refreshed-review-delivery", 60)
-
-    assert {:ok, refreshed_request} =
-             PublicationCustody.delivery_request(refreshed_delivery_claim.publication)
-
-    assert {:ok, refreshed_receipt} = Publisher.publish_message(refreshed_request, nil)
-
-    assert {:ok, %Publication{status: :reviewed}} =
-             PublicationCustody.confirm_delivery(
-               readiness.publication.ref,
-               refreshed_delivery_claim.lease_ref,
-               refreshed_receipt
-             )
-
-    assert {:ok, approval} =
-             actions.act_on_lab_record.(
-               @conversation_id,
-               task_offer.ref,
-               :approve_task_publication,
-               %{publication_ref: readiness.publication.ref}
-             )
-
-    assert approval.status == :approved
-    assert approval.publication.status == :publish_pending
 
     assert {:ok, publish_claim} = PublicationCustody.claim_next("lab-task-publish", 60)
 

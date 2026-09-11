@@ -10,7 +10,7 @@ defmodule Responder.Slack.WorkControls do
   alias Responder.Episodes
   alias Responder.Episodes.Command
   alias Responder.Publication.Custody, as: PublicationCustody
-  alias Responder.Publication.{Followups, Operator, Publication}
+  alias Responder.Publication.{Followups, Operator, Publication, Review}
   alias Responder.Repo
   alias Responder.Slack.{WorkRecord, WorkTarget}
   alias Responder.Work.{Custody, Turn}
@@ -86,7 +86,7 @@ defmodule Responder.Slack.WorkControls do
          {:ok, %{kind: :task} = resolved} <-
            WorkTarget.resolve(attributes.work_ref, attributes.target),
          {:ok, publication} <-
-           publication(resolved.episode.id, attributes.publication_ref, :reviewed),
+           approvable_publication(resolved.episode.id, attributes.publication_ref),
          {:ok, target} <- publication_review_target(publication),
          {:ok, approval} <-
            PublicationCustody.approve(%{
@@ -219,6 +219,27 @@ defmodule Responder.Slack.WorkControls do
   end
 
   defp stoppable_turn(_episode), do: {:error, :work_control_stale}
+
+  # A reviewed candidate publishes on its ordinary path; a blocked one is
+  # offered only when the separate draft-shareability verdict says its exact
+  # snapshot is safe. Custody re-decides both; this is the card's own fence.
+  defp approvable_publication(episode_id, publication_ref) do
+    case Repo.get_by(Publication, episode_id: episode_id, ref: publication_ref) do
+      %Publication{status: :reviewed} = publication ->
+        {:ok, publication}
+
+      %Publication{status: :blocked} = publication ->
+        if Review.draft_shareable?(publication.review_document),
+          do: {:ok, publication},
+          else: {:error, :task_publication_not_ready}
+
+      %Publication{} ->
+        {:error, :task_publication_not_ready}
+
+      nil ->
+        {:error, :task_publication_mismatch}
+    end
+  end
 
   defp publication(episode_id, publication_ref, expected_status) do
     case Repo.get_by(Publication, episode_id: episode_id, ref: publication_ref) do

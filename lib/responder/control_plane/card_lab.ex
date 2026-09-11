@@ -220,15 +220,41 @@ defmodule Responder.ControlPlane.CardLab do
         state(
           "reviewed-publication",
           "Reviewed candidate",
-          "The exact reviewed candidate can be published as a draft pull request.",
+          "No confirmed task grants a draft for this candidate, so opening one stays a person's click.",
           task_document("ready_to_publish", publication("reviewed", ["publish"])),
           %{task_status: "ready_to_publish"}
+        ),
+        state(
+          "autonomous-draft",
+          "Opening the draft",
+          "The confirming person's task grant covers this exact reviewed candidate, so the draft opens with no click.",
+          task_document("reviewing", publication("publish_pending", [], 1))
+          |> put_in(["task_card", "controls"], ~w(timeline evidence handoff))
+          |> put_in(["task_card", "episode_state"], "complete")
+          |> put_in(["task_card", "work_state"], "settled"),
+          %{task_status: "reviewing"}
         ),
         state(
           "blocked-publication",
           "Publication blocked",
           "A recoverable publication failure offers refresh or discard controls.",
           task_document("action_required", publication("blocked", ["update", "discard"], 3)),
+          %{task_status: "action_required"}
+        ),
+        state(
+          "unverified-draft-offer",
+          "Checks unavailable",
+          "The gate could not start in the worker. The exact saved change is offered as an explicitly unverified draft, never opened automatically.",
+          task_document(
+            "action_required",
+            publication(
+              "blocked",
+              ["publish", "update", "discard"],
+              3,
+              false,
+              "docker: command not found"
+            )
+          ),
           %{task_status: "action_required"}
         ),
         state(
@@ -767,6 +793,7 @@ defmodule Responder.ControlPlane.CardLab do
   defp publication_cards do
     review = %{
       "candidate_tree" => String.duplicate("7", 40),
+      "draft_authorized" => false,
       "gate" => "passed",
       "patch_bytes" => 4_096,
       "patch_digest" => String.duplicate("8", 64),
@@ -790,6 +817,12 @@ defmodule Responder.ControlPlane.CardLab do
         }
       ),
       publication_state("review-publishable", "Publishable review", review, "open"),
+      publication_state(
+        "review-authorized",
+        "Authorized draft",
+        %{review | "draft_authorized" => true},
+        "open"
+      ),
       publication_state(
         "review-blocked",
         "Blocked review",
@@ -1866,7 +1899,7 @@ defmodule Responder.ControlPlane.CardLab do
     end)
   end
 
-  defp publication(status, controls, generation \\ 1, published \\ false) do
+  defp publication(status, controls, generation \\ 1, published \\ false, unverified \\ nil) do
     %{
       "controls" => controls,
       "publication_ref" => "publication:card-lab",
@@ -1874,7 +1907,8 @@ defmodule Responder.ControlPlane.CardLab do
       "pull_request_url" =>
         if(published, do: "https://github.com/acme/responder/pull/91", else: nil),
       "recovery_generation" => generation,
-      "status" => status
+      "status" => status,
+      "unverified" => unverified
     }
   end
 

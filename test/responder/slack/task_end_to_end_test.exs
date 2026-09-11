@@ -441,23 +441,26 @@ defmodule Responder.Slack.TaskEndToEndTest do
     assert {:ok, {:executed, %{phase: :delivered}}} =
              Dispatcher.run_once(publication_options)
 
-    assert Repo.get!(Publication, publication.id).status == :reviewed
+    # The confirmed task named this repository and this scope, so its reviewed
+    # candidate becomes a draft on the grant already given. Nobody is asked to
+    # press a button that could not change the candidate, the repository or the
+    # scope, and the card offers no publication click to press.
+    authorized = Repo.get!(Publication, publication.id)
+    assert authorized.status == :publish_pending
+    assert authorized.approval_ref == "host:publication:draft:#{authorized.id}"
+    assert authorized.approved_by_actor_ref == confirmed.confirmed_by_actor_ref
+    assert authorized.approved_at
 
     card = refresh_card!(card, slack_api)
     assert {:ok, reviewed_projection} = TaskCardProjection.build(card)
     reviewed_card = reviewed_projection.document["task_card"]
-    assert reviewed_card["status"] == "ready_to_publish"
-    assert reviewed_card["publication"]["controls"] == ["publish", "update", "discard"]
+    assert reviewed_card["status"] == "reviewing"
+    assert reviewed_card["publication"]["controls"] == []
 
-    assert Gateway.handle_envelope(
-             publication_interaction(
-               card,
-               "responder_task_publish",
-               publication.ref,
-               "publish"
-             ),
-             gateway_settings()
-           ) == {:ack, {:interaction, :approved}}
+    assert {:ok, reviewed_rendered} = Renderer.render(reviewed_projection.document)
+    reviewed_blocks = Jason.encode!(reviewed_rendered)
+    refute reviewed_blocks =~ "responder_task_publish"
+    refute reviewed_blocks =~ "Readiness review complete"
 
     assert {:ok, {:executed, %{phase: :published}}} =
              Dispatcher.run_once(publication_options)
@@ -663,32 +666,6 @@ defmodule Responder.Slack.TaskEndToEndTest do
         "team" => %{"id" => "T123"},
         "type" => "block_actions",
         "user" => %{"id" => actor_ref}
-      },
-      "type" => "interactive"
-    }
-  end
-
-  defp publication_interaction(card, action_id, item_ref, suffix) do
-    %{
-      "envelope_id" => "task-readiness-e2e-#{suffix}",
-      "payload" => %{
-        "actions" => [
-          %{
-            "action_id" => action_id,
-            "type" => "button",
-            "value" => "#{card.ref}|#{item_ref}"
-          }
-        ],
-        "container" => %{
-          "channel_id" => card.channel_ref,
-          "is_ephemeral" => false,
-          "message_ts" => card.message_ref,
-          "thread_ts" => card.thread_ref,
-          "type" => "message"
-        },
-        "team" => %{"id" => card.workspace_ref},
-        "type" => "block_actions",
-        "user" => %{"id" => "U123"}
       },
       "type" => "interactive"
     }

@@ -46,6 +46,111 @@ defmodule Responder.Publication.Review do
   def publishable?(%{"publishable" => true}), do: true
   def publishable?(_document), do: false
 
+  @doc """
+  Decides whether an exact snapshot is safe to share as a draft pull request.
+
+  This is deliberately not `publishable?/1`. Merge readiness asks whether the
+  trusted gate passed; shareability asks whether the host holds one exact,
+  security-clean snapshot a person could read. A gate that could not start is
+  an environment blocker, a gate that failed is work the agent should correct,
+  and a policy finding is neither — collapsing the three into one boolean is
+  what turned "Docker is missing" into "nothing can be shared".
+
+  Shareability never waives a check, grants merge or deployment authority, or
+  by itself authorizes publication: the caller still owns that grant.
+  """
+  @spec draft_verdict(term()) :: map()
+  def draft_verdict(document) when is_map(document) do
+    reasons = draft_reasons(document)
+
+    %{
+      "gate" => document["gate"],
+      "incomplete_checks" => incomplete_checks(document),
+      "reasons" => reasons,
+      "shareable" => reasons == []
+    }
+  end
+
+  def draft_verdict(_document),
+    do: %{
+      "gate" => nil,
+      "incomplete_checks" => [],
+      "reasons" => ["The trusted review is missing."],
+      "shareable" => false
+    }
+
+  @spec draft_shareable?(term()) :: boolean()
+  def draft_shareable?(document), do: draft_verdict(document)["shareable"]
+
+  defp draft_reasons(document) do
+    blocking =
+      [
+        gate_reason(document["gate"]),
+        rebase_reason(document["rebase"]),
+        findings_reason(document["policy_findings"]),
+        snapshot_reason(document)
+      ]
+      |> Enum.reject(&is_nil/1)
+
+    blocking ++ List.wrap(unexplained_reason(document, blocking))
+  end
+
+  # Every clause above returns nil for a clean gate, so a refusal none of them
+  # accounts for would otherwise read as shareable. That is the secret, path,
+  # identity and authorization class, which can never produce a pull request:
+  # the host cannot read the reason, so it cannot call the snapshot safe.
+  defp unexplained_reason(%{"publishable" => true}, _blocking), do: nil
+  defp unexplained_reason(_document, [_reason | _rest]), do: nil
+
+  defp unexplained_reason(%{"gate" => gate}, []) when gate in ~w(startup_error not_run none),
+    do: nil
+
+  defp unexplained_reason(_document, []),
+    do: "The trusted review refused this candidate without a reason the host can read."
+
+  defp gate_reason("failed"), do: "The trusted gate failed."
+  defp gate_reason(gate) when gate in ~w(passed startup_error not_run none), do: nil
+  defp gate_reason(_gate), do: "The trusted gate result is unknown."
+
+  defp rebase_reason("clean"), do: nil
+  defp rebase_reason(_rebase), do: "The change no longer applies to the current base."
+
+  defp findings_reason([]), do: nil
+
+  defp findings_reason(findings) when is_list(findings),
+    do:
+      "The trusted policy review found #{length(findings)} issue#{if length(findings) == 1, do: "", else: "s"}."
+
+  defp findings_reason(_findings), do: "The trusted policy review is unreadable."
+
+  defp snapshot_reason(document) do
+    exact =
+      match?(:ok, reference(document["patch_artifact_id"], :patch_artifact_id)) and
+        digest?(document["patch_digest"]) and is_integer(document["patch_bytes"]) and
+        document["patch_bytes"] > 0 and document["patch_bytes"] <= 64 * 1_024 * 1_024 and
+        document["patch_truncated"] == false
+
+    if exact, do: nil, else: "No exact complete snapshot of the change was retained."
+  end
+
+  # Why a required check has no result is the operator-facing half of "checks
+  # unavailable"; without it the card can only say that something is missing.
+  defp incomplete_checks(%{"gate" => "passed"}), do: []
+
+  defp incomplete_checks(%{"gate" => gate} = document)
+       when gate in ~w(startup_error not_run none) do
+    case document["gate_error"] do
+      error when is_binary(error) and error != "" -> [error]
+      _absent -> incomplete_check_label(gate)
+    end
+  end
+
+  defp incomplete_checks(_document), do: []
+
+  defp incomplete_check_label("startup_error"), do: ["The trusted gate could not start."]
+  defp incomplete_check_label("not_run"), do: ["The trusted gate did not run."]
+  defp incomplete_check_label("none"), do: ["This workspace has no trusted gate configured."]
+
   defp fields(document) do
     keys = Map.keys(document)
 

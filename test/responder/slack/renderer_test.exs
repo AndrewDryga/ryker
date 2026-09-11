@@ -607,7 +607,8 @@ defmodule Responder.Slack.RendererTest do
         "pull_request_number" => 91,
         "pull_request_url" => "https://github.com/acme/responder/pull/91",
         "recovery_generation" => 1,
-        "status" => "published"
+        "status" => "published",
+        "unverified" => nil
       },
       "repository" => "responder",
       "session_generation" => 1,
@@ -648,7 +649,8 @@ defmodule Responder.Slack.RendererTest do
         "pull_request_number" => nil,
         "pull_request_url" => nil,
         "recovery_generation" => 1,
-        "status" => "reviewed"
+        "status" => "reviewed",
+        "unverified" => nil
       })
 
     assert {:ok, reviewed_rendered} = Renderer.render(%{"task_card" => reviewed})
@@ -664,7 +666,8 @@ defmodule Responder.Slack.RendererTest do
         "pull_request_number" => nil,
         "pull_request_url" => nil,
         "recovery_generation" => 3,
-        "status" => "blocked"
+        "status" => "blocked",
+        "unverified" => nil
       })
 
     assert {:ok, recovery_rendered} = Renderer.render(%{"task_card" => recoverable})
@@ -688,7 +691,8 @@ defmodule Responder.Slack.RendererTest do
         "pull_request_number" => 91,
         "pull_request_url" => "https://github.com/acme/responder/pull/91",
         "recovery_generation" => 4,
-        "status" => "published"
+        "status" => "published",
+        "unverified" => nil
       })
 
     assert {:ok, stale_rendered} = Renderer.render(%{"task_card" => stale})
@@ -1257,6 +1261,7 @@ defmodule Responder.Slack.RendererTest do
   test "renders only an exact publishable review as an operator publication control" do
     review = %{
       "candidate_tree" => String.duplicate("7", 40),
+      "draft_authorized" => false,
       "gate" => "passed",
       "patch_bytes" => 4_096,
       "patch_digest" => String.duplicate("8", 64),
@@ -1304,6 +1309,141 @@ defmodule Responder.Slack.RendererTest do
 
     refute inspect(blocked_rendered) =~ "responder_publish_draft"
     assert inspect(blocked_rendered) =~ "gate_failed"
+  end
+
+  # Every confirmed coding task ended on a button that could not change the
+  # candidate, the repository or the scope. Once the host already holds the
+  # confirming person's grant, the review card has to say what is happening;
+  # rendering the click anyway is how "authorized" and "awaiting you" became
+  # the same card.
+  test "an authorized draft states what it is doing instead of asking for a click" do
+    review = %{
+      "candidate_tree" => String.duplicate("7", 40),
+      "draft_authorized" => true,
+      "gate" => "passed",
+      "patch_bytes" => 4_096,
+      "patch_digest" => String.duplicate("8", 64),
+      "policy_findings" => [],
+      "publishable" => true,
+      "reasons" => [],
+      "rebase" => "clean",
+      "repository" => "responder",
+      "title" => "Fix retry reconciliation"
+    }
+
+    assert {:ok, rendered} =
+             Renderer.render(%{
+               "message" => "The exact committed candidate passed review.",
+               "records" => [
+                 %{
+                   "kind" => "publication_review",
+                   "payload" => review,
+                   "ref" => "publication:abc123",
+                   "status" => "open"
+                 }
+               ]
+             })
+
+    refute Enum.any?(rendered["blocks"], &(&1["type"] == "actions")),
+           "an already-granted draft must not render a publication click"
+
+    refute inspect(rendered) =~ "responder_publish_draft"
+    assert inspect(rendered) =~ "opening the draft pull request"
+  end
+
+  # Andrew's 2026-09-09 hosted-runner recovery: the gate could not start, so the
+  # card could only say "blocked" and offer nothing. A draft a person can read is
+  # a different question from a change that is ready to merge, and the
+  # confirmation has to name the repository and the check that never ran.
+  test "an unverified draft offer names its repository and its missing check" do
+    task =
+      publication_task_card(%{
+        "controls" => ["publish", "update", "discard"],
+        "publication_ref" => "publication:def456",
+        "pull_request_number" => nil,
+        "pull_request_url" => nil,
+        "recovery_generation" => 3,
+        "status" => "blocked",
+        "unverified" => "docker: command not found"
+      })
+
+    assert {:ok, rendered} = Renderer.render(%{"task_card" => task})
+    encoded = Jason.encode!(rendered)
+
+    assert encoded =~ "docker: command not found"
+    refute encoded =~ "PR creation is blocked"
+
+    assert [publish | _rest] =
+             rendered["blocks"]
+             |> Enum.flat_map(&Map.get(&1, "elements", []))
+             |> Enum.filter(&(&1["action_id"] == "responder_task_publish"))
+
+    assert publish["text"]["text"] == "Create draft PR"
+    confirmation = publish["confirm"]["text"]["text"]
+    assert confirmation =~ "responder"
+    assert confirmation =~ "docker: command not found"
+    assert confirmation =~ "does not waive them"
+    assert confirmation =~ "does not merge or deploy"
+
+    # Nothing here says the gate passed, and the older wording that treated a
+    # publishable candidate and an unverified snapshot as one thing is gone.
+    refute encoded =~ "Readiness review complete"
+
+    unshareable = put_in(task, ["publication", "unverified"], nil)
+    unshareable = put_in(unshareable, ["publication", "controls"], ["update", "discard"])
+
+    assert {:ok, blocked_rendered} = Renderer.render(%{"task_card" => unshareable})
+    blocked_encoded = Jason.encode!(blocked_rendered)
+    assert blocked_encoded =~ "PR creation is blocked"
+    refute blocked_encoded =~ "responder_task_publish"
+  end
+
+  # The superseded routine handoff told an operator to create a draft PR after
+  # every readiness review, including the ones Responder was already authorized
+  # to open. The sentence itself is the regression.
+  test "a reviewed candidate explains the missing grant rather than handing work back" do
+    task =
+      publication_task_card(%{
+        "controls" => ["publish", "update", "discard"],
+        "publication_ref" => "publication:def456",
+        "pull_request_number" => nil,
+        "pull_request_url" => nil,
+        "recovery_generation" => 1,
+        "status" => "reviewed",
+        "unverified" => nil
+      })
+
+    assert {:ok, rendered} = Renderer.render(%{"task_card" => task})
+    encoded = Jason.encode!(rendered)
+
+    refute encoded =~ "Readiness review complete. Create a draft PR when you are ready."
+    assert encoded =~ "don't have a draft-PR grant"
+
+    assert [publish | _rest] =
+             rendered["blocks"]
+             |> Enum.flat_map(&Map.get(&1, "elements", []))
+             |> Enum.filter(&(&1["action_id"] == "responder_task_publish"))
+
+    assert publish["confirm"]["text"]["text"] =~ "responder"
+    refute publish["confirm"]["text"]["text"] =~ "waive"
+
+    # An authorized task is already publishing, so its card offers nothing to
+    # click and never re-poses the question.
+    publishing =
+      publication_task_card(%{
+        "controls" => [],
+        "publication_ref" => "publication:def456",
+        "pull_request_number" => nil,
+        "pull_request_url" => nil,
+        "recovery_generation" => 1,
+        "status" => "publish_pending",
+        "unverified" => nil
+      })
+
+    assert {:ok, publishing_rendered} = Renderer.render(%{"task_card" => publishing})
+    publishing_encoded = Jason.encode!(publishing_rendered)
+    assert publishing_encoded =~ "Creating the draft PR"
+    refute publishing_encoded =~ "responder_task_publish"
   end
 
   test "a published pull request has host-owned open and delivery-check controls" do
@@ -1680,7 +1820,8 @@ defmodule Responder.Slack.RendererTest do
         "pull_request_number" => nil,
         "pull_request_url" => nil,
         "recovery_generation" => nil,
-        "status" => "review_pending"
+        "status" => "review_pending",
+        "unverified" => nil
       })
 
     assert {:ok, rendered} = Renderer.render(%{"task_card" => readiness})
@@ -1848,6 +1989,16 @@ defmodule Responder.Slack.RendererTest do
       "updated_at" => "2026-08-28T12:01:00.000000Z",
       "work_state" => nil
     }
+  end
+
+  defp publication_task_card(publication) do
+    "action_required"
+    |> task_document()
+    |> Map.merge(%{
+      "episode_state" => "complete",
+      "publication" => publication,
+      "work_state" => "settled"
+    })
   end
 
   defp incident_document(status) do

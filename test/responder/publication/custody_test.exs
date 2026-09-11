@@ -8,7 +8,7 @@ defmodule Responder.Publication.CustodyTest do
   alias Responder.Observability
   alias Responder.Publication.Custody, as: PublicationCustody
   alias Responder.Publication.Operator, as: PublicationOperator
-  alias Responder.Publication.Publication
+  alias Responder.Publication.{Publication, Review}
   alias Responder.Repo
   alias Responder.State.Records
 
@@ -369,7 +369,10 @@ defmodule Responder.Publication.CustodyTest do
       }
     }
 
-    assert PublicationCustody.approve(crossed) == {:error, :publication_not_reviewed}
+    # A failed gate is not a shareable snapshot either, so the verdict answers
+    # before the crossed control ever matters. The crossed-target fence itself
+    # is proved on a candidate that IS shareable, below.
+    assert PublicationCustody.approve(crossed) == {:error, :publication_not_publishable}
   end
 
   test "review mutations reconcile exact generations, revisions, leases, policy, and patch bytes" do
@@ -773,6 +776,272 @@ defmodule Responder.Publication.CustodyTest do
            ) == {:error, {:invalid_publication_recovery, :publication_ref}}
   end
 
+  # Every confirmed coding task used to stop here and ask a person to press
+  # "Create draft PR" on a candidate the host had already reviewed under the
+  # authority that person granted when they confirmed the task. The click bought
+  # nothing: it could not change the candidate, the repository or the scope.
+  test "a reviewed candidate under a confirmed task's own grant becomes a draft with no click" do
+    %{claim: claim, publication: publication} =
+      task_reviewed_publication!("auto-draft", confirmed_repository: "responder")
+
+    assert publication.status == :publish_pending,
+           "an authorized reviewed candidate must not wait for a publication click"
+
+    assert publication.approval_ref == "host:publication:draft:#{publication.id}"
+    assert publication.approved_by_actor_ref == "slack:user:U-confirmer"
+    assert publication.approved_at
+
+    # The grant is the person's, carried from the task they confirmed. Nothing
+    # here is a merge, deployment or cross-repository permission.
+    assert publication.repository == "responder"
+
+    assert {:ok, publish_claim} = PublicationCustody.claim_next("publication:auto-draft", 60)
+    assert publish_claim.publication.id == publication.id
+
+    # A replayed operator approval reconciles to the same publication instead of
+    # opening a second pull request for the same work.
+    assert {:ok, %{status: :duplicate, publication: same}} =
+             PublicationCustody.approve(%{
+               actor_ref: "slack:user:U-confirmer",
+               approval_ref: publication.approval_ref,
+               occurred_at: publication.approved_at,
+               publication_ref: publication.ref,
+               target: %{
+                 conversation_ref: claim.episode.destination_conversation_ref,
+                 message_ref: publication.review_delivery_receipt["message_ref"],
+                 thread_ref: claim.episode.destination_thread_ref,
+                 transport: "slack"
+               }
+             })
+
+    assert same.id == publication.id
+
+    assert [_one] =
+             Repo.all(from(p in Publication, where: p.episode_id == ^claim.episode.id))
+  end
+
+  test "a revoked or differently scoped task grant leaves publication to a person" do
+    %{publication: revoked} =
+      task_reviewed_publication!("revoked-grant",
+        confirmed_repository: "responder",
+        task_status: :superseded
+      )
+
+    assert revoked.status == :reviewed
+    assert revoked.approval_ref == nil
+
+    %{publication: crossed} =
+      task_reviewed_publication!("crossed-grant", confirmed_repository: "other-service")
+
+    assert crossed.status == :reviewed,
+           "a task confirmed for another repository grants nothing here"
+
+    assert crossed.approval_ref == nil
+
+    %{publication: unconfirmed} = task_reviewed_publication!("no-task", confirmed_repository: nil)
+    assert unconfirmed.status == :reviewed
+    assert unconfirmed.approval_ref == nil
+  end
+
+  test "an operator's discard is the last word on publishing that candidate" do
+    %{claim: claim, publication: blocked} =
+      task_reviewed_publication!("no-pr",
+        confirmed_repository: "responder",
+        gate: "startup_error"
+      )
+
+    # Checks could not run, so the host never publishes on its own; the safe
+    # snapshot is offered to a person instead.
+    assert blocked.status == :blocked
+    assert blocked.approval_ref == nil
+    assert blocked.review_patch
+
+    assert {:ok, %{publication: discarded}} =
+             PublicationCustody.recover(blocked.ref, :discard, blocked.recovery_generation)
+
+    assert discarded.status == :discarded
+
+    approval = %{
+      actor_ref: "slack:user:U-confirmer",
+      approval_ref: "interaction:publish:no-pr",
+      occurred_at: DateTime.add(@now, 3, :second),
+      publication_ref: blocked.ref,
+      target: %{
+        conversation_ref: claim.episode.destination_conversation_ref,
+        message_ref: blocked.review_delivery_receipt["message_ref"],
+        thread_ref: claim.episode.destination_thread_ref,
+        transport: "slack"
+      }
+    }
+
+    assert PublicationCustody.approve(approval) == {:error, :publication_not_reviewed}
+    assert Repo.get!(Publication, blocked.id).status == :discarded
+  end
+
+  test "a safe snapshot whose checks could not run is offered, never published automatically" do
+    %{claim: claim, publication: blocked} =
+      task_reviewed_publication!("checks-unavailable",
+        confirmed_repository: "responder",
+        gate: "startup_error"
+      )
+
+    assert blocked.status == :blocked
+    assert blocked.approval_ref == nil
+
+    # "Checkpointing is preservation, not evidence that a gate passed": the
+    # exact snapshot survives so a person can read it, and the missing check
+    # stays missing.
+    assert blocked.review_patch == "diff --git a/lib/fix.ex b/lib/fix.ex\n+fixed\n"
+    refute Review.publishable?(blocked.review_document)
+    assert Review.draft_shareable?(blocked.review_document)
+
+    approval = %{
+      actor_ref: "slack:user:U-confirmer",
+      approval_ref: "interaction:publish:checks-unavailable",
+      occurred_at: DateTime.add(@now, 3, :second),
+      publication_ref: blocked.ref,
+      target: %{
+        conversation_ref: claim.episode.destination_conversation_ref,
+        message_ref: blocked.review_delivery_receipt["message_ref"],
+        thread_ref: claim.episode.destination_thread_ref,
+        transport: "slack"
+      }
+    }
+
+    assert PublicationCustody.approve(put_in(approval, [:target, :message_ref], "message:other")) ==
+             {:error, :publication_review_delivery_mismatch}
+
+    assert {:ok, %{status: :approved, publication: approved}} =
+             PublicationCustody.approve(approval)
+
+    assert approved.status == :publish_pending
+  end
+
+  test "a failed gate or a policy finding can never be shared as a draft" do
+    for {suffix, overrides} <- [
+          {"gate-failed", %{gate: "failed"}},
+          {"policy-finding", %{gate: "passed", policy_findings: ["A secret was written."]}}
+        ] do
+      %{claim: claim, publication: blocked} =
+        task_reviewed_publication!(
+          suffix,
+          Keyword.merge([confirmed_repository: "responder"], Map.to_list(overrides))
+        )
+
+      assert blocked.status == :blocked
+      assert blocked.review_patch == nil, "an unshareable candidate retains no snapshot"
+
+      assert PublicationCustody.approve(%{
+               actor_ref: "slack:user:U-confirmer",
+               approval_ref: "interaction:publish:#{suffix}",
+               occurred_at: DateTime.add(@now, 3, :second),
+               publication_ref: blocked.ref,
+               target: %{
+                 conversation_ref: claim.episode.destination_conversation_ref,
+                 message_ref: blocked.review_delivery_receipt["message_ref"],
+                 thread_ref: claim.episode.destination_thread_ref,
+                 transport: "slack"
+               }
+             }) == {:error, :publication_not_publishable}
+    end
+  end
+
+  defp task_reviewed_publication!(suffix, options) do
+    %{claim: claim, offer: offer, offer_receipt: receipt, task: task} =
+      delivered_offer!(suffix, task_repository: Keyword.fetch!(options, :confirmed_repository))
+
+    confirm_task!(task, claim, suffix, options)
+
+    assert {:ok, %{publication: publication}} =
+             PublicationCustody.request_review(review_request(claim, offer, receipt))
+
+    assert {:ok, review_claim} = PublicationCustody.claim_next("publication:#{suffix}", 60)
+
+    assert {:ok, frozen} =
+             PublicationCustody.freeze_review_revision(publication.ref, review_claim.lease_ref, 7)
+
+    gate = Keyword.get(options, :gate, "passed")
+    findings = Keyword.get(options, :policy_findings, [])
+    shareable? = gate != "failed" and findings == []
+    patch = if shareable?, do: "diff --git a/lib/fix.ex b/lib/fix.ex\n+fixed\n"
+
+    review =
+      claim
+      |> review_document()
+      |> Map.merge(%{
+        "gate" => gate,
+        "not_publishable_reasons" =>
+          if(gate == "passed" and findings == [], do: [], else: ["The checks did not pass."]),
+        "patch_bytes" => if(patch, do: byte_size(patch), else: 0),
+        "patch_digest" => if(patch, do: digest(patch), else: nil),
+        "policy_findings" => findings,
+        "publishable" => gate == "passed" and findings == []
+      })
+
+    assert {:ok, _ready} =
+             PublicationCustody.store_review(
+               publication.ref,
+               review_claim.lease_ref,
+               frozen.review_generation,
+               review,
+               patch
+             )
+
+    assert {:ok, delivery_claim} =
+             PublicationCustody.claim_next("publication:#{suffix}:delivery", 60)
+
+    assert {:ok, request} = PublicationCustody.delivery_request(delivery_claim.publication)
+
+    assert {:ok, delivery_receipt} =
+             DeliveryReceipt.new(
+               request.ref,
+               request.transport,
+               request.conversation_ref,
+               request.thread_ref,
+               "message:#{suffix}:review"
+             )
+
+    assert {:ok, publication} =
+             PublicationCustody.confirm_delivery(
+               publication.ref,
+               delivery_claim.lease_ref,
+               delivery_receipt
+             )
+
+    %{claim: claim, publication: publication, review_request: request}
+  end
+
+  # The publication's own episode is the task episode; its grant lives on the
+  # task_offer record a person confirmed in the conversation that proposed it.
+  # The real parent/child confirmation path is exercised end to end in
+  # `Responder.Slack.TaskEndToEndTest`.
+  defp confirm_task!(nil, _claim, _suffix, _options), do: :ok
+
+  defp confirm_task!(task, claim, suffix, options) do
+    confirmation =
+      case Keyword.get(options, :task_status, :confirmed) do
+        :confirmed ->
+          [
+            confirmation_ref: "interaction:confirm:#{suffix}",
+            confirmed_at: @now,
+            confirmed_by_actor_ref: "slack:user:U-confirmer",
+            confirmed_episode_id: claim.episode.id,
+            status: :confirmed
+          ]
+
+        revoked ->
+          [status: revoked]
+      end
+
+    {1, _rows} =
+      Repo.update_all(
+        from(record in Responder.State.Record, where: record.id == ^task.id),
+        set: confirmation
+      )
+
+    :ok
+  end
+
   defp admit_followup!(claim) do
     command =
       EpisodeFixtures.admit_input(%{
@@ -855,8 +1124,9 @@ defmodule Responder.Publication.CustodyTest do
     publication
   end
 
-  defp delivered_offer!(suffix) do
+  defp delivered_offer!(suffix, options \\ []) do
     claim = claim_episode!(suffix)
+    task = task_offer!(claim, suffix, Keyword.get(options, :task_repository))
 
     assert {:ok, _goal} =
              Records.create(Records.token(claim.turn), "goal-#{suffix}", "goal", %{
@@ -951,7 +1221,21 @@ defmodule Responder.Publication.CustodyTest do
                offer_receipt
              )
 
-    %{claim: claim, offer: offer, offer_receipt: offer_receipt}
+    %{claim: claim, offer: offer, offer_receipt: offer_receipt, task: task}
+  end
+
+  defp task_offer!(_claim, _suffix, nil), do: nil
+
+  defp task_offer!(claim, suffix, repository) do
+    assert {:ok, task} =
+             Records.create(Records.token(claim.turn), "task-#{suffix}", "task_offer", %{
+               "kind" => "engineering",
+               "prompt" => "Implement #{suffix} and run the focused checks.",
+               "repository" => repository,
+               "title" => "Implement #{suffix}"
+             })
+
+    task
   end
 
   defp claim_episode!(suffix) do

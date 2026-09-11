@@ -60,7 +60,7 @@ defmodule Responder.Publication.Request do
          :ok <- text(request.title, 120, :title),
          :ok <- text(request.body, 8_000, :body),
          :ok <- validate_existing_pull_request(request.existing_pull_request),
-         true <- is_map(request.review) and Review.publishable?(request.review),
+         true <- is_map(request.review) and Review.draft_shareable?(request.review),
          true <- is_binary(request.patch) and request.patch != "",
          true <- byte_size(request.patch) == request.review["patch_bytes"],
          true <- digest(request.patch) == request.review["patch_digest"],
