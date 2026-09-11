@@ -71,7 +71,7 @@ defmodule Responder.Evals.WorldCaseTest do
 
   test "compiles the versioned model-world scenario matrix" do
     assert {:ok, scenarios} = WorldCase.all(@scenario_root)
-    assert length(scenarios) == 28
+    assert length(scenarios) == 30
     assert {:ok, scenario} = WorldCase.fetch(@health_scenario, @scenario_root)
 
     assert scenario.id == "va1-health-review-repairs-and-finishes"

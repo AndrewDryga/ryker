@@ -551,6 +551,57 @@ defmodule Responder.ControlPlane.EpisodeTraceTest do
     Repo.get!(Turn, turn.id)
   end
 
+  test "the trace says where cross-conversation evidence came from and how membership was corrected" do
+    # A merged episode used to look like it had simply lost its messages, and
+    # an episode gathering evidence from three channels looked like one thread.
+    # An operator has to be able to read both from the trace itself.
+    {_entry, episode} = admitted_input!()
+
+    Repo.insert!(%Responder.Episodes.Origin{
+      id: Ecto.UUID.generate(),
+      episode_id: episode.id,
+      input_ref: "admit_input:joined",
+      sequence: 2,
+      native_input_id: "slack-message:joined",
+      revision: 1,
+      source_kind: "slack",
+      source_ref: "TC9F5B40D364C",
+      source_item_ref: "1788562400.000100",
+      actor_ref: "slack:user:U999",
+      transport: "slack",
+      conversation_ref: "slack:TC9F5B40D364C:CENGINEERING",
+      thread_ref: "1788562400.000100",
+      origin_kind: :channel_root,
+      root_ref: "1788562400.000100",
+      occurred_at: @received,
+      effective: true
+    })
+
+    correction =
+      Repo.insert!(%Responder.Episodes.AssociationCorrection{
+        actor_ref: "slack:user:UOPERATOR",
+        applied_at: @received,
+        confirmation_ref: "operator-confirmation:trace",
+        input_refs: ["admit_input:joined"],
+        kind: :reassign,
+        reason: "The database question belongs to the outage, not the release.",
+        source_episode_id: Ecto.UUID.generate(),
+        target_episode_id: episode.id
+      })
+
+    trace = EpisodeTrace.project(episode, [], [])
+
+    gathered = Enum.find(trace.steps, &(&1.id == "origins-#{episode.id}"))
+    assert gathered.title == "Evidence joined from 2 conversations"
+    assert inspect(gathered.details) =~ "CENGINEERING"
+    assert inspect(gathered.details) =~ "slack:TC9F5B40D364C:C456"
+
+    moved = Enum.find(trace.steps, &(&1.id == "association-#{correction.id}"))
+    assert moved.title == "Messages moved into this episode by an audited correction"
+    assert moved.summary == correction.reason
+    assert inspect(moved.details) =~ "operator-confirmation:trace"
+  end
+
   defp admitted_input! do
     {:ok, input} =
       Input.new(%{

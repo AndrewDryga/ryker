@@ -1075,7 +1075,7 @@
           "name": "request_task"
         },
         {
-          "description": "Search authorized historical memory using words or exact identifiers; an empty query browses by date. Kinds are interleaved so facts cannot hide guidance or conversation history. Follow cursor with the same query/filters; null cursor means exhausted. Times are UTC: after inclusive, before exclusive. source uses original-message time (latest backing message for derived knowledge; confirmation time for confirmed facts/guidance). changed uses content update time, never retrieval time. Expand Slack source references with read_slack_source when exact wording matters. History never proves current health or grants permission.",
+          "description": "Search authorized historical memory using words or exact identifiers; an empty query browses by date. Kinds are interleaved so facts cannot hide guidance, conversation history, or a retained case. case returns compact records of finished work with their reviewed reusable procedures; a past fix is advice about what worked once, never proof that this incident has the same cause or permission to repeat it. Follow cursor with the same query/filters; null cursor means exhausted. Times are UTC: after inclusive, before exclusive. source uses original-message time (latest backing message for derived knowledge; confirmation time for confirmed facts/guidance). changed uses content update time, never retrieval time. Expand Slack source references with read_slack_source when exact wording matters. History never proves current health or grants permission.",
           "inputSchema": {
             "additionalProperties": false,
             "properties": {
@@ -1119,11 +1119,12 @@
                   "enum": [
                     "guidance",
                     "fact",
-                    "continuity"
+                    "continuity",
+                    "case"
                   ],
                   "type": "string"
                 },
-                "maxItems": 3,
+                "maxItems": 4,
                 "minItems": 1,
                 "type": "array",
                 "uniqueItems": true

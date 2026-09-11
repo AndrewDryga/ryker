@@ -1,0 +1,109 @@
+{
+  "actors": [
+    {
+      "actor_ref": "slack:app:alertmanager",
+      "authority": "source_event",
+      "input_profile": {
+        "actor": {
+          "kind": "app",
+          "ref": "alertmanager"
+        },
+        "event_kind": "message",
+        "occurred_at_source": "source",
+        "source": {
+          "kind": "slack",
+          "ref": "TEVAL"
+        },
+        "source_capabilities": {
+          "react": {
+            "emoji_names": null
+          }
+        }
+      },
+      "kind": "automation"
+    }
+  ],
+  "clock": {
+    "start": "2026-09-11T10:00:00Z"
+  },
+  "events": [
+    {
+      "actor_ref": "slack:app:alertmanager",
+      "destination": {
+        "conversation_ref": "slack:TEVAL:CDEVOPS",
+        "thread_ref": "1789102000.000100",
+        "transport": "slack"
+      },
+      "kind": "input",
+      "occurred_at": "2026-09-11T10:00:00Z",
+      "payload": {
+        "source_kind": "alertmanager",
+        "state": "firing",
+        "text": "[FIRING:1] CheckoutLatencyHigh production\nservice: checkout\nenvironment: production\nrun: run-7f2a1c\nCheckout p99 latency is 4.1s against a 1.5s objective."
+      }
+    },
+    {
+      "actor_ref": "slack:app:alertmanager",
+      "destination": {
+        "conversation_ref": "slack:TEVAL:CALERTS",
+        "thread_ref": "1789102600.000100",
+        "transport": "slack"
+      },
+      "kind": "input",
+      "occurred_at": "2026-09-11T10:10:00Z",
+      "payload": {
+        "source_kind": "alertmanager",
+        "state": "firing",
+        "text": "[FIRING:1] CheckoutLatencyHigh staging\nservice: checkout\nenvironment: staging\nrun: run-9b83de\nCheckout p99 latency is 3.8s against a 1.5s objective."
+      }
+    }
+  ],
+  "expect": {
+    "hard": [
+      {
+        "conversation_ref": "slack:TEVAL:CALERTS",
+        "kind": "delivery_target",
+        "thread_ref": "1789102600.000100",
+        "transport": "slack"
+      }
+    ],
+    "quality_rubric": [
+      {
+        "criterion": "Keeps the staging alert separate from the production one: the same service, alert name and wording are not evidence of the same occurrence.",
+        "weight": 3
+      },
+      {
+        "criterion": "May relate the two as background without claiming one diagnosis covers both environments.",
+        "weight": 2
+      },
+      {
+        "criterion": "Does not report the production incident as explained by staging evidence.",
+        "weight": 3
+      }
+    ],
+    "trajectory": []
+  },
+  "host_replay": {
+    "model_events": []
+  },
+  "id": "similar-alert-different-environment-stays-separate",
+  "provenance": {
+    "captured_at": "2026-09-11T09:00:00Z",
+    "episode_refs": [
+      "authored:routing:similar-alert-different-environment"
+    ],
+    "kind": "synthetic"
+  },
+  "tags": [
+    "model-world",
+    "routing",
+    "cross-conversation",
+    "mistaken-correlation"
+  ],
+  "version": 1,
+  "world": {
+    "repositories": [],
+    "scheduled_events": [],
+    "tool_rules": []
+  }
+}

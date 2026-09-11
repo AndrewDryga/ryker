@@ -13,13 +13,14 @@ defmodule Responder.Evals.WorldCoverage do
   @maximum_bytes 64 * 1_024
   @root_fields ~w(failure_axes jobs version)
   @required_jobs ~w(
-    application_errors artifacts automation_waits creative_requests engineering_work grafana
-    github_review incident_response memory_feedback multi_user_threads ordinary_conversation research
-    terraform uptime
+    application_errors artifacts automation_waits creative_requests cross_conversation_routing
+    engineering_work grafana github_review incident_response memory_feedback multi_user_threads
+    ordinary_conversation research terraform uptime
   )
   @required_failure_axes ~w(
-    concurrent_human_feedback denied_authority missing_stale_contradictory_evidence noisy_context
-    process_restart rate_limit reconnect source_lifecycle_changes uncertain_delivery worker_loss
+    concurrent_human_feedback denied_authority missing_stale_contradictory_evidence
+    mistaken_correlation noisy_context process_restart rate_limit reconnect
+    source_lifecycle_changes uncertain_delivery worker_loss
   )
 
   @type report :: %{

@@ -26,15 +26,17 @@ defmodule Responder.ControlPlane.EpisodeTrace do
   alias Responder.CoopFleet.Event, as: CoopEvent
   alias Responder.CoopFleet.Placement
   alias Responder.Delivery.PlatformAction
-  alias Responder.Episodes.{Episode, Event}
+  alias Responder.Episodes.{AssociationCorrection, CorrelationClaims, Episode, Event, Origins}
   alias Responder.Ingress.Inbox
+
   alias Responder.Ingress.Inbox.Entry
   alias Responder.Learning.InputMembership
   alias Responder.Operator.EpisodeReview
   alias Responder.Publication.Publication
   alias Responder.Repo
   alias Responder.Slack.IncidentRoom
-  alias Responder.State.{Behaviors, LearningRun, Record, Schedule}
+  alias Responder.State.{Behaviors, CaseRecord, LearningRun, Record, Schedule}
+
   alias Responder.Work.{Activity, ActivityEvent, ActivityPaths, Custody, Session, Turn}
 
   @chapters [
@@ -93,6 +95,7 @@ defmodule Responder.ControlPlane.EpisodeTrace do
     steps =
       []
       |> Kernel.++(kernel_steps(events, inputs))
+      |> Kernel.++(association_steps(episode))
       |> Kernel.++(preparation_steps(input_rows))
       |> Kernel.++(setup_steps(sessions, turns))
       |> Kernel.++(turn_steps(turns, sessions))
@@ -137,6 +140,93 @@ defmodule Responder.ControlPlane.EpisodeTrace do
   # Only offer another page when one exists and the bound has not been reached.
   defp next_activity_page(%{truncated: true}, pages) when pages < 10, do: pages + 1
   defp next_activity_page(_page, _pages), do: nil
+
+  # One piece of work can be reported in several places. An operator reading
+  # this trace has to see where its evidence actually came from, which signals
+  # are still firing, and every audited change of membership -- otherwise a
+  # merged episode looks like it simply lost its messages.
+  defp association_steps(%Episode{} = episode) do
+    origins = Origins.for_episode(episode.id)
+    conversations = origins |> Enum.map(& &1.conversation_ref) |> Enum.uniq()
+
+    gathered_steps(episode, origins, conversations) ++ correction_steps(episode)
+  end
+
+  defp gathered_steps(_episode, _origins, conversations) when length(conversations) < 2, do: []
+
+  defp gathered_steps(episode, origins, conversations) do
+    claims = CorrelationClaims.for_episode(episode.id)
+    firing = Enum.count(claims, &(&1.status == :active and &1.lifecycle_state == :active))
+
+    [
+      step("origins-#{episode.id}", :ready, List.last(origins).occurred_at, %{
+        actor: "Episode kernel",
+        stage: "Routing",
+        state: "",
+        title: "Evidence joined from #{length(conversations)} conversations",
+        summary:
+          "Membership is per message: progress stays in one home and each message is answered where it was written.",
+        details:
+          compact_details([
+            {"Progress home", episode.destination_conversation_ref},
+            {"Contributing conversations", Enum.join(conversations, ", ")},
+            {"Messages", length(origins)},
+            {"Signals still firing", if(claims != [], do: "#{firing} of #{length(claims)}")},
+            {"Retained case", retained_case_ref(episode.id)}
+          ])
+      })
+    ]
+  end
+
+  defp correction_steps(%Episode{} = episode) do
+    Repo.all(
+      from(correction in AssociationCorrection,
+        where:
+          correction.source_episode_id == ^episode.id or
+            correction.target_episode_id == ^episode.id,
+        order_by: [asc: correction.applied_at]
+      )
+    )
+    |> Enum.map(fn correction ->
+      step("association-#{correction.id}", :ready, correction.applied_at, %{
+        actor: "Operator",
+        stage: "Routing",
+        state: Atom.to_string(correction.kind),
+        title: correction_title(correction, episode),
+        summary: correction.reason,
+        details:
+          compact_details([
+            {"Confirmed by", correction.actor_ref},
+            {"Confirmation", correction.confirmation_ref},
+            {"Messages moved", length(correction.input_refs)}
+          ])
+      })
+    end)
+  end
+
+  defp correction_title(%{kind: :merge, source_episode_id: id}, %Episode{id: id}),
+    do: "Merged into another episode by an audited correction"
+
+  defp correction_title(%{kind: :merge}, _episode),
+    do: "Absorbed another episode by an audited correction"
+
+  defp correction_title(%{kind: :split}, _episode),
+    do: "Messages removed from this work by an audited correction"
+
+  defp correction_title(%{kind: :reassign, source_episode_id: id}, %Episode{id: id}),
+    do: "Messages moved to another episode by an audited correction"
+
+  defp correction_title(%{kind: :reassign}, _episode),
+    do: "Messages moved into this episode by an audited correction"
+
+  defp retained_case_ref(episode_id) do
+    Repo.one(
+      from(record in CaseRecord,
+        where: record.episode_id == ^episode_id and record.status == :active,
+        select: record.case_ref
+      )
+    )
+  end
 
   defp slack_status_steps(episode_id) do
     Enum.map(ThreadStatusReceipts.for_episode(episode_id), fn receipt ->

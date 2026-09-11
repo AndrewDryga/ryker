@@ -132,6 +132,19 @@ the isolated fixtures preserve original message bodies, event times, and model p
 source references are explicitly rebound. Do not disable parallelism or change production locks
 to accommodate shared fixture identities.
 
+Two scenarios cover cross-conversation routing, and both are authored rather than harvested,
+because the retained corpus contains no cross-channel case and capturing one would mean posting a
+synthetic incident into a production channel. `one-outage-two-channels-joins-one-episode` reports
+one outage as an alert in one channel and a human question in another; its hard expectations are
+host facts — one episode and one session for both messages, and the answer delivered in the thread
+the question was asked in. `similar-alert-different-environment-stays-separate` is its negative
+half: two alerts that share a service, a name and almost all of their wording and differ only in
+environment and run identity. Whether those stay separate is a judgement about evidence, so it is
+scored by the rubric rather than asserted as a host fact. Neither scenario fabricates a model
+answer, a tool result or a Slack receipt. The world runner joins the channels a scenario's own
+inputs arrive in as ordinary non-private, non-shared channels; correlation reaches nothing the
+scenario did not declare.
+
 The world scenarios pin the production Responder tool schemas separately from their recorded
 external tool world. When a host tool schema changes, refresh only that generated portion:
 
