@@ -72,7 +72,12 @@ defmodule Responder.ControlPlane.EpisodeRequest do
       >
         <h4 class="sr-only">Briefing sources</h4>
         {Phoenix.HTML.raw(
-          RequestContextHTML.briefing(@request.sections, @request.source_kind, @request.id)
+          RequestContextHTML.briefing(
+            @request.sections,
+            @request.source_kind,
+            @request.id,
+            @request[:counts] || %{}
+          )
         )}
         <%= for section <- @input_sections do %>
           <details

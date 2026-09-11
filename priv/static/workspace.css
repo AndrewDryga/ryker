@@ -1321,3 +1321,6 @@ details.measurement-notes > summary { cursor:pointer; font-weight:600; color:var
 .setup-facts { grid-column:1 / -1; margin:8px 0 0; }
 .work-setup[data-state="blocked"] .case-event-summary { color:#942f28; }
 
+/* Counted partial summaries: what a row counted over, before opening it. */
+.prompt-source-count { font-size:13px; color:#536256; margin-left:8px; }
+.prompt-source-count-unknown { color:#7a6a3f; }

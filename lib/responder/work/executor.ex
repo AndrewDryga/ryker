@@ -212,16 +212,18 @@ defmodule Responder.Work.Executor do
          submission_options <-
            [state_tool_capabilities: settings.state_tool_capabilities, workspace: workspace]
            |> maybe_submission_option(:platform_tools, settings.platform_tools),
-         {:ok, submission} <-
-           SubmissionBuilder.build(claim, submission_options),
+         {:ok, %{submission: submission, ledger: ledger}} <-
+           SubmissionBuilder.prepare(claim, submission_options),
          {:ok, turn} <-
            Custody.freeze_submission(
              claim.episode.id,
              claim.turn.turn_ref,
              claim.lease_ref,
              submission,
-             # Exactly the refs the builder required present and selected.
-             selected_input_refs: Enum.uniq(claim.episode.active_input_refs)
+             # Exactly the refs the builder required present and selected, and
+             # the counts it measured while selecting them.
+             selected_input_refs: Enum.uniq(claim.episode.active_input_refs),
+             selection_ledger: ledger
            ) do
       {:ok, %{claim | turn: turn}}
     end

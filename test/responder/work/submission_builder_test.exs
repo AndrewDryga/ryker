@@ -1148,6 +1148,107 @@ defmodule Responder.Work.SubmissionBuilderTest do
     assert turn.submission_fingerprint != nil
   end
 
+  test "the selection ledger says what was eligible, included and omitted, and why" do
+    # The frozen context keeps only what reached the model plus one omitted
+    # total. Which earlier messages fell outside the history window versus
+    # which were cut for size, and how many notes were eligible before the
+    # size fit, were never recorded; recomputing them from today's episode
+    # would blame the current queue for a historical selection.
+    destination = %{
+      transport: "slack",
+      conversation_ref: "slack:TLEDGER:CBUDGET",
+      thread_ref: "1787832000.000100"
+    }
+
+    first =
+      claim_episode_payload!("ledger-history", %{"text" => "Initial history"},
+        destination: destination
+      )
+
+    historical =
+      Enum.reduce(1..45, first, fn index, claim ->
+        next_claim!(claim, ["Consumed history #{index}: " <> String.duplicate("h", 2_000)])
+      end)
+
+    active = [String.duplicate("A", 60_000), String.duplicate("B", 60_000)]
+    next = next_claim!(historical, active)
+
+    assert {:ok, rotated} =
+             Custody.rotate_session(
+               next.episode.id,
+               next.turn.turn_ref,
+               next.lease_ref,
+               next.session.generation
+             )
+
+    claim = %{next | session: rotated.session, turn: rotated.turn}
+    assert {:ok, %{submission: submission, ledger: ledger}} = SubmissionBuilder.prepare(claim)
+    context = submission["context"]
+    inputs = ledger["inputs"]
+
+    assert ledger["version"] == 1
+    assert ledger["mode"] == "full"
+    assert inputs["current"] == 2
+    assert inputs["eligible"] == 48
+    # 48 eligible, 2 current: 46 earlier, of which the 40-message window kept 38.
+    assert inputs["omitted_window"] == 8
+    assert inputs["earlier_included"] + inputs["omitted_fit"] == 38
+    assert inputs["omitted_fit"] > 0
+    assert inputs["earlier_included"] == Enum.count(context["inputs"]["items"], &(!&1["current"]))
+    assert inputs["omitted_window"] + inputs["omitted_fit"] == context["inputs"]["omitted_count"]
+    assert %{"included" => _} = ledger["records"]
+    assert %{"included" => _} = ledger["related_outcomes"]
+    assert ledger["limits"]["max_inputs"] == 40
+
+    # Recording the ledger changes nothing the model receives.
+    assert {:ok, ^submission} = SubmissionBuilder.build(claim)
+  end
+
+  test "a continuation ledger counts current messages and never calls earlier ones omitted" do
+    first = claim_episode!("ledger-continuation", "initial")
+    assert {:ok, first_submission} = SubmissionBuilder.build(first)
+    bind_remote_turn!(first, first_submission)
+    next = next_claim!(first, ["follow-up one", "follow-up two"])
+
+    assert {:ok, %{ledger: ledger}} = SubmissionBuilder.prepare(next)
+    assert ledger["mode"] == "continuation"
+    assert ledger["inputs"]["current"] == 2
+    assert ledger["inputs"]["earlier_not_resent"] == 1
+    refute Map.has_key?(ledger["inputs"], "omitted_fit")
+  end
+
+  test "the ledger is frozen beside the submission and dropped when unusable" do
+    claim = claim_episode!("ledger-frozen", "Investigate the alert")
+    assert {:ok, %{submission: submission, ledger: ledger}} = SubmissionBuilder.prepare(claim)
+
+    assert {:ok, turn} =
+             Custody.freeze_submission(
+               claim.episode.id,
+               claim.turn.turn_ref,
+               claim.lease_ref,
+               submission,
+               selection_ledger: ledger
+             )
+
+    assert turn.selection_ledger == ledger
+    assert turn.submission_fingerprint == Submission.fingerprint(submission)
+
+    other = claim_episode!("ledger-invalid", "Investigate the alert")
+    assert {:ok, other_submission} = SubmissionBuilder.build(other)
+
+    assert {:ok, other_turn} =
+             Custody.freeze_submission(
+               other.episode.id,
+               other.turn.turn_ref,
+               other.lease_ref,
+               other_submission,
+               selection_ledger: %{"version" => 1, "blob" => String.duplicate("x", 10_000)}
+             )
+
+    assert other_turn.selection_ledger == nil
+    assert other_turn.submission_fingerprint != nil
+  end
+
   defp claim_episode!(suffix, text) do
     claim_episode_payload!(suffix, %{"text" => text})
   end

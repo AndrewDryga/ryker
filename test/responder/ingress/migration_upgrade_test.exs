@@ -48,6 +48,7 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
   @source_envelopes_version 20_260_911_000_300
   @engagement_receipts_version 20_260_911_000_500
   @default_channel_configurations_version 20_260_911_000_700
+  @selection_ledger_version 20_260_911_000_900
   @learning_executions_version 20_260_911_001_500
   @latest_versions [
     @typed_question_answers_version,
@@ -58,6 +59,7 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
     @worker_storage_reports_version,
     @engagement_receipts_version,
     @default_channel_configurations_version,
+    @selection_ledger_version,
     @learning_executions_version
   ]
   @memory_versions Enum.to_list(20_260_908_000_100..20_260_908_001_100//100) ++
@@ -1574,11 +1576,12 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
       assert_reset_notes(repo, prefix, derived["conversation_observations"])
 
       # The inspection-evidence columns and tables, the worker storage columns,
-      # the default channel configuration and the learning execution kind are
-      # reversible on their own.
-      assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 7, prefix: prefix, log: false) ==
+      # the default channel configuration, the selection ledger and the learning
+      # execution kind are reversible on their own.
+      assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 8, prefix: prefix, log: false) ==
                [
                  @learning_executions_version,
+                 @selection_ledger_version,
                  @default_channel_configurations_version,
                  @engagement_receipts_version,
                  @worker_storage_reports_version,
@@ -1680,6 +1683,29 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
       assert_raise Postgrex.Error, ~r/execution_usage_identity_valid/, fn ->
         insert_learning_execution!(repo, prefix)
       end
+
+      # A recorded selection ledger is evidence about a historical selection that
+      # cannot be recomputed, so its rollback refuses while any row holds one.
+      SQL.query!(
+        repo,
+        "UPDATE #{prefix}.episode_work_turns SET selection_ledger = $2 WHERE id = $1::text::uuid",
+        [ids.turn_id, ~s({"version":1,"mode":"full"})]
+      )
+
+      assert_raise Postgrex.Error, ~r/work selection ledgers have data/, fn ->
+        Ecto.Migrator.run(repo, @migrations_path, :down, step: 1, prefix: prefix, log: false)
+      end
+
+      SQL.query!(
+        repo,
+        "UPDATE #{prefix}.episode_work_turns SET selection_ledger = NULL WHERE id = $1::text::uuid",
+        [ids.turn_id]
+      )
+
+      assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 1, prefix: prefix, log: false) ==
+               [@selection_ledger_version]
+
+      refute column_exists?(repo, prefix, "episode_work_turns", "selection_ledger")
 
       configuration_id = insert_default_channel_configuration!(repo, prefix)
 
@@ -1980,7 +2006,8 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
           """
           SELECT to_jsonb(row) - 'learning_run_id' - 'summary_error_code'
             - 'source_exposure_count' - 'knowledge_exposure_count' - 'completion_receipt'
-            - 'selected_input_refs' - 'source_envelope' - 'engagement_receipt' AS value
+            - 'selected_input_refs' - 'selection_ledger' - 'source_envelope'
+            - 'engagement_receipt' AS value
           FROM #{prefix}.#{table} row ORDER BY 1
           """,
           []

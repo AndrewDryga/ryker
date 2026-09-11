@@ -246,6 +246,7 @@ defmodule Responder.ControlPlane.ModelRequests do
       owner: owner,
       at: request.at,
       sort_at: request.at,
+      counts: Map.get(request, :counts, %{}),
       title: request.title,
       target: request.target,
       status: request.status,
@@ -373,6 +374,7 @@ defmodule Responder.ControlPlane.ModelRequests do
 
     %{
       id: turn.id,
+      counts: work_counts(turn, context),
       title: "Work request",
       at: turn.inserted_at,
       status: turn.status,
@@ -412,6 +414,7 @@ defmodule Responder.ControlPlane.ModelRequests do
 
     %{
       id: entry.id,
+      counts: admission_counts(entry, prompt["context"]),
       title: "Admission · execution #{generation}",
       generation: generation,
       generations: entry.execution_generation,
@@ -433,6 +436,167 @@ defmodule Responder.ControlPlane.ModelRequests do
       tools: admission_tool_page(entry, generation, params, options)
     }
   end
+
+  # Every counted partial row says what it counted over. Included comes from the
+  # frozen context, which is the exact set that reached the model. Eligible and
+  # omitted come from the ledger recorded while the selection was made; without
+  # it the row says the selection was not recorded rather than implying zero.
+  defp work_counts(turn, context) when is_map(context) do
+    ledger = if is_map(turn.selection_ledger), do: turn.selection_ledger, else: %{}
+
+    %{}
+    |> put_message_counts(ledger, context)
+    |> put_continuity_counts(ledger, context)
+    |> put_listed_counts(ledger, context)
+  end
+
+  defp work_counts(_turn, _context), do: %{}
+
+  defp put_message_counts(counts, ledger, context) do
+    inputs = Map.get(ledger, "inputs", %{})
+
+    case context do
+      %{"current_inputs" => %{"items" => items}} ->
+        Map.put(
+          counts,
+          "current_inputs",
+          count(
+            "#{length(items)} current" <>
+              case inputs["earlier_not_resent"] do
+                value when is_integer(value) and value > 0 ->
+                  " · #{value} earlier not resent"
+
+                _absent ->
+                  ""
+              end,
+            Map.has_key?(inputs, "earlier_not_resent")
+          )
+        )
+
+      %{"inputs" => %{"items" => items} = supplied} ->
+        Map.put(counts, "inputs", full_message_count(inputs, items, supplied))
+
+      _absent ->
+        counts
+    end
+  end
+
+  defp full_message_count(inputs, items, supplied) do
+    current = Enum.count(items, & &1["current"])
+    earlier = length(items) - current
+
+    if is_integer(inputs["eligible"]) do
+      count(
+        "#{inputs["eligible"]} eligible · #{current} current · #{earlier} earlier included" <>
+          omission_phrase(inputs["omitted_window"], "outside the history window") <>
+          omission_phrase(inputs["omitted_fit"], "cut to fit"),
+        true
+      )
+    else
+      count(
+        "#{current} current · #{earlier} earlier included" <>
+          omission_phrase(supplied["omitted_count"], "omitted") <>
+          " · selection not recorded",
+        false
+      )
+    end
+  end
+
+  defp omission_phrase(value, reason) when is_integer(value) and value > 0,
+    do: " · #{value} #{reason}"
+
+  defp omission_phrase(_value, _reason), do: ""
+
+  # Source notes and maintained topics are two different universes; summing
+  # them into one eligible total would invent a set nobody selected over.
+  defp put_continuity_counts(counts, ledger, context) do
+    parts =
+      for {key, label} <- [{"observations", "Source notes"}, {"knowledge", "Saved topics"}],
+          included = get_in(context, ["operator_context", "continuity", key]),
+          is_list(included) do
+        case get_in(ledger, [key, "eligible"]) do
+          eligible when is_integer(eligible) and eligible > length(included) ->
+            {"#{label} #{length(included)} of #{eligible}", true}
+
+          eligible when is_integer(eligible) ->
+            {"#{label} #{length(included)}", true}
+
+          _absent ->
+            {"#{label} #{length(included)}", false}
+        end
+      end
+
+    case parts do
+      [] ->
+        counts
+
+      parts ->
+        Map.put(
+          counts,
+          "continuity",
+          count(Enum.map_join(parts, " · ", &elem(&1, 0)), Enum.all?(parts, &elem(&1, 1)))
+        )
+    end
+  end
+
+  defp put_listed_counts(counts, _ledger, context) do
+    Enum.reduce(
+      [
+        {"records", ["records"]},
+        {"related_outcomes", ["related_outcomes"]},
+        {"guidance", ["operator_context", "guidance"]},
+        {"memory", ["operator_context", "memory"]},
+        {"standing_assignments", ["operator_context", "standing_assignments"]}
+      ],
+      counts,
+      fn {key, path}, counts ->
+        case get_in(context, path) do
+          included when is_list(included) ->
+            Map.put(counts, key, count("#{length(included)} included", true))
+
+          _absent ->
+            counts
+        end
+      end
+    )
+  end
+
+  # Routing counts come from the host snapshot frozen with the attempt: how many
+  # episodes the bounded search checked, how many it offered the model, and the
+  # knowledge it recorded as omitted. Offered is not chosen; the model's choice
+  # is a later fact on its own card.
+  defp admission_counts(entry, context) when is_map(context) do
+    snapshot = if is_map(entry.admission_context), do: entry.admission_context, else: %{}
+    offered = length(List.wrap(context["candidates"]))
+    checked = snapshot["conversation_episode_count"]
+    omissions = length(List.wrap(snapshot["knowledge_omissions"]))
+
+    %{
+      "candidates" =>
+        if is_integer(checked) and checked >= offered do
+          count(
+            "#{checked} checked · #{offered} offered" <>
+              omission_phrase(checked - offered, "not offered"),
+            true
+          )
+        else
+          count("#{offered} offered · search scope not recorded", false)
+        end,
+      "conversation_knowledge" =>
+        count(
+          "#{length(List.wrap(context["conversation_knowledge"]))} included" <>
+            omission_phrase(omissions, "omitted"),
+          true
+        ),
+      "conversation_observations" =>
+        count("#{length(List.wrap(context["conversation_observations"]))} included", true),
+      "input" => count("1 included", true)
+    }
+  end
+
+  defp admission_counts(_entry, _context), do: %{}
+
+  defp count(label, known?), do: %{label: label, known?: known?}
 
   defp with_responses(options, rows, params) do
     turns = Enum.filter(rows, &match?(%Turn{}, &1))

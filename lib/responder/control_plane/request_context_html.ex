@@ -79,7 +79,7 @@ defmodule Responder.ControlPlane.RequestContextHTML do
   @order ~w(custom_instructions input slack_addressing inputs current_inputs continuity operator_context records related_outcomes prior_outcome candidates responder_state_tools source_and_action_tools workspace repository_ref destination allowed_actions execution_mode mode offer_confirmation_supported linked_history_ref parent_submission_ref)
 
   @doc "The complete submitted components, grouped for reading without hiding source labels."
-  def briefing(sections, kind, prefix) do
+  def briefing(sections, kind, prefix, counts \\ %{}) do
     instructions = Enum.find(sections, &(&1.id == "instructions"))
     context = Enum.find(sections, &(&1.id == "context"))
     contract = Enum.find(sections, &(&1.id == "contract"))
@@ -95,7 +95,7 @@ defmodule Responder.ControlPlane.RequestContextHTML do
           ),
         else: []
       ),
-      if(context, do: assembly(context.artifact, root, prefix), else: []),
+      if(context, do: assembly(context.artifact, root, prefix, counts), else: []),
       if(contract,
         do:
           group(
@@ -153,9 +153,8 @@ defmodule Responder.ControlPlane.RequestContextHTML do
         :collapsed -> ["<p>", state, ".</p>"]
         _absent -> ["<p>", state, ". No reconstructed substitute is shown.</p>"]
       end,
-      false,
       prefix,
-      state
+      state: state
     )
   end
 
@@ -190,16 +189,18 @@ defmodule Responder.ControlPlane.RequestContextHTML do
   def render(_artifact, _root, _prefix), do: []
 
   @doc "A flat source inventory for the timeline, without a parent disclosure."
-  def assembly(%{state: :retained, truncated: false, text: text}, root, prefix) do
+  def assembly(artifact, root, prefix, counts \\ %{})
+
+  def assembly(%{state: :retained, truncated: false, text: text}, root, prefix, counts) do
     case Jason.decode(text) do
-      {:ok, context} when is_map(context) -> assemble_context(context, root, prefix)
+      {:ok, context} when is_map(context) -> assemble_context(context, root, prefix, counts)
       _ -> []
     end
   end
 
-  def assembly(_, _, _), do: []
+  def assembly(_, _, _, _), do: []
 
-  defp assemble_context(context, root, prefix) do
+  defp assemble_context(context, root, prefix, counts) do
     parts =
       context
       |> Enum.sort_by(fn {key, _} -> {Enum.find_index(@order, &(&1 == key)) || 100, key} end)
@@ -253,8 +254,8 @@ defmodule Responder.ControlPlane.RequestContextHTML do
                     value,
                     metadata(key, parent),
                     body(key, value, path, prefix),
-                    false,
-                    prefix
+                    prefix,
+                    count: Map.get(counts, key)
                   )
                 end)
               )
@@ -297,7 +298,6 @@ defmodule Responder.ControlPlane.RequestContextHTML do
           "</section>"
         ]
       end),
-      false,
       prefix
     )
   end
@@ -313,9 +313,8 @@ defmodule Responder.ControlPlane.RequestContextHTML do
          else: "The instruction field saved with this request."
        )},
       ["<pre class=\"model-document-text\">", escape(text), "</pre>"],
-      false,
       prefix,
-      if(artifact.truncated, do: "Partial display")
+      state: if(artifact.truncated, do: "Partial display")
     )
   end
 
@@ -333,8 +332,8 @@ defmodule Responder.ControlPlane.RequestContextHTML do
       {title, "policy", "Host-authored instructions",
        "The instruction field retained with this exact request. This is not the Coop wrapper or provider system prompt, and it is not loaded from today's source code."},
       ["<pre class=\"model-document-text\">", escape(text), "</pre>"],
-      open,
-      prefix
+      prefix,
+      open: open
     )
   end
 
@@ -354,7 +353,6 @@ defmodule Responder.ControlPlane.RequestContextHTML do
           value,
           metadata(key, root),
           body(key, value, path, prefix),
-          false,
           prefix
         )
       end),
@@ -503,8 +501,11 @@ defmodule Responder.ControlPlane.RequestContextHTML do
     do:
       "<p>Saved summary is not structured. Its retained value is in the exact component below.</p>"
 
-  defp source(key, path, value, metadata, body, open, prefix, state_override \\ nil) do
+  defp source(key, path, value, metadata, body, prefix, options \\ []) do
     {title, origin, owner, description} = metadata
+    open = Keyword.get(options, :open, false)
+    state_override = Keyword.get(options, :state)
+    count = Keyword.get(options, :count)
 
     state =
       state_override ||
@@ -525,6 +526,7 @@ defmodule Responder.ControlPlane.RequestContextHTML do
       "<span class=\"prompt-source-state\">",
       source_state(value, state, state_override),
       "</span>",
+      source_count(count),
       "<span class=\"prompt-source-title\">",
       escape(title),
       "</span>",
@@ -540,6 +542,20 @@ defmodule Responder.ControlPlane.RequestContextHTML do
       "</div></details>"
     ]
   end
+
+  # The counted summary a reader reads before opening anything. A count nobody
+  # recorded says so; it never renders as a zero.
+  defp source_count(%{label: label, known?: known?}) do
+    [
+      "<span class=\"prompt-source-count",
+      if(known?, do: "", else: " prompt-source-count-unknown"),
+      "\">",
+      escape(label),
+      "</span>"
+    ]
+  end
+
+  defp source_count(_count), do: []
 
   defp source_state(_value, state, unavailable) when unavailable in ["Expired", "Not recorded"],
     do: state

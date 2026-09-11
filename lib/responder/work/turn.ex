@@ -23,6 +23,7 @@ defmodule Responder.Work.Turn do
     field(:submission, Responder.CanonicalJSON.Type)
     field(:submission_fingerprint, :string)
     field(:selected_input_refs, {:array, :string})
+    field(:selection_ledger, Responder.CanonicalJSON.Type)
     field(:state_tools_endpoint, :string)
     field(:state_tools_token_sha256, :string)
     field(:coop_turn_id, :string)
@@ -108,6 +109,7 @@ defmodule Responder.Work.Turn do
           submission: Responder.Work.Submission.t() | nil,
           submission_fingerprint: String.t() | nil,
           selected_input_refs: [String.t()] | nil,
+          selection_ledger: map() | nil,
           state_tools_endpoint: String.t() | nil,
           state_tools_token_sha256: String.t() | nil,
           coop_turn_id: String.t() | nil,
