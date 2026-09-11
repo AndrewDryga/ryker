@@ -544,8 +544,28 @@ defmodule Responder.CoopFleet.ControlPlane do
 
   defp reclaimed_bytes(%Worker{} = worker, _storage), do: worker.storage_reclaimed_bytes
 
+  # A placement this poll took out of :active — its authority changed, or an
+  # operator drained it — is never selected again by the renewal below, so an
+  # expired one stayed current forever and readiness stayed red with
+  # :expired_current_placements. Retire it on the same poll that observed it.
+  defp retire_expired_placements(worker, now) do
+    from(placement in Placement,
+      where:
+        placement.worker_id == ^worker.id and
+          placement.state in ^(@current_placement_states -- [:active]) and
+          placement.lease_expires_at <= ^now,
+      lock: "FOR UPDATE"
+    )
+    |> Repo.all()
+    |> Enum.each(fn placement ->
+      retired = placement |> change(%{state: :replaced}) |> Repo.update!()
+      fail_undelivered_commands(retired, now)
+    end)
+  end
+
   defp renew_worker_placements(worker, now, lease_seconds) do
     expires_at = DateTime.add(now, lease_seconds, :second)
+    retire_expired_placements(worker, now)
 
     placements =
       Repo.all(
