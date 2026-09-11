@@ -36,7 +36,7 @@ defmodule Responder.Webhooks.PresetsTest do
 
     payload = Jason.decode!(Presets.sample(:grafana))
     assert Map.keys(payload["commonLabels"]) -- preset.group_by_labels == ["severity"]
-    assert length(payload["alerts"]) >= 1
+    assert payload["alerts"] != []
   end
 
   test "a preset fixes the provider's shape and never where an event may reach" do

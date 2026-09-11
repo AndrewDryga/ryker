@@ -2,6 +2,7 @@ defmodule Responder.Runtime.AssemblyIntegrationsTest do
   use Responder.DataCase, async: false
 
   alias Responder.{Bootstrap, Settings}
+  alias Responder.Emisar.ApprovalRuntime
   alias Responder.Runtime.Assembly
 
   @actor "control-plane:local"
@@ -108,7 +109,7 @@ defmodule Responder.Runtime.AssemblyIntegrationsTest do
     # The runtime is the authority on its own option set: it raises on an
     # unknown field, so building its child spec is the assertion.
     assert %{start: {_module, _function, _arguments}} =
-             Responder.Emisar.ApprovalRuntime.child_spec(configuration[:emisar])
+             ApprovalRuntime.child_spec(configuration[:emisar])
   end
 
   defp installation! do
