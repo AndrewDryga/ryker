@@ -19,6 +19,7 @@ defmodule Responder.ControlPlane.Projection do
 
   alias Responder.Artifacts.OutputArtifact
   alias Responder.ControlPlane.{Card, CardLabDelivery, CardLabFeedback, EpisodeTrace}
+  alias Responder.CoopFleet.Worker, as: FleetWorker
   alias Responder.Delivery.Operator, as: DeliveryOperator
   alias Responder.Delivery.PlatformAction
   alias Responder.Delivery.Reaction
@@ -30,6 +31,7 @@ defmodule Responder.ControlPlane.Projection do
   alias Responder.Operator.FailureDetail
   alias Responder.Publication.Publication
   alias Responder.Repo
+  alias Responder.Retention.Custody, as: RetentionCustody
   alias Responder.Slack.{IncidentRoom, InteractionAudit, ThreadStatus}
   alias Responder.State.{Behavior, Memories, MemoryEntry, Record, Schedule}
   alias Responder.Work.{Custody, Session, Turn}
@@ -81,6 +83,7 @@ defmodule Responder.ControlPlane.Projection do
       slack_interaction: &slack_interaction/1,
       work: &work/1,
       workspace: &workspace/1,
+      workspace_storage: &workspace_storage/0,
       workspaces: &workspaces/1
     }
   end
@@ -709,6 +712,93 @@ defmodule Responder.ControlPlane.Projection do
   end
 
   def workspace(_ref), do: :not_found
+
+  @doc """
+  Read-only workspace storage accounting and the exact next cleanup targets.
+
+  Preview never mutates anything and never estimates a byte no worker measured:
+  a worker that reported nothing is unknown, and a worker whose heartbeat has
+  gone stale is reporting a stale measurement.
+  """
+  @spec workspace_storage() :: map()
+  def workspace_storage do
+    now = database_now!()
+    settings = Application.get_env(:responder, :retention, %{})
+
+    %{
+      budget:
+        Map.new(
+          ~w(disposable_bytes_limit reclaim_target_seconds storage_high_watermark_bytes
+             storage_low_watermark_bytes storage_reserve_bytes)a,
+          &{&1, safe_setting(settings, &1)}
+        ),
+      preview: Enum.map(RetentionCustody.eligible_preview(now, 25), &preview_item(&1, now)),
+      workers:
+        from(worker in FleetWorker, order_by: [asc: worker.id])
+        |> Repo.all()
+        |> Enum.map(&storage_item(&1, now))
+    }
+  end
+
+  defp safe_setting(settings, key) when is_map(settings), do: Map.get(settings, key)
+  defp safe_setting(_settings, _key), do: nil
+
+  defp storage_item(%FleetWorker{} = worker, now) do
+    storage = worker.storage
+
+    %{
+      allocation: storage && storage["allocation"],
+      bytes:
+        Map.new(
+          ~w(capacity_bytes free_bytes reserve_bytes disposable_bytes protected_bytes
+             unattributed_bytes),
+          &{&1, storage && storage[&1]}
+        ),
+      id: worker.id,
+      last_seen_at: worker.last_seen_at,
+      measured_at: storage && storage["measured_at"],
+      measurement: measurement_state(worker, now),
+      reclaimed_bytes: worker.storage_reclaimed_bytes,
+      refusal_reason: storage && storage["refusal_reason"],
+      state: worker.state
+    }
+  end
+
+  defp measurement_state(%FleetWorker{storage: storage}, _now) when not is_map(storage),
+    do: :unknown
+
+  defp measurement_state(%FleetWorker{last_seen_at: %DateTime{} = last_seen_at}, now) do
+    if DateTime.diff(now, last_seen_at, :second) <= 60, do: :fresh, else: :stale
+  end
+
+  defp measurement_state(_worker, _now), do: :stale
+
+  defp preview_item({%Session{} = session, eligible_at}, now) do
+    %{
+      eligible_age_seconds: age_seconds(now, eligible_at),
+      kind: session.execution_kind,
+      reason: preview_reason(session.cleanup_status),
+      ref: session.external_ref,
+      repository: session.repository_ref,
+      status: session.cleanup_status,
+      target: session.coop_session_id
+    }
+  end
+
+  defp preview_reason(:active), do: "close the remote session"
+  defp preview_reason(:close_pending), do: "retry the exact close"
+  defp preview_reason(:grace), do: "grace expired; ask Coop for a discard plan"
+  defp preview_reason(:plan_pending), do: "retry the exact discard plan"
+  defp preview_reason(:discard_pending), do: "discard the planned workspace"
+  defp preview_reason(:retained), do: "replan from fresh workspace evidence"
+  defp preview_reason(status), do: Atom.to_string(status)
+
+  defp age_seconds(_now, nil), do: 0
+
+  defp age_seconds(%DateTime{} = now, %NaiveDateTime{} = value),
+    do: max(NaiveDateTime.diff(DateTime.to_naive(now), value, :second), 0)
+
+  defp age_seconds(now, value), do: max(DateTime.diff(now, value, :second), 0)
 
   def findings(params) do
     query = from(record in Record, where: record.kind == "finding")

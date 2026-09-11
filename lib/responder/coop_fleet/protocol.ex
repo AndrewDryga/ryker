@@ -35,6 +35,18 @@ defmodule Responder.CoopFleet.Protocol do
   )
   @worker_states ~w(eligible busy draining needs_auth)
   @capacity_states ~w(eligible busy cooldown needs_auth)
+  @storage_allocations ~w(open refused)
+  @storage_refusal_reasons ~w(reserve_exhausted protected_storage_exceeds_budget)
+  @storage_byte_fields [
+    {"capacity_bytes", :capacity_bytes},
+    {"free_bytes", :free_bytes},
+    {"reserve_bytes", :reserve_bytes},
+    {"high_watermark_bytes", :high_watermark_bytes},
+    {"low_watermark_bytes", :low_watermark_bytes},
+    {"disposable_bytes", :disposable_bytes},
+    {"protected_bytes", :protected_bytes}
+  ]
+  @maximum_storage_bytes 1_125_899_906_842_624
   @command_result_states ~w(succeeded failed uncertain)
   @event_kinds ~w(operation session turn candidate validation workspace checkpoint capacity session_event)
   @activity_event_kinds ~w(tool.started tool.completed model.plan model.thought permission.decided activity.elided provider.backoff provider.alive)
@@ -131,10 +143,13 @@ defmodule Responder.CoopFleet.Protocol do
   end
 
   defp worker(%{} = document) do
-    document = Map.put_new(document, "policy_authority_digests", %{})
+    document =
+      document
+      |> Map.put_new("policy_authority_digests", %{})
+      |> Map.put_new("storage", nil)
 
     fields =
-      ~w(id workspace_ref protocol_version build_version clock_at sandbox_digest policy_digests policy_authority_digests repositories capabilities capacity state)
+      ~w(id workspace_ref protocol_version build_version clock_at sandbox_digest policy_digests policy_authority_digests repositories capabilities capacity storage state)
 
     with :ok <- exact_fields(document, fields, :worker),
          :ok <- reference(document["id"], 256, :worker_id),
@@ -152,6 +167,7 @@ defmodule Responder.CoopFleet.Protocol do
          {:ok, capabilities} <-
            unique_list(document["capabilities"], :capabilities, &capability/1, & &1["name"]),
          {:ok, capacity} <- capacity(document["capacity"]),
+         {:ok, storage} <- storage(document["storage"]),
          :ok <- enum(document["state"], @worker_states, :worker_state) do
       {:ok,
        document
@@ -160,11 +176,84 @@ defmodule Responder.CoopFleet.Protocol do
        |> Map.put("policy_authority_digests", policy_authorities)
        |> Map.put("repositories", repositories)
        |> Map.put("capabilities", capabilities)
-       |> Map.put("capacity", capacity)}
+       |> Map.put("capacity", capacity)
+       |> Map.put("storage", storage)}
     end
   end
 
   defp worker(_document), do: {:error, {:invalid_coop_worker_poll, :worker}}
+
+  # Workspace bytes are measured by the worker that owns the filesystem. The
+  # object is optional so an older worker still polls; absent means unknown, and
+  # unknown must never be read as zero by anything downstream.
+  defp storage(nil), do: {:ok, nil}
+
+  defp storage(%{} = document) do
+    fields =
+      ~w(version measured_at capacity_bytes free_bytes reserve_bytes high_watermark_bytes low_watermark_bytes disposable_bytes protected_bytes unattributed_bytes allocation refusal_reason)
+
+    with :ok <- exact_fields(document, fields, :storage),
+         :ok <- storage_version(document["version"]),
+         {:ok, measured_at} <- timestamp(document["measured_at"], :measured_at),
+         :ok <- storage_bytes(document, @storage_byte_fields),
+         :ok <- optional_bytes(document["unattributed_bytes"], :unattributed_bytes),
+         :ok <- enum(document["allocation"], @storage_allocations, :storage_allocation),
+         :ok <- refusal_reason(document["allocation"], document["refusal_reason"]),
+         :ok <- storage_bounds(document) do
+      {:ok, Map.put(document, "measured_at", measured_at)}
+    end
+  end
+
+  defp storage(_document), do: {:error, {:invalid_coop_worker_poll, :storage}}
+
+  defp storage_version(@version), do: :ok
+  defp storage_version(_version), do: {:error, {:invalid_coop_worker_protocol, :storage_version}}
+
+  defp storage_bytes(document, fields) do
+    Enum.reduce_while(fields, :ok, fn {name, field}, :ok ->
+      case bytes(document[name], field) do
+        :ok -> {:cont, :ok}
+        {:error, _reason} = error -> {:halt, error}
+      end
+    end)
+  end
+
+  defp bytes(value, _field)
+       when is_integer(value) and value >= 0 and value <= @maximum_storage_bytes,
+       do: :ok
+
+  defp bytes(_value, field), do: {:error, {:invalid_coop_worker_protocol, field}}
+
+  defp optional_bytes(nil, _field), do: :ok
+  defp optional_bytes(value, field), do: bytes(value, field)
+
+  defp refusal_reason("refused", reason) do
+    if reason in @storage_refusal_reasons,
+      do: :ok,
+      else: {:error, {:invalid_coop_worker_protocol, :refusal_reason}}
+  end
+
+  defp refusal_reason(_allocation, nil), do: :ok
+
+  defp refusal_reason(_allocation, _reason),
+    do: {:error, {:invalid_coop_worker_protocol, :refusal_reason}}
+
+  defp storage_bounds(document) do
+    cond do
+      document["low_watermark_bytes"] > document["high_watermark_bytes"] or
+          document["high_watermark_bytes"] > document["capacity_bytes"] ->
+        {:error, {:invalid_coop_worker_protocol, :storage_watermarks}}
+
+      Enum.any?(
+        ~w(free_bytes reserve_bytes disposable_bytes protected_bytes),
+        &(document[&1] > document["capacity_bytes"])
+      ) ->
+        {:error, {:invalid_coop_worker_protocol, :storage_capacity}}
+
+      true ->
+        :ok
+    end
+  end
 
   defp capacity(%{} = document) do
     fields =

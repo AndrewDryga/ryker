@@ -820,12 +820,10 @@ defmodule Responder.ControlPlane.Router do
   defp route(%Plug.Conn{method: "GET", path_info: ["workspaces"]} = conn, options) do
     conn = fetch_query_params(conn)
 
-    html(
-      conn,
-      200,
-      "Workspaces",
-      HTML.workspaces(options.projection.workspaces.(conn.query_params))
-    )
+    html(conn, 200, "Workspaces", [
+      HTML.workspaces(options.projection.workspaces.(conn.query_params)),
+      HTML.workspace_storage(options.projection.workspace_storage.())
+    ])
   end
 
   defp route(%Plug.Conn{method: "GET", path_info: [page]} = conn, options)

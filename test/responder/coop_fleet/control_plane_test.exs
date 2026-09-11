@@ -1483,6 +1483,97 @@ defmodule Responder.CoopFleet.ControlPlaneTest do
     placement
   end
 
+  test "a worker that refuses allocation stops taking new forks and says why" do
+    # A worker whose protected forks filled its budget kept being handed new
+    # sessions, which then failed on its filesystem instead of being placed
+    # somewhere with room, and the operator saw a generic capacity error.
+    authorize_and_poll!("worker-full",
+      storage: storage(allocation: "refused", refusal_reason: "reserve_exhausted")
+    )
+
+    session = session!("storage-refused")
+
+    requirements = %{
+      capability_names: ["responder-state"],
+      repository_ref: "responder",
+      workspace_ref: "workspace-main"
+    }
+
+    assert ControlPlane.place_session(session.id, requirements, 60) ==
+             {:error, {:coop_worker_storage_refused, session.id, "reserve_exhausted"}}
+
+    worker = Repo.get!(Worker, "worker-full")
+    assert worker.storage["allocation"] == "refused"
+    assert worker.storage["disposable_bytes"] == 9_663_676_416
+    assert worker.storage["measured_at"] == "2026-09-11T09:30:00Z"
+
+    # Control, cleanup and existing work keep running on the refused worker.
+    workspace_free = session!("storage-refused-workspace-free")
+
+    Repo.update_all(from(s in Session, where: s.id == ^workspace_free.id),
+      set: [repository_ref: nil]
+    )
+
+    assert {:ok, placement} =
+             ControlPlane.place_session(
+               workspace_free.id,
+               %{requirements | repository_ref: nil},
+               60
+             )
+
+    assert placement.worker_id == "worker-full"
+
+    # The worker's own return to `open` is the only recovery signal.
+    assert {:ok, _response} =
+             ControlPlane.handle_poll(
+               "worker-full",
+               poll("worker-full", "workspace-main", "poll:worker-full:2",
+                 storage: storage(allocation: "open", refusal_reason: nil)
+               )
+             )
+
+    assert {:ok, recovered} = ControlPlane.place_session(session.id, requirements, 60)
+    assert recovered.worker_id == "worker-full"
+  end
+
+  test "reported storage is measured, never estimated, and reclamation only counts a fall" do
+    authorize_and_poll!("worker-measured", storage: storage(disposable_bytes: 9_663_676_416))
+
+    assert Repo.get!(Worker, "worker-measured").storage_reclaimed_bytes == 0
+
+    assert {:ok, _response} =
+             ControlPlane.handle_poll(
+               "worker-measured",
+               poll("worker-measured", "workspace-main", "poll:worker-measured:2",
+                 storage: storage(disposable_bytes: 1_073_741_824)
+               )
+             )
+
+    reclaimed = Repo.get!(Worker, "worker-measured")
+    assert reclaimed.storage_reclaimed_bytes == 8_589_934_592
+
+    assert {:ok, _response} =
+             ControlPlane.handle_poll(
+               "worker-measured",
+               poll("worker-measured", "workspace-main", "poll:worker-measured:3",
+                 storage: storage(disposable_bytes: 5_368_709_120)
+               )
+             )
+
+    assert Repo.get!(Worker, "worker-measured").storage_reclaimed_bytes == 8_589_934_592
+
+    # An older worker reports nothing. Unknown is not zero and is not reclamation.
+    assert {:ok, _response} =
+             ControlPlane.handle_poll(
+               "worker-measured",
+               poll("worker-measured", "workspace-main", "poll:worker-measured:4")
+             )
+
+    unknown = Repo.get!(Worker, "worker-measured")
+    assert is_nil(unknown.storage)
+    assert unknown.storage_reclaimed_bytes == 8_589_934_592
+  end
+
   defp session!(suffix) do
     command =
       EpisodeFixtures.admit_input(%{
@@ -1536,8 +1627,26 @@ defmodule Responder.CoopFleet.ControlPlaneTest do
         "repositories" => repositories,
         "sandbox_digest" => @sandbox_digest,
         "state" => "eligible",
+        "storage" => Keyword.get(options, :storage),
         "workspace_ref" => workspace_ref
       }
+    }
+  end
+
+  defp storage(overrides \\ []) do
+    %{
+      "allocation" => Keyword.get(overrides, :allocation, "open"),
+      "capacity_bytes" => 536_870_912_000,
+      "disposable_bytes" => Keyword.get(overrides, :disposable_bytes, 9_663_676_416),
+      "free_bytes" => 4_294_967_296,
+      "high_watermark_bytes" => 64_424_509_440,
+      "low_watermark_bytes" => 48_318_382_080,
+      "measured_at" => "2026-09-11T09:30:00Z",
+      "protected_bytes" => 21_474_836_480,
+      "refusal_reason" => Keyword.get(overrides, :refusal_reason),
+      "reserve_bytes" => 5_368_709_120,
+      "unattributed_bytes" => 1_073_741_824,
+      "version" => 1
     }
   end
 

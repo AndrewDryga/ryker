@@ -211,7 +211,9 @@ defmodule Responder.CoopFleet.ControlPlane do
         protocol_version: hello["protocol_version"],
         repositories: hello["repositories"],
         sandbox_digest: hello["sandbox_digest"],
-        state: heartbeat_state(worker, hello["state"])
+        state: heartbeat_state(worker, hello["state"]),
+        storage: hello["storage"],
+        storage_reclaimed_bytes: reclaimed_bytes(worker, hello["storage"])
       })
       |> validate_required([
         :build_version,
@@ -228,6 +230,7 @@ defmodule Responder.CoopFleet.ControlPlane do
       ])
       |> check_constraint(:id, name: :coop_worker_identity_valid)
       |> check_constraint(:capacity, name: :coop_worker_documents_valid)
+      |> check_constraint(:storage, name: :coop_worker_storage_valid)
       |> Repo.update()
       |> unwrap_write()
 
@@ -528,6 +531,18 @@ defmodule Responder.CoopFleet.ControlPlane do
 
   defp heartbeat_state(%Worker{drain_requested_at: %DateTime{}}, _reported), do: :draining
   defp heartbeat_state(%Worker{}, reported), do: String.to_existing_atom(reported)
+
+  # Reclamation is only ever the worker's own reported inactive disposable bytes
+  # falling. Responder never estimates bytes it did not measure, so a report that
+  # omits storage leaves the running total exactly where it was.
+  defp reclaimed_bytes(%Worker{storage: %{"disposable_bytes" => previous}} = worker, %{
+         "disposable_bytes" => current
+       })
+       when is_integer(previous) and is_integer(current) do
+    worker.storage_reclaimed_bytes + max(previous - current, 0)
+  end
+
+  defp reclaimed_bytes(%Worker{} = worker, _storage), do: worker.storage_reclaimed_bytes
 
   defp renew_worker_placements(worker, now, lease_seconds) do
     expires_at = DateTime.add(now, lease_seconds, :second)
@@ -1171,30 +1186,57 @@ defmodule Responder.CoopFleet.ControlPlane do
   defp choose_worker!(session, requirements, now) do
     cutoff = DateTime.add(now, -@heartbeat_stale_seconds, :second)
 
-    choose_worker_candidate(session, requirements, now, cutoff, []) ||
-      rollback({:coop_worker_capacity_unavailable, session.id})
+    case choose_worker_candidate(session, requirements, now, cutoff, [], nil) do
+      %Worker{} = worker -> worker
+      {:storage_refused, reason} -> rollback({:coop_worker_storage_refused, session.id, reason})
+      nil -> rollback({:coop_worker_capacity_unavailable, session.id})
+    end
   end
 
-  defp choose_worker_candidate(session, requirements, now, cutoff, excluded_ids) do
+  defp choose_worker_candidate(session, requirements, now, cutoff, excluded_ids, refusal) do
     worker = worker_candidate(requirements, cutoff, excluded_ids)
 
     cond do
       is_nil(worker) ->
-        nil
+        if refusal, do: {:storage_refused, refusal}, else: nil
+
+      storage_refused?(worker, session) ->
+        skip(session, requirements, now, cutoff, excluded_ids, worker, storage_refusal(worker))
 
       worker_eligible?(worker, session, requirements, now) and worker_has_capacity?(worker) ->
         worker
 
       true ->
-        choose_worker_candidate(
-          session,
-          requirements,
-          now,
-          cutoff,
-          [worker.id | excluded_ids]
-        )
+        skip(session, requirements, now, cutoff, excluded_ids, worker, refusal)
     end
   end
+
+  defp skip(session, requirements, now, cutoff, excluded_ids, worker, refusal) do
+    choose_worker_candidate(
+      session,
+      requirements,
+      now,
+      cutoff,
+      [worker.id | excluded_ids],
+      refusal
+    )
+  end
+
+  # A worker that reports its allocation refused stops receiving new sessions
+  # that need a fork. Cleanup, control, and recovery of the work already on it
+  # keep running, and it returns to service when it reports `open` again, so
+  # there is no second hysteresis here to oscillate against the worker's own.
+  defp storage_refused?(%Worker{storage: %{"allocation" => "refused"}}, session),
+    do: fork_required?(session)
+
+  defp storage_refused?(_worker, _session), do: false
+
+  defp storage_refusal(%Worker{storage: %{"refusal_reason" => reason}}) when is_binary(reason),
+    do: reason
+
+  defp storage_refusal(_worker), do: "allocation_refused"
+
+  defp fork_required?(%Session{repository_ref: repository_ref}), do: is_binary(repository_ref)
 
   defp worker_candidate(requirements, cutoff, excluded_ids) do
     Repo.one(

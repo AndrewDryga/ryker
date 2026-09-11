@@ -465,6 +465,125 @@ defmodule Responder.ObservabilityTest do
     assert claimed in [session.id, learning.id]
   end
 
+  test "workspace storage is reported per measurement state and unknown is never zero" do
+    # Reporting a missing measurement as zero would have said the fleet had no
+    # disposable bytes at the exact moment nobody could see how many it had.
+    assert {:ok, _worker} =
+             ControlPlane.authorize_worker(
+               "worker-storage",
+               "workspace-storage",
+               String.duplicate("e", 64)
+             )
+
+    assert {:ok, _unknown} =
+             ControlPlane.authorize_worker(
+               "worker-silent",
+               "workspace-storage",
+               String.duplicate("f", 64)
+             )
+
+    assert {:ok, _poll} =
+             ControlPlane.handle_poll(
+               "worker-storage",
+               storage_poll("worker-storage", "workspace-storage", 9_663_676_416)
+             )
+
+    assert {:ok, _poll} =
+             ControlPlane.handle_poll(
+               "worker-silent",
+               fleet_poll(
+                 "worker-silent",
+                 "workspace-storage",
+                 String.duplicate("b", 64),
+                 String.duplicate("d", 64)
+               )
+             )
+
+    assert {:ok, snapshot} = Observability.snapshot(86_400)
+    storage = snapshot.fleet.storage
+    assert storage.reporting == 1
+    assert storage.unknown == 1
+    assert storage.stale == 0
+    assert storage.refused == 0
+    assert storage.bytes["disposable_bytes"] == 9_663_676_416
+    assert storage.unattributed_bytes == 1_073_741_824
+    assert storage.reclaimed_bytes == 0
+
+    assert {:ok, metrics} = Observability.metrics()
+    assert metrics =~ ~s(responder_coop_fleet_storage_bytes{kind="disposable"} 9663676416)
+    assert metrics =~ ~s(responder_coop_fleet_storage_unknown_workers 1)
+    assert metrics =~ ~s(responder_coop_fleet_storage_reporting_workers 1)
+    refute metrics =~ "worker-storage"
+
+    assert {:ok, _poll} =
+             ControlPlane.handle_poll(
+               "worker-storage",
+               "worker-storage"
+               |> storage_poll("workspace-storage", 1_073_741_824)
+               |> put_in(["worker", "storage", "unattributed_bytes"], nil)
+             )
+
+    assert {:ok, reclaimed} = Observability.snapshot(86_400)
+    assert reclaimed.fleet.storage.reclaimed_bytes == 8_589_934_592
+    assert reclaimed.fleet.storage.unattributed_bytes == nil
+
+    assert {:ok, unknown_metrics} = Observability.metrics()
+    refute unknown_metrics =~ ~s(responder_coop_fleet_storage_bytes{kind="unattributed"})
+    assert unknown_metrics =~ ~s(responder_coop_fleet_storage_reclaimed_bytes 8589934592)
+
+    Repo.update_all(from(worker in Worker, where: worker.id == "worker-storage"),
+      set: [last_seen_at: DateTime.add(DateTime.utc_now(), -300, :second)]
+    )
+
+    assert {:ok, stale} = Observability.snapshot(86_400)
+    assert stale.fleet.storage.stale == 1
+    assert stale.fleet.storage.reporting == 0
+    assert stale.fleet.storage.bytes["disposable_bytes"] == 0
+  end
+
+  test "retention reports remaining sessions by reason and the last measured reclamation" do
+    session = terminal_work_session!("reasons")
+
+    # Structural fixture: one workspace retained because it is dirty.
+    Repo.update_all(
+      from(row in Session, where: row.id == ^session.id),
+      set: [cleanup_status: :retained, retained_reason: "dirty"]
+    )
+
+    assert {:ok, snapshot} = Observability.snapshot(86_400)
+    assert snapshot.retention.retained == %{"dirty" => 1}
+    assert snapshot.retention.sessions[:retained] == 1
+    assert snapshot.retention.blocked == 0
+    assert snapshot.retention.eligible == 0
+
+    assert {:ok, metrics} = Observability.metrics()
+    assert metrics =~ ~s(responder_retention_retained{reason="dirty"} 1)
+    assert metrics =~ ~s(responder_retention_sessions{status="retained"} 1)
+    assert metrics =~ "responder_retention_oldest_eligible_age_seconds 0"
+  end
+
+  defp storage_poll(worker_id, workspace_ref, disposable_bytes) do
+    storage = %{
+      "allocation" => "open",
+      "capacity_bytes" => 536_870_912_000,
+      "disposable_bytes" => disposable_bytes,
+      "free_bytes" => 107_374_182_400,
+      "high_watermark_bytes" => 64_424_509_440,
+      "low_watermark_bytes" => 48_318_382_080,
+      "measured_at" => DateTime.utc_now() |> DateTime.to_iso8601(),
+      "protected_bytes" => 21_474_836_480,
+      "refusal_reason" => nil,
+      "reserve_bytes" => 5_368_709_120,
+      "unattributed_bytes" => 1_073_741_824,
+      "version" => 1
+    }
+
+    worker_id
+    |> fleet_poll(workspace_ref, String.duplicate("b", 64), String.duplicate("d", 64))
+    |> put_in(["worker", "storage"], storage)
+    |> put_in(["poll_ref"], "poll:#{worker_id}:#{System.unique_integer([:positive])}")
+  end
+
   defp terminal_work_session!(suffix) do
     id = Ecto.UUID.generate()
     key = "observability-retention:#{suffix}:#{id}"

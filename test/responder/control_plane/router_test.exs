@@ -2687,6 +2687,48 @@ defmodule Responder.ControlPlane.RouterTest do
           _ref ->
             :not_found
         end,
+        workspace_storage: fn ->
+          %{
+            budget: %{
+              disposable_bytes_limit: 10_737_418_240,
+              reclaim_target_seconds: 3_600,
+              storage_high_watermark_bytes: 64_424_509_440,
+              storage_low_watermark_bytes: 48_318_382_080,
+              storage_reserve_bytes: 5_368_709_120
+            },
+            preview: [
+              %{
+                eligible_age_seconds: 42,
+                kind: :work,
+                reason: "grace expired; ask Coop for a discard plan",
+                ref: "workspace:blocked",
+                repository: "responder",
+                status: :grace,
+                target: "coop-session-1"
+              }
+            ],
+            workers: [
+              %{
+                allocation: "refused",
+                bytes: %{
+                  "capacity_bytes" => 536_870_912_000,
+                  "disposable_bytes" => 9_663_676_416,
+                  "free_bytes" => 4_294_967_296,
+                  "protected_bytes" => 21_474_836_480,
+                  "reserve_bytes" => 5_368_709_120,
+                  "unattributed_bytes" => nil
+                },
+                id: "worker-a",
+                last_seen_at: ~U[2026-08-28 12:00:00Z],
+                measured_at: "2026-08-28T12:00:00Z",
+                measurement: :fresh,
+                reclaimed_bytes: 1_073_741_824,
+                refusal_reason: "reserve_exhausted",
+                state: :busy
+              }
+            ]
+          }
+        end,
         workspaces: fn _params ->
           [
             %{

@@ -4,6 +4,80 @@ defmodule Responder.CoopFleet.ProtocolTest do
   alias Responder.CoopFleet.Protocol
 
   @fixture Path.expand("../../../testdata/protocol/coop-worker-v1.json", __DIR__)
+  @storage_fixture Path.expand(
+                     "../../../testdata/protocol/coop-worker-storage-v1.json",
+                     __DIR__
+                   )
+
+  test "the versioned storage golden reports measured bytes and its own allocation decision" do
+    poll = @storage_fixture |> File.read!() |> Jason.decode!() |> Map.fetch!("poll")
+
+    assert {:ok, prepared} = Protocol.poll(poll)
+    storage = prepared["worker"]["storage"]
+
+    assert storage["version"] == 1
+    assert storage["capacity_bytes"] == 536_870_912_000
+    assert storage["disposable_bytes"] == 9_663_676_416
+    assert storage["protected_bytes"] == 21_474_836_480
+    assert storage["unattributed_bytes"] == 1_073_741_824
+    assert storage["allocation"] == "refused"
+    assert storage["refusal_reason"] == "protected_storage_exceeds_budget"
+    assert storage["measured_at"] == "2026-09-11T09:30:00Z"
+  end
+
+  test "an older worker reporting no storage is unknown rather than zero" do
+    poll = @fixture |> File.read!() |> Jason.decode!() |> Map.fetch!("poll")
+
+    assert {:ok, prepared} = Protocol.poll(poll)
+    assert prepared["worker"]["storage"] == nil
+    assert {:ok, explicit} = Protocol.poll(put_in(poll, ["worker", "storage"], nil))
+    assert explicit["worker"]["storage"] == nil
+  end
+
+  test "malformed worker storage fails before any durable fleet mutation" do
+    poll = @storage_fixture |> File.read!() |> Jason.decode!() |> Map.fetch!("poll")
+
+    invalid = [
+      {put_in(poll, ["worker", "storage", "version"], 2), :storage_version},
+      {put_in(poll, ["worker", "storage", "free_bytes"], -1), :free_bytes},
+      {put_in(poll, ["worker", "storage", "disposable_bytes"], 1.5), :disposable_bytes},
+      {put_in(poll, ["worker", "storage", "protected_bytes"], nil), :protected_bytes},
+      {put_in(poll, ["worker", "storage", "allocation"], "paused"), :storage_allocation},
+      {put_in(poll, ["worker", "storage", "refusal_reason"], "disk_sad"), :refusal_reason},
+      {put_in(poll, ["worker", "storage", "measured_at"], "2026-09-11 09:30:00"), :measured_at},
+      {put_in(poll, ["worker", "storage", "unattributed_bytes"], -5), :unattributed_bytes},
+      {put_in(poll, ["worker", "storage", "low_watermark_bytes"], 900_000_000_000),
+       :storage_watermarks},
+      {put_in(poll, ["worker", "storage", "free_bytes"], 900_000_000_000), :storage_capacity}
+    ]
+
+    Enum.each(invalid, fn {document, field} ->
+      assert {:error, {:invalid_coop_worker_protocol, ^field}} = Protocol.poll(document)
+    end)
+
+    missing = poll |> update_in(["worker", "storage"], &Map.delete(&1, "reserve_bytes"))
+    assert Protocol.poll(missing) == {:error, {:invalid_coop_worker_poll, :storage}}
+
+    unknown = put_in(poll, ["worker", "storage", "fork_paths"], ["/must-not-cross"])
+    assert Protocol.poll(unknown) == {:error, {:invalid_coop_worker_poll, :storage}}
+
+    assert Protocol.poll(put_in(poll, ["worker", "storage"], [])) ==
+             {:error, {:invalid_coop_worker_poll, :storage}}
+
+    open_with_reason =
+      poll
+      |> put_in(["worker", "storage", "allocation"], "open")
+
+    assert Protocol.poll(open_with_reason) ==
+             {:error, {:invalid_coop_worker_protocol, :refusal_reason}}
+
+    refused_without_reason =
+      poll
+      |> put_in(["worker", "storage", "refusal_reason"], nil)
+
+    assert Protocol.poll(refused_without_reason) ==
+             {:error, {:invalid_coop_worker_protocol, :refusal_reason}}
+  end
 
   test "the versioned worker golden accepts bounded commands and ordered event replay" do
     fixture = @fixture |> File.read!() |> Jason.decode!()
