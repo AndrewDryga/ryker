@@ -17,6 +17,7 @@ defmodule Responder.CoopFleet.Protocol do
     ensure_workspace
     create_session
     get_session
+    get_session_evidence
     submit_turn
     get_turn
     get_output_artifact
@@ -49,7 +50,10 @@ defmodule Responder.CoopFleet.Protocol do
   @maximum_storage_bytes 1_125_899_906_842_624
   @command_result_states ~w(succeeded failed uncertain)
   @event_kinds ~w(operation session turn candidate validation workspace checkpoint capacity session_event)
-  @activity_event_kinds ~w(tool.started tool.completed model.plan model.thought permission.decided activity.elided provider.backoff provider.alive)
+  # Kinds whose session_event may carry a payload. `network` is one sealed
+  # filtered run's grouped refusals: a protocol that did not know it rejected the
+  # whole poll when one arrived, so a single filtered run stopped the worker.
+  @activity_event_kinds ~w(tool.started tool.completed model.plan model.thought permission.decided activity.elided provider.backoff provider.alive network)
   @reference ~r/\A[A-Za-z0-9_.:-]+\z/
 
   @spec version() :: 1
