@@ -39,6 +39,17 @@ from is recorded beside its frozen submission (`episode_work_turns.selected_inpu
 turns frozen before that column say "Selected inputs not recorded" and are
 never reconstructed from today's episode state.
 
+Getting ready runs, per input, **Participation settings**, then **Standing
+rules**, then the **Engagement** decision. The first and last read
+`ingress_inbox_entries.engagement_receipt`, written by the adapter that admitted
+the input: the entry path, the effective proactive/shadow values with the
+source each one won from, and the outcome of every predicate the gate actually
+reached. The Slack gate short-circuits, and the receipt records that honestly;
+a predicate it never ran renders "Not checked", never "No". Explicit Lab and
+shortcut submissions record that they bypassed channel settings instead of
+inventing Slack checks. Inputs without a receipt render "not recorded"; nothing
+is recomputed from today's settings.
+
 Getting ready always carries a **Standing rules** card for each input. It reads
 `standing_rule_inventories`, written once per accepted input after custody
 commits and outside that transaction: every standing rule in the workspace at

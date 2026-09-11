@@ -44,7 +44,7 @@ defmodule Responder.Ingress.Inbox.EntryChangeset do
           :live | :shadow,
           WorkProfile.t() | nil,
           map(),
-          map() | nil
+          keyword()
         ) ::
           Ecto.Changeset.t()
   def insert(
@@ -53,14 +53,15 @@ defmodule Responder.Ingress.Inbox.EntryChangeset do
         execution_mode,
         work_profile,
         slack_addressing,
-        source_envelope \\ nil
+        evidence \\ []
       )
       when execution_mode in [:live, :shadow] do
     fields = %{
       actor_kind: input.actor.kind,
       actor_ref: input.actor.ref,
       content: input.content,
-      source_envelope: bounded_envelope(source_envelope),
+      source_envelope: bounded_envelope(Keyword.get(evidence, :source_envelope)),
+      engagement_receipt: bounded_receipt(Keyword.get(evidence, :engagement_receipt)),
       dedupe_key: Input.dedupe_key(input),
       destination_conversation_ref: input.destination.conversation_ref,
       destination_thread_ref: input.destination.thread_ref,
@@ -95,6 +96,7 @@ defmodule Responder.Ingress.Inbox.EntryChangeset do
       Map.keys(fields) --
         [
           :destination_thread_ref,
+          :engagement_receipt,
           :repository_ref,
           :source_envelope,
           :source_item_ref,
@@ -107,6 +109,7 @@ defmodule Responder.Ingress.Inbox.EntryChangeset do
     )
     |> unique_constraint(:dedupe_key)
     |> check_constraint(:source_envelope, name: :ingress_inbox_source_envelope_valid)
+    |> check_constraint(:engagement_receipt, name: :ingress_inbox_engagement_receipt_valid)
     |> check_constraint(:slack_audience, name: :ingress_inbox_slack_addressing_valid)
     |> check_constraint(:execution_mode, name: :ingress_inbox_execution_mode_valid)
     |> check_constraint(:work_profile, name: :ingress_inbox_work_class_profile_valid)
@@ -134,6 +137,19 @@ defmodule Responder.Ingress.Inbox.EntryChangeset do
   end
 
   defp bounded_envelope(_envelope), do: %{"omitted" => "invalid"}
+
+  # A receipt is small structured evidence; anything malformed or oversized is
+  # dropped rather than failing the input, and its absence reads as unrecorded.
+  defp bounded_receipt(receipt) when is_map(receipt) do
+    with :ok <- Responder.CanonicalJSON.validate(receipt),
+         true <- byte_size(Responder.CanonicalJSON.encode!(receipt)) <= 8_192 do
+      receipt
+    else
+      _ -> nil
+    end
+  end
+
+  defp bounded_receipt(_receipt), do: nil
 
   @spec decide(Entry.t(), Decision.t(), String.t(), Ecto.UUID.t() | nil) ::
           Ecto.Changeset.t()

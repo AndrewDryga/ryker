@@ -779,6 +779,79 @@ defmodule Responder.Slack.GatewayTest do
              {:ack, {:ignored, :not_engaged}}
   end
 
+  test "the engagement receipt records the gate's own short-circuit, not a recomputation" do
+    # A mention admits the message before any other predicate runs. Recording
+    # those predicates as "no" would invent checks the gate never made, and a
+    # reader comparing the card with a rule that clearly matches would conclude
+    # the matcher was broken.
+    matcher_calls = :counters.new(1, [])
+
+    mention =
+      settings()
+      |> Map.put(:standing_matcher, fn _input ->
+        :counters.add(matcher_calls, 1, 1)
+        true
+      end)
+      |> Map.put(:effective_settings, fn _workspace, _conversation ->
+        %{
+          proactive: %{source: :channel, value: false},
+          shadow: %{source: :deployment, value: false}
+        }
+      end)
+
+    assert {:ack, {:recorded, ref}} =
+             Gateway.handle_envelope(message_envelope("Ev-mention", "app_mention"), mention)
+
+    assert :counters.get(matcher_calls, 1) == 0
+    {:ok, entry} = Inbox.fetch(ref)
+
+    assert %{
+             "path" => "slack_event",
+             "result" => "process",
+             "execution_mode" => "live",
+             "checks" => [%{"check" => "direct_or_mention", "outcome" => "yes"}],
+             "settings" => %{
+               "proactive" => %{"value" => false, "source" => "channel"},
+               "shadow" => %{"value" => false, "source" => "deployment"}
+             }
+           } = entry.engagement_receipt
+
+    # An ambient rule match records the predicates it walked past and stops there.
+    rule = Map.put(mention, :standing_matcher, fn _input -> true end)
+
+    assert {:ack, {:recorded, ref}} =
+             Gateway.handle_envelope(message_envelope("Ev-rule", "message"), rule)
+
+    {:ok, entry} = Inbox.fetch(ref)
+
+    assert Enum.map(entry.engagement_receipt["checks"], &{&1["check"], &1["outcome"]}) == [
+             {"direct_or_mention", "no"},
+             {"existing_episode_thread", "no"},
+             {"standing_rule", "matched"}
+           ]
+
+    # Shadow admits an ambient message as evaluate-only, and says why.
+    shadow =
+      settings()
+      |> Map.put(:effective_settings, fn _workspace, _conversation ->
+        %{
+          proactive: %{source: :workspace, value: false},
+          shadow: %{source: :channel, value: true}
+        }
+      end)
+
+    assert {:ack, {:recorded, ref}} =
+             Gateway.handle_envelope(message_envelope("Ev-shadow", "message"), shadow)
+
+    {:ok, entry} = Inbox.fetch(ref)
+    assert entry.execution_mode == :shadow
+    assert entry.engagement_receipt["result"] == "evaluate_only"
+    assert entry.engagement_receipt["reason"] =~ "Shadow mode"
+
+    assert %{"shadow" => %{"value" => true, "source" => "channel"}} =
+             entry.engagement_receipt["settings"]
+  end
+
   defp settings do
     %{
       client: %{allowed: MapSet.new(["U123"])},

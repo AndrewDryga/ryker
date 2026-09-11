@@ -36,6 +36,7 @@ defmodule Responder.Ingress.Inbox.Entry do
     field(:occurred_at_source, Ecto.Enum, values: [:source, :ingress])
     field(:content, CanonicalJSONType)
     field(:source_envelope, CanonicalJSONType)
+    field(:engagement_receipt, CanonicalJSONType)
     field(:admission_context, CanonicalJSONType)
     field(:admission_context_fingerprint, :string)
     field(:execution_mode, Ecto.Enum, values: [:live, :shadow], default: :live)

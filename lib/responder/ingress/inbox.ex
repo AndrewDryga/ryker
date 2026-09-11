@@ -634,7 +634,8 @@ defmodule Responder.Ingress.Inbox do
       settings.execution_mode,
       settings.work_profile,
       settings.slack_addressing,
-      settings.source_envelope
+      source_envelope: settings.source_envelope,
+      engagement_receipt: settings.engagement_receipt
     )
     |> Ecto.Changeset.change(inserted_at: now, updated_at: now)
     |> Repo.insert()
@@ -721,17 +722,20 @@ defmodule Responder.Ingress.Inbox do
              :work_profile,
              :slack_audience,
              :slack_bot_user_ref,
-             :source_envelope
+             :source_envelope,
+             :engagement_receipt
            ] ==
            [] do
       revision_ties = Keyword.get(options, :revision_ties, :exact)
       execution_mode = Keyword.get(options, :execution_mode, :live)
       work_profile = Keyword.get(options, :work_profile)
       source_envelope = Keyword.get(options, :source_envelope)
+      engagement_receipt = Keyword.get(options, :engagement_receipt)
 
       with true <- revision_ties in [:exact, :receipt_order, :receipt_order_unbounded],
            true <- execution_mode in [:live, :shadow],
            true <- is_nil(source_envelope) or is_map(source_envelope),
+           true <- is_nil(engagement_receipt) or is_map(engagement_receipt),
            {:ok, work_profile} <- WorkProfile.prepare(work_profile),
            {:ok, slack_addressing} <- slack_addressing_options(options) do
         {:ok,
@@ -740,6 +744,7 @@ defmodule Responder.Ingress.Inbox do
            revision_ties: revision_ties,
            slack_addressing: slack_addressing,
            source_envelope: source_envelope,
+           engagement_receipt: engagement_receipt,
            work_profile: work_profile
          }}
       else

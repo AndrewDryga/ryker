@@ -369,17 +369,84 @@ defmodule Responder.ControlPlane.EpisodePage do
           :if={@entry.kind == :event && @entry.step.stage == "Tool call"}
           step={@entry.step}
         />
+        <.participation_settings
+          :if={@entry.kind == :event && @entry.step.stage == "Participation settings"}
+          step={@entry.step}
+        />
         <.standing_rules
           :if={@entry.kind == :event && @entry.step.stage == "Standing rules"}
           step={@entry.step}
         />
-        <.event
-          :if={@entry.kind == :event && @entry.step.stage not in ["Tool call", "Standing rules"]}
+        <.engagement_decision
+          :if={@entry.kind == :event && @entry.step.stage == "Engagement"}
           step={@entry.step}
         />
+        <.event :if={@entry.kind == :event && !card_stage?(@entry.step.stage)} step={@entry.step} />
         <EpisodeRequest.render :if={@entry.kind == :request} request={@entry} />
       </div>
     </article>
+    """
+  end
+
+  # Stages with their own card component instead of the generic event layout.
+  defp card_stage?(stage),
+    do: stage in ["Tool call", "Participation settings", "Standing rules", "Engagement"]
+
+  # Effective proactive and shadow values with the source each one won from.
+  # Settings are configuration facts, shown apart from the evaluated predicates
+  # on the Engagement card so a reader never mistakes one for the other.
+  defp participation_settings(assigns) do
+    ~H"""
+    <div class="case-event-content participation-settings" data-state={@step.participation.state}>
+      <div class="case-event-heading">
+        <h3>Participation settings</h3>
+      </div>
+      <p :if={@step.participation.settings == []} class="case-event-summary">
+        {@step.participation.summary}
+      </p>
+      <dl :if={@step.participation.settings != []} class="event-facts participation-facts">
+        <div :for={setting <- @step.participation.settings}>
+          <dt>{setting.label}</dt><dd><strong>{setting.value}</strong> · {setting.source}</dd>
+        </div>
+      </dl>
+    </div>
+    """
+  end
+
+  # Result and plain reason first; the actual checks behind a disclosure. A
+  # predicate the gate never reached says "Not checked", never "No".
+  defp engagement_decision(assigns) do
+    ~H"""
+    <div class="case-event-content engagement-decision" data-state={@step.engagement.state}>
+      <div class="case-event-heading">
+        <h3>Engagement</h3>
+        <span :if={@step.engagement.result != ""} class={"event-state tone-#{@step.tone}"}>
+          {@step.engagement.result}
+        </span>
+      </div>
+      <p class="case-event-summary">{@step.engagement.reason}</p>
+      <details
+        :if={@step.engagement.state == :recorded}
+        class="case-event-details"
+        id={"engagement-details-#{@step.id}"}
+      >
+        <summary>Decision details</summary>
+        <dl class="event-facts">
+          <div>
+            <dt>Entry path</dt><dd>{@step.engagement.path}</dd>
+          </div>
+          <div :for={check <- @step.engagement.checks}>
+            <dt>{check.label}</dt><dd>{check.outcome}</dd>
+          </div>
+          <div :if={@step.engagement[:execution_mode]}>
+            <dt>Execution mode</dt><dd>{label(@step.engagement.execution_mode)}</dd>
+          </div>
+        </dl>
+        <p :if={@step.engagement.checks != []}>
+          Rule matching for this input is shown in full on the Standing rules card above.
+        </p>
+      </details>
+    </div>
     """
   end
 

@@ -10,6 +10,18 @@ defmodule Responder.ControlPlane.ConversationLab do
 
   import Ecto.Query
 
+  # Lab input enters the inbox directly; the Slack engagement gate never runs
+  # for it, and the receipt says that instead of inventing Slack checks.
+  @engagement %{
+    "version" => 1,
+    "path" => "conversation_lab",
+    "result" => "process",
+    "reason" => "Explicitly submitted through Conversation Lab.",
+    "checks" => [],
+    "settings" => nil,
+    "execution_mode" => "live"
+  }
+
   alias Responder.Artifacts
   alias Responder.Episodes.Reactions
   alias Responder.Ingress.{Inbox, Input, WorkProfile}
@@ -126,7 +138,8 @@ defmodule Responder.ControlPlane.ConversationLab do
   defp record_message(conversation_id, event_id, occurred_at, message, work_profile, settings) do
     with {:ok, files} <- store_attachments(conversation_id, event_id, settings.attachments),
          {:ok, input} <- lab_input(conversation_id, event_id, occurred_at, message, files),
-         {:ok, receipt} <- Inbox.record(input, work_profile: work_profile) do
+         {:ok, receipt} <-
+           Inbox.record(input, work_profile: work_profile, engagement_receipt: @engagement) do
       receipt
     else
       {:error, reason} -> Repo.rollback(reason)
@@ -175,7 +188,8 @@ defmodule Responder.ControlPlane.ConversationLab do
          {:ok, receipt} <-
            Inbox.record(input,
              revision_ties: :receipt_order,
-             work_profile: work_profile
+             work_profile: work_profile,
+             engagement_receipt: @engagement
            ) do
       receipt
     else

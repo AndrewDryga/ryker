@@ -74,7 +74,7 @@ defmodule Responder.ControlPlane.StandingRulesCardTest do
 
     html = rendered(episode)
     assert html =~ "No standing rules existed when this input was processed."
-    refute html =~ "not recorded for this input"
+    refute html =~ "Standing-rule evaluation was not recorded"
     assert html =~ ~s(data-rules-state="recorded")
   end
 

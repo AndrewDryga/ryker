@@ -80,7 +80,7 @@ defmodule Responder.ControlPlane.EpisodeTrace do
     steps =
       []
       |> Kernel.++(kernel_steps(events, inputs))
-      |> Kernel.++(rule_steps(input_rows))
+      |> Kernel.++(preparation_steps(input_rows))
       |> Kernel.++(session_steps(sessions))
       |> Kernel.++(turn_steps(turns, sessions))
       |> Kernel.++(activity)
@@ -547,20 +547,34 @@ defmodule Responder.ControlPlane.EpisodeTrace do
   # complete inventory recorded when that input processed, or says plainly
   # that none was recorded. It never reads today's rules: a rule edited since
   # would quietly rewrite the old explanation.
-  defp rule_steps(input_rows) do
+  # Getting ready, per input and in the approved order: Participation settings,
+  # then the complete Standing rules inventory, then the Engagement decision.
+  # All three sit at the moment the input was accepted; the list order is the
+  # tie-break, so the sequence survives identical timestamps.
+  defp preparation_steps(input_rows) do
     inventories = Behaviors.rule_inventories(Enum.map(input_rows, &"ingress-input:#{&1.id}"))
 
-    Enum.map(input_rows, fn input ->
+    Enum.flat_map(input_rows, fn input ->
+      receipt = input.engagement_receipt
       inventory = Map.get(inventories, "ingress-input:#{input.id}")
       rules = rule_inventory(inventory)
+      participation = participation(receipt)
+      engagement = engagement(receipt)
 
-      # The card sits at the moment its input was accepted; the inventory was
-      # written immediately after, and that write time lives inside the card.
-      step(
-        "rules-#{input.id}",
-        :ready,
-        input.inserted_at,
-        %{
+      [
+        step("participation-#{input.id}", :ready, input.inserted_at, %{
+          actor: "Responder",
+          owner: {:input, input.id},
+          input_id: input.id,
+          participation: participation,
+          details: [],
+          stage: "Participation settings",
+          state: "",
+          summary: participation.summary,
+          title: "Participation settings",
+          tone: nil
+        }),
+        step("rules-#{input.id}", :ready, input.inserted_at, %{
           actor: "Responder",
           owner: {:input, input.id},
           input_id: input.id,
@@ -571,10 +585,137 @@ defmodule Responder.ControlPlane.EpisodeTrace do
           summary: rule_summary(rules),
           title: "Standing rules",
           tone: nil
-        }
-      )
+        }),
+        step("engagement-#{input.id}", :ready, input.inserted_at, %{
+          actor: "Responder",
+          owner: {:input, input.id},
+          input_id: input.id,
+          engagement: engagement,
+          details: [],
+          stage: "Engagement",
+          state: engagement.result,
+          summary: engagement.reason,
+          title: "Engagement",
+          tone: engagement.tone
+        })
+      ]
     end)
   end
+
+  # Effective proactive/shadow values with the source each one won from. An
+  # explicit submission never consulted channel settings, and history without
+  # a receipt says "not recorded" rather than reading today's configuration.
+  defp participation(nil),
+    do: %{
+      state: :not_recorded,
+      settings: [],
+      summary: "Effective participation settings were not recorded for this input."
+    }
+
+  defp participation(%{"settings" => %{} = settings}) do
+    rows =
+      for key <- ["proactive", "shadow"], %{} = setting <- [settings[key]] do
+        %{
+          label: participation_label(key),
+          value: if(setting["value"] == true, do: "On", else: "Off"),
+          source: setting_source_label(setting["source"])
+        }
+      end
+
+    %{
+      state: :recorded,
+      settings: rows,
+      summary: Enum.map_join(rows, " · ", &"#{&1.label} #{&1.value}")
+    }
+  end
+
+  defp participation(%{"path" => path}) do
+    %{
+      state: :not_applicable,
+      settings: [],
+      summary: "Not applicable: #{path_label(path)} bypasses channel participation settings."
+    }
+  end
+
+  defp participation(_receipt), do: participation(nil)
+
+  defp participation_label("proactive"), do: "Proactive"
+  defp participation_label("shadow"), do: "Shadow"
+  defp participation_label(other), do: to_string(other)
+
+  defp setting_source_label("channel"), do: "Saved channel setup"
+  defp setting_source_label("configuration"), do: "Channel configuration"
+  defp setting_source_label("workspace"), do: "Workspace setting"
+  defp setting_source_label("deployment"), do: "Deployment default"
+  defp setting_source_label("incident_room"), do: "Incident room policy"
+  defp setting_source_label("watch_channels"), do: "Watched channel list"
+  defp setting_source_label(nil), do: "Source not recorded"
+  defp setting_source_label(other), do: human(to_string(other))
+
+  defp path_label("conversation_lab"), do: "an explicit Conversation Lab submission"
+  defp path_label("slack_shortcut"), do: "an explicit Slack shortcut"
+  defp path_label("slack_event"), do: "a Slack event"
+  defp path_label(other), do: human(to_string(other))
+
+  # The decision as it was made: result, plain reason, and every predicate the
+  # gate reached. A predicate it never reached is "not checked" -- the receipt
+  # does not know its answer and neither does anyone else.
+  @engagement_checks [
+    {"direct_or_mention", "Direct message / mention"},
+    {"existing_episode_thread", "Existing episode thread"},
+    {"standing_rule", "Standing rule"},
+    {"proactive_participation", "Proactive participation"},
+    {"shadow_evaluation", "Shadow evaluation"}
+  ]
+
+  defp engagement(nil),
+    do: %{
+      state: :not_recorded,
+      result: "",
+      tone: nil,
+      reason: "The engagement decision was not recorded for this input.",
+      path: nil,
+      checks: []
+    }
+
+  defp engagement(%{"result" => result} = receipt) do
+    recorded = Map.new(receipt["checks"] || [], &{&1["check"], &1["outcome"]})
+
+    checks =
+      if receipt["checks"] == [] do
+        []
+      else
+        Enum.map(@engagement_checks, fn {key, label} ->
+          %{label: label, outcome: check_outcome(Map.get(recorded, key))}
+        end)
+      end
+
+    %{
+      state: :recorded,
+      result: engagement_result(result),
+      tone: if(result == "process", do: :good),
+      reason: bounded(to_string(receipt["reason"] || ""), 400),
+      path: path_label(receipt["path"]),
+      execution_mode: receipt["execution_mode"],
+      checks: checks
+    }
+  end
+
+  defp engagement(_receipt), do: engagement(nil)
+
+  defp engagement_result("process"), do: "Process"
+  defp engagement_result("evaluate_only"), do: "Evaluate only"
+  defp engagement_result("not_engaged"), do: "Not picked up"
+  defp engagement_result(other), do: human(to_string(other))
+
+  defp check_outcome(nil), do: "Not checked"
+  defp check_outcome("yes"), do: "Yes"
+  defp check_outcome("no"), do: "No"
+  defp check_outcome("matched"), do: "Matched"
+  defp check_outcome("not_matched"), do: "Not matched"
+  defp check_outcome("on"), do: "On"
+  defp check_outcome("off"), do: "Off"
+  defp check_outcome(other), do: human(to_string(other))
 
   defp rule_inventory(nil), do: %{state: :not_recorded, entries: [], truncated: false}
 
@@ -1906,6 +2047,8 @@ defmodule Responder.ControlPlane.EpisodeTrace do
       input_id: Map.get(attributes, :input_id),
       owner: Map.get(attributes, :owner, :episode),
       rules: Map.get(attributes, :rules),
+      participation: Map.get(attributes, :participation),
+      engagement: Map.get(attributes, :engagement),
       record_ref: Map.get(attributes, :record_ref),
       result_ref: Map.get(attributes, :result_ref),
       delivery_ref: Map.get(attributes, :delivery_ref),
