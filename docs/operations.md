@@ -326,6 +326,60 @@ targets; do not mutate the meaning of a policy still pinned by an active or reco
 Contributor, schedule, incident, and evaluation policies remain separate authority lanes, even when
 they happen to use one of the same model targets.
 
+## One-time configuration import
+
+An installation that used to be configured by an application YAML imports that
+document once, explicitly, into durable settings. Nothing else reads the old
+format: startup, readiness, evaluation tooling and every other operator command
+read PostgreSQL only, and there is no fallback that would pick the file up again.
+
+Dry-run first. The dry run writes nothing at all:
+
+```bash
+MIX_ENV=prod mix responder.import_configuration /var/lib/responder/responder-elixir.yaml
+```
+
+It prints one redacted JSON plan:
+
+- `settings` — every surviving key with the exact row and column that will hold
+  it, including each reviewed `policy_bindings` pin;
+- `deployment` — the values that become environment variables, by variable name;
+- `secret_remap` — every credential *name* the fixed contract renames, plus each
+  custom webhook secret that must be listed in `RESPONDER_WEBHOOK_SECRET_NAMES`;
+- `replaced_tuning` — non-default operational knobs and the shipped default that
+  now replaces each one;
+- `retired` — declarations with no destination, named with their value and why;
+- `changed_effects` — behaviour that differs after the import;
+- `participation` — the installation-wide default and the per-channel value the
+  old channel-override, confirmed-setup, workspace-override and watch-list layers
+  resolve to, channel by channel;
+- `status` — `ready`, `already_applied`, or a conflict.
+
+Read it. An unknown key, a duplicated key, a malformed value, an unsupported
+value, a work profile that no longer matches its context, or a webhook secret the
+deployment has not registered is a refusal that names the exact path, never the
+value. Set the deployment variables and register the secrets the plan names
+before applying, then rehearse the apply on a restored copy of the database.
+
+Apply with the explicit flag, with the old writer stopped:
+
+```bash
+MIX_ENV=prod mix responder.import_configuration /var/lib/responder/responder-elixir.yaml --apply
+```
+
+The apply is one transaction. It creates the installation under the `host_ref`
+the document names — worker, delivery, publication and retention lease owners are
+`<host_ref>:<lane>`, so a generated identity would strand them — writes every
+other value through the ordinary typed settings path, folds channel participation,
+and records a content-safe receipt of fingerprints and the resulting revision.
+Rerunning the same document reports `already_applied` and writes nothing. A
+changed document, or settings edited after the import, is a conflict: the
+importer refuses rather than overwriting later work. A failure at any point
+rolls the whole transaction back, so a retry starts from an untouched database.
+
+Keep the original document as recovery evidence, in operator-only storage. It is
+never read again by the running system.
+
 ## PostgreSQL backup and restore
 
 Use physical or managed continuous backup in production and take an explicit
