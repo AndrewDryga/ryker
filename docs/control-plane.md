@@ -362,9 +362,12 @@ Tokens, over a selectable window (24h, 7d, 30d, everything), broken down by:
   rotated to a fallback after a rate limit counts against what actually answered
 - Channel, repository and episode kind
 - Work type: admission (routing), conversation/standard/deep Work, and learning
-  (the background memory learner). Every Coop turn Responder submits is one
-  ledger row whose counters are Coop's cumulative figures for that turn,
-  including schema and semantic repairs.
+  (the background memory learner). Follow-on Work turns carry no admission
+  decision, so they are typed by their turn family instead: continuation,
+  resumed work, task, event wait, scheduled run, publication follow-up and
+  approval. Every Coop turn Responder submits is one ledger row whose counters
+  are Coop's cumulative figures for that turn, including schema and semantic
+  repairs.
 - Cache hit rate: cached input over all input read
 - A daily trend, inline SVG rendered server-side
 

@@ -4,7 +4,7 @@ defmodule Responder.ControlPlane.UsagePage do
   alias Responder.ControlPlane.{Components, SlackNames, UsageChart}
 
   # Every work type the projection can name; anything else is a missing identity.
-  @work_kinds ~w(admission learning conversational standard deep)
+  @work_kinds ~w(admission learning conversational standard deep continuation resumed task event_wait schedule publication approval)
 
   def render(snapshot) do
     totals = snapshot.totals
@@ -352,6 +352,13 @@ defmodule Responder.ControlPlane.UsagePage do
   defp kind_name("conversational"), do: "Conversation"
   defp kind_name("standard"), do: "Standard work"
   defp kind_name("deep"), do: "Deep work"
+  defp kind_name("continuation"), do: "Continuation"
+  defp kind_name("resumed"), do: "Resumed work"
+  defp kind_name("task"), do: "Task"
+  defp kind_name("event_wait"), do: "Event wait"
+  defp kind_name("schedule"), do: "Scheduled run"
+  defp kind_name("publication"), do: "Publication follow-up"
+  defp kind_name("approval"), do: "Approval"
   defp kind_name(value), do: Components.label(value || "unclassified")
 
   defp channel(%{transport: "slack", conversation_ref: ref}) do

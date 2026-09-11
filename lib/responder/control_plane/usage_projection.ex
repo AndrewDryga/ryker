@@ -175,11 +175,22 @@ defmodule Responder.ControlPlane.UsageProjection do
             e.execution_target,
             e.execution_target
           ),
+        # Follow-on Work turns (continuations, resumes, tasks, waits, schedules,
+        # publication checks, approvals) carry no admission decision. Their turn
+        # family is the work type an operator can act on; "unclassified" hid
+        # most of the spend on the live page behind one unopenable row.
         work_kind:
           fragment(
-            "CASE WHEN ? = 'admission' THEN 'admission' WHEN ? = 'learning' THEN 'learning' ELSE COALESCE(?::jsonb ->> 'work_class', 'unclassified') END",
+            "CASE WHEN ? = 'admission' THEN 'admission' WHEN ? = 'learning' THEN 'learning' WHEN ? LIKE 'turn:after:%' THEN 'continuation' WHEN ? LIKE 'turn:resume-%' THEN 'resumed' WHEN ? LIKE 'turn:task:%' THEN 'task' WHEN ? LIKE 'turn:event-wait:%' THEN 'event_wait' WHEN ? LIKE 'turn:schedule:%' THEN 'schedule' WHEN ? LIKE 'turn:publication-%' THEN 'publication' WHEN ? LIKE 'turn:emisar-approval:%' THEN 'approval' ELSE COALESCE(?::jsonb ->> 'work_class', 'unclassified') END",
             e.kind,
             e.kind,
+            turn.turn_ref,
+            turn.turn_ref,
+            turn.turn_ref,
+            turn.turn_ref,
+            turn.turn_ref,
+            turn.turn_ref,
+            turn.turn_ref,
             entry.decision_document
           ),
         conversation_ref:

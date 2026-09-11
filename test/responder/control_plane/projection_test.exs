@@ -661,6 +661,36 @@ defmodule Responder.ControlPlane.ProjectionTest do
     assert Enum.reduce(snapshot.channels, 0, &(&1.attempts + &2)) == 2
   end
 
+  test "follow-on turns are typed by their turn family instead of an unsaved work type" do
+    # 25 of the 33 executions the live usage page showed "without a saved work
+    # type" on 2026-09-11 were resumed, continuation, event-wait and task
+    # turns: metered, but attributed to nothing an operator could open or act on.
+    now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+
+    families = %{
+      "turn:after:" => "continuation",
+      "turn:resume-blocked:" => "resumed",
+      "turn:task:" => "task",
+      "turn:event-wait:" => "event_wait",
+      "turn:schedule:" => "schedule",
+      "turn:publication-feedback:" => "publication",
+      "turn:emisar-approval:" => "approval"
+    }
+
+    for {prefix, family} <- families do
+      turn = measured_turn!(family, "codex:gpt-5.6-terra/medium@work", now)
+      turn |> Ecto.Changeset.change(turn_ref: prefix <> turn.id) |> Repo.update!()
+    end
+
+    snapshot = Projection.usage(%{"window" => "24h"})
+
+    assert Enum.sort(Enum.map(snapshot.kinds, & &1.work_kind)) ==
+             Enum.sort(Map.values(families))
+
+    assert Enum.all?(snapshot.kinds, &(&1.attempts == 1 and &1.usage_measured == 1))
+    assert Activity.list(%{"usage_work_kind" => "resumed", "usage_window" => "24h"}).total == 1
+  end
+
   test "people exclude apps bots system hooks and the shared Lab operator without losing their usage" do
     # Emisar showed local-operator, an app, and the universal webhook as people.
     # Use the retained actor type, not a display name or a platform-ID prefix.

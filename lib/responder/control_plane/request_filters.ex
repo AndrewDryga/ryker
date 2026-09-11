@@ -19,7 +19,7 @@ defmodule Responder.ControlPlane.RequestFilters do
     {"usage_channel", "Channel", :channel},
     {"usage_repository", "Usage repository", :text},
     {"usage_work_kind", "Work type",
-     ~w(admission learning conversational standard deep unclassified)},
+     ~w(admission learning conversational standard deep continuation resumed task event_wait schedule publication approval unclassified)},
     {"usage_source", "Input source", ~w(slack github webhook control_plane)},
     {"usage_actor_kind", "Sender type", ~w(user app bot system)},
     {"usage_workspace", "Source workspace", :text},
