@@ -437,72 +437,88 @@ defmodule Responder.Runtime.Assembly do
     |> Map.put(:checkpoint_secrets, Bootstrap.scan_secrets!(bootstrap))
   end
 
+  defp github(_bootstrap, %{github: %{enabled: false}}, _repositories, _contexts), do: nil
+
+  # Credentials do not enable an integration and must not silently rebind one.
+  # A connection saved for one app with the deployment holding another's key is
+  # a mismatch an operator has to resolve, not a component that quietly does
+  # not start.
   defp github(bootstrap, settings, repositories, contexts) do
-    with true <- settings.github.enabled,
-         app_id when is_integer(app_id) <- bootstrap.github_app_id,
-         true <- settings.github.app_id == app_id or is_nil(settings.github.app_id) do
-      defaults = Defaults.fetch!(:github)
-      api_url = bootstrap.github_api_url
-      signer = app_signer!(app_id)
+    app_id = bootstrap.github_app_id
 
-      app_http =
-        json_client!(api_url, defaults.receive_timeout_ms, fn -> AppJWT.token(signer) end)
+    cond do
+      is_nil(app_id) ->
+        raise ArgumentError, "GitHub is enabled but GITHUB_APP_ID is not supplied"
 
-      prepared =
-        Map.new(settings.github_bindings, fn binding ->
-          {binding.name, github_binding(binding, api_url, defaults, repositories, contexts)}
+      settings.github.app_id != app_id ->
+        raise ArgumentError, "GitHub is enabled for a different app than GITHUB_APP_ID names"
+
+      true ->
+        github_runtime(bootstrap, settings, repositories, contexts)
+    end
+  end
+
+  defp github_runtime(bootstrap, settings, repositories, contexts) do
+    app_id = bootstrap.github_app_id
+
+    defaults = Defaults.fetch!(:github)
+    api_url = bootstrap.github_api_url
+    signer = app_signer!(app_id)
+
+    app_http =
+      json_client!(api_url, defaults.receive_timeout_ms, fn -> AppJWT.token(signer) end)
+
+    prepared =
+      Map.new(settings.github_bindings, fn binding ->
+        {binding.name, github_binding(binding, api_url, defaults, repositories, contexts)}
+      end)
+
+    delivery_binding = %{
+      bindings:
+        Map.new(prepared, fn {name, item} ->
+          {name,
+           %{
+             api: Client,
+             client: item.client,
+             repository_full_name: item.repository.github_repository,
+             repository_id: item.trusted_binding.repository_id
+           }}
         end)
+    }
 
-      delivery_binding = %{
-        bindings:
-          Map.new(prepared, fn {name, item} ->
-            {name,
-             %{
-               api: Client,
-               client: item.client,
-               repository_full_name: item.repository.github_repository,
-               repository_id: item.trusted_binding.repository_id
-             }}
-          end)
-      }
-
-      %{
-        bindings: prepared,
-        capability_tools: GitHubCapabilityTools.options!(delivery_binding),
-        delivery_binding: delivery_binding,
-        receive_timeout_ms: defaults.receive_timeout_ms,
-        runtime: %{
-          server: %{
-            bindings: Map.new(prepared, fn {name, item} -> {name, item.trusted_binding} end),
-            confirmations:
-              Confirmations.options!(%{
-                repositories:
-                  Map.new(contexts, fn {ref, context} ->
-                    {ref, %{contributor_policy: context.contributor_policy}}
-                  end)
-              }),
-            ip: bootstrap.github_listener.ip,
-            port: bootstrap.github_listener.port,
-            secret: Bootstrap.secret!(:github_webhook)
-          },
-          tokens: %{
-            app_http: app_http,
-            bindings:
-              Map.new(prepared, fn {name, item} ->
-                {name,
-                 %{
-                   installation_id: item.trusted_binding.installation_id,
-                   repository_id: item.trusted_binding.repository_id
-                 }}
-              end),
-            requester: JSONClient
-          }
+    %{
+      bindings: prepared,
+      capability_tools: GitHubCapabilityTools.options!(delivery_binding),
+      delivery_binding: delivery_binding,
+      receive_timeout_ms: defaults.receive_timeout_ms,
+      runtime: %{
+        server: %{
+          bindings: Map.new(prepared, fn {name, item} -> {name, item.trusted_binding} end),
+          confirmations:
+            Confirmations.options!(%{
+              repositories:
+                Map.new(contexts, fn {ref, context} ->
+                  {ref, %{contributor_policy: context.contributor_policy}}
+                end)
+            }),
+          ip: bootstrap.github_listener.ip,
+          port: bootstrap.github_listener.port,
+          secret: Bootstrap.secret!(:github_webhook)
+        },
+        tokens: %{
+          app_http: app_http,
+          bindings:
+            Map.new(prepared, fn {name, item} ->
+              {name,
+               %{
+                 installation_id: item.trusted_binding.installation_id,
+                 repository_id: item.trusted_binding.repository_id
+               }}
+            end),
+          requester: JSONClient
         }
       }
-    else
-      false -> nil
-      nil -> nil
-    end
+    }
   end
 
   defp app_signer!(app_id) do

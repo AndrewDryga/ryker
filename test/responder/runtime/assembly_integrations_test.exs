@@ -1,4 +1,4 @@
-defmodule Responder.Runtime.AssemblyWebhooksTest do
+defmodule Responder.Runtime.AssemblyIntegrationsTest do
   use Responder.DataCase, async: false
 
   alias Responder.{Bootstrap, Settings}
@@ -65,6 +65,30 @@ defmodule Responder.Runtime.AssemblyWebhooksTest do
              )
 
     assert reason =~ "not registered for this deployment"
+  end
+
+  test "a GitHub connection saved for another app is a mismatch, not a quiet non-start" do
+    # Silently not starting GitHub reads like "not configured yet". The saved
+    # bindings must stay exactly as they are and the operator must be told.
+    settings = installation!()
+
+    {:ok, saved} =
+      Settings.save_github(
+        %{enabled: true, app_id: 12_345},
+        settings.installation.revision,
+        @actor
+      )
+
+    assert {:error, {:settings_not_applicable, reason}} =
+             Assembly.build(%{bootstrap() | github_app_id: 999}, saved)
+
+    assert reason =~ "different app"
+
+    assert {:error, {:settings_not_applicable, missing}} =
+             Assembly.build(%{bootstrap() | github_app_id: nil}, saved)
+
+    assert missing =~ "GITHUB_APP_ID is not supplied"
+    assert Settings.fetch!().github.app_id == 12_345
   end
 
   defp installation! do
