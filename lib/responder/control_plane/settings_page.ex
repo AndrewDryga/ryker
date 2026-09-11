@@ -84,6 +84,10 @@ defmodule Responder.ControlPlane.SettingsPage do
           {status_message(@view.application)}
         </p>
       </header>
+      <nav class="settings-index" aria-label="Settings sections">
+        <a :for={section <- SettingsSections.sections()} href={"#settings-#{section.key}"}>{section.title}</a>
+        <a href="#webhook-preview">Check a payload</a>
+      </nav>
       <.live_component
         :for={section <- SettingsSections.sections()}
         module={SettingsEditor}
