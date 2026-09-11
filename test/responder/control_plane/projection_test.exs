@@ -222,7 +222,8 @@ defmodule Responder.ControlPlane.ProjectionTest do
                "Input wait started",
                "Participation settings",
                "Standing rules",
-               "Engagement"
+               "Engagement",
+               "Input queue"
              ]
 
     assert detail.trace.stopped.headline == "Waiting for a person"
@@ -569,11 +570,9 @@ defmodule Responder.ControlPlane.ProjectionTest do
 
       assert {:ok, workspace_detail} = Projection.episode(episode_key!(measured.episode_id))
 
-      session_step =
-        Enum.find(workspace_detail.trace.steps, &(&1.title == "Workspace selected"))
-
-      session_details = Map.new(session_step.details, &{&1.label, &1.value})
-      assert session_details["Workspace target"] == expected
+      setup_step = Enum.find(workspace_detail.trace.steps, &(&1.title == "Work setup"))
+      setup_details = Map.new(setup_step.setup.details, &{&1.label, &1.value})
+      assert setup_details["Bound task"] == expected
     end
 
     for {provider_ms, expected} <- [{120_000, "2m"}, {7_200_000, "2h"}] do

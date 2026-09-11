@@ -1305,3 +1305,19 @@ details.measurement-notes > summary { cursor:pointer; font-weight:600; color:var
 .provider-facts dt { color:#6a7162; }
 .provider-facts dd { margin:0; overflow-wrap:anywhere; user-select:all; }
 .provider-links { margin:10px 0 0; display:flex; flex-wrap:wrap; gap:14px; font-size:14px; }
+
+/* Input queue: saved or not, waiting for what, handed to routing or not. */
+.input-queue .event-state.tone-good { color:#59765a; background:#edf4e9; }
+.input-queue .event-state small { font-size:12px; font-weight:400; color:#6a7162; }
+.queue-blocker, .queue-recovery { grid-column:1 / -1; margin:6px 0 0; font-size:14px; }
+.input-queue[data-state="needs_attention"] .case-event-summary { color:#942f28; }
+.standalone-preparation { margin:0 0 24px; }
+
+/* A success mark carries the state; nothing visible repeats it. */
+.success-mark { display:inline-flex; width:18px; height:18px; align-items:center; justify-content:center; border-radius:50%; background:#edf4e9; color:#3f6a45; font-size:12px; font-weight:700; }
+.success-mark::before { content:"✓"; }
+
+/* Work setup: pinned setup against the actual session, worker and workspace. */
+.setup-facts { grid-column:1 / -1; margin:8px 0 0; }
+.work-setup[data-state="blocked"] .case-event-summary { color:#942f28; }
+

@@ -62,6 +62,38 @@ recorded empty inventory renders "No standing rules existed"; an absent row
 renders "Standing-rule evaluation was not recorded", and the two are never
 conflated with "0 matched". The inventory expires with episode history.
 
+Getting ready ends with an **Input queue** card per input: saved or not,
+waiting for what, and whether routing picked it up. It reads only the durable
+custody row (`ingress_inbox_entries` status, claim count, retry time, latest
+error) and the earliest admission attempt, whose insertion is the routing claim.
+A decided input is "Handed to routing" with its recorded claim time and queue
+wait; an input with no surviving attempt row says "Not recorded" for both,
+never a zero-second wait. Pending inputs read the live queue and label that
+state current: a held lease is "Handed to routing", a future retry time is
+"Waiting to retry" with the eligible-after time (eligible, not promised), and
+an earlier pending input in the same transport, conversation and execution
+mode is named and linked as the blocker. Blocked inputs say automatic retries
+stopped and link the existing recovery page; superseded inputs keep their save
+facts and say a newer revision won. No source acknowledgement log exists, so
+that row is always "Not recorded". The standalone input view at
+`/timeline/ingress-input:<id>` carries the same four Getting ready cards.
+
+The work phase opens with a **Work setup** card per Work turn (and one on the
+pinned session while no turn has claimed it), before the Work briefing. It
+distinguishes the pinned setup from the session, worker and workspace the turn
+actually ran on: Session New / Reused from previous work round / Replaced (the
+rotation reason is not retained, so it says "Reason not recorded"), Worker
+(the fleet placement's worker, or "Local Coop" for a bound local session),
+Profile, and Workspace as "Prepared · N repositories" from the frozen
+submission's workspace snapshot. Ready needs evidence that preparation
+completed, which is a bound remote turn; a live Work lease without a bound
+session is "Preparing" at the one step the rows record; a turn blocked before
+it started says what its recorded error code means; and a session row alone is
+"Setup selected". Individual preparation checks were never recorded and are
+labelled that way. Setup details keep repository access, the bound Responder
+tools, the bound task and technical identifiers; the repo@sha chips and the
+tool catalog stay on the briefing.
+
 Recognized notification formats get a provider card in place of the generic
 byline: HCP Terraform run notifications (recognized from the retained Slack
 attachments, harvested in `testdata/slack/hcp-terraform-planning.json`) and

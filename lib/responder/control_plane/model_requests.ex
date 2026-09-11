@@ -3,6 +3,7 @@ defmodule Responder.ControlPlane.ModelRequests do
   @moduledoc "Bounded, explicitly sensitive read boundary for retained model requests."
   import Ecto.Query
   alias Responder.Admission.Attempt
+  alias Responder.ControlPlane.EpisodeTrace
   alias Responder.ControlPlane.InspectionRedactor, as: Redactor
   alias Responder.ControlPlane.WorkRecovery
   alias Responder.Episodes.Episode
@@ -296,6 +297,7 @@ defmodule Responder.ControlPlane.ModelRequests do
          pages: 1,
          total: 1,
          items: [%{id: id, status: entry.status, at: entry.inserted_at}],
+         preparation: EpisodeTrace.input_preparation(entry),
          selected: inspect_row(entry, params, secrets: Redactor.configured_secrets())
        }}
     else

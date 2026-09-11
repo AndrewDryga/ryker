@@ -12,6 +12,7 @@ defmodule Responder.ControlPlane.EpisodeTrace do
 
   import Ecto.Query
 
+  alias Responder.Admission.Attempt
   alias Responder.CanonicalJSON
   alias Responder.ControlPlane.Card
   alias Responder.ControlPlane.CurrentInputs
@@ -22,8 +23,10 @@ defmodule Responder.ControlPlane.EpisodeTrace do
   alias Responder.ControlPlane.SourceText
   alias Responder.ControlPlane.WorkRecovery
   alias Responder.CoopFleet.Event, as: CoopEvent
+  alias Responder.CoopFleet.Placement
   alias Responder.Delivery.PlatformAction
   alias Responder.Episodes.{Episode, Event}
+  alias Responder.Ingress.Inbox
   alias Responder.Ingress.Inbox.Entry
   alias Responder.Operator.EpisodeReview
   alias Responder.Publication.Publication
@@ -82,7 +85,7 @@ defmodule Responder.ControlPlane.EpisodeTrace do
       []
       |> Kernel.++(kernel_steps(events, inputs))
       |> Kernel.++(preparation_steps(input_rows))
-      |> Kernel.++(session_steps(sessions))
+      |> Kernel.++(setup_steps(sessions, turns))
       |> Kernel.++(turn_steps(turns, sessions))
       |> Kernel.++(activity)
       |> Kernel.++(slack_status_steps(episode.id))
@@ -548,16 +551,29 @@ defmodule Responder.ControlPlane.EpisodeTrace do
     ])
   end
 
+  @doc """
+  The Getting ready cards for one input that may have no episode yet.
+
+  The standalone input view shows the same four cards the Timeline shows, read
+  from the same rows, so an input that was never picked up explains itself the
+  same way as one that was.
+  """
+  @spec input_preparation(Entry.t()) :: [map()]
+  def input_preparation(%Entry{} = input), do: preparation_steps([input])
+
   # One Standing rules card per input, always present. The card carries the
   # complete inventory recorded when that input processed, or says plainly
   # that none was recorded. It never reads today's rules: a rule edited since
   # would quietly rewrite the old explanation.
   # Getting ready, per input and in the approved order: Participation settings,
-  # then the complete Standing rules inventory, then the Engagement decision.
-  # All three sit at the moment the input was accepted; the list order is the
-  # tie-break, so the sequence survives identical timestamps.
+  # then the complete Standing rules inventory, then the Engagement decision,
+  # then the Input queue. All four sit at the moment the input was accepted;
+  # the list order is the tie-break, so the sequence survives identical
+  # timestamps.
   defp preparation_steps(input_rows) do
     inventories = Behaviors.rule_inventories(Enum.map(input_rows, &"ingress-input:#{&1.id}"))
+    attempts = first_attempts(input_rows)
+    now = DateTime.utc_now()
 
     Enum.flat_map(input_rows, fn input ->
       receipt = input.engagement_receipt
@@ -565,6 +581,7 @@ defmodule Responder.ControlPlane.EpisodeTrace do
       rules = rule_inventory(inventory)
       participation = participation(receipt)
       engagement = engagement(receipt)
+      queue = queue(input, Map.get(attempts, input.id), now)
 
       [
         step("participation-#{input.id}", :ready, input.inserted_at, %{
@@ -602,10 +619,210 @@ defmodule Responder.ControlPlane.EpisodeTrace do
           summary: engagement.reason,
           title: "Engagement",
           tone: engagement.tone
+        }),
+        step("queue-#{input.id}", :ready, input.inserted_at, %{
+          actor: "Responder",
+          owner: {:input, input.id},
+          input_id: input.id,
+          queue: queue,
+          details: [],
+          stage: "Input queue",
+          state: queue.label,
+          summary: queue.summary,
+          title: "Input queue",
+          tone: queue.tone
         })
       ]
     end)
   end
+
+  # The earliest admission attempt is the routing claim that first prepared
+  # context for the input. Nothing else retains a claim time: claiming clears
+  # the retry fields and updated_at moves on every other write.
+  defp first_attempts(input_rows) do
+    ids = Enum.map(input_rows, & &1.id)
+
+    Repo.all(
+      from(attempt in Attempt,
+        where: attempt.input_id in ^ids,
+        order_by: [asc: attempt.inserted_at, asc: attempt.id]
+      )
+    )
+    |> Enum.group_by(& &1.input_id)
+    |> Map.new(fn {input_id, [first | _rest]} -> {input_id, first} end)
+  end
+
+  # Saved or not, waiting for what, handed to routing or not. Terminal rows
+  # read their durable status; a pending row reads the live queue, and
+  # everything derived from the live queue is labelled current because it will
+  # not be true for long.
+  defp queue(input, first_attempt, now) do
+    claimed_at = first_attempt && first_attempt.inserted_at
+    wait_ms = if claimed_at, do: nonnegative_diff(claimed_at, input.inserted_at)
+    state = queue_state(input, now)
+
+    Map.merge(state, %{
+      saved_at: input.inserted_at,
+      claimed_at: claimed_at,
+      wait_ms: wait_ms,
+      claims: input.attempt_count,
+      facts: queue_facts(input, state, claimed_at, wait_ms),
+      technical: queue_technical(input, state)
+    })
+  end
+
+  defp queue_facts(input, state, claimed_at, wait_ms) do
+    compact_details([
+      {"Storage", "Saved · #{timestamp_precise(input.inserted_at)}"},
+      {"Source occurrence", queue_occurrence(input)},
+      {"Input / revision", "ingress-input:#{input.id} · revision #{input.revision}"},
+      {"Execution mode", "#{capitalize(human(input.execution_mode))} · fixed on first receipt"},
+      {"Source acknowledgement", "Not recorded"},
+      {"Routing claim", if(claimed_at, do: timestamp_precise(claimed_at), else: "Not recorded")},
+      {"Queue wait", format_ms(wait_ms) || "Not recorded"},
+      {"Queue claims", input.attempt_count},
+      {"Eligible for retry after",
+       if(state.kind == :retry, do: timestamp_precise(input.next_attempt_at))},
+      {"Last routing error", if(input.status != :decided, do: error_label(input.last_error_code))}
+    ])
+  end
+
+  defp queue_technical(input, state) do
+    held? = state.kind == :handed and state.current
+
+    compact_details([
+      {"Identity", input.dedupe_key},
+      {"Event fingerprint", short_digest(input.event_fingerprint)},
+      {"Execution generation", input.execution_generation},
+      {"Validation generation", input.validation_generation},
+      {"Current lease owner", if(held?, do: input.lease_owner)},
+      {"Current lease expires", if(held?, do: timestamp_precise(input.lease_expires_at))}
+    ])
+  end
+
+  defp queue_state(%Entry{status: :decided}, _now) do
+    %{
+      kind: :handed,
+      label: "Handed to routing",
+      summary: "A routing worker picked up this input.",
+      current: false,
+      tone: :good,
+      blocker: nil,
+      recovery_href: nil
+    }
+  end
+
+  defp queue_state(%Entry{status: :superseded}, _now) do
+    %{
+      kind: :superseded,
+      label: "Superseded",
+      summary:
+        "Input remains saved. A newer revision of this message was already accepted, so this revision's routing choice was not applied.",
+      current: false,
+      tone: nil,
+      blocker: nil,
+      recovery_href: nil
+    }
+  end
+
+  defp queue_state(%Entry{status: :blocked} = input, _now) do
+    %{
+      kind: :needs_attention,
+      label: "Needs attention",
+      summary:
+        "Input remains saved. Automatic retries have stopped." <>
+          queue_error_sentence(input.last_error_code),
+      current: false,
+      tone: :bad,
+      blocker: nil,
+      recovery_href: "/failures/admission/#{segment(Inbox.ref(input))}"
+    }
+  end
+
+  defp queue_state(%Entry{status: :pending} = input, now) do
+    cond do
+      is_binary(input.lease_ref) and live_after?(input.lease_expires_at, now) ->
+        %{
+          kind: :handed,
+          label: "Handed to routing",
+          summary: "A routing worker holds this input.",
+          current: true,
+          tone: nil,
+          blocker: nil,
+          recovery_href: nil
+        }
+
+      live_after?(input.next_attempt_at, now) ->
+        %{
+          kind: :retry,
+          label: "Waiting to retry",
+          summary:
+            "Input remains saved." <>
+              queue_error_sentence(input.last_error_code) <>
+              " Eligible for retry after #{timestamp_precise(input.next_attempt_at)}; a predecessor or an unavailable worker can still delay it.",
+          current: true,
+          tone: :warn,
+          blocker: nil,
+          recovery_href: nil
+        }
+
+      true ->
+        queue_waiting(input, Inbox.queue_predecessor(input, now))
+    end
+  end
+
+  defp queue_waiting(_input, nil) do
+    %{
+      kind: :waiting,
+      label: "Waiting",
+      summary: "Saved; waiting for routing pickup.",
+      current: true,
+      tone: nil,
+      blocker: nil,
+      recovery_href: nil
+    }
+  end
+
+  defp queue_waiting(_input, %Entry{} = predecessor) do
+    %{
+      kind: :waiting,
+      label: "Waiting",
+      summary: "Waiting for an earlier input in this conversation.",
+      current: true,
+      tone: nil,
+      blocker: %{
+        text: queue_blocker_text(predecessor),
+        href: "/timeline/ingress-input%3A#{predecessor.id}"
+      },
+      recovery_href: nil
+    }
+  end
+
+  defp queue_blocker_text(%Entry{operational_pruned_at: nil, content: content}) do
+    case SourceText.from_content(content) do
+      text when is_binary(text) and text != "" ->
+        InspectionRedactor.artifact(text, max_bytes: 120).text
+
+      _absent ->
+        "Earlier input"
+    end
+  end
+
+  defp queue_blocker_text(_predecessor), do: "Earlier input"
+
+  defp queue_error_sentence(nil), do: ""
+  defp queue_error_sentence(code), do: " " <> error_label(code) <> "."
+
+  defp error_label(nil), do: nil
+  defp error_label(code), do: code |> human() |> capitalize() |> bounded(200)
+
+  defp queue_occurrence(%Entry{event_kind: :message}), do: "New input"
+  defp queue_occurrence(%Entry{event_kind: :edit}), do: "Edited message · new revision"
+  defp queue_occurrence(%Entry{event_kind: :delete}), do: "Deleted message · new revision"
+  defp queue_occurrence(%Entry{event_kind: kind}), do: capitalize(human(kind))
+
+  defp live_after?(%DateTime{} = at, now), do: DateTime.compare(at, now) == :gt
+  defp live_after?(_at, _now), do: false
 
   # Effective proactive/shadow values with the source each one won from. An
   # explicit submission never consulted channel settings, and history without
@@ -760,32 +977,285 @@ defmodule Responder.ControlPlane.EpisodeTrace do
     do:
       "#{matched} matched · #{total - matched} other · rules as they existed when this input was processed."
 
-  defp session_steps(sessions) do
-    Enum.map(sessions, fn session ->
-      target = workspace_target(session.workspace_task)
+  # One Work setup card per Work turn, before its briefing: the pinned setup
+  # versus the actual session, worker and workspace it ran on. A pinned
+  # episode that no turn has claimed yet gets one card on its session row,
+  # which proves configuration was selected and nothing more.
+  defp setup_steps(sessions, turns) do
+    work_sessions = Enum.filter(sessions, &(&1.execution_kind == :work))
+    sessions_by_id = Map.new(work_sessions, &{&1.id, &1})
+    placements = placements(work_sessions)
+    now = DateTime.utc_now()
 
-      step(
-        "session-#{session.id}",
-        :ready,
-        session.inserted_at,
-        %{
+    turn_cards =
+      turns
+      |> Enum.with_index(1)
+      |> Enum.map(fn {turn, ordinal} ->
+        session = Map.get(sessions_by_id, turn.session_id)
+
+        earlier =
+          Enum.filter(turns, fn other ->
+            other.session_id == turn.session_id and other.id != turn.id and
+              DateTime.compare(other.inserted_at, turn.inserted_at) == :lt
+          end)
+
+        setup =
+          work_setup(turn, ordinal, session, earlier, Map.get(placements, turn.session_id), now)
+
+        step("setup-#{turn.id}", :ready, turn.inserted_at, %{
           actor: "Responder",
-          details:
-            compact_details([
-              {"Policy", session.policy},
-              {"Repository", session.repository_ref},
-              {"Generation", session.generation},
-              {"Workspace target", target}
-            ]),
-          stage: "Preparation",
-          state: "",
-          summary: session_summary(session, target),
-          title: "Workspace selected",
-          tone: nil
-        }
-      )
-    end)
+          owner: {:turn, turn.id},
+          setup: setup,
+          details: [],
+          stage: "Work setup",
+          state: setup.label,
+          summary: setup.summary,
+          title: "Work setup",
+          tone: setup.tone
+        })
+      end)
+
+    session_cards =
+      if turns == [] do
+        Enum.map(work_sessions, fn session ->
+          setup = selected_setup(session, Map.get(placements, session.id))
+
+          step("setup-#{session.id}", :ready, session.inserted_at, %{
+            actor: "Responder",
+            setup: setup,
+            details: [],
+            stage: "Work setup",
+            state: setup.label,
+            summary: setup.summary,
+            title: "Work setup",
+            tone: nil
+          })
+        end)
+      else
+        []
+      end
+
+    turn_cards ++ session_cards
   end
+
+  defp placements([]), do: %{}
+
+  defp placements(sessions) do
+    ids = Enum.map(sessions, & &1.id)
+
+    Repo.all(
+      from(placement in Placement,
+        where: placement.session_id in ^ids,
+        order_by: [asc: placement.session_id, desc: placement.generation, desc: placement.id]
+      )
+    )
+    |> Enum.uniq_by(& &1.session_id)
+    |> Map.new(&{&1.session_id, &1})
+  end
+
+  # Ready needs evidence that preparation completed: a bound remote turn is
+  # that evidence, because Coop accepts a turn only into a prepared session. A
+  # live lease without a bound session is preparation in progress at the one
+  # step the rows record. Anything else is "selected", with its outcome
+  # unrecorded rather than guessed from today's worker health.
+  defp work_setup(turn, ordinal, session, earlier_turns, placement, now) do
+    session_state = session_state(session, earlier_turns)
+    workspace = setup_workspace(turn)
+    worker = setup_worker(session, placement)
+    outcome = setup_outcome(turn, session, now)
+
+    Map.merge(outcome, %{
+      ordinal: ordinal,
+      rows:
+        compact_details([
+          {"Session", session_state.face},
+          {"Worker", worker},
+          {"Profile", session && session.policy},
+          {"Workspace", workspace.face},
+          {"Current step", outcome.current_step}
+        ]),
+      details: setup_details(turn, session, session_state, worker, workspace),
+      technical: setup_technical(turn, session, placement)
+    })
+  end
+
+  # Ready needs evidence that preparation completed, which is a bound remote
+  # turn: Coop accepts a turn only into a prepared session. A live lease with
+  # no bound session is preparation in progress at the one step the rows
+  # record. Anything else is "selected", with its outcome unrecorded rather
+  # than guessed from today's worker health.
+  defp setup_outcome(turn, session, now) do
+    {kind, label, summary, tone, current_step} =
+      cond do
+        turn.status == :blocked and is_nil(turn.coop_turn_id) ->
+          {:blocked, "Blocked", setup_failure(turn.last_error_code), :bad, nil}
+
+        is_binary(turn.coop_turn_id) or not is_nil(turn.remote_queued_at) ->
+          {:ready, "Ready", nil, :good, nil}
+
+        turn.status == :pending and is_binary(turn.lease_ref) and
+            live_after?(turn.lease_expires_at, now) ->
+          {:preparing, "Preparing", nil, nil, preparing_step(session, turn)}
+
+        true ->
+          {:selected, "Setup selected", "Preparation outcome not recorded.", nil, nil}
+      end
+
+    %{kind: kind, label: label, summary: summary, tone: tone, current_step: current_step}
+  end
+
+  defp setup_details(turn, session, session_state, worker, workspace) do
+    compact_details([
+      {"Session", session_state.detail},
+      {"Profile", session && session.policy},
+      {"Selected from", "Not recorded"},
+      {"Worker", worker},
+      {"Repository access", workspace.access},
+      {"Responder tools",
+       if(is_binary(turn.state_tools_endpoint), do: "Bound to this work turn")},
+      {"Bound task", session && setup_task(session.workspace_task)},
+      {"Preparation checks", "Individual check results not recorded"}
+    ])
+  end
+
+  defp setup_technical(turn, nil, _placement),
+    do: compact_details([{"Turn", turn.turn_ref}, {"Work claims", turn.work_attempt_count}])
+
+  defp setup_technical(turn, session, placement) do
+    compact_details([
+      {"Turn", turn.turn_ref},
+      {"Session", session.id},
+      {"Session generation", session.generation},
+      {"Create generation", session.create_generation},
+      {"Remote session", session.coop_session_id},
+      {"Remote turn", turn.coop_turn_id},
+      {"Policy digest", short_digest(session.policy_digest)},
+      {"Authority digest", short_digest(session.authority_digest)},
+      {"Repository", session.repository_ref},
+      {"Placement worker", placement && placement.worker_id},
+      {"Placement generation", placement && placement.generation},
+      {"Work claims", turn.work_attempt_count}
+    ])
+  end
+
+  defp selected_setup(session, placement) do
+    %{
+      kind: :selected,
+      label: "Setup selected",
+      summary: "Waiting for a Work claim. Preparation has not started.",
+      tone: nil,
+      ordinal: nil,
+      current_step: nil,
+      rows:
+        compact_details([
+          {"Session", "Not created"},
+          {"Profile", session.policy}
+        ]),
+      details:
+        compact_details([
+          {"Profile", session.policy},
+          {"Selected from", "Not recorded"},
+          {"Worker", setup_worker(session, placement)},
+          {"Repository", session.repository_ref}
+        ]),
+      technical:
+        compact_details([
+          {"Session", session.id},
+          {"Session generation", session.generation},
+          {"Policy digest", short_digest(session.policy_digest)},
+          {"Authority digest", short_digest(session.authority_digest)}
+        ])
+    }
+  end
+
+  # New, reused or replaced is read from generations and earlier turns on the
+  # same row. The rotation reason is not retained anywhere, so a replacement
+  # says "Reason not recorded" rather than borrowing today's session state.
+  defp session_state(nil, _earlier_turns),
+    do: %{face: "Not recorded", detail: "Not recorded"}
+
+  defp session_state(session, earlier_turns) do
+    cond do
+      earlier_turns != [] ->
+        %{
+          face: "Reused from previous work round",
+          detail: "Reused from previous work round · Generation #{session.generation}"
+        }
+
+      session.generation > 1 or session.create_generation > 1 ->
+        %{
+          face: "Replaced · Reason not recorded",
+          detail: "Replaced · Generation #{session.generation} · Reason not recorded"
+        }
+
+      true ->
+        %{face: "New", detail: "New · Generation #{session.generation}"}
+    end
+  end
+
+  # What the recorded code means, in one sentence. A missing per-worker
+  # breakdown stays missing: "no eligible capacity" is not "every worker was
+  # busy", and the rows cannot say which it was.
+  defp setup_failure("coop_worker_capacity_unavailable"),
+    do: "No eligible worker with available capacity was found."
+
+  defp setup_failure(code) when code in ~w(coop_unavailable coop_transport_error),
+    do: "The worker connection failed before the session was ready."
+
+  defp setup_failure(nil), do: "Preparation stopped; the recorded error has no code."
+  defp setup_failure(code), do: "Preparation stopped: " <> error_label(code) <> "."
+
+  # The repository-backed task this session was pinned for, when there is one.
+  # A pinned task is a binding, not proof of a Coop task timeline.
+  defp setup_task(%{} = task) do
+    title =
+      if is_binary(task["title"]),
+        do: InspectionRedactor.artifact(task["title"], max_bytes: 200).text
+
+    repository =
+      case task do
+        %{"repository" => repository} when is_binary(repository) -> repository
+        %{"primary" => %{"name" => name}} when is_binary(name) -> name
+        _task -> nil
+      end
+
+    [title, repository] |> Enum.reject(&is_nil/1) |> Enum.join(" · ") |> present()
+  end
+
+  defp setup_task(_task), do: nil
+
+  defp setup_worker(_session, %Placement{worker_id: worker}) when is_binary(worker), do: worker
+  defp setup_worker(%Session{coop_session_id: id}, nil) when is_binary(id), do: "Local Coop"
+  defp setup_worker(_session, _placement), do: nil
+
+  defp preparing_step(%Session{coop_session_id: nil}, _turn), do: "Creating worker session"
+  defp preparing_step(_session, %Turn{submission: nil}), do: "Preparing the briefing"
+  defp preparing_step(_session, _turn), do: "Submitting the frozen briefing"
+
+  defp setup_workspace(%Turn{operational_pruned_at: pruned, submission: submission})
+       when not is_nil(pruned) or not is_map(submission),
+       do: %{face: nil, access: nil}
+
+  defp setup_workspace(%Turn{submission: submission}) do
+    case get_in(submission, ["context", "workspace"]) do
+      %{"primary" => %{} = primary} = workspace ->
+        companions = workspace |> Map.get("companions", []) |> Enum.filter(&is_map/1)
+        count = 1 + length(companions)
+
+        %{
+          face: "Prepared · #{plural(count, "repository", "repositories")}",
+          access: Enum.map_join([primary | companions], " · ", &repository_access/1)
+        }
+
+      _absent ->
+        %{face: nil, access: nil}
+    end
+  end
+
+  defp repository_access(%{"name" => name, "read_only" => true}), do: "#{name} read-only"
+  defp repository_access(%{"name" => name, "read_only" => false}), do: "#{name} writable"
+  defp repository_access(%{"name" => name}), do: "#{name} access not recorded"
+  defp repository_access(_repository), do: "unnamed repository"
 
   defp turn_steps(turns, sessions) do
     sessions_by_id = Map.new(sessions, &{&1.id, &1})
@@ -2054,6 +2524,8 @@ defmodule Responder.ControlPlane.EpisodeTrace do
       rules: Map.get(attributes, :rules),
       participation: Map.get(attributes, :participation),
       engagement: Map.get(attributes, :engagement),
+      queue: Map.get(attributes, :queue),
+      setup: Map.get(attributes, :setup),
       record_ref: Map.get(attributes, :record_ref),
       result_ref: Map.get(attributes, :result_ref),
       delivery_ref: Map.get(attributes, :delivery_ref),
@@ -2286,10 +2758,6 @@ defmodule Responder.ControlPlane.EpisodeTrace do
   end
 
   defp parsed_time(_value), do: nil
-
-  defp workspace_target(%{"repository" => repository}) when is_binary(repository), do: repository
-  defp workspace_target(%{"primary" => %{"name" => name}}) when is_binary(name), do: name
-  defp workspace_target(_task), do: nil
 
   defp source_text(%Entry{content: %{"text" => value}}) when is_binary(value),
     do: retained_text(value)
@@ -2586,16 +3054,6 @@ defmodule Responder.ControlPlane.EpisodeTrace do
   defp sha256(value),
     do: :crypto.hash(:sha256, value) |> Base.encode16(case: :lower)
 
-  defp session_summary(session, target) do
-    case session.repository_ref || target do
-      nil ->
-        "No repository working copy was requested."
-
-      repository ->
-        "#{repository} was supplied by this input's configured work profile. Routing chooses the work class; it does not choose an arbitrary repository."
-    end
-  end
-
   defp next_action(%Episode{state: :waiting_for_input}, _turn), do: "operator input"
   defp next_action(%Episode{state: :waiting_for_event}, _turn), do: "external event"
   defp next_action(_episode, %Turn{status: :blocked}), do: "operator recovery"
@@ -2673,6 +3131,8 @@ defmodule Responder.ControlPlane.EpisodeTrace do
 
   defp plural(1, noun), do: "1 #{noun}"
   defp plural(value, noun), do: "#{value} #{noun}s"
+  defp plural(1, noun, _plural), do: "1 #{noun}"
+  defp plural(value, _noun, plural), do: "#{value} #{plural}"
 
   defp human(nil), do: "unrecorded"
   defp human(value) when is_atom(value), do: value |> Atom.to_string() |> human()
