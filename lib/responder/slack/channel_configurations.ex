@@ -1027,10 +1027,6 @@ defmodule Responder.Slack.ChannelConfigurations do
   defp persist_transition(session, attributes, :save),
     do: save_session(session, attributes, session.draft)
 
-  defp persist_transition(session, attributes, {:advance, step, _value}) do
-    update_session(session, attributes, %{step: step}, :advanced)
-  end
-
   defp persist_transition(session, attributes, {:draft, key, value, next_step}) do
     update_session(
       session,

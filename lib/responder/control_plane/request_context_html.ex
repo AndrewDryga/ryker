@@ -274,8 +274,6 @@ defmodule Responder.ControlPlane.RequestContextHTML do
     ]
   end
 
-  defp runtime_context([], _, _), do: []
-
   defp runtime_context(scope, root, prefix) do
     source(
       "scope",
@@ -737,8 +735,6 @@ defmodule Responder.ControlPlane.RequestContextHTML do
       "</section>"
     ]
   end
-
-  defp candidates(_items), do: []
 
   defp candidate(item) when is_map(item) do
     relations =
