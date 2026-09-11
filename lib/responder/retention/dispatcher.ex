@@ -11,6 +11,9 @@ defmodule Responder.Retention.Dispatcher do
   alias Responder.Retention.{Custody, Executor}
 
   @maximum_error_detail_bytes 4_096
+  # Matches the fleet's heartbeat staleness: a worker seen inside this window
+  # is reachable enough to retry the cleanup its outage deferred.
+  @worker_reconnect_seconds 60
 
   @type pass :: %{
           attempted: non_neg_integer(),
@@ -18,7 +21,7 @@ defmodule Responder.Retention.Dispatcher do
           deferred: non_neg_integer(),
           executed: non_neg_integer(),
           idle: boolean(),
-          stopped: :batch_limit | :time_budget | :idle | :error
+          stopped: :batch_limit | :time_budget | :idle
         }
 
   @spec run_pass(keyword() | map()) :: {:ok, pass()} | {:error, term()}
@@ -27,7 +30,7 @@ defmodule Responder.Retention.Dispatcher do
          {:ok, _reconsidered} <-
            Custody.reconsider_reconnected_workers(
              outage_error_codes(),
-             settings.worker_reconnect_seconds
+             @worker_reconnect_seconds
            ) do
       drain(settings, %{
         attempted: 0,
@@ -37,8 +40,7 @@ defmodule Responder.Retention.Dispatcher do
         excluded_session_ids: [],
         excluded_worker_ids: [],
         executed: 0,
-        idle: false,
-        stopped: :batch_limit
+        idle: false
       })
     end
   end
@@ -253,7 +255,6 @@ defmodule Responder.Retention.Dispatcher do
       :retained_recheck_seconds,
       :retry_base_seconds,
       :retry_max_seconds,
-      :worker_reconnect_seconds,
       :worker_ref
     ]
 
@@ -272,7 +273,6 @@ defmodule Responder.Retention.Dispatcher do
       retained_recheck_seconds: Map.get(options, :retained_recheck_seconds, 21_600),
       retry_base_seconds: Map.get(options, :retry_base_seconds, 5),
       retry_max_seconds: Map.get(options, :retry_max_seconds, 300),
-      worker_reconnect_seconds: Map.get(options, :worker_reconnect_seconds, 60),
       worker_ref: Map.get(options, :worker_ref)
     }
 
@@ -303,8 +303,7 @@ defmodule Responder.Retention.Dispatcher do
 
   defp budget_settings_valid?(settings) do
     positive?(settings.batch_limit) and settings.batch_limit <= 1_000 and
-      positive?(settings.batch_seconds) and positive?(settings.retained_recheck_seconds) and
-      positive?(settings.worker_reconnect_seconds)
+      positive?(settings.batch_seconds) and positive?(settings.retained_recheck_seconds)
   end
 
   defp positive?(value), do: is_integer(value) and value > 0

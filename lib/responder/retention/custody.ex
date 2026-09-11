@@ -28,7 +28,9 @@ defmodule Responder.Retention.Custody do
 
   # The durable moment a session became claimable for cleanup, by phase. Ageing
   # from insertion counted conversation time and the intentional grace period as
-  # stall; ageing from the last claim would hide a real backlog instead.
+  # stall; ageing from the last claim would hide a real backlog instead. A
+  # retained workspace is eligible again at its scheduled recheck, or when its
+  # publication became durable.
   defmacrop eligible_at(session, episode, learning) do
     quote do
       fragment(
@@ -38,9 +40,9 @@ defmodule Responder.Retention.Custody do
           WHEN ? = 'grace' THEN COALESCE(?, ?)
           WHEN ? IN ('plan_pending', 'discard_pending') THEN COALESCE(?, ?)
           WHEN ? = 'retained' THEN COALESCE(
+            ?,
             (SELECT max(published.published_at) FROM episode_publications AS published
               WHERE published.session_id = ? AND published.status = 'published'),
-            ?,
             ?
           )
           ELSE ?
@@ -57,8 +59,8 @@ defmodule Responder.Retention.Custody do
         unquote(session).discard_after,
         unquote(session).updated_at,
         unquote(session).cleanup_status,
-        unquote(session).id,
         unquote(session).cleanup_next_attempt_at,
+        unquote(session).id,
         unquote(session).updated_at,
         unquote(session).updated_at
       )
