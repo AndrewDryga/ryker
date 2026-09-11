@@ -30,6 +30,30 @@ There are no compatibility aliases for earlier paths.
 Live invalidation domains follow the first path segment, so `activity` and
 `timeline` are also the PubSub domain names in `ControlPlane.Updates`.
 
+### Timeline evidence: what is recorded and what is not
+
+The Timeline groups evidence by the durable owner each step was recorded
+against (the input row, the Work turn, or the remote turn id on an activity
+event), never by the nearest message in time. Which inputs a turn was built
+from is recorded beside its frozen submission (`episode_work_turns.selected_input_refs`);
+turns frozen before that column say "Selected inputs not recorded" and are
+never reconstructed from today's episode state.
+
+Getting ready always carries a **Standing rules** card for each input. It reads
+`standing_rule_inventories`, written once per accepted input after custody
+commits and outside that transaction: every standing rule in the workspace at
+that moment with the verdict it got (matched, not matched, other channel,
+paused, expired, or not considered when it sat outside the runtime's 100-rule
+candidate window). The recorder is observation only; it does not change which
+rules schedule work, and a failure to write it never fails the input. A
+recorded empty inventory renders "No standing rules existed"; an absent row
+renders "Standing-rule evaluation was not recorded", and the two are never
+conflated with "0 matched". The inventory expires with episode history.
+
+Full prompt bodies on the Timeline load when their disclosure is opened and
+stay loaded across refreshes; a confirmed expiry, redaction or authorization
+loss closes the disclosure and removes the body regardless of reading state.
+
 The **Incident rooms** page at `/incident-rooms` tracks Slack incident rooms from
 setup through closure, with channel status and linked investigation work. Each
 room opens at `/incident-rooms/:ref`. The list includes requested and blocked

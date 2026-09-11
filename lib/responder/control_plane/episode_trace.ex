@@ -28,7 +28,7 @@ defmodule Responder.ControlPlane.EpisodeTrace do
   alias Responder.Publication.Publication
   alias Responder.Repo
   alias Responder.Slack.IncidentRoom
-  alias Responder.State.{Record, Schedule}
+  alias Responder.State.{Behaviors, Record, Schedule}
   alias Responder.Work.{Activity, ActivityEvent, ActivityPaths, Custody, Session, Turn}
 
   @chapters [
@@ -77,6 +77,7 @@ defmodule Responder.ControlPlane.EpisodeTrace do
     steps =
       []
       |> Kernel.++(kernel_steps(events, inputs))
+      |> Kernel.++(rule_steps(input_rows))
       |> Kernel.++(session_steps(sessions))
       |> Kernel.++(turn_steps(turns, sessions))
       |> Kernel.++(activity)
@@ -432,6 +433,77 @@ defmodule Responder.ControlPlane.EpisodeTrace do
       {"Fingerprint", short_digest(event.fingerprint)}
     ])
   end
+
+  # One Standing rules card per input, always present. The card carries the
+  # complete inventory recorded when that input processed, or says plainly
+  # that none was recorded. It never reads today's rules: a rule edited since
+  # would quietly rewrite the old explanation.
+  defp rule_steps(input_rows) do
+    inventories = Behaviors.rule_inventories(Enum.map(input_rows, &"ingress-input:#{&1.id}"))
+
+    Enum.map(input_rows, fn input ->
+      inventory = Map.get(inventories, "ingress-input:#{input.id}")
+      rules = rule_inventory(inventory)
+
+      # The card sits at the moment its input was accepted; the inventory was
+      # written immediately after, and that write time lives inside the card.
+      step(
+        "rules-#{input.id}",
+        :ready,
+        input.inserted_at,
+        %{
+          actor: "Responder",
+          owner: {:input, input.id},
+          input_id: input.id,
+          rules: rules,
+          details: [],
+          stage: "Standing rules",
+          state: "",
+          summary: rule_summary(rules),
+          title: "Standing rules",
+          tone: nil
+        }
+      )
+    end)
+  end
+
+  defp rule_inventory(nil), do: %{state: :not_recorded, entries: [], truncated: false}
+
+  defp rule_inventory(inventory) do
+    entries =
+      inventory.entries
+      |> Enum.map(fn entry ->
+        %{
+          ref: entry["ref"],
+          title: entry["title"] || entry["ref"],
+          status: entry["status"],
+          revision: entry["revision"],
+          scope_ref: entry["scope_ref"],
+          verdict: entry["verdict"],
+          reason: InspectionRedactor.artifact(entry["reason"] || "", max_bytes: 400).text
+        }
+      end)
+      |> Enum.sort_by(&{&1.verdict != "matched", &1.title})
+
+    %{
+      state: :recorded,
+      recorded_at: inventory.recorded_at,
+      rule_count: inventory.rule_count,
+      matched_count: inventory.matched_count,
+      truncated: inventory.truncated,
+      entries: entries
+    }
+  end
+
+  defp rule_summary(%{state: :not_recorded}),
+    do: "Standing-rule evaluation was not recorded for this input."
+
+  defp rule_summary(%{rule_count: 0}),
+    do: "No standing rules existed when this input was processed."
+
+  defp rule_summary(%{rule_count: total, matched_count: matched}),
+    do:
+      "#{matched} matched · #{total - matched} other · rules as they existed when this input was processed."
 
   defp session_steps(sessions) do
     Enum.map(sessions, fn session ->
@@ -1724,6 +1796,7 @@ defmodule Responder.ControlPlane.EpisodeTrace do
       actor: human(Map.fetch!(attributes, :actor)),
       input_id: Map.get(attributes, :input_id),
       owner: Map.get(attributes, :owner, :episode),
+      rules: Map.get(attributes, :rules),
       record_ref: Map.get(attributes, :record_ref),
       result_ref: Map.get(attributes, :result_ref),
       delivery_ref: Map.get(attributes, :delivery_ref),

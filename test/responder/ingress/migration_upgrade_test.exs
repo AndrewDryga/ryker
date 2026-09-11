@@ -43,6 +43,15 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
   @typed_question_answers_version 20_260_910_000_300
   @answer_confirmed_global_facts_version 20_260_910_000_400
   @worker_storage_reports_version 20_260_911_000_400
+  @selected_work_inputs_version 20_260_911_000_100
+  @rule_inventories_version 20_260_911_000_200
+  @latest_versions [
+    @typed_question_answers_version,
+    @answer_confirmed_global_facts_version,
+    @selected_work_inputs_version,
+    @rule_inventories_version,
+    @worker_storage_reports_version
+  ]
   @memory_versions Enum.to_list(20_260_908_000_100..20_260_908_001_100//100) ++
                      [@bounded_sources_version]
   @workspace_versions [
@@ -110,11 +119,8 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
                      @event_only_waits_version,
                      @completion_receipts_version,
                      @model_instructions_version,
-                     @wait_list_order_version,
-                     @typed_question_answers_version,
-                     @answer_confirmed_global_facts_version,
-                     @worker_storage_reports_version
-                   ]
+                     @wait_list_order_version
+                   ] ++ @latest_versions
              ]
 
       refute table_exists?(repo, prefix, "slack_inbox_entries")
@@ -1532,11 +1538,8 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
                    @event_only_waits_version,
                    @completion_receipts_version,
                    @model_instructions_version,
-                   @wait_list_order_version,
-                   @typed_question_answers_version,
-                   @answer_confirmed_global_facts_version,
-                   @worker_storage_reports_version
-                 ]
+                   @wait_list_order_version
+                 ] ++ @latest_versions
 
       # Existing sessions have unknown disclosure custody. New columns must not
       # falsely attest them as tracked source-free sessions during the upgrade.
@@ -1562,9 +1565,14 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
       assert %{rows: [[0, 0, 0]]} = reset_topic_counts(repo, prefix)
       assert_reset_notes(repo, prefix, derived["conversation_observations"])
 
-      # Worker storage accounting is reversible on its own.
-      assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 1, prefix: prefix, log: false) ==
-               [@worker_storage_reports_version]
+      # The inspection-evidence columns and table and the worker storage columns
+      # are reversible on their own.
+      assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 3, prefix: prefix, log: false) ==
+               [
+                 @worker_storage_reports_version,
+                 @rule_inventories_version,
+                 @selected_work_inputs_version
+               ]
 
       assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 7, prefix: prefix, log: false) ==
                [
@@ -1642,8 +1650,14 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
       assert column_nullable?(repo, prefix, "operational_memory_entries", "expires_at")
       assert column_nullable?(repo, prefix, "episode_state_record_responses", "choice")
 
-      assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 1, prefix: prefix, log: false) ==
-               [@worker_storage_reports_version]
+      # The inspection-evidence columns and table and the worker storage columns
+      # are reversible on their own.
+      assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 3, prefix: prefix, log: false) ==
+               [
+                 @worker_storage_reports_version,
+                 @rule_inventories_version,
+                 @selected_work_inputs_version
+               ]
 
       fact_id = insert_global_fact!(repo, prefix)
 
@@ -1685,11 +1699,7 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
       refute column_nullable?(repo, prefix, "episode_state_record_responses", "choice")
 
       assert Ecto.Migrator.run(repo, @migrations_path, :up, all: true, prefix: prefix, log: false) ==
-               [
-                 @typed_question_answers_version,
-                 @answer_confirmed_global_facts_version,
-                 @worker_storage_reports_version
-               ]
+               @latest_versions
     after
       SQL.query!(repo, "DROP SCHEMA IF EXISTS #{prefix} CASCADE", [])
     end
@@ -1916,7 +1926,8 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
           repo,
           """
           SELECT to_jsonb(row) - 'learning_run_id' - 'summary_error_code'
-            - 'source_exposure_count' - 'knowledge_exposure_count' - 'completion_receipt' AS value
+            - 'source_exposure_count' - 'knowledge_exposure_count' - 'completion_receipt'
+            - 'selected_input_refs' AS value
           FROM #{prefix}.#{table} row ORDER BY 1
           """,
           []

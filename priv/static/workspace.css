@@ -1259,3 +1259,14 @@ details.measurement-notes > summary { cursor:pointer; font-weight:600; color:var
 .instructions-conflict { margin-top: 12px; }
 .instructions-footnote { margin: 24px 0 0; padding-top: 18px; border-top: 1px solid var(--stroke); color: var(--secondary); font-size: 13px; line-height: 1.6; }
 @media (max-width: 600px) { .instructions-editor { padding: 16px; } .instructions-meta { align-items: flex-start; flex-direction: column; } }
+
+/* Standing rules: the complete inventory at processing time, matches first. */
+.standing-rule-list { grid-column:1 / -1; list-style:none; margin:12px 0 0; padding:0; display:grid; gap:10px; }
+.standing-rule { padding:10px 12px; border:1px solid var(--stroke); border-radius:6px; background:#fbfcf9; }
+.standing-rule.verdict-matched { border-color:#b9d3b3; background:#f4f9f1; }
+.standing-rule-heading { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:6px 12px; }
+.standing-rule-heading strong { font-size:15px; font-weight:600; color:#2f4433; overflow-wrap:anywhere; }
+.standing-rule > p { margin:6px 0 0; font-size:14px; color:#536256; }
+.standing-rule-definition { margin-top:6px; font-size:13px; }
+.standing-rule-definition > summary { cursor:pointer; color:#536256; }
+.standing-rules[data-rules-state="not_recorded"] .case-event-summary { color:#7a6a3f; }

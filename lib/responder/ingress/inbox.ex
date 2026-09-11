@@ -45,8 +45,24 @@ defmodule Responder.Ingress.Inbox do
          :ok <- slack_addressing_sources(inputs, settings.slack_addressing) do
       Repo.transaction(fn -> record_batch_locked(inputs, settings) end)
       |> transaction_result()
+      |> record_rule_inventories(inputs)
     end
   end
+
+  # Written after the custody transaction commits, deliberately outside it.
+  # This is evidence about a decision that has already been made: a failed
+  # insert inside the transaction would abort the whole batch, which would turn
+  # "we could not write down why" into "the message was never accepted".
+  defp record_rule_inventories({:ok, receipts} = result, inputs) do
+    Enum.zip(inputs, receipts)
+    |> Enum.each(fn {input, receipt} ->
+      _evidence = Projections.observe_rules(input, ref(receipt.entry))
+    end)
+
+    result
+  end
+
+  defp record_rule_inventories(result, _inputs), do: result
 
   @spec fetch(String.t()) :: {:ok, Entry.t()} | :error
   def fetch(@ref_prefix <> id) do
