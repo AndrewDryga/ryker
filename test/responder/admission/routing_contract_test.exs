@@ -6,7 +6,7 @@ defmodule Responder.Admission.RoutingContractTest do
   alias Responder.Admission
   alias Responder.Admission.{Context, Decision, Prompt}
   alias Responder.Episodes
-  alias Responder.Episodes.{Command, Episode, Origin, Origins}
+  alias Responder.Episodes.{Command, Origin, Origins}
   alias Responder.Ingress.{Inbox, Input}
   alias Responder.Repo
   alias Responder.Slack.ChannelMembership

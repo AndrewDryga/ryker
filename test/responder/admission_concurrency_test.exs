@@ -339,6 +339,91 @@ defmodule Responder.AdmissionConcurrencyTest do
     end)
   end
 
+  test "two conversations reporting one trusted occurrence leave one active owner" do
+    # Conversation locks cannot fence an occurrence reported in two places:
+    # each admission takes a different lock, sees an empty candidate set, and
+    # creates its own active work for the same pull request. The scoped claim
+    # is the only fence, so it has to hold under real PostgreSQL scheduling.
+    Sandbox.unboxed_run(Repo, fn ->
+      item = "github:pull:#{System.unique_integer([:positive])}"
+      entries = Enum.map(["devops", "alerts"], &record_github!(item, &1))
+
+      contexts =
+        Enum.map(entries, fn entry ->
+          {:ok, context} = context(entry)
+          context
+        end)
+
+      assert Enum.all?(contexts, &(&1.candidates == []))
+
+      assert {:ok, decision} =
+               Decision.parse(%{
+                 "action" => "start_episode",
+                 "episode_ref" => nil,
+                 "reaction" => nil,
+                 "relation" => "unrelated",
+                 "reason" => "This pull request needs a review.",
+                 "work_class" => "standard"
+               })
+
+      parent = self()
+
+      contenders =
+        Enum.map(contexts, fn context ->
+          unboxed_task(fn ->
+            send(parent, {:contender_ready, self()})
+            Admission.commit(context, decision, "occurrence:#{context.input_entry.id}")
+          end)
+        end)
+
+      Enum.each(contenders, fn contender ->
+        pid = contender.pid
+        assert_receive {:contender_ready, ^pid}, 5_000
+      end)
+
+      try do
+        results = Enum.map(contenders, &Task.await(&1, 10_000))
+
+        assert [{:ok, %{status: :applied}}] = Enum.filter(results, &match?({:ok, _}, &1))
+
+        assert [{:error, {:admission_rejected, :occurrence_claimed, details}}] =
+                 Enum.filter(results, &match?({:error, _}, &1))
+
+        winner =
+          Enum.find_value(results, fn
+            {:ok, result} -> result.episode
+            _rejected -> nil
+          end)
+
+        assert details[:owner_episode_id] == winner.id
+
+        # The loser keeps its input: nothing was decided, so the next attempt
+        # classifies it again against a context that now contains the winner.
+        assert Repo.aggregate(
+                 from(entry in Entry,
+                   where: entry.id in ^Enum.map(entries, & &1.id) and entry.status == :pending
+                 ),
+                 :count
+               ) == 1
+      after
+        stop_tasks(contenders)
+        ids = Enum.map(entries, & &1.id)
+
+        episodes =
+          Repo.all(
+            from(episode in Episode,
+              where: episode.key in ^Enum.map(ids, &"ingress-input:#{&1}"),
+              select: episode.id
+            )
+          )
+
+        delete_entries!(from(inbox in Entry, where: inbox.id in ^ids))
+        Repo.delete_all(from(event in Event, where: event.episode_id in ^episodes))
+        Repo.delete_all(from(episode in Episode, where: episode.id in ^episodes))
+      end
+    end)
+  end
+
   defp entry_lock_task(entry_id, parent) do
     unboxed_task(fn ->
       Repo.transaction(fn ->
@@ -410,6 +495,33 @@ defmodule Responder.AdmissionConcurrencyTest do
       history_window: 2_592_000,
       candidate_limit: 8
     )
+  end
+
+  defp record_github!(item, binding) do
+    unique = System.unique_integer([:positive])
+
+    assert {:ok, input} =
+             Input.new(%{
+               actor: %{kind: :user, ref: "octocat"},
+               content: %{"text" => "Please review #{item}."},
+               destination: %{
+                 conversation_ref: "github:#{binding}:repository:#{unique}",
+                 thread_ref: item,
+                 transport: "github"
+               },
+               event_kind: :message,
+               event_ref: "gh-event-#{unique}",
+               native_input_id: "github:#{binding}:comment:#{unique}",
+               occurred_at: @now,
+               occurred_at_source: :source,
+               revision: 1,
+               source: %{kind: "github", ref: "eval"},
+               source_capabilities: %{},
+               source_item_ref: item
+             })
+
+    assert {:ok, %{entry: entry}} = Inbox.record(input)
+    entry
   end
 
   defp input!(suffix) do

@@ -12,7 +12,7 @@ defmodule Responder.Work.Custody do
   alias Responder.Artifacts.References, as: ArtifactReferences
   alias Responder.CanonicalJSON
   alias Responder.Episodes
-  alias Responder.Episodes.{Command, Episode}
+  alias Responder.Episodes.{Command, Episode, Origin}
   alias Responder.Publication.Custody, as: PublicationCustody
   alias Responder.Publication.Publication
   alias Responder.Repo
@@ -3440,6 +3440,7 @@ defmodule Responder.Work.Custody do
     now = database_now!()
     result_ref = "result:#{turn.id}"
     delivery_ref = if result.delivery == :reply, do: "delivery:#{turn.id}"
+    delivery_target = if result.delivery == :reply, do: reply_target(episode, turn)
 
     delivery_fingerprint =
       if result.delivery_document,
@@ -3454,6 +3455,7 @@ defmodule Responder.Work.Custody do
         delivery_document: result.delivery_document,
         delivery_fingerprint: delivery_fingerprint,
         delivery_ref: delivery_ref,
+        delivery_target: delivery_target,
         result_ref: result_ref,
         status: acceptance_status(result.delivery),
         validation_receipt: validation_receipt
@@ -3527,7 +3529,7 @@ defmodule Responder.Work.Custody do
     now = database_now!()
 
     with :ok <- exact_delivery_ref(turn, external_receipt),
-         :ok <- exact_delivery_destination(episode, external_receipt) do
+         :ok <- exact_delivery_destination(episode, turn, external_receipt) do
       prepare_identified_delivery(
         episode,
         turn,
@@ -3562,13 +3564,94 @@ defmodule Responder.Work.Custody do
 
   defp exact_delivery_ref(_turn, _receipt), do: {:error, :work_delivery_receipt_mismatch}
 
-  defp exact_delivery_destination(episode, receipt) do
-    if receipt["transport"] == episode.destination_transport and
-         receipt["conversation_ref"] == episode.destination_conversation_ref and
-         receipt["thread_ref"] == episode.destination_thread_ref,
+  defp exact_delivery_destination(episode, turn, receipt) do
+    target = delivery_target(episode, turn)
+
+    if receipt["transport"] == target["transport"] and
+         receipt["conversation_ref"] == target["conversation_ref"] and
+         receipt["thread_ref"] == target["thread_ref"],
        do: :ok,
        else: {:error, :work_delivery_destination_mismatch}
   end
+
+  @doc """
+  Where this turn's accepted answer belongs.
+
+  A reply answers the inputs that instructed it, so it returns to the newest
+  one's own origin — a question asked in a new thread is answered there even
+  when the episode's home is elsewhere. An accepted answer keeps the target it
+  was accepted with; later context can never move or erase it.
+  """
+  @spec delivery_target(Episode.t(), Turn.t()) :: map()
+  def delivery_target(%Episode{} = episode, %Turn{delivery_target: %{} = target}) do
+    Map.merge(home_target(episode), target)
+  end
+
+  def delivery_target(%Episode{} = episode, _turn), do: home_target(episode)
+
+  defp home_target(%Episode{} = episode) do
+    %{
+      "conversation_ref" => episode.destination_conversation_ref,
+      "thread_ref" => episode.destination_thread_ref,
+      "transport" => episode.destination_transport
+    }
+  end
+
+  @doc """
+  The origin a reply from this turn answers, or nil when there is nothing to answer.
+
+  This is computed once, when the result is accepted, and then frozen on the
+  turn. Later inputs cannot move an answer that has already been accepted.
+  """
+  @spec reply_target(Episode.t(), Turn.t()) :: map() | nil
+  def reply_target(%Episode{} = episode, %Turn{} = turn) do
+    episode
+    |> answering_origin(turn)
+    |> case do
+      nil ->
+        nil
+
+      origin ->
+        %{
+          "conversation_ref" => origin.conversation_ref,
+          "thread_ref" => origin.thread_ref,
+          "transport" => origin.transport
+        }
+    end
+  end
+
+  defp answering_origin(%Episode{} = episode, %Turn{selected_input_refs: refs})
+       when is_list(refs) and refs != [] do
+    Repo.one(
+      from(origin in Origin,
+        where:
+          origin.episode_id == ^episode.id and origin.input_ref in ^refs and origin.effective,
+        order_by: [desc: origin.sequence],
+        limit: 1
+      )
+    )
+  end
+
+  defp answering_origin(%Episode{} = episode, %Turn{selected_input_refs: nil} = turn),
+    do: active_origin(episode, turn)
+
+  defp answering_origin(%Episode{} = episode, %Turn{selected_input_refs: []} = turn),
+    do: active_origin(episode, turn)
+
+  defp answering_origin(_episode, _turn), do: nil
+
+  defp active_origin(%Episode{active_input_refs: [_ | _] = refs} = episode, _turn) do
+    Repo.one(
+      from(origin in Origin,
+        where:
+          origin.episode_id == ^episode.id and origin.input_ref in ^refs and origin.effective,
+        order_by: [desc: origin.sequence],
+        limit: 1
+      )
+    )
+  end
+
+  defp active_origin(_episode, _turn), do: nil
 
   defp delivery_already_settled?(turn, receipt, fingerprint),
     do:

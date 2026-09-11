@@ -66,6 +66,7 @@ defmodule Responder.Work.Turn do
     field(:result_ref, :string)
     field(:delivery_ref, :string)
     field(:delivery_document, Responder.CanonicalJSON.Type)
+    field(:delivery_target, Responder.CanonicalJSON.Type)
     field(:delivery_fingerprint, :string)
     field(:continuation, Responder.CanonicalJSON.Type)
     field(:external_receipt, Responder.CanonicalJSON.Type)
@@ -151,6 +152,7 @@ defmodule Responder.Work.Turn do
           result_ref: String.t() | nil,
           delivery_ref: String.t() | nil,
           delivery_document: map() | nil,
+          delivery_target: map() | nil,
           delivery_fingerprint: String.t() | nil,
           continuation: map() | nil,
           external_receipt: map() | nil,

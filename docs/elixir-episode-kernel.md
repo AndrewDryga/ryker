@@ -18,7 +18,9 @@ The kernel owns only:
   input's own thread while progress stays at the home;
 - scoped correlation claims: a validated occurrence identity (workspace or security domain plus the
   reporting source namespace) has at most one active owning episode, which is the only
-  cross-conversation uniqueness fence;
+  cross-conversation uniqueness fence. Each claim carries its own lifecycle state, so one recovered
+  run or alert never states that the incident is over; a finished or cancelled episode retires its
+  claims, so a later report of the same object starts its own work instead of being refused;
 - one durable owner at a time;
 - chronological input custody;
 - input and event waits with explicit trigger inputs;
@@ -32,7 +34,10 @@ Origins are projected in the same transaction as the `input_admitted` event and 
 ledger; the migration backfill derives a Slack root or reply from the retained identities (a root
 binds its own timestamp as thread) and records `conversation` for everything else rather than
 guessing native provenance. Claims are never backfilled: they exist only once a trusted source
-identity has been validated at admission.
+identity has been validated at admission. Only an identity the adapter itself resolved may be
+claimed — a GitHub item reference, or a typed publication-lifecycle run whose state the adapter also
+authenticates. A service name, alert rule, URL, or old incident id quoted inside app text is a
+ranking clue and never an exclusive claim, because two genuine incidents can share it.
 
 The [generic ingress and admission module](elixir-ingress-admission.md) uses this kernel without
 teaching the host about individual Slack apps, GitHub payload shapes, webhook senders, or provider
