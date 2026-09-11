@@ -60,7 +60,7 @@ defmodule Responder.Work.RepositorySourceTest do
         {%{"kind" => "branch", "name" => "café"}, :name},
         {%{"kind" => "pull_request", "number" => 0}, :number},
         {%{"kind" => "pull_request", "number" => -1}, :number},
-        {%{"kind" => "pull_request", "number" => 1_000_001}, :number},
+        {%{"kind" => "pull_request", "number" => 10_000_001}, :number},
         {%{"kind" => "pull_request", "number" => "514"}, :number},
         {%{"kind" => "pull_request", "number" => 5.0}, :number},
         {%{"kind" => "commit", "sha" => String.duplicate("a", 7)}, :sha},
@@ -164,18 +164,54 @@ defmodule Responder.Work.RepositorySourceTest do
       binding = pull_request_binding()
       assert {:ok, ^binding} = RepositorySource.parse_binding(binding)
 
-      with_expected = Map.put(binding, "expected_head_commit", @selected_commit)
+      with_expected = Map.put(binding, "pull_request_expected_head", @selected_commit)
       assert {:ok, ^with_expected} = RepositorySource.parse_binding(with_expected)
 
+      # Trusted ingress may have attached the head it observed to the request
+      # itself; Coop echoes it, and it is evidence about the resolved head rather
+      # than part of the selector identity.
+      echoed =
+        Map.put(binding, "requested", %{
+          "expected_head_commit" => @selected_commit,
+          "kind" => "pull_request",
+          "number" => 514
+        })
+
+      assert {:ok, ^binding} = RepositorySource.parse_binding(echoed)
+
       assert RepositorySource.parse_binding(
-               Map.put(binding, "expected_head_commit", @default_commit)
-             ) == {:error, {:invalid_repository_source_binding, :expected_head_commit}}
+               Map.put(binding, "pull_request_expected_head", @default_commit)
+             ) == {:error, {:invalid_repository_source_binding, :pull_request_expected_head}}
+
+      assert RepositorySource.parse_binding(
+               put_in(echoed, ["requested", "expected_head_commit"], @default_commit)
+             ) == {:error, {:invalid_repository_source_binding, :pull_request_expected_head}}
+
+      assert RepositorySource.parse_binding(
+               Map.put(branch_binding(), "pull_request_expected_head", @selected_commit)
+             ) == {:error, {:invalid_repository_source_binding, :pull_request_expected_head}}
 
       assert RepositorySource.parse_binding(Map.put(binding, "pull_request_number", 99)) ==
                {:error, {:invalid_repository_source_binding, :pull_request_number}}
 
       assert RepositorySource.parse_binding(Map.delete(binding, "pull_request_number")) ==
                {:error, {:invalid_repository_source_binding, :pull_request_number}}
+    end
+
+    # Coop migrates a pre-selector pull-request session into this shape from its
+    # durable columns, which prove every field except a tree it never recorded.
+    # Such a session has no persisted request on this side, and only then may
+    # the tree be absent.
+    test "only a historical binding with no persisted request may omit the admitted tree" do
+      migrated = Map.delete(pull_request_binding(), "admitted_tree")
+
+      assert RepositorySource.parse_binding(migrated) ==
+               {:error, {:invalid_repository_source_binding, :admitted_tree}}
+
+      assert RepositorySource.reconcile(migrated, %{"kind" => "pull_request", "number" => 514}) ==
+               {:error, {:invalid_repository_source_binding, :admitted_tree}}
+
+      assert RepositorySource.reconcile(migrated, nil) == {:ok, migrated}
     end
 
     test "a binding whose derived ref disagrees with its request is refused" do
@@ -191,7 +227,8 @@ defmodule Responder.Work.RepositorySourceTest do
       malformed = [
         {Map.put(branch_binding(), "version", 2), :version},
         {Map.put(branch_binding(), "extra", true), :fields},
-        {Map.delete(branch_binding(), "admitted_tree"), :fields},
+        {Map.delete(branch_binding(), "admitted_tree"), :admitted_tree},
+        {Map.delete(branch_binding(), "base_commit"), :fields},
         {Map.put(branch_binding(), "remote_identity", ""), :remote_identity},
         {Map.put(branch_binding(), "remote_identity", String.duplicate("o", 257)),
          :remote_identity},

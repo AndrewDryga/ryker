@@ -24,14 +24,14 @@ defmodule Responder.Work.RepositorySource do
 
   @kinds ~w(default branch pull_request commit)
   @maximum_branch_bytes 255
-  @maximum_pull_request_number 1_000_000
+  @maximum_pull_request_number 10_000_000
   @maximum_remote_identity_bytes 256
   @maximum_ref_bytes 512
   @binding_fields ~w(
-    admitted_tree base_commit default_commit default_ref kind remote_identity
+    base_commit default_commit default_ref kind remote_identity
     requested resolved_at selected_commit selected_ref version
   )
-  @binding_optional_fields ~w(expected_head_commit pull_request_number)
+  @binding_optional_fields ~w(admitted_tree pull_request_expected_head pull_request_number)
   @object_id_regex ~r/\A(?:[0-9a-f]{40}|[0-9a-f]{64})\z/
   @branch_charset_regex ~r/\A[\x21-\x7E]+\z/
   @branch_schema_pattern "^[A-Za-z0-9][A-Za-z0-9._/-]*$"
@@ -99,12 +99,20 @@ defmodule Responder.Work.RepositorySource do
   ref, the pinned default and selected commits, the comparison base, the
   admitted tree, the remote identity, and the resolution time. A trusted
   expected pull-request head that disagrees with the resolved head fails closed.
+
+  `admitted_tree` is required for every binding Coop resolves under this
+  contract. Only a binding Coop migrated from a pre-selector pull-request
+  session may omit it, and such a session never carries a persisted request.
   """
   @spec parse_binding(term()) :: {:ok, binding()} | {:error, term()}
-  def parse_binding(%{} = value) do
+  def parse_binding(value), do: parse_binding(value, :admitted_tree_required)
+
+  @spec parse_binding(term(), :admitted_tree_required | :admitted_tree_optional) ::
+          {:ok, binding()} | {:error, term()}
+  def parse_binding(%{} = value, admitted_tree) do
     with :ok <- exact_binding_fields(value),
          :ok <- binding_version(value["version"]),
-         {:ok, requested} <- binding_requested(value["requested"]),
+         {:ok, requested, expected_head} <- binding_requested(value["requested"]),
          :ok <- binding_kind(value["kind"], requested),
          :ok <-
            bounded_binding(
@@ -116,15 +124,15 @@ defmodule Responder.Work.RepositorySource do
          :ok <- binding_object_id(value["default_commit"], :default_commit),
          :ok <- binding_object_id(value["selected_commit"], :selected_commit),
          :ok <- binding_object_id(value["base_commit"], :base_commit),
-         :ok <- binding_object_id(value["admitted_tree"], :admitted_tree),
+         :ok <- binding_admitted_tree(value, admitted_tree),
          {:ok, resolved_at} <- binding_timestamp(value["resolved_at"]),
          :ok <- binding_selection(requested, value),
-         :ok <- binding_expected_head(requested, value) do
+         :ok <- binding_expected_head(requested, value, expected_head) do
       {:ok, value |> Map.put("requested", requested) |> Map.put("resolved_at", resolved_at)}
     end
   end
 
-  def parse_binding(_value), do: invalid_binding(:fields)
+  def parse_binding(_value, _admitted_tree), do: invalid_binding(:fields)
 
   @doc """
   Validates a binding and proves it answers the exact persisted request.
@@ -137,9 +145,13 @@ defmodule Responder.Work.RepositorySource do
   def reconcile(nil, nil), do: {:ok, nil}
   def reconcile(nil, _requested), do: invalid_binding(:fields)
 
+  def reconcile(value, nil) do
+    with {:ok, binding} <- parse_binding(value, :admitted_tree_optional), do: {:ok, binding}
+  end
+
   def reconcile(value, requested) do
-    with {:ok, binding} <- parse_binding(value) do
-      if is_nil(requested) or same?(binding["requested"], requested),
+    with {:ok, binding} <- parse_binding(value, :admitted_tree_required) do
+      if same?(binding["requested"], requested),
         do: {:ok, binding},
         else: invalid_binding(:requested)
     end
@@ -273,12 +285,30 @@ defmodule Responder.Work.RepositorySource do
   defp binding_version(1), do: :ok
   defp binding_version(_version), do: invalid_binding(:version)
 
-  defp binding_requested(value) do
-    case parse(value) do
-      {:ok, requested} -> {:ok, requested}
+  # Coop echoes the request it resolved. Trusted ingress may have attached an
+  # expected pull-request head to that request as host-owned evidence; it is not
+  # part of the selector identity and is checked against the resolved head.
+  defp binding_requested(%{"kind" => "pull_request"} = value) do
+    {expected_head, request} = Map.pop(value, "expected_head_commit")
+
+    case parse(request) do
+      {:ok, requested} -> {:ok, requested, expected_head}
       {:error, _reason} -> invalid_binding(:requested)
     end
   end
+
+  defp binding_requested(value) do
+    case parse(value) do
+      {:ok, requested} -> {:ok, requested, nil}
+      {:error, _reason} -> invalid_binding(:requested)
+    end
+  end
+
+  defp binding_admitted_tree(%{"admitted_tree" => tree}, _admitted_tree),
+    do: binding_object_id(tree, :admitted_tree)
+
+  defp binding_admitted_tree(_value, :admitted_tree_optional), do: :ok
+  defp binding_admitted_tree(_value, :admitted_tree_required), do: invalid_binding(:admitted_tree)
 
   defp binding_kind(kind, %{"kind" => kind}), do: :ok
   defp binding_kind(_kind, _requested), do: invalid_binding(:kind)
@@ -345,21 +375,25 @@ defmodule Responder.Work.RepositorySource do
     end
   end
 
-  defp binding_expected_head(%{"kind" => "pull_request"}, binding) do
-    case Map.fetch(binding, "expected_head_commit") do
-      :error ->
-        :ok
+  defp binding_expected_head(%{"kind" => "pull_request"}, binding, requested_head) do
+    Enum.reduce_while(
+      [requested_head, Map.get(binding, "pull_request_expected_head")],
+      :ok,
+      fn
+        nil, :ok ->
+          {:cont, :ok}
 
-      {:ok, expected} ->
-        if object_id?(expected) and expected == binding["selected_commit"],
-          do: :ok,
-          else: invalid_binding(:expected_head_commit)
-    end
+        expected, :ok ->
+          if object_id?(expected) and expected == binding["selected_commit"],
+            do: {:cont, :ok},
+            else: {:halt, invalid_binding(:pull_request_expected_head)}
+      end
+    )
   end
 
-  defp binding_expected_head(_requested, binding) do
-    if Map.has_key?(binding, "expected_head_commit"),
-      do: invalid_binding(:expected_head_commit),
+  defp binding_expected_head(_requested, binding, _requested_head) do
+    if Map.has_key?(binding, "pull_request_expected_head"),
+      do: invalid_binding(:pull_request_expected_head),
       else: :ok
   end
 

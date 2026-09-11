@@ -399,7 +399,7 @@ defmodule Responder.Coop.Client do
       document =
         %{"policy" => policy, "task" => task}
         |> maybe_put("responder_binding", binding)
-        |> maybe_put("repository_source", source)
+        |> maybe_put("source", source)
 
       {:ok, document}
     end

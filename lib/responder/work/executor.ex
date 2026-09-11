@@ -270,9 +270,17 @@ defmodule Responder.Work.Executor do
   # workspace must actually start at the commit that binding pinned. A session
   # bound before this contract has no persisted request, so its binding is only
   # checked for internal consistency; it is never re-resolved.
+  #
+  # An intentionally local policy has no remote identity to bind: Coop refuses
+  # every selector but its own default there and returns no binding, and the
+  # primary freshness receipt already proves that workspace head.
+  defp repository_source_binding(%{repository_source: %{"kind" => "default"}}, remote, _primary)
+       when not is_map_key(remote, "source"),
+       do: {:ok, nil}
+
   defp repository_source_binding(session, remote_session, primary) do
     case RepositorySource.reconcile(
-           Map.get(remote_session, "repository_source"),
+           Map.get(remote_session, "source"),
            session.repository_source
          ) do
       {:ok, nil} -> {:ok, nil}

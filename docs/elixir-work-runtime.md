@@ -57,23 +57,30 @@ tools own durable records. The generic Delivery module owns external message and
   `{"kind":"default"}`, `{"kind":"branch","name":...}`, `{"kind":"pull_request","number":...}` or
   `{"kind":"commit","sha":...}` inside the already selected repository; the host supplies `default`
   when nobody chose. Workspace-free work carries no selector. The selector rides the create and
-  fence documents byte-identically, so a retry under the same operation identity that carries a
-  different selector conflicts instead of rebinding. Rotation, failover and checkpoint restore copy
-  the predecessor's selector verbatim. An active session is never rebound; another source is new
-  linked work through a confirmed `request_task`.
+  fence documents byte-identically as `source` (direct `POST /v1/sessions` body and fleet
+  `create_session` payload alike), so a retry under the same operation identity that carries a
+  different selector conflicts instead of rebinding, and the fleet refuses to forward any selector
+  other than the one custody persisted (`coop_fleet_authority_mismatch: repository_source`).
+  Rotation, failover and checkpoint restore copy the predecessor's selector verbatim; a checkpoint
+  taken from another source never seeds a replacement. An active session is never rebound; another
+  source is new linked work through a confirmed `request_task`.
 - Selector-bound work is dispatched only to workers advertising `repository-source-selector:1`
   next to `repository-freshness:2`. An older or partially upgraded worker is ineligible before the
   session exists (`coop_upgrade_required: repository_source_selector_v1`); there is no fallback to
   the policy's own checkout.
-- Coop resolves the selector through the operator-configured remote and returns a version-1 binding
-  (`requested`, `remote_identity`, `default_ref`, `default_commit`, `selected_ref`,
-  `selected_commit`, merge-base `base_commit`, `admitted_tree`, `resolved_at`). Responder refuses
-  the workspace (`coop_protocol_error: repository_source`) unless the binding answers the exact
-  persisted request, its derived ref matches, and the primary workspace starts at `selected_commit`.
-  Every non-default selection also needs its own `source` freshness receipt naming the derived ref,
-  or the exact object id for a commit, so a locally cached object is never accepted as remote proof
-  (`coop_protocol_error: repository_freshness`). Sessions pinned before this contract have no
-  persisted selector, are never re-resolved, and only have their binding checked for consistency.
+- Coop resolves the selector through the operator-configured remote and returns the session's
+  version-1 `source` binding (`requested`, `remote_identity`, `default_ref`, `default_commit`,
+  `selected_ref`, `selected_commit`, merge-base `base_commit`, `admitted_tree`, `resolved_at`, plus
+  `pull_request_number` and optional `pull_request_expected_head` for a pull request). Responder
+  refuses the workspace (`coop_protocol_error: repository_source`) unless the binding answers the
+  exact persisted request, its derived ref matches, and the primary workspace starts at
+  `selected_commit`. Every non-default selection also needs its own `source` freshness receipt
+  naming the derived ref, or the exact object id for a commit, so a locally cached object is never
+  accepted as remote proof (`coop_protocol_error: repository_freshness`). An intentionally local
+  policy has no remote identity to bind: Coop refuses every selector but `default` there and
+  returns no binding, and the primary receipt alone proves that head. Sessions pinned before this
+  contract have no persisted selector, are never re-resolved, and only have their binding checked
+  for consistency.
 - The validated binding is exposed to the model as `work.workspace.source`: a fact about where the
   checkout starts, never publication authority. Engineering completion still requires a committed
   tree beyond `admitted_source_tree`; review-only work may finish unchanged. Publication keeps its

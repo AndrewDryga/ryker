@@ -3036,6 +3036,36 @@ defmodule Responder.Work.ExecutorTest do
     assert workspace["source"] == binding
   end
 
+  # An intentionally local policy has no remote identity to bind. Coop refuses
+  # every selector but its own default there and returns no binding; the primary
+  # receipt alone proves the workspace head, exactly as it did before selectors.
+  test "a local-only policy resolves the default without a binding and nothing else" do
+    claim =
+      claim_with_bound_source_session!("source-local-default", "responder", %{"kind" => "default"})
+
+    {:ok, fake} = fake_for(claim, [reply("Starting from the local default.")])
+
+    FakeAPI.update(fake, fn state ->
+      %{state | session: Map.delete(state.session, "source")}
+    end)
+
+    assert {:ok, %{status: :accepted, turn: accepted}} = Executor.run(claim, options(fake))
+    refute Map.has_key?(get_in(accepted.submission, ["context", "workspace"]), "source")
+
+    branch = %{"kind" => "branch", "name" => "feature/payments"}
+    selected = claim_with_bound_source_session!("source-local-branch", "responder", branch)
+    {:ok, selected_fake} = fake_for(selected, [reply("Must not run.")])
+
+    FakeAPI.update(selected_fake, fn state ->
+      %{state | session: Map.delete(state.session, "source")}
+    end)
+
+    assert Executor.run(selected, options(selected_fake)) ==
+             {:error, {:coop_protocol_error, :repository_source}}
+
+    assert FakeAPI.state(selected_fake).submit_count == 0
+  end
+
   # A commit selection has no advertised ref, so the only evidence that the
   # configured remote still serves the object is its own receipt. Accepting the
   # workspace without one would accept whatever happened to be cached locally.
@@ -3168,7 +3198,7 @@ defmodule Responder.Work.ExecutorTest do
     {:ok, unbound_fake} = fake_for(unbound, [reply("No source at all.")])
 
     FakeAPI.update(unbound_fake, fn state ->
-      %{state | session: Map.delete(state.session, "repository_source")}
+      %{state | session: Map.delete(state.session, "source")}
     end)
 
     assert {:ok, %{status: :accepted, turn: accepted}} =
@@ -4337,8 +4367,8 @@ defmodule Responder.Work.ExecutorTest do
 
       session =
         if binding,
-          do: Map.put(session, "repository_source", binding),
-          else: Map.delete(session, "repository_source")
+          do: Map.put(session, "source", binding),
+          else: Map.delete(session, "source")
 
       %{state | session: session}
     end)
