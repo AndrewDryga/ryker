@@ -3,11 +3,26 @@ defmodule Responder.State.GlobalMemoriesTest do
 
   alias Responder.CanonicalJSON
   alias Responder.ControlPlane.{HTML, Projection}
+  alias Responder.Episodes
+  alias Responder.Episodes.Episode
   alias Responder.Fixtures.AnswerMemory
+  alias Responder.Fixtures.Episodes, as: EpisodeFixtures
   alias Responder.Ingress.Inbox
+  alias Responder.Ingress.Inbox.Entry
   alias Responder.Retention.Data
   alias Responder.Slack.Input, as: SlackInput
   alias Responder.State.{Memories, MemoryEntry, MemoryEntryChangeset}
+  alias Responder.State.{Record, Records, Response}
+  alias Responder.StateTools.{Router, Tools}
+  alias Responder.Work.{Custody, Session, Turn}
+
+  @expired %{
+    audit_data_seconds: 120,
+    closed_work_seconds: 60,
+    conversation_memory_seconds: 60,
+    episode_history_seconds: 60,
+    operational_data_seconds: 60
+  }
 
   test "an answer-confirmed global fact is recalled without disclosing its private source" do
     entry = insert_fact!("Production portal in AndrewDryga/emisar", "portal-prod")
@@ -242,12 +257,191 @@ defmodule Responder.State.GlobalMemoriesTest do
     assert Repo.aggregate(MemoryEntry, :count) == 1
   end
 
+  test "an answer-confirmed mapping outlives its own transcript and a fresh worker session" do
+    # The reported deployment review stopped at an unknown GCP project. Asking
+    # once only pays for itself if ordinary transcript cleanup and a restart
+    # cannot quietly drop the answer; otherwise the next review asks again and
+    # the whole question flow is theatre.
+    answer = AnswerMemory.answered!("emisar-project-qa", answered_at())
+    assert {:ok, %{memory: memory}} = remember(answer, "emisar-project-qa")
+
+    expire_raw_history!()
+
+    assert Repo.aggregate(Response, :count) == 0, "the answer response must expire with history"
+    assert Repo.aggregate(Record, :count) == 0, "the question record must expire with history"
+    assert Repo.aggregate(Entry, :count) == 0, "the answering message must expire with history"
+
+    saved = Repo.get!(MemoryEntry, memory.id)
+    assert saved.status == :active
+    assert is_nil(saved.expires_at)
+
+    # Nothing in this process may carry the answer: the recall below runs on a
+    # brand-new episode, session and turn in another channel and reads only the
+    # database, which is what a restarted worker sees.
+    assert {:ok, %{"memories" => [recalled]}} = search_global!("emisar")
+    assert recalled["memory_ref"] == memory.ref
+    assert recalled["value"] == "emisar-project-qa"
+    assert recalled["applicability"] == "Production portal"
+    refute Map.has_key?(recalled, "source")
+    refute inspect(recalled) =~ answer.entry.destination_conversation_ref
+  end
+
+  test "correction, forgetting and source revocation each end recall after that expiry" do
+    # A remembered mapping that cannot be corrected or withdrawn is worse than
+    # no memory at all, and the revocation paths must keep working once the
+    # originating transcript is gone.
+    for revoke <- [:correct, :forget, :revoke_source] do
+      answer = AnswerMemory.answered!("emisar-project-old", answered_at())
+      assert {:ok, %{memory: memory}} = remember(answer, "emisar-project-old")
+      expire_raw_history!()
+      assert {:ok, %{"memories" => [_recalled]}} = search_global!("emisar")
+
+      case revoke do
+        :correct ->
+          stale = DateTime.add(database_now!(), -120, :second)
+
+          Repo.update_all(MemoryEntry,
+            set: [
+              updated_at: stale,
+              confirmed_at: stale,
+              last_recalled_at: stale,
+              last_reviewed_at: stale
+            ]
+          )
+
+          assert {:ok, %{created: 1}} = Memories.refresh_reviews("installation", 60)
+          assert [review] = Memories.list_reviews("installation")
+
+          assert {:ok, _} =
+                   Memories.resolve_review(
+                     review["review_ref"],
+                     :edit,
+                     "local-operator",
+                     "installation",
+                     %{"subject" => "GCP project", "value" => "emisar-project-current"}
+                   )
+
+          assert {:ok, %{"memories" => [corrected]}} = search_global!("emisar")
+          assert corrected["value"] == "emisar-project-current"
+          assert {:ok, %{"memories" => []}} = search_global!("emisar-project-old")
+
+        :forget ->
+          assert {:ok, _} = Memories.forget(memory.ref)
+          assert {:ok, %{"memories" => []}} = search_global!("emisar")
+
+        :revoke_source ->
+          assert {:ok, revision} =
+                   answer.input
+                   |> Map.merge(%{
+                     event_kind: :delete,
+                     event_ref: "revoked:#{memory.id}",
+                     revision: 2,
+                     content: %{"text" => ""}
+                   })
+                   |> SlackInput.new()
+
+          assert {:ok, _} = Inbox.record(revision)
+          assert Repo.get!(MemoryEntry, memory.id).status == :deleted
+          assert {:ok, %{"memories" => []}} = search_global!("emisar")
+      end
+
+      Repo.delete_all(MemoryEntry)
+    end
+  end
+
+  # A real answer is a source event that already happened; taking the offset
+  # from the database clock keeps that true however far the host clock has run.
+  defp answered_at, do: DateTime.add(database_now!(), -60, :second)
+
+  defp expire_raw_history! do
+    old = DateTime.add(DateTime.utc_now(), -30 * 86_400)
+
+    Repo.update_all(Turn,
+      set: [
+        status: :superseded,
+        lease_ref: nil,
+        lease_owner: nil,
+        lease_expires_at: nil,
+        next_attempt_at: nil,
+        updated_at: old
+      ]
+    )
+
+    Repo.update_all(Session, set: [cleanup_status: :discarded, updated_at: old])
+    Repo.update_all(Record, set: [updated_at: old])
+    Repo.update_all(Entry, set: [updated_at: old])
+
+    Repo.update_all(Episode,
+      set: [
+        state: :complete,
+        owner_kind: nil,
+        owner_ref: nil,
+        active_input_refs: [],
+        queued_input_refs: [],
+        queued_input_order_keys: [],
+        updated_at: old
+      ]
+    )
+
+    assert {:ok, _} = Data.prune(@expired)
+    assert Repo.aggregate(Episode, :count, :id) == 0, "the source episode must expire"
+  end
+
+  defp search_global!(query) do
+    id = Ecto.UUID.generate()
+
+    destination = %{
+      conversation_ref: "slack:TRECALL:CRECALL",
+      thread_ref: "1789041000.000001",
+      transport: "slack"
+    }
+
+    {:ok, _transition} =
+      Episodes.apply(
+        EpisodeFixtures.admit_input(%{
+          destination: destination,
+          episode_id: id,
+          episode_key: "global-recall:#{id}",
+          native_input_id: "global-recall:#{id}",
+          occurred_at: DateTime.utc_now(),
+          turn_ref: "global-recall:#{id}"
+        })
+      )
+
+    {:ok, _} = Custody.pin_episode(id, "global-recall", String.duplicate("b", 64))
+    {:ok, claim} = Custody.claim_next("global-recall:#{id}", 60, :work)
+
+    options =
+      Router.init(
+        token: "global-recall-cursor-secret",
+        binding: Map.put(claim, :state_token, Records.token(claim.turn))
+      )
+
+    Tools.call(
+      "search_memory",
+      %{
+        "query" => query,
+        "scope" => "global",
+        "kinds" => ["fact"],
+        "limit" => 5,
+        "cursor" => nil,
+        "after" => nil,
+        "before" => nil,
+        "time_basis" => "changed"
+      },
+      options
+    )
+  end
+
   defp remember(answer, value),
     do: Memories.confirm_answer(answer.claim, answer.record.ref, value, fn _ -> true end)
 
   defp insert_fact!(applicability, value) do
     id = Ecto.UUID.generate()
-    now = DateTime.utc_now()
+    # PostgreSQL owns the search cutoff. Stamping a fixture with the host clock
+    # made this file fail on roughly one seed in three, because a row confirmed
+    # after the database's clock_timestamp() is recalled but never searched.
+    now = database_now!()
     payload = %{"value" => value, "applicability" => applicability}
 
     attributes = %{
@@ -281,6 +475,12 @@ defmodule Responder.State.GlobalMemoriesTest do
     changeset = MemoryEntryChangeset.insert(attributes)
     assert changeset.valid?, inspect(changeset.errors)
     assert {:ok, %MemoryEntry{} = entry} = Repo.insert(changeset)
-    entry
+    Repo.update_all(MemoryEntry, set: [inserted_at: now, updated_at: now])
+    Repo.get!(MemoryEntry, entry.id)
+  end
+
+  defp database_now! do
+    %{rows: [[now]]} = Repo.query!("SELECT clock_timestamp()")
+    now
   end
 end

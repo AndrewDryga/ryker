@@ -1,0 +1,251 @@
+{
+  "version": 1,
+  "id": "missing-project-candidates-need-one-question",
+  "provenance": {
+    "kind": "synthetic",
+    "episode_refs": [
+      "d60296db-9f67-40db-86ed-f39b7895f23b"
+    ],
+    "captured_at": "2026-09-10T01:25:14.645141Z"
+  },
+  "clock": {
+    "start": "2026-09-10T01:26:00Z"
+  },
+  "actors": [
+    {
+      "actor_ref": "slack:user:U-operator",
+      "authority": "operator",
+      "input_profile": {
+        "actor": {
+          "kind": "user",
+          "ref": "U-operator"
+        },
+        "event_kind": "message",
+        "occurred_at_source": "source",
+        "source": {
+          "kind": "slack",
+          "ref": "TEVAL"
+        },
+        "source_capabilities": {
+          "react": {
+            "emoji_names": null
+          }
+        }
+      },
+      "kind": "human"
+    }
+  ],
+  "events": [
+    {
+      "actor_ref": "slack:user:U-operator",
+      "destination": {
+        "conversation_ref": "slack:TEVAL:CPROJECT",
+        "thread_ref": "1789003054.683019",
+        "transport": "slack"
+      },
+      "kind": "input",
+      "occurred_at": "2026-09-10T01:26:00Z",
+      "payload": {
+        "text": "Continue this deployment review: finish the remaining infrastructure health and backup verification and follow the exact Terraform run. The attached review is the previously delivered investigation, not a new current-health result.",
+        "retained_review": {
+          "source_turn_id": "fd316279-9146-4866-831d-7badf1130f75",
+          "delivered_at": "2026-09-10T01:25:14.645141Z",
+          "message": "[This run](https://app.terraform.io/app/Dryga/emisar/runs/run-t2W6yCNeLUU9xFso) awaits Terraform apply confirmation.\n\n• Plan: replace the portal instance template; update its fleet and the portal/registry monitors. No database resources change.\n• Application changes: [329b4b12 → 43f75fc3](https://github.com/AndrewDryga/emisar/compare/329b4b12dc756bbc31c2e6c9e6c33bbad1bff0f7...43f75fc357f18f11e5390b2f04655e512111e73f) adds first-touch referrer attribution, improves development gates, and fixes pack API response handling.\n• Verification gaps: current infrastructure health and backups remain unchecked because the required GCP project ID wasn’t established. Plan values are hidden and four of seven drift entries are omitted; exact image versions remain unverified.\n\nI’ll follow this exact run’s Slack updates and report material changes or its terminal outcome."
+        },
+        "original_terraform_notification": {
+          "attachments": [
+            {
+              "author_icon": "https://www.gravatar.com/avatar/22f0391852216316eab5c09d226ba02a?s=100&d=mm",
+              "author_name": "AndrewDryga",
+              "color": "5c4ee5",
+              "fallback": "Run run-t2W6yCNeLUU9xFso",
+              "footer": "HCP Terraform",
+              "footer_icon": "https://app.terraform.io/favicon.ico",
+              "id": 1,
+              "pretext": "Run notification for <https://app.terraform.io/app/Dryga/emisar|Dryga/emisar>",
+              "text": "main 43f75fc357f18f11e5390b2f04655e512111e73f (@AndrewDryga, gh run 34424210833)",
+              "title": "Run run-t2W6yCNeLUU9xFso",
+              "title_link": "https://app.terraform.io/app/Dryga/emisar/runs/run-t2W6yCNeLUU9xFso",
+              "ts": 1789003052
+            },
+            {
+              "color": "1563ff",
+              "fallback": "Run run-t2W6yCNeLUU9xFso - Run Planning",
+              "id": 2,
+              "title": "Run Planning",
+              "ts": 1789003054
+            }
+          ],
+          "blocks": [],
+          "bot_id": "B0BHPQTBMA7",
+          "files": [],
+          "slack_event_kind": "message",
+          "subtype": "bot_message",
+          "text": ""
+        }
+      }
+    }
+  ],
+  "world": {
+    "repositories": [],
+    "tool_rules": [
+      {
+        "id": "emisar-project-listing",
+        "tool": "gcp.projects.list",
+        "match": {
+          "query": {
+            "$contains_all": [
+              "emisar"
+            ]
+          }
+        },
+        "responses": [
+          {
+            "kind": "result",
+            "value": {
+              "projects": [
+                {
+                  "project_id": "emisar-portal-prod",
+                  "name": "Emisar Portal Production",
+                  "labels": {
+                    "environment": "production",
+                    "repository": "Dryga/emisar"
+                  },
+                  "region": "us-central1"
+                },
+                {
+                  "project_id": "emisar-portal-qa",
+                  "name": "Emisar Portal QA",
+                  "labels": {
+                    "environment": "qa",
+                    "repository": "Dryga/emisar"
+                  },
+                  "region": "us-central1"
+                },
+                {
+                  "project_id": "emisar-portal-staging",
+                  "name": "Emisar Portal Staging",
+                  "labels": {
+                    "environment": "staging",
+                    "repository": "Dryga/emisar"
+                  },
+                  "region": "us-central1"
+                },
+                {
+                  "project_id": "emisar-portal-dr",
+                  "name": "Emisar Portal Disaster Recovery",
+                  "labels": {
+                    "environment": "dr",
+                    "repository": "Dryga/emisar"
+                  },
+                  "region": "us-east4"
+                }
+              ],
+              "observed_at": "2026-09-10T01:27:00Z",
+              "source_ref": "source:gcp:projects:20260910T012701Z"
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "projects": [
+                {
+                  "project_id": "emisar-portal-prod",
+                  "name": "Emisar Portal Production",
+                  "labels": {
+                    "environment": "production",
+                    "repository": "Dryga/emisar"
+                  },
+                  "region": "us-central1"
+                },
+                {
+                  "project_id": "emisar-portal-qa",
+                  "name": "Emisar Portal QA",
+                  "labels": {
+                    "environment": "qa",
+                    "repository": "Dryga/emisar"
+                  },
+                  "region": "us-central1"
+                },
+                {
+                  "project_id": "emisar-portal-staging",
+                  "name": "Emisar Portal Staging",
+                  "labels": {
+                    "environment": "staging",
+                    "repository": "Dryga/emisar"
+                  },
+                  "region": "us-central1"
+                },
+                {
+                  "project_id": "emisar-portal-dr",
+                  "name": "Emisar Portal Disaster Recovery",
+                  "labels": {
+                    "environment": "dr",
+                    "repository": "Dryga/emisar"
+                  },
+                  "region": "us-east4"
+                }
+              ],
+              "observed_at": "2026-09-10T01:28:00Z",
+              "source_ref": "source:gcp:projects:20260910T012805Z"
+            }
+          }
+        ]
+      }
+    ],
+    "scheduled_events": []
+  },
+  "host_replay": {
+    "model_events": []
+  },
+  "expect": {
+    "hard": [
+      {
+        "kind": "state_tool_recorded",
+        "tool": "request_input"
+      },
+      {
+        "kind": "state_tool_recorded",
+        "tool": "wait_for"
+      }
+    ],
+    "trajectory": [
+      {
+        "kind": "required_tool_call",
+        "tool": "gcp.projects.list",
+        "arguments": {
+          "query": {
+            "$contains_all": [
+              "emisar"
+            ]
+          }
+        }
+      }
+    ],
+    "quality_rubric": [
+      {
+        "criterion": "Discovers the real candidates first, then asks exactly one narrowing question that offers them with their human names and exact project IDs, plus the environment that distinguishes them.",
+        "weight": 3
+      },
+      {
+        "criterion": "Does not guess an environment, invent a project, or end at the verification-gap paragraph when four real candidates are available to choose from.",
+        "weight": 3
+      },
+      {
+        "criterion": "Marks the workload-to-project question as reusable so an authorized answer is remembered, without a second confirmation offer.",
+        "weight": 2
+      },
+      {
+        "criterion": "Preserves the exact run-t2W6yCNeLUU9xFso source-event watch while resolving the missing project, and never presents a project mapping as proof of current health or access.",
+        "weight": 2
+      }
+    ]
+  },
+  "tags": [
+    "model-world",
+    "missing-context",
+    "request-input",
+    "terraform",
+    "discovery"
+  ]
+}

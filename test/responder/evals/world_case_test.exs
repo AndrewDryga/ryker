@@ -6,6 +6,15 @@ defmodule Responder.Evals.WorldCaseTest do
 
   @scenario_root "testdata/scenarios"
   @health_scenario "va1-health-review-repairs-and-finishes"
+  @discovery_scenarios ~w(
+    missing-project-answer-unblocks-blocked-checks
+    missing-project-candidates-need-one-question
+    missing-project-denied-access-asks-about-access
+    missing-project-discovery-failure-stays-honest
+    missing-project-discovery-proves-one-target
+    missing-project-empty-discovery-still-asks
+    missing-project-many-candidates-narrow-first
+  )
 
   @tag :grafana_scope
   test "the fabricated Grafana endpoint discloses its scope without rewriting source evidence" do
@@ -62,7 +71,7 @@ defmodule Responder.Evals.WorldCaseTest do
 
   test "compiles the versioned model-world scenario matrix" do
     assert {:ok, scenarios} = WorldCase.all(@scenario_root)
-    assert length(scenarios) == 21
+    assert length(scenarios) == 28
     assert {:ok, scenario} = WorldCase.fetch(@health_scenario, @scenario_root)
 
     assert scenario.id == "va1-health-review-repairs-and-finishes"
@@ -95,6 +104,104 @@ defmodule Responder.Evals.WorldCaseTest do
     assert scenario.host_replay["model_events"] == []
     assert Enum.any?(scenario.expect["hard"], &(&1["tool"] == "request_input"))
     assert Enum.any?(scenario.expect["hard"], &(&1["tool"] == "wait_for"))
+  end
+
+  test "every discovery case fabricates its project world instead of a provider or a result" do
+    # Production Responder has no GCP project-listing capability, so the
+    # discovery branches of the reported missing-project review can only be
+    # evaluated against tools this scenario declares. A rule for a tool the
+    # catalog never offers is evidence nobody can call, and a recorded model
+    # event here would make the discovery answer an authored one.
+    original =
+      "testdata/work/missing-project-clarification.json" |> File.read!() |> Jason.decode!()
+
+    for id <- @discovery_scenarios do
+      assert {:ok, scenario} = WorldCase.fetch(id, @scenario_root)
+      assert scenario.provenance["kind"] == "synthetic"
+      assert scenario.host_replay["model_events"] == []
+      assert "discovery" in scenario.tags
+
+      assert hd(scenario.events)["payload"]["retained_review"]["message"] ==
+               original["candidate"]["message"]
+
+      fabricated = MapSet.new(WorldCase.fabricated_tools(scenario), & &1["name"])
+      assert Enum.all?(fabricated, &String.starts_with?(&1, "gcp."))
+      assert MapSet.size(fabricated) > 0
+
+      assert MapSet.subset?(MapSet.new(scenario.world["tool_rules"], & &1["tool"]), fabricated),
+             "#{id} records a rule for a tool its catalog never offers"
+
+      assert Enum.any?(scenario.expect["hard"], &(&1["tool"] == "wait_for")),
+             "#{id} must keep the exact Terraform run watch while it resolves the project"
+    end
+  end
+
+  test "a failed project listing is never replayed as a verified absence of projects" do
+    # The reported review turned one missing fact into a verification-gap
+    # paragraph. Empty, failed and denied discovery are three different answers
+    # and the world must keep them distinguishable, or the matrix cannot tell a
+    # model that invents candidates from one that reports an outage honestly.
+    for {id, expected} <- [
+          {"missing-project-empty-discovery-still-asks", :verified_absence},
+          {"missing-project-discovery-failure-stays-honest", "discovery_unavailable"},
+          {"missing-project-denied-access-asks-about-access", "permission_denied"}
+        ] do
+      cassette = cassette!(id)
+      reply = WorldCassette.call(cassette, "gcp.projects.list", %{"query" => "emisar portal"})
+
+      case expected do
+        :verified_absence ->
+          assert {:ok, %{"projects" => [], "source_ref" => source_ref}} = reply
+          assert source_ref =~ "gcp:projects"
+
+        code ->
+          assert {:error, %{"code" => ^code}} = reply
+      end
+    end
+
+    denied = cassette!("missing-project-denied-access-asks-about-access")
+
+    for {tool, arguments} <- [
+          {"gcp.backend_health", %{"project_id" => "emisar-portal-qa", "service" => "portal"}},
+          {"gcp.backup_config", %{"project_id" => "emisar-portal-qa"}}
+        ] do
+      assert {:error, %{"code" => "permission_denied"}} =
+               WorldCassette.call(denied, tool, arguments)
+    end
+  end
+
+  test "ambiguous discovery offers real projects and a wider listing has to be narrowed" do
+    proven = cassette!("missing-project-discovery-proves-one-target")
+
+    assert {:ok, %{"projects" => [portal, unrelated]}} =
+             WorldCassette.call(proven, "gcp.projects.list", %{"query" => "emisar portal"})
+
+    assert portal["project_id"] == "emisar-portal-qa"
+    assert portal["labels"]["repository"] == "Dryga/emisar"
+    refute unrelated["labels"]["repository"] == "Dryga/emisar"
+
+    ambiguous = cassette!("missing-project-candidates-need-one-question")
+
+    assert {:ok, %{"projects" => candidates}} =
+             WorldCassette.call(ambiguous, "gcp.projects.list", %{"query" => "emisar portal"})
+
+    assert length(candidates) == 4
+    assert Enum.all?(candidates, &(&1["name"] != "" and &1["project_id"] != ""))
+
+    assert length(Enum.uniq(Enum.map(candidates, & &1["labels"]["environment"]))) == 4
+
+    many = cassette!("missing-project-many-candidates-narrow-first")
+
+    assert {:ok, %{"projects" => broad}} =
+             WorldCassette.call(many, "gcp.projects.list", %{"query" => "every emisar project"})
+
+    assert length(broad) > 10
+
+    assert {:ok, %{"projects" => narrowed}} =
+             WorldCassette.call(many, "gcp.projects.list", %{"query" => "emisar portal projects"})
+
+    assert length(narrowed) == 4
+    assert Enum.all?(narrowed, &String.starts_with?(&1["project_id"], "emisar-portal"))
   end
 
   test "host replay scenarios carry recorded model actions in the same versioned unit" do
@@ -728,5 +835,12 @@ defmodule Responder.Evals.WorldCaseTest do
     |> Responder.CanonicalJSON.encode!()
     |> then(&:crypto.hash(:sha256, &1))
     |> Base.encode16(case: :lower)
+  end
+
+  defp cassette!(id) do
+    assert {:ok, scenario} = WorldCase.fetch(id, @scenario_root)
+    assert {:ok, cassette} = WorldCassette.start_link(scenario)
+    on_exit(fn -> if Process.alive?(cassette), do: GenServer.stop(cassette) end)
+    cassette
   end
 end
