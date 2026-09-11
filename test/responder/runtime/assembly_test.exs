@@ -533,7 +533,7 @@ defmodule Responder.Runtime.AssemblyTest do
   defp connected! do
     {:ok, _fresh} = Settings.initialize(@actor)
 
-    [
+    saves = [
       &Settings.save_retention(%{audit_data_seconds: 60 * 86_400}, &1, @actor),
       &Settings.put_repository(
         %{
@@ -632,12 +632,16 @@ defmodule Responder.Runtime.AssemblyTest do
         @actor
       )
     ]
-    |> Enum.reduce(1, fn save, revision ->
-      {:ok, saved} = save.(revision)
-      saved.installation.revision
-    end)
 
-    Settings.fetch!()
+    revision =
+      Enum.reduce(saves, 1, fn save, revision ->
+        {:ok, saved} = save.(revision)
+        saved.installation.revision
+      end)
+
+    settings = Settings.fetch!()
+    assert settings.installation.revision == revision
+    settings
   end
 
   defp source(name, overrides) do

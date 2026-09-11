@@ -5,7 +5,7 @@ defmodule Responder.Evals.RuntimeTest do
   # installation's repositories, destinations or reviewed grants.
   use ExUnit.Case, async: false
 
-  alias Responder.{Defaults, Settings}
+  alias Responder.Defaults
   alias Responder.Evals.Runtime
 
   @certificates Path.join(System.tmp_dir!(), "responder-eval-runtime-certificates")
