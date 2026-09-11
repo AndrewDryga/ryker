@@ -3,6 +3,7 @@ defmodule Responder.Slack.IncidentRoomsTest do
 
   import Ecto.Query
 
+  alias Responder.ControlPlane.InstructionSettings
   alias Responder.Delivery.JSONClient
   alias Responder.Episodes
   alias Responder.Fixtures.Episodes, as: EpisodeFixtures
@@ -309,6 +310,35 @@ defmodule Responder.Slack.IncidentRoomsTest do
 
     assert {:ok, claim} = Custody.claim_next("incident-card-work", 60, :work)
     assert claim.episode.id == room.episode_id
+
+    # An incident moves work from its source channel into the bound incident room.
+    assert {:ok, _} =
+             Responder.Instructions.save(:global, "Global incident default", 0, "operator:test")
+
+    assert {:ok, _} =
+             Responder.Instructions.save(
+               {:channel, "T123", "C456"},
+               "Source channel only",
+               0,
+               "operator:test"
+             )
+
+    assert {:ok, _} =
+             Responder.Instructions.save(
+               {:channel, "T123", "CINCIDENT"},
+               "Incident room default",
+               0,
+               "operator:test"
+             )
+
+    assert {:ok, submission} = SubmissionBuilder.build(claim)
+    instructions = submission["context"]["custom_instructions"]
+    assert instructions["global"]["text"] == "Global incident default"
+    assert instructions["channel"]["text"] == "Incident room default"
+    refute inspect(instructions) =~ "Source channel only"
+
+    assert {:ok, %{setting: %{text: "Incident room default"}}} =
+             InstructionSettings.fetch({:channel, "T123", "CINCIDENT"})
 
     assert {:ok, _progress} =
              Records.create(Records.token(claim.turn), "incident-progress", "progress", %{

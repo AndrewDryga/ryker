@@ -691,6 +691,66 @@ defmodule Responder.Work.SubmissionBuilderTest do
     assert_bounded_with_notes(claim, "inputs", text)
   end
 
+  test "a fresh session reserves required instructions before shedding consumed history" do
+    # History fitted without instructions, then adding the required fields overflowed
+    # the final request even though discarding a little older context would suffice.
+    destination = %{
+      transport: "slack",
+      conversation_ref: "slack:TINSTRUCTIONS:CBUDGET",
+      thread_ref: "1787832000.000100"
+    }
+
+    first =
+      claim_episode_payload!("instruction-history", %{"text" => "Initial history"},
+        destination: destination
+      )
+
+    historical =
+      Enum.reduce(1..20, first, fn index, claim ->
+        next_claim!(claim, ["Consumed history #{index}: " <> String.duplicate("h", 2_000)])
+      end)
+
+    active = [String.duplicate("A", 60_000), String.duplicate("B", 60_000)]
+    next = next_claim!(historical, active)
+
+    assert {:ok, rotated} =
+             Custody.rotate_session(
+               next.episode.id,
+               next.turn.turn_ref,
+               next.lease_ref,
+               next.session.generation
+             )
+
+    claim = %{next | session: rotated.session, turn: rotated.turn}
+    global = String.duplicate("🌱", 2_000)
+    channel = String.duplicate("🪴", 2_000)
+    assert {:ok, _} = Responder.Instructions.save(:global, global, 0, "operator:test")
+
+    assert {:ok, _} =
+             Responder.Instructions.save(
+               {:channel, "TINSTRUCTIONS", "CBUDGET"},
+               channel,
+               0,
+               "operator:test"
+             )
+
+    workspace = %{"description" => String.duplicate("w", 15_000)}
+
+    assert {:ok, submission} = SubmissionBuilder.build(claim, workspace: workspace)
+    context = submission["context"]
+    assert context["mode"] == "full"
+    assert context["custom_instructions"]["global"]["text"] == global
+    assert context["custom_instructions"]["channel"]["text"] == channel
+    assert context["workspace"] == workspace
+    assert context["inputs"]["omitted_count"] > 0
+
+    assert context["inputs"]["items"]
+           |> Enum.filter(& &1["current"])
+           |> Enum.map(& &1["content"]["text"]) == active
+
+    assert byte_size(Responder.CanonicalJSON.encode!(context)) <= 160 * 1_024
+  end
+
   test "optional learned notes leave room for the current continuation and final workspace metadata" do
     first = claim_episode!("notes-continuation-budget", "initial")
     {:ok, submission} = SubmissionBuilder.build(first)
@@ -969,6 +1029,69 @@ defmodule Responder.Work.SubmissionBuilderTest do
 
   defp claim_episode!(suffix, text) do
     claim_episode_payload!(suffix, %{"text" => text})
+  end
+
+  defp next_claim!(claim, texts) do
+    for text <- texts do
+      id = Ecto.UUID.generate()
+
+      assert {:ok, _} =
+               Episodes.apply(
+                 EpisodeFixtures.admit_input(%{
+                   destination: destination(claim),
+                   episode_id: claim.episode.id,
+                   episode_key: claim.episode.key,
+                   native_input_id: "history:#{id}",
+                   occurred_at: DateTime.add(@now, claim.episode.next_sequence, :second),
+                   payload: %{"text" => text},
+                   turn_ref: "unused:#{id}"
+                 })
+               )
+    end
+
+    assert {:ok, submission} = SubmissionBuilder.build(claim)
+    bind_remote_turn!(claim, submission)
+    candidate = ~s({"delivery":"none","message":null})
+    hash = digest(candidate)
+
+    assert {:ok, _} =
+             Custody.stage_candidate(
+               claim.episode.id,
+               claim.turn.turn_ref,
+               claim.lease_ref,
+               nil,
+               nil,
+               candidate,
+               hash,
+               1
+             )
+
+    assert {:ok, result} = Result.new(:none, nil, "Continue with queued feedback.")
+
+    assert {:ok, _} =
+             Custody.prepare_validation(
+               claim.episode.id,
+               claim.turn.turn_ref,
+               claim.lease_ref,
+               hash,
+               1,
+               :accept,
+               result
+             )
+
+    assert {:ok, _} =
+             Custody.accept_result(
+               claim.episode.id,
+               claim.episode.key,
+               claim.turn.turn_ref,
+               claim.lease_ref,
+               hash,
+               1,
+               "validation:#{claim.turn.id}"
+             )
+
+    assert {:ok, next} = Custody.claim_next("worker:history", 60)
+    next
   end
 
   defp claim_episode_payload!(suffix, payload, overrides \\ []) do

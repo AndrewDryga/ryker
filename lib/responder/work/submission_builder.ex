@@ -53,30 +53,9 @@ defmodule Responder.Work.SubmissionBuilder do
          :ok <- active_inputs_present(snapshot.active, episode.active_input_refs),
          previous <- previous_turn(episode.id, turn.id),
          records <- Records.model_records(episode, session.repository_ref),
-         {:ok, context} <- submission_context(episode, session, turn, snapshot, records, previous),
-         context <-
-           Map.put(
-             context,
-             "custom_instructions",
-             Responder.Instructions.snapshot(%{
-               transport: episode.destination_transport,
-               conversation_ref: episode.destination_conversation_ref
-             })
-           ),
-         context <-
-           Map.put(
-             context,
-             "conversation_feedback",
-             Reactions.model_context(episode.id, episode.next_sequence)
-           ),
-         {:ok, state_tools} <- state_tool_names(episode, options),
-         {:ok, platform_tools} <- platform_tool_names(episode, options),
-         {:ok, workspace} <- workspace(options),
-         context <- Map.put(context, "responder_state_tools", state_tools),
-         context <- Map.put(context, "source_and_action_tools", platform_tools),
-         context <- maybe_put_workspace(context, workspace),
-         context <- fit_optional_observations(context),
-         :ok <- context_fits(context) do
+         {:ok, metadata} <- context_metadata(episode, options),
+         {:ok, context} <-
+           submission_context(episode, session, snapshot, records, previous, metadata) do
       Submission.new(
         context,
         Prompt.build(context),
@@ -88,6 +67,26 @@ defmodule Responder.Work.SubmissionBuilder do
   end
 
   def build(_claim, _options), do: {:error, {:invalid_work_submission_builder, :claim}}
+
+  defp context_metadata(episode, options) do
+    with {:ok, state_tools} <- state_tool_names(episode, options),
+         {:ok, platform_tools} <- platform_tool_names(episode, options),
+         {:ok, workspace} <- workspace(options) do
+      # Capture required fields once so history fitting reserves their exact bytes.
+      metadata = %{
+        "custom_instructions" =>
+          Responder.Instructions.snapshot(%{
+            transport: episode.destination_transport,
+            conversation_ref: episode.destination_conversation_ref
+          }),
+        "conversation_feedback" => Reactions.model_context(episode.id, episode.next_sequence),
+        "responder_state_tools" => state_tools,
+        "source_and_action_tools" => platform_tools
+      }
+
+      {:ok, maybe_put_workspace(metadata, workspace)}
+    end
+  end
 
   defp workspace(options) do
     case Keyword.fetch(options, :workspace) do
@@ -150,14 +149,6 @@ defmodule Responder.Work.SubmissionBuilder do
     end
   end
 
-  defp context_fits(context) do
-    bytes = context |> CanonicalJSON.encode!() |> byte_size()
-
-    if bytes <= @maximum_context_bytes,
-      do: :ok,
-      else: {:error, {:work_active_input_bytes_overflow, bytes, @maximum_context_bytes}}
-  end
-
   defp fit_optional_observations(context) do
     context |> fit_memory("observations") |> fit_memory("knowledge")
   end
@@ -174,44 +165,33 @@ defmodule Responder.Work.SubmissionBuilder do
     end
   end
 
-  defp submission_context(episode, session, turn, snapshot, records, nil),
-    do: full_context(episode, session, turn, snapshot, records, nil)
+  defp submission_context(episode, session, snapshot, records, nil, metadata),
+    do: fit_full_context(episode, session, snapshot, records, nil, metadata)
 
   defp submission_context(
          episode,
          session,
-         turn,
          snapshot,
          records,
-         %{session_id: session_id} = previous
+         %{session_id: session_id} = previous,
+         metadata
        )
        when session_id == session.id,
-       do: continuation_context(episode, session, turn, snapshot, records, previous)
+       do: continuation_context(episode, session, snapshot, records, previous, metadata)
 
-  defp submission_context(episode, session, turn, snapshot, records, previous),
-    do: full_context(episode, session, turn, snapshot, records, previous)
-
-  defp full_context(episode, session, _turn, snapshot, records, previous) do
-    fit_full_context(
-      episode,
-      session,
-      snapshot.active,
-      snapshot.historical,
-      snapshot.total_count,
-      records,
-      previous
-    )
-  end
+  defp submission_context(episode, session, snapshot, records, previous, metadata),
+    do: fit_full_context(episode, session, snapshot, records, previous, metadata)
 
   defp fit_full_context(
          episode,
          session,
-         active,
-         historical,
-         total_count,
+         snapshot,
          records,
-         previous
+         previous,
+         metadata
        ) do
+    %{active: active, historical: historical, total_count: total_count} = snapshot
+
     selected =
       (active ++ historical)
       |> Enum.uniq_by(& &1.id)
@@ -248,7 +228,7 @@ defmodule Responder.Work.SubmissionBuilder do
         context
       end
 
-    context = fit_optional_observations(context)
+    context = context |> Map.merge(metadata) |> fit_optional_observations()
     context_bytes = context |> CanonicalJSON.encode!() |> byte_size()
 
     artifact_count = context |> model_artifact_refs() |> length()
@@ -261,11 +241,10 @@ defmodule Responder.Work.SubmissionBuilder do
         fit_full_context(
           episode,
           session,
-          active,
-          tl(historical),
-          total_count,
+          %{snapshot | historical: tl(historical)},
           records,
-          previous
+          previous,
+          metadata
         )
 
       artifact_count > 5 ->
@@ -276,7 +255,7 @@ defmodule Responder.Work.SubmissionBuilder do
     end
   end
 
-  defp continuation_context(episode, session, _turn, snapshot, records, previous) do
+  defp continuation_context(episode, session, snapshot, records, previous, metadata) do
     delivery = historical_delivery(previous, episode, session.repository_ref)
 
     context = %{
@@ -304,7 +283,7 @@ defmodule Responder.Work.SubmissionBuilder do
       "repository_ref" => session.repository_ref
     }
 
-    context = fit_optional_observations(context)
+    context = context |> Map.merge(metadata) |> fit_optional_observations()
     context_bytes = context |> CanonicalJSON.encode!() |> byte_size()
 
     if context_bytes <= @maximum_context_bytes,

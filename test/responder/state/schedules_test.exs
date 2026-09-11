@@ -19,7 +19,7 @@ defmodule Responder.State.SchedulesTest do
     Schedules
   }
 
-  alias Responder.Work.{Custody, DeliveryReceipt, Result, Session, Submission}
+  alias Responder.Work.{Custody, DeliveryReceipt, Result, Session, Submission, SubmissionBuilder}
 
   @now ~U[2026-08-28 12:00:00.000000Z]
   @policy %{digest: String.duplicate("c", 64), name: "responder-scheduled-read"}
@@ -81,6 +81,27 @@ defmodule Responder.State.SchedulesTest do
 
     assert event.payload["payload"]["content"]["schedule"]["task"] ==
              "Inspect current service health."
+
+    assert {:ok, _} =
+             Responder.Instructions.save(:global, "Global schedule default", 0, "operator:test")
+
+    assert {:ok, _} =
+             Responder.Instructions.save(
+               {:channel, "T123", "C456"},
+               "Scheduled channel default",
+               0,
+               "operator:test"
+             )
+
+    assert {:ok, scheduled_work} = Custody.claim_next("schedule-instructions-proof", 60, :work)
+    assert scheduled_work.episode.id == dispatched.episode.id
+    assert {:ok, submission} = SubmissionBuilder.build(scheduled_work)
+
+    assert submission["context"]["custom_instructions"]["global"]["text"] ==
+             "Global schedule default"
+
+    assert submission["context"]["custom_instructions"]["channel"]["text"] ==
+             "Scheduled channel default"
 
     assert %{"recent_runs" => [run]} = Automations.detail(dispatched.schedule, 10)
     assert run["run_ref"] == dispatched.occurrence.ref
