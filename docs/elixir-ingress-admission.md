@@ -269,15 +269,41 @@ operation identity and remains retryable.
 The provider receives one bounded prompt containing:
 
 - the current source, actor kind, event kind, time, and content or compact preview;
-- up to twenty opaque candidate episodes from the same destination conversation;
-- compact chronological first/latest input previews for each candidate;
-- the relationships the host permits.
+- the frozen local backdrop: the thread root, the messages that preceded this one in that exact
+  place, and the latest eligible thread and parent-channel summaries, with a manifest saying what
+  the bundle actually contains;
+- up to twenty opaque candidate episodes from every conversation this source may correlate with;
+- each candidate's source-backed digest, lifecycle state, match evidence and allowed relations;
+- compact chronological first/latest input previews, which supplement the digest and never replace it.
 
 The exact JSON Schema is attached once as Coop's output contract rather than copied into the prompt.
-The exact current thread is always offered first, so unrelated channel traffic cannot block its reply.
-For a new top-level item, active work takes priority over completed history. If all active work does not
-fit, the input waits without creating a Coop session and is reconsidered when capacity changes; it is
-never silently classified from an incomplete set.
+
+### Correlation scope
+
+Only joined, non-private, non-externally-shared channels of the same Slack workspace correlate with
+each other. Direct messages, private channels, externally shared channels, other workspaces and
+every non-Slack transport stay inside their own conversation, and an episode that has gathered
+evidence anywhere outside the incoming source's scope is not offered at all — its digest, state and
+existence would leak that scope. Reading across conversations never confers posting permission,
+repository access or action authority.
+
+### Bounded retrieval and the best twenty
+
+Four indexed lanes fill a pool of at most 200 eligible episodes, each returning its own best 50:
+source-backed identity matches, this exact thread, resource and objective text matches, and recent
+active work as a fallback for weakly worded input. The exact source item's existing owner is
+resolved separately, so no lane cap can hide the episode that owns a revision.
+
+Ranking then chooses at most twenty options from explicit, tested features: a proven occurrence
+identity first, then direct source references, then thread gravity, then resource and objective fit,
+then channel proximity, active state and — only as a tie-breaker — recency. Up to four places are
+reserved for supported matches outside the incoming thread, so more than twenty nearby options
+cannot bury the one matching episode in another channel; unused reserved places return to the common
+pool. The frozen context records every lane's result, what was examined and offered, the feature
+values behind each option, and why the cutoff fell where it did.
+
+Thread identity is the full transport, conversation and thread triple. The same Slack thread
+timestamp in two channels is two different threads and carries no shared gravity.
 
 The model chooses one of:
 
@@ -307,6 +333,20 @@ or configuration changes.
 
 It cannot return a destination or raw episode ID. A history-only link always keeps the current event's
 destination; it never turns an old thread into the new reply target.
+
+### Membership, origins and one home
+
+An episode is one piece of work, not one conversation. Membership is per message: every admitted
+input keeps the exact transport, conversation, thread, native root or reply kind, and source
+identity it arrived with, so evidence from several conversations can meet in one episode while each
+message remains answerable where it was written. The episode keeps one progress home — the
+destination it started with — and adding evidence never moves it, so new origins cannot subscribe
+every contributing channel to repeated status and final replies.
+
+Cancelled work stays history-only. Work pinned to a different repository is offered as history and
+never as the same work, because merging evidence must not broaden a pinned session's authority.
+Completed work may be continued only inside the continuation window or by the exact source item's
+owner, which is the one candidate rank can never displace.
 
 ## Coop and validation
 
@@ -342,6 +382,11 @@ decision in one database transaction. Any failure rolls everything back. Every p
 input takes the same short conversation lock before its episode lock, including input written outside
 the model-admission worker.
 
+The local backdrop is captured before that transaction opens, behind a cutoff at this input's own
+occurrence, so a message that arrives while the decision is being made — including one already queued
+for Responder — can never enter an earlier context, and no authorized provider read runs while a
+database snapshot is held.
+
 The host snapshots candidates, the conversation's episode count, and the complete active episode ID set
 under one short conversation lock. Only the bounded candidates enter the model prompt. Before a decision
 creates work, the host checks the count and active IDs again under the same lock. If another input created
@@ -370,6 +415,10 @@ Fast deterministic tests cover:
 - lease fencing, expiry recovery, simultaneous workers, and retry timing;
 - terminal operation generations, uncertain-result custody, and dynamic candidate-capacity recovery;
 - exact-thread admission under channel load and one-turn supersession of stale source revisions;
+- cross-conversation candidate recall against more than a hundred nearer distractors, lane
+  saturation, mandatory source ownership, and the privacy negatives above;
+- the frozen local backdrop: thread roots, top-level selection, cutoffs, provider pagination and
+  provider failure, and summary freshness including after-cutoff revisions;
 - admission/episode transaction rollback, shared conversation-lock ordering, and concurrent episode
   creation; and
 - the harvested Slack lifecycle corpus described in the [corpus review](elixir-slack-admission-corpus.md).

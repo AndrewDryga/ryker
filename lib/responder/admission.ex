@@ -10,10 +10,21 @@ defmodule Responder.Admission do
 
   alias Responder.Admission.Attempts
 
-  alias Responder.Admission.{Candidate, Context, Decision, Prompt}
+  alias Responder.Admission.{
+    Candidate,
+    CandidateSearch,
+    Context,
+    ConversationContext,
+    ConversationSummaries,
+    CorrelationScope,
+    Decision,
+    Prompt,
+    Ranking
+  }
+
   alias Responder.Delivery.ReactionCustody
   alias Responder.Episodes
-  alias Responder.Episodes.{Command, ConversationLock, Episode, Event}
+  alias Responder.Episodes.{Command, ConversationLock, Episode, Event, Origins, RoutingDigests}
   alias Responder.Ingress.{Inbox, Input, RecallText}
   alias Responder.Ingress.Inbox.{Entry, EntryChangeset}
   alias Responder.Repo
@@ -66,9 +77,15 @@ defmodule Responder.Admission do
   defp snapshot_context(input, entry, settings) do
     nested? = Repo.in_transaction?()
 
+    # The local backdrop is captured before the snapshot transaction opens.
+    # Its cutoff is this input's own occurrence, so nothing that arrives later
+    # can enter it, and a bounded authorized provider read never runs while a
+    # database snapshot and its connection are held open.
+    captured = capture_conversation_context(entry, settings)
+
     Repo.transaction(fn ->
       case ensure_snapshot_isolation(nested?) do
-        :ok -> build_context_locked(input, entry, settings)
+        :ok -> build_context_locked(input, entry, settings, captured)
         {:error, reason} -> Repo.rollback(reason)
       end
     end)
@@ -95,9 +112,9 @@ defmodule Responder.Admission do
     end
   end
 
-  defp build_context_locked(input, entry, settings) do
+  defp build_context_locked(input, entry, settings, captured) do
     with :ok <- lock_conversation(input),
-         {:ok, candidates} <- candidates(input, entry.execution_mode, settings) do
+         {:ok, candidates, routing_receipt} <- candidates(input, entry, settings) do
       %Context{
         active_episode_fingerprint:
           active_episode_fingerprint_for_destination(
@@ -106,10 +123,13 @@ defmodule Responder.Admission do
           ),
         built_at: settings.now,
         candidates: candidates,
+        conversation_context: captured.bundle,
+        context_manifest: captured.manifest,
         conversation_episode_count: conversation_episode_count(input, entry.execution_mode),
         input: input,
         input_entry: entry,
         custom_instructions: Responder.Instructions.snapshot(input.destination),
+        routing_receipt: routing_receipt,
         slack_addressing: slack_addressing(entry),
         observations: Observations.context(entry, entry.repository_ref, "", 5),
         knowledge:
@@ -125,6 +145,18 @@ defmodule Responder.Admission do
     else
       {:error, reason} -> Repo.rollback(reason)
     end
+  end
+
+  defp capture_conversation_context(entry, settings) do
+    entry
+    |> ConversationContext.capture(
+      local_history_limit: settings.local_history_limit,
+      reader: settings.source_reader
+    )
+    |> ConversationContext.with_summaries(
+      ConversationSummaries.thread(entry, settings.now),
+      ConversationSummaries.channel(entry, settings.now)
+    )
   end
 
   defp slack_addressing(%Entry{slack_audience: nil, slack_bot_user_ref: nil}), do: nil
@@ -249,12 +281,16 @@ defmodule Responder.Admission do
     history_window = Keyword.get(options, :history_window)
     candidate_limit = Keyword.get(options, :candidate_limit, 20)
     lease_ref = Keyword.get(options, :lease_ref)
+    local_history_limit = Keyword.get(options, :local_history_limit, 20)
+    source_reader = Keyword.get(options, :source_reader)
 
     with :ok <- context_option_keys(options),
          :ok <- context_value(utc_datetime?(now), :now),
          :ok <- context_value(positive_integer?(continuation_window), :continuation_window),
          :ok <- valid_history_window(history_window, continuation_window),
          :ok <- valid_candidate_limit(candidate_limit),
+         :ok <- valid_local_history_limit(local_history_limit),
+         :ok <- context_value(valid_source_reader?(source_reader), :source_reader),
          :ok <- context_value(valid_optional_reference?(lease_ref), :lease_ref) do
       {:ok,
        %{
@@ -262,15 +298,33 @@ defmodule Responder.Admission do
          continuation_window: continuation_window,
          history_window: history_window,
          lease_ref: lease_ref,
-         now: now
+         local_history_limit: local_history_limit,
+         now: now,
+         source_reader: source_reader
        }}
     end
   end
 
   defp validate_options(_options), do: {:error, {:invalid_admission_context, :options}}
 
+  defp valid_local_history_limit(value) do
+    context_value(is_integer(value) and value >= 10 and value <= 20, :local_history_limit)
+  end
+
+  defp valid_source_reader?(nil), do: true
+  defp valid_source_reader?({module, _client}) when is_atom(module), do: true
+  defp valid_source_reader?(_reader), do: false
+
   defp context_option_keys(options) do
-    allowed = [:candidate_limit, :continuation_window, :history_window, :lease_ref, :now]
+    allowed = [
+      :candidate_limit,
+      :continuation_window,
+      :history_window,
+      :lease_ref,
+      :local_history_limit,
+      :now,
+      :source_reader
+    ]
 
     if Keyword.keyword?(options) and Enum.uniq(Keyword.keys(options)) == Keyword.keys(options) and
          Keyword.keys(options) -- allowed == [],
@@ -549,33 +603,15 @@ defmodule Responder.Admission do
     )
   end
 
+  # An edit or delete follows its source item's effective owner even when that
+  # episode now lives in another conversation, so a revision can never be
+  # reassigned by rank or split across two episodes.
   defp current_source_owner(context) do
-    native_input_id = context.input.native_input_id
-    destination = context.input.destination
-    execution_mode = context.input_entry.execution_mode
-
-    case Repo.one(
-           from(episode in Episode,
-             where:
-               episode.destination_transport == ^destination.transport and
-                 episode.destination_conversation_ref == ^destination.conversation_ref and
-                 episode.execution_mode == ^execution_mode and
-                 fragment("(? ->> ?) IS NOT NULL", episode.input_revisions, ^native_input_id),
-             order_by: [
-               desc:
-                 fragment(
-                   "CAST((? ->> ?) AS bigint)",
-                   episode.input_revisions,
-                   ^native_input_id
-                 ),
-               asc: episode.id
-             ],
-             limit: 1
-           )
-         ) do
-      nil -> nil
-      episode -> {episode, Map.fetch!(episode.input_revisions, native_input_id)}
-    end
+    Origins.current_owner(
+      context.input.native_input_id,
+      context.input.destination.transport,
+      context.input_entry.execution_mode
+    )
   end
 
   defp current_routing_scope(%Context{} = context, selection) do
@@ -855,291 +891,51 @@ defmodule Responder.Admission do
   defp load_decided_episode(nil), do: nil
   defp load_decided_episode(id), do: Repo.get(Episode, id)
 
-  defp candidates(input, execution_mode, settings) do
-    with :ok <-
-           required_candidates_fit(
-             input.destination,
-             input.native_input_id,
-             execution_mode,
-             settings.candidate_limit,
-             cross_thread_relation_scope(input)
-           ) do
-      destination = input.destination
-      history_cutoff = DateTime.add(settings.now, -settings.history_window, :second)
+  # Retrieval is bounded, indexed and explainable: four lanes fill a pool of at
+  # most 200 eligible episodes, the exact source item's owner is resolved
+  # separately so no lane cap can hide it, and ranking chooses at most twenty
+  # options while reserving places for supported matches outside this thread.
+  defp candidates(input, entry, settings) do
+    scope = CorrelationScope.for_input(input)
 
-      episodes =
-        Repo.all(
-          candidate_query(
-            destination,
-            input.native_input_id,
-            execution_mode,
-            history_cutoff,
-            settings.candidate_limit
-          )
-          |> prioritize_source_owner(input, cross_thread_relation_scope(input))
-        )
+    %{selected: selected, receipt: receipt} =
+      CandidateSearch.search(%{
+        scope: scope,
+        transport: input.destination.transport,
+        thread_ref: input.destination.thread_ref,
+        text: RecallText.from(input.content),
+        native_input_id: input.native_input_id,
+        execution_mode: entry.execution_mode,
+        repository_ref: entry.repository_ref,
+        occurrences: [],
+        candidate_limit: settings.candidate_limit,
+        history_cutoff: DateTime.add(settings.now, -settings.history_window, :second),
+        now: settings.now
+      })
 
-      endpoints_by_episode = input_event_endpoints(Enum.map(episodes, & &1.id))
+    endpoints = input_event_endpoints(Enum.map(selected, & &1.episode.id))
 
-      {:ok,
-       Enum.map(episodes, fn episode ->
-         episode
-         |> Candidate.new(
-           Map.get(endpoints_by_episode, episode.id, %{}),
-           destination.thread_ref,
-           settings.now,
-           settings.continuation_window,
-           cross_thread_relation_scope(input)
-         )
-         |> require_same_work_for_source_owner(input)
-       end)}
-    end
-  end
+    candidates =
+      Enum.map(selected, fn ranked ->
+        Candidate.new(%{
+          allowed_relations:
+            Candidate.allowed_relations(ranked.episode, %{
+              continuation_window: settings.continuation_window,
+              input_repository: entry.repository_ref,
+              now: settings.now,
+              pinned_repository: ranked.repository_ref,
+              source_owner: ranked.source_owner
+            }),
+          digest: RoutingDigests.document(ranked.digest, settings.now),
+          endpoints: Map.get(endpoints, ranked.episode.id, %{}),
+          episode: ranked.episode,
+          match: Ranking.document(ranked),
+          same_thread: ranked.features.same_thread,
+          source_owner: ranked.source_owner
+        })
+      end)
 
-  defp cross_thread_relation_scope(
-         %Input{
-           actor: %{kind: kind},
-           destination: %{conversation_ref: "slack:" <> rest, transport: "slack"}
-         } = input
-       )
-       when kind in [:app, :bot] do
-    case String.split(rest, ":", parts: 2) do
-      [_workspace_ref, "D" <> _direct_message] -> :active_only
-      _shared_conversation -> {:same_actor, Input.actor_ref(input)}
-    end
-  end
-
-  defp cross_thread_relation_scope(%Input{
-         destination: %{conversation_ref: "slack:" <> rest, transport: "slack"}
-       }) do
-    case String.split(rest, ":", parts: 2) do
-      [_workspace_ref, "D" <> _direct_message] -> :active_only
-      _shared_conversation -> :none
-    end
-  end
-
-  defp cross_thread_relation_scope(_input), do: :all
-
-  defp require_same_work_for_source_owner(candidate, input) do
-    if Map.has_key?(candidate.episode.input_revisions, input.native_input_id) and
-         candidate.episode.state != :cancelled do
-      %{candidate | allowed_relations: [:same_work, :history_only]}
-    else
-      candidate
-    end
-  end
-
-  defp required_candidates_fit(
-         destination,
-         native_input_id,
-         execution_mode,
-         candidate_limit,
-         scope
-       ) do
-    required = required_candidate_count(destination, native_input_id, execution_mode, scope)
-
-    if required <= candidate_limit,
-      do: :ok,
-      else: {:error, {:admission_context_overflow, required: required, limit: candidate_limit}}
-  end
-
-  defp required_candidate_count(
-         %{thread_ref: nil} = destination,
-         native_input_id,
-         execution_mode,
-         {:same_actor, actor_ref}
-       ) do
-    actor_matches = source_actor_matches(actor_ref)
-
-    required =
-      dynamic(
-        [episode],
-        (episode.state in ^@active_states and ^actor_matches) or
-          fragment("(? ->> ?) IS NOT NULL", episode.input_revisions, ^native_input_id)
-      )
-
-    Repo.aggregate(
-      from(episode in Episode,
-        where:
-          episode.destination_transport == ^destination.transport and
-            episode.destination_conversation_ref == ^destination.conversation_ref and
-            episode.execution_mode == ^execution_mode,
-        where: ^required
-      ),
-      :count
-    )
-  end
-
-  defp required_candidate_count(
-         %{thread_ref: nil} = destination,
-         native_input_id,
-         execution_mode,
-         :none
-       ) do
-    # History-only options are bounded context, not runnable owners. Requiring
-    # all of them can permanently stop an unrelated channel message at capacity.
-    Repo.aggregate(
-      from(episode in Episode,
-        where:
-          episode.destination_transport == ^destination.transport and
-            episode.destination_conversation_ref == ^destination.conversation_ref and
-            episode.execution_mode == ^execution_mode and
-            fragment("(? ->> ?) IS NOT NULL", episode.input_revisions, ^native_input_id)
-      ),
-      :count
-    )
-  end
-
-  defp required_candidate_count(
-         %{thread_ref: nil} = destination,
-         native_input_id,
-         execution_mode,
-         _scope
-       ) do
-    Repo.aggregate(
-      from(episode in Episode,
-        where:
-          episode.destination_transport == ^destination.transport and
-            episode.destination_conversation_ref == ^destination.conversation_ref and
-            episode.execution_mode == ^execution_mode and
-            (episode.state in ^@active_states or
-               fragment("(? ->> ?) IS NOT NULL", episode.input_revisions, ^native_input_id))
-      ),
-      :count
-    )
-  end
-
-  defp required_candidate_count(destination, native_input_id, execution_mode, scope) do
-    exact_thread = exact_thread_query(destination, execution_mode)
-
-    if Repo.exists?(exact_thread),
-      do:
-        required_exact_thread_count(exact_thread, native_input_id) +
-          owned_elsewhere_count(destination, native_input_id, execution_mode),
-      else:
-        required_candidate_count(
-          %{destination | thread_ref: nil},
-          native_input_id,
-          execution_mode,
-          scope
-        )
-  end
-
-  defp exact_thread_query(destination, execution_mode) do
-    from(episode in Episode,
-      where:
-        episode.destination_transport == ^destination.transport and
-          episode.destination_conversation_ref == ^destination.conversation_ref and
-          episode.execution_mode == ^execution_mode and
-          episode.destination_thread_ref == ^destination.thread_ref
-    )
-  end
-
-  defp required_exact_thread_count(exact_thread, native_input_id) do
-    Repo.aggregate(
-      from(episode in exact_thread,
-        where:
-          episode.state in ^@active_states or
-            fragment("(? ->> ?) IS NOT NULL", episode.input_revisions, ^native_input_id)
-      ),
-      :count
-    )
-  end
-
-  defp owned_elsewhere_count(destination, native_input_id, execution_mode) do
-    Repo.aggregate(
-      from(episode in Episode,
-        where:
-          episode.destination_transport == ^destination.transport and
-            episode.destination_conversation_ref == ^destination.conversation_ref and
-            episode.execution_mode == ^execution_mode and
-            (is_nil(episode.destination_thread_ref) or
-               episode.destination_thread_ref != ^destination.thread_ref) and
-            fragment("(? ->> ?) IS NOT NULL", episode.input_revisions, ^native_input_id)
-      ),
-      :count
-    )
-  end
-
-  defp prioritize_source_owner(query, input, {:same_actor, actor_ref}) do
-    actor_matches = source_actor_matches(actor_ref)
-    native_input_id = input.native_input_id
-    thread_ref = input.destination.thread_ref
-
-    required =
-      dynamic(
-        [episode],
-        fragment("(? ->> ?) IS NOT NULL", episode.input_revisions, ^native_input_id) or
-          fragment("coalesce(? = ?, false)", episode.destination_thread_ref, ^thread_ref) or
-          (episode.state in ^@active_states and ^actor_matches)
-      )
-
-    prepend_order_by(query, ^[desc: required])
-  end
-
-  defp prioritize_source_owner(query, _input, _scope), do: query
-
-  defp source_actor_matches(actor_ref) do
-    dynamic(
-      [episode],
-      fragment(
-        "coalesce((SELECT source_event.payload::jsonb ->> 'actor_ref' FROM episode_kernel_events AS source_event WHERE source_event.episode_id = ? AND source_event.kind = 'input_admitted' ORDER BY source_event.occurred_at, source_event.sequence LIMIT 1) = ?, false)",
-        episode.id,
-        ^actor_ref
-      )
-    )
-  end
-
-  defp candidate_query(
-         %{thread_ref: nil} = destination,
-         native_input_id,
-         execution_mode,
-         history_cutoff,
-         candidate_limit
-       ) do
-    from(episode in Episode,
-      where:
-        episode.destination_transport == ^destination.transport and
-          episode.destination_conversation_ref == ^destination.conversation_ref and
-          episode.execution_mode == ^execution_mode,
-      where:
-        episode.state in ^@active_states or episode.updated_at >= ^history_cutoff or
-          fragment("(? ->> ?) IS NOT NULL", episode.input_revisions, ^native_input_id),
-      order_by: [
-        desc: fragment("(? ->> ?) IS NOT NULL", episode.input_revisions, ^native_input_id),
-        desc: episode.state in ^@active_states,
-        desc: episode.updated_at,
-        asc: episode.id
-      ],
-      limit: ^candidate_limit
-    )
-  end
-
-  defp candidate_query(
-         destination,
-         native_input_id,
-         execution_mode,
-         history_cutoff,
-         candidate_limit
-       ) do
-    from(episode in Episode,
-      where:
-        episode.destination_transport == ^destination.transport and
-          episode.destination_conversation_ref == ^destination.conversation_ref and
-          episode.execution_mode == ^execution_mode,
-      where:
-        episode.destination_thread_ref == ^destination.thread_ref or
-          episode.state in ^@active_states or episode.updated_at >= ^history_cutoff or
-          fragment("(? ->> ?) IS NOT NULL", episode.input_revisions, ^native_input_id),
-      order_by: [
-        desc: fragment("(? ->> ?) IS NOT NULL", episode.input_revisions, ^native_input_id),
-        desc: fragment("? = ?", episode.destination_thread_ref, ^destination.thread_ref),
-        desc: episode.state in ^@active_states,
-        desc: episode.updated_at,
-        asc: episode.id
-      ],
-      limit: ^candidate_limit
-    )
+    {:ok, candidates, receipt}
   end
 
   defp conversation_episode_count(input, execution_mode) do

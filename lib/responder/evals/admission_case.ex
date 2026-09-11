@@ -185,13 +185,23 @@ defmodule Responder.Evals.AdmissionCase do
 
       if is_integer(continuation_window) and continuation_window >= 0 do
         {:ok,
-         Candidate.new(
-           episode,
-           %{first: endpoint, latest: endpoint},
-           current_thread,
-           now,
-           continuation_window
-         )}
+         Candidate.new(%{
+           allowed_relations:
+             Candidate.allowed_relations(episode, %{
+               continuation_window: continuation_window,
+               input_repository: nil,
+               now: now,
+               pinned_repository: nil,
+               source_owner: false
+             }),
+           digest: nil,
+           endpoints: %{first: endpoint, latest: endpoint},
+           episode: episode,
+           match: %{},
+           same_thread:
+             not is_nil(current_thread) and episode.destination_thread_ref == current_thread,
+           source_owner: false
+         })}
       else
         {:error, {:invalid_admission_eval, :continuation_window_seconds}}
       end

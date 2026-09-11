@@ -17,6 +17,8 @@ defmodule Responder.Episodes do
     Event,
     EventChangeset,
     Kernel,
+    Origins,
+    RoutingDigests,
     Transition
   }
 
@@ -207,7 +209,9 @@ defmodule Responder.Episodes do
 
   defp persist(repo, stored, %Transition{status: :applied} = transition) do
     with {:ok, episode} <- persist_episode(repo, stored, transition.episode),
-         {:ok, event} <- persist_event(repo, transition.event, episode.id) do
+         {:ok, event} <- persist_event(repo, transition.event, episode.id),
+         :ok <- Origins.record_in_transaction(episode, event),
+         :ok <- RoutingDigests.refresh_in_transaction(episode, event) do
       {:ok, %{transition | episode: episode, event: event}}
     end
   end

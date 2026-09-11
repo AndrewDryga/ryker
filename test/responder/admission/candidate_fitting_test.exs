@@ -207,13 +207,22 @@ defmodule Responder.Admission.CandidateFittingTest do
           updated_at: @now
         }
 
-        Candidate.new(
-          episode,
-          %{first: endpoint, latest: endpoint},
-          "current-thread",
-          @now,
-          1_800
-        )
+        Candidate.new(%{
+          allowed_relations:
+            Candidate.allowed_relations(episode, %{
+              continuation_window: 1_800,
+              input_repository: nil,
+              now: @now,
+              pinned_repository: nil,
+              source_owner: false
+            }),
+          digest: nil,
+          endpoints: %{first: endpoint, latest: endpoint},
+          episode: episode,
+          match: %{},
+          same_thread: episode.destination_thread_ref == "current-thread",
+          source_owner: false
+        })
       end
 
     size = Keyword.get(options, :memory_size, 1_200)

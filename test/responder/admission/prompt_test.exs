@@ -142,13 +142,22 @@ defmodule Responder.Admission.PromptTest do
           updated_at: ~U[2026-08-27 12:00:00.000000Z]
         }
 
-        Candidate.new(
-          episode,
-          %{first: endpoint, latest: endpoint},
-          "current-thread",
-          ~U[2026-08-27 12:00:01.000000Z],
-          1_800
-        )
+        Candidate.new(%{
+          allowed_relations:
+            Candidate.allowed_relations(episode, %{
+              continuation_window: 1_800,
+              input_repository: nil,
+              now: ~U[2026-08-27 12:00:01.000000Z],
+              pinned_repository: nil,
+              source_owner: false
+            }),
+          digest: nil,
+          endpoints: %{first: endpoint, latest: endpoint},
+          episode: episode,
+          match: %{},
+          same_thread: episode.destination_thread_ref == "current-thread",
+          source_owner: false
+        })
       end
 
     context = %Context{
@@ -209,13 +218,22 @@ defmodule Responder.Admission.PromptTest do
           updated_at: ~U[2026-08-27 12:00:00.000000Z]
         }
 
-        Candidate.new(
-          episode,
-          %{first: endpoint, latest: endpoint},
-          "current-thread",
-          ~U[2026-08-27 12:00:01.000000Z],
-          1_800
-        )
+        Candidate.new(%{
+          allowed_relations:
+            Candidate.allowed_relations(episode, %{
+              continuation_window: 1_800,
+              input_repository: nil,
+              now: ~U[2026-08-27 12:00:01.000000Z],
+              pinned_repository: nil,
+              source_owner: false
+            }),
+          digest: nil,
+          endpoints: %{first: endpoint, latest: endpoint},
+          episode: episode,
+          match: %{},
+          same_thread: episode.destination_thread_ref == "current-thread",
+          source_owner: false
+        })
       end
 
     note = %{
@@ -275,13 +293,22 @@ defmodule Responder.Admission.PromptTest do
     }
 
     candidate =
-      Candidate.new(
-        episode,
-        %{first: endpoint, latest: endpoint},
-        "current-thread",
-        ~U[2026-08-27 12:00:01.000000Z],
-        1_800
-      )
+      Candidate.new(%{
+        allowed_relations:
+          Candidate.allowed_relations(episode, %{
+            continuation_window: 1_800,
+            input_repository: nil,
+            now: ~U[2026-08-27 12:00:01.000000Z],
+            pinned_repository: nil,
+            source_owner: false
+          }),
+        digest: nil,
+        endpoints: %{first: endpoint, latest: endpoint},
+        episode: episode,
+        match: %{},
+        same_thread: episode.destination_thread_ref == "current-thread",
+        source_owner: false
+      })
 
     context = %Context{
       active_episode_fingerprint: Responder.CanonicalJSON.digest([]),
@@ -306,19 +333,28 @@ defmodule Responder.Admission.PromptTest do
     }
 
     candidate =
-      Candidate.new(
-        episode,
-        %{
+      Candidate.new(%{
+        allowed_relations:
+          Candidate.allowed_relations(episode, %{
+            continuation_window: 1_800,
+            input_repository: nil,
+            now: ~U[2026-08-27 12:00:01.000000Z],
+            pinned_repository: nil,
+            source_owner: false
+          }),
+        digest: nil,
+        endpoints: %{
           first: %{
             occurred_at: ~U[2026-08-27 11:00:00.000000Z],
             payload: %{"payload" => "plain legacy payload"}
           },
           latest: :invalid_endpoint
         },
-        "current-thread",
-        ~U[2026-08-27 12:00:01.000000Z],
-        1_800
-      )
+        episode: episode,
+        match: %{},
+        same_thread: episode.destination_thread_ref == "current-thread",
+        source_owner: false
+      })
 
     snapshot = Candidate.snapshot(candidate)
     assert snapshot["first_input"]["content_preview"] =~ "plain legacy payload"
@@ -358,13 +394,22 @@ defmodule Responder.Admission.PromptTest do
     endpoint = %{occurred_at: episode.updated_at, payload: %{"payload" => payload}}
 
     candidate =
-      Candidate.new(
-        episode,
-        %{first: endpoint, latest: endpoint},
-        "current-thread",
-        episode.updated_at,
-        1_800
-      )
+      Candidate.new(%{
+        allowed_relations:
+          Candidate.allowed_relations(episode, %{
+            continuation_window: 1_800,
+            input_repository: nil,
+            now: episode.updated_at,
+            pinned_repository: nil,
+            source_owner: false
+          }),
+        digest: nil,
+        endpoints: %{first: endpoint, latest: endpoint},
+        episode: episode,
+        match: %{},
+        same_thread: episode.destination_thread_ref == "current-thread",
+        source_owner: false
+      })
 
     preview = Candidate.for_model(candidate)["first_input"]
 

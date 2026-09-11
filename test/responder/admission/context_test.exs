@@ -111,7 +111,7 @@ defmodule Responder.Admission.ContextTest do
              )
   end
 
-  test "offers generic same-work and history candidates without inspecting provider text" do
+  test "offers same-work and history candidates without inspecting provider text" do
     current = record_input!(content: %{"text" => "A custom app changed state"})
 
     same_thread =
@@ -123,11 +123,11 @@ defmodule Responder.Admission.ContextTest do
         updated_at: DateTime.add(@now, -40 * 24 * 60 * 60)
       )
 
-    recent_other_thread =
+    matching_other_thread =
       create_episode!(
-        key: "recent-other-thread",
+        key: "matching-other-thread",
         thread_ref: "1787831000.000001",
-        content: %{"text" => "No provider-specific status words here"},
+        content: %{"text" => "A custom app changed state earlier today"},
         complete: true,
         updated_at: DateTime.add(@now, -5 * 60)
       )
@@ -136,7 +136,7 @@ defmodule Responder.Admission.ContextTest do
       create_episode!(
         key: "expired-other-thread",
         thread_ref: "1787830000.000001",
-        content: %{"text" => "Related historical work"},
+        content: %{"text" => "A custom app changed state last month"},
         complete: true,
         updated_at: DateTime.add(@now, -2 * 60 * 60)
       )
@@ -146,7 +146,7 @@ defmodule Responder.Admission.ContextTest do
         key: "other-channel",
         channel_ref: "C999",
         thread_ref: "1787833000.000001",
-        content: %{"text" => "Must remain invisible to this admission decision"}
+        content: %{"text" => "A custom app changed state somewhere Responder has not joined"}
       )
 
     assert {:ok, context} = build_context(current)
@@ -155,12 +155,15 @@ defmodule Responder.Admission.ContextTest do
     assert candidates[same_thread.id].allowed_relations == [:same_work, :history_only]
     assert candidates[same_thread.id].same_thread
 
-    assert candidates[recent_other_thread.id].allowed_relations == [
+    assert candidates[matching_other_thread.id].allowed_relations == [
              :same_work,
              :history_only
            ]
 
     assert candidates[expired_other_thread.id].allowed_relations == [:history_only]
+
+    # Responder has no recorded membership of C999, so that conversation is not
+    # in this input's correlation scope at all.
     refute Map.has_key?(candidates, other_channel.id)
 
     model_context = Context.for_model(context)
@@ -176,7 +179,7 @@ defmodule Responder.Admission.ContextTest do
 
     refute encoded =~ same_thread.id
     refute encoded =~ same_thread.key
-    refute encoded =~ recent_other_thread.destination_thread_ref
+    refute encoded =~ matching_other_thread.destination_thread_ref
     assert encoded =~ "This could be any earlier human or app message"
   end
 
@@ -197,33 +200,64 @@ defmodule Responder.Admission.ContextTest do
     assert candidate.allowed_relations == [:same_work, :history_only]
   end
 
-  test "a human Slack root cannot silently continue work in another thread" do
-    current = record_input!(actor: %{kind: :user, ref: "U123"})
+  test "a human message can join eligible work outside its own thread" do
+    # The old contract forbade a human actor from continuing any thread but
+    # their own, which is exactly what split one incident into two episodes
+    # when people discussed it beside the alert that reported it.
+    current =
+      record_input!(
+        actor: %{kind: :user, ref: "U123"},
+        content: %{"text" => "The replica is still lagging badly"}
+      )
 
     other_thread =
       create_episode!(
         key: "human-root-other-thread",
         thread_ref: "1787820000.000002",
-        content: %{"text" => "Existing work in another visible Slack thread"}
+        content: %{"text" => "The replica is lagging and reads are slow"}
       )
 
     assert {:ok, context} = build_context(current)
     candidate = Enum.find(context.candidates, &(&1.episode.id == other_thread.id))
 
-    assert candidate.allowed_relations == [:history_only]
+    assert candidate.allowed_relations == [:same_work, :history_only]
     refute candidate.same_thread
+    assert candidate.match["topic_fit"] > 0.0
   end
 
-  test "a Slack app can cross threads only through its exact source lifecycle" do
-    current = record_input!(revision: 2)
-
-    unrelated =
-      create_episode!(
-        key: "app-root-other-thread",
-        thread_ref: "1787820000.000010",
-        content: %{"text" => "Unrelated writable work in another Slack thread"},
-        actor: %{kind: :app, ref: "B999"}
+  test "a direct message correlates only inside its own conversation" do
+    current =
+      record_input!(
+        actor: %{kind: :user, ref: "U123"},
+        channel_ref: "D456",
+        content: %{"text" => "Rotate the staging credentials"},
+        message_ref: "1787832002.000300"
       )
+
+    inside =
+      create_episode!(
+        key: "active-direct-message",
+        channel_ref: "D456",
+        thread_ref: "1787820000.000001",
+        content: %{"text" => "Rotate the staging credentials for the sandbox"}
+      )
+
+    outside =
+      create_episode!(
+        key: "channel-work",
+        thread_ref: "1787810000.000001",
+        content: %{"text" => "Rotate the staging credentials for the sandbox"}
+      )
+
+    assert {:ok, context} = build_context(current)
+    candidates = Map.new(context.candidates, &{&1.episode.id, &1})
+
+    assert candidates[inside.id].allowed_relations == [:same_work, :history_only]
+    refute Map.has_key?(candidates, outside.id)
+  end
+
+  test "the exact source item's owner is offered first however busy the conversation is" do
+    current = record_input!(revision: 2)
 
     owner =
       create_episode!(
@@ -233,85 +267,31 @@ defmodule Responder.Admission.ContextTest do
         native_input_id: current.native_input_id
       )
 
-    assert {:ok, context} = build_context(current)
-    candidates = Map.new(context.candidates, &{&1.episode.id, &1})
-
-    assert candidates[unrelated.id].allowed_relations == [:history_only]
-    assert candidates[owner.id].allowed_relations == [:same_work, :history_only]
-  end
-
-  test "a human shared-channel thread reply can continue only its exact thread" do
-    current =
-      record_input!(
-        actor: %{kind: :user, ref: "U123"},
-        message_ref: "1787832001.000200",
-        thread_ref: @current_thread
-      )
-
-    exact =
+    for index <- 1..12 do
       create_episode!(
-        key: "human-exact-thread",
-        thread_ref: @current_thread,
-        content: %{"text" => "Work in the exact visible Slack thread"}
+        key: "unrelated-active-#{index}",
+        thread_ref: "1787832001.#{String.pad_leading(Integer.to_string(index), 6, "0")}",
+        content: %{"text" => "Unrelated active work #{index}"}
       )
-
-    other =
-      create_episode!(
-        key: "human-different-thread",
-        thread_ref: "1787820000.000002",
-        content: %{"text" => "Unrelated active work in another Slack thread"}
-      )
+    end
 
     assert {:ok, context} = build_context(current)
-    candidates = Map.new(context.candidates, &{&1.episode.id, &1})
-
-    assert candidates[exact.id].allowed_relations == [:same_work, :history_only]
-    assert candidates[exact.id].same_thread
-    assert candidates[other.id].allowed_relations == [:history_only]
-    refute candidates[other.id].same_thread
+    assert length(context.candidates) <= 8
+    assert hd(context.candidates).episode.id == owner.id
+    assert hd(context.candidates).source_owner
+    assert hd(context.candidates).allowed_relations == [:same_work, :history_only]
   end
 
-  test "a direct-message root can continue only current active DM work" do
-    current =
-      record_input!(
-        actor: %{kind: :user, ref: "U123"},
-        channel_ref: "D456",
-        message_ref: "1787832002.000300"
-      )
-
-    active =
-      create_episode!(
-        key: "active-direct-message",
-        channel_ref: "D456",
-        thread_ref: "1787820000.000001",
-        content: %{"text" => "The current DM task"}
-      )
-
-    completed =
-      create_episode!(
-        key: "completed-direct-message",
-        channel_ref: "D456",
-        thread_ref: "1787810000.000001",
-        content: %{"text" => "An earlier completed DM task"},
-        complete: true
-      )
-
-    assert {:ok, context} = build_context(current)
-    candidates = Map.new(context.candidates, &{&1.episode.id, &1})
-
-    assert candidates[active.id].allowed_relations == [:same_work, :history_only]
-    assert candidates[completed.id].allowed_relations == [:history_only]
-    refute candidates[active.id].same_thread
-  end
-
-  test "active work is never displaced by newer completed history" do
-    current = record_input!()
+  test "unrelated completed history is no longer offered just for being recent" do
+    # Recency is a tie-breaker, never the selector. Twenty unrelated completed
+    # episodes used to fill the shortlist purely because they were newest.
+    current = record_input!(content: %{"text" => "The reporting database is unavailable"})
 
     active =
       create_episode!(
         key: "old-active",
         thread_ref: "1787820000.000099",
-        content: %{"text" => "Still-running work"},
+        content: %{"text" => "The reporting database keeps timing out"},
         updated_at: DateTime.add(@now, -20 * 24 * 60 * 60)
       )
 
@@ -319,86 +299,17 @@ defmodule Responder.Admission.ContextTest do
       create_episode!(
         key: "newer-complete-#{index}",
         thread_ref: "1787831000.#{String.pad_leading(Integer.to_string(index), 6, "0")}",
-        content: %{"text" => "Completed history #{index}"},
+        content: %{"text" => "Marketing site deploy #{index} finished"},
         complete: true,
         updated_at: DateTime.add(@now, -index, :second)
       )
     end
 
     assert {:ok, context} = build_context(current)
-    assert length(context.candidates) == 8
-    assert Enum.any?(context.candidates, &(&1.episode.id == active.id))
-  end
+    offered = Enum.map(context.candidates, & &1.episode.id)
 
-  test "top-level admission reports active candidate overflow instead of hiding work" do
-    current = record_input!()
-
-    for index <- 1..9 do
-      create_episode!(
-        key: "active-overflow-#{index}",
-        thread_ref: "1787832001.#{String.pad_leading(Integer.to_string(index), 6, "0")}",
-        content: %{"text" => "Active work #{index}"},
-        updated_at: DateTime.add(@now, -index, :second)
-      )
-    end
-
-    assert {:error, {:admission_context_overflow, required: 9, limit: 8}} =
-             build_context(current)
-  end
-
-  test "unrelated active threads cannot block an input that cannot continue them" do
-    # The Blitz replay retried this 386 times and held 255 later messages: every
-    # mandatory candidate was actually history-only under the Slack thread fence.
-    for index <- 1..21 do
-      create_episode!(
-        key: "history-only-active-#{index}",
-        thread_ref: "1787831000.#{String.pad_leading(Integer.to_string(index), 6, "0")}",
-        content: %{"text" => "Earlier work in another thread"}
-      )
-    end
-
-    for actor <- [%{kind: :bot, ref: "B08N64XSHNU"}, %{kind: :user, ref: "U123"}] do
-      current =
-        record_input!(
-          actor: actor,
-          message_ref: "1787832000.#{if actor.kind == :bot, do: "000100", else: "000200"}"
-        )
-
-      assert {:ok, context} = build_context(current)
-      assert length(context.candidates) == 8
-      assert Enum.all?(context.candidates, &(&1.allowed_relations == [:history_only]))
-
-      owner =
-        create_episode!(
-          key: "old-owner-#{actor.ref}",
-          thread_ref: "1787830000.#{if actor.kind == :bot, do: "000100", else: "000200"}",
-          native_input_id: current.native_input_id,
-          content: %{"text" => "The original input's owner"},
-          updated_at: DateTime.add(@now, -60 * 24 * 60 * 60, :second)
-        )
-
-      assert {:ok, with_owner} = build_context(current)
-      assert hd(with_owner.candidates).episode.id == owner.id
-      assert :same_work in hd(with_owner.candidates).allowed_relations
-
-      if actor.kind == :bot do
-        lifecycle =
-          create_episode!(
-            key: "older-bot-lifecycle",
-            actor: actor,
-            thread_ref: "1787820000.000001",
-            content: %{"text" => "Earlier run from this exact source"},
-            updated_at: DateTime.add(@now, -3600)
-          )
-
-        assert {:ok, with_lifecycle} = build_context(current)
-
-        assert Enum.any?(
-                 with_lifecycle.candidates,
-                 &(&1.episode.id == lifecycle.id and :same_work in &1.allowed_relations)
-               )
-      end
-    end
+    assert active.id in offered
+    assert length(offered) < 9
   end
 
   test "shadow episodes cannot consume live admission capacity" do
@@ -478,7 +389,7 @@ defmodule Responder.Admission.ContextTest do
       create_episode!(
         key: "expired",
         thread_ref: "1787830000.000001",
-        content: %{"text" => "Old completed work"},
+        content: %{"text" => "Current Slack input, from an older completed episode"},
         complete: true,
         updated_at: DateTime.add(@now, -2 * 60 * 60)
       )

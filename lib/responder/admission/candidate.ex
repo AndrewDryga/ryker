@@ -2,102 +2,125 @@ defmodule Responder.Admission.Candidate do
   @moduledoc """
   A bounded episode option the host permits the model to select.
 
-  The model sees only the opaque reference and the context needed to judge the
-  relationship. Database identity, episode key, and destination remain
-  host-owned fields on this struct.
+  The model sees an opaque reference, the episode's source-backed digest, the
+  evidence that made it a candidate, and the relations the host allows.
+  Database identity, episode key, destination, and every conversation name
+  outside the incoming source's own scope remain host-owned.
+
+  First and latest previews supplement the digest; they are never its only
+  evidence, because the message that identifies the work is usually neither.
   """
 
   alias Responder.CanonicalJSON
   alias Responder.Episodes.Episode
 
   @preview_limit 4_096
+  @relations [:same_work, :history_only]
 
   @enforce_keys [
     :allowed_relations,
+    :digest,
     :episode,
     :first_input_preview,
     :latest_input_preview,
+    :match,
     :model_state,
     :ref,
-    :same_thread
+    :same_thread,
+    :source_owner
   ]
   defstruct @enforce_keys ++ [source_documents: []]
 
   @type t :: %__MODULE__{
           allowed_relations: [:same_work | :history_only],
+          digest: map() | nil,
           episode: Episode.t(),
           first_input_preview: map() | nil,
           latest_input_preview: map() | nil,
+          match: map(),
           model_state: String.t(),
           ref: String.t(),
-          same_thread: boolean()
+          same_thread: boolean(),
+          source_owner: boolean()
         }
 
   @type input_endpoint :: %{occurred_at: DateTime.t(), payload: map()}
 
-  @spec new(
-          Episode.t(),
-          %{optional(:first) => input_endpoint(), optional(:latest) => input_endpoint()},
-          String.t(),
-          DateTime.t(),
-          non_neg_integer()
-        ) :: t()
-  def new(%Episode{} = episode, endpoints, current_thread, now, continuation_window) do
-    new(episode, endpoints, current_thread, now, continuation_window, true)
-  end
+  @doc """
+  Builds one offered candidate.
 
-  @doc false
-  @spec new(
-          Episode.t(),
-          %{optional(:first) => input_endpoint(), optional(:latest) => input_endpoint()},
-          String.t(),
-          DateTime.t(),
-          non_neg_integer(),
-          :all | :none | :active_only | {:same_actor, String.t()} | boolean()
-        ) :: t()
-  def new(
-        %Episode{} = episode,
-        endpoints,
-        current_thread,
-        now,
-        continuation_window,
-        cross_thread_relation_scope
-      )
-      when cross_thread_relation_scope in [:all, :none, :active_only, true, false] or
-             (is_tuple(cross_thread_relation_scope) and
-                tuple_size(cross_thread_relation_scope) == 2 and
-                elem(cross_thread_relation_scope, 0) == :same_actor and
-                is_binary(elem(cross_thread_relation_scope, 1))) do
-    same_thread = not is_nil(current_thread) and episode.destination_thread_ref == current_thread
-    cross_thread_scope = normalize_cross_thread_scope(cross_thread_relation_scope, endpoints)
+  `allowed` is the host's relation decision; ranking supplies `match`, and the
+  digest is the episode's own maintained projection.
+  """
+  @spec new(map()) :: t()
+  def new(%{episode: %Episode{} = episode} = attributes) do
+    endpoints = Map.get(attributes, :endpoints, %{})
 
     %__MODULE__{
-      allowed_relations:
-        allowed_relations(
-          episode,
-          same_thread,
-          now,
-          continuation_window,
-          cross_thread_scope
-        ),
+      allowed_relations: Map.fetch!(attributes, :allowed_relations),
+      digest: Map.get(attributes, :digest),
       episode: episode,
       first_input_preview: endpoints |> Map.get(:first) |> preview(),
       latest_input_preview: endpoints |> Map.get(:latest) |> preview(),
+      match: Map.get(attributes, :match, %{}),
       model_state: model_state(episode.state),
       ref: opaque_ref(episode.id),
-      same_thread: same_thread,
+      same_thread: Map.get(attributes, :same_thread, false),
+      source_owner: Map.get(attributes, :source_owner, false),
       source_documents: endpoints |> Map.values() |> Enum.map(&source_document/1)
     }
   end
+
+  @doc """
+  The relations the host permits for this candidate.
+
+  Cancelled work stays history-only unless a separately authorized restore
+  makes it active again. Work pinned to a different repository cannot become
+  the same work, because merging evidence never broadens pinned authority.
+  Completed work may continue only inside the continuation window, and the
+  exact source item's owner must remain selectable so a revision cannot be
+  reassigned by rank.
+  """
+  @spec allowed_relations(Episode.t(), map()) :: [:same_work | :history_only]
+  def allowed_relations(%Episode{state: :cancelled}, _context), do: [:history_only]
+
+  def allowed_relations(%Episode{} = episode, context) do
+    cond do
+      Map.get(context, :source_owner, false) -> @relations
+      not repository_compatible?(episode, context) -> [:history_only]
+      episode.state in [:working, :waiting_for_input, :waiting_for_event] -> @relations
+      continuable_completion?(episode, context) -> @relations
+      true -> [:history_only]
+    end
+  end
+
+  defp repository_compatible?(_episode, %{pinned_repository: nil}), do: true
+  defp repository_compatible?(_episode, %{input_repository: nil}), do: true
+
+  defp repository_compatible?(_episode, %{pinned_repository: pinned, input_repository: input}),
+    do: pinned == input
+
+  defp repository_compatible?(_episode, _context), do: true
+
+  defp continuable_completion?(%Episode{state: :complete, updated_at: updated_at}, context) do
+    now = Map.fetch!(context, :now)
+    window = Map.fetch!(context, :continuation_window)
+    DateTime.diff(now, updated_at, :second) <= window
+  end
+
+  defp continuable_completion?(_episode, _context), do: false
 
   @spec for_model(t()) :: map()
   def for_model(%__MODULE__{} = candidate) do
     %{
       "allowed_relations" => Enum.map(candidate.allowed_relations, &Atom.to_string/1),
+      "digest" => candidate.digest,
       "episode_ref" => candidate.ref,
       "first_input" => candidate.first_input_preview,
       "latest_input" => candidate.latest_input_preview,
+      "match" => candidate.match,
       "same_thread" => candidate.same_thread,
+      "source_owner" => candidate.source_owner,
       "state" => candidate.model_state
     }
   end
@@ -128,25 +151,31 @@ defmodule Responder.Admission.Candidate do
   @spec restore(map(), Episode.t()) :: {:ok, t()} | {:error, term()}
   def restore(%{} = snapshot, %Episode{} = episode) do
     fields =
-      ~w(allowed_relations episode_id episode_ref first_input latest_input same_thread state)
+      ~w(allowed_relations digest episode_id episode_ref first_input latest_input match same_thread source_owner state)
 
     with true <- Enum.sort(Map.keys(snapshot)) == Enum.sort(fields),
          true <- snapshot["episode_id"] == episode.id,
          true <- snapshot["episode_ref"] == opaque_ref(episode.id),
          {:ok, relations} <- restore_relations(snapshot["allowed_relations"]),
          true <- is_boolean(snapshot["same_thread"]),
+         true <- is_boolean(snapshot["source_owner"]),
          true <- snapshot["state"] in ~w(active complete cancelled),
+         true <- valid_digest?(snapshot["digest"]),
+         true <- is_map(snapshot["match"]),
          true <- valid_preview?(snapshot["first_input"]),
          true <- valid_preview?(snapshot["latest_input"]) do
       {:ok,
        %__MODULE__{
          allowed_relations: relations,
+         digest: snapshot["digest"],
          episode: episode,
          first_input_preview: snapshot["first_input"],
          latest_input_preview: snapshot["latest_input"],
+         match: snapshot["match"],
          model_state: snapshot["state"],
          ref: snapshot["episode_ref"],
-         same_thread: snapshot["same_thread"]
+         same_thread: snapshot["same_thread"],
+         source_owner: snapshot["source_owner"]
        }}
     else
       _invalid -> {:error, {:invalid_admission_context_snapshot, :candidate}}
@@ -171,6 +200,18 @@ defmodule Responder.Admission.Candidate do
 
   defp restore_relations(_relations), do: {:error, :relations}
 
+  defp valid_digest?(nil), do: true
+
+  defp valid_digest?(%{} = digest) do
+    Map.keys(digest) |> Enum.sort() ==
+      ~w(conversations covered_through freshness input_count latest_development objective) and
+      is_binary(digest["objective"]) and is_integer(digest["input_count"]) and
+      is_integer(digest["conversations"]) and is_binary(digest["covered_through"]) and
+      digest["freshness"] in ~w(current stale)
+  end
+
+  defp valid_digest?(_digest), do: false
+
   defp valid_preview?(nil), do: true
 
   defp valid_preview?(%{} = preview) do
@@ -181,55 +222,10 @@ defmodule Responder.Admission.Candidate do
 
   defp valid_preview?(_preview), do: false
 
-  defp allowed_relations(
-         %Episode{state: :cancelled},
-         _same_thread,
-         _now,
-         _window,
-         _cross_thread_scope
-       ),
-       do: [:history_only]
-
-  defp allowed_relations(_episode, true, _now, _window, _cross_thread_scope),
-    do: [:same_work, :history_only]
-
-  defp allowed_relations(_episode, false, _now, _window, :none), do: [:history_only]
-
-  defp allowed_relations(%Episode{state: state}, false, _now, _window, scope)
-       when scope in [:all, :active_only] and
-              state in [:working, :waiting_for_input, :waiting_for_event],
-       do: [:same_work, :history_only]
-
-  defp allowed_relations(%Episode{state: :complete}, false, _now, _window, :active_only),
-    do: [:history_only]
-
-  defp allowed_relations(
-         %Episode{state: :complete, updated_at: updated_at},
-         false,
-         now,
-         window,
-         :all
-       ) do
-    if DateTime.diff(now, updated_at, :second) <= window,
-      do: [:same_work, :history_only],
-      else: [:history_only]
-  end
-
   defp model_state(state) when state in [:working, :waiting_for_input, :waiting_for_event],
     do: "active"
 
   defp model_state(state), do: Atom.to_string(state)
-
-  defp normalize_cross_thread_scope(true, _endpoints), do: :all
-  defp normalize_cross_thread_scope(false, _endpoints), do: :none
-
-  defp normalize_cross_thread_scope({:same_actor, actor_ref}, endpoints) do
-    if get_in(endpoints, [:first, :payload, "actor_ref"]) == actor_ref,
-      do: :all,
-      else: :none
-  end
-
-  defp normalize_cross_thread_scope(scope, _endpoints), do: scope
 
   defp opaque_ref(episode_id) do
     digest = CanonicalJSON.digest(["ingress-admission-candidate", episode_id])

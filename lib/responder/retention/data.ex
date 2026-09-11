@@ -708,6 +708,7 @@ defmodule Responder.Retention.Data do
       )
 
     ids = history_candidates(settings.episode_history_seconds)
+
     dispatched_schedule_runs = prune_history_ids(ids)
 
     %{
@@ -890,6 +891,16 @@ defmodule Responder.Retention.Data do
         AND (status <> 'open' OR kind IN
           ('evidence', 'coverage', 'finding', 'progress', 'goal_state', 'alert_assessment'))
       """,
+      params
+    )
+
+    execute_count(
+      "DELETE FROM episode_routing_digests WHERE episode_id IN (SELECT unnest($1::text[])::uuid)",
+      params
+    )
+
+    execute_count(
+      "DELETE FROM episode_input_origins WHERE episode_id IN (SELECT unnest($1::text[])::uuid)",
       params
     )
 

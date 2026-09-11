@@ -121,9 +121,9 @@ defmodule Responder.Admission.DispatcherTest do
     assert retried.result.entry.id == first.id
   end
 
-  test "persistent routing overflow eventually releases its conversation without calling a model" do
+  test "a persistently stale routing context eventually releases its conversation without calling a model" do
     entry = record_input!("Ev-admission-overflow")
-    reason = {:admission_context_overflow, required: 21, limit: 20}
+    reason = {:admission_rejected, :context_stale}
     {:ok, stub} = ExecutorStub.start_link({:fail, reason})
     input_ref = Inbox.ref(entry)
 
@@ -685,34 +685,32 @@ defmodule Responder.Admission.DispatcherTest do
              addressing
   end
 
-  test "candidate overflow waits without a model turn and recovers when capacity returns" do
-    # Only continuable candidates require capacity; unrelated human-thread
-    # history must not prevent dispatch (covered by ContextTest).
+  test "a conversation full of active work no longer stalls; the shortlist is simply bounded" do
+    # Admission used to refuse to run at all when more active episodes existed
+    # than the option limit, so one busy thread could hold up every later
+    # message in its conversation until capacity happened to free up.
     entry = record_input!("Ev-candidate-overflow", actor: %{kind: :app, ref: "A-history"})
 
-    active_episodes =
-      for index <- 1..9 do
-        assert {:ok, transition} =
-                 Episodes.apply(%Command.AdmitInput{
-                   actor_ref: "slack:app:A-history",
-                   destination: %{
-                     conversation_ref: entry.destination_conversation_ref,
-                     thread_ref:
-                       "1787831000.#{String.pad_leading(Integer.to_string(index), 6, "0")}",
-                     transport: entry.destination_transport
-                   },
-                   episode_id: Ecto.UUID.generate(),
-                   episode_key: "candidate-overflow:#{index}:#{entry.id}",
-                   linked_episode_id: nil,
-                   native_input_id: "slack-message:overflow-#{index}",
-                   occurred_at: DateTime.add(@now, -index, :second),
-                   payload: %{"text" => "Active work #{index}"},
-                   revision: 1,
-                   turn_ref: "turn-overflow-#{index}"
-                 })
-
-        transition.episode
-      end
+    for index <- 1..9 do
+      assert {:ok, _transition} =
+               Episodes.apply(%Command.AdmitInput{
+                 actor_ref: "slack:app:A-history",
+                 destination: %{
+                   conversation_ref: entry.destination_conversation_ref,
+                   thread_ref:
+                     "1787831000.#{String.pad_leading(Integer.to_string(index), 6, "0")}",
+                   transport: entry.destination_transport
+                 },
+                 episode_id: Ecto.UUID.generate(),
+                 episode_key: "candidate-overflow:#{index}:#{entry.id}",
+                 linked_episode_id: nil,
+                 native_input_id: "slack-message:overflow-#{index}",
+                 occurred_at: DateTime.add(@now, -index, :second),
+                 payload: %{"text" => "Active work #{index}"},
+                 revision: 1,
+                 turn_ref: "turn-overflow-#{index}"
+               })
+    end
 
     {:ok, fake} = FakeAPI.start_link([decision()])
 
@@ -720,40 +718,12 @@ defmodule Responder.Admission.DispatcherTest do
       real_options(fake, @now)
       |> Keyword.update!(:executor_options, &Keyword.put(&1, :candidate_limit, 8))
 
-    assert {:ok, {:deferred, input_ref, {:admission_context_overflow, required: 9, limit: 8}}} =
-             Dispatcher.run_once(options)
-
-    assert input_ref == Inbox.ref(entry)
-    assert {:ok, pending} = Inbox.fetch(input_ref)
-    assert pending.status == :pending
-    assert pending.execution_generation == 1
-    assert pending.lease_ref == nil
-    assert FakeAPI.state(fake).submit_count == 0
-    assert FakeAPI.state(fake).create_keys == []
-
-    [completed | _rest] = active_episodes
-
-    assert {:ok, _transition} =
-             Episodes.apply(%Command.AcceptResult{
-               decision_reason: "Capacity fixture completed.",
-               delivery: :none,
-               delivery_ref: nil,
-               episode_key: completed.key,
-               expected_turn_ref: completed.owner_ref,
-               next_turn_ref: nil,
-               occurred_at: DateTime.add(@now, 1, :second),
-               result_ref: "result-capacity-#{completed.id}"
-             })
-
-    later = DateTime.add(@now, 2, :second)
-
-    later_options =
-      real_options(fake, later)
-      |> Keyword.update!(:executor_options, &Keyword.put(&1, :candidate_limit, 8))
-
-    assert {:ok, {:decided, execution}} = Dispatcher.run_once(later_options)
+    assert {:ok, {:decided, execution}} = Dispatcher.run_once(options)
     assert execution.result.entry.status == :decided
     assert FakeAPI.state(fake).submit_count == 1
+
+    offered = Jason.decode!(FakeAPI.state(fake).submitted_prompt)["context"]["candidates"]
+    assert length(offered) <= 8
   end
 
   defp options(stub) do

@@ -46,10 +46,11 @@ same boundary.
    inputs describe the same work. The host never parses app names, alert words, run IDs, counts, or URLs.
 2. **Persist before deciding.** An exact Slack event owns one durable inbox slot, so retries and crashes
    cannot duplicate or lose the decision.
-3. **Offer bounded choices.** The model may select only opaque episodes from the same Slack conversation.
-   It cannot invent an episode or destination.
-4. **Keep routing immutable.** Continuing work keeps its bound thread. Starting new work always uses the
-   current card/thread. Historical linkage never donates an old destination.
+3. **Offer bounded choices.** The model may select only opaque episodes the host retrieved and ranked
+   inside this source's correlation scope. It cannot invent an episode or destination.
+4. **Keep one home, and answer where you were asked.** Continuing work keeps the progress home it
+   started with; starting new work uses the current card or thread. Historical linkage never donates
+   an old destination, and a direct answer returns to its own question's thread.
 5. **Queue context; do not suppress it.** A newer input is admitted behind active work. It does not cancel
    an attempted turn or an undelivered answer. Later runtime and delivery modules must preserve this.
 6. **Make silence explicit.** `ignore` is a durable model decision with a factual reason, not an implicit

@@ -163,6 +163,24 @@ defmodule Responder.Retention.Policy do
       why: "governed action state retained with the episode that requested it"
     },
     %{
+      table: "episode_routing_digests",
+      class: :cascade,
+      why:
+        "the derived routing summary of one episode's retained inputs; it cascades with the episode row and is rebuilt from the ledger on the next admission"
+    },
+    %{
+      table: "episode_input_origins",
+      class: :cascade,
+      why:
+        "per-message origin projection of admitted-input events; deleted with the episode's events at the history horizon and with the episode row, and rebuilt from the ledger"
+    },
+    %{
+      table: "episode_correlation_claims",
+      class: :cascade,
+      why:
+        "trusted occurrence identities owned by one episode; they cascade with the episode row and are never rebuilt from prose"
+    },
+    %{
       table: "episode_kernel_episodes",
       class: :episode_history,
       why: "the durable aggregate and its routing identity"
