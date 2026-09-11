@@ -178,6 +178,18 @@ defmodule Responder.ControlPlane.SettingsLiveTest do
     assert Repo.aggregate(Installation, :count) == 1
   end
 
+  test "a half-migrated settings database reads as unavailable, not as a fresh install" do
+    initialize!()
+    Repo.delete_all(Responder.Settings.Slack)
+
+    {:ok, view, html} = open()
+
+    assert html =~ "Settings could not be read"
+    refute html =~ "Set up this installation"
+    refute has_element?(view, "button[phx-click=initialize-settings]")
+    assert Repo.aggregate(Installation, :count) == 1
+  end
+
   defp open, do: live(build_conn() |> Map.put(:host, "localhost"), "/configuration")
 
   defp initialize! do
