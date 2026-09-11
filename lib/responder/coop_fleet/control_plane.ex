@@ -288,14 +288,44 @@ defmodule Responder.CoopFleet.ControlPlane do
       %Placement{} = placement ->
         fail_undelivered_commands(placement, now)
 
-        if cancelling_bound_session?(session),
-          do:
-            recover_cancellation_placement(session, placement, requirements, lease_seconds, now),
-          else: {:replacement_required, placement.generation}
+        cond do
+          cancelling_bound_session?(session) ->
+            recover_cancellation_placement(session, placement, requirements, lease_seconds, now)
+
+          bound_session?(session) ->
+            # The worker still holds this session, so the work is not lost — only the placement
+            # that addressed it is. Replacing the SESSION is the answer when its material is gone;
+            # when the material is there it throws the material away, and a review cannot do that
+            # at all, because the session is the thing being reviewed. Re-place it on the SAME
+            # worker under the ordinary eligibility checks: a new generation fences every command
+            # from the old placement, so this is one writer, the one that already has it. A worker
+            # that is no longer current fails closed to replacement_required, as before.
+            recover_bound_placement(session, placement, requirements, lease_seconds, now)
+
+          true ->
+            {:replacement_required, placement.generation}
+        end
 
       nil ->
         insert_placement(session, requirements, lease_seconds, now)
     end
+  end
+
+  defp bound_session?(%Session{coop_session_id: remote_id}) when is_binary(remote_id), do: true
+  defp bound_session?(_session), do: false
+
+  defp recover_bound_placement(session, previous, requirements, lease_seconds, now) do
+    worker = locked_worker(previous.worker_id)
+
+    eligible =
+      worker_current?(worker, requirements.workspace_ref, now) and
+        worker_eligible?(worker, session, requirements, now) and
+        placement_authority_current?(previous.requirements, worker) and
+        worker_has_capacity?(worker)
+
+    if eligible,
+      do: insert_placement_on_worker(session, worker, requirements, lease_seconds, now),
+      else: {:replacement_required, previous.generation}
   end
 
   defp replacement_required(placement, now) do
