@@ -1330,3 +1330,10 @@ details.measurement-notes > summary { cursor:pointer; font-weight:600; color:var
 .case-entry:hover .card-link, .card-link:focus { opacity:1; }
 .card-link:focus { outline:2px solid #345c43; outline-offset:2px; }
 .tool-evidence .artifact-loading, .action-raw .artifact-loading { margin:6px 0 0; color:#536256; }
+
+/* Background sections keep their own place and say what they are. */
+.chapter-background { margin:0 0 2px; font-size:12px; letter-spacing:.08em; text-transform:uppercase; color:#6a7162; }
+.phase-learning .phase-number, .phase-maintenance .phase-number { color:#8a9287; }
+
+.provider-group { margin-top:8px; font-size:14px; }
+.provider-group > summary { cursor:pointer; color:#345c43; }

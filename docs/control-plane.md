@@ -149,6 +149,20 @@ one more bounded page of older activity events (`?events=N`, up to ten pages of
 1,000). Older events are added before the ones already read; nothing is dropped
 or duplicated, and when no further page exists the affordance is absent.
 
+Two background sections follow the answer in reading order while keeping their
+own recorded times, because learning routinely overlaps the work and reading it
+later must not make it look like it happened later. **Learning** appears only
+when one of this request's own inputs is a recorded member of a learning batch
+(`conversation_learning_inputs`); sharing a channel is not membership. A batch
+that also read other requests says "1 of 3 from this request" rather than
+claiming the rest, an all-defer judgment says nothing was saved instead of
+reporting a failure, and a rejected or stale result says nothing was saved and
+why. **Maintenance** reads the session's own cleanup fields: closing a session
+is not removing its workspace, a workspace kept for uncommitted or unpublished
+work is not a failure, a session that never bound a remote one had no remote
+workspace to delete, and blocked cleanup states that the delivered answer is
+unaffected.
+
 The **Incident rooms** page at `/incident-rooms` tracks Slack incident rooms from
 setup through closure, with channel status and linked investigation work. Each
 room opens at `/incident-rooms/:ref`. The list includes requested and blocked

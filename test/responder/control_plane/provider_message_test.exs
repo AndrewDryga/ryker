@@ -115,4 +115,75 @@ defmodule Responder.ControlPlane.ProviderMessageTest do
     card = ProviderMessage.recognize("slack", Map.take(content, ["attachments"]))
     assert Enum.map(card.links, & &1.label) == ["Open run"]
   end
+
+  describe "a native Grafana alert" do
+    @payload %{
+      "adapter" => "grafana",
+      "annotations" => %{
+        "description" => "API error rate is above the threshold.",
+        "runbook_url" => "https://runbooks.example/api-errors",
+        "summary" => "API error rate"
+      },
+      "correlation_key" => "grafana:group:abc",
+      "labels" => %{
+        "alertname" => "HighErrors",
+        "cluster" => "va1",
+        "service" => "api",
+        "severity" => "critical"
+      },
+      "severity" => "critical",
+      "source_incident_id" => "{}/{alertname=\"HighErrors\"}",
+      "source_url" => "https://grafana.example/panel/1",
+      "starts_at" => "2026-09-04T07:55:00Z",
+      "status" => "firing",
+      "summary" => "API error rate is above the threshold.",
+      "title" => "HighErrors"
+    }
+
+    test "keeps every retained label and annotation inspectable" do
+      card = ProviderMessage.recognize("webhook", %{"payload" => @payload})
+
+      groups =
+        Map.new(card.groups, &{&1.label, Map.new(&1.entries, fn e -> {e.label, e.value} end)})
+
+      assert groups["Labels"]["service"] == "api"
+      assert groups["Labels"]["alertname"] == "HighErrors"
+      assert groups["Annotations"]["runbook_url"] =~ "runbooks.example"
+    end
+
+    test "names the group this alert belongs to without counting its members" do
+      # The webhook adapter records one input per alert, so this input knows it
+      # is part of a group and cannot know how large that group was. Claiming a
+      # member count here would be a number nobody recorded.
+      card = ProviderMessage.recognize("webhook", %{"payload" => @payload})
+      facts = Map.new(card.facts, &{&1.label, &1.value})
+
+      assert facts["Alert group"] == @payload["source_incident_id"]
+      refute Enum.any?(card.facts, &(&1.label =~ "alerts"))
+    end
+
+    test "offers only retained https links" do
+      card = ProviderMessage.recognize("webhook", %{"payload" => @payload})
+      labels = Enum.map(card.links, & &1.label)
+
+      assert "Open alert" in labels
+      assert "Runbook" in labels
+
+      unsafe =
+        ProviderMessage.recognize("webhook", %{
+          "payload" => Map.put(@payload, "annotations", %{"runbook_url" => "javascript:alert(1)"})
+        })
+
+      assert Enum.map(unsafe.links, & &1.label) == ["Open alert"]
+    end
+
+    test "an alert with no labels or annotations has no empty disclosures" do
+      card =
+        ProviderMessage.recognize("webhook", %{
+          "payload" => Map.merge(@payload, %{"labels" => %{}, "annotations" => %{}})
+        })
+
+      assert card.groups == []
+    end
+  end
 end

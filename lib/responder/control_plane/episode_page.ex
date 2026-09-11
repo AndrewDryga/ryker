@@ -264,6 +264,7 @@ defmodule Responder.ControlPlane.EpisodePage do
               Message {chapter.conversation_turn}
             </p>
             <h3 id={"chapter-#{index}"}>{chapter_title(chapter)}</h3>
+            <p :if={background_band?(chapter.band)} class="chapter-background">Background</p>
             <p :if={turn_association(chapter)} class="turn-association">
               {turn_association(chapter)}
             </p>
@@ -359,6 +360,11 @@ defmodule Responder.ControlPlane.EpisodePage do
   defp phase_band(:input), do: :ready
   defp phase_band(:outcome), do: :answer
   defp phase_band(band), do: band
+
+  # Background sections keep their own place in reading order. Their recorded
+  # times stay exactly as they are: learning routinely overlaps the work, and
+  # reading it after the answer must not make it look like it happened later.
+  defp background_band?(band), do: band in [:learning, :maintenance]
 
   defp entry(assigns) do
     ~H"""
@@ -689,6 +695,18 @@ defmodule Responder.ControlPlane.EpisodePage do
           <dt>{fact.label}</dt><dd>{fact.value}</dd>
         </div>
       </dl>
+      <details
+        :for={group <- @provider[:groups] || []}
+        class="provider-group"
+        id={"provider-#{@provider.provider}-#{String.downcase(group.label)}"}
+      >
+        <summary>{group.label}</summary>
+        <dl class="event-facts">
+          <div :for={entry <- group.entries}>
+            <dt>{entry.label}</dt><dd>{entry.value}</dd>
+          </div>
+        </dl>
+      </details>
     </div>
     """
   end
@@ -905,6 +923,9 @@ defmodule Responder.ControlPlane.EpisodePage do
 
   defp silent_result?(_step), do: false
 
+  defp chapter_title(%{band: :learning}), do: "Learning"
+  defp chapter_title(%{band: :maintenance}), do: "Maintenance"
+
   defp chapter_title(%{band: :ready, conversation_turn: turn}) when turn > 1,
     do: "New input received"
 
@@ -914,6 +935,8 @@ defmodule Responder.ControlPlane.EpisodePage do
   defp chapter_title(%{band: :answer}), do: "The answer"
   defp chapter_title(chapter), do: chapter.title
 
+  defp phase_number(:learning), do: "B1"
+  defp phase_number(:maintenance), do: "B2"
   defp phase_number(:ready), do: "01"
   defp phase_number(:routing), do: "02"
   defp phase_number(:work), do: "03"
@@ -931,6 +954,13 @@ defmodule Responder.ControlPlane.EpisodePage do
 
   defp chapter_description(:answer),
     do: "What the model returned and what Responder decided to do."
+
+  defp chapter_description(:learning),
+    do:
+      "Background learning from these messages. It runs independently of the answer and sends no reply."
+
+  defp chapter_description(:maintenance),
+    do: "What happened to the temporary worker session and workspace afterwards."
 
   defp metric(metrics, label) do
     case Enum.find(metrics, &(&1.label == label)) do
