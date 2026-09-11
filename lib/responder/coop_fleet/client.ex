@@ -772,24 +772,34 @@ defmodule Responder.CoopFleet.Client do
               source.repository_ref == ^session.repository_ref and
               command.status == :succeeded,
           order_by: [desc: transfer.inserted_at, desc: transfer.id],
-          limit: 1
+          limit: 1,
+          select: {transfer, source}
         )
       )
 
     case checkpoint do
-      nil ->
-        missing_checkpoint(previous)
+      nil -> missing_checkpoint(previous)
+      {checkpoint, source} -> checkpoint_document(checkpoint, source, session)
+    end
+  end
 
-      checkpoint ->
-        {:ok,
-         %{
-           "byte_size" => checkpoint.bundle_byte_size,
-           "checkpoint_ref" => checkpoint.checkpoint_ref,
-           "sha256" => checkpoint.bundle_sha256,
-           "source_placement_generation" => checkpoint.placement_generation,
-           "source_session_ref" => checkpoint.session_ref,
-           "transfer_id" => checkpoint.id
-         }}
+  # A checkpoint carries the exact tree of the source it was taken from, so it
+  # may only seed a replacement pinned to the same repository source. Rotation
+  # copies the selector verbatim; a mismatch is a custody violation, never a
+  # reason to start from a different source.
+  defp checkpoint_document(checkpoint, %Session{} = source, %Session{} = session) do
+    if RepositorySource.same?(source.repository_source, session.repository_source) do
+      {:ok,
+       %{
+         "byte_size" => checkpoint.bundle_byte_size,
+         "checkpoint_ref" => checkpoint.checkpoint_ref,
+         "sha256" => checkpoint.bundle_sha256,
+         "source_placement_generation" => checkpoint.placement_generation,
+         "source_session_ref" => checkpoint.session_ref,
+         "transfer_id" => checkpoint.id
+       }}
+    else
+      {:error, {:coop_workspace_checkpoint_source_mismatch, session.id, session.generation}}
     end
   end
 

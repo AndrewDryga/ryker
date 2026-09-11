@@ -201,6 +201,10 @@ defmodule Responder.Learning.DispatcherTest do
     assert run.prompt == prepared.prompt
     assert run.started_at != nil
     assert length(FakeCoopAPI.state(fake).create_keys) == 1
+    # The intentionally local learning scratch is workspace-free from the host's
+    # point of view: its session is created with no repository source, so it can
+    # never be asked to resolve a branch, pull request or commit.
+    assert FakeCoopAPI.state(fake).create_sources == [nil]
     assert FakeCoopAPI.state(fake).submit_count == 1
     submitted = FakeCoopAPI.state(fake).submitted_prompt
     assert submitted == prepared.prompt
