@@ -14,16 +14,17 @@ defmodule Responder.ControlPlane.ConfigurationHelpTest do
     section = LazyHTML.query(document, "#code-editing") |> LazyHTML.text()
     assert section =~ "Set up code editing"
     assert section =~ "recoverable copy"
-    assert section =~ "work.execution"
+    assert section =~ "Work placement"
+    assert section =~ "Execution policies"
     assert section =~ "fleet"
     assert section =~ "Docker"
     assert section =~ "does not enroll"
     commands = LazyHTML.query(document, "#code-editing details") |> LazyHTML.text()
     assert commands =~ "Administrator commands and configuration"
     assert commands =~ "coop sessions doctor"
-    assert commands =~ "mix responder.doctor --config"
-    assert commands =~ "execution: fleet"
-    assert commands =~ "workspace_ref: YOUR_ENROLLED_WORKSPACE"
+    assert commands =~ "MIX_ENV=prod mix responder.doctor"
+    assert commands =~ "applied revision beside the saved one"
+    refute commands =~ "responder.doctor --config"
     assert commands =~ "0600"
     refute page =~ "<form"
   end
@@ -81,7 +82,11 @@ defmodule Responder.ControlPlane.ConfigurationHelpTest do
     assert ConfigurationHelp.value("retention.reclaim_target_seconds", "3600") == "1 hour"
     assert page =~ "does not make the model think faster"
     assert page =~ "Required when retention is configured; there is no implicit default"
-    assert page =~ "restart"
+    # The evidence section must not send an operator back to a file or a
+    # restart: these values are assembled from settings that apply live.
+    assert page =~ "read-only evidence"
+    assert page =~ "without a deployment"
+    refute page =~ "restart"
     refute page =~ "<form"
   end
 
