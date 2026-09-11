@@ -252,7 +252,8 @@ defmodule Responder.Retention.Policy do
     %{
       table: "ingress_inbox_entries",
       class: :operational,
-      why: "normalized source transport and classifier custody"
+      why:
+        "normalized source transport and classifier custody; the raw source envelope is a body and is pruned with the content"
     },
     %{
       table: "ingress_input_artifact_references",

@@ -40,8 +40,11 @@ defmodule Responder.ControlPlane.EpisodeTrace do
     {:outcome, "What came of it", "Delivery, durable side effects, waits, and follow-up work."}
   ]
 
-  @spec project(Episode.t(), [Event.t()], [Record.t()]) :: map()
-  def project(%Episode{} = episode, events, records) when is_list(events) and is_list(records) do
+  @spec project(Episode.t(), [Event.t()], [Record.t()], keyword()) :: map()
+  def project(episode, events, records, options \\ [])
+
+  def project(%Episode{} = episode, events, records, options)
+      when is_list(events) and is_list(records) do
     input_rows = input_rows(episode.id)
     inputs = inputs_by_ref(input_rows)
     sessions = sessions(episode.id)
@@ -93,7 +96,7 @@ defmodule Responder.ControlPlane.EpisodeTrace do
     %{
       activity: Map.drop(activity_page, [:events]),
       actions: operator_actions(episode, current_turn, review),
-      case_file: case_file(episode.id, turns, sessions),
+      case_file: case_file(episode.id, turns, sessions, Keyword.get(options, :disclosed)),
       startup: startup,
       causality: causality,
       chapters: chapters(steps, received_at, causality),
@@ -143,10 +146,11 @@ defmodule Responder.ControlPlane.EpisodeTrace do
   defp status_title(%{text: ""}), do: "Slack working status cleared"
   defp status_title(_), do: "Slack working status set"
 
-  defp case_file(episode_id, turns, sessions) do
+  defp case_file(episode_id, turns, sessions, disclosed) do
     options = [
       secrets: InspectionRedactor.configured_secrets(),
-      max_bytes: 12_000
+      max_bytes: 12_000,
+      disclosed: disclosed || MapSet.new()
     ]
 
     base = from(entry in subquery(CurrentInputs.for_episode(episode_id)))
@@ -298,9 +302,114 @@ defmodule Responder.ControlPlane.EpisodeTrace do
       available: artifact.state == :retained,
       repository: input.repository_ref,
       expired_at: input.operational_pruned_at,
-      href: "/timeline/ingress-input%3A#{input.id}"
+      href: "/timeline/ingress-input%3A#{input.id}",
+      event_kind: input.event_kind,
+      details: input_details(input, options)
     }
   end
+
+  # Input details, in the approved order: readable extracted metadata first,
+  # then the raw source envelope, the normalized input and the original message
+  # as independently collapsed bodies. Raw is the adapter's payload; normalized
+  # is what Responder made of it; neither is ever shown under the other's name.
+  defp input_details(input, options) do
+    expired = not is_nil(input.operational_pruned_at)
+    disclosed = Keyword.get(options, :disclosed, MapSet.new())
+    raw_id = "input-#{input.id}-raw"
+    normalized_id = "input-#{input.id}-normalized"
+
+    %{
+      metadata: input_metadata(input),
+      raw: %{
+        artifact_id: raw_id,
+        artifact: raw_envelope(input, expired, MapSet.member?(disclosed, raw_id), options)
+      },
+      normalized: %{
+        artifact_id: normalized_id,
+        artifact:
+          InspectionRedactor.artifact(
+            unless(expired, do: input.content),
+            Keyword.merge(options,
+              expired: expired,
+              max_bytes: 64 * 1_024,
+              disclosed: MapSet.member?(disclosed, normalized_id)
+            )
+          )
+      }
+    }
+  end
+
+  defp input_metadata(input) do
+    compact_details([
+      {"Source", source_label(input.source_kind)},
+      {"Event", input_event_label(input.event_kind)},
+      {"Event ID", input.event_ref},
+      {"Message ID", input.source_item_ref},
+      {"Sender ID", join_ref(input.actor_kind, input.actor_ref)},
+      {"Conversation", input.destination_conversation_ref},
+      {"Thread", input.destination_thread_ref},
+      {"Source revision", input.revision},
+      {"Source event time",
+       "#{timestamp_precise(input.occurred_at)} · #{provenance_label(input.occurred_at_source)}"},
+      {"Recorded by Responder", timestamp_precise(input.inserted_at)},
+      {"Execution mode", input.execution_mode}
+    ])
+  end
+
+  defp raw_envelope(_input, true, _disclosed?, _options),
+    do: %{state: :expired, text: nil, sha256: nil, bytes: nil, redacted: false, truncated: false}
+
+  defp raw_envelope(%{source_envelope: nil}, _expired, _disclosed?, _options),
+    do: %{
+      state: :not_recorded,
+      text: nil,
+      sha256: nil,
+      bytes: nil,
+      redacted: false,
+      truncated: false
+    }
+
+  defp raw_envelope(%{source_envelope: %{"omitted" => reason} = marker}, _expired, _d, _options)
+       when map_size(marker) <= 3 do
+    %{
+      state: :omitted,
+      reason: reason,
+      omitted_bytes: marker["bytes"],
+      text: nil,
+      sha256: nil,
+      bytes: nil,
+      redacted: false,
+      truncated: false
+    }
+  end
+
+  defp raw_envelope(%{source_envelope: envelope}, _expired, disclosed?, options) do
+    InspectionRedactor.artifact(
+      envelope,
+      Keyword.merge(options, max_bytes: 64 * 1_024, disclosed: disclosed?)
+    )
+  end
+
+  defp source_label("slack"), do: "Slack"
+  defp source_label("github"), do: "GitHub"
+  defp source_label("control_plane"), do: "Conversation Lab"
+  defp source_label("webhook"), do: "Webhook"
+  defp source_label(other), do: to_string(other)
+
+  defp input_event_label(:message), do: "New message"
+  defp input_event_label(:edit), do: "Message edited"
+  defp input_event_label(:delete), do: "Message deleted"
+  defp input_event_label(:event), do: "Source event"
+  defp input_event_label(other), do: to_string(other)
+
+  defp provenance_label(:source), do: "time reported by the source"
+  defp provenance_label(:ingress), do: "time assigned at ingress; the source gave none"
+  defp provenance_label(other), do: to_string(other)
+
+  defp timestamp_precise(%DateTime{} = value),
+    do: Calendar.strftime(value, "%d %b %Y %H:%M:%S.%f UTC")
+
+  defp timestamp_precise(_value), do: "Not recorded"
 
   defp case_reply_status(%{
          delivered_at: %DateTime{},

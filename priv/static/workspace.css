@@ -1270,3 +1270,14 @@ details.measurement-notes > summary { cursor:pointer; font-weight:600; color:var
 .standing-rule-definition { margin-top:6px; font-size:13px; }
 .standing-rule-definition > summary { cursor:pointer; color:#536256; }
 .standing-rules[data-rules-state="not_recorded"] .case-event-summary { color:#7a6a3f; }
+
+/* Input details: metadata first, then each body as its own disclosure. */
+.input-details { margin-top:10px; font-size:14px; }
+.input-details > summary { cursor:pointer; color:#345c43; font-weight:600; }
+.input-details h4 { margin:10px 0 0; font-size:12px; letter-spacing:.08em; text-transform:uppercase; color:#6a7162; }
+.input-details .event-facts { margin-top:4px; }
+.input-body { margin-top:8px; border-top:1px solid var(--stroke); padding-top:6px; }
+.input-body > summary { cursor:pointer; color:#2f4433; }
+.input-body > summary > span { margin-left:8px; font-size:12px; color:#6a7162; }
+.input-body pre { margin:8px 0 0; max-height:480px; overflow:auto; font-size:12px; white-space:pre-wrap; overflow-wrap:anywhere; background:#f7f9f4; padding:10px; border-radius:6px; }
+.input-body .artifact-unavailable { margin:6px 0 0; color:#7a6a3f; }

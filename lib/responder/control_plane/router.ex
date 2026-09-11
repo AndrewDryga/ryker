@@ -1485,7 +1485,7 @@ defmodule Responder.ControlPlane.Router do
   end
 
   defp confirmation("episode", resource_ref, "resolve", options) do
-    case options.projection.episode.(resource_ref) do
+    case options.projection.episode.(resource_ref, %{}) do
       {:ok, %{trace: %{actions: actions}}} ->
         if Enum.any?(actions, &String.ends_with?(&1.href, "/resolve")) do
           {:ok, "Close this episode as no longer needed?",
@@ -1501,7 +1501,7 @@ defmodule Responder.ControlPlane.Router do
   end
 
   defp confirmation("episode", resource_ref, "review", options) do
-    case options.projection.episode.(resource_ref) do
+    case options.projection.episode.(resource_ref, %{}) do
       {:ok, %{trace: %{review: %{awaiting: true}}}} ->
         {:ok, "Mark this ending reviewed?",
          "This records that the local operator read this exact terminal semantic version. A later ending becomes reviewable again.",

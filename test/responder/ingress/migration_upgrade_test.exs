@@ -45,11 +45,13 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
   @worker_storage_reports_version 20_260_911_000_400
   @selected_work_inputs_version 20_260_911_000_100
   @rule_inventories_version 20_260_911_000_200
+  @source_envelopes_version 20_260_911_000_300
   @latest_versions [
     @typed_question_answers_version,
     @answer_confirmed_global_facts_version,
     @selected_work_inputs_version,
     @rule_inventories_version,
+    @source_envelopes_version,
     @worker_storage_reports_version
   ]
   @memory_versions Enum.to_list(20_260_908_000_100..20_260_908_001_100//100) ++
@@ -1565,11 +1567,12 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
       assert %{rows: [[0, 0, 0]]} = reset_topic_counts(repo, prefix)
       assert_reset_notes(repo, prefix, derived["conversation_observations"])
 
-      # The inspection-evidence columns and table and the worker storage columns
+      # The inspection-evidence columns and tables and the worker storage columns
       # are reversible on their own.
-      assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 3, prefix: prefix, log: false) ==
+      assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 4, prefix: prefix, log: false) ==
                [
                  @worker_storage_reports_version,
+                 @source_envelopes_version,
                  @rule_inventories_version,
                  @selected_work_inputs_version
                ]
@@ -1650,11 +1653,12 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
       assert column_nullable?(repo, prefix, "operational_memory_entries", "expires_at")
       assert column_nullable?(repo, prefix, "episode_state_record_responses", "choice")
 
-      # The inspection-evidence columns and table and the worker storage columns
+      # The inspection-evidence columns and tables and the worker storage columns
       # are reversible on their own.
-      assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 3, prefix: prefix, log: false) ==
+      assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 4, prefix: prefix, log: false) ==
                [
                  @worker_storage_reports_version,
+                 @source_envelopes_version,
                  @rule_inventories_version,
                  @selected_work_inputs_version
                ]
@@ -1927,7 +1931,7 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
           """
           SELECT to_jsonb(row) - 'learning_run_id' - 'summary_error_code'
             - 'source_exposure_count' - 'knowledge_exposure_count' - 'completion_receipt'
-            - 'selected_input_refs' AS value
+            - 'selected_input_refs' - 'source_envelope' AS value
           FROM #{prefix}.#{table} row ORDER BY 1
           """,
           []

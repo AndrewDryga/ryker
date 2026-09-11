@@ -50,6 +50,17 @@ recorded empty inventory renders "No standing rules existed"; an absent row
 renders "Standing-rule evaluation was not recorded", and the two are never
 conflated with "0 matched". The inventory expires with episode history.
 
+Each received input's **Input details** open on extracted metadata (source,
+event, identifiers, revision, the source event time with its provenance and
+the time Responder recorded it), followed by three independently collapsed
+bodies in this order: Raw input, Normalized input, Original message. Raw input
+is the adapter's own event payload, stored beside the normalized content in
+`ingress_inbox_entries.source_envelope` minus transport credentials, bounded
+at 64 KiB and pruned with the other input bodies. The Slack gateway supplies
+it; inputs from adapters that do not, and every input that predates the
+column, render "Not recorded", and an oversized payload renders as an explicit
+omission with its size. The normalized document is never shown as raw.
+
 Full prompt bodies on the Timeline load when their disclosure is opened and
 stay loaded across refreshes; a confirmed expiry, redaction or authorization
 loss closes the disclosure and removes the body regardless of reading state.

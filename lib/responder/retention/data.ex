@@ -392,6 +392,7 @@ defmodule Responder.Retention.Data do
         )
         UPDATE ingress_inbox_entries AS input
         SET content = '{"retention":"pruned"}',
+            source_envelope = CASE WHEN source_envelope IS NULL THEN NULL ELSE '{"retention":"pruned"}' END,
             admission_context = NULL,
             admission_context_fingerprint = NULL,
             decision_document = '{"retention":"pruned"}',

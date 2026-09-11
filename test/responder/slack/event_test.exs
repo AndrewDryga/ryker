@@ -56,6 +56,39 @@ defmodule Responder.Slack.EventTest do
     assert input.content["files"] == [%{"id" => "F123", "name" => "trace.txt"}]
     refute Map.has_key?(input.content, "action_token")
     refute Input.document(input) |> Jason.encode!() |> String.contains?("xact-user-turn-secret")
+
+    # The raw record is the event as Slack sent it minus transport credentials.
+    assert {:ok, %{source_envelope: envelope}} = Event.from_socket(envelope, identity())
+    assert envelope["type"] == "app_mention"
+    assert envelope["blocks"] == [%{"type" => "rich_text"}]
+    refute Map.has_key?(envelope, "action_token")
+    refute Jason.encode!(envelope) =~ "xact-user-turn-secret"
+  end
+
+  test "signed private file URLs never enter the raw source record" do
+    envelope =
+      events_api(%{
+        "channel" => "C456",
+        "event_ts" => "1787832001.000200",
+        "files" => [
+          %{
+            "id" => "F123",
+            "name" => "trace.txt",
+            "url_private" => "https://files.slack.com/private/secret",
+            "url_private_download" => "https://files.slack.com/private/secret?download=1",
+            "thumb_360" => "https://files.slack.com/thumb/secret"
+          }
+        ],
+        "text" => "<@U-BOT> look at this",
+        "ts" => "1787832001.000200",
+        "type" => "app_mention",
+        "user" => "U123"
+      })
+
+    assert {:ok, %{source_envelope: raw}} = Event.from_socket(envelope, identity())
+    assert [%{"id" => "F123", "name" => "trace.txt"} = file] = raw["files"]
+    refute Enum.any?(Map.keys(file), &String.starts_with?(&1, "url_private"))
+    refute Jason.encode!(raw) =~ "files.slack.com"
   end
 
   test "edits and deletes preserve one stable message identity and advance revisions" do

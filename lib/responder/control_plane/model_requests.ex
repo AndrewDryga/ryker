@@ -89,13 +89,17 @@ defmodule Responder.ControlPlane.ModelRequests do
     end
   end
 
-  # Only artifacts a reader actually opened are prepared. Everything else keeps
-  # its size and digest so the card can say what is behind the disclosure
-  # without paying for it on every refresh.
-  defp disclosed(%{"disclosed" => ids}) when is_list(ids),
+  @doc """
+  The artifact ids a reader has opened, from page params.
+
+  Only artifacts a reader actually opened are prepared. Everything else keeps
+  its size and digest so the card can say what is behind the disclosure
+  without paying for it on every refresh.
+  """
+  def disclosed(%{"disclosed" => ids}) when is_list(ids),
     do: MapSet.new(Enum.filter(ids, &is_binary/1))
 
-  defp disclosed(_params), do: MapSet.new()
+  def disclosed(_params), do: MapSet.new()
 
   defp timeline_for(episode, disclosed) do
     turns =

@@ -310,13 +310,12 @@ defmodule Responder.ControlPlane.WorkbenchLive do
   end
 
   defp load_detail(socket, options, ["timeline", _ref | _rest]) do
-    with {:ok, episode} <- options.projection.episode.(socket.assigns.params["ref"]),
+    disclosed = %{"disclosed" => MapSet.to_list(socket.assigns.disclosed)}
+
+    with {:ok, episode} <- options.projection.episode.(socket.assigns.params["ref"], disclosed),
          {:ok, requests} <- episode_requests(socket, options, episode.episode.ref),
          {:ok, timeline} <-
-           options.projection.model_timeline.(
-             socket.assigns.params["ref"],
-             %{"disclosed" => MapSet.to_list(socket.assigns.disclosed)}
-           ) do
+           options.projection.model_timeline.(socket.assigns.params["ref"], disclosed) do
       assign(socket,
         native: :episode,
         page_title: "Timeline",

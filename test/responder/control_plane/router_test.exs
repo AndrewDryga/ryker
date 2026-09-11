@@ -876,7 +876,7 @@ defmodule Responder.ControlPlane.RouterTest do
   end
 
   test "the native episode renders recovery and confirmed action controls without exposing extra fields" do
-    {:ok, detail} = options().projection.episode.("episode:one")
+    {:ok, detail} = options().projection.episode.("episode:one", %{})
 
     trace =
       Map.merge(detail.trace, %{
@@ -1853,7 +1853,7 @@ defmodule Responder.ControlPlane.RouterTest do
             :not_found
         end,
         episode: fn
-          "episode:one" ->
+          "episode:one", _params ->
             {:ok,
              %{
                episode: %{
@@ -1938,7 +1938,7 @@ defmodule Responder.ControlPlane.RouterTest do
                secret: "raw-secret-value"
              }}
 
-          _ref ->
+          _ref, _params ->
             :not_found
         end,
         failures: fn _params ->
