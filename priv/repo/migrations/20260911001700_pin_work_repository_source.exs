@@ -38,7 +38,7 @@ defmodule Responder.Repo.Migrations.PinWorkRepositorySource do
               AND repository_source::jsonb ?& ARRAY['kind', 'number']
               AND (repository_source::jsonb - 'kind' - 'number') = '{}'::jsonb
               AND jsonb_typeof(repository_source::jsonb -> 'number') = 'number'
-              AND (repository_source::jsonb ->> 'number') ~ '^([1-9][0-9]{0,5}|1000000)$'
+              AND (repository_source::jsonb ->> 'number') ~ '^([1-9][0-9]{0,6}|10000000)$'
             )
             OR (
               repository_source::jsonb ->> 'kind' = 'commit'

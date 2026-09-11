@@ -84,7 +84,7 @@ defmodule Responder.Coop.ClientTest do
 
         assert Jason.decode!(captured.body) == %{
                  "policy" => "work-contributor",
-                 "repository_source" => %{"kind" => "pull_request", "number" => 514},
+                 "source" => %{"kind" => "pull_request", "number" => 514},
                  "task" => "episode:123"
                }
 

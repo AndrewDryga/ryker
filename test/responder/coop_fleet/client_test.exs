@@ -156,7 +156,7 @@ defmodule Responder.CoopFleet.ClientTest do
              "external_ref" => session.external_ref,
              "policy" => @policy,
              "policy_digest" => @policy_digest,
-             "repository_source" => %{"kind" => "default"}
+             "source" => %{"kind" => "default"}
            }
 
     assert Keyword.fetch!(options, :workspace_ref) == "workspace-main"
@@ -202,7 +202,7 @@ defmodule Responder.CoopFleet.ClientTest do
              "external_ref" => session.external_ref,
              "policy" => @policy,
              "policy_digest" => @policy_digest,
-             "repository_source" => %{"kind" => "branch", "name" => "feature/payments"}
+             "source" => %{"kind" => "branch", "name" => "feature/payments"}
            }
 
     fence_key = "#{key}:durable"
@@ -237,9 +237,7 @@ defmodule Responder.CoopFleet.ClientTest do
 
     Command
     |> Repo.get_by!(idempotency_key: fence_key)
-    |> Ecto.Changeset.change(
-      payload: Map.put(created, "repository_source", %{"kind" => "default"})
-    )
+    |> Ecto.Changeset.change(payload: Map.put(created, "source", %{"kind" => "default"}))
     |> Repo.update!()
 
     assert Client.fence_create_session(client, fence_key, @policy, session.external_ref, source) ==
@@ -354,7 +352,7 @@ defmodule Responder.CoopFleet.ClientTest do
              "external_ref" => session.external_ref,
              "policy" => @policy,
              "policy_digest" => @policy_digest,
-             "repository_source" => %{"kind" => "default"}
+             "source" => %{"kind" => "default"}
            }
   end
 
@@ -1386,7 +1384,7 @@ defmodule Responder.CoopFleet.ClientTest do
           "external_ref" => session.external_ref,
           "policy" => @policy,
           "policy_digest" => @policy_digest,
-          "repository_source" => %{"kind" => "default"}
+          "source" => %{"kind" => "default"}
         },
         key: "responder:work:create:#{session.id}:g1"
       )
@@ -1611,7 +1609,7 @@ defmodule Responder.CoopFleet.ClientTest do
           "external_ref" => workspace_task["offer_ref"],
           "policy" => @policy,
           "policy_digest" => @policy_digest,
-          "repository_source" => %{"kind" => "default"}
+          "source" => %{"kind" => "default"}
         },
         key: key
       )
@@ -1691,7 +1689,7 @@ defmodule Responder.CoopFleet.ClientTest do
           "external_ref" => workspace_task["offer_ref"],
           "policy" => @policy,
           "policy_digest" => @policy_digest,
-          "repository_source" => %{"kind" => "default"}
+          "source" => %{"kind" => "default"}
         },
         key: key
       )
@@ -1741,7 +1739,7 @@ defmodule Responder.CoopFleet.ClientTest do
           "external_ref" => session.external_ref,
           "policy" => @policy,
           "policy_digest" => @policy_digest,
-          "repository_source" => %{"kind" => "default"}
+          "source" => %{"kind" => "default"}
         },
         key: key
       )
@@ -1812,7 +1810,7 @@ defmodule Responder.CoopFleet.ClientTest do
           "external_ref" => workspace_task["offer_ref"],
           "policy" => @policy,
           "policy_digest" => @policy_digest,
-          "repository_source" => %{"kind" => "default"}
+          "source" => %{"kind" => "default"}
         },
         key: key
       )

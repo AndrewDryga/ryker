@@ -1188,8 +1188,7 @@ defmodule Responder.CoopFleet.Client do
 
   defp maybe_put_repository_source(payload, nil), do: payload
 
-  defp maybe_put_repository_source(payload, source),
-    do: Map.put(payload, "repository_source", source)
+  defp maybe_put_repository_source(payload, source), do: Map.put(payload, "source", source)
 
   defp submit_turn_payload(coop_session_id, revision, submission, responder_binding) do
     %{

@@ -249,7 +249,7 @@ defmodule Responder.Work.RepositorySourceCustodyTest do
           ~s({"kind":"branch"}),
           ~s({"kind":"branch","name":"main","remote":"upstream"}),
           ~s({"kind":"pull_request","number":0}),
-          ~s({"kind":"pull_request","number":1000001}),
+          ~s({"kind":"pull_request","number":10000001}),
           ~s({"kind":"commit","sha":"#{String.duplicate("A", 40)}"}),
           ~s({"kind":"commit","sha":"#{String.duplicate("a", 12)}"})
         ] do

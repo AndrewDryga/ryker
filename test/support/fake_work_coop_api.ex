@@ -62,7 +62,7 @@ defmodule Responder.TestSupport.FakeWorkCoopAPI do
           "workspace_task" => Keyword.get(options, :workspace_task),
           "repository_freshness" => freshness_receipts(options),
           "repository_freshness_status" => "recorded",
-          "repository_source" => default_source_binding(),
+          "source" => default_source_binding(),
           "revision" => 1,
           "state" => "open",
           "target" => Keyword.get(options, :session_target, "codex:gpt-5.6-sol/high@work")
