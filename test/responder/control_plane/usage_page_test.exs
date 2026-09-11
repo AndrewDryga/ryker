@@ -301,8 +301,8 @@ defmodule Responder.ControlPlane.UsagePageTest do
 
     for label <- [
           "Conversation",
-          "Standard work",
-          "Deep work",
+          "Investigation",
+          "Deep investigation",
           "Continuation",
           "Resumed work",
           "Task",
