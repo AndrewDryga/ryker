@@ -24,6 +24,7 @@ defmodule Responder.Episodes do
   }
 
   alias Responder.Repo
+  alias Responder.State.Cases
   alias Responder.Work.Turn
 
   @spec apply(Command.t()) :: {:ok, Transition.t()} | {:error, term()}
@@ -213,10 +214,27 @@ defmodule Responder.Episodes do
          {:ok, event} <- persist_event(repo, transition.event, episode.id),
          :ok <- Origins.record_in_transaction(episode, event),
          :ok <- release_occurrences(episode),
+         :ok <- withdraw_retained_sources(event),
          :ok <- RoutingDigests.refresh_in_transaction(episode, event) do
       {:ok, %{transition | episode: episode, event: event}}
     end
   end
+
+  # Somebody deleting their message is a withdrawal, not expiry: every durable
+  # record derived from it is redacted in the same transaction, so nothing can
+  # keep quoting text that was explicitly removed.
+  defp withdraw_retained_sources(%Event{kind: :input_admitted, payload: %{} = command}) do
+    document = command["payload"]
+
+    if is_map(document) and document["event_kind"] == "delete" and
+         is_binary(command["native_input_id"]) do
+      _redacted = Cases.withdraw_source(command["native_input_id"])
+    end
+
+    :ok
+  end
+
+  defp withdraw_retained_sources(%Event{}), do: :ok
 
   # The claim fences concurrent active work, not the identity forever. Once an
   # episode is finished or cancelled its occurrences are free again, so a later

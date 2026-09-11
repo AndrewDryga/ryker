@@ -175,6 +175,18 @@ defmodule Responder.Retention.Policy do
         "per-message origin projection of admitted-input events; deleted with the episode's events at the history horizon and with the episode row, and rebuilt from the ledger"
     },
     %{
+      table: "episode_case_records",
+      class: :kept,
+      why:
+        "the compact record of finished work: problem, evidence-backed cause, attempted actions, outcome and links, captured before the raw episode is reclaimed and expiring only by explicit deletion"
+    },
+    %{
+      table: "episode_case_lessons",
+      class: :kept,
+      why:
+        "reviewed reusable procedures drawn from a retained case; they expire by supersession or explicit removal, never by the age of the transcript that produced them"
+    },
+    %{
       table: "episode_association_corrections",
       class: :kept,
       why:

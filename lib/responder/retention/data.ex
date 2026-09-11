@@ -11,7 +11,7 @@ defmodule Responder.Retention.Data do
   """
 
   alias Responder.Repo
-  alias Responder.State.{Continuity, KnowledgeRetention, Learning, Memories}
+  alias Responder.State.{Cases, Continuity, KnowledgeRetention, Learning, Memories}
 
   @advisory_lock 7_152_019_552_843_111
   @terminal_episode_states ~w(complete cancelled)
@@ -708,6 +708,11 @@ defmodule Responder.Retention.Data do
       )
 
     ids = history_candidates(settings.episode_history_seconds)
+
+    # The compact case is written before its raw episode is reclaimed, so a
+    # pending lesson review is never the reason the useful part of an incident
+    # disappears at the history horizon.
+    _cases = Cases.capture_many(ids)
 
     dispatched_schedule_runs = prune_history_ids(ids)
 

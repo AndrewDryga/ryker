@@ -19,6 +19,7 @@ defmodule Responder.Work.SubmissionBuilder do
 
   alias Responder.State.{
     Behaviors,
+    Cases,
     Continuity,
     DerivedContext,
     LearningSources,
@@ -32,6 +33,7 @@ defmodule Responder.Work.SubmissionBuilder do
   alias Responder.Work.{Final, Prompt, Session, Submission, Turn}
 
   @maximum_inputs 40
+  @retained_cases 3
   @maximum_context_bytes 160 * 1_024
   @input_content_bytes 1_024
   @continuity_content_bytes 256
@@ -323,6 +325,7 @@ defmodule Responder.Work.SubmissionBuilder do
       "origins" => origin_summary(episode, origins),
       "signals" => signal_summary(episode),
       "conversation_context" => admission_backdrop(episode),
+      "retained_cases" => Cases.recall(episode, @retained_cases),
       "linked_history_ref" => episode.linked_episode_id,
       "mode" => "full",
       "operator_context" =>

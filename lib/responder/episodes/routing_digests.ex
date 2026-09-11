@@ -28,6 +28,30 @@ defmodule Responder.Episodes.RoutingDigests do
   @maximum_conversations 32
   @freshness_window 24 * 60 * 60
 
+  @doc """
+  Builds a bounded OR query from the incoming text.
+
+  Real operational messages contain URLs, run identifiers and alert names, so
+  every term is quoted: an unquoted `https:` or `firing:1` is not a word, and
+  one such message would otherwise fail the whole retrieval.
+  """
+  @spec search_terms(String.t() | nil) :: String.t()
+  def search_terms(text) do
+    ~r/[\p{L}\p{N}][\p{L}\p{N}_.:\/-]{2,79}/u
+    |> Regex.scan(String.slice(text || "", 0, 4_000))
+    |> List.flatten()
+    |> Enum.map(&String.downcase/1)
+    |> Enum.map(&String.trim(&1, ":"))
+    |> Enum.map(&String.replace(&1, ~r/['\\]/, ""))
+    |> Enum.reject(&(String.length(&1) < 3))
+    |> Enum.uniq()
+    |> Enum.reject(
+      &(&1 in ~w(the and that this what when where why how you are was were with from for can could would should has have not but its))
+    )
+    |> Enum.take(24)
+    |> Enum.map_join(" | ", &"'#{&1}'")
+  end
+
   @doc false
   @spec refresh_in_transaction(Episode.t(), Event.t()) :: :ok | {:error, term()}
   def refresh_in_transaction(%Episode{} = episode, %Event{kind: :input_admitted} = event) do

@@ -6,6 +6,7 @@ defmodule Responder.State.MemorySearch do
 
   alias Responder.State.{
     Behaviors,
+    Cases,
     Continuity,
     Knowledge,
     KnowledgeSnapshot,
@@ -202,7 +203,7 @@ defmodule Responder.State.MemorySearch do
   end
 
   defp initial(kinds) do
-    kinds = Enum.filter(~w(fact guidance continuity), &(&1 in kinds))
+    kinds = Enum.filter(~w(fact guidance continuity case), &(&1 in kinds))
 
     lanes =
       Enum.flat_map(kinds, fn
@@ -313,6 +314,8 @@ defmodule Responder.State.MemorySearch do
         do: {lane, %{state | "continuity_index" => rem(index + 1, length(@continuity))}}
     end)
   end
+
+  defp fetch("case", binding, page), do: Cases.search_page(context(binding), page)
 
   defp fetch("fact", binding, page), do: Memories.search_page(context(binding), page)
 

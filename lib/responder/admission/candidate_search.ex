@@ -53,7 +53,7 @@ defmodule Responder.Admission.CandidateSearch do
   def search(request) do
     scope = request.scope
     anchors = RoutingDigests.anchor_keys(KnowledgeAnchors.discover([request.text]))
-    terms = search_terms(request.text)
+    terms = RoutingDigests.search_terms(request.text)
 
     ranked_text = text_lane(request, scope, terms)
 
@@ -319,30 +319,6 @@ defmodule Responder.Admission.CandidateSearch do
 
   defp anchor_overlap(%RoutingDigest{anchor_keys: keys}, anchors),
     do: keys |> MapSet.new() |> MapSet.intersection(MapSet.new(anchors)) |> MapSet.size()
-
-  @doc """
-  Builds a bounded OR query from the incoming text.
-
-  Real operational messages contain URLs, run identifiers and alert names, so
-  every term is quoted: an unquoted `https:` or `firing:1` is tsquery syntax,
-  not a word, and one such message would otherwise fail the whole retrieval.
-  """
-  @spec search_terms(String.t()) :: String.t()
-  def search_terms(text) do
-    ~r/[\p{L}\p{N}][\p{L}\p{N}_.:\/-]{2,79}/u
-    |> Regex.scan(String.slice(text || "", 0, 4_000))
-    |> List.flatten()
-    |> Enum.map(&String.downcase/1)
-    |> Enum.map(&String.trim(&1, ":"))
-    |> Enum.map(&String.replace(&1, ~r/['\\]/, ""))
-    |> Enum.reject(&(String.length(&1) < 3))
-    |> Enum.uniq()
-    |> Enum.reject(
-      &(&1 in ~w(the and that this what when where why how you are was were with from for can could would should has have not but its))
-    )
-    |> Enum.take(24)
-    |> Enum.map_join(" | ", &"'#{&1}'")
-  end
 
   @doc false
   def lane_limit, do: @lane_limit
