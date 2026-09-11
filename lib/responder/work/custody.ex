@@ -3622,14 +3622,7 @@ defmodule Responder.Work.Custody do
 
   defp answering_origin(%Episode{} = episode, %Turn{selected_input_refs: refs})
        when is_list(refs) and refs != [] do
-    Repo.one(
-      from(origin in Origin,
-        where:
-          origin.episode_id == ^episode.id and origin.input_ref in ^refs and origin.effective,
-        order_by: [desc: origin.sequence],
-        limit: 1
-      )
-    )
+    newest_origin(episode, refs)
   end
 
   defp answering_origin(%Episode{} = episode, %Turn{selected_input_refs: nil} = turn),
@@ -3640,18 +3633,24 @@ defmodule Responder.Work.Custody do
 
   defp answering_origin(_episode, _turn), do: nil
 
-  defp active_origin(%Episode{active_input_refs: [_ | _] = refs} = episode, _turn) do
+  defp active_origin(%Episode{active_input_refs: [_ | _] = refs} = episode, _turn),
+    do: newest_origin(episode, refs)
+
+  defp active_origin(_episode, _turn), do: nil
+
+  # An episode may hold evidence from several conversations, so the input a
+  # reply answers is the newest by occurrence, not by this episode's own
+  # event sequence.
+  defp newest_origin(%Episode{} = episode, refs) do
     Repo.one(
       from(origin in Origin,
         where:
           origin.episode_id == ^episode.id and origin.input_ref in ^refs and origin.effective,
-        order_by: [desc: origin.sequence],
+        order_by: [desc: origin.occurred_at, desc: origin.sequence],
         limit: 1
       )
     )
   end
-
-  defp active_origin(_episode, _turn), do: nil
 
   defp delivery_already_settled?(turn, receipt, fingerprint),
     do:

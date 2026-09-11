@@ -5,7 +5,7 @@ defmodule Responder.Admission.CandidateSearchTest do
 
   alias Responder.Admission.{CandidateSearch, CorrelationScope, Ranking}
   alias Responder.Episodes
-  alias Responder.Episodes.{Command, CorrelationClaims, Episode}
+  alias Responder.Episodes.{AssociationCorrection, Command, CorrelationClaims, Episode}
   alias Responder.Ingress.Input
   alias Responder.Repo
   alias Responder.Slack.ChannelMembership
@@ -112,6 +112,40 @@ defmodule Responder.Admission.CandidateSearchTest do
     assert [first | _rest] = result.selected
     assert first.episode.id == owner.id
     assert first.source_owner
+  end
+
+  test "work merged into another episode by an audited correction is not offered again" do
+    # The correction exists because the two episodes were the same work. If the
+    # retired one kept appearing beside the surviving one, the next message
+    # could pick it and recreate the split an operator had just repaired.
+    merged =
+      episode!("routing:merged-away",
+        channel_ref: "CDEVOPS",
+        text: "Postgres primary pgsql-prod-01 is unreachable"
+      )
+
+    surviving =
+      episode!("routing:merge-target",
+        channel_ref: "CDEVOPS",
+        text: "Postgres primary pgsql-prod-01 is unreachable and replication stalled"
+      )
+
+    Repo.insert!(%AssociationCorrection{
+      actor_ref: "slack:user:UOPERATOR",
+      applied_at: @now,
+      confirmation_ref: "operator-confirmation:search",
+      input_refs: ["admit_input:root"],
+      kind: :merge,
+      reason: "Both reports describe the same outage.",
+      source_episode_id: merged.id,
+      target_episode_id: surviving.id
+    })
+
+    result = search!(channel_ref: "CDEVOPS", text: "Is pgsql-prod-01 still unreachable?")
+    offered = Enum.map(result.selected, & &1.episode.id)
+
+    assert surviving.id in offered
+    refute merged.id in offered
   end
 
   test "a proven occurrence identity outranks thread gravity and recency" do
