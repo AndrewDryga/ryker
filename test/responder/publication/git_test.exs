@@ -237,6 +237,52 @@ defmodule Responder.Publication.GitTest do
     end
   end
 
+  # Selecting a human branch or pull request as the session's source is a
+  # checkout fact, not publication authority. When Coop's review names that
+  # source as the pull request it was working on, publication still refuses to
+  # push anywhere outside the Responder-owned prefix, before Git runs.
+  test "a selected human branch or pull request never becomes a push target" do
+    Process.put(:publication_git_observer, self())
+    root = temp_directory!("selected-source")
+    repository = Path.join(root, "repository")
+    File.mkdir!(repository)
+
+    settings = %{
+      branch_prefix: "responder",
+      command: Command,
+      commit_email: "responder@emisar.dev",
+      commit_name: "Emisar Responder",
+      secrets: [],
+      state_dir: root,
+      token_provider: fn -> {:ok, "token"} end
+    }
+
+    try do
+      for ref <- ["refs/heads/feature/payments", "refs/pull/514/head", "refs/heads/main"] do
+        request =
+          request!("diff --git a/a b/a\n+change\n", %{
+            review_document:
+              Map.put(review("diff --git a/a b/a\n+change\n"), "pull_request", %{
+                "head_commit" => String.duplicate("2", 40),
+                "number" => 514,
+                "ref" => ref
+              })
+          })
+
+        assert Git.publish_candidate(
+                 request,
+                 %{base_branch: "main", github_repository: "acme/responder", path: repository},
+                 settings
+               ) == {:error, :publication_branch_not_owned},
+               "expected #{ref} to be refused as a push target"
+
+        refute_receive {:git_command, _arguments, _options}
+      end
+    after
+      File.rm_rf(root)
+    end
+  end
+
   defp collect_commands(result) do
     receive do
       {:git_command, arguments, options} -> collect_commands([{arguments, options} | result])
