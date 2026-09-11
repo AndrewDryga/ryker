@@ -70,27 +70,46 @@ defmodule Responder.CoopFleet.Client do
   @impl true
   def create_session(client, key, policy, task, source) do
     with {:ok, session} <- session_by_task_ref(task),
-         true <- session.policy == policy,
+         :ok <- exact_authority(session, policy, source),
          {:ok, payload} <- create_session_payload(session, policy, task, nil, source),
          {:ok, remote} <- execute(client, session, "create_session", payload, key) do
       ensure_workspace(client, session, remote, key)
-    else
-      false -> {:error, {:coop_fleet_authority_mismatch, :policy}}
-      {:error, _reason} = error -> error
     end
   end
 
   @impl true
   def create_bound_session(client, key, policy, task, binding, source) do
     with {:ok, session} <- session_by_task_ref(task),
-         true <- session.policy == policy,
+         :ok <- exact_authority(session, policy, source),
          :ok <- optional_responder_binding(binding),
          {:ok, payload} <- create_session_payload(session, policy, task, binding, source),
          {:ok, remote} <- execute(client, session, "create_session", payload, key) do
       ensure_workspace(client, session, remote, key)
-    else
-      false -> {:error, {:coop_fleet_authority_mismatch, :policy}}
-      {:error, _reason} = error -> error
+    end
+  end
+
+  # The fleet forwards only the authority Work custody persisted: a worker never
+  # receives a policy or repository source other than the one pinned on the
+  # session it is being asked to create.
+  defp exact_authority(%Session{} = session, policy, source) do
+    with {:ok, source} <- repository_source(source) do
+      cond do
+        session.policy != policy ->
+          {:error, {:coop_fleet_authority_mismatch, :policy}}
+
+        not RepositorySource.same?(session.repository_source, source) ->
+          {:error, {:coop_fleet_authority_mismatch, :repository_source}}
+
+        true ->
+          :ok
+      end
+    end
+  end
+
+  defp repository_source(source) do
+    case RepositorySource.parse_optional(source) do
+      {:ok, source} -> {:ok, source}
+      {:error, _reason} -> {:error, {:invalid_coop_request, :repository_source}}
     end
   end
 
@@ -155,25 +174,19 @@ defmodule Responder.CoopFleet.Client do
   @impl true
   def fence_create_session(client, key, policy, task, source) do
     with {:ok, session} <- session_by_task_ref(task),
-         true <- session.policy == policy,
+         :ok <- exact_authority(session, policy, source),
          {:ok, payload} <- create_session_payload(session, policy, task, nil, source) do
       fence_durable_operation(client, session, key, "create_session", payload)
-    else
-      false -> {:error, {:coop_fleet_authority_mismatch, :policy}}
-      {:error, _reason} = error -> error
     end
   end
 
   @impl true
   def fence_bound_session(client, key, policy, task, binding, source) do
     with {:ok, session} <- session_by_task_ref(task),
-         true <- session.policy == policy,
+         :ok <- exact_authority(session, policy, source),
          :ok <- optional_responder_binding(binding),
          {:ok, payload} <- create_session_payload(session, policy, task, binding, source) do
       fence_durable_operation(client, session, key, "create_session", payload)
-    else
-      false -> {:error, {:coop_fleet_authority_mismatch, :policy}}
-      {:error, _reason} = error -> error
     end
   end
 
@@ -1158,22 +1171,18 @@ defmodule Responder.CoopFleet.Client do
   # Create and fence build the identical payload, so a fence request hashes the
   # exact selector create would have sent.
   defp create_session_payload(session, policy, task, responder_binding, source) do
-    case RepositorySource.parse_optional(source) do
-      {:ok, source} ->
-        payload =
-          %{
-            "authority_digest" => session.authority_digest,
-            "external_ref" => task,
-            "policy" => policy,
-            "policy_digest" => session.policy_digest
-          }
-          |> maybe_put_responder_binding(responder_binding)
-          |> maybe_put_repository_source(source)
+    with {:ok, source} <- repository_source(source) do
+      payload =
+        %{
+          "authority_digest" => session.authority_digest,
+          "external_ref" => task,
+          "policy" => policy,
+          "policy_digest" => session.policy_digest
+        }
+        |> maybe_put_responder_binding(responder_binding)
+        |> maybe_put_repository_source(source)
 
-        {:ok, payload}
-
-      {:error, _reason} ->
-        {:error, {:invalid_coop_request, :repository_source}}
+      {:ok, payload}
     end
   end
 

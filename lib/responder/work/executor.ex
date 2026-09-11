@@ -2499,12 +2499,12 @@ defmodule Responder.Work.Executor do
          {:ok, repository} <- repository_write_goal_repository(goals) do
       {:ok,
        %{
+         "admitted_source_tree" => admitted_source_tree,
          "base_commit" => base_commit,
          "committed_count" => committed_count,
          "conflict_count" => conflict_count,
          "fork_head" => fork_head,
          "fork_tree" => fork_tree,
-         "admitted_source_tree" => admitted_source_tree,
          "goal_ids" => Enum.map(goals, & &1["id"]),
          "repository" => repository,
          "staged_count" => staged_count,
