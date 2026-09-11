@@ -212,6 +212,15 @@ defmodule Responder.CoopFleet.Client do
   end
 
   @impl true
+  def get_session_evidence(client, coop_session_id) do
+    with {:ok, session} <- session_by_coop_id(coop_session_id) do
+      execute_read(client, session, "get_session_evidence", %{
+        "coop_session_id" => coop_session_id
+      })
+    end
+  end
+
+  @impl true
   def capabilities(%__MODULE__{} = client, %Session{id: session_id} = session) do
     now = database_now!()
 

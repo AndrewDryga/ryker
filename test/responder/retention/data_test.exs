@@ -6,7 +6,7 @@ defmodule Responder.Retention.DataTest do
   alias Responder.Admission.FleetSession
   alias Responder.Artifacts
   alias Responder.CanonicalJSON
-  alias Responder.CoopFleet.{Placement, Worker}
+  alias Responder.CoopFleet.{Placement, SessionEvidence, Worker}
   alias Responder.Cutover.{Item, Run}
   alias Responder.Delivery.PlatformAction
   alias Responder.Episodes
@@ -82,6 +82,69 @@ defmodule Responder.Retention.DataTest do
 
     refute inspect(Repo.all(ActivityEvent)) =~ "source-content"
     assert Activity.list_for_episode(work.episode.id) == []
+  end
+
+  test "recorded worker evidence expires with episode history and never resurrects" do
+    # The capture holds the bodies a worker exported: refused destinations, the
+    # rules its session could reach, and the agent-written task note. They are
+    # episode history, so they expire with it -- and a later capture of the same
+    # session must not put an expired snapshot back, because the evidence would
+    # then describe a session whose history the operator was told is gone.
+    work = settled_work!("worker-evidence") |> discard_session!()
+
+    assert {:ok, %{evidence: stored}} =
+             SessionEvidence.record(work.session.id, worker_evidence(work.session),
+               worker_id: "worker-retention",
+               placement_generation: 1
+             )
+
+    assert {:ok, _result} = Data.prune(settings())
+    assert Repo.get(SessionEvidence, stored.id), "operational pruning took episode history"
+
+    backdate_history!(work, 120)
+
+    # History only: the session row survives this pass, so the re-capture below
+    # is a real one rather than a read of a session that no longer exists.
+    assert {:ok, _result} =
+             Data.prune(settings(episode_history_seconds: 60, audit_data_seconds: 86_400))
+
+    assert Repo.get(SessionEvidence, stored.id) == nil
+    assert SessionEvidence.for_session(work.session.id) == []
+    assert SessionEvidence.latest_for_episode(work.episode.id) == []
+
+    # A re-capture after expiry records the state observed now; it never revives
+    # the expired row, and the page shows an episode with no retained evidence.
+    assert {:ok, %{evidence: recaptured, recorded: :inserted}} =
+             SessionEvidence.record(work.session.id, worker_evidence(work.session),
+               worker_id: "worker-retention",
+               placement_generation: 1
+             )
+
+    assert recaptured.id != stored.id
+
+    Repo.delete_all(from(row in SessionEvidence, where: row.id == ^recaptured.id))
+  end
+
+  test "worker evidence cannot outlive the session row it describes" do
+    # Audit pruning removes the session itself. Evidence keyed to it must go in
+    # the same pass: a snapshot whose session no longer exists is unattributable
+    # to any worker, placement or episode.
+    work = settled_work!("worker-evidence-audit") |> discard_session!()
+
+    assert {:ok, %{evidence: stored}} =
+             SessionEvidence.record(work.session.id, worker_evidence(work.session),
+               worker_id: "worker-audit",
+               placement_generation: 1
+             )
+
+    backdate_history!(work, 3_600)
+    mark_history_pruned!(work)
+
+    assert {:ok, _result} =
+             Data.prune(settings(episode_history_seconds: 60, audit_data_seconds: 600))
+
+    assert Repo.get(Session, work.session.id) == nil
+    assert Repo.get(SessionEvidence, stored.id) == nil
   end
 
   test "a recorded rule inventory expires with episode history and is never rebuilt" do
@@ -1119,6 +1182,13 @@ defmodule Responder.Retention.DataTest do
       entries: [],
       recorded_at: recorded_at
     })
+  end
+
+  defp worker_evidence(session) do
+    Path.expand("../../../testdata/protocol/coop-session-evidence-v1.json", __DIR__)
+    |> File.read!()
+    |> Jason.decode!()
+    |> Map.put("session_id", session.coop_session_id)
   end
 
   defp settings(overrides \\ []) do

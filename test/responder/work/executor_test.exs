@@ -6,6 +6,7 @@ defmodule Responder.Work.ExecutorTest do
   alias Responder.Artifacts
   alias Responder.Artifacts.Outputs
   alias Responder.ControlPlane.Projection
+  alias Responder.CoopFleet.SessionEvidence
   alias Responder.Episodes
   alias Responder.Fixtures.Episodes, as: EpisodeFixtures
   alias Responder.Fixtures.Knowledge, as: KnowledgeFixtures
@@ -642,6 +643,71 @@ defmodule Responder.Work.ExecutorTest do
            )
 
     assert Repo.get!(Responder.Work.Turn, claim.turn.id).status == :pending
+  end
+
+  for {label, evidence} <- [
+        {"a worker that does not export it", nil},
+        {"an export that fails",
+         {:error, {:coop_error, 503, "unavailable", "registry unreadable"}}},
+        {"an exporter that raises", :raise},
+        {"a transport that dies mid-read", :exit},
+        {"an export that violates its own contract", %{"version" => 1, "broken" => true}}
+      ] do
+    test "the evidence hook changes nothing about the turn when there is #{label}" do
+      # Observation must never change what was observed. The submission is frozen
+      # before the run, so its exact bytes and fingerprint are compared against
+      # themselves afterwards; the effects are compared against the same turn run
+      # with no exporter at all. A failing recorder may not buy or spend one
+      # model call, one external effect, or one byte of the frozen prompt.
+      #
+      # These claims are about the HOOK: this fixture has no fleet placement, so
+      # the capture skips before any read, which is exactly the common path and
+      # the one where an added query would be cheapest to miss. The read itself
+      # and each of its failure modes are exercised against a real placement in
+      # Responder.CoopFleet.SessionEvidenceTest.
+      reference = accepted_turn_without_evidence!()
+      claim = claim_episode!("evidence-noninterference-#{System.unique_integer([:positive])}")
+
+      assert {:ok, submission} = SubmissionBuilder.build(claim)
+
+      assert {:ok, frozen} =
+               Custody.freeze_submission(
+                 claim.episode.id,
+                 claim.turn.turn_ref,
+                 claim.lease_ref,
+                 submission
+               )
+
+      claim = %{claim | turn: frozen}
+
+      {:ok, fake} =
+        fake_for(claim, [simple_candidate()], session_evidence: unquote(Macro.escape(evidence)))
+
+      assert {:ok, %{status: :accepted, turn: turn}} = Executor.run(claim, options(fake))
+
+      # The exact frozen bytes, unchanged by anything the recorder did.
+      assert turn.submission == frozen.submission
+      assert turn.submission_fingerprint == frozen.submission_fingerprint
+      assert turn.submission_fingerprint == Responder.CanonicalJSON.digest(frozen.submission)
+
+      # The decision, the accepted answer and the effect counts are the ones the
+      # same turn reaches with no exporter in the picture at all.
+      assert turn.status == reference.turn.status
+      assert turn.candidate_attempt == reference.turn.candidate_attempt
+      assert turn.delivery_document["message"] == "Handled exactly as asked."
+
+      state = FakeAPI.state(fake)
+      assert state.submit_count == reference.state.submit_count
+      assert length(state.create_keys) == length(reference.state.create_keys)
+      assert length(state.checkpoint_keys) == length(reference.state.checkpoint_keys)
+      assert state.validations == reference.state.validations
+
+      # No placement means no read at all, whatever the exporter would have
+      # done, and no failure mode records an absence as an observation.
+      assert state.session_evidence_reads == 0
+
+      assert SessionEvidence.for_session(claim.session.id) == []
+    end
   end
 
   test "checkpointed unfinished work delivers its question without offering publication" do
@@ -3705,6 +3771,27 @@ defmodule Responder.Work.ExecutorTest do
 
     assert {:ok, claim} = Custody.claim_next("worker:#{suffix}", 60, :work)
     claim
+  end
+
+  # One accepted turn with no exporter in the picture at all: the baseline every
+  # evidence-collection variant above has to reproduce exactly.
+  defp accepted_turn_without_evidence! do
+    claim = claim_episode!("evidence-baseline-#{System.unique_integer([:positive])}")
+    candidate = simple_candidate()
+    {:ok, fake} = fake_for(claim, [candidate])
+
+    assert {:ok, %{status: :accepted, turn: turn}} = Executor.run(claim, options(fake))
+
+    %{turn: turn, state: FakeAPI.state(fake), candidate: candidate}
+  end
+
+  defp simple_candidate do
+    Jason.encode!(%{
+      "decision_reason" => nil,
+      "delivery" => "reply",
+      "message" => "Handled exactly as asked.",
+      "outcome" => %{"artifact_refs" => [], "record_refs" => [], "state" => "complete"}
+    })
   end
 
   defp options(fake) do

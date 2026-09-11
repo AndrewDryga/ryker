@@ -10,6 +10,7 @@ defmodule Responder.Work.Executor do
 
   alias Responder.Artifacts
   alias Responder.Artifacts.Outputs
+  alias Responder.CoopFleet.SessionEvidenceCapture
   alias Responder.Delivery.{PlatformActionCustody, Presentation}
   alias Responder.Slack.Mentions
   alias Responder.State.{KnowledgeSnapshot, Records}
@@ -1328,6 +1329,7 @@ defmodule Responder.Work.Executor do
              proof
            ),
          _activity <- Activity.sync(claim.session, settings.api, settings.client),
+         _evidence <- capture_session_evidence(claim, settings),
          :ok <- Responder.Accounting.observe_work(claim, remote_turn),
          {:ok, remote_session} <- accepted_remote_session(claim, settings),
          {:ok, artifacts} <- output_artifact_metadata(remote_turn),
@@ -1354,6 +1356,13 @@ defmodule Responder.Work.Executor do
          turn: accepted.turn
        }}
     end
+  end
+
+  # Inspection evidence is observed, never required: its outcome is discarded
+  # here so a worker that cannot export it, or a capture that fails, changes
+  # nothing about this turn's decisions, prompt bytes, authority or effects.
+  defp capture_session_evidence(claim, settings) do
+    SessionEvidenceCapture.capture(claim.session, settings.api, settings.client)
   end
 
   defp checkpoint_accepted_workspace(

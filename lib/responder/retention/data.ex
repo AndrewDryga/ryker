@@ -890,6 +890,11 @@ defmodule Responder.Retention.Data do
     )
 
     execute_count(
+      "DELETE FROM coop_session_evidence WHERE episode_id IN (SELECT unnest($1::text[])::uuid)",
+      params
+    )
+
+    execute_count(
       """
       DELETE FROM episode_state_records
       WHERE episode_id IN (SELECT unnest($1::text[])::uuid)
@@ -1137,6 +1142,11 @@ defmodule Responder.Retention.Data do
 
     execute_count(
       "DELETE FROM episode_work_activity WHERE episode_id IN (SELECT unnest($1::text[])::uuid)",
+      params
+    )
+
+    execute_count(
+      "DELETE FROM coop_session_evidence WHERE session_id IN (SELECT id FROM episode_work_sessions WHERE episode_id IN (SELECT unnest($1::text[])::uuid))",
       params
     )
 

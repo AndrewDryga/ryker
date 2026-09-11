@@ -55,6 +55,7 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
   @association_corrections_version 20_260_911_001_300
   @retained_cases_version 20_260_911_001_400
   @learning_executions_version 20_260_911_001_500
+  @coop_session_evidence_version 20_260_911_001_900
   # Cross-conversation routing migrations stay named as their own group so the
   # ladder can be reconciled with sibling work.
   @routing_versions [
@@ -79,7 +80,8 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
     @delivery_targets_version,
     @association_corrections_version,
     @retained_cases_version,
-    @learning_executions_version
+    @learning_executions_version,
+    @coop_session_evidence_version
   ]
   @memory_versions Enum.to_list(20_260_908_000_100..20_260_908_001_100//100) ++
                      [@bounded_sources_version]
@@ -1596,13 +1598,14 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
 
       # The inspection-evidence columns and tables, the worker storage columns,
       # the default channel configuration, the selection ledger, the routing
-      # projections and the learning execution kind are reversible on their own.
+      # projections, the learning execution kind and the recorded worker session
+      # evidence are reversible on their own.
       assert Ecto.Migrator.run(repo, @migrations_path, :down,
-               step: 8 + length(@routing_versions),
+               step: 9 + length(@routing_versions),
                prefix: prefix,
                log: false
              ) ==
-               [@learning_executions_version] ++
+               [@coop_session_evidence_version, @learning_executions_version] ++
                  Enum.reverse(@routing_versions) ++
                  [
                    @selection_ledger_version,
@@ -1738,6 +1741,11 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
       refute column_exists?(repo, prefix, "episode_work_turns", "selection_ledger")
 
       configuration_id = insert_default_channel_configuration!(repo, prefix)
+
+      # Worker session evidence sits above these and holds nothing in this
+      # schema, so it rolls back on its own before the guarded ones below.
+      assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 1, prefix: prefix, log: false) ==
+               [@coop_session_evidence_version]
 
       assert_raise Postgrex.Error, ~r/default channel configurations have data/, fn ->
         Ecto.Migrator.run(repo, @migrations_path, :down, step: 1, prefix: prefix, log: false)
@@ -2027,6 +2035,53 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
                        log: false
                      )
                    end
+    after
+      SQL.query!(repo, "DROP SCHEMA IF EXISTS #{prefix} CASCADE", [])
+    end
+  end
+
+  test "recorded worker session evidence guards its own rollback" do
+    # The capture holds bodies nobody can rebuild -- the destinations a run was
+    # refused, the rules its policy admitted, the agent's own task note. A
+    # rollback that dropped the table would erase them silently, so it refuses
+    # while any row exists and only runs on a table that is genuinely empty.
+    repo = start_migration_repo!()
+    prefix = "coop_session_evidence_#{System.unique_integer([:positive])}"
+    SQL.query!(repo, "CREATE SCHEMA #{prefix}", [])
+
+    try do
+      Ecto.Migrator.run(repo, @migrations_path, :up, all: true, prefix: prefix, log: false)
+
+      assert table_exists?(repo, prefix, "coop_session_evidence")
+
+      session_id = insert_admission_session!(repo, prefix)
+      evidence_id = insert_session_evidence!(repo, prefix, session_id)
+
+      assert_raise Postgrex.Error, ~r/recorded Coop session evidence/, fn ->
+        Ecto.Migrator.run(repo, @migrations_path, :down, step: 1, prefix: prefix, log: false)
+      end
+
+      assert table_exists?(repo, prefix, "coop_session_evidence")
+
+      # The same state captured again is the same row, not a second one: the
+      # unique index holds at the schema level, not only in application code.
+      assert_raise Postgrex.Error, ~r/coop_session_evidence/, fn ->
+        insert_session_evidence!(repo, prefix, session_id)
+      end
+
+      SQL.query!(
+        repo,
+        "DELETE FROM #{prefix}.coop_session_evidence WHERE id = $1::text::uuid",
+        [evidence_id]
+      )
+
+      assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 1, prefix: prefix, log: false) ==
+               [@coop_session_evidence_version]
+
+      refute table_exists?(repo, prefix, "coop_session_evidence")
+
+      assert Ecto.Migrator.run(repo, @migrations_path, :up, all: true, prefix: prefix, log: false) ==
+               [@coop_session_evidence_version]
     after
       SQL.query!(repo, "DROP SCHEMA IF EXISTS #{prefix} CASCADE", [])
     end
@@ -2929,6 +2984,28 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
              )
 
     assert column_exists?(repo, prefix, "coop_workers", "policy_authority_digests")
+  end
+
+  defp insert_session_evidence!(repo, prefix, session_id) do
+    id = Ecto.UUID.generate()
+
+    SQL.query!(
+      repo,
+      """
+      INSERT INTO #{prefix}.coop_session_evidence (
+        id, session_id, episode_id, coop_session_id, worker_id, placement_generation,
+        evidence_version, content_fingerprint, document, session_revision, session_state,
+        network_mode, task_status, first_captured_at, last_captured_at, capture_count
+      ) VALUES (
+        $1::text::uuid, $2::text::uuid, NULL, 'remote_migration', 'worker-a', 1,
+        1, repeat('c', 64), '{"version":1}', 7, 'open', 'filtered', 'bound',
+        clock_timestamp(), clock_timestamp(), 1
+      )
+      """,
+      [id, session_id]
+    )
+
+    id
   end
 
   defp insert_admission_session!(repo, prefix) do
