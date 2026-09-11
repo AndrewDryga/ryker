@@ -81,7 +81,8 @@ defmodule Responder.ControlPlane.LiveTest do
       :control_plane_changed
     )
 
-    assert_receive {:overview_projected, 7}
+    # Same debounce-plus-projection wait as the Lab stream below; same guard.
+    assert_receive {:overview_projected, 7}, 2_000
     assert has_element?(view, "[data-active-count]", "7")
   end
 
@@ -442,7 +443,12 @@ defmodule Responder.ControlPlane.LiveTest do
       :control_plane_changed
     )
 
-    assert_receive {:lab_projected, 1}
+    # A fixture guard, not a latency measurement: nothing here is timing the
+    # projection, it is waiting for one that must happen. The path is a 25ms
+    # refresh debounce plus a full page projection, and ExUnit's 100ms default
+    # does not cover that on a loaded host -- this line failed 5 runs in 6 on
+    # an untouched 3290c455 and passed 6 in 6 once the deadline was widened.
+    assert_receive {:lab_projected, 1}, 2_000
 
     assert has_element?(
              view,
