@@ -1,7 +1,7 @@
 defmodule Responder.ControlPlane.RequestFilters do
   @moduledoc "Editable request criteria. Drafts change this view, never execution state."
   use Phoenix.Component
-  alias Responder.ControlPlane.{Components, SlackNames, UsageProjection}
+  alias Responder.ControlPlane.{Components, SlackNames, UsagePage, UsageProjection}
 
   @fields [
     {"state", "Request state",
@@ -254,5 +254,11 @@ defmodule Responder.ControlPlane.RequestFilters do
   defp choice_label("7d"), do: "Last 7 days"
   defp choice_label("30d"), do: "Last 30 days"
   defp choice_label("all"), do: "All time"
-  defp choice_label(value), do: Components.label(value)
+  # The filter must offer the same words the breakdown shows, or "Investigation"
+  # in the table and "Standard" in the dropdown look like two different things.
+  defp choice_label(value) do
+    if value in UsagePage.work_kinds(),
+      do: UsagePage.kind_name(value),
+      else: Components.label(value)
+  end
 end
