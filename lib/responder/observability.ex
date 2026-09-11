@@ -804,18 +804,35 @@ defmodule Responder.Observability do
 
   defp runtime_alive?({:named, name}), do: alive?(name)
 
+  # Durable settings moved the product children under the runtime owner's
+  # dynamic supervisor; only the owner and the repo stay directly under the
+  # application supervisor. Looking in one place reported every unnamed child
+  # as missing and held readiness red on a healthy installation.
   defp runtime_alive?({:supervised, child_id}) do
-    case Process.whereis(Responder.Supervisor) do
-      supervisor when is_pid(supervisor) ->
-        Supervisor.which_children(supervisor)
-        |> Enum.any?(fn
-          {^child_id, pid, _type, _modules} when is_pid(pid) -> Process.alive?(pid)
-          _other -> false
-        end)
+    Enum.any?([Responder.Runtime.Supervisor, Responder.Supervisor], fn supervisor ->
+      case Process.whereis(supervisor) do
+        pid when is_pid(pid) -> child_alive?(pid, child_id)
+        nil -> false
+      end
+    end)
+  end
 
-      nil ->
-        false
-    end
+  defp child_alive?(supervisor, child_id) do
+    supervisor
+    |> children_of()
+    |> Enum.any?(fn
+      {^child_id, pid, _type, _modules} when is_pid(pid) -> Process.alive?(pid)
+      {:undefined, pid, _type, modules} when is_pid(pid) -> child_id in List.wrap(modules)
+      _other -> false
+    end)
+  end
+
+  defp children_of(supervisor) do
+    Supervisor.which_children(supervisor)
+  rescue
+    _error -> []
+  catch
+    :exit, _reason -> []
   end
 
   defp alive?(name) do
