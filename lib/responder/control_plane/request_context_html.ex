@@ -148,15 +148,19 @@ defmodule Responder.ControlPlane.RequestContextHTML do
       path,
       artifact.text,
       {title, "policy", "Retained submission", "Sanitized for inspection; secrets are redacted."},
-      if(artifact.state == :retained,
-        do: PromptDocument.render(artifact),
-        else: ["<p>", state, ". No reconstructed substitute is shown.</p>"]
-      ),
+      case artifact.state do
+        :retained -> PromptDocument.render(artifact)
+        :collapsed -> ["<p>", state, ".</p>"]
+        _absent -> ["<p>", state, ". No reconstructed substitute is shown.</p>"]
+      end,
       false,
       prefix,
       state
     )
   end
+
+  defp artifact_availability(%{state: :collapsed}),
+    do: "The retained prompt loads when this disclosure is opened"
 
   defp artifact_availability(%{state: :expired}), do: "Expired"
   defp artifact_availability(%{state: :not_recorded}), do: "Not recorded"

@@ -23,29 +23,46 @@ defmodule Responder.ControlPlane.InspectionRedactor do
     original = if is_binary(value), do: value, else: CanonicalJSON.encode!(value)
     base = %{state: :retained, sha256: digest(original), bytes: byte_size(original)}
 
-    if byte_size(original) > @maximum_source_bytes do
-      Map.merge(base, %{
-        text: "Artifact exceeds the inspection safety bound.",
-        redacted: false,
-        truncated: true
-      })
-    else
-      secrets = Keyword.get_lazy(options, :secrets, &configured_secrets/0)
-      document = decode(value)
-      sanitized = sanitize(document, secrets, 0)
+    cond do
+      Keyword.get(options, :disclosed, true) == false ->
+        # Nobody has opened this body, so nothing sanitizes, re-encodes or
+        # renders it. Collapsing the rendered HTML alone still paid for every
+        # byte of every unopened artifact on every refresh.
+        Map.merge(base, %{
+          state: :collapsed,
+          text: nil,
+          redacted: false,
+          truncated: false
+        })
 
-      text =
-        cond do
-          options[:preserve_format] && sanitized == document && unique_keys?(original) -> original
-          is_binary(sanitized) -> sanitized
-          true -> Jason.encode!(sanitized, pretty: true)
-        end
+      byte_size(original) > @maximum_source_bytes ->
+        Map.merge(base, %{
+          text: "Artifact exceeds the inspection safety bound.",
+          redacted: false,
+          truncated: true
+        })
 
-      maximum = Keyword.get(options, :max_bytes, 512 * 1_024)
-      truncated = byte_size(text) > maximum
-      text = if truncated, do: utf8_prefix(text, maximum) <> "\n[display truncated]", else: text
-      Map.merge(base, %{text: text, redacted: sanitized != document, truncated: truncated})
+      true ->
+        disclosed_artifact(value, original, base, options)
     end
+  end
+
+  defp disclosed_artifact(value, original, base, options) do
+    secrets = Keyword.get_lazy(options, :secrets, &configured_secrets/0)
+    document = decode(value)
+    sanitized = sanitize(document, secrets, 0)
+
+    text =
+      cond do
+        options[:preserve_format] && sanitized == document && unique_keys?(original) -> original
+        is_binary(sanitized) -> sanitized
+        true -> Jason.encode!(sanitized, pretty: true)
+      end
+
+    maximum = Keyword.get(options, :max_bytes, 512 * 1_024)
+    truncated = byte_size(text) > maximum
+    text = if truncated, do: utf8_prefix(text, maximum) <> "\n[display truncated]", else: text
+    Map.merge(base, %{text: text, redacted: sanitized != document, truncated: truncated})
   end
 
   def configured_secrets do
