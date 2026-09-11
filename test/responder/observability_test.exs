@@ -6,13 +6,17 @@ defmodule Responder.ObservabilityTest do
   alias Responder.CoopFleet.{Client, ControlPlane, Worker}
   alias Responder.Episodes
   alias Responder.Fixtures.Episodes, as: EpisodeFixtures
+  alias Responder.Fixtures.Learning, as: LearningFixtures
   alias Responder.Ingress.Inbox
   alias Responder.Ingress.Inbox.Entry
+  alias Responder.Learning.FleetSession
   alias Responder.Observability
   alias Responder.Observability.Progress
   alias Responder.Repo
   alias Responder.Slack.Input, as: SlackInput
+  alias Responder.State.Learning
   alias Responder.Work.Custody
+  alias Responder.Work.Session
 
   @now ~U[2026-08-29 12:00:00.000000Z]
 
@@ -411,6 +415,116 @@ defmodule Responder.ObservabilityTest do
              Observability.ready(check_runtimes: true, stall_after_seconds: 86_400)
 
     assert readiness.missing_runtimes == []
+  end
+
+  test "retention readiness ages cleanup from eligibility and sees every custody owner" do
+    # Production /readyz returned 503 while cleanup was healthy: the queue aged
+    # from session insertion, so four minutes of conversation plus the intentional
+    # fifteen-minute grace read as a stall the moment the session became eligible.
+    # Learning sessions were invisible to the same queue, so their backlog could
+    # never be seen at all.
+    session = terminal_work_session!("eligible-age")
+    now = database_now!()
+
+    # Structural fixture: freeze the exact durable cleanup timestamps the defect
+    # confuses. The session was created two hours ago, closed sixteen minutes ago
+    # and became eligible sixty seconds ago when its grace expired.
+    Repo.update_all(
+      from(row in Session, where: row.id == ^session.id),
+      set: [
+        cleanup_status: :grace,
+        closed_at: DateTime.add(now, -16 * 60, :second),
+        discard_after: DateTime.add(now, -60, :second),
+        inserted_at: DateTime.add(now, -7_200, :second),
+        updated_at: DateTime.add(now, -16 * 60, :second)
+      ]
+    )
+
+    learning = stopped_learning_session!()
+
+    assert {:ok, snapshot} = Observability.snapshot(86_400)
+    retention = Enum.find(snapshot.queues, &(&1.name == :retention))
+
+    assert retention.claimable == 2,
+           "retention readiness must count both the work and learning sessions custody can claim"
+
+    assert retention.oldest_age_seconds <= 120,
+           "eligible age must be measured from grace expiry, not session creation"
+
+    assert {:error, _readiness} =
+             Observability.ready(
+               check_progress: false,
+               check_runtimes: false,
+               stall_after_seconds: 30
+             )
+
+    # The same fixtures are exactly what retention custody claims next.
+    assert {:ok, %{session: %{id: claimed}}} =
+             Responder.Retention.Custody.claim_next("observability-retention", 60, 900)
+
+    assert claimed in [session.id, learning.id]
+  end
+
+  defp terminal_work_session!(suffix) do
+    id = Ecto.UUID.generate()
+    key = "observability-retention:#{suffix}:#{id}"
+    turn_ref = "turn:#{suffix}:#{id}"
+
+    assert {:ok, _transition} =
+             Episodes.apply(
+               EpisodeFixtures.admit_input(%{
+                 episode_id: id,
+                 episode_key: key,
+                 native_input_id: "source:#{suffix}:#{id}",
+                 occurred_at: @now,
+                 turn_ref: turn_ref
+               })
+             )
+
+    assert {:ok, session} =
+             Custody.pin_episode(id, "work-read-only", String.duplicate("a", 64), "responder")
+
+    assert {:ok, _transition} =
+             Episodes.apply(
+               EpisodeFixtures.cancel_episode(%{
+                 cancel_ref: "cancel:#{suffix}:#{id}",
+                 episode_key: key,
+                 expected_owner: %{kind: :turn, ref: turn_ref},
+                 occurred_at: DateTime.add(@now, 1, :second)
+               })
+             )
+
+    session
+    |> Ecto.Changeset.change(coop_session_id: "remote:#{suffix}:#{id}")
+    |> Repo.update!()
+  end
+
+  defp stopped_learning_session! do
+    entries = LearningFixtures.inputs!()
+
+    assert {:ok, run} =
+             Learning.prepare(Enum.map(entries, & &1.id), %{
+               policy: "recorded-read-only-policy",
+               policy_digest: String.duplicate("a", 64)
+             })
+
+    assert {:ok, _session} = FleetSession.ensure(run)
+    assert {:ok, session} = FleetSession.bind(run, "remote-learning:#{run.id}")
+
+    # Structural fixture: the durable remote stop proof retention custody requires.
+    run
+    |> Ecto.Changeset.change(
+      remote_stopped_at: database_now!(),
+      stop_receipt: %{"kind" => "stopped", "session_id" => session.coop_session_id}
+    )
+    |> Repo.update!()
+
+    session
+  end
+
+  defp database_now! do
+    %{rows: [[%DateTime{} = now]]} = Repo.query!("SELECT clock_timestamp()")
+    now
   end
 
   defp slack_input(content) do

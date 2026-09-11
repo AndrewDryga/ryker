@@ -3,36 +3,70 @@ defmodule Responder.FakeRetentionCoopAPI do
 
   use Agent
 
+  @default_workspace %{
+    "branch" => "coop/session",
+    "dirty" => false,
+    "head" => String.duplicate("a", 40),
+    "running" => false,
+    "status_digest" => String.duplicate("b", 64),
+    "unmerged" => false
+  }
+
   def start_link(options) do
-    session = Keyword.fetch!(options, :session)
+    sessions = Keyword.fetch!(options, :sessions)
+    default_workspace = Keyword.get(options, :workspace, @default_workspace)
 
     Agent.start_link(fn ->
       %{
         calls: [],
+        default_workspace: default_workspace,
         fail_first: MapSet.new(Keyword.get(options, :fail_first, [])),
         failed: MapSet.new(),
+        offline: Keyword.get(options, :offline, false),
+        offline_sessions: MapSet.new(Keyword.get(options, :offline_sessions, [])),
         operations: %{},
-        session: session,
-        workspace:
-          Keyword.get(options, :workspace, %{
-            "branch" => "coop/session",
-            "dirty" => false,
-            "head" => String.duplicate("a", 40),
-            "running" => false,
-            "status_digest" => String.duplicate("b", 64),
-            "unmerged" => false
-          })
+        sessions: Map.new(sessions, &{&1["id"], &1}),
+        workspaces: Keyword.get(options, :workspaces, %{})
       }
     end)
   end
 
   def calls(agent), do: Agent.get(agent, &Enum.reverse(&1.calls))
-  def session(agent), do: Agent.get(agent, & &1.session)
+
+  def clear_calls(agent), do: Agent.update(agent, &%{&1 | calls: []})
+
+  def remote_session(agent, session_id), do: Agent.get(agent, & &1.sessions[session_id])
+
+  @doc "Simulate a worker outage: every call fails as an unreachable transport."
+  def set_offline(agent, offline?) when is_boolean(offline?),
+    do: Agent.update(agent, &%{&1 | offline: offline?})
+
+  @doc "Replace the workspace one session reports, so retained work can become clean."
+  def set_workspace(agent, session_id, workspace) do
+    Agent.update(agent, &put_in(&1, [:workspaces, session_id], workspace))
+  end
+
+  def add_session(agent, session, workspace \\ nil) do
+    Agent.update(agent, fn state ->
+      state = put_in(state, [:sessions, session["id"]], session)
+
+      if workspace,
+        do: put_in(state, [:workspaces, session["id"]], workspace),
+        else: state
+    end)
+  end
 
   def get_session(agent, session_id) do
     Agent.get_and_update(agent, fn state ->
       call = {:get_session, session_id}
-      response = if state.session["id"] == session_id, do: {:ok, state.session}, else: not_found()
+
+      response =
+        cond do
+          unreachable?(state, session_id) -> offline()
+          state.sessions[session_id] -> {:ok, state.sessions[session_id]}
+          true -> not_found()
+        end
+
       {response, %{state | calls: [call | state.calls]}}
     end)
   end
@@ -41,10 +75,10 @@ defmodule Responder.FakeRetentionCoopAPI do
     body = %{"expected_revision" => revision, "session_id" => session_id}
 
     mutation(agent, :close, key, body, fn state ->
-      session = state.session
+      session = state.sessions[session_id]
 
       cond do
-        session["id"] != session_id ->
+        is_nil(session) ->
           {not_found(), state}
 
         session["revision"] != revision ->
@@ -61,7 +95,7 @@ defmodule Responder.FakeRetentionCoopAPI do
             "session" => closed
           }
 
-          {{:ok, response}, %{state | session: closed}}
+          {{:ok, response}, put_in(state, [:sessions, session_id], closed)}
       end
     end)
   end
@@ -75,10 +109,10 @@ defmodule Responder.FakeRetentionCoopAPI do
     }
 
     mutation(agent, :plan, key, body, fn state ->
-      session = state.session
+      session = state.sessions[session_id]
 
       cond do
-        session["id"] != session_id ->
+        is_nil(session) ->
           {not_found(), state}
 
         session["revision"] != revision ->
@@ -89,14 +123,12 @@ defmodule Responder.FakeRetentionCoopAPI do
 
         true ->
           operation_id = "op_plan_#{key}"
+          reported = Map.get(state.workspaces, session_id, state.default_workspace)
 
           workspace =
-            state.workspace
-            |> Map.put("accepted_dirty", state.workspace["dirty"] and accept_dirty)
-            |> Map.put(
-              "accepted_unmerged",
-              state.workspace["unmerged"] and accept_unmerged
-            )
+            reported
+            |> Map.put("accepted_dirty", reported["dirty"] and accept_dirty)
+            |> Map.put("accepted_unmerged", reported["unmerged"] and accept_unmerged)
 
           response = %{
             "operation" => operation(operation_id, "PlanDiscard", "discard_plan", session_id),
@@ -119,10 +151,10 @@ defmodule Responder.FakeRetentionCoopAPI do
     body = %{"plan_operation_id" => plan_operation_id, "session_id" => session_id}
 
     mutation(agent, :discard, key, body, fn state ->
-      session = state.session
+      session = state.sessions[session_id]
 
       cond do
-        session["id"] != session_id ->
+        is_nil(session) ->
           {not_found(), state}
 
         session["state"] != "closed" ->
@@ -149,7 +181,7 @@ defmodule Responder.FakeRetentionCoopAPI do
             "session" => discarded
           }
 
-          {{:ok, response}, %{state | session: discarded}}
+          {{:ok, response}, put_in(state, [:sessions, session_id], discarded)}
       end
     end)
   end
@@ -159,15 +191,18 @@ defmodule Responder.FakeRetentionCoopAPI do
       call = {phase, key, body}
 
       {response, state} =
-        case state.operations[key] do
-          %{body: ^body, phase: ^phase, response: response} ->
-            {response, state}
+        cond do
+          unreachable?(state, body["session_id"]) ->
+            {offline(), state}
 
-          nil ->
+          match?(%{body: ^body, phase: ^phase}, state.operations[key]) ->
+            {state.operations[key].response, state}
+
+          is_nil(state.operations[key]) ->
             {response, state} = callback.(state)
             {response, store_successful_operation(state, key, phase, body, response)}
 
-          _different ->
+          true ->
             {{:error, {:coop_error, 409, "idempotency_conflict", "body changed"}}, state}
         end
 
@@ -181,6 +216,9 @@ defmodule Responder.FakeRetentionCoopAPI do
       {response, %{state | calls: [call | state.calls], failed: failed}}
     end)
   end
+
+  defp unreachable?(state, session_id),
+    do: state.offline or MapSet.member?(state.offline_sessions, session_id)
 
   defp store_successful_operation(state, key, phase, body, {:ok, _} = response) do
     put_in(state, [:operations, key], %{body: body, phase: phase, response: response})
@@ -207,6 +245,8 @@ defmodule Responder.FakeRetentionCoopAPI do
   end
 
   defp not_found, do: {:error, {:coop_error, 404, "not_found", "resource not found"}}
+
+  defp offline, do: {:error, {:coop_transport_error, :worker_unreachable}}
 
   defp revision_conflict,
     do: {:error, {:coop_error, 409, "revision_conflict", "revision changed"}}

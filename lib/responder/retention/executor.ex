@@ -159,12 +159,12 @@ defmodule Responder.Retention.Executor do
              session.discard_plan_accept_unmerged
            )
          end) do
-      {:ok, response} -> handle_plan_response(response, session, lease_ref)
+      {:ok, response} -> handle_plan_response(response, session, lease_ref, settings)
       {:error, reason} -> handle_plan_error(reason, session, lease_ref)
     end
   end
 
-  defp handle_plan_response(response, session, lease_ref) do
+  defp handle_plan_response(response, session, lease_ref, settings) do
     result =
       with {:ok, plan} <-
              Plan.prepare(
@@ -173,7 +173,13 @@ defmodule Responder.Retention.Executor do
                session.discard_plan_expected_revision,
                session.discard_plan_accept_unmerged
              ),
-           {:ok, stored} <- Custody.store_plan(session.id, lease_ref, plan) do
+           {:ok, stored} <-
+             Custody.store_plan(
+               session.id,
+               lease_ref,
+               plan,
+               settings.retained_recheck_seconds
+             ) do
         phase = if stored.cleanup_status == :retained, do: :retained, else: :planned
         {:ok, %{phase: phase, session: stored}}
       end
@@ -343,17 +349,20 @@ defmodule Responder.Retention.Executor do
   end
 
   defp settings(%{} = options) do
-    allowed = [:api, :client, :closed_session_grace_seconds]
+    allowed = [:api, :client, :closed_session_grace_seconds, :retained_recheck_seconds]
 
     if Map.keys(options) -- allowed == [] and Map.has_key?(options, :client) do
       settings = %{
         api: Map.get(options, :api, Responder.Coop.Client),
         client: options.client,
-        closed_session_grace_seconds: Map.get(options, :closed_session_grace_seconds, 900)
+        closed_session_grace_seconds: Map.get(options, :closed_session_grace_seconds, 900),
+        retained_recheck_seconds: Map.get(options, :retained_recheck_seconds, 21_600)
       }
 
       if is_atom(settings.api) and is_integer(settings.closed_session_grace_seconds) and
-           settings.closed_session_grace_seconds >= 0,
+           settings.closed_session_grace_seconds >= 0 and
+           is_integer(settings.retained_recheck_seconds) and
+           settings.retained_recheck_seconds > 0,
          do: {:ok, settings},
          else: {:error, {:invalid_retention_executor, :options}}
     else

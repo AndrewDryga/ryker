@@ -26,6 +26,40 @@ defmodule Responder.Retention.CustodyTest do
     assert Repo.get!(Session, active.id).cleanup_status == :active
   end
 
+  test "a restarted cleanup host releases the leases it can no longer own" do
+    # After a restart the host still appeared to hold its own cleanup leases, so
+    # every claimed item waited out the full lease clock before anyone retried it.
+    mine = terminal_session!("restart-mine")
+    theirs = terminal_session!("restart-theirs")
+
+    assert {:ok, first} = Custody.claim_next("cleanup:host-a", 3_600, 0)
+    assert {:ok, second} = Custody.claim_next("cleanup:host-b", 3_600, 0)
+    claimed = MapSet.new([first.session.id, second.session.id])
+    assert claimed == MapSet.new([mine.id, theirs.id])
+
+    {mine, theirs} =
+      if first.session.cleanup_lease_owner == "cleanup:host-a",
+        do: {first.session, second.session},
+        else: {second.session, first.session}
+
+    assert {:ok, 1} = Custody.release_worker_leases("cleanup:host-a")
+
+    released = Repo.get!(Session, mine.id)
+    assert is_nil(released.cleanup_lease_ref)
+    assert is_nil(released.cleanup_lease_owner)
+    assert is_nil(released.cleanup_lease_expires_at)
+    assert released.cleanup_status == :close_pending
+
+    held = Repo.get!(Session, theirs.id)
+    assert held.cleanup_lease_owner == "cleanup:host-b"
+
+    assert {:ok, reclaimed} = Custody.claim_next("cleanup:host-a", 60, 0)
+    assert reclaimed.session.id == mine.id
+
+    assert Custody.release_worker_leases(<<0>>) ==
+             {:error, {:invalid_retention_custody, :reference}}
+  end
+
   test "close and discard phases freeze exact revisions and survive lease turnover" do
     session = terminal_session!("lifecycle")
     assert {:ok, claim} = Responder.Retention.Custody.claim_next("cleanup:a", 60, 0)
@@ -92,7 +126,7 @@ defmodule Responder.Retention.CustodyTest do
     assert {:ok, prepared} = Plan.prepare(plan, session.coop_session_id, 8, false)
 
     assert {:ok, pending} =
-             Custody.store_plan(session.id, plan_claim.lease_ref, prepared)
+             Custody.store_plan(session.id, plan_claim.lease_ref, prepared, 21_600)
 
     assert pending.cleanup_status == :discard_pending
     assert pending.discard_plan_operation_id == "op_plan"
@@ -165,7 +199,7 @@ defmodule Responder.Retention.CustodyTest do
              Custody.freeze_close_revision(Ecto.UUID.generate(), "lease", 0)
 
     assert {:error, {:invalid_retention_custody, :plan}} =
-             Custody.store_plan(Ecto.UUID.generate(), "lease", nil)
+             Custody.store_plan(Ecto.UUID.generate(), "lease", nil, 21_600)
   end
 
   test "dirty and unpublished unmerged plans are durably retained" do
@@ -194,7 +228,12 @@ defmodule Responder.Retention.CustodyTest do
       assert {:ok, plan} = Plan.prepare(response, session.coop_session_id, 8, false)
 
       assert {:ok, retained} =
-               Responder.Retention.Custody.store_plan(session.id, plan_claim.lease_ref, plan)
+               Responder.Retention.Custody.store_plan(
+                 session.id,
+                 plan_claim.lease_ref,
+                 plan,
+                 21_600
+               )
 
       assert retained.cleanup_status == :retained
       assert retained.retained_reason == reason
@@ -472,7 +511,7 @@ defmodule Responder.Retention.CustodyTest do
 
     response = discard_plan(session.coop_session_id, 8, dirty, unmerged)
     assert {:ok, plan} = Plan.prepare(response, session.coop_session_id, 8, false)
-    assert {:ok, retained} = Custody.store_plan(session.id, plan_claim.lease_ref, plan)
+    assert {:ok, retained} = Custody.store_plan(session.id, plan_claim.lease_ref, plan, 21_600)
     retained
   end
 

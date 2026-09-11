@@ -438,6 +438,52 @@ does not remove previously imported work or memory.
 Inspect retention failures in the control plane before retrying. A failed close
 or prune remains durable work; do not bypass it with direct deletes.
 
+### Cleanup throughput and recovery
+
+One cleanup pass runs per `poll_interval_ms`, advances at most `batch_limit`
+phases, advances any one session at most once, and stops after `batch_seconds`
+so a pass always fits inside its own poll. A worker that proves unreachable
+during a pass stops being claimed for the rest of that pass, so one offline
+worker cannot spend the budget the healthy ones need.
+
+Queue age for cleanup is measured from eligibility — the durable time a session
+became claimable, which for a normally completed session is its close time plus
+`closed_session_grace_seconds`. Conversation time and the intentional grace
+period are not stall. The readiness queue and the claim query are the same
+query, so Work and learning backlogs are always counted the same way.
+
+Outage-class failures (unreachable transport, worker capacity, 429, 5xx) retry
+indefinitely with bounded backoff up to `retry_max_seconds`; they never consume
+`max_attempts` and never become blocked, because an outage is not a verdict
+about the session. Identity and authority failures still block and stay visible
+for operator rearm. A successful phase resets the attempt count. On restart the
+host releases the cleanup leases it wrote before the restart instead of waiting
+out the lease clock, and a worker heartbeat that arrives after a failed attempt
+makes that session's cleanup due again without waiting out the backoff.
+
+A workspace retained because it is dirty is replanned every
+`retained_recheck_seconds`, so work the user later committed or removed is
+reclaimed automatically. Nothing about age or disk pressure ever authorizes
+discarding dirty or unpublished work.
+
+### Storage budget and allocation pressure
+
+`disposable_bytes_limit`, `reclaim_target_seconds`,
+`storage_high_watermark_bytes`, `storage_low_watermark_bytes` and
+`storage_reserve_bytes` are the documented per-worker storage policy. Watermarks
+must be ordered and the reserve must be smaller than the high watermark;
+configuration outside those bounds fails at startup.
+
+Workers report their own measured storage in every poll. Responder never
+estimates it: a worker that reports no `storage` object is unknown, not zero,
+and its measurements are labelled stale once its heartbeat goes stale. When a
+worker reports `allocation: refused`, Responder stops placing new
+fork-requiring sessions on it and says why; cleanup, control, and recovery of
+work already on that worker continue. Recovery follows the worker's own
+reported return to `open`, so there is no second hysteresis to oscillate
+against. This bounds workspace allocation; it does not bound arbitrary writes
+made by an already running task inside its own fork.
+
 ## Release verification
 
 Download the archive, signed checksum manifest, bundle, and all executable

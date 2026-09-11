@@ -545,3 +545,23 @@ incident rooms, and unresolved state records pin that history regardless of age.
 delivery receipts remain until `audit_data_seconds`. Pruning runs in bounded batches and short
 transactions so retention cannot monopolize a busy database. Every table has an executable retention
 class, and every age/lease comparison uses PostgreSQL time.
+
+One cleanup pass claims repeatedly under a bounded budget: at most `batch_limit` phases, at most
+`batch_seconds` of wall time, and at most one phase per session. Candidates are ordered by
+eligibility, the durable time the session became claimable — the owner's terminal time before
+close, `discard_after` after it, and the publication time for work retained as unpublished and
+unmerged. `Responder.Retention.Custody.eligible_query/1` is the single definition of that set;
+readiness and the operator preview read it rather than restating it, so a Work or learning backlog
+can never be counted differently by the surface that reports it.
+
+A pass stops claiming work for any worker that has already proved unreachable inside it. Outage
+failures retry with bounded backoff forever and never exhaust `max_attempts`; a restart releases
+the host's own leases, and a worker heartbeat newer than the failed attempt cancels its backoff.
+A dirty retained workspace is replanned every `retained_recheck_seconds` from fresh Coop evidence.
+
+Each worker poll may carry a strictly validated `storage` object: measured capacity, free, reserve,
+watermarks, inactive disposable bytes, protected bytes, optional unattributed bytes, and the
+worker's own `open`/`refused` allocation decision. It is optional; absent means unknown, never
+zero. Responder stores the last report, counts the decrease in reported disposable bytes as
+measured reclamation, and refuses to place new fork-requiring sessions on a worker that reports
+`refused` while leaving cleanup, control, and existing-work recovery on that worker alone.

@@ -13,6 +13,8 @@ defmodule Responder.Retention.Custody do
   import Ecto.Query
 
   alias Responder.CanonicalJSON
+  alias Responder.CoopFleet.Placement
+  alias Responder.CoopFleet.Worker, as: FleetWorker
   alias Responder.Episodes.Episode
   alias Responder.Publication.Publication
   alias Responder.Repo
@@ -24,23 +26,122 @@ defmodule Responder.Retention.Custody do
   @terminal_episode_states [:complete, :cancelled]
   @unfinished_turn_statuses [:pending, :cancel_pending, :delivery_pending]
 
+  # The durable moment a session became claimable for cleanup, by phase. Ageing
+  # from insertion counted conversation time and the intentional grace period as
+  # stall; ageing from the last claim would hide a real backlog instead.
+  defmacrop eligible_at(session, episode, learning) do
+    quote do
+      fragment(
+        """
+        CASE
+          WHEN ? IN ('active', 'close_pending') THEN COALESCE(?, ?, ?)
+          WHEN ? = 'grace' THEN COALESCE(?, ?)
+          WHEN ? IN ('plan_pending', 'discard_pending') THEN COALESCE(?, ?)
+          WHEN ? = 'retained' THEN COALESCE(
+            (SELECT max(published.published_at) FROM episode_publications AS published
+              WHERE published.session_id = ? AND published.status = 'published'),
+            ?,
+            ?
+          )
+          ELSE ?
+        END
+        """,
+        unquote(session).cleanup_status,
+        unquote(learning).remote_stopped_at,
+        unquote(episode).updated_at,
+        unquote(session).updated_at,
+        unquote(session).cleanup_status,
+        unquote(session).discard_after,
+        unquote(session).updated_at,
+        unquote(session).cleanup_status,
+        unquote(session).discard_after,
+        unquote(session).updated_at,
+        unquote(session).cleanup_status,
+        unquote(session).id,
+        unquote(session).cleanup_next_attempt_at,
+        unquote(session).updated_at,
+        unquote(session).updated_at
+      )
+    end
+  end
+
   @type claim :: %{
           owner: Episode.t() | LearningRun.t(),
           lease_ref: String.t(),
-          session: Session.t()
+          session: Session.t(),
+          worker_id: String.t() | nil
         }
 
-  @spec claim_next(String.t(), pos_integer(), non_neg_integer()) ::
+  @spec claim_next(String.t(), pos_integer(), non_neg_integer(), keyword()) ::
           {:ok, claim() | nil} | {:error, term()}
-  def claim_next(worker_ref, lease_seconds, closed_session_grace_seconds) do
+  def claim_next(worker_ref, lease_seconds, closed_session_grace_seconds, exclude \\ []) do
     with :ok <- reference(worker_ref, :worker_ref),
          :ok <- positive_integer(lease_seconds, :lease_seconds),
-         :ok <- nonnegative_integer(closed_session_grace_seconds, :closed_session_grace_seconds) do
+         :ok <- nonnegative_integer(closed_session_grace_seconds, :closed_session_grace_seconds),
+         {:ok, exclude} <- exclusions(exclude) do
       Repo.transaction(fn ->
-        claim_locked(worker_ref, lease_seconds, closed_session_grace_seconds)
+        claim_locked(worker_ref, lease_seconds, closed_session_grace_seconds, exclude)
       end)
       |> transaction_result()
     end
+  end
+
+  @doc """
+  Every session cleanup custody may claim, before the lease split.
+
+  Operator and readiness projections share this query so a Work or learning
+  backlog can never be invisible to the surface that reports it.
+  """
+  @spec eligible_query(DateTime.t()) :: Ecto.Query.t()
+  def eligible_query(%DateTime{} = now) do
+    unfinished_session_ids = unfinished_session_ids()
+    unpublished_session_ids = unpublished_session_ids()
+
+    from(session in Session,
+      as: :session,
+      left_join: episode in Episode,
+      as: :episode,
+      on: episode.id == session.episode_id,
+      left_join: learning in LearningRun,
+      as: :learning,
+      on: learning.id == session.learning_run_id,
+      where:
+        (session.execution_kind == :work and episode.state in ^@terminal_episode_states) or
+          (session.execution_kind == :learning and not is_nil(learning.remote_stopped_at)),
+      where: session.id not in subquery(unfinished_session_ids),
+      where: session.id not in subquery(unpublished_session_ids),
+      where: ^cleanup_status_filter(now)
+    )
+  end
+
+  @doc "Eligible sessions no other worker currently holds a live cleanup lease on."
+  @spec claimable_query(DateTime.t()) :: Ecto.Query.t()
+  def claimable_query(%DateTime{} = now) do
+    from([session: session] in eligible_query(now),
+      where: is_nil(session.cleanup_lease_ref) or session.cleanup_lease_expires_at <= ^now
+    )
+  end
+
+  @doc "The oldest eligibility time in an `eligible_query/1` derived query, or nil."
+  @spec oldest_eligible_at(Ecto.Query.t()) :: DateTime.t() | NaiveDateTime.t() | nil
+  def oldest_eligible_at(query) do
+    Repo.one(
+      from([session: session, episode: episode, learning: learning] in query,
+        select: min(eligible_at(session, episode, learning))
+      )
+    )
+  end
+
+  @doc "Oldest-eligible-first sessions with their eligibility time, for read-only preview."
+  @spec eligible_preview(DateTime.t(), pos_integer()) :: [{Session.t(), DateTime.t()}]
+  def eligible_preview(%DateTime{} = now, limit) when is_integer(limit) and limit > 0 do
+    Repo.all(
+      from([session: session, episode: episode, learning: learning] in claimable_query(now),
+        select: {session, eligible_at(session, episode, learning)},
+        order_by: [asc: eligible_at(session, episode, learning), asc: session.id],
+        limit: ^limit
+      )
+    )
   end
 
   @spec freeze_close_revision(Ecto.UUID.t(), String.t(), pos_integer()) ::
@@ -65,6 +166,7 @@ defmodule Responder.Retention.Custody do
         closed_at = session.closed_at || now
 
         persist(session, %{
+          cleanup_attempt_count: 0,
           cleanup_last_error_code: nil,
           cleanup_last_error_detail: nil,
           cleanup_lease_expires_at: nil,
@@ -92,14 +194,15 @@ defmodule Responder.Retention.Custody do
     end
   end
 
-  @spec store_plan(Ecto.UUID.t(), String.t(), map()) ::
+  @spec store_plan(Ecto.UUID.t(), String.t(), map(), pos_integer()) ::
           {:ok, Session.t()} | {:error, term()}
-  def store_plan(session_id, lease_ref, plan) do
+  def store_plan(session_id, lease_ref, plan, retained_recheck_seconds) do
     with {:ok, session_id} <- uuid(session_id, :session_id),
          :ok <- reference(lease_ref, :lease_ref),
+         :ok <- positive_integer(retained_recheck_seconds, :retained_recheck_seconds),
          true <- is_map(plan) or {:error, {:invalid_retention_custody, :plan}} do
-      update_leased(session_id, lease_ref, :plan_pending, fn session, _now ->
-        store_plan_locked(session, plan)
+      update_leased(session_id, lease_ref, :plan_pending, fn session, now ->
+        store_plan_locked(session, plan, now, retained_recheck_seconds)
       end)
     else
       {:error, _reason} = error -> error
@@ -223,6 +326,73 @@ defmodule Responder.Retention.Custody do
   def discard_key(%Session{} = session),
     do: "responder:retention:discard:#{session.id}:g#{session.discard_generation}"
 
+  @doc """
+  Drop cleanup leases this dispatcher identity still owns after a restart.
+
+  A restarted host holds no lease it wrote before the restart, so waiting for
+  the lease to expire only delays the exact same work.
+  """
+  @spec release_worker_leases(String.t()) :: {:ok, non_neg_integer()} | {:error, term()}
+  def release_worker_leases(worker_ref) do
+    with :ok <- reference(worker_ref, :worker_ref) do
+      {released, nil} =
+        Repo.update_all(
+          from(session in Session,
+            where:
+              session.cleanup_lease_owner == ^worker_ref and
+                not is_nil(session.cleanup_lease_ref) and
+                session.cleanup_status in ^@pending_statuses
+          ),
+          set: [cleanup_lease_expires_at: nil, cleanup_lease_owner: nil, cleanup_lease_ref: nil]
+        )
+
+      {:ok, released}
+    end
+  end
+
+  @doc """
+  Make cleanup deferred by an outage due again once its own worker reconnects.
+
+  A heartbeat that arrived after the failed attempt is fresh evidence that the
+  exact deferred call is worth retrying now, instead of waiting out a backoff
+  that was chosen while the worker was unreachable.
+  """
+  @spec reconsider_reconnected_workers([String.t()], pos_integer()) ::
+          {:ok, non_neg_integer()} | {:error, term()}
+  def reconsider_reconnected_workers(error_codes, stale_seconds)
+      when is_list(error_codes) and is_integer(stale_seconds) and stale_seconds > 0 do
+    if Enum.all?(error_codes, &(bounded_text(&1, 128, :error_code) == :ok)) do
+      reconnected =
+        from(placement in Placement,
+          join: worker in FleetWorker,
+          on: worker.id == placement.worker_id,
+          where: placement.session_id == parent_as(:session).id,
+          where: worker.last_seen_at > parent_as(:session).updated_at,
+          where: worker.last_seen_at >= ago(^stale_seconds, "second"),
+          select: 1
+        )
+
+      {reconsidered, nil} =
+        Repo.update_all(
+          from(session in Session,
+            as: :session,
+            where: session.cleanup_status in ^@pending_statuses,
+            where: not is_nil(session.cleanup_next_attempt_at),
+            where: session.cleanup_last_error_code in ^error_codes,
+            where: exists(subquery(reconnected))
+          ),
+          set: [cleanup_next_attempt_at: nil]
+        )
+
+      {:ok, reconsidered}
+    else
+      {:error, {:invalid_retention_custody, :error_codes}}
+    end
+  end
+
+  def reconsider_reconnected_workers(_error_codes, _stale_seconds),
+    do: {:error, {:invalid_retention_custody, :error_codes}}
+
   @spec published?(Session.t()) :: boolean()
   def published?(%Session{} = session) do
     Repo.exists?(
@@ -237,14 +407,14 @@ defmodule Responder.Retention.Custody do
       )
   end
 
-  defp claim_locked(worker_ref, lease_seconds, grace_seconds) do
+  defp claim_locked(worker_ref, lease_seconds, grace_seconds, exclude) do
     now = database_now!()
 
-    case candidate(now) do
+    case candidate(now, exclude) do
       nil ->
         nil
 
-      {kind, owner_id, session_id} ->
+      {kind, owner_id, session_id, placed_worker_id} ->
         with owner when not is_nil(owner) <- lock_owner(kind, owner_id, :skip_locked),
              %Session{} = session <- lock_session(session_id),
              true <- claimable?(owner, session, now) do
@@ -262,43 +432,56 @@ defmodule Responder.Retention.Custody do
               cleanup_next_attempt_at: nil
             })
 
-          %{owner: owner, lease_ref: lease_ref, session: claimed}
+          %{
+            owner: owner,
+            lease_ref: lease_ref,
+            session: claimed,
+            worker_id: placed_worker_id
+          }
         else
           _not_claimable -> nil
         end
     end
   end
 
-  defp candidate(now) do
+  defp candidate(now, exclude) do
     now
-    |> candidate_query()
+    |> candidate_query(exclude)
     |> Repo.one()
   end
 
-  defp candidate_query(now) do
-    unfinished_session_ids = unfinished_session_ids()
-    unpublished_session_ids = unpublished_session_ids()
-    cleanup_status = cleanup_status_filter(now)
-
-    from(session in Session,
-      left_join: episode in Episode,
-      on: episode.id == session.episode_id,
-      left_join: learning in LearningRun,
-      on: learning.id == session.learning_run_id,
-      where:
-        (session.execution_kind == :work and episode.state in ^@terminal_episode_states) or
-          (session.execution_kind == :learning and not is_nil(learning.remote_stopped_at)),
-      where: session.id not in subquery(unfinished_session_ids),
-      where: session.id not in subquery(unpublished_session_ids),
-      where: ^cleanup_status,
-      order_by: [asc: session.inserted_at, asc: session.id],
+  defp candidate_query(now, exclude) do
+    from(
+      [session: session, episode: episode, learning: learning, placement: placement] in placed_query(
+        now
+      ),
+      where: session.id not in ^exclude.session_ids,
+      where: is_nil(placement.worker_id) or placement.worker_id not in ^exclude.worker_ids,
+      order_by: [asc: eligible_at(session, episode, learning), asc: session.id],
       select:
         {session.execution_kind,
          type(
            fragment("COALESCE(?, ?)", session.episode_id, session.learning_run_id),
            :binary_id
-         ), session.id},
+         ), session.id, placement.worker_id},
       limit: 1
+    )
+  end
+
+  # Cleanup runs on the worker that still owns the fork, so fair draining needs
+  # that identity before the claim, not after the call has already failed.
+  defp placed_query(now) do
+    current =
+      from(placement in Placement,
+        distinct: [asc: placement.session_id],
+        order_by: [asc: placement.session_id, desc: placement.generation],
+        select: %{session_id: placement.session_id, worker_id: placement.worker_id}
+      )
+
+    from([session: session] in claimable_query(now),
+      left_join: placement in subquery(current),
+      as: :placement,
+      on: placement.session_id == session.id
     )
   end
 
@@ -318,10 +501,10 @@ defmodule Responder.Retention.Custody do
 
   defp cleanup_status_filter(now) do
     pending = pending_status_filter(now)
-    retained = retained_status_filter()
+    retained = retained_status_filter(now)
 
     dynamic(
-      [session, _episode],
+      [session: session],
       session.cleanup_status == :active or ^pending or
         (session.cleanup_status == :grace and session.discard_after <= ^now) or ^retained
     )
@@ -329,14 +512,16 @@ defmodule Responder.Retention.Custody do
 
   defp pending_status_filter(now) do
     dynamic(
-      [session, _episode],
+      [session: session],
       session.cleanup_status in ^@pending_statuses and
-        (is_nil(session.cleanup_next_attempt_at) or session.cleanup_next_attempt_at <= ^now) and
-        (is_nil(session.cleanup_lease_ref) or session.cleanup_lease_expires_at <= ^now)
+        (is_nil(session.cleanup_next_attempt_at) or session.cleanup_next_attempt_at <= ^now)
     )
   end
 
-  defp retained_status_filter do
+  # Retained work is reconsidered from fresh evidence, never from a manual edit:
+  # an unmerged workspace once its publication is durable, and a dirty workspace
+  # when its scheduled recheck falls due.
+  defp retained_status_filter(now) do
     published_session_ids =
       from(publication in Publication,
         where: publication.status == :published,
@@ -344,10 +529,13 @@ defmodule Responder.Retention.Custody do
       )
 
     dynamic(
-      [session, _episode],
+      [session: session],
       session.cleanup_status == :retained and
-        session.retained_reason == "unpublished_unmerged" and
-        session.id in subquery(published_session_ids)
+        ((session.retained_reason == "unpublished_unmerged" and
+            session.id in subquery(published_session_ids)) or
+           (session.retained_reason == "dirty" and
+              not is_nil(session.cleanup_next_attempt_at) and
+              session.cleanup_next_attempt_at <= ^now))
     )
   end
 
@@ -372,6 +560,7 @@ defmodule Responder.Retention.Custody do
     owner_finished?(owner) and
       not unfinished_turn?(session.id) and
       not unpublished_publication?(session.id) and
+      lease_free?(session, now) and
       claimable_status?(session, now)
   end
 
@@ -379,14 +568,19 @@ defmodule Responder.Retention.Custody do
   defp owner_finished?(%LearningRun{remote_stopped_at: %DateTime{}}), do: true
   defp owner_finished?(_), do: false
 
+  defp lease_free?(%Session{cleanup_lease_ref: nil}, _now), do: true
+
+  defp lease_free?(%Session{cleanup_lease_expires_at: %DateTime{} = at}, now),
+    do: DateTime.compare(at, now) != :gt
+
+  defp lease_free?(_session, _now), do: false
+
   defp claimable_status?(%Session{cleanup_status: :active}, _now), do: true
 
   defp claimable_status?(%Session{cleanup_status: status} = session, now)
        when status in @pending_statuses do
-    (is_nil(session.cleanup_next_attempt_at) or
-       DateTime.compare(session.cleanup_next_attempt_at, now) != :gt) and
-      (is_nil(session.cleanup_lease_ref) or
-         DateTime.compare(session.cleanup_lease_expires_at, now) != :gt)
+    is_nil(session.cleanup_next_attempt_at) or
+      DateTime.compare(session.cleanup_next_attempt_at, now) != :gt
   end
 
   defp claimable_status?(%Session{cleanup_status: :grace, discard_after: %DateTime{} = at}, now),
@@ -398,6 +592,16 @@ defmodule Responder.Retention.Custody do
        ),
        do: published?(session)
 
+  defp claimable_status?(
+         %Session{
+           cleanup_status: :retained,
+           cleanup_next_attempt_at: %DateTime{} = at,
+           retained_reason: "dirty"
+         },
+         now
+       ),
+       do: DateTime.compare(at, now) != :gt
+
   defp claimable_status?(_session, _now), do: false
 
   defp prepare_phase(%Session{cleanup_status: :active} = session, _grace_seconds),
@@ -406,10 +610,7 @@ defmodule Responder.Retention.Custody do
   defp prepare_phase(%Session{cleanup_status: :grace} = session, _grace_seconds),
     do: persist(session, %{cleanup_status: :plan_pending})
 
-  defp prepare_phase(
-         %Session{cleanup_status: :retained, retained_reason: "unpublished_unmerged"} = session,
-         _grace_seconds
-       ) do
+  defp prepare_phase(%Session{cleanup_status: :retained} = session, _grace_seconds) do
     persist(session, %{
       cleanup_status: :plan_pending,
       discard_plan: nil,
@@ -440,7 +641,7 @@ defmodule Responder.Retention.Custody do
     )
   end
 
-  defp store_plan_locked(session, plan) do
+  defp store_plan_locked(session, plan, now, retained_recheck_seconds) do
     cond do
       plan["session_id"] != session.coop_session_id ->
         Repo.rollback(:retention_plan_session_mismatch)
@@ -462,11 +663,19 @@ defmodule Responder.Retention.Custody do
             true -> {:discard_pending, nil}
           end
 
+        # A workspace that is dirty today may be clean tomorrow. Schedule the
+        # next fresh plan so the only way out of retention is new evidence.
+        recheck_at =
+          if retained_reason == "dirty",
+            do: DateTime.add(now, retained_recheck_seconds, :second),
+            else: nil
+
         persist(session, %{
+          cleanup_attempt_count: 0,
           cleanup_lease_expires_at: nil,
           cleanup_lease_owner: nil,
           cleanup_lease_ref: nil,
-          cleanup_next_attempt_at: nil,
+          cleanup_next_attempt_at: recheck_at,
           cleanup_status: status,
           discard_plan: plan,
           discard_plan_fingerprint: fingerprint,
@@ -478,6 +687,7 @@ defmodule Responder.Retention.Custody do
 
   defp settle(session, receipt, now) do
     persist(session, %{
+      cleanup_attempt_count: 0,
       cleanup_last_error_code: nil,
       cleanup_last_error_detail: nil,
       cleanup_lease_expires_at: nil,
@@ -690,6 +900,37 @@ defmodule Responder.Retention.Custody do
   end
 
   defp uuid(_value, field), do: {:error, {:invalid_retention_custody, field}}
+
+  defp uuids(values, field) when is_list(values) and length(values) <= 1_000 do
+    Enum.reduce_while(values, {:ok, []}, fn value, {:ok, prepared} ->
+      case uuid(value, field) do
+        {:ok, cast} -> {:cont, {:ok, [cast | prepared]}}
+        {:error, _reason} -> {:halt, {:error, {:invalid_retention_custody, field}}}
+      end
+    end)
+  end
+
+  defp uuids(_values, field), do: {:error, {:invalid_retention_custody, field}}
+
+  defp exclusions(exclude) when is_list(exclude) do
+    if Keyword.keyword?(exclude) and Keyword.keys(exclude) -- [:session_ids, :worker_ids] == [] do
+      worker_ids = Keyword.get(exclude, :worker_ids, [])
+
+      with {:ok, session_ids} <- uuids(Keyword.get(exclude, :session_ids, []), :session_ids),
+           true <-
+             is_list(worker_ids) and length(worker_ids) <= 1_000 and
+               Enum.all?(worker_ids, &(reference(&1, :worker_ids) == :ok)) do
+        {:ok, %{session_ids: session_ids, worker_ids: worker_ids}}
+      else
+        false -> {:error, {:invalid_retention_custody, :worker_ids}}
+        {:error, _reason} = error -> error
+      end
+    else
+      {:error, {:invalid_retention_custody, :exclude}}
+    end
+  end
+
+  defp exclusions(_exclude), do: {:error, {:invalid_retention_custody, :exclude}}
 
   defp reference(value, _field) when is_binary(value) do
     if String.valid?(value) and :binary.match(value, <<0>>) == :nomatch and
