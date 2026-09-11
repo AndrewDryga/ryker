@@ -3,7 +3,7 @@ defmodule Responder.Work.SessionChangeset do
 
   import Ecto.Changeset
 
-  alias Responder.Work.{RepositoryContext, Session}
+  alias Responder.Work.{RepositoryContext, RepositorySource, Session}
 
   @spec insert(
           Ecto.UUID.t(),
@@ -62,6 +62,7 @@ defmodule Responder.Work.SessionChangeset do
     authority_digest = Map.fetch!(options, :authority_digest)
     workspace_task = Map.fetch!(options, :workspace_task)
     repository_context = Map.get(options, :repository_context)
+    repository_source = Map.get(options, :repository_source)
 
     %Session{}
     |> cast(
@@ -75,6 +76,7 @@ defmodule Responder.Work.SessionChangeset do
         authority_digest: authority_digest,
         repository_ref: repository_ref,
         repository_context: repository_context,
+        repository_source: repository_source,
         external_ref: external_ref,
         workspace_task: workspace_task
       },
@@ -88,6 +90,7 @@ defmodule Responder.Work.SessionChangeset do
         :authority_digest,
         :repository_ref,
         :repository_context,
+        :repository_source,
         :external_ref,
         :workspace_task
       ]
@@ -107,12 +110,14 @@ defmodule Responder.Work.SessionChangeset do
     |> validate_length(:repository_ref, min: 1, max: 1_024)
     |> validate_length(:external_ref, min: 1, max: 1_024)
     |> validate_repository_context()
+    |> validate_repository_source()
     |> validate_workspace_task()
     |> unique_constraint([:episode_id, :generation])
     |> foreign_key_constraint(:episode_id)
     |> check_constraint(:policy, name: :episode_work_session_identity_valid)
     |> check_constraint(:repository_ref, name: :episode_work_session_repository_valid)
     |> check_constraint(:repository_context, name: :episode_work_session_repository_context_valid)
+    |> check_constraint(:repository_source, name: :episode_work_session_repository_source_valid)
   end
 
   @spec bind(Session.t(), String.t()) :: Ecto.Changeset.t()
@@ -147,6 +152,16 @@ defmodule Responder.Work.SessionChangeset do
         :ok -> []
         {:error, _reason} -> [workspace_task: "is outside its canonical byte bound"]
       end
+    end)
+  end
+
+  defp validate_repository_source(changeset) do
+    validate_change(changeset, :repository_source, fn :repository_source, value ->
+      valid? =
+        not is_nil(get_field(changeset, :repository_ref)) and
+          match?({:ok, ^value}, RepositorySource.parse(value))
+
+      if valid?, do: [], else: [repository_source: "is not an authorized repository source"]
     end)
   end
 
