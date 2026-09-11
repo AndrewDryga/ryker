@@ -12,11 +12,16 @@ defmodule Responder.ControlPlane.SettingsSections do
   alias Responder.Settings.{
     Emisar,
     GitHub,
+    GitHubBinding,
     Learning,
+    PolicyBinding,
     PricingRate,
     Publication,
     Report,
-    Slack
+    Repository,
+    RepositoryContext,
+    Slack,
+    Work
   }
 
   @day 86_400
@@ -24,6 +29,23 @@ defmodule Responder.ControlPlane.SettingsSections do
     {"mentions", "Only when mentioned"},
     {"proactive", "Join relevant conversations"},
     {"shadow", "Observe silently"}
+  ]
+  @purposes [
+    {"admission", "Admission (installation)"},
+    {"learning", "Learning (installation)"},
+    {"incident", "Incident rooms (installation)"},
+    {"schedule_read_only", "Scheduled read-only (installation)"},
+    {"schedule_governed", "Scheduled governed operation (installation)"},
+    {"conversational", "Conversational"},
+    {"standard", "Standard work"},
+    {"deep", "Deep work"},
+    {"contributor", "Contributor (writes)"},
+    {"schedule", "Schedule (repository)"}
+  ]
+  @scope_kinds [
+    {"installation", "This installation"},
+    {"repository", "One repository"},
+    {"context", "One repository context"}
   ]
   @weekdays [
     {"1", "Monday"},
@@ -169,6 +191,150 @@ defmodule Responder.ControlPlane.SettingsSections do
       fields: [%{name: :enabled, kind: :boolean, label: "Learn from past conversations"}]
     },
     %{
+      key: :repositories,
+      domain: :repositories,
+      kind: :collection,
+      schema: Repository,
+      item_key: :ref,
+      title: "Repositories",
+      description:
+        "The repositories this installation works in. A repository is a name plus the metadata " <>
+          "Responder shows; the worker owns the checkout, and selecting one here never grants " <>
+          "access to a path the fleet does not already serve.",
+      fields: [
+        %{name: :ref, kind: :text, label: "Reference", identity: true},
+        %{name: :display_name, kind: :text, label: "Display name"},
+        %{name: :description, kind: :text, label: "Description"},
+        %{
+          name: :github_repository,
+          kind: :text,
+          label: "GitHub repository",
+          placeholder: "owner/name"
+        },
+        %{name: :base_branch, kind: :text, label: "Base branch"},
+        %{
+          name: :publication_checkout_path,
+          kind: :text,
+          label: "Publication checkout",
+          help:
+            "Absolute path of the host checkout used to publish. A repository without one is " <>
+              "still a valid context; it simply cannot be published from."
+        }
+      ]
+    },
+    %{
+      key: :contexts,
+      domain: :repositories,
+      kind: :collection,
+      schema: RepositoryContext,
+      item_key: :ref,
+      title: "Repository contexts",
+      description:
+        "A context is one primary repository plus read-only companions, referenced by Slack, " <>
+          "GitHub, webhooks and the Lab. Its goal limit may lower, never raise, the host maximum.",
+      fields: [
+        %{name: :ref, kind: :text, label: "Reference", identity: true},
+        %{name: :display_name, kind: :text, label: "Display name"},
+        %{
+          name: :primary_repository_ref,
+          kind: :select,
+          label: "Primary repository",
+          options: :repositories
+        },
+        %{
+          name: :read_only_repository_refs,
+          kind: :list,
+          label: "Read-only companions",
+          help: "Mounted for reading only. The primary cannot also be a companion."
+        },
+        %{name: :parallel_goal_limit, kind: :integer, label: "Parallel goals"}
+      ]
+    },
+    %{
+      key: :github_bindings,
+      domain: :github,
+      kind: :collection,
+      schema: GitHubBinding,
+      item_key: :name,
+      title: "GitHub repository bindings",
+      description:
+        "The exact verified installation identity for one repository, and the GitHub actors " <>
+          "allowed to address Responder there. Numeric identities come from the App " <>
+          "installation; a display name never confers access.",
+      fields: [
+        %{name: :name, kind: :text, label: "Binding name", identity: true},
+        %{name: :repository_ref, kind: :select, label: "Repository", options: :repositories},
+        %{name: :installation_id, kind: :integer, label: "Installation ID"},
+        %{name: :repository_id, kind: :integer, label: "Repository ID"},
+        %{name: :responder_actor_id, kind: :integer, label: "Responder actor ID"},
+        %{
+          name: :authorized_actor_ids,
+          kind: :list,
+          label: "Authorized actor IDs",
+          help: "Numeric GitHub user IDs. Removing one revokes it at the next request."
+        },
+        %{
+          name: :repository_context_ref,
+          kind: :select,
+          label: "Context",
+          options: :contexts,
+          help: "Optional. Must be a context whose primary is this repository."
+        }
+      ]
+    },
+    %{
+      key: :policies,
+      domain: :policies,
+      kind: :collection,
+      schema: PolicyBinding,
+      item_key: :id,
+      row_status: {Responder.Settings.WorkerPolicies, :binding_status},
+      title: "Execution policies",
+      description:
+        "Which reviewed worker policy runs each purpose. The digest is copied from the " <>
+          "authenticated worker advertisement, never typed: choose the policy by name and the " <>
+          "pin follows. Admission, learning, incidents, schedules, conversation, standard and " <>
+          "deep work and contributor writes stay separate grants.",
+      fields: [
+        %{name: :purpose, kind: :select, label: "Purpose", options: @purposes},
+        %{name: :scope_kind, kind: :select, label: "Scope", options: @scope_kinds},
+        %{
+          name: :scope_ref,
+          kind: :select,
+          label: "Scope reference",
+          options: :scopes,
+          blank: "",
+          help: "Leave unset for an installation-wide purpose."
+        },
+        %{
+          name: :policy_name,
+          kind: :select,
+          label: "Worker policy",
+          options: :advertised_policies,
+          help: "Only policies an enrolled, unrevoked worker advertises can be selected."
+        },
+        %{name: :policy_digest, kind: :evidence, label: "Pinned digest"}
+      ]
+    },
+    %{
+      key: :work,
+      domain: :work,
+      kind: :singleton,
+      schema: Work,
+      title: "Work placement",
+      description:
+        "The enrolled workspace that runs Work. Its workers are trusted infrastructure: " <>
+          "an unselected workspace means work is unconfigured, not that it runs somewhere else.",
+      fields: [
+        %{
+          name: :workspace_ref,
+          kind: :select,
+          label: "Worker workspace",
+          options: :workspaces
+        }
+      ]
+    },
+    %{
       key: :retention,
       domain: :retention,
       kind: :retention,
@@ -238,6 +404,25 @@ defmodule Responder.ControlPlane.SettingsSections do
   def options(%{options: :contexts}, view),
     do: Enum.map(view.snapshot.contexts, &{&1.ref, display_name(&1)})
 
+  def options(%{options: :scopes}, view) do
+    Enum.map(view.snapshot.repositories, &{&1.ref, "Repository " <> display_name(&1)}) ++
+      Enum.map(view.snapshot.contexts, &{&1.ref, "Context " <> display_name(&1)})
+  end
+
+  def options(%{options: :advertised_policies}, view),
+    do:
+      Enum.map(
+        view.workers.policies,
+        &{&1.name, "#{&1.name} · #{String.slice(&1.digest, 0, 12)}"}
+      )
+
+  def options(%{options: :workspaces}, view),
+    do:
+      Enum.map(
+        view.workers.workspaces,
+        &{&1.ref, "#{&1.ref} · #{&1.eligible}/#{&1.workers} eligible"}
+      )
+
   def options(%{options: options}, _view) when is_list(options), do: options
 
   @doc "The saved values of one section (or one collection row) as form strings."
@@ -287,13 +472,19 @@ defmodule Responder.ControlPlane.SettingsSections do
 
     Enum.reduce_while(section.fields, {:ok, %{}}, fn field, {:ok, attributes} ->
       case cast_field(field, Map.get(submitted, field_name(field), "")) do
+        :skip -> {:cont, {:ok, attributes}}
         {:ok, value} -> {:cont, {:ok, Map.put(attributes, field.name, value)}}
         :error -> {:halt, {:error, {:invalid_settings, [{field.name, kind_error(field.kind)}]}}}
       end
     end)
   end
 
+  # Evidence is displayed, never submitted: a pinned digest is not an input.
+  defp cast_field(%{kind: :evidence}, _value), do: :skip
+
   defp cast_field(%{kind: :boolean}, value), do: {:ok, value in ["true", "on", true]}
+
+  defp cast_field(%{kind: :select, blank: blank}, ""), do: {:ok, blank}
 
   defp cast_field(%{kind: :list}, value) when is_binary(value) do
     {:ok, value |> String.split([",", " ", "\n", "\t"], trim: true) |> Enum.map(&String.trim/1)}

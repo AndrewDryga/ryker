@@ -10,6 +10,7 @@ defmodule Responder.ControlPlane.SettingsCommands do
 
   alias Responder.ControlPlane.SettingsSections
   alias Responder.Settings
+  alias Responder.Settings.WorkerPolicies
 
   @type result :: {:ok, Settings.snapshot()} | {:error, term()}
 
@@ -93,8 +94,46 @@ defmodule Responder.ControlPlane.SettingsCommands do
   defp put(%{key: :pricing}, attributes, revision),
     do: Settings.put_pricing_rate(attributes, revision, actor())
 
+  defp put(%{key: :repositories}, attributes, revision),
+    do: Settings.put_repository(attributes, revision, actor())
+
+  defp put(%{key: :contexts}, attributes, revision),
+    do: Settings.put_repository_context(attributes, revision, actor())
+
+  defp put(%{key: :github_bindings}, attributes, revision),
+    do: Settings.put_github_binding(attributes, revision, actor())
+
+  # The form chooses a policy by name; the digest and authority come from the
+  # worker advertisement, so a browser can neither invent a pin nor keep one
+  # the fleet has stopped offering.
+  defp put(%{key: :policies}, attributes, revision) do
+    case WorkerPolicies.resolve(attributes, workspace_ref()) do
+      {:ok, verified} -> Settings.put_policy_binding(verified, revision, actor())
+      {:error, reason} -> {:error, {:invalid_settings, [{:policy_name, reason}]}}
+    end
+  end
+
   defp remove(%{key: :pricing}, id, revision),
     do: Settings.delete_pricing_rate(id, revision, actor())
+
+  defp remove(%{key: :repositories}, ref, revision),
+    do: Settings.delete_repository(ref, revision, actor())
+
+  defp remove(%{key: :contexts}, ref, revision),
+    do: Settings.delete_repository_context(ref, revision, actor())
+
+  defp remove(%{key: :github_bindings}, name, revision),
+    do: Settings.delete_github_binding(name, revision, actor())
+
+  defp remove(%{key: :policies}, id, revision),
+    do: Settings.delete_policy_binding(id, revision, actor())
+
+  defp workspace_ref do
+    case Settings.fetch() do
+      {:ok, snapshot} -> snapshot.work.workspace_ref
+      {:error, _reason} -> nil
+    end
+  end
 
   defp actor, do: Settings.actor()
 end

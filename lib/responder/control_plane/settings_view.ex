@@ -10,6 +10,7 @@ defmodule Responder.ControlPlane.SettingsView do
   """
 
   alias Responder.{Bootstrap, Settings}
+  alias Responder.Settings.WorkerPolicies
 
   @type t :: %{
           snapshot: Settings.snapshot(),
@@ -20,7 +21,8 @@ defmodule Responder.ControlPlane.SettingsView do
           saved_by: String.t(),
           saved_at: DateTime.t(),
           credentials: [map()],
-          webhook_secret_names: [String.t()] | :invalid
+          webhook_secret_names: [String.t()] | :invalid,
+          workers: WorkerPolicies.catalog()
         }
 
   @spec fetch() :: {:ok, t()} | {:error, :settings_not_initialized | :settings_unavailable}
@@ -46,7 +48,8 @@ defmodule Responder.ControlPlane.SettingsView do
       saved_by: installation.saved_by,
       saved_at: installation.saved_at,
       credentials: Bootstrap.credential_status(),
-      webhook_secret_names: registered_secret_names()
+      webhook_secret_names: registered_secret_names(),
+      workers: WorkerPolicies.catalog(snapshot.work.workspace_ref)
     }
   end
 
