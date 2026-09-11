@@ -18,6 +18,7 @@ defmodule Responder.ControlPlane.EpisodeTrace do
   alias Responder.ControlPlane.EpisodeCausality
   alias Responder.ControlPlane.EvidenceLinks
   alias Responder.ControlPlane.InspectionRedactor
+  alias Responder.ControlPlane.ProviderMessage
   alias Responder.ControlPlane.SourceText
   alias Responder.ControlPlane.WorkRecovery
   alias Responder.CoopFleet.Event, as: CoopEvent
@@ -304,6 +305,10 @@ defmodule Responder.ControlPlane.EpisodeTrace do
       expired_at: input.operational_pruned_at,
       href: "/timeline/ingress-input%3A#{input.id}",
       event_kind: input.event_kind,
+      provider:
+        if(is_nil(input.operational_pruned_at),
+          do: ProviderMessage.recognize(input.source_kind, input.content)
+        ),
       details: input_details(input, options)
     }
   end

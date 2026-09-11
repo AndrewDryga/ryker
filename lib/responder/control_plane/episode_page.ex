@@ -513,7 +513,8 @@ defmodule Responder.ControlPlane.EpisodePage do
 
   defp message(assigns) do
     ~H"""
-    <div class="story-byline">
+    <.provider_header :if={@message[:provider]} provider={@message.provider} />
+    <div :if={!@message[:provider]} class="story-byline">
       <strong title={@message[:actor_ref]}>{@message[:display_actor] || @message.actor}</strong><span :if={
         @message[:status]
       }>{@message.status}</span>
@@ -521,12 +522,41 @@ defmodule Responder.ControlPlane.EpisodePage do
     <p :if={@message[:response_reference]} class="response-reference">
       <a href={@message.response_reference}>View response ↑</a>
     </p>
-    <div :if={!@message[:response_reference]} class="case-message-text markdown-preview">
+    <div
+      :if={!@message[:response_reference] && !@message[:provider]}
+      class="case-message-text markdown-preview"
+    >
       {message_text(@message)}
     </div>
     <.input_details :if={@message[:details]} message={@message} />
+    <p :if={@message[:provider] && @message.provider.links != []} class="provider-links">
+      <a :for={link <- @message.provider.links} href={link.href} rel="noopener noreferrer">{link.label} ↗</a>
+    </p>
     """
   end
+
+  # A recognized notification leads with provider, state, subject and a few
+  # labelled facts. The state badge is text; the accent only says which
+  # provider, and the provider is a format, not an authenticated sender.
+  defp provider_header(assigns) do
+    ~H"""
+    <div class={"provider-message provider-#{@provider.provider}"} data-provider={@provider.provider}>
+      <div class="provider-heading">
+        <span class="provider-name">{@provider.name} · via {source_transport(@provider)}</span>
+        <span :if={@provider.state} class={"provider-state tone-#{@provider.tone}"}>{@provider.state}</span>
+      </div>
+      <p :if={@provider.subject} class="provider-subject">{@provider.subject}</p>
+      <dl :if={@provider.facts != []} class="provider-facts">
+        <div :for={fact <- @provider.facts}>
+          <dt>{fact.label}</dt><dd>{fact.value}</dd>
+        </div>
+      </dl>
+    </div>
+    """
+  end
+
+  defp source_transport(%{provider: :grafana}), do: "webhook"
+  defp source_transport(_provider), do: "Slack"
 
   # Extracted metadata is visible as soon as the disclosure opens; the raw
   # envelope, the normalized input and the original message are each their own
