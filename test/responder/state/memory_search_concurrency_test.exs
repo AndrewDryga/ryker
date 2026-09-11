@@ -118,6 +118,75 @@ defmodule Responder.State.MemorySearchConcurrencyTest do
     end)
   end
 
+  test "a brief Work custody update does not turn an empty global search into a budget failure" do
+    # The Sep 11 real-model question run lost its global lookup in 10ms because
+    # NOWAIT rejected a normal session update, before any search budget was spent.
+    Sandbox.unboxed_run(Repo, fn ->
+      assert {:ok, fixture} = Repo.transaction(fn -> fixture!(:fact) end)
+
+      captured =
+        "testdata/work/missing-project-memory-lock.json" |> File.read!() |> Jason.decode!()
+
+      assert captured["call"]["result"] == %{"error" => "memory_search_budget_exceeded"}
+      arguments = Map.merge(@search_arguments, captured["call"]["arguments"])
+      parent = self()
+
+      blocker =
+        hold_lock(parent, fn ->
+          Repo.one!(from(s in Session, where: s.id == ^fixture.session_id, lock: "FOR UPDATE"))
+        end)
+
+      try do
+        assert_receive {:lock_held, blocker_backend}, 5_000
+
+        reader =
+          unboxed_task(fn ->
+            send(parent, {:search_started, backend_pid()})
+            MemorySearch.search(fixture.binding, arguments, @search_secret)
+          end)
+
+        try do
+          assert_receive {:search_started, reader_backend}, 5_000
+          result = release_short_lock(reader, reader_backend, blocker, blocker_backend)
+          assert {:ok, %{"memories" => [], "exhausted" => true}} = result
+        after
+          stop_tasks([reader])
+        end
+      after
+        send(blocker.pid, :release_lock)
+        stop_tasks([blocker])
+        cleanup(fixture)
+      end
+    end)
+  end
+
+  defp release_short_lock(reader, reader_backend, blocker, blocker_backend, attempts \\ 100) do
+    case Task.yield(reader, 10) do
+      {:ok, result} ->
+        result
+
+      nil ->
+        blocked =
+          Repo.query!("SELECT $2::integer = ANY(pg_blocking_pids($1::integer))", [
+            reader_backend,
+            blocker_backend
+          ]).rows == [[true]]
+
+        cond do
+          blocked ->
+            send(blocker.pid, :release_lock)
+            assert {:ok, :released} = Task.await(blocker, 5_000)
+            Task.await(reader, 5_000)
+
+          attempts > 0 ->
+            release_short_lock(reader, reader_backend, blocker, blocker_backend, attempts - 1)
+
+          true ->
+            flunk("memory search did not reach the session lock")
+        end
+    end
+  end
+
   for changed <- [:expired_lease, :replaced_lease, :superseded_turn, :closed_session] do
     test "a binding with #{changed} cannot disclose or account a memory" do
       # Binding.resolve is a preflight read. Search must recheck the row after

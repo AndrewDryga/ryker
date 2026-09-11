@@ -60,6 +60,61 @@ defmodule Responder.StateTools.Binding do
 
   def resolve(_token), do: {:error, :state_tools_binding_not_authorized}
 
+  @doc "Recheck an already resolved caller under the session lock before local disclosure."
+  def lock_current(binding) do
+    # Routine Work bookkeeping briefly owns this row while the model is using
+    # MCP. Wait within the existing recall lock budget, then recheck authority.
+    Repo.query!("SET LOCAL lock_timeout = '1000ms'")
+
+    session =
+      Repo.one(
+        from(s in Session,
+          where: s.id == ^binding.session.id and s.episode_id == ^binding.episode.id,
+          lock: "FOR UPDATE"
+        )
+      )
+
+    with %Session{cleanup_status: :active} <- session,
+         true <-
+           same_fields?(session, binding.session, [
+             :episode_id,
+             :generation,
+             :repository_ref,
+             :coop_session_id,
+             :authority_digest,
+             :policy_digest
+           ]),
+         true <- is_binary(binding.turn.lease_ref),
+         {episode, turn} <-
+           Repo.one(
+             from(e in Episode,
+               join: t in Turn,
+               on: t.episode_id == e.id,
+               where:
+                 e.id == ^binding.episode.id and t.id == ^binding.turn.id and
+                   t.session_id == ^session.id,
+               where: e.state == :working and e.owner_kind == :turn and e.owner_ref == t.turn_ref,
+               where:
+                 t.status == :pending and t.lease_ref == ^binding.turn.lease_ref and
+                   t.lease_expires_at > fragment("clock_timestamp()"),
+               select: {e, t}
+             )
+           ),
+         true <-
+           same_fields?(episode, binding.episode, [
+             :destination_transport,
+             :destination_conversation_ref,
+             :destination_thread_ref,
+             :execution_mode
+           ]) do
+      {:ok, Map.merge(binding, %{episode: episode, session: session, turn: turn})}
+    else
+      _ -> {:error, :state_tools_binding_not_authorized}
+    end
+  end
+
+  defp same_fields?(left, right, fields), do: Map.take(left, fields) == Map.take(right, fields)
+
   defp binding_query(token_sha256) do
     from(session in Session,
       join: episode in Episode,

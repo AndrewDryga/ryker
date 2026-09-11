@@ -367,7 +367,11 @@ defmodule Responder.Slack.Client do
          {:ok, response} <- request(client, :get, path, nil),
          {:ok, body} <- slack_response(response),
          {:ok, messages, cursor} <- history(body),
-         result <- %{"cursor" => cursor, "messages" => messages},
+         result <-
+           Map.merge(
+             %{"cursor" => cursor, "messages" => messages},
+             Map.take(body, ["has_more", "is_limited"])
+           ),
          :ok <- bounded_slack_result(result, :history) do
       {:ok, result}
     else

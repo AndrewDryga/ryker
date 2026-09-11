@@ -671,6 +671,17 @@ defmodule Responder.Slack.ClientTest do
              {:error, {:slack_protocol_error, :conversations}}
   end
 
+  test "limited history remains partial even when Slack omits a continuation cursor" do
+    {:ok, requester} =
+      FakeRequester.start([
+        slack(%{"messages" => [], "has_more" => true, "is_limited" => true})
+      ])
+
+    assert {:ok, page} = Client.read_messages(client(requester), "C123", nil, %{})
+    assert page["has_more"] == true
+    assert page["is_limited"] == true
+  end
+
   test "reads one bounded Slack conversation and thread without exposing a credential" do
     {:ok, requester} =
       FakeRequester.start([

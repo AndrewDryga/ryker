@@ -222,6 +222,7 @@ defmodule Responder.GitHub.ClientTest do
             "user" => %{"id" => 7, "login" => "octocat", "type" => "User"}
           }
         ]),
+        response(200, review_comment(8_001, nil)),
         response(200, [
           %{
             "additions" => 12,
@@ -259,6 +260,7 @@ defmodule Responder.GitHub.ClientTest do
              "/repos/octo/example/issues/42/comments?page=1&per_page=20",
              "/repos/octo/example/pulls/42/reviews?page=1&per_page=20",
              "/repos/octo/example/pulls/42/comments?page=1&per_page=20",
+             "/repos/octo/example/pulls/comments/8001",
              "/repos/octo/example/pulls/42/files?page=1&per_page=20"
            ]
   end
@@ -310,6 +312,71 @@ defmodule Responder.GitHub.ClientTest do
     assert query["q"] =~ "is:pr"
   end
 
+  # A reply-only page used to lose the question it answers. These structural
+  # provider documents extend the existing bounded GitHub adapter fixtures.
+  test "review replies retain their exact parent even when it is on another page" do
+    reply = review_comment(8_002, 8_001)
+    root = review_comment(8_001, nil)
+    {:ok, requester} = FakeRequester.start([response(200, [reply]), response(200, root)])
+
+    assert {:ok, result} =
+             Client.read_context(client(requester), context_request("review_thread"))
+
+    assert [%{"id" => 8_002, "in_reply_to_id" => 8_001}] = result["items"]
+    assert [%{"id" => 8_001, "body" => "Review original 8001"}] = result["review_parents"]
+    assert result["parent_coverage"]["status"] == "complete"
+
+    assert [{:get, _, _, _}, {:get, parent_path, nil, _}] = FakeRequester.requests(requester)
+    assert parent_path == "/repos/octo/example/pulls/comments/8001"
+  end
+
+  test "parent context never discloses a comment from another pull request" do
+    crossed =
+      Map.put(
+        review_comment(8_001, nil),
+        "pull_request_url",
+        "https://api.github.com/repos/octo/example/pulls/43"
+      )
+
+    {:ok, requester} =
+      FakeRequester.start([response(200, [review_comment(8_002, 8_001)]), response(200, crossed)])
+
+    assert Client.read_context(client(requester), context_request("review_thread")) ==
+             {:error, {:github_protocol_error, :review_parent}}
+  end
+
+  test "review parent expansion reuses originals and stops after four missing parents" do
+    comments =
+      [review_comment(8_001, nil), review_comment(8_002, 8_001)] ++
+        Enum.map(1..6, &review_comment(9_000 + &1, 7_000 + &1))
+
+    responses =
+      [response(200, comments)] ++ Enum.map(1..4, &response(200, review_comment(7_000 + &1, nil)))
+
+    {:ok, requester} = FakeRequester.start(responses)
+
+    assert {:ok, result} =
+             Client.read_context(client(requester), context_request("review_comments"))
+
+    assert length(result["review_parents"]) == 4
+    assert Enum.all?(result["review_parents"], &(&1["id"] != 8_001))
+    assert result["parent_coverage"]["status"] == "partial"
+    assert result["parent_coverage"]["omitted_parent_ids"] == [7_005, 7_006]
+    assert length(FakeRequester.requests(requester)) == 5
+  end
+
+  test "a deleted review parent is unavailable rather than an empty complete conversation" do
+    {:ok, requester} =
+      FakeRequester.start([response(200, [review_comment(8_002, 8_001)]), response(404, %{})])
+
+    assert {:ok, result} =
+             Client.read_context(client(requester), context_request("review_thread"))
+
+    assert result["review_parents"] == []
+    assert result["parent_coverage"]["status"] == "partial"
+    assert result["parent_coverage"]["unavailable_parent_ids"] == [8_001]
+  end
+
   test "keeps review-thread pagination when an unfiltered provider page is full" do
     comments =
       Enum.map(1..20, fn index ->
@@ -327,7 +394,7 @@ defmodule Responder.GitHub.ClientTest do
         }
       end)
 
-    {:ok, requester} = FakeRequester.start([response(200, comments)])
+    {:ok, requester} = FakeRequester.start([response(200, comments), response(404, %{})])
 
     assert {:ok, %{"items" => [], "next_cursor" => "page:2"}} =
              Client.read_context(client(requester), context_request("review_thread"))
@@ -815,6 +882,22 @@ defmodule Responder.GitHub.ClientTest do
       review_root_id: 8_001,
       section: section,
       subject_kind: "pull"
+    }
+  end
+
+  defp review_comment(id, parent) do
+    %{
+      "body" => "Review original #{id}",
+      "created_at" => "2026-08-28T12:03:00Z",
+      "updated_at" => "2026-08-28T12:03:00Z",
+      "html_url" => "https://github.com/octo/example/pull/42#discussion_r#{id}",
+      "pull_request_url" => "https://api.github.com/repos/octo/example/pulls/42",
+      "id" => id,
+      "in_reply_to_id" => parent,
+      "line" => 42,
+      "path" => "lib/responder.ex",
+      "side" => "RIGHT",
+      "user" => %{"id" => 8, "login" => "reviewer", "type" => "User"}
     }
   end
 

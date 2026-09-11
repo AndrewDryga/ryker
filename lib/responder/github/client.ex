@@ -20,6 +20,7 @@ defmodule Responder.GitHub.Client do
   @page_size 100
   @maximum_context_page_size 20
   @maximum_context_text_bytes 12_000
+  @maximum_review_parents 4
   @repository ~r/\A[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\z/
   @context_fields ~w(limit number page repository review_root_id section subject_kind)a
   @search_fields ~w(kind limit page query repository state)a
@@ -197,8 +198,9 @@ defmodule Responder.GitHub.Client do
   def read_context(client, request) do
     with {:ok, request} <- context_request(request),
          {:ok, response} <- request_context(client, request),
-         {:ok, items, provider_count} <- context_items(response, request) do
-      {:ok, context_result(request, items, provider_count)}
+         {:ok, items, provider_count} <- context_items(response, request),
+         {:ok, parents} <- review_parents(client, request, items) do
+      {:ok, Map.merge(context_result(request, items, provider_count), parents)}
     end
   end
 
@@ -591,8 +593,77 @@ defmodule Responder.GitHub.Client do
         ),
       "repository" => request.repository,
       "section" => request.section,
-      "subject" => %{"kind" => request.subject_kind, "number" => request.number}
+      "subject" => %{"kind" => request.subject_kind, "number" => request.number},
+      "coverage" => %{
+        "basis" => "provider_page",
+        "status" =>
+          if(
+            request.page == 1 and (request.section == "subject" or provider_count < request.limit),
+            do: "complete",
+            else: "partial"
+          ),
+        "page" => request.page,
+        "limit" => request.limit,
+        "continuation_exhausted" =>
+          request.page == @maximum_context_pages and provider_count >= request.limit
+      }
     }
+  end
+
+  defp review_parents(client, %{section: section} = request, items)
+       when section in ["review_comments", "review_thread"] do
+    roots = if section == "review_thread", do: [request.review_root_id], else: []
+    needed = Enum.uniq(roots ++ Enum.map(items, & &1["in_reply_to_id"])) -- [nil]
+    present = Enum.map(items, & &1["id"])
+    {fetch, omitted} = Enum.split(needed -- present, @maximum_review_parents)
+
+    with {:ok, parents, unavailable} <- fetch_review_parents(client, request, fetch) do
+      {:ok,
+       %{
+         "review_parents" => parents,
+         "parent_coverage" => %{
+           "status" => if(omitted == [] and unavailable == [], do: "complete", else: "partial"),
+           "available_parent_ids" =>
+             Enum.filter(needed, &(&1 in present)) ++ Enum.map(parents, & &1["id"]),
+           "omitted_parent_ids" => omitted,
+           "unavailable_parent_ids" => unavailable,
+           "read_limit" => @maximum_review_parents
+         }
+       }}
+    end
+  end
+
+  defp review_parents(_client, _request, _items), do: {:ok, %{}}
+
+  defp fetch_review_parents(client, request, ids) do
+    Enum.reduce_while(ids, {:ok, [], []}, fn id, {:ok, parents, unavailable} ->
+      case read_review_parent(client, request, id) do
+        {:ok, parent} -> {:cont, {:ok, parents ++ [parent], unavailable}}
+        :not_found -> {:cont, {:ok, parents, unavailable ++ [id]}}
+        {:error, _reason} = error -> {:halt, error}
+      end
+    end)
+  end
+
+  defp read_review_parent(client, request, id) do
+    path = "/repos/#{request.repository}/pulls/comments/#{id}"
+    subject_url = "https://api.github.com/repos/#{request.repository}/pulls/#{request.number}"
+
+    with {:ok, response} <- request(client, :get, path, nil) do
+      case response do
+        %{status: 200, body: %{"id" => ^id, "pull_request_url" => ^subject_url} = body} ->
+          context_item(body, "review_comments")
+
+        %{status: 200} ->
+          {:error, {:github_protocol_error, :review_parent}}
+
+        %{status: 404} ->
+          :not_found
+
+        other ->
+          api_error(other)
+      end
+    end
   end
 
   defp search_request(%{} = request) do

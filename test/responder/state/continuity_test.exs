@@ -12,7 +12,7 @@ defmodule Responder.State.ContinuityTest do
   alias Responder.Fixtures.Learning, as: LearningFixtures
   alias Responder.Ingress.{Inbox, Input}
   alias Responder.Repo
-  alias Responder.Slack.{ChannelConfigurations, ChannelMembership}
+  alias Responder.Slack.{ChannelConfigurations, ChannelMembership, SourceRef}
 
   alias Responder.State.{
     Continuity,
@@ -43,7 +43,7 @@ defmodule Responder.State.ContinuityTest do
   defp assert_searchable_clock_continuity!(kind, existing?) do
     # Database-cutoff search must see a just-saved summary/rollup, even when
     # the application host runs ahead. Old snapshots still exclude new writes.
-    {_entry, work, submission} = raw_work!()
+    {entry, work, submission} = raw_work!()
     database_time = DatabaseClock.behind_host!()
     assert {:ok, _} = Continuity.stage(work.state_token, state("website/haproxy-edge OOM"))
     accept!(work, submission)
@@ -79,6 +79,25 @@ defmodule Responder.State.ContinuityTest do
 
     saved = Repo.one!(schema)
     assert match["source_ref"] == saved.ref
+    assert match["workspace_ref"] == saved.workspace_ref
+    assert [%{"tool" => "read_slack_source", "arguments" => read} | _] = match["source_reads"]
+    assert length(match["source_reads"]) <= 3
+    ["slack", workspace, channel] = String.split(entry.destination_conversation_ref, ":")
+    assert read["anchor_ref"] == SourceRef.message(workspace, channel, entry.source_item_ref)
+
+    if kind == :summary do
+      assert match["conversation_ref"] == saved.conversation_ref
+      assert match["thread_ref"] == saved.thread_ref
+      assert match["source_message_ref"] == saved.source_message_ref
+      assert match["coverage"]["basis"] == "derived_handover"
+    else
+      assert match["scope_kind"] == Atom.to_string(saved.scope_kind)
+      assert match["scope_ref"] == saved.scope_ref
+      assert match["expires_at"] == DateTime.to_iso8601(saved.expires_at)
+      assert match["coverage"]["basis"] == "compacted_continuity"
+      refute Map.has_key?(match, "thread_ref")
+    end
+
     assert saved.updated_at == database_time
     assert saved.inserted_at == if(existing?, do: old, else: database_time)
 

@@ -84,9 +84,14 @@ defmodule Responder.Slack.SourceAuditsTest do
       "limit" => 20
     }
 
-    assert {:ok, %{"messages" => [_]}} =
+    assert {:ok, %{"anchor" => %{"ts" => timestamp}, "messages" => []}} =
              CapabilityTools.call("read_slack_source", arguments, binding, options)
 
+    assert timestamp == message["ts"]
+
+    assert_received :notification_read
+    # Exact-anchor verification and the two sides are separate authorized reads.
+    assert_received :notification_read
     assert_received :notification_read
     assert Repo.one!(SourceAudit).requester_ref == actor_ref
 

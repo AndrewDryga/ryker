@@ -2,7 +2,7 @@ defmodule Responder.State.MemorySearch do
   @moduledoc "Bounded, permission-rechecked keyset recall across existing memory owners."
   import Ecto.Query
   alias Responder.{CanonicalJSON, Repo}
-  alias Responder.Episodes.{Episode, Event}
+  alias Responder.Episodes.Event
 
   alias Responder.State.{
     Behaviors,
@@ -11,10 +11,11 @@ defmodule Responder.State.MemorySearch do
     KnowledgeSnapshot,
     Memories,
     MemorySearchPage,
+    MemorySourceLink,
     Observations
   }
 
-  alias Responder.Work.{Session, Turn}
+  alias Responder.StateTools.Binding
 
   @continuity ~w(knowledge observation summary rollup)
   @maximum_bytes 65_536
@@ -38,11 +39,49 @@ defmodule Responder.State.MemorySearch do
 
   def search(_, _, _), do: {:error, :not_configured}
 
+  @doc "One-hop source-related memory for an already authorized platform lookup. No provider I/O."
+  def related(binding, targets, before_time) when is_list(targets) and length(targets) <= 20 do
+    Repo.transaction(fn ->
+      Repo.query!("SET LOCAL statement_timeout = '5000ms'")
+      binding = lock_binding(binding, %{"cursor" => nil})
+      {:ok, before_at} = date(before_time)
+
+      page =
+        MemorySearchPage.first("", "workspace")
+        |> Map.put(:source_targets, Enum.uniq(targets))
+        |> Map.put(:before, before_at)
+
+      {documents, state, _budget} =
+        collect(page, initial(["fact", "guidance", "continuity"]), 8, &fetch(&1, binding, &2))
+
+      case KnowledgeSnapshot.expose(binding, documents) do
+        :ok -> :ok
+        {:error, reason} -> Repo.rollback(search_error(reason))
+      end
+
+      %{
+        "memories" => Enum.map(documents, &MemorySourceLink.for_caller(&1, binding)),
+        "coverage" => %{
+          "status" => if(exhausted?(state), do: "complete", else: "partial"),
+          "basis" => "direct_source_relationship",
+          "limit" => 8,
+          "per_source_limit" => 8,
+          "before" => before_time,
+          "time_basis" => "changed"
+        }
+      }
+    end)
+  rescue
+    error in Postgrex.Error ->
+      if error.postgres[:code] in @budget_errors,
+        do: {:error, :memory_search_budget_exceeded},
+        else: reraise(error, __STACKTRACE__)
+  end
+
   defp search_in_transaction(binding, arguments, secret) do
     # Result count is not a database-work bound. A broad literal search or
     # expensive lineage filter must fail explicitly, not occupy a worker forever.
     Repo.query!("SET LOCAL statement_timeout = '5000ms'")
-    Repo.query!("SET LOCAL lock_timeout = '1000ms'")
     binding = lock_binding(binding, arguments)
 
     {page, state} =
@@ -60,9 +99,10 @@ defmodule Responder.State.MemorySearch do
     end
 
     fetch = fn lane, current -> fetch(lane, binding, current) end
-    {documents, state} = collect(page, state, arguments["limit"], fetch)
+    {documents, state, budget} = collect(page, state, arguments["limit"], fetch)
+    {related, coverage} = related_to_results(documents, page, binding, budget)
 
-    case KnowledgeSnapshot.expose(binding, documents) do
+    case KnowledgeSnapshot.expose(binding, documents ++ related) do
       :ok -> :ok
       {:error, reason} -> Repo.rollback(search_error(reason))
     end
@@ -71,63 +111,67 @@ defmodule Responder.State.MemorySearch do
     cursor = if not exhausted, do: seal(cursor_document(binding, arguments, page, state), secret)
 
     %{
-      "memories" => documents,
+      "memories" => Enum.map(documents, &MemorySourceLink.for_caller(&1, binding)),
+      "related_memory" => Enum.map(related, &MemorySourceLink.for_caller(&1, binding)),
+      "related_memory_coverage" => coverage,
       "cursor" => cursor,
       "exhausted" => exhausted,
       "time_basis" => page.time_basis
     }
   end
 
-  defp lock_binding(binding, arguments) do
-    session =
-      Repo.one(
-        from(s in Session,
-          where: s.id == ^binding.session.id and s.episode_id == ^binding.episode.id,
-          lock: "FOR UPDATE NOWAIT"
-        )
-      )
+  defp related_to_results(documents, page, binding, {bytes, visits}) do
+    targets = documents |> Enum.flat_map(&MemorySourceLink.context_targets/1) |> Enum.uniq()
 
-    with %Session{cleanup_status: :active} <- session,
-         true <-
-           same_fields?(session, binding.session, [
-             :episode_id,
-             :generation,
-             :repository_ref,
-             :coop_session_id,
-             :authority_digest,
-             :policy_digest
-           ]),
-         true <- is_binary(binding.turn.lease_ref),
-         {episode, turn} <-
-           Repo.one(
-             from(e in Episode,
-               join: t in Turn,
-               on: t.episode_id == e.id,
-               where:
-                 e.id == ^binding.episode.id and t.id == ^binding.turn.id and
-                   t.session_id == ^session.id,
-               where: e.state == :working and e.owner_kind == :turn and e.owner_ref == t.turn_ref,
-               where:
-                 t.status == :pending and t.lease_ref == ^binding.turn.lease_ref and
-                   t.lease_expires_at > fragment("clock_timestamp()"),
-               select: {e, t}
-             )
-           ),
-         true <-
-           same_fields?(episode, binding.episode, [
-             :destination_transport,
-             :destination_conversation_ref,
-             :destination_thread_ref,
-             :execution_mode
-           ]) do
-      Map.merge(binding, %{
-        episode: episode,
-        session: session,
-        turn: turn,
-        operator_ref: latest_operator_ref(episode)
-      })
+    if targets == [] do
+      {[], %{"status" => "unavailable"}}
     else
-      _ ->
+      related_page =
+        %{page | query: "", scope: "workspace", position: nil, after: nil, time_basis: "changed"}
+        |> Map.put(:source_targets, Enum.take(targets, 20))
+        |> Map.put(:excluded_ids, document_ids(documents))
+
+      {related, state, _budget} =
+        collect(
+          related_page,
+          initial(["fact", "guidance", "continuity"]),
+          8,
+          &fetch(&1, binding, &2),
+          {[], bytes, visits}
+        )
+
+      {related,
+       %{
+         "status" =>
+           if(exhausted?(state) and length(targets) <= 20, do: "complete", else: "partial"),
+         "basis" => "direct_source_relationship",
+         "before" => if(page.before, do: DateTime.to_iso8601(page.before)),
+         "time_basis" => "changed",
+         "limit" => 8,
+         "per_source_limit" => 8
+       }}
+    end
+  end
+
+  defp document_ids(documents) do
+    Enum.flat_map(documents, &document_id/1)
+  end
+
+  defp document_id(document) do
+    ref = document["source_ref"] || document["memory_ref"] || document["behavior_ref"]
+
+    case ref |> String.split(":") |> List.last() |> Ecto.UUID.cast() do
+      {:ok, id} -> [id]
+      _ -> []
+    end
+  end
+
+  defp lock_binding(binding, arguments) do
+    case Binding.lock_current(binding) do
+      {:ok, current} ->
+        Map.put(current, :operator_ref, latest_operator_ref(current.episode))
+
+      {:error, _} ->
         Repo.rollback(
           if arguments["cursor"],
             do: :invalid_memory_cursor,
@@ -135,8 +179,6 @@ defmodule Responder.State.MemorySearch do
         )
     end
   end
-
-  defp same_fields?(left, right, fields), do: Map.take(left, fields) == Map.take(right, fields)
 
   # ChannelFence deliberately uses non-bang queries; preserve its SQL failure
   # before another query runs in the aborted transaction and hides the cause.
@@ -151,7 +193,7 @@ defmodule Responder.State.MemorySearch do
     binding = %{episode: episode, session: %{repository_ref: repository}}
     page = MemorySearchPage.first(query, scope)
 
-    {documents, _state} =
+    {documents, _state, _budget} =
       collect(page, initial(["continuity"]), limit, fn lane, current ->
         fetch(lane, binding, current)
       end)
@@ -176,18 +218,18 @@ defmodule Responder.State.MemorySearch do
     }
   end
 
-  defp collect(page, state, limit, fetch), do: collect(page, state, limit, fetch, {[], 0, 0})
+  defp collect(page, state, limit, fetch), do: collect(page, state, limit, fetch, {[], 1, 0})
 
-  defp collect(_page, state, 0, _fetch, {documents, _bytes, _visits}),
-    do: {Enum.reverse(documents), state}
+  defp collect(_page, state, 0, _fetch, {documents, bytes, visits}),
+    do: {Enum.reverse(documents), state, {bytes, visits}}
 
-  defp collect(_page, state, _limit, _fetch, {documents, _bytes, @maximum_visits}),
-    do: {Enum.reverse(documents), state}
+  defp collect(_page, state, _limit, _fetch, {documents, bytes, @maximum_visits}),
+    do: {Enum.reverse(documents), state, {bytes, @maximum_visits}}
 
-  defp collect(page, state, limit, fetch, {documents, _bytes, _visits} = progress) do
+  defp collect(page, state, limit, fetch, {documents, bytes, visits} = progress) do
     case next_lane(state) do
       nil ->
-        {Enum.reverse(documents), state}
+        {Enum.reverse(documents), state, {bytes, visits}}
 
       {lane, next} ->
         collect_lane(page, {state, lane, next}, limit, fetch, progress)
@@ -231,7 +273,7 @@ defmodule Responder.State.MemorySearch do
         Repo.rollback(:memory_search_result_too_large)
 
       bytes + size > @maximum_bytes ->
-        {Enum.reverse(documents), state}
+        {Enum.reverse(documents), state, {bytes, visits + 1}}
 
       true ->
         collect(

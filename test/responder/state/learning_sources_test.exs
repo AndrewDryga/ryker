@@ -4,7 +4,38 @@ defmodule Responder.State.LearningSourcesTest do
   alias Responder.{CanonicalJSON, Repo}
   alias Responder.Episodes.Episode
   alias Responder.Fixtures.Knowledge, as: KnowledgeFixtures
-  alias Responder.State.{Continuity, ConversationSummary, LearningSources}
+
+  alias Responder.State.{
+    Continuity,
+    ConversationObservation,
+    ConversationSummary,
+    LearningSources,
+    Observations
+  }
+
+  test "observation custody binds original content independently of optional navigation metadata" do
+    # Reader availability can change between a frozen submission and recall.
+    # It must not invalidate unchanged original text or admit altered prose.
+    {entry, _} =
+      KnowledgeFixtures.learn!(%Episode{
+        destination_transport: "control_plane",
+        destination_conversation_ref: "control-plane:lab:#{Ecto.UUID.generate()}"
+      })
+
+    note = Repo.get_by!(ConversationObservation, source_input_id: entry.id)
+    document = Observations.document(note)
+    sources = LearningSources.document_sources(document)
+    assert is_list(sources) and sources != []
+    without_navigation = Map.drop(document, ["source_read", "thread_ref"])
+    assert LearningSources.document_sources(without_navigation) == sources
+
+    assert LearningSources.document_sources(
+             Map.put(without_navigation, "summary", "altered original")
+           ) == nil
+
+    assert LearningSources.document_sources(Map.put(document, "thread_ref", "another-thread")) ==
+             nil
+  end
 
   test "validating normalized knowledge resolves its terminal roots once" do
     {entry, document} =

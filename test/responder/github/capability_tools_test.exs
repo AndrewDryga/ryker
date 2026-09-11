@@ -23,6 +23,105 @@ defmodule Responder.GitHub.CapabilityToolsTest do
     def search(_client, _request), do: raise("offline")
   end
 
+  defmodule ContextualAPI do
+    def read_context(client, request) do
+      send(client, {:contextual_read, request})
+
+      item =
+        if request.section == "subject",
+          do: %{"body" => "The original request", "number" => request.number},
+          else: %{"body" => "The discussion", "id" => 9_001}
+
+      {:ok, %{"items" => [item], "next_cursor" => nil}}
+    end
+
+    def search(_client, _request) do
+      {:ok,
+       %{
+         "items" => [
+           %{"body" => "Matched current request", "number" => 42, "kind" => "pull_request"},
+           %{"body" => "Matched other request", "number" => 43, "kind" => "issue"}
+         ],
+         "next_cursor" => nil
+       }}
+    end
+  end
+
+  defmodule MissingSubjectAPI do
+    def read_context(_client, %{section: "subject"}), do: {:error, :offline}
+    def read_context(_client, _request), do: {:ok, %{"items" => [], "next_cursor" => nil}}
+  end
+
+  test "subject lookup failures retain the existing model-facing error contract" do
+    options = put_in(context_options(), [:clients, "github-main", :api], MissingSubjectAPI)
+
+    assert CapabilityTools.call(
+             "read_github_conversation",
+             %{"cursor" => nil, "limit" => 5, "section" => "reviews"},
+             work_binding(),
+             options
+           ) ==
+             {:error, "temporarily_unavailable"}
+  end
+
+  test "discussion reads carry the bound subject without expanding the reader scope" do
+    options = put_in(context_options(), [:clients, "github-main", :api], ContextualAPI)
+
+    assert {:ok, result} =
+             CapabilityTools.call(
+               "read_github_conversation",
+               %{"cursor" => nil, "limit" => 5, "section" => "review_thread"},
+               work_binding(),
+               options
+             )
+
+    assert [%{"body" => "The discussion"}] = result["items"]
+
+    assert [%{"body" => "The original request", "number" => 42}] =
+             result["subject_context"]["items"]
+
+    assert_received {:contextual_read, %{number: 42, section: "review_thread"}}
+    assert_received {:contextual_read, %{number: 42, section: "subject"}}
+
+    assert {:ok, _result} =
+             CapabilityTools.call(
+               "read_github_conversation",
+               %{"cursor" => nil, "limit" => 5, "section" => "files"},
+               work_binding(),
+               options
+             )
+
+    assert_received {:contextual_read, %{number: 42, section: "files"}}
+    refute_received {:contextual_read, _}
+  end
+
+  test "search explains other subjects without offering an unauthorized expansion" do
+    options = put_in(context_options(), [:clients, "github-main", :api], ContextualAPI)
+
+    assert {:ok, result} =
+             CapabilityTools.call(
+               "search_github",
+               %{
+                 "cursor" => nil,
+                 "kind" => "all",
+                 "limit" => 5,
+                 "query" => "request",
+                 "state" => "all"
+               },
+               work_binding(),
+               options
+             )
+
+    [current, other] = result["items"]
+    assert [%{"body" => "The discussion"}] = current["discussion_context"]["items"]
+    assert current["source_read"]["tool"] == "read_github_conversation"
+    assert other["body"] == "Matched other request"
+    assert other["context_coverage"]["reason"] == "reader_is_current_subject_only"
+    refute Map.has_key?(other, "source_read")
+    assert_received {:contextual_read, %{number: 42, section: "issue_comments", limit: 5}}
+    refute_received {:contextual_read, _}
+  end
+
   test "exposes GitHub's exact emoji set and freezes a current comment reaction" do
     options = options()
 

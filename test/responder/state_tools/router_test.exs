@@ -1601,9 +1601,15 @@ defmodule Responder.StateTools.RouterTest do
       Router.init(
         token: "trusted-state-tools-token",
         binding: bound,
+        cursor_secret: "host-owned-source-cursor-secret",
         additional_tools: [source_tool],
         additional_call: fn "monitoring.query", %{"query" => "firing"}, received ->
-          {:ok, %{"binding_received" => received == bound}}
+          {:ok,
+           %{
+             "binding_received" =>
+               Map.delete(received, :cursor_secret) == bound and
+                 received[:cursor_secret] == "host-owned-source-cursor-secret"
+           }}
         end
       )
 
@@ -1619,6 +1625,8 @@ defmodule Responder.StateTools.RouterTest do
              "structuredContent",
              "binding_received"
            ]) == true
+
+    refute bound_response.resp_body =~ "host-owned-source-cursor-secret"
   end
 
   test "a Lab turn sees generic and Slack-compatible local tools but not GitHub authority" do

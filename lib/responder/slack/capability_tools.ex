@@ -13,16 +13,17 @@ defmodule Responder.Slack.CapabilityTools do
   alias Responder.Delivery.PlatformActionCustody
   alias Responder.Episodes.{Episode, Event}
   alias Responder.Repo
-  alias Responder.Slack.{ChannelConfigurations, SourceAudits, SourceRef}
+  alias Responder.Slack.{ChannelConfigurations, SourceAudits, SourceRef, SourceWindow}
   alias Responder.State.Records
   alias Responder.Work.Turn
 
   @content_types ~w(messages files channels users)
-  @search_fields ~w(after author_ref before content_types conversation_refs cursor include_context limit query)
+  @search_fields ~w(after author_ref before content_types conversation_refs cursor limit query)
   @list_fields ~w(configured_only cursor include_archived include_resources kinds limit query)
-  @read_fields ~w(after before cursor limit source_ref view)
+  @read_fields ~w(after anchor_ref before cursor limit source_ref view)
   @reaction_fields ~w(action emoji message_ref)
   @post_fields ~w(destination_ref instruction_ref message)
+  @search_expansions 2
   @emoji_name ~r/\A[a-z0-9_+\-]{1,100}\z/
 
   @spec list(map() | keyword()) :: [map()]
@@ -87,7 +88,6 @@ defmodule Responder.Slack.CapabilityTools do
               "uniqueItems" => true
             },
             "cursor" => nullable_string("Optional server cursor from the prior search call."),
-            "include_context" => %{"type" => "boolean"},
             "limit" => %{"maximum" => 20, "minimum" => 1, "type" => "integer"},
             "query" => %{"maxLength" => 2_048, "minLength" => 1, "type" => "string"}
           },
@@ -98,11 +98,15 @@ defmodule Responder.Slack.CapabilityTools do
       },
       %{
         "description" =>
-          "Read one exact authorized Slack channel, message, or thread source before relying on it.",
+          "Read an exact authorized Slack original, thread, channel, file or canvas. Message reads include bounded neighbors and thread context; Work lookups also include eligible related memory. Coverage states what is missing. Follow source_read/source_reads or omitted_context for more originals; context_reference points to a body with that source_ref in the same response. Metadata stays focused.",
         "inputSchema" => %{
           "additionalProperties" => false,
           "properties" => %{
             "after" => nullable_string("Optional RFC3339 lower time bound."),
+            "anchor_ref" =>
+              nullable_string(
+                "Exact message source within the requested thread. Omit to anchor on its root."
+              ),
             "before" => nullable_string("Optional RFC3339 upper time bound."),
             "cursor" => nullable_string("Optional server cursor from the prior read call."),
             "limit" => %{"maximum" => 100, "minimum" => 1, "type" => "integer"},
@@ -218,6 +222,7 @@ defmodule Responder.Slack.CapabilityTools do
          {:ok, token} <- checkout(options.action_tokens, event_ref, binding.turn.id),
          {:ok, response} <- options.api.search_context(options.client, token, document),
          {:ok, decorated} <- authorize_search_response(response, options),
+         {:ok, decorated} <- expand_search_context(decorated, arguments, binding, options),
          :ok <-
            audit_call(
              options,
@@ -245,7 +250,7 @@ defmodule Responder.Slack.CapabilityTools do
          {:ok, conversation} <-
            options.api.conversation_info(options.client, source.channel_ref),
          :ok <- source_authorized(conversation, source, current_channel_ref),
-         {:ok, result} <- read_source(options, source, view, document, conversation),
+         {:ok, result} <- read_source(options, source, view, document, conversation, binding),
          :ok <-
            audit_call(
              options,
@@ -430,14 +435,13 @@ defmodule Responder.Slack.CapabilityTools do
          {:ok, after_time} <- timestamp(Map.get(arguments, "after")),
          {:ok, before_time} <- timestamp(Map.get(arguments, "before")),
          {:ok, cursor} <- optional_text(Map.get(arguments, "cursor"), 4_096),
-         {:ok, include_context} <- boolean(Map.get(arguments, "include_context", true)),
          {:ok, limit} <- limit(Map.get(arguments, "limit", 20)),
          {:ok, query} <- bounded_query(query, conversations, author) do
       {:ok,
        %{
          "channel_types" => ["public_channel"],
          "content_types" => content_types,
-         "include_context_messages" => include_context,
+         "include_context_messages" => true,
          "limit" => limit,
          "query" => query
        }
@@ -491,9 +495,10 @@ defmodule Responder.Slack.CapabilityTools do
          {:ok, source_ref} <- text(Map.get(arguments, "source_ref"), 1_024),
          {:ok, source} <- SourceRef.parse(source_ref, workspace_ref),
          {:ok, view} <- source_view(Map.get(arguments, "view"), source.kind),
+         {:ok, source} <- source_anchor_ref(Map.get(arguments, "anchor_ref"), source, view),
          {:ok, after_time} <- slack_timestamp(Map.get(arguments, "after")),
          {:ok, before_time} <- slack_timestamp(Map.get(arguments, "before")),
-         {:ok, cursor} <- optional_text(Map.get(arguments, "cursor"), 4_096),
+         {:ok, cursor} <- optional_text(Map.get(arguments, "cursor"), 8_192),
          {:ok, limit} <- source_limit(Map.get(arguments, "limit", 100)),
          {:ok, document} <-
            source_read_bounds(source, view, after_time, before_time, cursor, limit) do
@@ -501,11 +506,28 @@ defmodule Responder.Slack.CapabilityTools do
     else
       false -> {:error, :invalid_arguments}
       {:error, :invalid_slack_source_ref} -> {:error, :unauthorized}
+      {:error, :unauthorized} -> {:error, :unauthorized}
       {:error, _reason} -> {:error, :invalid_arguments}
     end
   end
 
   defp read_document(_arguments, _workspace_ref), do: {:error, :invalid_arguments}
+
+  defp source_anchor_ref(nil, source, _view), do: {:ok, source}
+
+  defp source_anchor_ref(ref, %{kind: :thread} = source, :thread) do
+    with {:ok, %{kind: :message, channel_ref: channel, message_ref: timestamp}} <-
+           SourceRef.parse(ref, source.workspace_ref),
+         true <-
+           channel == source.channel_ref and
+             timestamp_value(timestamp) >= timestamp_value(source.message_ref) do
+      {:ok, Map.put(source, :anchor_message_ref, timestamp)}
+    else
+      _ -> {:error, :unauthorized}
+    end
+  end
+
+  defp source_anchor_ref(_ref, _source, _view), do: {:error, :invalid_arguments}
 
   defp reaction_document(%{} = arguments, workspace_ref) do
     with true <- Map.keys(arguments) |> Enum.sort() == @reaction_fields,
@@ -688,7 +710,7 @@ defmodule Responder.Slack.CapabilityTools do
   defp source_authorized(_conversation, _source, _current_channel_ref),
     do: {:error, :slack_protocol_error}
 
-  defp read_source(options, %{kind: :bookmark} = source, view, _document, conversation)
+  defp read_source(options, %{kind: :bookmark} = source, view, _document, conversation, _binding)
        when view in [:document, :metadata] do
     with {:ok, bookmarks} <- options.api.list_bookmarks(options.client, source.channel_ref),
          {:ok, bookmark} <- exact_bookmark(bookmarks, source),
@@ -698,11 +720,11 @@ defmodule Responder.Slack.CapabilityTools do
     end
   end
 
-  defp read_source(options, %{kind: kind} = source, view, _document, conversation)
+  defp read_source(options, %{kind: kind} = source, view, _document, conversation, _binding)
        when kind in [:canvas, :file] and view in [:document, :metadata] do
     with {:ok, file} <- options.api.file_info(options.client, source.resource_ref),
          :ok <- file_authorized(file, source),
-         {:ok, document} <- file_document(file, kind) do
+         {:ok, document} <- file_document(file, source) do
       {:ok,
        %{
          "complete" => document["content_complete"],
@@ -715,7 +737,7 @@ defmodule Responder.Slack.CapabilityTools do
     end
   end
 
-  defp read_source(_options, source, :metadata, _document, conversation)
+  defp read_source(_options, source, :metadata, _document, conversation, _binding)
        when source.kind in [:channel, :message, :thread] do
     {:ok,
      %{
@@ -728,25 +750,173 @@ defmodule Responder.Slack.CapabilityTools do
      }}
   end
 
-  defp read_source(options, source, view, document, conversation) do
+  defp read_source(options, source, view, document, conversation, binding) do
     thread_ref = if(view == :thread, do: source.message_ref, else: nil)
 
-    with {:ok, %{"cursor" => cursor, "messages" => messages}} <-
-           options.api.read_messages(options.client, source.channel_ref, thread_ref, document),
+    with {:ok, document} <- open_source_cursor(document, source, view, binding),
+         {:ok, anchor, root} <- source_anchor(options, source, thread_ref),
+         {:ok, %{"cursor" => cursor, "messages" => messages} = page} <-
+           source_page(options, source, thread_ref, document, anchor, root),
          {:ok, messages} <-
            decorate_source_messages(messages, source.workspace_ref, source.channel_ref),
-         :ok <- expected_source_present(source, messages) do
-      {:ok,
-       %{
-         "complete" => cursor == "",
-         "conversation" => conversation,
-         "cursor" => cursor,
-         "messages" => messages,
-         "source_ref" => source_ref(source),
-         "view" => Atom.to_string(view)
-       }}
+         {:ok, continuation} <- seal_source_cursor(cursor, document, source, view, binding) do
+      result = %{
+        "anchor" => anchor,
+        "thread_root" => root,
+        "complete" =>
+          Map.get(
+            page,
+            "complete",
+            cursor == "" and page["has_more"] != true and page["is_limited"] != true
+          ),
+        "coverage" => Map.get(page, "coverage"),
+        "conversation" => conversation,
+        "cursor" => continuation,
+        "messages" => messages,
+        "source_ref" => source_ref(source),
+        "view" => Atom.to_string(view)
+      }
+
+      result = Map.merge(result, Map.take(page, ["source_reads"]))
+      add_thread_channel_context(options, source, document, root, result, binding)
     end
   end
+
+  defp add_thread_channel_context(_options, %{kind: :thread}, _document, nil, result, _binding),
+    do: {:ok, Map.put(result, "channel_context", %{"coverage" => %{"status" => "unavailable"}})}
+
+  defp add_thread_channel_context(
+         options,
+         %{kind: :thread} = source,
+         document,
+         root,
+         result,
+         binding
+       ) do
+    channel_source =
+      %{source | kind: :message, message_ref: root["ts"]} |> Map.delete(:anchor_message_ref)
+
+    arguments = %{
+      "source_ref" => source_ref(channel_source),
+      "view" => "surrounding",
+      "limit" => 4,
+      "after" => source_datetime(document["oldest"]),
+      "before" => source_datetime(document["latest"])
+    }
+
+    case read_document(arguments, source.workspace_ref) do
+      {:ok, ^channel_source, :surrounding, channel_document} ->
+        with {:ok, context} <-
+               channel_window(
+                 options,
+                 channel_source,
+                 channel_document,
+                 root,
+                 binding,
+                 document["cursor"]
+               ) do
+          {:ok, Map.put(result, "channel_context", link_channel_context(context, arguments))}
+        end
+
+      {:error, _unusable_window} ->
+        # The channel layer is optional context around an already authorized thread.
+        {:ok, Map.put(result, "channel_context", %{"coverage" => %{"status" => "unavailable"}})}
+    end
+  end
+
+  defp add_thread_channel_context(_options, _source, _document, _root, result, _binding),
+    do: {:ok, result}
+
+  defp link_channel_context(context, arguments) do
+    cursor = context["cursor"]
+
+    arguments =
+      if cursor in [nil, ""],
+        do: Map.put(arguments, "limit", 20),
+        else: Map.put(arguments, "cursor", cursor)
+
+    Map.put(context, "source_read", %{"tool" => "read_slack_source", "arguments" => arguments})
+  end
+
+  defp channel_window(_options, _source, _document, _root, _binding, cursor)
+       when not is_nil(cursor),
+       do: {:ok, %{"messages" => [], "coverage" => %{"status" => "previous_page"}}}
+
+  defp channel_window(options, source, document, root, binding, nil) do
+    read = &message_page(options, source, nil, &1)
+
+    with {:ok, page} <- SourceWindow.read(read, source, document, root, nil),
+         {:ok, messages} <-
+           decorate_source_messages(page["messages"], source.workspace_ref, source.channel_ref),
+         {:ok, cursor} <-
+           seal_source_cursor(page["cursor"], document, source, :surrounding, binding) do
+      {:ok, %{"messages" => messages, "coverage" => page["coverage"], "cursor" => cursor}}
+    end
+  end
+
+  defp source_datetime(nil), do: nil
+
+  defp source_datetime(timestamp),
+    do:
+      timestamp |> timestamp_value() |> DateTime.from_unix!(:microsecond) |> DateTime.to_iso8601()
+
+  defp source_page(options, %{kind: :channel} = source, thread, document, _anchor, _root),
+    do: message_page(options, source, thread, document)
+
+  defp source_page(options, source, thread, document, anchor, root) do
+    read = &message_page(options, source, thread, &1)
+    SourceWindow.read(read, source, document, anchor, root)
+  end
+
+  defp message_page(options, source, thread, document) do
+    with {:ok, page} <-
+           options.api.read_messages(options.client, source.channel_ref, thread, document) do
+      {:ok,
+       if(is_nil(thread), do: Map.update(page, "messages", nil, &channel_originals/1), else: page)}
+    end
+  end
+
+  defp channel_originals(messages) when is_list(messages),
+    do: Enum.filter(messages, &channel_original?/1)
+
+  defp channel_originals(messages), do: messages
+  defp channel_original?(%{"thread_ts" => thread, "ts" => ts}), do: is_nil(thread) or thread == ts
+  defp channel_original?(_message), do: true
+
+  defp open_source_cursor(%{"cursor" => nil} = document, _source, _view, _binding),
+    do: {:ok, document}
+
+  defp open_source_cursor(document, source, view, %{cursor_secret: secret} = binding)
+       when is_binary(secret) and byte_size(secret) >= 16 do
+    scope = source_cursor_scope(document, source, view, binding)
+
+    case Plug.Crypto.verify(secret, "slack-source-read", document["cursor"], max_age: 3_600) do
+      {:ok, {^scope, cursor}} when is_binary(cursor) or is_map(cursor) ->
+        {:ok, Map.put(document, "cursor", cursor)}
+
+      _ ->
+        {:error, :invalid_source_cursor}
+    end
+  end
+
+  defp open_source_cursor(_document, _source, _view, _binding),
+    do: {:error, :invalid_source_cursor}
+
+  defp seal_source_cursor("", _document, _source, _view, _binding), do: {:ok, ""}
+
+  defp seal_source_cursor(cursor, document, source, view, %{cursor_secret: secret} = binding)
+       when is_binary(secret) and byte_size(secret) >= 16 do
+    scope = source_cursor_scope(document, source, view, binding)
+    {:ok, Plug.Crypto.sign(secret, "slack-source-read", {scope, cursor}, max_age: 3_600)}
+  end
+
+  defp seal_source_cursor(_cursor, _document, _source, _view, _binding),
+    do: {:error, :invalid_source_cursor}
+
+  defp source_cursor_scope(document, source, view, binding),
+    do:
+      {source_ref(source), Map.get(source, :anchor_message_ref), view,
+       Map.delete(document, "cursor"), binding.episode.id, binding.turn.id}
 
   defp decorate_source_messages(messages, workspace_ref, channel_ref) when is_list(messages) do
     Enum.reduce_while(messages, {:ok, []}, fn
@@ -770,12 +940,50 @@ defmodule Responder.Slack.CapabilityTools do
   defp decorate_source_messages(_messages, _workspace_ref, _channel_ref),
     do: {:error, :slack_protocol_error}
 
-  defp expected_source_present(%{kind: :channel}, _messages), do: :ok
+  defp source_anchor(_options, %{kind: :channel}, _thread_ref), do: {:ok, nil, nil}
 
-  defp expected_source_present(%{message_ref: message_ref}, messages) do
-    if Enum.any?(messages, &(&1["ts"] == message_ref)),
-      do: :ok,
-      else: {:error, :slack_source_not_found}
+  defp source_anchor(options, source, thread_ref) do
+    # Page contents are not source identity. Recheck the exact original on every
+    # page, including a continuation that no longer contains the anchor.
+    timestamp = Map.get(source, :anchor_message_ref, source.message_ref)
+
+    with {:ok, originals} <- exact_source_originals(options, source, thread_ref, timestamp),
+         {:ok, anchor} <- required_original(originals, timestamp),
+         {:ok, root} <- source_root(options, source, thread_ref, originals),
+         do: {:ok, anchor, root}
+  end
+
+  defp required_original(originals, timestamp) do
+    case Enum.find(originals, &(&1["ts"] == timestamp)) do
+      nil -> {:error, :slack_source_not_found}
+      original -> {:ok, original}
+    end
+  end
+
+  defp source_root(_options, _source, nil, _originals), do: {:ok, nil}
+
+  defp source_root(options, source, thread_ref, originals) do
+    case Enum.find(originals, &(&1["ts"] == thread_ref)) do
+      nil ->
+        with {:ok, roots} <- exact_source_originals(options, source, thread_ref, thread_ref),
+             do: {:ok, Enum.find(roots, &(&1["ts"] == thread_ref))}
+
+      root ->
+        {:ok, root}
+    end
+  end
+
+  defp exact_source_originals(options, source, thread_ref, timestamp) do
+    document = %{
+      "oldest" => timestamp,
+      "latest" => timestamp,
+      "inclusive" => true,
+      "limit" => 1
+    }
+
+    with {:ok, %{"messages" => messages}} <-
+           options.api.read_messages(options.client, source.channel_ref, thread_ref, document),
+         do: decorate_source_messages(messages, source.workspace_ref, source.channel_ref)
   end
 
   defp source_ref(%{kind: :channel, workspace_ref: workspace_ref, channel_ref: channel_ref}),
@@ -1117,9 +1325,11 @@ defmodule Responder.Slack.CapabilityTools do
        when is_binary(entity_ref) and type in ["canvas", "file"] do
     kind = String.to_existing_atom(type)
 
+    target = %{source | kind: kind, resource_ref: entity_ref}
+
     with {:ok, file} <- options.api.file_info(options.client, entity_ref),
-         :ok <- file_authorized(file, %{source | kind: kind}),
-         {:ok, document} <- file_document(file, kind) do
+         :ok <- file_authorized(file, target),
+         {:ok, document} <- file_document(file, target) do
       {:ok,
        %{
          "bookmark" => normalized,
@@ -1145,11 +1355,11 @@ defmodule Responder.Slack.CapabilityTools do
      }}
   end
 
-  defp file_authorized(%{} = file, %{channel_ref: channel_ref, kind: kind}) do
+  defp file_authorized(%{} = file, %{channel_ref: channel_ref, kind: kind, resource_ref: file_ref}) do
     refs = file_channel_refs(file)
 
     authorized =
-      channel_ref in refs and
+      file["id"] == file_ref and channel_ref in refs and
         (kind != :canvas or Map.get(file, "linked_channel_id", channel_ref) == channel_ref)
 
     if authorized, do: :ok, else: {:error, :unauthorized}
@@ -1184,7 +1394,7 @@ defmodule Responder.Slack.CapabilityTools do
     |> Enum.uniq()
   end
 
-  defp file_document(%{"id" => file_ref} = file, kind)
+  defp file_document(%{"id" => file_ref} = file, %{kind: kind} = source)
        when is_binary(file_ref) and kind in [:canvas, :file] do
     title = file["title"] || file["name"] || file_ref
     {content, content_complete} = file_content(file)
@@ -1194,12 +1404,15 @@ defmodule Responder.Slack.CapabilityTools do
        %{
          "content" => content,
          "content_complete" => content_complete,
+         "created" => optional_nonnegative_integer(file["created"]),
          "filetype" => optional_resource_text(file["filetype"], 128),
          "kind" => Atom.to_string(kind),
          "media_type" => optional_resource_text(file["mimetype"], 128),
          "permalink" => optional_resource_text(file["permalink"], 8_192),
          "size" => optional_nonnegative_integer(file["size"]),
-         "title" => bounded_resource_text(title, 1_024)
+         "source_context" => file_source_context(file, source),
+         "title" => bounded_resource_text(title, 1_024),
+         "updated" => optional_nonnegative_integer(file["updated"])
        }
        |> drop_nil_values()}
     rescue
@@ -1207,14 +1420,52 @@ defmodule Responder.Slack.CapabilityTools do
     end
   end
 
-  defp file_document(_file, _kind), do: {:error, :slack_protocol_error}
+  defp file_document(_file, _source), do: {:error, :slack_protocol_error}
+
+  defp file_source_context(file, source) do
+    shares = file["shares"] || %{}
+
+    originals =
+      ~w(public private)
+      |> Enum.flat_map(&(get_in(shares, [&1, source.channel_ref]) || []))
+      |> Enum.filter(&(Map.get(&1, "team_id", source.workspace_ref) == source.workspace_ref))
+      |> Enum.uniq_by(& &1["ts"])
+      |> Enum.take(4)
+      |> Enum.map(&file_share(&1, source))
+
+    %{
+      "channel_source_ref" => SourceRef.channel(source.workspace_ref, source.channel_ref),
+      "origin" => "not_established",
+      "shares" => originals,
+      "coverage" => %{
+        "basis" => "known_shares_in_requested_channel",
+        "status" => "partial",
+        "limit" => 4
+      }
+    }
+  end
+
+  defp file_share(share, source) do
+    original =
+      %{
+        "source_ref" => SourceRef.message(source.workspace_ref, source.channel_ref, share["ts"]),
+        "thread_source_ref" =>
+          if(share["thread_ts"],
+            do: SourceRef.thread(source.workspace_ref, source.channel_ref, share["thread_ts"])
+          )
+      }
+      |> drop_nil_values()
+
+    arguments = original |> search_expansion_arguments(%{}) |> Map.put("limit", 20)
+    Map.put(original, "source_read", %{"tool" => "read_slack_source", "arguments" => arguments})
+  end
 
   defp file_content(file) do
     value = file["plain_text"] || file["preview_plain_text"] || file["preview"]
 
     if is_binary(value) and String.valid?(value) and byte_size(value) in 1..(128 * 1_024) and
          :binary.match(value, <<0>>) == :nomatch do
-      {value, Map.get(file, "preview_is_truncated", false) != true}
+      {value, is_binary(file["plain_text"]) and file["preview_is_truncated"] != true}
     else
       {nil, false}
     end
@@ -1462,7 +1713,16 @@ defmodule Responder.Slack.CapabilityTools do
   defp result_count(%{"conversations" => conversations}) when is_list(conversations),
     do: length(conversations)
 
-  defp result_count(%{"messages" => messages}) when is_list(messages), do: length(messages)
+  defp result_count(%{"messages" => messages} = result) when is_list(messages) do
+    [
+      result["anchor"],
+      result["thread_root"] | messages ++ (get_in(result, ["channel_context", "messages"]) || [])
+    ]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.uniq_by(& &1["source_ref"])
+    |> length()
+  end
+
   defp result_count(%{"bookmark" => bookmark}) when is_map(bookmark), do: 1
   defp result_count(%{"document" => document}) when is_map(document), do: 1
 
@@ -1476,7 +1736,111 @@ defmodule Responder.Slack.CapabilityTools do
   defp result_count(_result), do: 0
 
   defp search_complete?(response),
-    do: Map.get(response, "next_cursor") in [nil, ""]
+    do: response["complete"] != false and Map.get(response, "next_cursor") in [nil, ""]
+
+  defp expand_search_context(
+         %{"results" => %{"messages" => messages}} = response,
+         arguments,
+         binding,
+         options
+       ) do
+    Enum.reduce_while(messages, {:ok, [], @search_expansions}, fn hit, {:ok, hits, remaining} ->
+      case expand_search_hit(hit, arguments, binding, options, remaining) do
+        {:ok, hit, remaining} -> {:cont, {:ok, [hit | hits], remaining}}
+        {:error, _} = error -> {:halt, error}
+      end
+    end)
+    |> expanded_search_response(response, length(messages))
+  end
+
+  defp expand_search_context(response, _arguments, _binding, _options), do: {:ok, response}
+
+  defp expanded_search_response({:ok, hits, remaining}, response, original_count) do
+    hits = hits |> Enum.reverse() |> Enum.reject(&is_nil/1)
+    response = put_in(response, ["results", "messages"], hits)
+
+    response =
+      if length(hits) < original_count, do: Map.put(response, "complete", false), else: response
+
+    {:ok,
+     Map.put(response, "context_limits", %{
+       "fallback_reads" => @search_expansions - remaining,
+       "fallback_read_limit" => @search_expansions,
+       "message_page_limit" => @search_expansions * 6
+     })}
+  end
+
+  defp expanded_search_response({:error, _} = error, _response, _count), do: error
+
+  defp expand_search_hit(hit, arguments, binding, options, remaining) do
+    read = search_expansion_arguments(hit, arguments)
+    hit = Map.put(hit, "source_read", %{"tool" => "read_slack_source", "arguments" => read})
+
+    cond do
+      hit["context_coverage"]["status"] != "unavailable" -> {:ok, hit, remaining}
+      remaining == 0 -> {:ok, put_in(hit, ["context_coverage", "reason"], "expansion_budget"), 0}
+      true -> expand_search_original(hit, read, binding, options, remaining - 1)
+    end
+  end
+
+  defp search_expansion_arguments(hit, arguments) do
+    base = %{
+      "source_ref" => hit["source_ref"],
+      "view" => "surrounding",
+      "limit" => 4,
+      "after" => arguments["after"],
+      "before" => arguments["before"]
+    }
+
+    if hit["thread_source_ref"],
+      do:
+        Map.merge(base, %{
+          "source_ref" => hit["thread_source_ref"],
+          "view" => "thread",
+          "anchor_ref" => hit["source_ref"]
+        }),
+      else: base
+  end
+
+  defp expand_search_original(hit, read, binding, options, remaining) do
+    with {:ok, source, view, document} <- read_document(read, options.workspace_ref),
+         thread = if(view == :thread, do: source.message_ref),
+         {:ok, anchor, root} <- source_anchor(options, source, thread),
+         {:ok, page} <- source_page(options, source, thread, document, anchor, root),
+         {:ok, messages} <-
+           decorate_source_messages(page["messages"], source.workspace_ref, source.channel_ref),
+         {:ok, cursor} <- seal_source_cursor(page["cursor"], document, source, view, binding) do
+      {before, after_messages} =
+        Enum.split_with(messages, &(timestamp_value(&1["ts"]) < timestamp_value(anchor["ts"])))
+
+      coverage =
+        Map.merge(page["coverage"], %{
+          "status" => if(page["complete"], do: "complete", else: "partial"),
+          "basis" => "original_reader",
+          "neighbor_limit" => 2
+        })
+
+      read =
+        if cursor == "", do: Map.put(read, "limit", 20), else: Map.put(read, "cursor", cursor)
+
+      hit =
+        Map.merge(hit, %{
+          "content" => Map.get(anchor, "text", hit["content"]),
+          "context_messages" => %{
+            "before" => Enum.map(before, &compact_context_message/1),
+            "after" => Enum.map(after_messages, &compact_context_message/1)
+          },
+          "context_coverage" => coverage,
+          "thread_root" => if(root && root["source_ref"] != hit["source_ref"], do: root),
+          "source_read" => %{"tool" => "read_slack_source", "arguments" => read}
+        })
+
+      {:ok, hit, remaining}
+    else
+      {:error, :slack_source_not_found} -> {:ok, nil, remaining}
+      {:error, _} = error -> error
+    end
+  end
 
   defp source_capability(%{kind: :bookmark}, _view), do: "bookmarks.list"
   defp source_capability(%{kind: kind}, _view) when kind in [:canvas, :file], do: "files.info"
@@ -1594,21 +1958,101 @@ defmodule Responder.Slack.CapabilityTools do
     do: {:ok, nil}
 
   defp authorize_search_message_visibility(true, message, options, channel_ref, message_ref) do
-    {:ok,
-     Map.put(
-       message,
-       "source_ref",
-       SourceRef.message(options.workspace_ref, channel_ref, message_ref)
-     )}
+    with true <- Map.get(message, "team_id", options.workspace_ref) == options.workspace_ref,
+         {:ok, context, coverage} <- search_message_context(message, options.workspace_ref) do
+      thread_ref = message["thread_ts"]
+
+      {:ok,
+       Map.merge(message, %{
+         "source_ref" => SourceRef.message(options.workspace_ref, channel_ref, message_ref),
+         "context_messages" => context,
+         "context_coverage" => coverage,
+         "thread_source_ref" =>
+           if(thread_ref, do: SourceRef.thread(options.workspace_ref, channel_ref, thread_ref))
+       })}
+    else
+      _ -> {:error, :slack_protocol_error}
+    end
   rescue
     _error -> {:error, :slack_protocol_error}
+  end
+
+  defp search_message_context(message, workspace_ref) do
+    case Map.fetch(message, "context_messages") do
+      :error ->
+        {:ok, %{"before" => [], "after" => []}, %{"status" => "unavailable"}}
+
+      {:ok, %{"before" => before_messages, "after" => after_messages}}
+      when is_list(before_messages) and is_list(after_messages) ->
+        normalize_search_context(before_messages ++ after_messages, message, workspace_ref)
+
+      _ ->
+        {:error, :slack_protocol_error}
+    end
+  end
+
+  defp normalize_search_context(messages, anchor, workspace_ref) do
+    with true <- Enum.all?(messages, &same_context_identity?(&1, anchor, workspace_ref)),
+         {:ok, messages} <-
+           decorate_source_messages(messages, workspace_ref, anchor["channel_id"]) do
+      originals =
+        messages
+        |> Enum.uniq_by(& &1["source_ref"])
+        |> Enum.reject(&(&1["ts"] == anchor["message_ts"]))
+        |> Enum.sort_by(&timestamp_value(&1["ts"]))
+
+      {before_messages, after_messages} =
+        Enum.split_while(
+          originals,
+          &(timestamp_value(&1["ts"]) < timestamp_value(anchor["message_ts"]))
+        )
+
+      selected = Enum.take(before_messages, -2) ++ Enum.take(after_messages, 2)
+
+      truncated =
+        length(selected) < length(originals) or
+          Enum.any?(selected, &(byte_size(&1["text"]) > 4_096))
+
+      context = %{
+        "before" => before_messages |> Enum.take(-2) |> Enum.map(&compact_context_message/1),
+        "after" => after_messages |> Enum.take(2) |> Enum.map(&compact_context_message/1)
+      }
+
+      {:ok, context,
+       %{
+         "status" => "partial",
+         "basis" => "provider_selected",
+         "truncated" => truncated,
+         "neighbor_limit" => 2
+       }}
+    else
+      _ -> {:error, :slack_protocol_error}
+    end
+  end
+
+  defp same_context_identity?(%{"text" => text} = message, anchor, workspace_ref)
+       when is_binary(text) do
+    Map.get(message, "channel_id", anchor["channel_id"]) == anchor["channel_id"] and
+      Map.get(message, "team_id", workspace_ref) == workspace_ref and
+      (is_nil(anchor["thread_ts"]) or
+         Map.get(message, "thread_ts", anchor["thread_ts"]) == anchor["thread_ts"])
+  end
+
+  defp same_context_identity?(_message, _anchor, _workspace_ref), do: false
+
+  defp compact_context_message(message) do
+    # Search carries a small original excerpt, never arbitrary nested provider context.
+    message
+    |> Map.take(~w(source_ref text ts thread_ts user user_id))
+    |> Map.put("text", String.byte_slice(message["text"], 0, 4_096))
+    |> Map.put("text_truncated", byte_size(message["text"]) > 4_096)
   end
 
   defp authorize_search_file(%{"file_id" => file_ref} = result, options)
        when is_binary(file_ref) do
     with {:ok, %{"id" => ^file_ref} = file} <- options.api.file_info(options.client, file_ref),
          {:ok, channel_ref} <- first_public_file_channel(file, options) do
-      authorize_search_file_channel(result, options, channel_ref, file_ref)
+      authorize_search_file_channel(result, options, channel_ref, file)
     else
       {:ok, _crossed_file} -> {:error, :slack_protocol_error}
       {:error, _reason} = error -> error
@@ -1617,13 +2061,27 @@ defmodule Responder.Slack.CapabilityTools do
 
   defp authorize_search_file(_invalid, _options), do: {:error, :slack_protocol_error}
 
-  defp authorize_search_file_channel(_result, _options, nil, _file_ref), do: {:ok, nil}
+  defp authorize_search_file_channel(_result, _options, nil, _file), do: {:ok, nil}
 
-  defp authorize_search_file_channel(result, options, channel_ref, file_ref) do
-    {:ok,
-     result
-     |> Map.put("channel_id", channel_ref)
-     |> Map.put("source_ref", SourceRef.file(options.workspace_ref, channel_ref, file_ref))}
+  defp authorize_search_file_channel(result, options, channel_ref, file) do
+    source = %{
+      workspace_ref: options.workspace_ref,
+      channel_ref: channel_ref,
+      kind: :file,
+      resource_ref: file["id"]
+    }
+
+    with {:ok, document} <- file_document(file, source) do
+      {:ok,
+       result
+       |> Map.merge(Map.drop(document, ["content", "content_complete"]))
+       |> Map.put("channel_id", channel_ref)
+       |> Map.put("source_ref", source_ref(source))
+       |> Map.put("source_read", %{
+         "tool" => "read_slack_source",
+         "arguments" => %{"source_ref" => source_ref(source), "view" => "document"}
+       })}
+    end
   rescue
     _error -> {:error, :slack_protocol_error}
   end
@@ -1843,6 +2301,7 @@ defmodule Responder.Slack.CapabilityTools do
     do: is_binary(value) and Regex.match?(~r/\A[A-Z0-9]+\z/, value)
 
   defp error_code(:invalid_arguments), do: "invalid_arguments"
+  defp error_code(:invalid_source_cursor), do: "invalid_source_cursor"
   defp error_code(:unauthorized), do: "unauthorized"
   defp error_code(:slack_action_token_not_authorized), do: "unauthorized"
   defp error_code(:slack_search_budget_exhausted), do: "search_budget_exhausted"

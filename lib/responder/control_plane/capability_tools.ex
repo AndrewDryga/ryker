@@ -11,16 +11,18 @@ defmodule Responder.ControlPlane.CapabilityTools do
 
   alias Responder.Artifacts
   alias Responder.CanonicalJSON
+  alias Responder.ControlPlane.SourcePage
   alias Responder.Delivery.PlatformActionCustody
   alias Responder.Episodes.{Episode, Event}
   alias Responder.Repo
   alias Responder.Slack.CapabilityTools, as: SlackCapabilityTools
   alias Responder.State.Records
+  alias Responder.StateTools.Binding
   alias Responder.Work.Turn
 
   @list_fields ~w(configured_only cursor include_archived include_resources kinds limit query)
-  @search_fields ~w(after author_ref before content_types conversation_refs cursor include_context limit query)
-  @read_fields ~w(after before cursor limit source_ref view)
+  @search_fields ~w(after author_ref before content_types conversation_refs cursor limit query)
+  @read_fields ~w(after anchor_ref before cursor limit source_ref view)
   @reaction_fields ~w(action emoji message_ref)
   @post_fields ~w(destination_ref instruction_ref message)
   @emoji_name ~r/\A[a-z0-9_+\-]{1,100}\z/
@@ -53,14 +55,33 @@ defmodule Responder.ControlPlane.CapabilityTools do
   @spec call(String.t(), map(), map()) :: {:ok, map()} | {:error, String.t()}
   def call(name, arguments, binding) when is_binary(name) and is_map(arguments) do
     case lab_binding(binding) do
-      {:ok, context} -> dispatch(name, arguments, context)
-      {:error, reason} -> {:error, error_code(reason)}
+      {:ok, context} ->
+        local_call(name, arguments, context)
+
+      {:error, reason} ->
+        {:error, error_code(reason)}
     end
   rescue
     _error -> {:error, "temporarily_unavailable"}
   end
 
   def call(_name, _arguments, _binding), do: {:error, "invalid_arguments"}
+
+  defp local_call(name, arguments, context) do
+    case Repo.transaction(fn -> dispatch_current(name, arguments, context) end) do
+      {:ok, result} -> result
+      {:error, reason} -> {:error, error_code(reason)}
+    end
+  end
+
+  defp dispatch_current(name, arguments, context) do
+    Repo.query!("SET LOCAL statement_timeout = '5000ms'")
+
+    case Binding.lock_current(context.binding) do
+      {:ok, _current} -> dispatch(name, arguments, context)
+      {:error, _reason} -> Repo.rollback(:unauthorized)
+    end
+  end
 
   defp dispatch("list_slack_channels", arguments, context) do
     with :ok <- exact_optional_fields(arguments, @list_fields),
@@ -111,15 +132,17 @@ defmodule Responder.ControlPlane.CapabilityTools do
          {:ok, after_time} <- optional_timestamp(Map.get(arguments, "after")),
          {:ok, before_time} <- optional_timestamp(Map.get(arguments, "before")),
          {:ok, _cursor} <- optional_text(Map.get(arguments, "cursor"), 4_096),
-         {:ok, _include_context} <- boolean(Map.get(arguments, "include_context", true)),
          {:ok, limit} <- integer(Map.get(arguments, "limit", 20), 1, 20) do
       messages =
         if "messages" in content_types and
              (conversations != [] or Map.get(arguments, "conversation_refs", []) == []) do
-          context
-          |> messages()
+          originals =
+            messages(context)
+            |> Enum.filter(&within_time?(&1["occurred_at"], after_time, before_time))
+
+          originals
           |> Enum.filter(&message_matches?(&1, query, author_ref, after_time, before_time))
-          |> Enum.take(limit)
+          |> Enum.map(&with_message_context(&1, originals))
         else
           []
         end
@@ -130,7 +153,6 @@ defmodule Responder.ControlPlane.CapabilityTools do
           context
           |> file_metadata()
           |> Enum.filter(&file_matches?(&1, query, author_ref, after_time, before_time))
-          |> Enum.take(limit)
           |> Enum.map(&file_result(&1, context))
         else
           []
@@ -143,14 +165,26 @@ defmodule Responder.ControlPlane.CapabilityTools do
         |> maybe_put_result("channels", [], "channels" in content_types)
         |> maybe_put_result("users", [], "users" in content_types)
 
-      {:ok,
-       %{
-         "complete" => true,
-         "emulated" => true,
-         "external_effects" => false,
-         "next_cursor" => "",
-         "results" => results
-       }}
+      case search_page(results, arguments, context, limit) do
+        {:ok, results, cursor} ->
+          {:ok,
+           %{
+             "complete" => cursor == "",
+             "coverage" => %{
+               "basis" => "retained_conversation",
+               "retained_message_limit" => @maximum_messages,
+               "after" => arguments["after"],
+               "before" => arguments["before"]
+             },
+             "emulated" => true,
+             "external_effects" => false,
+             "next_cursor" => cursor,
+             "results" => results
+           }}
+
+        {:error, reason} ->
+          {:error, error_code(reason)}
+      end
     else
       {:error, reason} -> {:error, error_code(reason)}
     end
@@ -160,12 +194,14 @@ defmodule Responder.ControlPlane.CapabilityTools do
     with :ok <- exact_required_fields(arguments, @read_fields, ~w(source_ref view)),
          {:ok, source_ref} <- text(arguments["source_ref"], 1_024),
          {:ok, view} <- enum(arguments["view"], ~w(surrounding thread channel document metadata)),
+         {:ok, anchor_ref} <- optional_text(Map.get(arguments, "anchor_ref"), 1_024),
+         {:ok, read_ref, read_view} <- source_read_target(source_ref, view, anchor_ref, context),
          {:ok, after_time} <- optional_timestamp(Map.get(arguments, "after")),
          {:ok, before_time} <- optional_timestamp(Map.get(arguments, "before")),
          {:ok, _cursor} <- optional_text(Map.get(arguments, "cursor"), 4_096),
          {:ok, limit} <- integer(Map.get(arguments, "limit", 100), 1, 100),
          {:ok, payload} <-
-           source_payload(source_ref, view, context, limit, after_time, before_time) do
+           source_payload(read_ref, read_view, context, limit, after_time, before_time, arguments) do
       {:ok,
        %{
          "conversation" => conversation_document(context),
@@ -228,6 +264,69 @@ defmodule Responder.ControlPlane.CapabilityTools do
   end
 
   defp dispatch(_name, _arguments, _context), do: {:error, "unknown_tool"}
+
+  defp search_page(results, arguments, context, limit) do
+    scope =
+      {context.conversation_ref, context.binding.episode.id, context.binding.turn.id,
+       Map.delete(arguments, "cursor")}
+
+    secret = Map.get(context.binding, :cursor_secret)
+
+    with {:ok, position} <- search_position(arguments["cursor"], scope, secret) do
+      remaining =
+        results
+        |> Enum.flat_map(fn {kind, items} -> Enum.map(items, &{kind, &1}) end)
+        |> Enum.sort_by(&search_key/1)
+        |> Enum.drop_while(&(not is_nil(position) and search_key(&1) <= position))
+
+      selected = Enum.take(remaining, limit)
+
+      with {:ok, cursor} <- search_continuation(remaining, selected, scope, secret) do
+        page = search_result_kinds(results, selected)
+
+        {:ok, page, cursor}
+      end
+    end
+  end
+
+  defp search_result_kinds(results, selected),
+    do: Map.new(results, fn {kind, _} -> {kind, for({^kind, item} <- selected, do: item)} end)
+
+  defp search_key({kind, item}), do: {item["occurred_at"], kind, item["source_ref"]}
+  defp search_position(nil, _scope, _secret), do: {:ok, nil}
+
+  defp search_position(cursor, scope, secret)
+       when is_binary(secret) and byte_size(secret) >= 16 do
+    case Plug.Crypto.verify(secret, "lab-source-search", cursor, max_age: 3_600) do
+      {:ok, {^scope, position}} -> {:ok, position}
+      _ -> {:error, :invalid_source_cursor}
+    end
+  end
+
+  defp search_position(_cursor, _scope, _secret), do: {:error, :invalid_source_cursor}
+
+  defp search_continuation(remaining, selected, _scope, _secret)
+       when length(remaining) == length(selected),
+       do: {:ok, ""}
+
+  defp search_continuation(_remaining, selected, scope, secret)
+       when is_binary(secret) and byte_size(secret) >= 16,
+       do:
+         {:ok,
+          Plug.Crypto.sign(secret, "lab-source-search", {scope, search_key(List.last(selected))},
+            max_age: 3_600
+          )}
+
+  defp search_continuation(_remaining, _selected, _scope, _secret),
+    do: {:error, :invalid_source_cursor}
+
+  defp source_read_target(source_ref, view, nil, _context), do: {:ok, source_ref, view}
+
+  defp source_read_target(source_ref, "thread", anchor_ref, %{conversation_ref: source_ref}),
+    do: {:ok, anchor_ref, "surrounding"}
+
+  defp source_read_target(_source_ref, _view, _anchor_ref, _context),
+    do: {:error, :invalid_arguments}
 
   defp lab_binding(
          %{
@@ -376,7 +475,23 @@ defmodule Responder.ControlPlane.CapabilityTools do
 
   defp reply_message(_turn, _context), do: []
 
-  defp source_payload(source_ref, view, context, limit, after_time, before_time)
+  defp with_message_context(message, originals) do
+    index = Enum.find_index(originals, &(&1["source_ref"] == message["source_ref"]))
+    before_messages = originals |> Enum.take(index) |> Enum.take(-2)
+    after_messages = originals |> Enum.drop(index + 1) |> Enum.take(2)
+
+    Map.merge(message, %{
+      "context_messages" => %{"before" => before_messages, "after" => after_messages},
+      "context_coverage" => %{
+        "status" => "partial",
+        "basis" => "retained_conversation",
+        "neighbor_limit" => 2,
+        "truncated" => length(before_messages) + length(after_messages) + 1 < length(originals)
+      }
+    })
+  end
+
+  defp source_payload(source_ref, view, context, limit, after_time, before_time, arguments)
        when view in ["document", "metadata"] do
     case Enum.find(file_metadata(context), &(&1.ref == source_ref)) do
       nil when view == "document" ->
@@ -385,64 +500,40 @@ defmodule Responder.ControlPlane.CapabilityTools do
           else: {:error, :unauthorized}
 
       nil ->
-        with {:ok, selected} <-
-               source_messages(
-                 source_ref,
-                 view,
-                 context,
-                 limit,
-                 after_time,
-                 before_time
-               ) do
-          {:ok, %{"complete" => true, "messages" => selected}}
-        end
+        source_messages(source_ref, view, context, limit, after_time, before_time, arguments)
 
       file ->
-        file_payload(file)
+        file_payload(file, context)
     end
   end
 
-  defp source_payload(source_ref, view, context, limit, after_time, before_time) do
-    with {:ok, selected} <-
-           source_messages(source_ref, view, context, limit, after_time, before_time) do
-      {:ok, %{"complete" => true, "messages" => selected}}
-    end
-  end
+  defp source_payload(source_ref, view, context, limit, after_time, before_time, arguments),
+    do: source_messages(source_ref, view, context, limit, after_time, before_time, arguments)
 
-  defp source_messages(source_ref, view, context, limit, after_time, before_time) do
+  defp source_messages(source_ref, view, context, limit, after_time, before_time, arguments) do
     all = messages(context)
     bounded = Enum.filter(all, &within_time?(&1["occurred_at"], after_time, before_time))
 
     cond do
       source_ref == context.conversation_ref and view in ["channel", "thread", "metadata"] ->
-        conversation_source_messages(bounded, view, limit)
+        source_page(bounded, nil, view, arguments, context, limit)
 
       view in ["surrounding", "metadata"] ->
-        exact_source_message(all, bounded, source_ref, view)
+        case Enum.find(all, &(&1["source_ref"] == source_ref)) do
+          nil -> {:error, :unauthorized}
+          anchor -> source_page(bounded, anchor, view, arguments, context, limit)
+        end
 
       true ->
         unsupported_source_view(all, source_ref)
     end
   end
 
-  defp conversation_source_messages(_messages, "metadata", _limit), do: {:ok, []}
-  defp conversation_source_messages(messages, _view, limit), do: {:ok, Enum.take(messages, limit)}
+  defp source_page(_messages, _anchor, "metadata", _arguments, _context, _limit),
+    do: {:ok, %{"messages" => [], "complete" => true}}
 
-  defp exact_source_message(messages, bounded, source_ref, view) do
-    case Enum.find(messages, &(&1["source_ref"] == source_ref)) do
-      nil ->
-        {:error, :unauthorized}
-
-      _message when view == "metadata" ->
-        {:ok, []}
-
-      _message ->
-        case Enum.find(bounded, &(&1["source_ref"] == source_ref)) do
-          nil -> {:ok, []}
-          message -> {:ok, [message]}
-        end
-    end
-  end
+  defp source_page(messages, anchor, _view, arguments, context, limit),
+    do: SourcePage.read(messages, anchor, arguments, context.binding, limit)
 
   defp unsupported_source_view(messages, source_ref) do
     if Enum.any?(messages, &(&1["source_ref"] == source_ref)),
@@ -477,6 +568,8 @@ defmodule Responder.ControlPlane.CapabilityTools do
         ],
         select: %{
           dedupe_key: event.dedupe_key,
+          episode_id: event.episode_id,
+          sequence: event.sequence,
           id: event.id,
           occurred_at: event.occurred_at,
           payload: event.payload
@@ -485,6 +578,12 @@ defmodule Responder.ControlPlane.CapabilityTools do
 
     Repo.all(
       from(event in subquery(latest),
+        # Select the latest revision BEFORE excluding pending inputs, otherwise
+        # an edit queued for the next turn could resurrect its superseded text.
+        where:
+          event.episode_id != ^context.episode.id or
+            (event.sequence < ^context.episode.next_sequence and
+               event.dedupe_key not in ^context.episode.queued_input_refs),
         order_by: [desc: event.occurred_at, desc: event.id],
         limit: @maximum_messages
       )
@@ -508,7 +607,7 @@ defmodule Responder.ControlPlane.CapabilityTools do
       }
       when conversation_ref == context.conversation_ref and event_kind in ["message", "edit"] and
              is_list(files) ->
-        Enum.flat_map(files, &input_file(&1, actor_ref, event.occurred_at))
+        Enum.flat_map(files, &input_file(&1, actor_ref, event.occurred_at, event.dedupe_key))
 
       _other ->
         []
@@ -525,7 +624,8 @@ defmodule Responder.ControlPlane.CapabilityTools do
            "status" => "available"
          },
          actor_ref,
-         occurred_at
+         occurred_at,
+         message_ref
        )
        when is_binary(ref) and is_integer(bytes) and bytes > 0 and is_binary(media_type) and
               is_binary(name) and is_binary(sha256) do
@@ -534,6 +634,7 @@ defmodule Responder.ControlPlane.CapabilityTools do
         actor_ref: actor_ref,
         bytes: bytes,
         media_type: media_type,
+        message_ref: message_ref,
         name: name,
         occurred_at: DateTime.to_iso8601(occurred_at),
         ref: ref,
@@ -542,7 +643,7 @@ defmodule Responder.ControlPlane.CapabilityTools do
     ]
   end
 
-  defp input_file(_file, _actor_ref, _occurred_at), do: []
+  defp input_file(_file, _actor_ref, _occurred_at, _message_ref), do: []
 
   defp file_matches?(file, query, author_ref, after_time, before_time) do
     query_matches?(query, [file.name, file.media_type]) and
@@ -555,13 +656,16 @@ defmodule Responder.ControlPlane.CapabilityTools do
       "channel_id" => context.conversation_ref,
       "file_id" => file.ref,
       "media_type" => file.media_type,
+      "occurred_at" => file.occurred_at,
+      "sha256" => file.sha256,
       "size" => file.bytes,
       "source_ref" => file.ref,
+      "source_context" => file_source_context(file, context),
       "title" => file.name
     }
   end
 
-  defp file_payload(file) do
+  defp file_payload(file, context) do
     with {:ok, [artifact]} <- Artifacts.fetch_many([file.ref]),
          true <- exact_artifact?(artifact, file) do
       {content, complete} = artifact_content(artifact)
@@ -572,7 +676,10 @@ defmodule Responder.ControlPlane.CapabilityTools do
           "content_complete" => complete,
           "kind" => "file",
           "media_type" => artifact.media_type,
+          "occurred_at" => file.occurred_at,
+          "sha256" => artifact.sha256,
           "size" => artifact.byte_size,
+          "source_context" => file_source_context(file, context),
           "title" => artifact.name
         }
         |> Map.reject(fn {_key, value} -> is_nil(value) end)
@@ -581,6 +688,17 @@ defmodule Responder.ControlPlane.CapabilityTools do
     else
       _missing_or_changed -> {:error, :unauthorized}
     end
+  end
+
+  defp file_source_context(file, context) do
+    %{
+      "conversation_ref" => context.conversation_ref,
+      "source_ref" => file.message_ref,
+      "source_read" => %{
+        "tool" => "read_slack_source",
+        "arguments" => %{"source_ref" => file.message_ref, "view" => "surrounding", "limit" => 20}
+      }
+    }
   end
 
   defp exact_artifact?(artifact, file) do
@@ -779,6 +897,7 @@ defmodule Responder.ControlPlane.CapabilityTools do
   defp error_code(value) when is_binary(value), do: value
   defp error_code(:unauthorized), do: "unauthorized"
   defp error_code(:invalid_arguments), do: "invalid_arguments"
+  defp error_code(:invalid_source_cursor), do: "invalid_source_cursor"
   defp error_code(:state_record_unauthorized), do: "unauthorized"
   defp error_code(:state_record_confirmation_unsupported), do: "unauthorized"
   defp error_code({:invalid_state_record, _field}), do: "invalid_arguments"

@@ -1,0 +1,25 @@
+{
+  "source": {
+    "kind": "isolated_model_world",
+    "model": "gpt-5.6-luna",
+    "session_id": "c1f82c2e-ee91-4aaa-b849-5d193d8b28a9",
+    "turn_id": "c9ffa06b-c8a2-4907-bae8-da6826c9f906"
+  },
+  "call": {
+    "tool": "search_memory",
+    "result": {
+      "error": "memory_search_budget_exceeded"
+    },
+    "arguments": {
+      "kinds": [
+        "fact",
+        "guidance",
+        "continuity"
+      ],
+      "limit": 20,
+      "query": "emisar GCP project Dryga/emisar",
+      "scope": "global"
+    },
+    "occurred_at": "2026-09-10T23:09:04.987244"
+  }
+}

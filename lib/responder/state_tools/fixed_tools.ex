@@ -103,6 +103,13 @@ defmodule Responder.StateTools.FixedTools do
       binding = Map.put(binding, :capabilities, capabilities(options))
       binding = Map.put(binding, :cursor_secret, Map.get(Map.new(options), :cursor_secret))
 
+      binding =
+        Map.put(
+          binding,
+          :source_tools,
+          Enum.map(Map.get(Map.new(options), :additional_tools, []), & &1["name"])
+        )
+
       case dispatch(name, arguments, binding) do
         {:ok, _result} = success -> success
         {:error, reason} -> {:error, error_code(reason)}
