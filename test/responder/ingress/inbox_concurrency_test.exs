@@ -6,7 +6,7 @@ defmodule Responder.Ingress.InboxConcurrencyTest do
   alias Responder.Ingress.Inbox.Entry
   alias Responder.Repo
   alias Responder.Slack.Input, as: SlackInput
-  alias Responder.State.ConversationObservation
+  alias Responder.State.StandingRuleInventory
 
   test "simultaneous Slack retries converge on one inbox record" do
     Sandbox.unboxed_run(Repo, fn ->
@@ -147,16 +147,31 @@ defmodule Responder.Ingress.InboxConcurrencyTest do
     end)
   end
 
-  defp delete_inputs!(refs) do
-    inputs = from(entry in Entry, where: entry.event_ref in ^refs)
-    ids = from(entry in inputs, select: entry.id)
+  test "cleaning up a committed input leaves none of its evidence behind" do
+    # The rule inventory is written after custody commits and has no foreign
+    # key, so a test that deleted only the entry stranded it for every later
+    # test that requires an empty database.
+    Sandbox.unboxed_run(Repo, fn ->
+      event_ref = "Ev-#{Ecto.UUID.generate()}"
+      assert {:ok, %{entry: entry}} = Inbox.record(input!(event_ref))
+      ref = Inbox.ref(entry)
 
-    Repo.delete_all(
-      from(note in ConversationObservation, where: note.source_input_id in subquery(ids))
-    )
+      assert Repo.exists?(
+               from(inventory in StandingRuleInventory, where: inventory.source_input_ref == ^ref)
+             )
 
-    Repo.delete_all(inputs)
+      delete_inputs!([event_ref])
+
+      refute Repo.exists?(
+               from(inventory in StandingRuleInventory, where: inventory.source_input_ref == ^ref)
+             )
+
+      refute Repo.exists?(from(row in Entry, where: row.id == ^entry.id))
+    end)
   end
+
+  defp delete_inputs!(refs),
+    do: delete_entries!(from(entry in Entry, where: entry.event_ref in ^refs))
 
   defp input!(event_ref) do
     assert {:ok, input} =

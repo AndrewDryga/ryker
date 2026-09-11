@@ -112,7 +112,7 @@ defmodule Responder.State.ObservationsConcurrencyTest do
       after
         stop_tasks([blocker, reader])
         Repo.delete_all(from(n in ConversationObservation, where: n.id in ^[id, target.id]))
-        Repo.delete_all(from(e in Entry, where: e.id == ^target.id))
+        delete_entries!(from(e in Entry, where: e.id == ^target.id))
         Repo.delete_all(from(m in ChannelMembership, where: m.workspace_ref == ^workspace))
       end
     end)

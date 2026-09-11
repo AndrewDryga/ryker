@@ -10,7 +10,6 @@ defmodule Responder.AdmissionConcurrencyTest do
   alias Responder.Ingress.Inbox.Entry
   alias Responder.Repo
   alias Responder.Slack.Input, as: SlackInput
-  alias Responder.State.ConversationObservation
 
   @now ~U[2026-08-27 12:00:01.000000Z]
 
@@ -85,15 +84,7 @@ defmodule Responder.AdmissionConcurrencyTest do
         send(blocker.pid, :release)
         stop_tasks([blocker | contenders])
 
-        Repo.delete_all(
-          from(note in ConversationObservation, where: note.source_input_id == ^entry.id)
-        )
-
-        Repo.delete_all(from(inbox in Entry, where: inbox.id == ^entry.id))
-
-        Repo.delete_all(
-          from(note in ConversationObservation, where: note.source_input_id == ^entry.id)
-        )
+        delete_entries!(from(inbox in Entry, where: inbox.id == ^entry.id))
 
         case Repo.one(from(episode in Episode, where: episode.key == ^episode_key)) do
           nil -> :ok
@@ -181,11 +172,7 @@ defmodule Responder.AdmissionConcurrencyTest do
       after
         send(blocker.pid, :release)
         stop_tasks([blocker, context_task, creator])
-        Repo.delete_all(from(inbox in Entry, where: inbox.id == ^entry.id))
-
-        Repo.delete_all(
-          from(note in ConversationObservation, where: note.source_input_id == ^entry.id)
-        )
+        delete_entries!(from(inbox in Entry, where: inbox.id == ^entry.id))
 
         Repo.delete_all(from(event in Event, where: event.episode_id == ^episode_id))
         Repo.delete_all(from(episode in Episode, where: episode.id == ^episode_id))
@@ -333,11 +320,7 @@ defmodule Responder.AdmissionConcurrencyTest do
       after
         send(blocker.pid, :release)
         stop_tasks([blocker, reopener, commit])
-        Repo.delete_all(from(inbox in Entry, where: inbox.id == ^entry.id))
-
-        Repo.delete_all(
-          from(note in ConversationObservation, where: note.source_input_id == ^entry.id)
-        )
+        delete_entries!(from(inbox in Entry, where: inbox.id == ^entry.id))
 
         case Repo.one(
                from(episode in Episode, where: episode.key == ^"ingress-input:#{entry.id}")
