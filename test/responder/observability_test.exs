@@ -447,6 +447,45 @@ defmodule Responder.ObservabilityTest do
     assert readiness.missing_runtimes == []
   end
 
+  test "a product child under the runtime owner's supervisor is alive, not missing" do
+    # Durable settings moved every product child under the runtime owner's
+    # dynamic supervisor. Readiness still looked only under the application
+    # supervisor, so a healthy installation reported its listeners missing and
+    # /readyz stayed 503 with nothing wrong — seen on the first cutover boot.
+    keys = ~w(admission coop_worker_gateway control_plane delivery emisar event_waits github
+              learning publication retention schedules slack state_tools webhooks work)a
+
+    previous = Enum.map(keys, &{&1, Application.get_env(:responder, &1, :missing)})
+
+    on_exit(fn ->
+      Enum.each(previous, fn
+        {key, :missing} -> Application.delete_env(:responder, key)
+        {key, value} -> Application.put_env(:responder, key, value)
+      end)
+    end)
+
+    Enum.each(keys, &Application.put_env(:responder, &1, false))
+    Application.put_env(:responder, :state_tools, %{enabled: true})
+
+    supervisor = Process.whereis(Responder.Runtime.Supervisor)
+
+    {:ok, child} =
+      DynamicSupervisor.start_child(supervisor, %{
+        id: Responder.StateTools.Server,
+        modules: [Responder.StateTools.Server],
+        start: {Agent, :start_link, [fn -> :serving end]}
+      })
+
+    on_exit(fn ->
+      if Process.alive?(child), do: DynamicSupervisor.terminate_child(supervisor, child)
+    end)
+
+    assert {_result, readiness} =
+             Observability.ready(check_runtimes: true, stall_after_seconds: 86_400)
+
+    assert readiness.missing_runtimes == []
+  end
+
   test "retention readiness ages cleanup from eligibility and sees every custody owner" do
     # Production /readyz returned 503 while cleanup was healthy: the queue aged
     # from session insertion, so four minutes of conversation plus the intentional

@@ -5,6 +5,7 @@ defmodule Responder.Runtime.AssemblyTest do
   use Responder.DataCase, async: false
 
   alias Responder.{Bootstrap, Settings}
+  alias Responder.ControlPlane.CapabilityTools, as: ControlPlaneCapabilityTools
   alias Responder.Runtime.Assembly
 
   @actor "control-plane:local"
@@ -234,6 +235,13 @@ defmodule Responder.Runtime.AssemblyTest do
     assert call.(hd(names), %{}, episode("github")) == {:error, "unknown_tool"}
     assert call.(hd(names), %{}, %{}) == {:error, "unknown_tool"}
     assert call.(hd(names), %{}, episode("carrier-pigeon")) == {:error, "unknown_tool"}
+
+    # A Conversation Lab episode reaches the lab's own tools, and a name that is
+    # not one of them is refused rather than tried against another transport.
+    [%{"name" => lab_tool} | _rest] = ControlPlaneCapabilityTools.list()
+    assert {:error, reason} = call.(lab_tool, %{}, episode("control_plane"))
+    assert is_binary(reason)
+    assert call.("no_such_tool", %{}, episode("control_plane")) == {:error, "unknown_tool"}
   end
 
   test "the worker gateway carries the checkpoint custody the deployment registered" do
@@ -300,33 +308,90 @@ defmodule Responder.Runtime.AssemblyTest do
            }
   end
 
-  test "a publication lifecycle may only name repositories with reviewed policies" do
-    # The lifecycle decides which repositories an inbound event may publish
-    # against. A repository an operator saved but never had policies reviewed
-    # for would publish under no reviewed authority at all, so the settings row
-    # is accepted and the runtime that would act on it is refused.
+  test "nothing runs against a repository whose policies were never reviewed" do
+    # A repository row is metadata; the reviewed policy bindings are the grant.
+    # Settings accepts each of these because the repository exists, and every
+    # runtime that would act under its authority refuses before anything starts.
+    settings = connected!()
+
+    {:ok, _saved} =
+      Settings.put_repository(%{ref: "unreviewed"}, settings.installation.revision, @actor)
+
+    refusals = [
+      {&lifecycle_naming/1, "webhook lifecycle names a repository without reviewed policies"},
+      {&webhook_context_naming/1, "webhook source names an unknown repository context"},
+      {&github_binding_naming/1, "github binding names a repository without reviewed policies"}
+    ]
+
+    for {save, expected} <- refusals do
+      {:ok, changed} = save.(Settings.fetch!().installation.revision)
+
+      assert {:error, {:settings_not_applicable, ^expected}} =
+               Assembly.build(bootstrap(), changed)
+
+      # The setting stays exactly as the operator wrote it; only the runtime refuses.
+      assert Settings.fetch!().installation.revision == changed.installation.revision
+    end
+  end
+
+  test "a GitHub binding may not run under a context whose policies were never reviewed" do
+    # The binding's context supplies the Work profile every inbound GitHub event
+    # runs under. A context with no reviewed bindings has no profile to supply,
+    # so the binding would otherwise run under whatever the repository had.
     settings = connected!()
 
     {:ok, settings} =
-      Settings.put_repository(%{ref: "unreviewed"}, settings.installation.revision, @actor)
-
-    {:ok, settings} =
-      Settings.put_webhook_source(
-        %{
-          name: "deploys",
-          publication_lifecycle: %{
-            "environments" => ["production"],
-            "kinds" => ["deployment"],
-            "repositories" => ["unreviewed"],
-            "targets" => ["responder"]
-          }
-        },
+      Settings.put_repository_context(
+        %{ref: "unreviewed-context", primary_repository_ref: "responder"},
         settings.installation.revision,
         @actor
       )
 
-    assert {:error, {:settings_not_applicable, reason}} = Assembly.build(bootstrap(), settings)
-    assert reason =~ "repository without reviewed policies"
+    {:ok, settings} =
+      Settings.put_github_binding(
+        %{name: "responder-app", repository_context_ref: "unreviewed-context"},
+        settings.installation.revision,
+        @actor
+      )
+
+    assert Assembly.build(bootstrap(), settings) ==
+             {:error,
+              {:settings_not_applicable, "github binding names an unknown repository context"}}
+  end
+
+  defp lifecycle_naming(revision) do
+    Settings.put_webhook_source(
+      %{
+        name: "deploys",
+        publication_lifecycle: %{
+          "environments" => ["production"],
+          "kinds" => ["deployment"],
+          "repositories" => ["unreviewed"],
+          "targets" => ["responder"]
+        }
+      },
+      revision,
+      @actor
+    )
+  end
+
+  defp webhook_context_naming(revision),
+    do:
+      Settings.put_webhook_source(%{name: "custom", context_ref: "unreviewed"}, revision, @actor)
+
+  defp github_binding_naming(revision) do
+    Settings.put_github_binding(
+      %{
+        name: "unreviewed-app",
+        repository_ref: "unreviewed",
+        installation_id: 1002,
+        repository_id: 2002,
+        responder_actor_id: 3002,
+        authorized_actor_ids: [4002]
+      },
+      revision,
+      @actor
+    )
   end
 
   test "a webhook destination that is not a configured delivery target refuses the build" do
@@ -336,7 +401,8 @@ defmodule Responder.Runtime.AssemblyTest do
 
     for {conversation, thread, transport} <- [
           {"slack:T9999999999:C0123456789", nil, "slack"},
-          {"github:no-such-binding:2001:issue:1", nil, "github"},
+          {"github:unbound-app:repository:2001", "github:unbound-app:issue:1", "github"},
+          {"github:responder-app:repository:9999", "github:responder-app:issue:1", "github"},
           {"control-plane:lab:not-a-conversation", "control-plane:lab:not-a-conversation",
            "control_plane"},
           {"control-plane:local", "control-plane:local", "control_plane"}
