@@ -21,7 +21,8 @@ defmodule Responder.Coop.ClientTest do
                  client,
                  "responder:admission:create:123",
                  "admission-read-only",
-                 "responder-admission:123"
+                 "responder-admission:123",
+                 nil
                )
 
       captured = request.()
@@ -52,7 +53,8 @@ defmodule Responder.Coop.ClientTest do
                  "responder:work:create:123",
                  "work-read-only",
                  "episode:123",
-                 binding
+                 binding,
+                 nil
                )
 
       assert request.().body |> Jason.decode!() == %{
@@ -61,6 +63,74 @@ defmodule Responder.Coop.ClientTest do
                "task" => "episode:123"
              }
     end)
+  end
+
+  test "create and fence send one byte-identical selector for the same session" do
+    response = %{"operation" => %{"id" => "op_create", "state" => "running"}}
+    source = %{"kind" => "pull_request", "number" => 514}
+
+    created =
+      with_unix_server(response, fn client, request ->
+        assert {:ok, ^response} =
+                 Client.create_session(
+                   client,
+                   "responder:work:create:session:g1",
+                   "work-contributor",
+                   "episode:123",
+                   source
+                 )
+
+        captured = request.()
+
+        assert Jason.decode!(captured.body) == %{
+                 "policy" => "work-contributor",
+                 "repository_source" => %{"kind" => "pull_request", "number" => 514},
+                 "task" => "episode:123"
+               }
+
+        Jason.decode!(captured.body)
+      end)
+
+    with_unix_server(response, fn client, request ->
+      assert {:ok, ^response} =
+               Client.fence_create_session(
+                 client,
+                 "responder:work:create:session:g1",
+                 "work-contributor",
+                 "episode:123",
+                 source
+               )
+
+      assert Jason.decode!(request.().body) == %{
+               "method" => "CreateRemoteSession",
+               "request" => created
+             }
+    end)
+  end
+
+  test "a selector outside the frozen union never reaches the socket" do
+    finch = String.to_atom("coop_finch_#{System.unique_integer([:positive])}")
+    start_supervised!({Finch, name: finch})
+
+    assert {:ok, client} =
+             Client.new(
+               finch: finch,
+               receive_timeout: 2_000,
+               socket: "/tmp/responder-coop-never-dialed.sock"
+             )
+
+    for invalid <- [
+          %{"kind" => "tag", "name" => "v1"},
+          %{"kind" => "branch", "name" => "refs/heads/main"},
+          %{"kind" => "commit", "sha" => String.duplicate("a", 12)},
+          %{"kind" => "pull_request", "number" => 0}
+        ] do
+      assert Client.create_session(client, "key", "work-contributor", "episode:1", invalid) ==
+               {:error, {:invalid_coop_request, :repository_source}}
+
+      assert Client.fence_create_session(client, "key", "work-contributor", "episode:1", invalid) ==
+               {:error, {:invalid_coop_request, :repository_source}}
+    end
   end
 
   test "submits the exact schema digest with semantic validation enabled" do
@@ -244,7 +314,8 @@ defmodule Responder.Coop.ClientTest do
                  client,
                  "responder:work:create:session:g1",
                  "work-read-only",
-                 "episode:123"
+                 "episode:123",
+                 nil
                )
 
       captured = request.()

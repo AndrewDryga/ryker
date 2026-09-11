@@ -109,7 +109,7 @@ defmodule Responder.Evals.WorldRunnerTest do
 
     defdelegate capabilities(client), to: FakeWorkCoopAPI
     defdelegate operation_by_key(client, key), to: FakeWorkCoopAPI
-    defdelegate create_session(client, key, policy, task), to: FakeWorkCoopAPI
+    defdelegate create_session(client, key, policy, task, source), to: FakeWorkCoopAPI
     defdelegate get_session(client, session_id), to: FakeWorkCoopAPI
     defdelegate get_turn(client, session_id, turn_id), to: FakeWorkCoopAPI
     defdelegate list_events(client, session_id, after_sequence, limit), to: FakeWorkCoopAPI

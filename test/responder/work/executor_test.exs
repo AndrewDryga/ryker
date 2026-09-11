@@ -290,7 +290,11 @@ defmodule Responder.Work.ExecutorTest do
     def capabilities(client),
       do:
         dispatch(client, :capabilities, fn ->
-          {:ok, %{"repository_freshness_receipt_versions" => [2]}}
+          {:ok,
+           %{
+             "repository_freshness_receipt_versions" => [2],
+             "repository_source_selector_versions" => [1]
+           }}
         end)
 
     def capabilities(client, session) do
@@ -305,16 +309,16 @@ defmodule Responder.Work.ExecutorTest do
       do:
         dispatch(client, :operation_by_key, fn -> FakeAPI.operation_by_key(client.fake, key) end)
 
-    def create_session(client, key, policy, task),
+    def create_session(client, key, policy, task, source),
       do:
         dispatch(client, :create_session, fn ->
-          FakeAPI.create_session(client.fake, key, policy, task)
+          FakeAPI.create_session(client.fake, key, policy, task, source)
         end)
 
-    def fence_create_session(client, key, policy, task),
+    def fence_create_session(client, key, policy, task, source),
       do:
         dispatch(client, :fence_create_session, fn ->
-          FakeAPI.fence_create_session(client.fake, key, policy, task)
+          FakeAPI.fence_create_session(client.fake, key, policy, task, source)
         end)
 
     def get_session(client, session_id),
@@ -2177,7 +2181,8 @@ defmodule Responder.Work.ExecutorTest do
                  fake,
                  key,
                  work.session.policy,
-                 work.session.external_ref
+                 work.session.external_ref,
+                 nil
                )
              end)
 
@@ -2362,7 +2367,12 @@ defmodule Responder.Work.ExecutorTest do
 
     malformed =
       protocol_options(fake, %{
-        session_capabilities: {:ok, %{"repository_freshness_receipt_versions" => [2, 2]}}
+        session_capabilities:
+          {:ok,
+           %{
+             "repository_freshness_receipt_versions" => [2, 2],
+             "repository_source_selector_versions" => [1]
+           }}
       })
 
     assert Executor.run(claim, malformed) ==
@@ -2488,7 +2498,12 @@ defmodule Responder.Work.ExecutorTest do
       send(self(), {:freshness_capability_session, session.id})
 
       versions = if Agent.get(upgraded?, & &1), do: [2], else: []
-      {:ok, %{"repository_freshness_receipt_versions" => versions}}
+
+      {:ok,
+       %{
+         "repository_freshness_receipt_versions" => versions,
+         "repository_source_selector_versions" => [1]
+       }}
     end
 
     create_session = fn fallback ->

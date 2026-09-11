@@ -21,6 +21,7 @@ defmodule Responder.TestSupport.FakeCoopAPI do
         discard_plan_keys: [],
         discarded: false,
         create_keys: [],
+        create_sources: [],
         exhaust_after_validation: Keyword.get(options, :exhaust_after_validation, false),
         fail_create: Keyword.get(options, :fail_create, false),
         fail_first_close: Keyword.get(options, :fail_first_close, false),
@@ -86,7 +87,7 @@ defmodule Responder.TestSupport.FakeCoopAPI do
   end
 
   @impl true
-  def create_session(agent, key, policy, task) do
+  def create_session(agent, key, policy, task, source) do
     Agent.get_and_update(agent, fn state ->
       session =
         Map.merge(state.session, %{
@@ -127,6 +128,7 @@ defmodule Responder.TestSupport.FakeCoopAPI do
        %{
          state
          | create_keys: state.create_keys ++ [key],
+           create_sources: state.create_sources ++ [source],
            known_operations: operations,
            session: session
        }}
@@ -134,7 +136,7 @@ defmodule Responder.TestSupport.FakeCoopAPI do
   end
 
   @impl true
-  def fence_create_session(agent, key, _policy, _task),
+  def fence_create_session(agent, key, _policy, _task, _source),
     do: fence_operation(agent, key, "CreateRemoteSession")
 
   @impl true

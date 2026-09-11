@@ -1142,7 +1142,10 @@ defmodule Responder.Runtime.Assembly do
     {:ok, client} =
       Responder.CoopFleet.Client.new(
         capability_names: capabilities,
-        capability_versions: %{"repository-freshness" => "2"},
+        capability_versions: %{
+          "repository-freshness" => "2",
+          "repository-source-selector" => "1"
+        },
         max_waits: max_waits,
         poll_interval_ms: poll_interval_ms,
         workspace_ref: workspace_ref

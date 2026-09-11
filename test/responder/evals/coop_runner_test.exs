@@ -12,14 +12,14 @@ defmodule Responder.Evals.CoopRunnerTest do
     def operation_by_key(client, key),
       do: call(client, :operation_by_key, fn fake -> FakeCoopAPI.operation_by_key(fake, key) end)
 
-    def create_session(client, key, policy, task),
+    def create_session(client, key, policy, task, source),
       do:
         call(client, :create_session, fn fake ->
-          FakeCoopAPI.create_session(fake, key, policy, task)
+          FakeCoopAPI.create_session(fake, key, policy, task, source)
         end)
 
-    def fence_create_session({fake, _faults}, key, policy, task),
-      do: FakeCoopAPI.fence_create_session(fake, key, policy, task)
+    def fence_create_session({fake, _faults}, key, policy, task, source),
+      do: FakeCoopAPI.fence_create_session(fake, key, policy, task, source)
 
     def get_session(client, session_id),
       do: call(client, :get_session, fn fake -> FakeCoopAPI.get_session(fake, session_id) end)

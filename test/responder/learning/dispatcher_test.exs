@@ -30,11 +30,11 @@ defmodule Responder.Learning.DispatcherTest do
       Fake.get_turn(client, sid, tid)
     end
 
-    def fence_create_session(client, key, policy, ref) do
+    def fence_create_session(client, key, policy, ref, source) do
       Agent.update(client, &Map.update(&1, :fence_keys, [key], fn keys -> keys ++ [key] end))
 
       lose_after(client, :create_fence, fn ->
-        Fake.fence_create_session(client, key, policy, ref)
+        Fake.fence_create_session(client, key, policy, ref, source)
       end)
     end
 
@@ -49,8 +49,11 @@ defmodule Responder.Learning.DispatcherTest do
       lose_after(client, :cancel, fn -> Fake.cancel_turn(client, sid, tid, key, revision) end)
     end
 
-    def create_session(client, key, policy, ref),
-      do: lose_after(client, :create, fn -> Fake.create_session(client, key, policy, ref) end)
+    def create_session(client, key, policy, ref, source),
+      do:
+        lose_after(client, :create, fn ->
+          Fake.create_session(client, key, policy, ref, source)
+        end)
 
     def submit_frozen_turn(client, sid, key, revision, submission, nil, []) do
       unless submission["contract_version"] == "conversation-learning-v2",

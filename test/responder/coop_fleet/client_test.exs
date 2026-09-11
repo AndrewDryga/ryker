@@ -141,7 +141,7 @@ defmodule Responder.CoopFleet.ClientTest do
     key = "responder:work:create:#{session.id}:g1"
 
     assert {:ok, %{"id" => "remote-resource"}} =
-             Client.create_session(client, key, @policy, session.external_ref)
+             Client.create_session(client, key, @policy, session.external_ref, nil)
 
     assert_receive {:fleet_command, ^session, "create_session", payload, ^key, options}
 
@@ -156,9 +156,131 @@ defmodule Responder.CoopFleet.ClientTest do
     assert Keyword.fetch!(options, :capability_names) == ["responder-state"]
 
     assert {:error, {:coop_fleet_authority_mismatch, :policy}} =
-             Client.create_session(client, key, "write-everywhere", session.external_ref)
+             Client.create_session(client, key, "write-everywhere", session.external_ref, nil)
 
     refute_receive {:fleet_command, _, _, _, _, _}
+  end
+
+  test "fleet create carries the selector and its fence hashes the identical payload", %{
+    client: client,
+    session: session
+  } do
+    key = "responder:work:create:#{session.id}:g1"
+    source = %{"kind" => "branch", "name" => "feature/payments"}
+
+    assert {:ok, %{"id" => "remote-resource"}} =
+             Client.create_session(client, key, @policy, session.external_ref, source)
+
+    assert_receive {:fleet_command, ^session, "create_session", created, ^key, _options}
+
+    assert created == %{
+             "authority_digest" => @authority_digest,
+             "external_ref" => session.external_ref,
+             "policy" => @policy,
+             "policy_digest" => @policy_digest,
+             "repository_source" => %{"kind" => "branch", "name" => "feature/payments"}
+           }
+
+    fence_key = "#{key}:durable"
+
+    operation = %{
+      "id" => "operation-selector-create",
+      "method" => "CreateRemoteSession",
+      "resource_id" => "remote-selector-create",
+      "resource_type" => "session",
+      "state" => "succeeded"
+    }
+
+    session
+    |> command!("selector-fence", kind: "create_session", payload: created, key: fence_key)
+    |> complete_command!(:succeeded, %{"operation" => operation})
+
+    Process.put(:coop_fleet_reconcile_result, %{"operation" => operation})
+
+    assert {:ok, ^operation} =
+             Client.fence_create_session(client, fence_key, @policy, session.external_ref, source)
+
+    # The same operation identity carrying another selector is a conflict, not a
+    # rebind: a retry must never land the workspace on a different source.
+    assert Client.fence_create_session(client, fence_key, @policy, session.external_ref, %{
+             "kind" => "default"
+           }) == {:error, {:coop_worker_command_conflict, fence_key}}
+
+    assert Client.fence_create_session(client, fence_key, @policy, session.external_ref, nil) ==
+             {:error, {:coop_worker_command_conflict, fence_key}}
+  end
+
+  test "a selector outside the frozen union is refused before any worker command", %{
+    client: client,
+    session: session
+  } do
+    key = "responder:work:create:#{session.id}:g1"
+
+    for invalid <- [
+          %{"kind" => "tag", "name" => "v1"},
+          %{"kind" => "branch", "name" => "refs/heads/main"},
+          %{"kind" => "commit", "sha" => String.duplicate("A", 40)}
+        ] do
+      assert Client.create_session(client, key, @policy, session.external_ref, invalid) ==
+               {:error, {:invalid_coop_request, :repository_source}}
+
+      assert Client.fence_create_session(client, key, @policy, session.external_ref, invalid) ==
+               {:error, {:invalid_coop_request, :repository_source}}
+    end
+
+    refute_receive {:fleet_command, _, _, _, _, _}
+  end
+
+  test "a worker without the versioned source-selector capability is never eligible", %{
+    client: client,
+    session: session
+  } do
+    command = command!(session, "selector-capability")
+
+    assert {:ok, _response} =
+             ControlPlane.handle_poll(
+               command.worker_id,
+               poll(command.worker_id, "freshness-only", true)
+             )
+
+    assert {:ok, %{"repository_source_selector_versions" => []}} =
+             Client.capabilities(client, session)
+
+    assert {:ok, _response} =
+             ControlPlane.handle_poll(
+               command.worker_id,
+               poll(command.worker_id, "selector-upgraded", true, true)
+             )
+
+    assert {:ok,
+            %{
+              "repository_freshness_receipt_versions" => [2],
+              "repository_source_selector_versions" => [1]
+            }} = Client.capabilities(client, session)
+  end
+
+  test "an unplaced session reports the configured source-selector requirement", %{
+    session: session
+  } do
+    assert {:ok, unversioned} = Client.new(workspace_ref: "workspace-main")
+
+    assert {:ok, %{"repository_source_selector_versions" => []}} =
+             Client.capabilities(unversioned, session)
+
+    assert {:ok, versioned} =
+             Client.new(
+               capability_versions: %{
+                 "repository-freshness" => "2",
+                 "repository-source-selector" => "1"
+               },
+               workspace_ref: "workspace-main"
+             )
+
+    assert {:ok,
+            %{
+              "repository_freshness_receipt_versions" => [2],
+              "repository_source_selector_versions" => [1]
+            }} = Client.capabilities(versioned, session)
   end
 
   test "bound create carries the exact private state-tools binding", %{
@@ -173,7 +295,7 @@ defmodule Responder.CoopFleet.ClientTest do
     }
 
     assert {:ok, %{"id" => "remote-resource"}} =
-             Client.create_bound_session(client, key, @policy, session.external_ref, binding)
+             Client.create_bound_session(client, key, @policy, session.external_ref, binding, nil)
 
     assert_receive {:fleet_command, ^session, "create_session", payload, ^key, _options}
 
@@ -257,7 +379,7 @@ defmodule Responder.CoopFleet.ClientTest do
     key = "responder:work:create:#{session.id}:g1"
 
     assert {:ok, %{"id" => "remote-resource", "revision" => 2}} =
-             Client.create_session(client, key, @policy, workspace_task["offer_ref"])
+             Client.create_session(client, key, @policy, workspace_task["offer_ref"], nil)
 
     assert_receive {:fleet_command, ^session, "create_session", create_payload, ^key, _}
 
@@ -379,7 +501,7 @@ defmodule Responder.CoopFleet.ClientTest do
     key = "responder:work:create:#{replacement.id}:g1"
 
     assert {:ok, %{"id" => "remote-resource", "revision" => 2}} =
-             Client.create_session(client, key, @policy, workspace_task["offer_ref"])
+             Client.create_session(client, key, @policy, workspace_task["offer_ref"], nil)
 
     assert_receive {:fleet_command, ^replacement, "create_session", create_payload, ^key, _}
 
@@ -437,7 +559,7 @@ defmodule Responder.CoopFleet.ClientTest do
     # The third live retry had a remote session ID but never acquired a writable workspace;
     # requiring a nonexistent checkpoint would strand the repaired task again.
     assert {:ok, %{"id" => "remote-resource", "revision" => 2}} =
-             Client.create_session(client, key, @policy, workspace_task["offer_ref"])
+             Client.create_session(client, key, @policy, workspace_task["offer_ref"], nil)
 
     assert_receive {:fleet_command, ^replacement, "ensure_workspace", payload, _ensure_key, _}
     refute Map.has_key?(payload, "checkpoint")
@@ -501,7 +623,7 @@ defmodule Responder.CoopFleet.ClientTest do
     # The production session was task-bound but closed with turns_used=0. With no submit
     # command, there is no model-authored workspace state to checkpoint into the replacement.
     assert {:ok, %{"id" => "remote-resource", "revision" => 2}} =
-             Client.create_session(client, key, @policy, workspace_task["offer_ref"])
+             Client.create_session(client, key, @policy, workspace_task["offer_ref"], nil)
 
     assert_receive {:fleet_command, ^replacement, "ensure_workspace", payload, _ensure_key, _}
     refute Map.has_key?(payload, "checkpoint")
@@ -564,7 +686,7 @@ defmodule Responder.CoopFleet.ClientTest do
     key = "responder:work:create:#{replacement.id}:g1"
 
     assert {:error, {:coop_protocol_error, :create_session_response}} =
-             Client.create_session(client, key, @policy, workspace_task["offer_ref"])
+             Client.create_session(client, key, @policy, workspace_task["offer_ref"], nil)
 
     refute_receive {:fleet_command, ^replacement, "ensure_workspace", _, _, _}
   end
@@ -1019,7 +1141,13 @@ defmodule Responder.CoopFleet.ClientTest do
               "method" => "CreateRemoteSession",
               "state" => "failed"
             }} =
-             Client.fence_create_session(client, "fence-create", @policy, session.external_ref)
+             Client.fence_create_session(
+               client,
+               "fence-create",
+               @policy,
+               session.external_ref,
+               nil
+             )
 
     assert {:ok,
             %{
@@ -1032,7 +1160,8 @@ defmodule Responder.CoopFleet.ClientTest do
                "fence-bound-create",
                @policy,
                session.external_ref,
-               binding
+               binding,
+               nil
              )
 
     session = bind_session!(session, "coop-session-all-commands")
@@ -1125,7 +1254,7 @@ defmodule Responder.CoopFleet.ClientTest do
              Client.get_turn(client, "missing-session", "missing-turn")
 
     assert {:error, {:coop_session_not_found, "missing-task"}} =
-             Client.create_session(client, "missing-create", @policy, "missing-task")
+             Client.create_session(client, "missing-create", @policy, "missing-task", nil)
 
     assert :not_found = Client.operation_by_key(client, "missing-operation")
     refute_receive {:fleet_command, _, _, _, _, _}
@@ -1194,7 +1323,8 @@ defmodule Responder.CoopFleet.ClientTest do
                "wrong-create",
                "wrong-policy",
                session.external_ref,
-               binding
+               binding,
+               nil
              )
 
     assert {:error, {:coop_fleet_authority_mismatch, :policy}} =
@@ -1202,7 +1332,8 @@ defmodule Responder.CoopFleet.ClientTest do
                client,
                "wrong-fence",
                "wrong-policy",
-               session.external_ref
+               session.external_ref,
+               nil
              )
 
     assert {:error, {:coop_fleet_authority_mismatch, :policy}} =
@@ -1211,7 +1342,8 @@ defmodule Responder.CoopFleet.ClientTest do
                "wrong-bound-fence",
                "wrong-policy",
                session.external_ref,
-               binding
+               binding,
+               nil
              )
 
     session = bind_session!(session, "coop-session-transfers")
@@ -1520,7 +1652,7 @@ defmodule Responder.CoopFleet.ClientTest do
     # Five Slack inputs stopped in one incident because cancellation tried to enqueue a
     # second command under this already-succeeded create key and hit an idempotency conflict.
     assert {:ok, ^terminal_operation} =
-             Client.fence_create_session(client, key, @policy, session.external_ref)
+             Client.fence_create_session(client, key, @policy, session.external_ref, nil)
 
     assert_receive {:fleet_command, ^session, "reconcile_operation", %{"operation_key" => ^key},
                     read_key, _options}
@@ -1624,7 +1756,7 @@ defmodule Responder.CoopFleet.ClientTest do
     |> Repo.update!()
 
     assert {:error, {:coop_session_replacement_required, session_id, 1}} =
-             Client.fence_create_session(client, key, @policy, workspace_task["offer_ref"])
+             Client.fence_create_session(client, key, @policy, workspace_task["offer_ref"], nil)
 
     assert session_id == session.id
     refute_receive {:fleet_command, _, _, _, _, _}
@@ -1641,7 +1773,7 @@ defmodule Responder.CoopFleet.ClientTest do
     # The repaired live task had both successful receipts, but cancellation kept trying to
     # contact the expired placement instead of settling from those immutable results.
     assert {:ok, ^terminal_operation} =
-             Client.fence_create_session(client, key, @policy, workspace_task["offer_ref"])
+             Client.fence_create_session(client, key, @policy, workspace_task["offer_ref"], nil)
 
     refute_receive {:fleet_command, _, _, _, _, _}
 
@@ -1813,11 +1945,15 @@ defmodule Responder.CoopFleet.ClientTest do
     |> Repo.update!()
   end
 
-  defp poll(worker_id, suffix, freshness_v2? \\ false) do
+  defp poll(worker_id, suffix, freshness_v2? \\ false, selector_v1? \\ false) do
     capabilities =
       [%{"name" => "responder-state", "version" => "1"}] ++
         if(freshness_v2?,
           do: [%{"name" => "repository-freshness", "version" => "2"}],
+          else: []
+        ) ++
+        if(selector_v1?,
+          do: [%{"name" => "repository-source-selector", "version" => "1"}],
           else: []
         )
 

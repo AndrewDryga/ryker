@@ -9,7 +9,7 @@ defmodule Responder.Coop.Client do
   @behaviour Responder.Coop.API
 
   alias Responder.CanonicalJSON
-  alias Responder.Work.ValidationIntent
+  alias Responder.Work.{RepositorySource, ValidationIntent}
 
   @fields [:finch, :receive_timeout, :socket]
   @max_output_artifact_bytes 8 * 1_024 * 1_024
@@ -50,12 +50,10 @@ defmodule Responder.Coop.Client do
   def capabilities(%__MODULE__{} = client), do: request(client, :get, "/v1/capabilities")
 
   @impl true
-  def create_session(%__MODULE__{} = client, key, policy, task) do
-    with :ok <- reference(key, :idempotency_key),
-         :ok <- reference(policy, :policy),
-         :ok <- reference(task, :task) do
+  def create_session(%__MODULE__{} = client, key, policy, task, source) do
+    with {:ok, document} <- create_session_document(key, policy, task, nil, source) do
       request(client, :post, "/v1/sessions",
-        body: CanonicalJSON.encode!(create_session_document(policy, task)),
+        body: CanonicalJSON.encode!(document),
         headers: [
           {"content-type", "application/json"},
           {"idempotency-key", key},
@@ -66,13 +64,10 @@ defmodule Responder.Coop.Client do
   end
 
   @impl true
-  def create_bound_session(%__MODULE__{} = client, key, policy, task, binding) do
-    with :ok <- reference(key, :idempotency_key),
-         :ok <- reference(policy, :policy),
-         :ok <- reference(task, :task),
-         {:ok, binding} <- responder_binding(binding) do
+  def create_bound_session(%__MODULE__{} = client, key, policy, task, binding, source) do
+    with {:ok, document} <- create_session_document(key, policy, task, binding, source) do
       request(client, :post, "/v1/sessions",
-        body: CanonicalJSON.encode!(create_session_document(policy, task, binding)),
+        body: CanonicalJSON.encode!(document),
         headers: [
           {"content-type", "application/json"},
           {"idempotency-key", key},
@@ -83,31 +78,16 @@ defmodule Responder.Coop.Client do
   end
 
   @impl true
-  def fence_create_session(%__MODULE__{} = client, key, policy, task) do
-    with :ok <- reference(key, :idempotency_key),
-         :ok <- reference(policy, :policy),
-         :ok <- reference(task, :task) do
-      fence_operation(
-        client,
-        key,
-        "CreateRemoteSession",
-        create_session_document(policy, task)
-      )
+  def fence_create_session(%__MODULE__{} = client, key, policy, task, source) do
+    with {:ok, document} <- create_session_document(key, policy, task, nil, source) do
+      fence_operation(client, key, "CreateRemoteSession", document)
     end
   end
 
   @impl true
-  def fence_bound_session(%__MODULE__{} = client, key, policy, task, binding) do
-    with :ok <- reference(key, :idempotency_key),
-         :ok <- reference(policy, :policy),
-         :ok <- reference(task, :task),
-         {:ok, binding} <- responder_binding(binding) do
-      fence_operation(
-        client,
-        key,
-        "CreateRemoteSession",
-        create_session_document(policy, task, binding)
-      )
+  def fence_bound_session(%__MODULE__{} = client, key, policy, task, binding, source) do
+    with {:ok, document} <- create_session_document(key, policy, task, binding, source) do
+      fence_operation(client, key, "CreateRemoteSession", document)
     end
   end
 
@@ -408,10 +388,31 @@ defmodule Responder.Coop.Client do
     })
   end
 
-  defp create_session_document(policy, task), do: %{"policy" => policy, "task" => task}
+  # Create and fence build the identical document, so a fence request hashes the
+  # exact selector create would have sent.
+  defp create_session_document(key, policy, task, binding, source) do
+    with :ok <- reference(key, :idempotency_key),
+         :ok <- reference(policy, :policy),
+         :ok <- reference(task, :task),
+         {:ok, binding} <- optional_responder_binding(binding),
+         {:ok, source} <- repository_source(source) do
+      document =
+        %{"policy" => policy, "task" => task}
+        |> maybe_put("responder_binding", binding)
+        |> maybe_put("repository_source", source)
 
-  defp create_session_document(policy, task, binding) do
-    create_session_document(policy, task) |> Map.put("responder_binding", binding)
+      {:ok, document}
+    end
+  end
+
+  defp maybe_put(document, _key, nil), do: document
+  defp maybe_put(document, key, value), do: Map.put(document, key, value)
+
+  defp repository_source(source) do
+    case RepositorySource.parse_optional(source) do
+      {:ok, source} -> {:ok, source}
+      {:error, _reason} -> {:error, {:invalid_coop_request, :repository_source}}
+    end
   end
 
   defp responder_binding(%{"endpoint" => endpoint, "token" => token} = binding)
