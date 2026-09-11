@@ -562,6 +562,28 @@ kinds rejected the whole poll when one arrived, so a single filtered run would h
 worker polling at all. Only the three promised denial fields cross, and a destination the session
 policy withheld arrives as the literal "name withheld".
 
+`ControlPlane.WorkerEvidence` projects the newest capture per session into the episode's cards and
+keeps four distinctions the page must not lose. Configured is not enforced — a captured policy says
+what a session may reach, and only the enforcer layer's own observation says it was enforced.
+Unknown is not zero — an unmeasured counter renders as Not recorded, and an unreadable registry
+renders its cause rather than an absence of traffic. Withheld is not absent — a refusal whose
+destination the session policy did not export says so. And a snapshot is not a history — the task
+card is as of its capture, and a later capture never rewrites an earlier one.
+
+Opening Network shows what the numbers can and cannot be trusted for: the four collector layers
+with their own statuses, coverage per metric rather than one blanket word, what the collector lost
+or truncated, the raised alerts explaining why a number may be wrong, the run and gateway epoch the
+observation belongs to, and the session receipt with the run references it aggregated. Final and
+complete are independent there — a closed session's receipt can be final and honestly partial — and
+a filtered session that has not run still shows its provisional receipt, because "nothing has run
+yet" is what the export exists to distinguish from a run that saw nothing.
+
+The three cards render together under one Worker evidence heading. The approved design seats
+Network access inside Work setup and the Network summary inside Work activity; those two cards are
+not built yet, so the placement is still pending while the content is not. The section reads the
+episode identity the page snapshot carries, so that identity is part of the snapshot rather than
+something a card resolves for itself.
+
 ## Retention and cleanup
 
 `Responder.Retention.Runtime` owns both remote workspace cleanup and local data horizons. For every
