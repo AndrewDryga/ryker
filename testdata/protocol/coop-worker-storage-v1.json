@@ -1,0 +1,54 @@
+{
+  "poll": {
+    "version": 1,
+    "poll_ref": "poll:worker-a:4711",
+    "worker": {
+      "id": "worker-a",
+      "workspace_ref": "workspace-main",
+      "protocol_version": "1",
+      "build_version": "coop-abc123",
+      "clock_at": "2026-09-11T09:30:00Z",
+      "sandbox_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "policy_digests": {
+        "responder-read-only-v1": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      },
+      "policy_authority_digests": {
+        "responder-read-only-v1": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+      },
+      "repositories": [
+        {"ref": "responder", "revision": "commit:abc123"}
+      ],
+      "capabilities": [
+        {"name": "responder-state", "version": "1"}
+      ],
+      "capacity": {
+        "session_slots_free": 0,
+        "session_slots_total": 4,
+        "turn_slots_free": 2,
+        "turn_slots_total": 4,
+        "workspace_slots_free": 0,
+        "workspace_slots_total": 2,
+        "state": "busy",
+        "cooldown_until": null
+      },
+      "storage": {
+        "version": 1,
+        "measured_at": "2026-09-11T09:30:00Z",
+        "capacity_bytes": 536870912000,
+        "free_bytes": 4294967296,
+        "reserve_bytes": 5368709120,
+        "high_watermark_bytes": 64424509440,
+        "low_watermark_bytes": 48318382080,
+        "disposable_bytes": 9663676416,
+        "protected_bytes": 21474836480,
+        "unattributed_bytes": 1073741824,
+        "allocation": "refused",
+        "refusal_reason": "protected_storage_exceeds_budget"
+      },
+      "state": "busy"
+    },
+    "acknowledged_command_ids": [],
+    "command_results": [],
+    "event_batches": []
+  }
+}

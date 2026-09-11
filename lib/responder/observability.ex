@@ -24,7 +24,7 @@ defmodule Responder.Observability do
   alias Responder.Slack.{IncidentRoom, TaskCard}
   alias Responder.State.{Record, Schedule}
   alias Responder.Work.Custody, as: WorkCustody
-  alias Responder.Work.Turn
+  alias Responder.Work.{Session, Turn}
 
   @default_stall_after_seconds 15 * 60
   @fleet_heartbeat_stale_seconds 60
@@ -125,6 +125,7 @@ defmodule Responder.Observability do
          generated_at: now,
          progress: progress,
          queues: queues,
+         retention: retention_snapshot(now),
          stalled_active_leases:
            queues
            |> Enum.filter(
@@ -273,6 +274,40 @@ defmodule Responder.Observability do
     }
   end
 
+  # Every retained byte must be explainable, so cleanup is reported by reason and
+  # not only as a queue depth. An absent measurement stays absent here: the
+  # projection never substitutes zero for something no worker has reported.
+  defp retention_snapshot(now) do
+    eligible = RetentionCustody.eligible_query(now)
+
+    retrying =
+      from(session in Session,
+        where: session.cleanup_status in [:close_pending, :plan_pending, :discard_pending],
+        where: not is_nil(session.cleanup_next_attempt_at),
+        where: session.cleanup_next_attempt_at > ^now
+      )
+
+    retained =
+      from(session in Session,
+        where: session.cleanup_status == :retained,
+        group_by: session.retained_reason,
+        select: {session.retained_reason, count(session.id)}
+      )
+
+    last_reclaimed = Repo.one(from(session in Session, select: max(session.discarded_at)))
+
+    %{
+      blocked: Repo.aggregate(from(s in Session, where: s.cleanup_status == :blocked), :count),
+      eligible: Repo.aggregate(eligible, :count, :id),
+      last_reclaimed_age_seconds: age_seconds(now, last_reclaimed),
+      oldest_eligible_age_seconds:
+        age_seconds(now, RetentionCustody.oldest_eligible_at(eligible)),
+      retained: retained |> Repo.all() |> Map.new(),
+      retrying: Repo.aggregate(retrying, :count, :id),
+      sessions: enum_counts(Session, :cleanup_status)
+    }
+  end
+
   defp query_queue(base, name, age_field, now) do
     claimable =
       from(row in base,
@@ -401,9 +436,54 @@ defmodule Responder.Observability do
       required_capabilities: length(settings.capabilities),
       required_policy_profiles: length(profiles),
       stale_workers: Enum.count(workers, &(not fresh_worker?(&1, cutoff))),
+      storage: fleet_storage(workers, cutoff, now),
       workers: enum_counts(Worker, :state)
     }
   end
+
+  # Workers measure their own filesystem. A worker that reported nothing is
+  # unknown, and a worker whose heartbeat has gone stale is reporting a stale
+  # measurement; neither is folded into the live totals as zero.
+  defp fleet_storage(workers, cutoff, now) do
+    {reported, unreported} = Enum.split_with(workers, &is_map(&1.storage))
+    {fresh, stale} = Enum.split_with(reported, &fresh_worker?(&1, cutoff))
+
+    measured_at =
+      fresh
+      |> Enum.map(&parse_measured_at(&1.storage["measured_at"]))
+      |> Enum.reject(&is_nil/1)
+
+    %{
+      bytes:
+        Map.new(
+          ~w(capacity_bytes free_bytes reserve_bytes disposable_bytes protected_bytes),
+          &{&1, Enum.sum(Enum.map(fresh, fn worker -> worker.storage[&1] || 0 end))}
+        ),
+      oldest_measurement_age_seconds:
+        if(measured_at == [], do: 0, else: age_seconds(now, Enum.min(measured_at, DateTime))),
+      reclaimed_bytes: Enum.sum(Enum.map(workers, & &1.storage_reclaimed_bytes)),
+      refused: Enum.count(fresh, &(&1.storage["allocation"] == "refused")),
+      reporting: length(fresh),
+      stale: length(stale),
+      unattributed_bytes: sum_or_unknown(fresh, "unattributed_bytes"),
+      unknown: length(unreported)
+    }
+  end
+
+  defp sum_or_unknown(workers, field) do
+    if Enum.any?(workers, &is_nil(&1.storage[field])),
+      do: nil,
+      else: Enum.sum(Enum.map(workers, & &1.storage[field]))
+  end
+
+  defp parse_measured_at(value) when is_binary(value) do
+    case DateTime.from_iso8601(value) do
+      {:ok, %DateTime{} = measured_at, _offset} -> measured_at
+      _invalid -> nil
+    end
+  end
+
+  defp parse_measured_at(_value), do: nil
 
   defp fleet_settings do
     case Application.get_env(:responder, :work) do
@@ -738,11 +818,13 @@ defmodule Responder.Observability do
       end)
 
     fleet_lines = fleet_metric_lines(snapshot.fleet)
+    retention_lines = retention_metric_lines(snapshot.retention)
 
     ([
        "# Responder aggregate lifecycle metrics. No message or prompt labels are exported.",
+       "# An absent storage series is an unmeasured value, never a measured zero.",
        metric("responder_observability_snapshot", 1)
-     ] ++ count_lines ++ queue_lines ++ progress_lines ++ fleet_lines)
+     ] ++ count_lines ++ queue_lines ++ progress_lines ++ fleet_lines ++ retention_lines)
     |> Enum.join("\n")
     |> Kernel.<>("\n")
   end
@@ -808,7 +890,65 @@ defmodule Responder.Observability do
         "responder_coop_fleet_latest_checkpoint_age_seconds",
         fleet.checkpoints.latest_age_seconds
       )
-    ] ++ worker_lines ++ provider_lines ++ placement_lines ++ command_lines ++ capacity_lines
+    ] ++
+      worker_lines ++
+      provider_lines ++
+      placement_lines ++ command_lines ++ capacity_lines ++ storage_metric_lines(fleet.storage)
+  end
+
+  defp storage_metric_lines(storage) do
+    byte_lines =
+      Enum.map(storage.bytes, fn {kind, value} ->
+        metric(
+          "responder_coop_fleet_storage_bytes",
+          value,
+          ~s(kind="#{String.replace_suffix(kind, "_bytes", "")}")
+        )
+      end)
+
+    unattributed_lines =
+      case storage.unattributed_bytes do
+        nil -> []
+        value -> [metric("responder_coop_fleet_storage_bytes", value, ~s(kind="unattributed"))]
+      end
+
+    [
+      metric("responder_coop_fleet_storage_reporting_workers", storage.reporting),
+      metric("responder_coop_fleet_storage_stale_workers", storage.stale),
+      metric("responder_coop_fleet_storage_unknown_workers", storage.unknown),
+      metric("responder_coop_fleet_storage_refused_workers", storage.refused),
+      metric("responder_coop_fleet_storage_reclaimed_bytes", storage.reclaimed_bytes),
+      metric(
+        "responder_coop_fleet_storage_oldest_measurement_age_seconds",
+        storage.oldest_measurement_age_seconds
+      )
+    ] ++ byte_lines ++ unattributed_lines
+  end
+
+  defp retention_metric_lines(retention) do
+    session_lines =
+      Enum.map(retention.sessions, fn {status, count} ->
+        metric("responder_retention_sessions", count, ~s(status="#{Atom.to_string(status)}"))
+      end)
+
+    retained_lines =
+      Enum.map(retention.retained, fn {reason, count} ->
+        metric("responder_retention_retained", count, ~s(reason="#{reason || "unknown"}"))
+      end)
+
+    [
+      metric("responder_retention_blocked", retention.blocked),
+      metric("responder_retention_eligible", retention.eligible),
+      metric("responder_retention_retrying", retention.retrying),
+      metric(
+        "responder_retention_oldest_eligible_age_seconds",
+        retention.oldest_eligible_age_seconds
+      ),
+      metric(
+        "responder_retention_last_reclaimed_age_seconds",
+        retention.last_reclaimed_age_seconds
+      )
+    ] ++ session_lines ++ retained_lines
   end
 
   defp metric(name, value), do: "#{name} #{value}"

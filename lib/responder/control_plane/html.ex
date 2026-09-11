@@ -1343,6 +1343,88 @@ defmodule Responder.ControlPlane.HTML do
 
   defp failure_recovery_action(_row), do: []
 
+  def workspace_storage(%{budget: budget, preview: preview, workers: workers}) do
+    worker_rows =
+      Enum.map(workers, fn worker ->
+        [
+          "<tr><td>",
+          escape(worker.id),
+          "</td><td>",
+          escape(measurement_label(worker)),
+          "</td><td>",
+          storage_bytes(worker.bytes["disposable_bytes"]),
+          "</td><td>",
+          storage_bytes(worker.bytes["protected_bytes"]),
+          "</td><td>",
+          storage_bytes(worker.bytes["unattributed_bytes"]),
+          "</td><td>",
+          storage_bytes(worker.reclaimed_bytes),
+          "</td><td>",
+          escape(allocation_label(worker)),
+          "</td></tr>"
+        ]
+      end)
+
+    preview_rows =
+      Enum.map(preview, fn item ->
+        [
+          "<tr><td title=\"",
+          escape(item.target || "no remote session"),
+          "\">",
+          escape(item.ref),
+          "</td><td>",
+          escape(Atom.to_string(item.kind)),
+          "</td><td>",
+          escape(item.reason),
+          "</td><td>",
+          escape(Integer.to_string(item.eligible_age_seconds)),
+          " s</td></tr>"
+        ]
+      end)
+
+    [
+      "<section><h2>Workspace storage</h2>",
+      "<p>Workers measure their own filesystem. A worker that reported nothing is unknown, not empty, and a stale heartbeat means a stale measurement. Budget: ",
+      storage_bytes(budget.disposable_bytes_limit),
+      " of inactive disposable forks per worker, reclaimed within ",
+      escape(budget.reclaim_target_seconds || "an unset target"),
+      " seconds of eligibility.</p>",
+      table(
+        [
+          "Worker",
+          "Measurement",
+          "Disposable",
+          "Protected",
+          "Unattributed",
+          "Reclaimed",
+          "New forks"
+        ],
+        worker_rows
+      ),
+      "<h3>Next cleanup targets</h3><p>Read-only preview of the exact sessions cleanup will act on next, oldest eligible first. Nothing here is deleted by looking at it.</p>",
+      table(["Working copy", "Kind", "What cleanup will do", "Eligible for"], preview_rows),
+      "</section>"
+    ]
+  end
+
+  defp measurement_label(%{measurement: :unknown}), do: "no measurement reported"
+  defp measurement_label(%{measurement: :stale}), do: "stale (worker heartbeat is stale)"
+  defp measurement_label(%{measured_at: measured_at}), do: "measured #{measured_at}"
+
+  defp allocation_label(%{allocation: "refused", refusal_reason: reason}),
+    do: "refused: #{reason || "reported refused"}"
+
+  defp allocation_label(%{allocation: "open"}), do: "accepted"
+  defp allocation_label(_worker), do: "unknown"
+
+  defp storage_bytes(nil), do: "unknown"
+
+  defp storage_bytes(value) when is_integer(value) do
+    escape(:erlang.float_to_binary(value / 1_073_741_824, decimals: 2) <> " GiB")
+  end
+
+  defp storage_bytes(value), do: escape(value)
+
   def workspaces([]),
     do: "<section><h2>Workspaces</h2><p class=\"empty\">No durable workspaces.</p></section>"
 

@@ -17,6 +17,9 @@ defmodule Responder.CoopFleet.Worker do
     field(:repositories, Responder.CanonicalJSON.Type, default: [])
     field(:capabilities, Responder.CanonicalJSON.Type, default: [])
     field(:capacity, Responder.CanonicalJSON.Type, default: %{})
+    # Absent means the worker reported no measurement. Unknown is not zero.
+    field(:storage, Responder.CanonicalJSON.Type)
+    field(:storage_reclaimed_bytes, :integer, default: 0)
 
     field(:state, Ecto.Enum,
       values: [:offline, :eligible, :busy, :draining, :needs_auth, :revoked],

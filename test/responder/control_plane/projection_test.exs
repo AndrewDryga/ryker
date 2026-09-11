@@ -1567,7 +1567,7 @@ defmodule Responder.ControlPlane.ProjectionTest do
     assert Projection.episode("missing") == :not_found
 
     assert Projection.findings(%{}) == %{items: [], total: 0, page: 1, pages: 1}
-    assert map_size(Projection.callbacks()) == 38
+    assert map_size(Projection.callbacks()) == 39
     assert is_function(Projection.callbacks().instructions, 1)
     refute Map.has_key?(Projection.callbacks(), :episodes)
     assert is_function(Projection.callbacks().behavior, 1)
@@ -2296,6 +2296,97 @@ defmodule Responder.ControlPlane.ProjectionTest do
     assert is_list(behaviors)
     assert is_list(memories)
     assert is_list(schedules)
+  end
+
+  test "workspace storage previews exact targets and never estimates unmeasured bytes" do
+    completed = start_episode!("storage-preview")
+
+    assert {:ok, session} =
+             Custody.pin_episode(completed.episode.id, "policy:read", String.duplicate("a", 64))
+
+    assert {:ok, _complete} =
+             Episodes.apply(
+               EpisodeFixtures.accept_result(%{
+                 decision_reason: "No visible reply is required.",
+                 delivery: :none,
+                 delivery_ref: nil,
+                 episode_key: completed.episode.key,
+                 expected_turn_ref: completed.episode.owner_ref,
+                 result_ref: "result:storage:#{completed.episode.id}"
+               })
+             )
+
+    # Structural fixtures: one worker that measured its filesystem and refused
+    # new allocation, and one older worker that reported nothing at all.
+    Repo.insert!(%Worker{
+      capabilities: [],
+      capacity: %{},
+      certificate_sha256: String.duplicate("1", 64),
+      id: "worker-measured",
+      last_seen_at: DateTime.utc_now(),
+      policy_digests: %{},
+      repositories: [],
+      state: :busy,
+      storage: %{
+        "allocation" => "refused",
+        "capacity_bytes" => 536_870_912_000,
+        "disposable_bytes" => 9_663_676_416,
+        "free_bytes" => 4_294_967_296,
+        "high_watermark_bytes" => 64_424_509_440,
+        "low_watermark_bytes" => 48_318_382_080,
+        "measured_at" => "2026-09-11T09:30:00Z",
+        "protected_bytes" => 21_474_836_480,
+        "refusal_reason" => "reserve_exhausted",
+        "reserve_bytes" => 5_368_709_120,
+        "unattributed_bytes" => nil,
+        "version" => 1
+      },
+      storage_reclaimed_bytes: 1_073_741_824,
+      workspace_ref: "workspace-main"
+    })
+
+    Repo.insert!(%Worker{
+      capabilities: [],
+      capacity: %{},
+      certificate_sha256: String.duplicate("2", 64),
+      id: "worker-silent",
+      last_seen_at: DateTime.utc_now(),
+      policy_digests: %{},
+      repositories: [],
+      state: :eligible,
+      workspace_ref: "workspace-main"
+    })
+
+    storage = Projection.workspace_storage()
+    measured = Enum.find(storage.workers, &(&1.id == "worker-measured"))
+    silent = Enum.find(storage.workers, &(&1.id == "worker-silent"))
+
+    assert measured.measurement == :fresh
+    assert measured.allocation == "refused"
+    assert measured.refusal_reason == "reserve_exhausted"
+    assert measured.bytes["disposable_bytes"] == 9_663_676_416
+    assert measured.bytes["unattributed_bytes"] == nil
+    assert measured.reclaimed_bytes == 1_073_741_824
+
+    assert silent.measurement == :unknown
+    assert silent.bytes["disposable_bytes"] == nil
+    assert silent.reclaimed_bytes == 0
+
+    assert [preview] = storage.preview
+    assert preview.ref == session.external_ref
+    assert preview.status == :active
+    assert preview.reason == "close the remote session"
+    assert preview.kind == :work
+    assert is_integer(preview.eligible_age_seconds)
+
+    # Preview is read-only: nothing about the session changed by looking at it.
+    assert Repo.get!(Session, session.id).cleanup_status == :active
+
+    html = storage |> HTML.workspace_storage() |> IO.iodata_to_binary()
+    assert html =~ "no measurement reported"
+    assert html =~ "refused: reserve_exhausted"
+    assert html =~ "unknown"
+    assert html =~ "close the remote session"
   end
 
   test "retention failures and safe operator actions are visible without plan payloads" do
