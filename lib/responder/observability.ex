@@ -22,6 +22,7 @@ defmodule Responder.Observability do
   alias Responder.Publication.{Followup, LifecycleEvent, Publication}
   alias Responder.Repo
   alias Responder.Retention.Custody, as: RetentionCustody
+  alias Responder.Runtime.Owner
   alias Responder.Settings
   alias Responder.Slack.{IncidentRoom, TaskCard}
   alias Responder.State.{Record, Schedule}
@@ -714,7 +715,7 @@ defmodule Responder.Observability do
     # The owner knows which setting started which process; several of its
     # children are plain listeners whose module is the web server's, so the
     # supervisor's own child list cannot answer that question.
-    running = Responder.Runtime.Owner.running_keys()
+    running = Owner.running_keys()
 
     [
       admission: {:admission, {:named, Responder.Admission.Runtime}},
