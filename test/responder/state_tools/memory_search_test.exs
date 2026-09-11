@@ -12,7 +12,10 @@ defmodule Responder.StateTools.MemorySearchTest do
   alias Responder.State.{
     Behavior,
     ConversationObservation,
+    ConversationRollup,
+    ConversationSummary,
     KnowledgeSnapshot,
+    LearningSources,
     MemoryEntry,
     MemorySearch,
     Observations,
@@ -422,6 +425,68 @@ defmodule Responder.StateTools.MemorySearchTest do
              65_536
   end
 
+  test "an older diagnosis and its later resolution both return with separable dates", %{
+    entries: entries,
+    options: options
+  } do
+    # The retained VA1 OOM alert fired at 17:19:24 and resolved at 17:29:24. A
+    # search for the original that cannot also surface the later correction, or
+    # that returns both without separable dates, lets an answer present a stale
+    # diagnosis as the current situation.
+    assert {:ok, :ok} =
+             Repo.transaction(fn ->
+               Enum.each(entries, &Observations.record_excerpt_in_transaction/1)
+             end)
+
+    args = %{
+      @args
+      | "kinds" => ["continuity"],
+        "time_basis" => "source",
+        "query" => "haproxy-edge",
+        "limit" => 20
+    }
+
+    assert {:ok, %{"memories" => memories}} = Tools.call("search_memory", args, options)
+
+    firing = Enum.find(memories, &(CanonicalJSON.encode!(&1) =~ "[VA1 FIRING:1]"))
+    resolved = Enum.find(memories, &(CanonicalJSON.encode!(&1) =~ "[VA1 RESOLVED:1]"))
+
+    assert firing, "the original diagnosis must stay reachable"
+    assert resolved, "its later resolution must come back with it"
+    assert firing["occurred_at"] < resolved["occurred_at"]
+    assert firing["source_message_ref"] != resolved["source_message_ref"]
+    assert firing["thread_ref"] != resolved["thread_ref"]
+  end
+
+  test "an as-of window cannot answer with the later resolution it excludes", %{
+    entries: entries,
+    options: options
+  } do
+    # Asking what was known at 17:25 must not be answered with the 17:29
+    # resolution. Later understanding entering an older window unnoticed is the
+    # one failure a dated history cannot recover from.
+    assert {:ok, :ok} =
+             Repo.transaction(fn ->
+               Enum.each(entries, &Observations.record_excerpt_in_transaction/1)
+             end)
+
+    args = %{
+      @args
+      | "kinds" => ["continuity"],
+        "time_basis" => "source",
+        "query" => "haproxy-edge",
+        "limit" => 20,
+        "before" => "2026-09-05T17:25:00Z"
+    }
+
+    assert {:ok, result} = Tools.call("search_memory", args, options)
+    assert [only] = result["memories"]
+    encoded = CanonicalJSON.encode!(result)
+    assert encoded =~ "[VA1 FIRING:1]"
+    refute encoded =~ "[VA1 RESOLVED:1]"
+    assert only["occurred_at"] < "2026-09-05T17:25:00Z"
+  end
+
   test "every later page is reachable without retrieval counters moving the cursor", %{
     claim: claim,
     options: options
@@ -753,6 +818,58 @@ defmodule Responder.StateTools.MemorySearchTest do
     })
   end
 
+  test "related memory reaches a conversation summary and its compacted rollup", %{
+    claim: claim,
+    entries: [entry | _]
+  } do
+    # Enrichment was only ever asserted for facts, guidance and topic knowledge.
+    # A conversation's own summary and the rollup it is compacted into are the
+    # two kinds a reader most needs beside an old message, and nothing held
+    # them: both could have stopped attaching without a test noticing.
+    assert {:ok, :ok} =
+             Repo.transaction(fn -> Observations.record_excerpt_in_transaction(entry) end)
+
+    fact!(claim, 1)
+    guidance!(claim, 2)
+    Knowledge.learn!(claim.episode, claim.session.repository_ref)
+
+    observation =
+      Repo.one!(
+        from(item in ConversationObservation,
+          where: item.source_message_ref == ^entry.source_item_ref
+        )
+      )
+
+    summary = summary!(observation)
+    rollup = rollup!(observation, summary)
+
+    targets = [
+      %{
+        "conversation_ref" => entry.destination_conversation_ref,
+        "thread_ref" => entry.destination_thread_ref,
+        "message_ref" => entry.source_item_ref
+      }
+    ]
+
+    assert {:ok, result} = MemorySearch.related(claim, targets, nil)
+
+    kinds = result["memories"] |> Enum.map(& &1["kind"]) |> Enum.uniq() |> Enum.sort()
+
+    assert "entity_relationship" in kinds
+    assert "guidance" in kinds
+    assert "continuity" in kinds
+
+    continuity = Enum.filter(result["memories"], &(&1["kind"] == "continuity"))
+
+    assert Enum.any?(continuity, &(&1["source_ref"] == rollup.ref)),
+           "a compacted rollup must stay reachable as related memory"
+
+    assert Enum.any?(continuity, &(&1["ref"] == summary.ref or &1["source_ref"] == summary.ref)),
+           "a conversation's own summary must stay reachable as related memory"
+
+    assert result["coverage"]["basis"] == "direct_source_relationship"
+  end
+
   defp fact!(claim, index) do
     payload = %{
       "expires_in" => "30d",
@@ -806,6 +923,66 @@ defmodule Responder.StateTools.MemorySearchTest do
         })
       )
     )
+  end
+
+  defp summary!(observation) do
+    now = database_now!()
+    state = %{"situation" => @captured}
+    # Custody resolves a summary by the uuid inside its own ref, as production
+    # writes it. A decorative ref makes the document unexposable.
+    id = Ecto.UUID.generate()
+
+    Repo.insert!(%ConversationSummary{
+      id: id,
+      ref: "continuity:#{id}",
+      identity_key: CanonicalJSON.digest("summary:#{Ecto.UUID.generate()}"),
+      transport: observation.transport,
+      workspace_ref: observation.workspace_ref,
+      conversation_ref: observation.conversation_ref,
+      thread_ref: observation.thread_ref,
+      repository_ref: observation.repository_ref,
+      visibility: observation.visibility,
+      state: state,
+      source_dependencies: LearningSources.for_source(observation),
+      state_fingerprint: CanonicalJSON.digest(state),
+      source_result_ref: "result:related-summary",
+      source_message_ref: observation.source_message_ref,
+      inserted_at: now,
+      updated_at: now
+    })
+  end
+
+  defp rollup!(observation, summary) do
+    now = database_now!()
+    state = %{"situation" => @captured}
+
+    Repo.insert!(%ConversationRollup{
+      id: Ecto.UUID.generate(),
+      ref: "continuity-rollup:#{Ecto.UUID.generate()}",
+      workspace_ref: observation.workspace_ref,
+      scope_kind: :conversation,
+      scope_ref: observation.conversation_ref,
+      repository_ref: observation.repository_ref,
+      visibility: observation.visibility,
+      period_start: DateTime.add(now, -240, :second),
+      period_end: DateTime.add(now, -180, :second),
+      state: state,
+      source_dependencies: LearningSources.for_source(observation),
+      state_fingerprint: CanonicalJSON.digest(state),
+      source_refs: [summary.ref],
+      source_scopes: [%{"conversation_ref" => observation.conversation_ref}],
+      source_count: 1,
+      expires_at: DateTime.add(now, 3_600, :second),
+      inserted_at: now,
+      updated_at: now
+    })
+  end
+
+  # PostgreSQL owns the search cutoff, so a fixture stamped with the host clock
+  # can land after it and never be searched at all.
+  defp database_now! do
+    %{rows: [[now]]} = Repo.query!("SELECT clock_timestamp()")
+    now
   end
 
   defp common(claim, id, offer, index) do

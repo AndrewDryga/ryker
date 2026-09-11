@@ -246,6 +246,68 @@ defmodule Responder.ControlPlane.CapabilityToolsTest do
            ) == {:error, "unauthorized"}
   end
 
+  test "Lab context describes itself with the same descriptor keys a Slack lookup uses" do
+    # Parity was only ever proven for the tool catalog. The Lab named exactly one
+    # coverage field in its tests, so it could have described the same context
+    # with different keys and made one transport's model reasoning wrong while
+    # the other stayed right, with nothing failing.
+    [root, hit, later] =
+      Path.join(__DIR__, "../slack/fixtures/readiness_thread.json")
+      |> File.read!()
+      |> Jason.decode!()
+
+    {_root_ref, _, _} =
+      admit_lab_input!("parity-root", @conversation_ref, root["text"], DateTime.add(@now, -3))
+
+    {hit_ref, _, _} =
+      admit_lab_input!("parity-hit", @conversation_ref, hit["text"], DateTime.add(@now, -2))
+
+    {_later_ref, _, _} =
+      admit_lab_input!("parity-later", @conversation_ref, later["text"], DateTime.add(@now, -1))
+
+    {binding, _, _} = lab_binding!("parity-lookup")
+
+    assert {:ok, result} =
+             CapabilityTools.call(
+               "search_slack",
+               %{"query" => "Engineering task 55be4694", "limit" => 1},
+               binding
+             )
+
+    assert [message] = result["results"]["messages"]
+
+    # Slack's search hit carries these exact keys; see
+    # lib/responder/slack/capability_tools.ex search context normalization.
+    assert Enum.sort(Map.keys(message["context_messages"])) == ["after", "before"]
+
+    for key <- ~w(basis neighbor_limit status truncated) do
+      assert Map.has_key?(message["context_coverage"], key),
+             "Lab context coverage must name #{key} the way a Slack hit does"
+    end
+
+    assert message["context_coverage"]["status"] in ~w(complete partial unavailable)
+
+    assert {:ok, expanded} =
+             CapabilityTools.call(
+               "read_slack_source",
+               %{"source_ref" => hit_ref, "view" => "surrounding", "limit" => 3},
+               binding
+             )
+
+    for key <- ~w(anchor complete coverage cursor messages source_ref view) do
+      assert Map.has_key?(expanded, key),
+             "a Lab source read must name #{key} the way a Slack read does"
+    end
+
+    for key <- ~w(basis status) do
+      assert Map.has_key?(expanded["coverage"], key),
+             "Lab read coverage must name #{key} the way a Slack read does"
+    end
+
+    assert expanded["coverage"]["status"] in ~w(complete partial previous_page unavailable)
+    assert expanded["anchor"]["source_ref"] == hit_ref
+  end
+
   test "Lab search continuation reaches every matching original and rejects crossed queries" do
     refs =
       for index <- 1..4 do
