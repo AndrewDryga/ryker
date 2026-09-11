@@ -1,6 +1,8 @@
 defmodule Responder.State.TaskOffersTest do
   use Responder.DataCase, async: false
 
+  import Ecto.Query
+
   alias Responder.Episodes
   alias Responder.Fixtures.Episodes, as: EpisodeFixtures
   alias Responder.Publication.Changeset
@@ -78,6 +80,79 @@ defmodule Responder.State.TaskOffersTest do
     assert duplicate.status == :duplicate
     assert duplicate.episode.id == confirmation.episode.id
     assert Repo.aggregate(Session, :count, :id) == 2
+  end
+
+  test "a confirmed offer carries the worker's selector into the new linked session" do
+    branch = %{"kind" => "branch", "name" => "feature/payments"}
+
+    fixture = delivered_offers!("confirm-source", [sourced_task_offer("responder", branch)])
+
+    fixture = Map.put(fixture, :record, hd(fixture.records))
+
+    assert {:ok, confirmation} = TaskOffers.confirm(confirmation(fixture))
+    assert confirmation.status == :confirmed
+    assert confirmation.session.repository_ref == "responder"
+    assert confirmation.session.repository_source == branch
+    refute Map.has_key?(confirmation.session.workspace_task, "repository_source")
+
+    # The proposing session keeps its own source; confirmation never rebinds it.
+    assert Repo.get_by!(Session, episode_id: fixture.episode.id).repository_source == nil
+  end
+
+  test "a confirmed offer without a selector starts the linked session from the default" do
+    fixture = delivered_offer!("confirm-default-source")
+    assert {:ok, confirmation} = TaskOffers.confirm(confirmation(fixture))
+    assert confirmation.session.repository_source == %{"kind" => "default"}
+  end
+
+  test "a selector outside the union or outside the placed repository cannot become work" do
+    # A durable record can only hold a selector the union accepts, so the
+    # malformed shapes are refused when the worker proposes them; confirmation
+    # still re-validates what it reads rather than trusting the row.
+    malformed =
+      delivered_offers!("confirm-malformed-source", [sourced_task_offer("responder", nil)])
+
+    malformed = Map.put(malformed, :record, hd(malformed.records))
+
+    {1, nil} =
+      Repo.update_all(
+        from(record in Record, where: record.id == ^malformed.record.id),
+        set: [
+          payload:
+            Map.put(malformed.record.payload, "repository_source", %{
+              "kind" => "branch",
+              "name" => "refs/heads/main"
+            })
+        ]
+      )
+
+    assert TaskOffers.confirm(confirmation(malformed)) ==
+             {:error, :task_offer_repository_source_mismatch}
+
+    unscoped =
+      delivered_offers!("confirm-unscoped-source", [
+        sourced_task_offer("responder", nil)
+        |> Map.put("kind", "incident")
+        |> Map.put("repository", nil)
+      ])
+
+    unscoped = Map.put(unscoped, :record, hd(unscoped.records))
+
+    {1, nil} =
+      Repo.update_all(
+        from(record in Record, where: record.id == ^unscoped.record.id),
+        set: [
+          payload: Map.put(unscoped.record.payload, "repository_source", %{"kind" => "default"})
+        ]
+      )
+
+    # A task placed without any repository cannot keep a selector: there is
+    # nothing for it to select inside.
+    assert TaskOffers.confirm(confirmation(unscoped)) ==
+             {:error, :task_offer_repository_source_mismatch}
+
+    assert Repo.get!(Record, malformed.record.id).status == :open
+    assert Repo.get!(Record, unscoped.record.id).status == :open
   end
 
   test "one parent can coordinate independent writable children without crossing repositories" do
@@ -769,6 +844,20 @@ defmodule Responder.State.TaskOffersTest do
       "prompt" => "Change the parser and run focused tests.",
       "repository" => "responder",
       "title" => "Fix parser retries"
+    }
+  end
+
+  defp sourced_task_offer(repository, repository_source) do
+    %{
+      "authority_limits" => ["do not deploy"],
+      "instruction_ref" => "input:review:1",
+      "kind" => "engineering",
+      "prompt" => "Review the selected source and report findings.",
+      "repository" => repository,
+      "repository_source" => repository_source,
+      "source_refs" => [],
+      "success_checks" => ["findings are reported"],
+      "title" => "Review the selected source"
     }
   end
 

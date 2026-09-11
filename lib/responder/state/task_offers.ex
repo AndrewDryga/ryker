@@ -13,7 +13,7 @@ defmodule Responder.State.TaskOffers do
   alias Responder.Episodes.{Command, Episode}
   alias Responder.Repo
   alias Responder.State.{Record, RecordChangeset}
-  alias Responder.Work.{Custody, RepositoryContext, Session, Turn}
+  alias Responder.Work.{Custody, RepositoryContext, RepositorySource, Session, Turn}
 
   @fields [:actor_ref, :confirmation_ref, :occurred_at, :policy, :record_ref, :target]
   @policy_fields [:digest, :name, :repository_context, :repository_ref]
@@ -124,16 +124,21 @@ defmodule Responder.State.TaskOffers do
       turn_ref: turn_ref
     }
 
+    repository_ref = Map.get(attributes.policy, :repository_ref, record.payload["repository"])
+
     with :ok <- task_repository_placement(record.payload["repository"], attributes.policy),
+         {:ok, repository_source} <-
+           task_repository_source(record.payload["repository_source"], repository_ref),
          {:ok, [transition]} <- Episodes.apply_batch_in_transaction([command]),
          {:ok, session} <-
            Custody.pin_task_episode_in_transaction(
              transition.episode.id,
              attributes.policy.name,
              attributes.policy.digest,
-             Map.get(attributes.policy, :repository_ref, record.payload["repository"]),
+             repository_ref,
              Map.get(attributes.policy, :repository_context),
-             workspace_task(record)
+             workspace_task(record),
+             repository_source
            ),
          {:ok, record} <- persist_confirmation(record, transition.episode, attributes) do
       %{
@@ -162,6 +167,22 @@ defmodule Responder.State.TaskOffers do
         ]),
       "title" => payload["title"]
     }
+  end
+
+  # The offer carries the worker's exact selector; confirmation re-validates it
+  # against the frozen union and against the repository the task was placed in.
+  # It becomes the new linked session's immutable source, never a rebind of the
+  # session that proposed it.
+  defp task_repository_source(nil, _repository_ref), do: {:ok, nil}
+
+  defp task_repository_source(_source, nil),
+    do: {:error, :task_offer_repository_source_mismatch}
+
+  defp task_repository_source(source, _repository_ref) do
+    case RepositorySource.parse(source) do
+      {:ok, source} -> {:ok, source}
+      {:error, _reason} -> {:error, :task_offer_repository_source_mismatch}
+    end
   end
 
   defp task_repository_placement(nil, _policy), do: :ok

@@ -503,6 +503,77 @@ defmodule Responder.StateTools.RouterTest do
     assert payload["instruction_ref"] == "input:incident:1"
   end
 
+  test "request_task carries an exact repository source into the inert offer" do
+    claim = claim!("source-task-offer")
+    options = bound_options(claim)
+
+    arguments = %{
+      "authority_limits" => ["do not deploy"],
+      "instruction_ref" => "input:review:1",
+      "kind" => "engineering",
+      "prompt" => "Review the payments branch and report findings.",
+      "repository" => "responder",
+      "repository_source" => %{"kind" => "branch", "name" => "feature/payments"},
+      "source_refs" => ["input:review:1"],
+      "success_checks" => ["findings are reported"],
+      "title" => "Review the payments branch"
+    }
+
+    assert {:ok, %{"kind" => "task_offer"}} = Tools.call("request_task", arguments, options)
+
+    assert [%{"kind" => "task_offer", "payload" => payload}] =
+             Records.retained_records(claim.episode.id)
+
+    assert payload["repository"] == "responder"
+    assert payload["repository_source"] == %{"kind" => "branch", "name" => "feature/payments"}
+
+    # The proposing session's own workspace is untouched: the selector belongs to
+    # the new linked session that confirmation creates.
+    assert Responder.Repo.get!(Responder.Work.Session, claim.session.id).repository_source ==
+             claim.session.repository_source
+  end
+
+  test "request_task refuses a source outside the union or without a repository" do
+    claim = claim!("source-task-offer-refused")
+    options = bound_options(claim)
+
+    base = %{
+      "authority_limits" => ["do not deploy"],
+      "instruction_ref" => "input:review:2",
+      "kind" => "engineering",
+      "prompt" => "Review the named source.",
+      "repository" => "responder",
+      "source_refs" => [],
+      "success_checks" => ["findings are reported"],
+      "title" => "Review a source"
+    }
+
+    for invalid <- [
+          %{"kind" => "tag", "name" => "v1"},
+          %{"kind" => "branch", "name" => "refs/heads/main"},
+          %{"kind" => "commit", "sha" => String.duplicate("a", 12)},
+          %{"kind" => "pull_request", "number" => 0},
+          "feature/payments"
+        ] do
+      assert Tools.call("request_task", Map.put(base, "repository_source", invalid), options) ==
+               {:error, "invalid_arguments"}
+    end
+
+    assert {:error, unscoped} =
+             Tools.call(
+               "request_task",
+               base
+               |> Map.put("kind", "incident")
+               |> Map.put("repository", nil)
+               |> Map.put("repository_source", %{"kind" => "default"}),
+               options
+             )
+
+    assert String.starts_with?(unscoped, "invalid_arguments:")
+    assert unscoped =~ "requires a non-null repository"
+    assert Records.retained_records(claim.episode.id) == []
+  end
+
   test "engineering task repository errors explain the blocker without creating work" do
     # One recorded GitHub turn spent six calls changing unrelated arguments
     # because missing repository and an incompatible slug both said invalid_arguments.

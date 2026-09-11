@@ -7,6 +7,7 @@ defmodule Responder.State.RecordPayload do
   alias Responder.State.EventWaitTiming
   alias Responder.State.InvestigationPayload
   alias Responder.State.ScheduleRecurrence
+  alias Responder.Work.RepositorySource
 
   @maximum_payload_bytes 32 * 1_024
   @maximum_automation_change_bytes 64 * 1_024
@@ -50,6 +51,7 @@ defmodule Responder.State.RecordPayload do
          :ok <- text(payload["title"], 120, :title),
          :ok <- text(payload["prompt"], 12_000, :prompt),
          :ok <- task_repository(payload["kind"], payload["repository"]),
+         :ok <- task_repository_source(payload["repository"], payload["repository_source"]),
          :ok <- task_offer_authority(payload),
          :ok <- canonical(payload) do
       {:ok, %{continuation: nil, payload: payload, subject_ref: nil}}
@@ -58,15 +60,32 @@ defmodule Responder.State.RecordPayload do
 
   defp task_offer(_payload), do: {:error, {:invalid_state_record, :payload}}
 
+  # Older offers predate structured authority and source selection; their exact
+  # shapes stay readable. New offers always carry repository_source, null when
+  # the worker chose nothing.
   defp task_offer_fields(payload) do
     base = ~w(kind prompt repository title)
 
     structured =
       ~w(authority_limits instruction_ref kind prompt repository source_refs success_checks title)
 
-    if Enum.sort(Map.keys(payload)) in [Enum.sort(base), Enum.sort(structured)],
+    sourced = ["repository_source" | structured]
+
+    if Enum.sort(Map.keys(payload)) in Enum.map([base, structured, sourced], &Enum.sort/1),
       do: :ok,
       else: {:error, {:invalid_state_record, :fields}}
+  end
+
+  defp task_repository_source(_repository, nil), do: :ok
+
+  defp task_repository_source(nil, _source),
+    do: {:error, {:invalid_state_record, :repository_source}}
+
+  defp task_repository_source(_repository, source) do
+    case RepositorySource.parse(source) do
+      {:ok, ^source} -> :ok
+      _other -> {:error, {:invalid_state_record, :repository_source}}
+    end
   end
 
   defp task_offer_authority(%{"success_checks" => checks} = payload) do
