@@ -36,6 +36,12 @@ defmodule Responder.Retention.Policy do
       why: "current retention horizons; cleanup reads them, never expires them"
     },
     %{
+      table: "settings_import_receipts",
+      class: :audit,
+      why:
+        "fingerprints of the one-time configuration import expire at the audit horizon; the imported settings and the installation identity they created are kept, and an expired receipt still refuses a rerun because the installation already exists"
+    },
+    %{
       table: "slack_settings",
       class: :kept,
       why: "verified Slack identity, desired enabled state, operators and incident invitees"
