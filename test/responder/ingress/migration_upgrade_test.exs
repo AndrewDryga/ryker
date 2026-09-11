@@ -52,6 +52,7 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
   @durable_settings_version 20_260_911_001_100
   @inherited_participation_version 20_260_911_001_101
   @work_placement_version 20_260_911_001_102
+  @import_receipts_version 20_260_911_001_103
   @learning_executions_version 20_260_911_001_500
   @latest_versions [
     @typed_question_answers_version,
@@ -66,6 +67,7 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
     @durable_settings_version,
     @inherited_participation_version,
     @work_placement_version,
+    @import_receipts_version,
     @learning_executions_version
   ]
   @memory_versions Enum.to_list(20_260_908_000_100..20_260_908_001_100//100) ++
@@ -1591,9 +1593,14 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
       # The inspection-evidence columns and tables, the worker storage columns,
       # the default channel configuration, the selection ledger, the empty
       # settings tables and the learning execution kind are reversible on their own.
-      assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 11, prefix: prefix, log: false) ==
+      assert Ecto.Migrator.run(repo, @migrations_path, :down,
+               step: 12,
+               prefix: prefix,
+               log: false
+             ) ==
                [
                  @learning_executions_version,
+                 @import_receipts_version,
                  @work_placement_version,
                  @inherited_participation_version,
                  @durable_settings_version,
@@ -1700,8 +1707,9 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
         insert_learning_execution!(repo, prefix)
       end
 
-      assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 3, prefix: prefix, log: false) ==
+      assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 4, prefix: prefix, log: false) ==
                [
+                 @import_receipts_version,
                  @work_placement_version,
                  @inherited_participation_version,
                  @durable_settings_version
@@ -1833,6 +1841,28 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
         []
       )
 
+      SQL.query!(
+        repo,
+        """
+        INSERT INTO #{prefix}.settings_import_receipts
+          (id, source_fingerprint, plan_fingerprint, host_ref, revision, actor_ref, inserted_at)
+        VALUES (gen_random_uuid(), $1, $2, 'installation:test', 1, 'control-plane:local', now())
+        """,
+        [String.duplicate("a", 64), String.duplicate("b", 64)]
+      )
+
+      # The receipt is the only proof that a rerun of the importer is already
+      # applied; dropping it under a live installation would let a rerun write
+      # again over settings an operator has since edited.
+      assert_raise Postgrex.Error, ~r/configuration import receipts have data/, fn ->
+        Ecto.Migrator.run(repo, @migrations_path, :down, step: 1, prefix: prefix, log: false)
+      end
+
+      SQL.query!(repo, "DELETE FROM #{prefix}.settings_import_receipts", [])
+
+      assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 1, prefix: prefix, log: false) ==
+               [@import_receipts_version]
+
       assert_raise Postgrex.Error, ~r/work placement settings have data/, fn ->
         Ecto.Migrator.run(repo, @migrations_path, :down, step: 1, prefix: prefix, log: false)
       end
@@ -1868,12 +1898,14 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
       refute table_exists?(repo, prefix, "installation_settings")
       refute table_exists?(repo, prefix, "pricing_rates")
       refute table_exists?(repo, prefix, "work_settings")
+      refute table_exists?(repo, prefix, "settings_import_receipts")
 
       assert Ecto.Migrator.run(repo, @migrations_path, :up, all: true, prefix: prefix, log: false) ==
                [
                  @durable_settings_version,
                  @inherited_participation_version,
-                 @work_placement_version
+                 @work_placement_version,
+                 @import_receipts_version
                ]
     after
       SQL.query!(repo, "DROP SCHEMA IF EXISTS #{prefix} CASCADE", [])

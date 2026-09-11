@@ -986,6 +986,18 @@ defmodule Responder.Retention.Data do
         execute_count(
           """
           WITH candidates AS (
+            SELECT id FROM settings_import_receipts
+            WHERE inserted_at < clock_timestamp() - ($1 * interval '1 second')
+            ORDER BY inserted_at, id LIMIT 100 FOR UPDATE SKIP LOCKED
+          )
+          DELETE FROM settings_import_receipts AS receipt
+          USING candidates WHERE receipt.id = candidates.id
+          """,
+          [settings.audit_data_seconds]
+        ) +
+        execute_count(
+          """
+          WITH candidates AS (
             SELECT id FROM slack_channel_setting_audit
             WHERE inserted_at < clock_timestamp() - ($1 * interval '1 second')
             ORDER BY inserted_at, id LIMIT 100 FOR UPDATE SKIP LOCKED
