@@ -31,9 +31,16 @@ defmodule Responder.ControlPlane.SettingsEditor do
   defp follow(socket) do
     %{section: section, view: view} = socket.assigns
 
-    if SettingsSections.draft(section, view, socket.assigns.item_key) == socket.assigns.baseline,
-      do: assign(socket, expected_revision: view.revision, saved_revision: view.revision),
-      else: socket
+    if SettingsSections.draft(section, view, socket.assigns.item_key) == socket.assigns.baseline do
+      assign(socket,
+        conflict: nil,
+        error: nil,
+        expected_revision: view.revision,
+        saved_revision: view.revision
+      )
+    else
+      socket
+    end
   end
 
   @impl true
