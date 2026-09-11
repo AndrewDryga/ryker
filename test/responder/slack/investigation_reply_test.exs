@@ -96,6 +96,22 @@ defmodule Responder.Slack.InvestigationReplyTest do
     refute inspect(rendered) =~ "01a085b2-310a-7f88-8b05-138e306c7555"
   end
 
+  test "the renderer links the resolved source, never the record's own source_id" do
+    # The footer had its own URL policy and fell back to payload source_id, so a
+    # model-written URL stayed clickable even after the host refused to resolve it.
+    # Two consumers of one link must not disagree about what proved it.
+    fixture = @fixture |> File.read!() |> Jason.decode!()
+    [record | _] = fixture["records"]
+    claimed = "https://emisar.dev/app/emisar/runs/" <> record["payload"]["source_id"]
+    record = put_in(record, ["payload", "source_id"], claimed)
+
+    assert {:ok, rendered} =
+             Renderer.render(%{"message" => "Review complete.", "records" => [record]})
+
+    refute inspect(rendered) =~ "Sources"
+    refute inspect(rendered) =~ claimed
+  end
+
   test "a mixed source footer keeps real links and omits linkless audit labels" do
     fixture = @fixture |> File.read!() |> Jason.decode!()
     records = ReplyRecords.enrich(fixture["records"], fixture["receipts"])

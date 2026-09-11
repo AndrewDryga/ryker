@@ -1885,7 +1885,9 @@ defmodule Responder.Slack.Renderer do
   end
 
   defp source_link(%{"payload" => payload} = record) do
-    url = get_in(record, ["presentation", "source_url"]) || payload["source_id"]
+    # Only the host-resolved receipt may become a link; the record's own source_id
+    # is the model's claim about a destination, not proof that a tool returned it.
+    url = get_in(record, ["presentation", "source_url"])
     label = payload["target"] || payload["source_name"]
     label = if label == payload["source_id"], do: "Source", else: label
     label = mrkdwn(label)

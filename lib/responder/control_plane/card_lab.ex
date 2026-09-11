@@ -1277,9 +1277,11 @@ defmodule Responder.ControlPlane.CardLab do
       transitions: []
     }
 
-  defp record_state(id, label, description, kind, payload, status \\ "open") do
+  defp record_state(id, label, description, kind, payload, status \\ "open", presentation \\ nil) do
+    document = render_record(kind, payload, status) |> present(presentation)
+
     specimen =
-      state(id, label, description, render_record(kind, payload, status), %{
+      state(id, label, description, document, %{
         record_kind: kind,
         record_state: "#{kind}:#{status}"
       })
@@ -1321,8 +1323,19 @@ defmodule Responder.ControlPlane.CardLab do
         "Audit-only #{humanize(kind)} record; no raw record dump is appended to Slack.",
         kind,
         payload,
-        status
+        status,
+        source_presentation(kind, payload)
       )
+
+  # The lab authors this resolved link itself. A real reply only gets one when
+  # ReplyRecords matches the source against a retained tool receipt.
+  defp source_presentation("evidence", %{"source_id" => url}), do: %{"source_url" => url}
+  defp source_presentation(_kind, _payload), do: nil
+
+  defp present(document, nil), do: document
+
+  defp present(document, presentation),
+    do: update_in(document["records"], &[Map.put(hd(&1), "presentation", presentation)])
 
   defp render_record(kind, payload, status, ref \\ nil) do
     %{
