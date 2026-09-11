@@ -235,6 +235,7 @@ defmodule Responder.CommitmentsTest do
       "read_only_repositories" => [],
       "requested_outcome" => "Complete #{id}",
       "required" => required,
+      "stage" => "implementation",
       "writable_repository" => nil
     }
   end

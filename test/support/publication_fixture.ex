@@ -32,6 +32,7 @@ defmodule Responder.Fixtures.Publication do
         "kind" => "engineering",
         "requested_outcome" => "Implement #{suffix}",
         "required" => true,
+        "stage" => "implementation",
         "writable_repository" => repository
       })
 

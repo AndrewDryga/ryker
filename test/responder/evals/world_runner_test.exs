@@ -320,13 +320,17 @@ defmodule Responder.Evals.WorldRunnerTest do
                  Tools.call("plan_goal", recorded_read_only_goal(), binding_options(claim))
 
         for record <- captured["records"] do
-          # Only adapt the parent identity to this existing structural harness.
+          # Only adapt the parent identity to this existing structural harness,
+          # and the stage that its parent now carries: this call was captured
+          # before typed stage membership existed, so the recording has none.
           # Every other field is the captured public goal or progress payload.
           {tool, payload} =
             case record["kind"] do
               "goal" ->
                 {"plan_goal",
-                 Map.put(record["payload"], "parent_goal_id", "airflow-verification-context")}
+                 record["payload"]
+                 |> Map.put("parent_goal_id", "airflow-verification-context")
+                 |> Map.put("stage", "planning")}
 
               "goal_state" ->
                 {"update_goal", record["payload"]}
@@ -985,6 +989,12 @@ defmodule Responder.Evals.WorldRunnerTest do
   defp harvested_record_payload(%{"kind" => "event_wait", "payload" => payload}, refs, deadline),
     do: payload |> replace_harvested_refs(refs) |> Map.put("deadline_at", deadline)
 
+  # These calls were captured before typed stage membership existed, so the
+  # recording carries none. The harness supplies the stage this read-only
+  # verification work belongs to; every other field stays exactly as captured.
+  defp harvested_record_payload(%{"kind" => "goal", "payload" => payload}, refs, _deadline),
+    do: payload |> replace_harvested_refs(refs) |> Map.put("stage", "implementation")
+
   defp harvested_record_payload(%{"payload" => payload}, refs, _deadline),
     do: replace_harvested_refs(payload, refs)
 
@@ -1009,7 +1019,8 @@ defmodule Responder.Evals.WorldRunnerTest do
       "prerequisite_goal_ids" => [],
       "read_only_repositories" => [],
       "writable_repository" => nil,
-      "required" => true
+      "required" => true,
+      "stage" => "planning"
     }
   end
 

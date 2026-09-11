@@ -2,6 +2,7 @@ defmodule Responder.Slack.RendererTest do
   use ExUnit.Case, async: true
 
   alias Responder.Slack.Renderer
+  alias Responder.Work.TaskStages
 
   # Every confirmed entity used to collapse to "*Automation confirmed*" plus its
   # title: the trigger, filter, delivery, expiry and the only way to remove it
@@ -479,6 +480,7 @@ defmodule Responder.Slack.RendererTest do
                  "publication" => nil,
                  "repository" => "responder",
                  "session_generation" => 1,
+                 "stages" => task_stages(),
                  "status" => "working",
                  "summary" => "The parser fix is being validated.",
                  "task_ref" => "task-card:abc123",
@@ -492,10 +494,13 @@ defmodule Responder.Slack.RendererTest do
     assert rendered["text"] =~ "Engineering task abc123"
     assert rendered["text"] =~ "The parser fix is being validated"
 
+    # The ledger is the status; a boilerplate reply instruction is not.
     assert Enum.any?(rendered["blocks"], fn block ->
              text = get_in(block, ["text", "text"])
-             is_binary(text) and text =~ "Reply in this thread"
+             is_binary(text) and text =~ "*Progress*\n○ Workspace setup"
            end)
+
+    refute Jason.encode!(rendered) =~ "Reply in this thread"
 
     assert [controls] = Enum.filter(rendered["blocks"], &(&1["type"] == "actions"))
 
@@ -542,6 +547,7 @@ defmodule Responder.Slack.RendererTest do
       "publication" => nil,
       "repository" => "responder",
       "session_generation" => 1,
+      "stages" => task_stages(),
       "status" => "working",
       "summary" => "The parser fix is being validated.",
       "task_ref" => "task-card:abc123",
@@ -605,6 +611,7 @@ defmodule Responder.Slack.RendererTest do
       },
       "repository" => "responder",
       "session_generation" => 1,
+      "stages" => task_stages(),
       "status" => "published",
       "summary" => "The reviewed change is available as a draft PR.",
       "task_ref" => "task-card:abc123",
@@ -1589,7 +1596,8 @@ defmodule Responder.Slack.RendererTest do
         "prerequisite_goal_ids" => ["check-api"],
         "read_only_repositories" => ["runbooks"],
         "requested_outcome" => "Check worker health",
-        "required" => true
+        "required" => true,
+        "stage" => "self_review"
       }),
       record("goal_state", %{
         "goal_id" => "check-workers",
@@ -1806,6 +1814,21 @@ defmodule Responder.Slack.RendererTest do
     }
   end
 
+  defp task_stages do
+    Enum.map(TaskStages.stages(), fn stage ->
+      %{
+        "current" => stage == "implementation",
+        "detail" => nil,
+        "stage" => stage,
+        "state" => if(stage == "implementation", do: "running", else: "pending"),
+        "subtasks" => [],
+        "subtasks_total" => nil,
+        "url" => nil,
+        "your_turn" => false
+      }
+    end)
+  end
+
   defp task_document(status) do
     %{
       "action_needed" => nil,
@@ -1816,6 +1839,7 @@ defmodule Responder.Slack.RendererTest do
       "publication" => nil,
       "repository" => "responder",
       "session_generation" => nil,
+      "stages" => task_stages(),
       "status" => status,
       "summary" => "The durable task state is current.",
       "task_ref" => "task-card:abc123",

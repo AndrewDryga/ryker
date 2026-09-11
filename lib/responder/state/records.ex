@@ -19,6 +19,7 @@ defmodule Responder.State.Records do
     DerivedContext,
     EventSubscriptions,
     EventWaitTiming,
+    InvestigationPayload,
     Record,
     RecordChangeset,
     RecordPayload,
@@ -32,6 +33,8 @@ defmodule Responder.State.Records do
   @maximum_model_records 64
   @maximum_working_goals 3
   @terminal_goal_states ~w(completed excluded cancelled)
+  @excluded_goal_states ~w(excluded cancelled)
+  @goal_stages InvestigationPayload.goal_stages()
   @satisfied_prerequisite_states ~w(completed excluded)
   @shadow_record_kinds ~w(evidence coverage finding progress alert_assessment)
   @confirmation_offer_kinds ~w(task_offer publication_offer schedule_offer automation_change_offer memory_offer preference_offer guidance_offer standing_assignment_offer)
@@ -181,6 +184,59 @@ defmodule Responder.State.Records do
   end
 
   def goals(_episode_id), do: []
+
+  @doc """
+  The current plan, grouped by the lifecycle stage each goal belongs to.
+
+  Counts only current logical leaves: a parent heading, a superseded attempt
+  and another stage's goals are never counted in a stage's subtask total.
+  """
+  @spec plan(Ecto.UUID.t()) :: map()
+  def plan(episode_id) when is_binary(episode_id) do
+    episode_id
+    |> goal_records()
+    |> plan_from_records()
+  end
+
+  def plan(_episode_id), do: plan_from_records([])
+
+  @doc false
+  @spec plan_from_records([Record.t()]) :: map()
+  def plan_from_records(records) do
+    goals = goals_from_records(records)
+    parents = MapSet.new(goals, & &1["parent_goal_id"]) |> MapSet.delete(nil)
+    superseded = MapSet.new(goals, & &1["successor_of"]) |> MapSet.delete(nil)
+
+    current =
+      goals
+      |> Enum.reject(&MapSet.member?(superseded, &1["id"]))
+      |> Enum.map(&Map.put(&1, "leaf", not MapSet.member?(parents, &1["id"])))
+
+    Map.new(@goal_stages ++ ["unassigned"], fn stage ->
+      key = if stage == "unassigned", do: nil, else: stage
+      {stage, stage_bucket(Enum.filter(current, &(&1["stage"] == key)))}
+    end)
+  end
+
+  defp stage_bucket(goals) do
+    leaves = Enum.filter(goals, & &1["leaf"])
+    excluded = Enum.filter(leaves, &(&1["state"] in @excluded_goal_states))
+
+    %{
+      "changed_at" => goals |> Enum.map(& &1["changed_at"]) |> latest_datetime(),
+      "completed" => Enum.count(leaves, &(&1["state"] == "completed")),
+      "excluded" => length(excluded),
+      "goals" => goals,
+      "leaves" => leaves,
+      "total" => length(leaves) - length(excluded)
+    }
+  end
+
+  defp latest_datetime(values) do
+    values
+    |> Enum.reject(&is_nil/1)
+    |> Enum.max(DateTime, fn -> nil end)
+  end
 
   @spec repository_write_goals(Ecto.UUID.t()) :: [map()]
   def repository_write_goals(episode_id) when is_binary(episode_id) do
@@ -514,8 +570,12 @@ defmodule Responder.State.Records do
         {:error, :state_record_subject_conflict}
 
       true ->
-        with :ok <- optional_goal_exists(episode_id, parent_goal_id, :parent_goal_id) do
-          goals_exist(episode_id, prerequisites, :prerequisite_goal_ids)
+        goals = goals(episode_id)
+
+        with :ok <- optional_goal_exists(episode_id, parent_goal_id, :parent_goal_id),
+             :ok <- goals_exist(episode_id, prerequisites, :prerequisite_goal_ids),
+             :ok <- parent_stage(payload, goals) do
+          successor_attempt(payload, goals)
         end
     end
   end
@@ -532,7 +592,13 @@ defmodule Responder.State.Records do
       goal ->
         with :ok <- goal_transition(goal["state"], requested_state),
              :ok <- prerequisites_satisfied(goal, goals, requested_state),
-             :ok <- children_terminal(goal_id, goals, requested_state) do
+             :ok <- children_terminal(goal_id, goals, requested_state),
+             :ok <-
+               evidence_refs_exist(
+                 episode_id,
+                 Map.get(payload, "evidence_refs", []),
+                 :evidence_refs
+               ) do
           working_capacity(goal_id, goals, requested_state, parallel_goal_limit)
         end
     end
@@ -645,6 +711,44 @@ defmodule Responder.State.Records do
     if count == length(goal_ids), do: :ok, else: {:error, {:invalid_state_record, field}}
   end
 
+  # A subtask belongs to the stage its parent heading belongs to. Splitting a
+  # tree across stages would count the same work twice on the task card.
+  defp parent_stage(%{"parent_goal_id" => parent_id, "stage" => stage}, goals)
+       when is_binary(parent_id) do
+    case Enum.find(goals, &(&1["id"] == parent_id)) do
+      %{"stage" => parent_stage} when parent_stage in [nil, stage] -> :ok
+      _mismatch -> {:error, {:invalid_state_record, :stage}}
+    end
+  end
+
+  defp parent_stage(_payload, _goals), do: :ok
+
+  # A repeated check after changed work is a new attempt linked to the old one.
+  # The terminal predecessor keeps its own result and is never reopened.
+  defp successor_attempt(%{"successor_of" => predecessor_id, "stage" => stage}, goals)
+       when is_binary(predecessor_id) do
+    superseded? = Enum.any?(goals, &(&1["successor_of"] == predecessor_id))
+
+    case Enum.find(goals, &(&1["id"] == predecessor_id)) do
+      nil ->
+        {:error, {:invalid_state_record, :successor_of}}
+
+      _predecessor when superseded? ->
+        {:error, {:invalid_state_record, :successor_of}}
+
+      %{"state" => state} when state not in @terminal_goal_states ->
+        {:error, {:invalid_state_record, :successor_of}}
+
+      %{"stage" => predecessor_stage} when predecessor_stage != stage ->
+        {:error, {:invalid_state_record, :stage}}
+
+      _predecessor ->
+        :ok
+    end
+  end
+
+  defp successor_attempt(_payload, _goals), do: :ok
+
   defp goal_transition(current, requested) when current == requested, do: :ok
 
   defp goal_transition(current, _requested) when current in @terminal_goal_states,
@@ -692,9 +796,17 @@ defmodule Responder.State.Records do
 
   defp working_capacity(goal_id, goals, "working", parallel_goal_limit) do
     already_working? = Enum.any?(goals, &(&1["id"] == goal_id and &1["state"] == "working"))
-    working = Enum.count(goals, &(&1["state"] == "working"))
+    parents = MapSet.new(goals, & &1["parent_goal_id"]) |> MapSet.delete(nil)
 
-    if already_working? or working < parallel_goal_limit,
+    # A parent heading is visual containment over its children, not another
+    # independently running goal; it must not consume worker concurrency.
+    working =
+      Enum.count(
+        goals,
+        &(&1["state"] == "working" and not MapSet.member?(parents, &1["id"]))
+      )
+
+    if already_working? or MapSet.member?(parents, goal_id) or working < parallel_goal_limit,
       do: :ok,
       else: {:error, {:invalid_state_record, :parallel_goal_limit}}
   end
@@ -716,14 +828,37 @@ defmodule Responder.State.Records do
     states =
       records
       |> Enum.filter(&(&1.kind == "goal_state"))
-      |> Map.new(&{&1.subject_ref, &1.payload["state"]})
+      |> Map.new(&{&1.subject_ref, &1})
+
+    successors =
+      records
+      |> Enum.filter(&(&1.kind == "goal"))
+      |> Enum.flat_map(fn %Record{subject_ref: id, payload: goal} ->
+        case goal["successor_of"] do
+          nil -> []
+          predecessor -> [{predecessor, id}]
+        end
+      end)
+      |> Map.new()
 
     records
     |> Enum.filter(&(&1.kind == "goal"))
-    |> Enum.map(fn %Record{subject_ref: id, payload: goal} ->
+    |> Enum.map(fn %Record{subject_ref: id, payload: goal} = record ->
+      state = Map.get(states, id)
+
       goal
-      |> Map.put("id", id)
-      |> Map.put("state", Map.get(states, id, "ready"))
+      |> Map.merge(%{
+        "changed_at" => (state || record).inserted_at,
+        "detail" => state && state.payload["detail"],
+        "evidence_refs" => (state && state.payload["evidence_refs"]) || [],
+        "id" => id,
+        # Records written before typed membership existed carry no stage. They
+        # stay explicitly unassigned instead of being backfilled into a guess.
+        "stage" => goal["stage"],
+        "state" => (state && state.payload["state"]) || "ready",
+        "successor_id" => Map.get(successors, id),
+        "successor_of" => goal["successor_of"]
+      })
     end)
   end
 

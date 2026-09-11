@@ -1442,7 +1442,8 @@ defmodule Responder.Work.ExecutorTest do
                "id" => "check-workers",
                "kind" => "check",
                "requested_outcome" => "Check worker health",
-               "required" => true
+               "required" => true,
+               "stage" => "self_review"
              })
 
     assert {:ok, question} =
@@ -1533,6 +1534,7 @@ defmodule Responder.Work.ExecutorTest do
                "kind" => "engineering",
                "requested_outcome" => "Implement the requested feature",
                "required" => true,
+               "stage" => "implementation",
                "writable_repository" => "responder"
              })
 
@@ -1593,6 +1595,7 @@ defmodule Responder.Work.ExecutorTest do
                  "kind" => "engineering",
                  "requested_outcome" => "Implement the requested feature",
                  "required" => true,
+                 "stage" => "implementation",
                  "writable_repository" => "responder"
                })
 
@@ -1625,6 +1628,7 @@ defmodule Responder.Work.ExecutorTest do
                  "kind" => "engineering",
                  "requested_outcome" => "Implement #{goal_id}",
                  "required" => true,
+                 "stage" => "implementation",
                  "writable_repository" => repository
                })
 

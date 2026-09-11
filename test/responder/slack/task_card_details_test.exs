@@ -4,71 +4,223 @@ defmodule Responder.Slack.TaskCardDetailsTest do
   alias Responder.Slack.Renderer
 
   @records Jason.decode!(File.read!("priv/card_lab/legacy_task_records.json"))
+  @stages ~w(workspace_setup planning implementation self_review draft_pr ci review_and_merge)
 
-  test "task cards show retained progress and goal states instead of only a summary" do
-    # The production card discarded these dimensions entirely, leaving the
-    # operator unable to distinguish active work from a motionless summary.
-    task = task()
+  test "task cards keep all seven stages visible, bold the current work and mark the human handoff" do
+    # The production card showed four recent progress notes and one flat goal
+    # list, so a waiting subtask erased which stage the task was in.
+    task =
+      Map.put(task(), "stages", [
+        stage("workspace_setup", "completed"),
+        stage("planning", "completed"),
+        stage("implementation", "waiting", %{
+          "current" => true,
+          "detail" => "2/4 subtasks",
+          "your_turn" => true,
+          "subtasks" => [
+            subtask("export", "Export bounded per-worker memory metrics", "completed"),
+            subtask("capture", "Add protected diagnostic capture", "completed"),
+            subtask("drain", "Drain and recycle workers safely", "waiting", %{
+              "current" => true,
+              "detail" => "waiting for the storage-location answer"
+            }),
+            subtask("cooldown", "Cover cooldown and worker replacement", "ready")
+          ]
+        }),
+        stage("self_review", "pending"),
+        stage("draft_pr", "pending"),
+        stage("ci", "pending"),
+        stage("review_and_merge", "pending")
+      ])
 
-    progress =
-      @records["runner_task"]["progress"]
-      |> Enum.take(4)
-      |> Enum.map(&Map.take(&1, ~w(phase summary at)))
+    assert {:ok, rendered} = Renderer.render(%{"task_card" => task})
+    progress = section_text(rendered, "*Progress*")
 
-    goals =
-      @records["portal_goals"]["goals"]
-      |> Enum.map(&Map.take(&1, ~w(id requested_outcome state parent_goal_id)))
+    assert progress ==
+             Enum.join(
+               [
+                 "*Progress*",
+                 "✓ Workspace setup",
+                 "✓ Planning",
+                 "*◷ Implementation · 2/4 subtasks ← 🙋 your turn*",
+                 "    ✓ Export bounded per-worker memory metrics",
+                 "    ✓ Add protected diagnostic capture",
+                 "    *◷ Drain and recycle workers safely · waiting for the storage-location answer*",
+                 "    ○ Cover cooldown and worker replacement",
+                 "○ Self-review and checks",
+                 "○ Draft PR",
+                 "○ CI",
+                 "○ Review and merge"
+               ],
+               "\n"
+             )
 
-    # Exercise each harvested episode separately; these are not one invented run.
-    assert {:ok, running} = Renderer.render(%{"task_card" => Map.put(task, "progress", progress)})
-    assert Jason.encode!(running) =~ "Still working; implementing and validating"
-    assert Jason.encode!(running) =~ "Progress"
+    refute Jason.encode!(rendered) =~ "Latest update"
+    refute Jason.encode!(rendered) =~ "Reply in this thread"
+    refute Jason.encode!(rendered) =~ "Waiting for input"
+  end
 
-    assert {:ok, completed} = Renderer.render(%{"task_card" => Map.put(task, "goals", goals)})
-    assert Jason.encode!(completed) =~ "Confirm the portal backend actually recovered"
-    assert Jason.encode!(completed) =~ "3 of 3 completed"
+  test "every stage disposition has one glyph and completed stages never repeat Passed" do
+    stages = [
+      stage("workspace_setup", "failed", %{"detail" => "No worker accepted the placement."}),
+      stage("planning", "unknown", %{"detail" => "not recorded"}),
+      stage("implementation", "stopped", %{"detail" => "2/4 subtasks · stopped"}),
+      stage("self_review", "stale", %{"detail" => "previous version checked"}),
+      stage("draft_pr", "completed", %{
+        "detail" => "#617",
+        "url" => "https://github.com/theblitzapp/blitz-app-svelte/pull/617"
+      }),
+      stage("ci", "skipped", %{"detail" => "no checks configured"}),
+      stage("review_and_merge", "running", %{"current" => true})
+    ]
+
+    assert {:ok, rendered} = Renderer.render(%{"task_card" => Map.put(task(), "stages", stages)})
+    progress = section_text(rendered, "*Progress*")
+
+    assert progress =~ "! Workspace setup · No worker accepted the placement."
+    assert progress =~ "? Planning · not recorded"
+    assert progress =~ "■ Implementation · 2/4 subtasks · stopped"
+    assert progress =~ "↻ Self-review and checks · previous version checked"
+
+    assert progress =~
+             "✓ <https://github.com/theblitzapp/blitz-app-svelte/pull/617|Draft PR #617>"
+
+    assert progress =~ "− CI · no checks configured"
+    assert progress =~ "*▸ Review and merge*"
+    refute progress =~ "Passed"
+  end
+
+  test "the request precedes progress and the repository links only from a trusted destination" do
+    request = @records["portal_goals"]["goals"] |> hd() |> Map.fetch!("completion_contract")
+
+    task =
+      Map.merge(task(), %{
+        "request" => request,
+        "stages" => Enum.map(@stages, &stage(&1, "pending"))
+      })
+
+    assert {:ok, rendered} = Renderer.render(%{"task_card" => task})
+    sections = section_texts(rendered)
+    assert Enum.at(sections, 0) =~ @records["runner_task"]["title"]
+    assert Enum.at(sections, 1) == "*The request*\n" <> request
+    assert Enum.at(sections, 2) =~ "*Progress*"
+
+    assert [%{"fields" => [%{"text" => "*Repository*\n`emisar`"}]}] =
+             Enum.filter(rendered["blocks"], &Map.has_key?(&1, "fields"))
+
+    linked = Map.put(task, "repository_url", "https://github.com/theblitzapp/emisar")
+    assert {:ok, rendered} = Renderer.render(%{"task_card" => linked})
+
+    assert [
+             %{
+               "fields" => [
+                 %{"text" => "*Repository*\n<https://github.com/theblitzapp/emisar|emisar>"}
+               ]
+             }
+           ] =
+             Enum.filter(rendered["blocks"], &Map.has_key?(&1, "fields"))
+
+    assert Renderer.render(%{
+             "task_card" => Map.put(task, "repository_url", "http://github.com/x/y")
+           }) ==
+             {:error, {:invalid_slack_render, :task_card}}
   end
 
   test "extra card details cannot inject controls or exceed Slack bounds" do
     task = task()
 
-    goal = %{
-      "id" => "goal",
-      "requested_outcome" => "Untrusted <@U123> <!channel> <script>",
-      "state" => "working",
-      "parent_goal_id" => nil
-    }
+    hostile =
+      stage("implementation", "running", %{
+        "detail" => "<!channel> <script>",
+        "subtasks" => [
+          subtask("goal", "Untrusted <@U123> <!channel> <script>", "working", %{"current" => true})
+        ]
+      })
 
-    assert {:ok, rendered} = Renderer.render(%{"task_card" => Map.put(task, "goals", [goal])})
+    stages = List.replace_at(Enum.map(@stages, &stage(&1, "pending")), 2, hostile)
+    assert {:ok, rendered} = Renderer.render(%{"task_card" => Map.put(task, "stages", stages)})
     json = Jason.encode!(rendered)
     refute json =~ "<@U123>"
     refute json =~ "<!channel>"
     assert length(rendered["blocks"]) <= 50
 
+    subtask = subtask("goal", "Goal", "working")
+
     for extra <- [
-          %{"goals" => List.duplicate(goal, 9)},
-          %{"goals" => [%{goal | "state" => "arbitrary"}]},
-          %{"goals" => [Map.put(goal, "action_id", "responder_close_work")]},
           %{
-            "progress" => [
-              %{
-                "phase" => "working",
-                "summary" => String.duplicate("x", 601),
-                "at" => "2026-09-05T00:00:00Z"
-              }
-            ]
+            "stages" =>
+              Enum.map(@stages, &stage(&1, "pending")) ++
+                [stage("unassigned", "unknown"), stage("ci", "pending")]
           },
-          %{"progress" => [%{"phase" => "working", "summary" => "Update", "at" => "not a date"}]},
+          %{"stages" => [stage("ci", "pending")]},
+          %{"stages" => Enum.map(@stages, &stage(&1, "arbitrary"))},
+          %{
+            "stages" =>
+              List.replace_at(
+                Enum.map(@stages, &stage(&1, "pending")),
+                0,
+                stage("deploy", "pending")
+              )
+          },
+          %{
+            "stages" =>
+              List.replace_at(
+                Enum.map(@stages, &stage(&1, "pending")),
+                2,
+                stage("implementation", "running", %{"subtasks" => List.duplicate(subtask, 7)})
+              )
+          },
+          %{
+            "stages" =>
+              List.replace_at(
+                Enum.map(@stages, &stage(&1, "pending")),
+                2,
+                stage("implementation", "running", %{
+                  "subtasks" => [%{subtask | "state" => "arbitrary"}]
+                })
+              )
+          },
+          %{
+            "stages" =>
+              List.replace_at(
+                Enum.map(@stages, &stage(&1, "pending")),
+                2,
+                stage("implementation", "running", %{
+                  "subtasks" => [Map.put(subtask, "action_id", "responder_close_work")]
+                })
+              )
+          },
+          %{
+            "stages" =>
+              List.replace_at(
+                Enum.map(@stages, &stage(&1, "pending")),
+                2,
+                stage("implementation", "running", %{"detail" => String.duplicate("x", 201)})
+              )
+          },
+          %{
+            "stages" =>
+              List.replace_at(
+                Enum.map(@stages, &stage(&1, "pending")),
+                4,
+                stage("draft_pr", "completed", %{"url" => "javascript:alert(1)"})
+              )
+          },
+          %{
+            "stages" =>
+              List.replace_at(
+                Enum.map(@stages, &stage(&1, "pending")),
+                2,
+                stage("implementation", "running", %{
+                  "subtasks_total" => 0,
+                  "subtasks" => [subtask]
+                })
+              )
+          },
+          %{"stages" => nil},
           %{"model_thought" => "Private reasoning must never become card content"},
-          %{"goals" => nil},
-          %{"goals_total" => -1},
-          %{"goals_total" => "1"},
-          %{"goals_completed" => -1},
-          %{"goals_completed" => 1},
-          %{"goals" => [goal], "goals_completed" => 1},
           %{"request" => <<0>>},
-          %{"goals" => [%{goal | "requested_outcome" => "   "}]},
-          %{"progress" => [%{"phase" => "working", "summary" => "Update", "at" => 123}]}
+          %{"repository_url" => "github.com/x/y"}
         ] do
       assert Renderer.render(%{"task_card" => Map.merge(task, extra)}) ==
                {:error, {:invalid_slack_render, :task_card}}
@@ -76,81 +228,63 @@ defmodule Responder.Slack.TaskCardDetailsTest do
   end
 
   test "escaping expanded text still fits every Slack section" do
-    task = Map.put(task(), "request", String.duplicate("<", 1_000))
+    task = Map.put(task(), "request", String.duplicate("<", 600))
 
-    progress = %{
-      "phase" => String.duplicate("<", 60),
-      "summary" => String.duplicate("<", 600),
-      "at" => "2026-09-05T00:00:00Z"
-    }
-
-    goals =
-      for index <- 1..8 do
-        %{
-          "id" => "goal-#{index}",
-          "requested_outcome" => String.duplicate("<", 250),
-          "state" => "working",
-          "parent_goal_id" => nil
-        }
+    subtasks =
+      for index <- 1..6 do
+        subtask("goal-#{index}", String.duplicate("<", 250), "working", %{
+          "detail" => String.duplicate("<", 200)
+        })
       end
 
-    task =
-      Map.merge(task, %{
-        "progress" => List.duplicate(progress, 4),
-        "goals" => goals,
-        "goals_total" => 9
-      })
+    stages =
+      Enum.map(@stages, fn stage ->
+        stage(stage, "running", %{
+          "detail" => String.duplicate("<", 200),
+          "subtasks" => subtasks,
+          "subtasks_total" => 9
+        })
+      end)
 
-    assert {:ok, rendered} = Renderer.render(%{"task_card" => task})
+    assert {:ok, rendered} = Renderer.render(%{"task_card" => Map.put(task, "stages", stages)})
 
     for %{"type" => "section", "text" => %{"text" => text}} <- rendered["blocks"] do
       assert String.length(text) <= 3_000
     end
 
-    assert Jason.encode!(rendered) =~ "Showing 8 of 9 subtasks"
+    assert Jason.encode!(rendered) =~ "Showing 6 of 9 subtasks"
+    assert length(section_texts(rendered)) > 3
   end
 
-  test "the request precedes progress and the latest retained update is not duplicated" do
-    progress =
-      @records["runner_task"]["progress"]
-      |> Enum.take(4)
-      |> Enum.map(&Map.take(&1, ~w(phase summary at)))
-
-    summary = List.last(progress)["summary"]
-
-    task =
-      Map.merge(task(), %{
-        "title" => String.slice(@records["runner_task"]["title"], 0, 20),
-        "request" => @records["runner_task"]["title"],
-        "summary" => summary,
-        "progress" => progress
-      })
-
-    assert {:ok, rendered} = Renderer.render(%{"task_card" => task})
-
-    sections =
-      for %{"type" => "section", "text" => %{"text" => text}} <- rendered["blocks"], do: text
-
-    assert Enum.at(sections, 1) =~ "*The request*"
-
-    assert length(Regex.scan(~r/Still working; implementing and validating/, Enum.join(sections))) ==
-             1
+  defp section_texts(rendered) do
+    for %{"type" => "section", "text" => %{"text" => text}} <- rendered["blocks"], do: text
   end
 
-  test "an initial request is not repeated as a shorter latest update" do
-    request = @records["runner_task"]["title"]
+  defp section_text(rendered, prefix) do
+    rendered |> section_texts() |> Enum.find(&String.starts_with?(&1, prefix))
+  end
 
-    task =
-      Map.merge(task(), %{"request" => request, "summary" => String.slice(request, 0, 25) <> "…"})
+  defp stage(id, state, overrides \\ %{}) do
+    Map.merge(
+      %{
+        "current" => false,
+        "detail" => nil,
+        "stage" => id,
+        "state" => state,
+        "subtasks" => [],
+        "subtasks_total" => nil,
+        "url" => nil,
+        "your_turn" => false
+      },
+      overrides
+    )
+  end
 
-    assert {:ok, rendered} = Renderer.render(%{"task_card" => task})
-
-    sections =
-      for %{"type" => "section", "text" => %{"text" => text}} <- rendered["blocks"], do: text
-
-    refute Enum.join(sections) =~ "*Latest update*"
-    refute Enum.join(sections) =~ "*The request*"
-    assert hd(sections) =~ request
+  defp subtask(id, outcome, state, overrides \\ %{}) do
+    Map.merge(
+      %{"current" => false, "detail" => nil, "id" => id, "outcome" => outcome, "state" => state},
+      overrides
+    )
   end
 
   defp task do

@@ -177,7 +177,8 @@ defmodule Responder.GitHub.RendererTest do
           "id" => "goal-health",
           "kind" => "check",
           "requested_outcome" => "Confirm production health.",
-          "required" => true
+          "required" => true,
+          "stage" => "self_review"
         },
         "confirmed"
       ),

@@ -5,7 +5,7 @@ defmodule Responder.State.RecordsTest do
   alias Responder.Fixtures.Episodes, as: EpisodeFixtures
   alias Responder.Slack.Event
   alias Responder.Slack.Input, as: SlackInput
-  alias Responder.State.Records
+  alias Responder.State.{RecordChangeset, Records}
   alias Responder.Work.{Custody, Validator}
 
   @now ~U[2026-08-28 12:00:00.000000Z]
@@ -457,6 +457,7 @@ defmodule Responder.State.RecordsTest do
                "read_only_repositories" => [],
                "requested_outcome" => "Verify background-worker health",
                "required" => true,
+               "stage" => "implementation",
                "writable_repository" => nil
              })
 
@@ -517,6 +518,7 @@ defmodule Responder.State.RecordsTest do
                "read_only_repositories" => [],
                "requested_outcome" => "Check the service",
                "required" => true,
+               "stage" => "implementation",
                "writable_repository" => nil
              })
 
@@ -686,6 +688,274 @@ defmodule Responder.State.RecordsTest do
            ) == {:error, {:invalid_state_record, :parallel_goal_limit}}
   end
 
+  test "implementation subtasks count current leaves once, never parent headings or self-review goals" do
+    # The old card counted every goal in one flat list, so a parent heading,
+    # its two children and a review goal read as "1 of 4 completed" while the
+    # actual implementation plan was half done.
+    claim = claim!("stage-local-counts")
+    token = Records.token(claim.turn)
+
+    assert {:ok, _plan} =
+             Records.create(
+               token,
+               "plan-approach",
+               "goal",
+               goal("choose-approach", %{"stage" => "planning"})
+             )
+
+    assert {:ok, _parent} = Records.create(token, "plan-parent", "goal", goal("deliver-change"))
+
+    for id <- ["persist-checkpoints", "restore-checkpoints"] do
+      assert {:ok, _child} =
+               Records.create(
+                 token,
+                 "plan-#{id}",
+                 "goal",
+                 goal(id, %{"parent_goal_id" => "deliver-change"})
+               )
+    end
+
+    assert {:ok, _review} =
+             Records.create(
+               token,
+               "plan-review",
+               "goal",
+               goal("review-retry-correctness", %{"stage" => "self_review"})
+             )
+
+    assert {:ok, _state} =
+             Records.create(token, "complete-persist", "goal_state", %{
+               "goal_id" => "persist-checkpoints",
+               "state" => "completed"
+             })
+
+    plan = Records.plan(claim.episode.id)
+
+    assert %{"completed" => 1, "excluded" => 0, "total" => 2} =
+             Map.take(plan["implementation"], ~w(completed excluded total))
+
+    assert Enum.map(plan["implementation"]["goals"], &{&1["id"], &1["leaf"]}) == [
+             {"deliver-change", false},
+             {"persist-checkpoints", true},
+             {"restore-checkpoints", true}
+           ]
+
+    assert %{"completed" => 0, "total" => 1} = Map.take(plan["planning"], ~w(completed total))
+    assert %{"completed" => 0, "total" => 1} = Map.take(plan["self_review"], ~w(completed total))
+    assert plan["unassigned"]["goals"] == []
+
+    # An excluded leaf leaves the denominator and is reported separately; the
+    # count must never silently become 1/1.
+    assert {:ok, _state} =
+             Records.create(token, "exclude-restore", "goal_state", %{
+               "detail" => "Restoring after restart is covered by the existing supervisor test.",
+               "goal_id" => "restore-checkpoints",
+               "state" => "excluded"
+             })
+
+    assert %{"completed" => 1, "excluded" => 1, "total" => 1} =
+             Map.take(
+               Records.plan(claim.episode.id)["implementation"],
+               ~w(completed excluded total)
+             )
+  end
+
+  test "a successor attempt links to its terminal predecessor without mutating the old result" do
+    claim = claim!("successor-attempts")
+    token = Records.token(claim.turn)
+
+    assert {:ok, _goal} =
+             Records.create(
+               token,
+               "plan-checks",
+               "goal",
+               goal("run-checks", %{"stage" => "self_review"})
+             )
+
+    assert Records.create(
+             token,
+             "premature-successor",
+             "goal",
+             goal("run-checks-2", %{"stage" => "self_review", "successor_of" => "run-checks"})
+           ) == {:error, {:invalid_state_record, :successor_of}}
+
+    assert {:ok, _state} =
+             Records.create(token, "complete-checks", "goal_state", %{
+               "goal_id" => "run-checks",
+               "state" => "completed"
+             })
+
+    assert Records.create(
+             token,
+             "cross-stage-successor",
+             "goal",
+             goal("run-checks-2", %{"stage" => "implementation", "successor_of" => "run-checks"})
+           ) == {:error, {:invalid_state_record, :stage}}
+
+    assert {:ok, successor} =
+             Records.create(
+               token,
+               "successor",
+               "goal",
+               goal("run-checks-2", %{"stage" => "self_review", "successor_of" => "run-checks"})
+             )
+
+    assert successor.payload["successor_of"] == "run-checks"
+
+    assert Records.create(
+             token,
+             "second-successor",
+             "goal",
+             goal("run-checks-3", %{"stage" => "self_review", "successor_of" => "run-checks"})
+           ) == {:error, {:invalid_state_record, :successor_of}}
+
+    goals = Map.new(Records.goals(claim.episode.id), &{&1["id"], &1})
+    assert goals["run-checks"]["state"] == "completed"
+    assert goals["run-checks"]["successor_id"] == "run-checks-2"
+    assert goals["run-checks-2"]["state"] == "ready"
+    assert goals["run-checks-2"]["successor_of"] == "run-checks"
+
+    assert Records.create(token, "reopen-checks", "goal_state", %{
+             "goal_id" => "run-checks",
+             "state" => "working"
+           }) == {:error, {:invalid_state_record, :goal_state}}
+
+    plan = Records.plan(claim.episode.id)["self_review"]
+    assert Enum.map(plan["goals"], & &1["id"]) == ["run-checks-2"]
+    assert %{"completed" => 0, "total" => 1} = Map.take(plan, ~w(completed total))
+  end
+
+  test "a child goal cannot claim a different stage than its parent" do
+    claim = claim!("stage-conflict")
+    token = Records.token(claim.turn)
+
+    assert {:ok, _parent} = Records.create(token, "plan-parent", "goal", goal("deliver-change"))
+
+    assert Records.create(
+             token,
+             "plan-child",
+             "goal",
+             goal("verify-change", %{
+               "parent_goal_id" => "deliver-change",
+               "stage" => "self_review"
+             })
+           ) == {:error, {:invalid_state_record, :stage}}
+  end
+
+  test "a parent heading never consumes working capacity from its subtasks" do
+    claim = claim!("parent-capacity")
+    token = Records.token(claim.turn)
+
+    assert {:ok, _parent} = Records.create(token, "plan-parent", "goal", goal("deliver-change"))
+
+    for index <- 1..4 do
+      assert {:ok, _child} =
+               Records.create(
+                 token,
+                 "plan-child-#{index}",
+                 "goal",
+                 goal("child-#{index}", %{"parent_goal_id" => "deliver-change"})
+               )
+    end
+
+    assert {:ok, _state} =
+             Records.create(token, "start-parent", "goal_state", %{
+               "goal_id" => "deliver-change",
+               "state" => "working"
+             })
+
+    for index <- 1..3 do
+      assert {:ok, _state} =
+               Records.create(token, "start-child-#{index}", "goal_state", %{
+                 "goal_id" => "child-#{index}",
+                 "state" => "working"
+               })
+    end
+
+    assert Records.create(token, "start-child-4", "goal_state", %{
+             "goal_id" => "child-4",
+             "state" => "working"
+           }) == {:error, {:invalid_state_record, :parallel_goal_limit}}
+  end
+
+  test "goal evidence must resolve to this episode's own evidence records" do
+    claim = claim!("goal-evidence")
+    token = Records.token(claim.turn)
+
+    assert {:ok, _goal} =
+             Records.create(
+               token,
+               "plan-checks",
+               "goal",
+               goal("run-checks", %{"stage" => "self_review"})
+             )
+
+    assert Records.create(token, "complete-unbacked", "goal_state", %{
+             "evidence_refs" => ["record:evidence:missing"],
+             "goal_id" => "run-checks",
+             "state" => "completed"
+           }) == {:error, {:invalid_state_record, :evidence_refs}}
+
+    assert {:ok, evidence} =
+             Records.create(token, "evidence-tests", "evidence", %{
+               "claim_id" => "checks.focused",
+               "observation" => "The focused suite passed on the current workspace.",
+               "source_name" => "mix test",
+               "source_type" => "repository"
+             })
+
+    assert {:ok, state} =
+             Records.create(token, "complete-backed", "goal_state", %{
+               "evidence_refs" => [evidence.ref],
+               "goal_id" => "run-checks",
+               "state" => "completed"
+             })
+
+    assert state.payload["evidence_refs"] == [evidence.ref]
+    assert [goal] = Records.goals(claim.episode.id)
+    assert goal["evidence_refs"] == [evidence.ref]
+  end
+
+  test "historical goals without a stage stay explicitly unrecorded" do
+    # Records persisted before typed membership existed carry no stage. They
+    # must surface as unassigned, never be backfilled into a plausible stage.
+    claim = claim!("legacy-goal")
+
+    legacy = %{
+      "authority" => "read_only",
+      "completion_contract" => "Backend service endpoint health observed.",
+      "id" => "goal-1",
+      "kind" => "check",
+      "requested_outcome" => "Confirm the portal backend actually recovered",
+      "required" => true
+    }
+
+    assert {:ok, _record} =
+             %{
+               continuation: nil,
+               episode_id: claim.episode.id,
+               id: Ecto.UUID.generate(),
+               kind: "goal",
+               operation_id: "legacy-goal",
+               payload: legacy,
+               payload_fingerprint: String.duplicate("0", 64),
+               ref: "record:goal:legacy",
+               status: :open,
+               subject_ref: "goal-1",
+               turn_id: claim.turn.id
+             }
+             |> RecordChangeset.insert()
+             |> Repo.insert()
+
+    assert [%{"id" => "goal-1", "stage" => nil, "state" => "ready"}] =
+             Records.goals(claim.episode.id)
+
+    plan = Records.plan(claim.episode.id)
+    assert Enum.map(plan["unassigned"]["goals"], & &1["id"]) == ["goal-1"]
+    assert plan["implementation"]["goals"] == []
+    assert plan["implementation"]["total"] == 0
+  end
+
   test "investigation relationships cannot cite missing or contradictory host records" do
     claim = claim!("investigation-relationships")
     token = Records.token(claim.turn)
@@ -701,7 +971,8 @@ defmodule Responder.State.RecordsTest do
       "id" => "observe-service",
       "kind" => "check",
       "requested_outcome" => "Observe service health",
-      "required" => true
+      "required" => true,
+      "stage" => "implementation"
     }
 
     assert {:ok, _goal} = Records.create(token, "goal-one", "goal", goal)
@@ -803,6 +1074,7 @@ defmodule Responder.State.RecordsTest do
         "read_only_repositories" => [],
         "requested_outcome" => "Complete #{id}",
         "required" => true,
+        "stage" => "implementation",
         "writable_repository" => nil
       },
       overrides

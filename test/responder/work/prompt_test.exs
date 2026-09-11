@@ -28,6 +28,43 @@ defmodule Responder.Work.PromptTest do
     assert instructions =~ "Do not ask for a second memory-confirmation click"
   end
 
+  test "planning instructions assign lifecycle stages and concrete review criteria" do
+    # The Slack task card groups subtasks by typed stage and counts only the
+    # implementation leaves. Without this instruction the model planned one
+    # flat list and marked "run tests" goals complete with no evidence.
+    instructions = normalized_instructions()
+
+    assert instructions =~ "stage"
+    assert instructions =~ "planning"
+    assert instructions =~ "implementation"
+    assert instructions =~ "self_review"
+    assert instructions =~ "Workspace setup, Draft PR, CI and Review and merge are host-owned"
+    assert instructions =~ "one implementation goal per subtask a person would recognise"
+    assert instructions =~ "concrete completion contract"
+    assert instructions =~ "evidence_refs"
+    assert instructions =~ "successor_of"
+    assert instructions =~ "never reopen a completed goal"
+    assert instructions =~ "cannot override a failing, missing or stale host check"
+  end
+
+  test "a task brief leads with the user-visible problem and never expands scope" do
+    # The recorded ultralite-overlay request arrived as a dense forensic trace
+    # with function names and line numbers; the confirmed brief must read as
+    # the problem, the outcome and the bounded change instead.
+    instructions = normalized_instructions()
+
+    assert instructions =~ "Lead with the user-visible problem and the intended outcome"
+    assert instructions =~ "then the proposed change, the scope, the checks and the verification"
+
+    assert instructions =~
+             "Do not paste a forensic trace, a function-and-line inventory or an old error transcript"
+
+    assert instructions =~ "source_refs"
+    assert instructions =~ "Never widen or narrow the requested scope"
+    assert instructions =~ "repository you will edit from repositories you only read"
+    assert instructions =~ "Say what cannot be verified"
+  end
+
   test "tool discovery explains the generic MCP caller and a valid bounded automation lookup" do
     # The Sep 9 live check claimed tools were missing despite an available
     # generic MCP caller, then guessed limit 100 and spent another correction.
@@ -145,5 +182,12 @@ defmodule Responder.Work.PromptTest do
     assert instructions =~ "slack-usergroup:S123"
     assert instructions =~ "slack-broadcast:here"
     assert instructions =~ "Never write raw Slack control syntax"
+  end
+
+  defp normalized_instructions do
+    Prompt.build(%{})
+    |> Jason.decode!()
+    |> Map.fetch!("instructions")
+    |> String.replace(~r/\s+/, " ")
   end
 end

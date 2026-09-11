@@ -111,6 +111,20 @@ the current stage and current subtask; completed and future work stay normal wei
 comes from lifecycle state, not arbitrary prose. Put detailed current activity on the active
 subtask, not duplicated after its parent stage name. Counts/timings stay where they add information.
 
+Stage membership is typed, never inferred: a goal names planning, implementation or self_review
+and a child belongs to its parent's stage, while Workspace setup, Draft PR, CI and Review and
+merge come only from session, publication and check receipts. Show subtasks beneath the stage a
+reader is acting on; a completed stage keeps its name and count and leaves its items to the
+episode's full history. Implementation counts current logical leaves once, so a parent heading,
+another stage's goal and a superseded attempt never inflate it, and a plan that does not exist
+yet has no denominator instead of `0/0`. Goals retained before typed membership existed stay in
+their own unrecorded row rather than being backfilled into a plausible stage.
+
+A completed goal is never reopened: a repeated check is a successor attempt linked to the
+terminal one it repeats, and that earlier result stays exactly as recorded. Once newer
+implementation work lands after a publication, Self-review, Draft PR and CI read as needing to
+run again against the published revision rather than as green proof of work nobody checked.
+
 The agent self-corrects and creates/updates an authorized draft PR without normal manual readiness/
 publication clicks. Human decisions, publication authority, merge and deployment remain distinct.
 Use exact host evidence for checks, revision and PR status; never fabricate historical subtask counts.

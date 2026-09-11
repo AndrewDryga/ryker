@@ -441,6 +441,7 @@ defmodule Responder.Slack.WorkControlsTest do
                "read_only_repositories" => [],
                "requested_outcome" => "Verify background-worker health",
                "required" => true,
+               "stage" => "implementation",
                "writable_repository" => nil
              })
 

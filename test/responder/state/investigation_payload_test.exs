@@ -42,6 +42,7 @@ defmodule Responder.State.InvestigationPayloadTest do
                "kind" => "engineering",
                "requested_outcome" => "Fix the parser",
                "required" => true,
+               "stage" => "implementation",
                "writable_repository" => "responder"
              })
 
@@ -57,6 +58,90 @@ defmodule Responder.State.InvestigationPayloadTest do
                },
                "verdict" => "not_issue"
              })
+  end
+
+  test "goals carry an explicit lifecycle stage and reject a parent that is also a prerequisite" do
+    # The Slack task card groups subtasks under Planning, Implementation and
+    # Self-review from typed membership. Before this field existed the card
+    # could only offer one flat list, and a plan inferred from goal kind put
+    # planning checks under the wrong stage.
+    goal = %{
+      "authority" => "read_only",
+      "completion_contract" => "Drain and recycle workers without dropping requests.",
+      "id" => "drain-workers",
+      "kind" => "engineering",
+      "requested_outcome" => "Drain and recycle workers safely",
+      "required" => true
+    }
+
+    for stage <- ~w(planning implementation self_review) do
+      assert {:ok, _goal} = InvestigationPayload.prepare("goal", Map.put(goal, "stage", stage))
+    end
+
+    assert {:ok, _successor} =
+             InvestigationPayload.prepare(
+               "goal",
+               Map.merge(goal, %{
+                 "id" => "drain-workers-2",
+                 "stage" => "implementation",
+                 "successor_of" => "drain-workers"
+               })
+             )
+
+    # Host stages are never a model claim, and a goal without a stage is not a
+    # valid new record; only records persisted before this contract lack one.
+    for stage <- ~w(workspace_setup draft_pr ci review_and_merge checking) do
+      assert InvestigationPayload.prepare("goal", Map.put(goal, "stage", stage)) ==
+               {:error, {:invalid_state_record, :stage}}
+    end
+
+    assert InvestigationPayload.prepare("goal", goal) ==
+             {:error, {:invalid_state_record, :fields}}
+
+    conflicting_parent =
+      Map.merge(goal, %{
+        "parent_goal_id" => "deliver-change",
+        "prerequisite_goal_ids" => ["deliver-change"],
+        "stage" => "implementation"
+      })
+
+    assert InvestigationPayload.prepare("goal", conflicting_parent) ==
+             {:error, {:invalid_state_record, :parent_goal_id}}
+
+    for successor <- ["drain-workers", "deliver-change"] do
+      assert InvestigationPayload.prepare(
+               "goal",
+               Map.merge(goal, %{
+                 "parent_goal_id" => "deliver-change",
+                 "stage" => "implementation",
+                 "successor_of" => successor
+               })
+             ) == {:error, {:invalid_state_record, :successor_of}}
+    end
+  end
+
+  test "a goal update may bind typed evidence references but never free text" do
+    assert {:ok, prepared} =
+             InvestigationPayload.prepare("goal_state", %{
+               "detail" => "Focused tests pass on the current workspace.",
+               "evidence_refs" => ["record:evidence:focused-tests"],
+               "goal_id" => "run-checks",
+               "state" => "completed"
+             })
+
+    assert prepared["evidence_refs"] == ["record:evidence:focused-tests"]
+
+    assert InvestigationPayload.prepare("goal_state", %{
+             "evidence_refs" => ["not a ref"],
+             "goal_id" => "run-checks",
+             "state" => "completed"
+           }) == {:error, {:invalid_state_record, :evidence_refs}}
+
+    assert InvestigationPayload.prepare("goal_state", %{
+             "evidence_refs" => "record:evidence:focused-tests",
+             "goal_id" => "run-checks",
+             "state" => "completed"
+           }) == {:error, {:invalid_state_record, :evidence_refs}}
   end
 
   test "rejects malformed investigation payloads at their actionable field" do
@@ -139,7 +224,8 @@ defmodule Responder.State.InvestigationPayloadTest do
          "id" => "fix",
          "kind" => "engineering",
          "requested_outcome" => "Fix it",
-         "required" => true
+         "required" => true,
+         "stage" => "implementation"
        }, :writable_repository},
       {"goal",
        %{
@@ -149,6 +235,7 @@ defmodule Responder.State.InvestigationPayloadTest do
          "kind" => "check",
          "requested_outcome" => "Check it",
          "required" => true,
+         "stage" => "self_review",
          "writable_repository" => "responder"
        }, :writable_repository},
       {"goal_state", %{"goal_id" => "bad id", "state" => "working"}, :goal_id},

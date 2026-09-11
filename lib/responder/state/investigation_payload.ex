@@ -5,6 +5,14 @@ defmodule Responder.State.InvestigationPayload do
 
   @maximum_payload_bytes 32 * 1_024
   @reference ~r/\A[A-Za-z0-9_.:-]{1,256}\z/
+  # The model owns planning, implementation and self-review membership. The
+  # host owns Workspace setup, Draft PR, CI and Review and merge from its own
+  # receipts, so those can never be claimed by a goal.
+  @goal_stages ~w(planning implementation self_review)
+
+  @doc "Lifecycle stages a model-authored goal may belong to."
+  @spec goal_stages() :: [String.t()]
+  def goal_stages, do: @goal_stages
 
   @spec prepare(String.t(), term()) :: {:ok, map()} | {:error, term()}
   def prepare("evidence", payload), do: evidence(payload)
@@ -108,19 +116,21 @@ defmodule Responder.State.InvestigationPayload do
   defp progress(_payload), do: invalid(:payload)
 
   defp goal(%{} = payload) do
-    required = ~w(authority completion_contract id kind requested_outcome required)
+    required = ~w(authority completion_contract id kind requested_outcome required stage)
 
     optional =
-      ~w(parent_goal_id prerequisite_goal_ids read_only_repositories writable_repository)
+      ~w(parent_goal_id prerequisite_goal_ids read_only_repositories successor_of writable_repository)
 
     with :ok <- fields(payload, required, optional),
          :ok <- reference(payload["id"], 120, :id),
          :ok <- enum(payload["kind"], ~w(check engineering operation schedule), :kind),
+         :ok <- enum(payload["stage"], @goal_stages, :stage),
          :ok <- text(payload["requested_outcome"], 500, :requested_outcome),
          :ok <- text(payload["completion_contract"], 2_000, :completion_contract),
          :ok <- boolean(payload["required"], :required),
          :ok <- optional_reference(payload, "parent_goal_id", 120, :parent_goal_id),
          :ok <- optional_references(payload, "prerequisite_goal_ids", 20, :prerequisite_goal_ids),
+         :ok <- optional_reference(payload, "successor_of", 120, :successor_of),
          :ok <- optional_text(payload, "writable_repository", 256, :writable_repository),
          :ok <-
            optional_text_list(payload, "read_only_repositories", 20, 256, :read_only_repositories),
@@ -132,6 +142,8 @@ defmodule Responder.State.InvestigationPayload do
            ),
          :ok <- goal_authority(payload),
          :ok <- goal_repositories(payload),
+         :ok <- goal_parent(payload),
+         :ok <- goal_successor(payload),
          :ok <- canonical(payload) do
       {:ok, payload}
     end
@@ -140,7 +152,7 @@ defmodule Responder.State.InvestigationPayload do
   defp goal(_payload), do: invalid(:payload)
 
   defp goal_state(%{} = payload) do
-    with :ok <- fields(payload, ~w(goal_id state), ~w(detail)),
+    with :ok <- fields(payload, ~w(goal_id state), ~w(detail evidence_refs)),
          :ok <- reference(payload["goal_id"], 120, :goal_id),
          :ok <-
            enum(
@@ -149,6 +161,7 @@ defmodule Responder.State.InvestigationPayload do
              :state
            ),
          :ok <- optional_text(payload, "detail", 2_000, :detail),
+         :ok <- optional_references(payload, "evidence_refs", 12, :evidence_refs),
          :ok <- canonical(payload) do
       {:ok, payload}
     end
@@ -263,6 +276,24 @@ defmodule Responder.State.InvestigationPayload do
       do: :ok,
       else: invalid(:read_only_repositories)
   end
+
+  # A parent completes after its children, so a child that also waits on its
+  # parent could never start.
+  defp goal_parent(%{"parent_goal_id" => parent} = payload) when is_binary(parent) do
+    if parent in Map.get(payload, "prerequisite_goal_ids", []),
+      do: invalid(:parent_goal_id),
+      else: :ok
+  end
+
+  defp goal_parent(_payload), do: :ok
+
+  defp goal_successor(%{"successor_of" => predecessor} = payload) when is_binary(predecessor) do
+    if predecessor in [payload["id"], payload["parent_goal_id"]],
+      do: invalid(:successor_of),
+      else: :ok
+  end
+
+  defp goal_successor(_payload), do: :ok
 
   defp assessment_claim(%{"verdict" => verdict} = payload)
        when verdict in ~w(confirmed_issue likely_issue) do

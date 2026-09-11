@@ -152,8 +152,10 @@ defmodule Responder.Slack.TaskCardSourcesTest do
     assert task["title"] == "Engineering task"
     assert task["summary"] =~ "source context"
     assert task["request"] == nil
-    assert task["goals"] == []
-    assert task["progress"] == []
+    # The stage list survives with every disposition withheld: an unreadable
+    # source is unknown progress, not a task that never started.
+    assert Enum.map(task["stages"], & &1["state"]) == List.duplicate("unknown", 7)
+    assert Enum.all?(task["stages"], &(&1["subtasks"] == [] and is_nil(&1["detail"])))
     assert task["publication"] == nil
     assert task["controls"] -- ~w(stop close timeline) == []
     assert {:ok, _} = Renderer.render(document)
@@ -213,7 +215,12 @@ defmodule Responder.Slack.TaskCardSourcesTest do
       |> get_in(["portal_goals", "goals"])
       |> hd()
       |> Map.take(~w(id requested_outcome completion_contract))
-      |> Map.merge(%{"kind" => "check", "authority" => "read_only", "required" => false})
+      |> Map.merge(%{
+        "authority" => "read_only",
+        "kind" => "check",
+        "required" => false,
+        "stage" => "self_review"
+      })
 
     assert {:ok, _} = Records.create(Records.token(task.turn), "captured-goal", "goal", goal)
 

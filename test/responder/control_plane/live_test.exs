@@ -345,7 +345,7 @@ defmodule Responder.ControlPlane.LiveTest do
 
     view |> element("#card-state-picker a[data-state='recorded-goals']") |> render_click()
     assert_patch(view, "/card-lab/task-card/recorded-goals?width=compact")
-    assert has_element?(view, ".specimen-canvas.compact", "Subtasks")
+    assert has_element?(view, ".specimen-canvas.compact", "Other subtasks")
 
     render_change(view, "card-state", %{"state" => "missing"})
     refute_patched(view)

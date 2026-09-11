@@ -10,14 +10,13 @@ defmodule Responder.Slack.TaskCardProjection do
 
   alias Responder.CanonicalJSON
   alias Responder.Episodes.Episode
-  alias Responder.Publication.Publication
+  alias Responder.Publication.{Followup, Publication}
   alias Responder.Repo
   alias Responder.Slack.TaskCard
   alias Responder.State.{DerivedContext, Record, Records}
-  alias Responder.Work.{Session, Turn}
+  alias Responder.Work.{Session, TaskStages, Turn}
 
-  @ui_revision 5
-  @goal_priority %{"blocked" => 0, "working" => 1, "waiting" => 2, "ready" => 3}
+  @ui_revision 6
   @publication_conflicts ~w(publication_branch_already_exists publication_branch_changed publication_existing_pull_request_changed publication_pull_request_mismatch)
 
   @spec build(TaskCard.t()) ::
@@ -75,7 +74,6 @@ defmodule Responder.Slack.TaskCardProjection do
       publication_offer: publication_offer
     } = snapshot
 
-    goals = Records.goals_from_records(snapshot.goal_records)
     progress = Enum.map(snapshot.progress_records, &progress_detail/1)
 
     projection = %{
@@ -87,17 +85,20 @@ defmodule Responder.Slack.TaskCardProjection do
       "controls" => controls(record, episode, turn, session, publication),
       "episode_state" => Atom.to_string(episode.state),
       "publication" => publication(publication, publication_offer),
-      "progress" => progress,
-      "goals" =>
-        goals
-        |> Enum.sort_by(&Map.get(@goal_priority, &1["state"], 4))
-        |> Enum.take(8)
-        |> Enum.map(&card_goal/1),
-      "goals_total" => length(goals),
-      "goals_completed" => Enum.count(goals, &(&1["state"] == "completed")),
-      "request" => compact(record.payload["prompt"], 1_000),
+      "request" => compact(record.payload["prompt"], 600),
       "repository" => record.payload["repository"],
+      "repository_url" => repository_url(publication),
       "session_generation" => session && session.generation,
+      "stages" =>
+        TaskStages.build(%{
+          episode: episode,
+          followup: snapshot.followup,
+          plan: Records.plan_from_records(snapshot.goal_records),
+          publication: publication,
+          publication_offer: publication_offer,
+          session: session,
+          turn: turn
+        }),
       "status" => status(episode, turn, publication, publication_offer),
       "summary" => summary(record, progress),
       "task_ref" => task_ref,
@@ -118,16 +119,31 @@ defmodule Responder.Slack.TaskCardProjection do
   end
 
   defp snapshot(episode) do
+    publication = latest_publication(episode.id)
+
     %{
       turn: current_turn(episode),
       session: latest_session(episode.id),
-      publication: latest_publication(episode.id),
+      publication: publication,
+      followup: followup(publication),
       records: Records.retained_records(episode.id),
       publication_offer: latest_publication_offer(episode.id),
       goal_records: goal_records(episode.id),
       progress_records: progress_records(episode.id)
     }
   end
+
+  defp followup(nil), do: nil
+
+  defp followup(%Publication{id: id}),
+    do: Repo.one(from(followup in Followup, where: followup.publication_id == ^id))
+
+  # A repository links out only from the trusted GitHub binding its own
+  # publication receipt recorded; a display label never becomes a URL.
+  defp repository_url(%Publication{github_repository: repository}) when is_binary(repository),
+    do: "https://github.com/#{repository}"
+
+  defp repository_url(_publication), do: nil
 
   defp goal_records(episode_id) do
     Repo.all(
@@ -255,11 +271,11 @@ defmodule Responder.Slack.TaskCardProjection do
         "summary" => "Task details are unavailable until their source context can be checked.",
         "action_needed" => nil,
         "repository" => "Repository details unavailable",
+        "repository_url" => nil,
         "request" => nil,
-        "progress" => [],
-        "goals" => [],
-        "goals_total" => 0,
-        "goals_completed" => 0,
+        # The stage list survives, with every disposition withheld: an
+        # unreadable source is unknown progress, not absent progress.
+        "stages" => TaskStages.unknown(),
         "publication" => nil,
         "controls" => Enum.filter(task["controls"], &(&1 in ~w(stop close timeline)))
       })
@@ -270,15 +286,6 @@ defmodule Responder.Slack.TaskCardProjection do
   defp replace_task(projection, task) do
     document = %{"task_card" => task}
     %{projection | document: document, fingerprint: CanonicalJSON.digest(document)}
-  end
-
-  defp card_goal(goal) do
-    %{
-      "id" => goal["id"],
-      "parent_goal_id" => goal["parent_goal_id"],
-      "requested_outcome" => compact(goal["requested_outcome"], 250),
-      "state" => goal["state"]
-    }
   end
 
   defp updated_at(episode) do

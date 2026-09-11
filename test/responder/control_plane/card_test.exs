@@ -390,7 +390,8 @@ defmodule Responder.ControlPlane.CardTest do
          "id" => "verify-workers",
          "kind" => "check",
          "requested_outcome" => "Verify background-worker health",
-         "required" => true
+         "required" => true,
+         "stage" => "self_review"
        }, "Goal", nil},
       {"goal_state", %{"goal_id" => "verify-workers", "state" => "blocked"}, "Goal updated", nil},
       {"alert_assessment",

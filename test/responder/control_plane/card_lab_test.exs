@@ -54,8 +54,13 @@ defmodule Responder.ControlPlane.CardLabTest do
 
     assert {:ok, later} = CardLab.fetch("task-card", "working-validation")
     assert later.state.provenance.observed_at == "2026-08-14T05:51:23.132457Z"
+    # Goals retained before typed stage membership existed stay explicitly
+    # unrecorded; the card never backfills them into a plausible stage.
     assert {:ok, goals} = CardLab.fetch("task-card", "recorded-goals")
-    assert Jason.encode!(goals.rendered) =~ "3 of 3 completed"
+    rendered = Jason.encode!(goals.rendered)
+    assert rendered =~ "? Other subtasks · 3 subtasks recorded without a stage"
+    assert rendered =~ "? Planning · not recorded"
+    assert rendered =~ "✓ Confirm the portal backend actually recovered"
     assert goals.state.provenance.basis == "Real goals · layout study"
 
     assert {:ok, waiting} = CardLab.fetch("task-card", "waiting-for-input")
