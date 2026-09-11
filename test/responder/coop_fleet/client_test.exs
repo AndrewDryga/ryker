@@ -483,6 +483,8 @@ defmodule Responder.CoopFleet.ClientTest do
     }
     |> Repo.insert!()
 
+    # A replacement generation carries its predecessor's exact repository source,
+    # which is what makes the checkpoint's tree the right seed for it.
     replacement =
       SessionChangeset.insert_with_authority(
         Ecto.UUID.generate(),
@@ -492,7 +494,11 @@ defmodule Responder.CoopFleet.ClientTest do
         source.policy_digest,
         source.repository_ref,
         source.external_ref,
-        %{authority_digest: source.authority_digest, workspace_task: nil}
+        %{
+          authority_digest: source.authority_digest,
+          repository_source: source.repository_source,
+          workspace_task: nil
+        }
       )
       |> Repo.insert!()
       |> SessionChangeset.bind_workspace_task(workspace_task)
@@ -517,6 +523,21 @@ defmodule Responder.CoopFleet.ClientTest do
              "source_session_ref" => source.id,
              "transfer_id" => transfer_id
            }
+
+    # A checkpoint taken from another source can never seed this generation.
+    # Rotation copies the selector verbatim, so a mismatch is tampering or a
+    # bug, and the answer is to refuse rather than start from the wrong tree.
+    source
+    |> Ecto.Changeset.change(repository_source: %{"kind" => "branch", "name" => "feature/other"})
+    |> Repo.update!()
+
+    other =
+      replacement |> Ecto.Changeset.change(external_ref: "other-generation") |> Repo.update!()
+
+    assert Client.create_session(client, "#{key}:other", @policy, other.external_ref, nil) ==
+             {:error, {:coop_protocol_error, :create_session_response}}
+
+    refute_receive {:fleet_command, ^other, "ensure_workspace", _, _, _}
   end
 
   test "a replacement after the task was never bound starts from a clean workspace", %{

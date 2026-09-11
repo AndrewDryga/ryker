@@ -3001,6 +3001,11 @@ defmodule Responder.Work.ExecutorTest do
     assert workspace["primary"]["base_commit"] == selected
     assert workspace["source"] == binding
 
+    # Selecting the primary source changes nothing about the companions: they
+    # keep their operator-configured heads and stay read-only.
+    assert Enum.map(workspace["companions"], &{&1["base_commit"], &1["read_only"]}) ==
+             [{alpha_head, true}, {zulu_head, true}]
+
     assert workspace["freshness"]["repositories"] ==
              Enum.map(freshness, fn item ->
                item
@@ -3130,12 +3135,46 @@ defmodule Responder.Work.ExecutorTest do
   # checked for internal consistency and never re-resolved against a selector it
   # never had.
   test "a historical session without a persisted selector still runs" do
+    selected = String.duplicate("3", 40)
+    default_head = String.duplicate("2", 40)
+
+    # Coop already bound this session to a branch before Responder persisted
+    # selectors. The binding is reported as it is and never compared to a
+    # request the session never made.
+    binding =
+      source_binding(%{"kind" => "branch", "name" => "feature/legacy"},
+        base_commit: default_head,
+        default_commit: default_head,
+        selected_commit: selected,
+        selected_ref: "refs/heads/feature/legacy"
+      )
+
+    freshness = [
+      source_receipt("primary", default_head, "refs/heads/main", selected),
+      source_receipt("source", selected, "refs/heads/feature/legacy", nil)
+    ]
+
     claim = claim_with_bound_empty_session!("source-historical-session")
+    assert claim.session.repository_source == nil
     {:ok, fake} = fake_for(claim, [reply("The historical session still runs.")])
+    bind_source_session!(fake, binding, selected, [], freshness)
 
     assert {:ok, %{status: :accepted, turn: accepted}} = Executor.run(claim, options(fake))
-    workspace = get_in(accepted.submission, ["context", "workspace"])
-    refute Map.has_key?(workspace, "source")
+    assert get_in(accepted.submission, ["context", "workspace", "source"]) == binding
+    assert Responder.Repo.get!(Responder.Work.Session, claim.session.id).repository_source == nil
+
+    # Workspace-free work with no binding at all keeps running as before.
+    unbound = claim_with_bound_empty_session!("source-unbound-session")
+    {:ok, unbound_fake} = fake_for(unbound, [reply("No source at all.")])
+
+    FakeAPI.update(unbound_fake, fn state ->
+      %{state | session: Map.delete(state.session, "repository_source")}
+    end)
+
+    assert {:ok, %{status: :accepted, turn: accepted}} =
+             Executor.run(unbound, options(unbound_fake))
+
+    refute Map.has_key?(get_in(accepted.submission, ["context", "workspace"]), "source")
   end
 
   test "selector-bound work is never dispatched to a worker without the versioned capability" do
