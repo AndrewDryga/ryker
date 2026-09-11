@@ -13,7 +13,7 @@ defmodule Responder.State.SlackPostOffers do
   alias Responder.Delivery.{PlatformAction, PlatformActionCustody}
   alias Responder.Episodes.Episode
   alias Responder.Repo
-  alias Responder.State.{Record, RecordChangeset}
+  alias Responder.State.{CardDelivery, Record, RecordChangeset}
   alias Responder.Work.Turn
 
   @fields [:actor_ref, :confirmation_ref, :occurred_at, :record_ref, :target]
@@ -124,22 +124,13 @@ defmodule Responder.State.SlackPostOffers do
   defp requester_authorized(_record, _actor_ref),
     do: {:error, :slack_post_offer_actor_mismatch}
 
-  defp delivered_from?(episode, %Turn{status: :settled, external_receipt: receipt}, target)
-       when is_map(receipt) do
-    expected = %{
-      conversation_ref: episode.destination_conversation_ref,
-      message_ref: receipt["message_ref"],
-      thread_ref: episode.destination_thread_ref,
-      transport: episode.destination_transport
-    }
-
-    if expected == target,
-      do: :ok,
-      else: {:error, :slack_post_offer_delivery_mismatch}
+  defp delivered_from?(episode, turn, target) do
+    case CardDelivery.delivered_from?(episode, turn, target) do
+      :ok -> :ok
+      {:error, :mismatch} -> {:error, :slack_post_offer_delivery_mismatch}
+      {:error, :not_delivered} -> {:error, :slack_post_offer_not_delivered}
+    end
   end
-
-  defp delivered_from?(_episode, _turn, _target),
-    do: {:error, :slack_post_offer_not_delivered}
 
   defp attributes(attributes) when is_list(attributes) do
     if Keyword.keyword?(attributes) and

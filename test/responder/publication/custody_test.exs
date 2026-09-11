@@ -30,7 +30,7 @@ defmodule Responder.Publication.CustodyTest do
     %{claim: claim, offer: offer, offer_receipt: receipt} = delivered_offer!("review-first")
 
     assert {:ok, %{publication: publication}} =
-             PublicationCustody.request_review(review_request(claim, offer, receipt))
+             PublicationCustody.request_review(review_request(offer, receipt))
 
     assert {:ok, review} = PublicationCustody.claim_next("publication:review-first", 60)
     followup = admit_followup!(claim)
@@ -75,13 +75,13 @@ defmodule Responder.Publication.CustodyTest do
     %{claim: claim, offer: offer, offer_receipt: receipt} = delivered_offer!("work-first")
 
     assert {:ok, %{publication: waiting}} =
-             PublicationCustody.request_review(review_request(claim, offer, receipt))
+             PublicationCustody.request_review(review_request(offer, receipt))
 
-    %{claim: other, offer: other_offer, offer_receipt: other_receipt} =
+    %{offer: other_offer, offer_receipt: other_receipt} =
       delivered_offer!("independent-review")
 
     assert {:ok, %{publication: independent}} =
-             PublicationCustody.request_review(review_request(other, other_offer, other_receipt))
+             PublicationCustody.request_review(review_request(other_offer, other_receipt))
 
     admit_followup!(claim)
     assert {:ok, review} = PublicationCustody.claim_next("publication:independent", 60)
@@ -104,7 +104,7 @@ defmodule Responder.Publication.CustodyTest do
     %{claim: claim, offer: offer, offer_receipt: receipt} = delivered_offer!("blocked-followup")
 
     assert {:ok, %{publication: publication}} =
-             PublicationCustody.request_review(review_request(claim, offer, receipt))
+             PublicationCustody.request_review(review_request(offer, receipt))
 
     admit_followup!(claim)
     assert {:ok, work} = Custody.claim_next("work:blocked-followup", 60, :work)
@@ -148,7 +148,7 @@ defmodule Responder.Publication.CustodyTest do
   test "a delivered inert offer becomes one reviewed and operator-approved publication" do
     %{claim: claim, offer: offer, offer_receipt: offer_receipt} = delivered_offer!("lifecycle")
 
-    request = review_request(claim, offer, offer_receipt)
+    request = review_request(offer, offer_receipt)
 
     assert {:ok, %{publication: publication, status: :requested}} =
              PublicationCustody.request_review(request)
@@ -295,11 +295,127 @@ defmodule Responder.Publication.CustodyTest do
     assert published.publication_receipt == publication_receipt
   end
 
+  test "a publication offer delivered to a joined input's origin thread can be reviewed from that thread" do
+    # Found live 2026-09-11: routing delivered a correction card to the joined
+    # root's thread and the Save press was refused as "no longer current"; a
+    # human sees the same.
+    %{claim: claim, offer: offer, offer_receipt: receipt} =
+      delivered_offer!("routed", delivery_thread_ref: "thread:routed-origin")
+
+    assert claim.episode.destination_thread_ref == "thread:routed"
+    assert receipt["thread_ref"] == "thread:routed-origin"
+
+    assert {:ok, %{publication: publication, status: :requested}} =
+             PublicationCustody.request_review(review_request(offer, receipt))
+
+    assert publication.offer_message_ref == receipt["message_ref"]
+  end
+
+  test "a review requested from a joined input's origin thread posts its review card there" do
+    # Found live 2026-09-11: routing delivered a correction card to the joined
+    # root's thread and the Save press was refused as "no longer current"; a
+    # human sees the same.
+    %{claim: claim, offer: offer, offer_receipt: receipt} =
+      delivered_offer!("routed-card", delivery_thread_ref: "thread:routed-card-origin")
+
+    assert claim.episode.destination_thread_ref == "thread:routed-card"
+
+    assert {:ok, %{publication: publication}} =
+             PublicationCustody.request_review(review_request(offer, receipt))
+
+    assert publication.destination_thread_ref == "thread:routed-card-origin"
+
+    assert {:ok, review_claim} = PublicationCustody.claim_next("publication:routed-card", 60)
+
+    assert {:ok, frozen} =
+             PublicationCustody.freeze_review_revision(
+               publication.ref,
+               review_claim.lease_ref,
+               7
+             )
+
+    patch = "diff --git a/lib/fix.ex b/lib/fix.ex\n+fixed\n"
+
+    review =
+      claim
+      |> review_document()
+      |> Map.merge(%{"patch_bytes" => byte_size(patch), "patch_digest" => digest(patch)})
+
+    assert {:ok, _reviewed} =
+             PublicationCustody.store_review(
+               publication.ref,
+               review_claim.lease_ref,
+               frozen.review_generation,
+               review,
+               patch
+             )
+
+    assert {:ok, delivery_claim} =
+             PublicationCustody.claim_next("publication:routed-card-delivery", 60)
+
+    assert {:ok, review_delivery} =
+             PublicationCustody.delivery_request(delivery_claim.publication)
+
+    assert review_delivery.thread_ref == "thread:routed-card-origin"
+
+    assert {:ok, review_receipt} =
+             DeliveryReceipt.new(
+               review_delivery.ref,
+               "slack",
+               claim.episode.destination_conversation_ref,
+               "thread:routed-card-origin",
+               "message:routed-reviewed"
+             )
+
+    assert {:ok, ready} =
+             PublicationCustody.confirm_delivery(
+               publication.ref,
+               delivery_claim.lease_ref,
+               review_receipt
+             )
+
+    assert ready.status == :reviewed
+
+    # Approval is verified where the review card went, so the operator who
+    # pressed Request review reads and approves in one thread.
+    approval = %{
+      actor_ref: "slack:user:U-operator",
+      approval_ref: "interaction:routed-publish",
+      occurred_at: DateTime.add(@now, 2, :second),
+      publication_ref: publication.ref,
+      target: %{
+        conversation_ref: claim.episode.destination_conversation_ref,
+        message_ref: "message:routed-reviewed",
+        thread_ref: "thread:routed-card-origin",
+        transport: "slack"
+      }
+    }
+
+    assert {:ok, %{status: :approved}} = PublicationCustody.approve(approval)
+  end
+
+  test "a publication offer is not reviewable from a thread its card was never delivered to" do
+    %{claim: claim, offer: offer, offer_receipt: receipt} =
+      delivered_offer!("routed-elsewhere", delivery_thread_ref: "thread:routed-elsewhere-origin")
+
+    elsewhere =
+      put_in(
+        review_request(offer, receipt),
+        [:target, :thread_ref],
+        claim.episode.destination_thread_ref
+      )
+
+    assert PublicationCustody.request_review(elsewhere) ==
+             {:error, :publication_offer_delivery_mismatch}
+
+    assert Repo.aggregate(Publication, :count, :id) == 0
+  end
+
   test "crossed delivery controls and unpublishable review fail closed" do
     %{claim: claim, offer: offer, offer_receipt: offer_receipt} = delivered_offer!("closed")
 
     assert {:ok, %{publication: publication}} =
-             PublicationCustody.request_review(review_request(claim, offer, offer_receipt))
+             PublicationCustody.request_review(review_request(offer, offer_receipt))
 
     assert {:ok, review_claim} = PublicationCustody.claim_next("publication:closed", 60)
 
@@ -377,7 +493,7 @@ defmodule Responder.Publication.CustodyTest do
 
   test "review mutations reconcile exact generations, revisions, leases, policy, and patch bytes" do
     %{claim: claim, offer: offer, offer_receipt: receipt} = delivered_offer!("review-fences")
-    request = review_request(claim, offer, receipt)
+    request = review_request(offer, receipt)
 
     assert {:ok, %{publication: publication}} = PublicationCustody.request_review(request)
 
@@ -492,10 +608,10 @@ defmodule Responder.Publication.CustodyTest do
   end
 
   test "operator retry is fenced to the exact deferred publication generation" do
-    %{claim: claim, offer: offer, offer_receipt: receipt} = delivered_offer!("recover-retry")
+    %{offer: offer, offer_receipt: receipt} = delivered_offer!("recover-retry")
 
     assert {:ok, %{publication: publication}} =
-             PublicationCustody.request_review(review_request(claim, offer, receipt))
+             PublicationCustody.request_review(review_request(offer, receipt))
 
     assert {:ok, active} = PublicationCustody.claim_next("publication:recover-active", 60)
 
@@ -536,11 +652,11 @@ defmodule Responder.Publication.CustodyTest do
   # review_pending had no update or discard clause, so the publication deferred once a minute
   # forever. Update must queue a fresh review generation, and only for a phase that actually failed.
   test "operator update queues a fresh review for a review phase no retry can clear" do
-    %{claim: claim, offer: offer, offer_receipt: receipt} =
+    %{offer: offer, offer_receipt: receipt} =
       delivered_offer!("recover-stuck-review")
 
     assert {:ok, %{publication: publication}} =
-             PublicationCustody.request_review(review_request(claim, offer, receipt))
+             PublicationCustody.request_review(review_request(offer, receipt))
 
     assert PublicationCustody.recover(publication.ref, :update, 1) ==
              {:error, :publication_recovery_not_allowed}
@@ -1000,7 +1116,7 @@ defmodule Responder.Publication.CustodyTest do
     confirm_task!(task, claim, suffix, options)
 
     assert {:ok, %{publication: publication}} =
-             PublicationCustody.request_review(review_request(claim, offer, receipt))
+             PublicationCustody.request_review(review_request(offer, receipt))
 
     assert {:ok, review_claim} = PublicationCustody.claim_next("publication:#{suffix}", 60)
 
@@ -1113,7 +1229,7 @@ defmodule Responder.Publication.CustodyTest do
     %{claim: claim, offer: offer, offer_receipt: receipt} = delivered_offer!(suffix)
 
     assert {:ok, %{publication: publication}} =
-             PublicationCustody.request_review(review_request(claim, offer, receipt))
+             PublicationCustody.request_review(review_request(offer, receipt))
 
     assert {:ok, review_claim} = PublicationCustody.claim_next("publication:#{suffix}", 60)
 
@@ -1173,6 +1289,10 @@ defmodule Responder.Publication.CustodyTest do
 
   defp delivered_offer!(suffix, options \\ []) do
     claim = claim_episode!(suffix)
+
+    delivery_thread_ref =
+      Keyword.get(options, :delivery_thread_ref, claim.episode.destination_thread_ref)
+
     task = task_offer!(claim, suffix, Keyword.get(options, :task_repository))
 
     assert {:ok, _goal} =
@@ -1250,12 +1370,25 @@ defmodule Responder.Publication.CustodyTest do
 
     assert {:ok, delivery} = Custody.claim_next("delivery:#{suffix}", 60, :delivery)
 
+    # Where this turn's reply goes, exactly as `Custody.reply_target/2` freezes
+    # it at acceptance: the answering input's own origin, which routing can join
+    # into this episode from a thread other than its bound home.
+    Repo.get_by!(Turn, episode_id: claim.episode.id, turn_ref: claim.turn.turn_ref)
+    |> Ecto.Changeset.change(
+      delivery_target: %{
+        "conversation_ref" => claim.episode.destination_conversation_ref,
+        "thread_ref" => delivery_thread_ref,
+        "transport" => "slack"
+      }
+    )
+    |> Repo.update!()
+
     assert {:ok, offer_receipt} =
              DeliveryReceipt.new(
                accepted.turn.delivery_ref,
                "slack",
                claim.episode.destination_conversation_ref,
-               claim.episode.destination_thread_ref,
+               delivery_thread_ref,
                "message:offer:#{suffix}"
              )
 
@@ -1352,17 +1485,17 @@ defmodule Responder.Publication.CustodyTest do
     %{claim | session: session, turn: turn}
   end
 
-  defp review_request(claim, offer, receipt) do
+  defp review_request(offer, receipt) do
     %{
       actor_ref: "slack:user:U-operator",
       occurred_at: DateTime.add(@now, 1, :second),
       record_ref: offer.ref,
       request_ref: "interaction:review:#{offer.id}",
       target: %{
-        conversation_ref: claim.episode.destination_conversation_ref,
+        conversation_ref: receipt["conversation_ref"],
         message_ref: receipt["message_ref"],
-        thread_ref: claim.episode.destination_thread_ref,
-        transport: "slack"
+        thread_ref: receipt["thread_ref"],
+        transport: receipt["transport"]
       }
     }
   end

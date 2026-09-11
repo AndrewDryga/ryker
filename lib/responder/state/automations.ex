@@ -17,6 +17,7 @@ defmodule Responder.State.Automations do
   alias Responder.State.{
     Behavior,
     BehaviorChangeset,
+    CardDelivery,
     Record,
     RecordChangeset,
     Schedule,
@@ -601,27 +602,13 @@ defmodule Responder.State.Automations do
     end
   end
 
-  defp delivered_from?(episode, %Turn{status: :settled, external_receipt: receipt}, target)
-       when is_map(receipt) do
-    expected = %{
-      conversation_ref: episode.destination_conversation_ref,
-      message_ref: receipt["message_ref"],
-      thread_ref: episode.destination_thread_ref,
-      transport: episode.destination_transport
-    }
-
-    receipt_matches =
-      receipt["conversation_ref"] == episode.destination_conversation_ref and
-        receipt["thread_ref"] == episode.destination_thread_ref and
-        receipt["transport"] == episode.destination_transport
-
-    if receipt_matches and expected == target,
-      do: :ok,
-      else: {:error, :automation_change_offer_delivery_mismatch}
+  defp delivered_from?(episode, turn, target) do
+    case CardDelivery.delivered_from?(episode, turn, target) do
+      :ok -> :ok
+      {:error, :mismatch} -> {:error, :automation_change_offer_delivery_mismatch}
+      {:error, :not_delivered} -> {:error, :automation_change_offer_not_delivered}
+    end
   end
-
-  defp delivered_from?(_episode, _turn, _target),
-    do: {:error, :automation_change_offer_not_delivered}
 
   defp confirm_record(record, attributes) do
     record

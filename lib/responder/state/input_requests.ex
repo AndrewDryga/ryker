@@ -19,6 +19,7 @@ defmodule Responder.State.InputRequests do
   alias Responder.Slack.InteractionAudits
 
   alias Responder.State.{
+    CardDelivery,
     Record,
     RecordChangeset,
     Response,
@@ -291,21 +292,13 @@ defmodule Responder.State.InputRequests do
     end
   end
 
-  defp delivered_from?(episode, %Turn{status: :settled, external_receipt: receipt}, target)
-       when is_map(receipt) do
-    exact =
-      receipt["transport"] == episode.destination_transport and
-        receipt["conversation_ref"] == episode.destination_conversation_ref and
-        receipt["thread_ref"] == episode.destination_thread_ref and
-        receipt["message_ref"] == target.message_ref and
-        target.transport == episode.destination_transport and
-        target.conversation_ref == episode.destination_conversation_ref and
-        target.thread_ref == episode.destination_thread_ref
-
-    if exact, do: :ok, else: {:error, :input_request_delivery_mismatch}
+  defp delivered_from?(episode, turn, target) do
+    case CardDelivery.delivered_from?(episode, turn, target) do
+      :ok -> :ok
+      {:error, :mismatch} -> {:error, :input_request_delivery_mismatch}
+      {:error, :not_delivered} -> {:error, :input_request_not_delivered}
+    end
   end
-
-  defp delivered_from?(_episode, _turn, _target), do: {:error, :input_request_not_delivered}
 
   defp slack_destination(%{conversation_ref: conversation_ref, transport: "slack"}) do
     case String.split(conversation_ref, ":", parts: 3) do

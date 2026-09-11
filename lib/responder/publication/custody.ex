@@ -24,7 +24,7 @@ defmodule Responder.Publication.Custody do
   }
 
   alias Responder.Repo
-  alias Responder.State.{Record, Records}
+  alias Responder.State.{CardDelivery, Record, Records}
   alias Responder.Work.{DeliveryReceipt, Session, Turn}
 
   @claimable [:review_pending, :review_ready, :publish_pending, :published_ready]
@@ -58,14 +58,16 @@ defmodule Responder.Publication.Custody do
       )
       when is_binary(repository) and is_binary(session.coop_session_id) do
     case confirmed_task_readiness(episode, turn, task_ref) do
-      {%Record{} = offer, %Record{} = task, %Turn{external_receipt: %{"message_ref" => message}}} ->
+      {%Record{} = offer, %Record{} = task,
+       %Turn{external_receipt: %{"message_ref" => message} = receipt}} ->
         # The original task confirmation authorizes its checks, not publication.
-        # Retain that actor and source message; no new button receipt is invented.
+        # Retain that actor, source message and source thread; no new button
+        # receipt is invented, and the checks report where the task was started.
         attributes = %{
           actor_ref: task.confirmed_by_actor_ref,
           occurred_at: turn.accepted_at,
           request_ref: "task-readiness:#{turn.id}",
-          target: %{message_ref: message}
+          target: %{message_ref: message, thread_ref: receipt["thread_ref"]}
         }
 
         _request = insert_review_request(offer, episode, session, repository, attributes)
@@ -683,7 +685,7 @@ defmodule Responder.Publication.Custody do
       Changeset.insert(%{
         body: record.payload["body"],
         destination_conversation_ref: episode.destination_conversation_ref,
-        destination_thread_ref: episode.destination_thread_ref,
+        destination_thread_ref: attributes.target.thread_ref || attributes.target.message_ref,
         destination_transport: episode.destination_transport,
         episode_id: episode.id,
         id: id,
@@ -746,19 +748,13 @@ defmodule Responder.Publication.Custody do
     end
   end
 
-  defp delivered_target(episode, %Turn{external_receipt: receipt}, target) when is_map(receipt) do
-    expected = %{
-      conversation_ref: episode.destination_conversation_ref,
-      message_ref: receipt["message_ref"],
-      thread_ref: episode.destination_thread_ref,
-      transport: episode.destination_transport
-    }
-
-    if expected == target, do: :ok, else: {:error, :publication_offer_delivery_mismatch}
+  defp delivered_target(episode, turn, target) do
+    case CardDelivery.delivered_from?(episode, turn, target) do
+      :ok -> :ok
+      {:error, :mismatch} -> {:error, :publication_offer_delivery_mismatch}
+      {:error, :not_delivered} -> {:error, :publication_offer_not_delivered}
+    end
   end
-
-  defp delivered_target(_episode, _turn, _target),
-    do: {:error, :publication_offer_not_delivered}
 
   defp delivered_offer_proof(record, episode, turn, target) do
     with :ok <- delivered_target(episode, turn, target),
