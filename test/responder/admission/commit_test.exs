@@ -1199,6 +1199,94 @@ defmodule Responder.Admission.CommitTest do
     assert result.episode.state == :working
   end
 
+  test "a new repository-backed episode freezes the selector the model chose" do
+    branch = %{"kind" => "branch", "name" => "feature/payments"}
+    entry = repository_input!("select-branch")
+    context = context!(entry)
+
+    assert {:ok, %{episode: episode}} =
+             Admission.commit(
+               context,
+               source_decision!(:start_episode, branch),
+               "decision:select-branch",
+               work_policy: repository_work_policy()
+             )
+
+    assert %Session{} = session = Repo.get_by!(Session, episode_id: episode.id)
+    assert session.repository_source == branch
+    assert session.repository_ref == "responder"
+  end
+
+  test "a repository-backed episode with no chosen source starts from the configured default" do
+    entry = repository_input!("select-default")
+    context = context!(entry)
+
+    assert {:ok, %{episode: episode}} =
+             Admission.commit(
+               context,
+               source_decision!(:start_episode, nil),
+               "decision:select-default",
+               work_policy: repository_work_policy()
+             )
+
+    assert Repo.get_by!(Session, episode_id: episode.id).repository_source == %{
+             "kind" => "default"
+           }
+  end
+
+  # The selector is route authority, not model authority: a conversational route
+  # that never selected a repository cannot be pointed at one.
+  test "a route without a repository refuses any selector before the episode exists" do
+    entry = record_input!(event_ref: "Ev-select-unbacked", message_ref: "1787832000.009100")
+    context = context!(entry)
+    branch = %{"kind" => "branch", "name" => "feature/payments"}
+
+    assert Admission.validate(context, source_decision!(:start_episode, branch)) ==
+             {:error, {:admission_rejected, :repository_source_not_available}}
+
+    assert Repo.aggregate(from(session in Session), :count) == 0
+  end
+
+  defp repository_input!(suffix) do
+    input =
+      input!(
+        event_ref: "Ev-#{suffix}",
+        message_ref: "1787832000.00#{:erlang.phash2(suffix, 8000) + 1000}"
+      )
+
+    work_profile = %{
+      policy: "work-contributor",
+      policy_digest: String.duplicate("b", 64),
+      repository_ref: "responder"
+    }
+
+    assert {:ok, %{entry: entry}} = Inbox.record(input, work_profile: work_profile)
+    entry
+  end
+
+  defp repository_work_policy do
+    %{
+      digest: String.duplicate("b", 64),
+      name: "work-contributor",
+      repository_ref: "responder"
+    }
+  end
+
+  defp source_decision!(action, repository_source) do
+    assert {:ok, decision} =
+             Decision.parse(%{
+               "action" => Atom.to_string(action),
+               "episode_ref" => nil,
+               "reaction" => nil,
+               "relation" => "unrelated",
+               "reason" => "Recorded model admission decision for this test.",
+               "repository_source" => repository_source,
+               "work_class" => "standard"
+             })
+
+    decision
+  end
+
   defp context!(entry) do
     assert {:ok, context} = context_result(entry)
 
@@ -1232,6 +1320,7 @@ defmodule Responder.Admission.CommitTest do
                "episode_ref" => episode_ref,
                "reaction" => reaction,
                "relation" => Atom.to_string(relation),
+               "repository_source" => nil,
                "reason" => "Recorded model admission decision for this test.",
                "work_class" => selected_work_class
              })

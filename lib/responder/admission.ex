@@ -193,6 +193,7 @@ defmodule Responder.Admission do
          :ok <- allowed_reaction(context.input, decision),
          {:ok, candidate} <- selected_candidate(context, decision.episode_ref),
          :ok <- allowed_relation(candidate, decision.relation),
+         :ok <- allowed_repository_source(context, decision),
          :ok <- source_owner_selection(context, candidate, decision) do
       {:ok,
        %{
@@ -204,6 +205,16 @@ defmodule Responder.Admission do
   end
 
   def validate(_context, _decision), do: {:error, {:admission_rejected, :context}}
+
+  # Only a route whose repository the host already selected can carry a source.
+  defp allowed_repository_source(_context, %Decision{repository_source: nil}), do: :ok
+
+  defp allowed_repository_source(%Context{input_entry: %{repository_ref: repository_ref}}, _dec)
+       when is_binary(repository_ref),
+       do: :ok
+
+  defp allowed_repository_source(_context, _decision),
+    do: {:error, {:admission_rejected, :repository_source_not_available}}
 
   defp source_owner_selection(context, candidate, decision) do
     case source_owner_candidate(context) do
@@ -566,7 +577,7 @@ defmodule Responder.Admission do
                  context.knowledge
                ),
              :ok <- claim_occurrences(context, episode),
-             :ok <- maybe_pin_episode(episode, work_policy),
+             :ok <- maybe_pin_episode(episode, work_policy, decision),
              {:ok, episode} <-
                maybe_resume_blocked_episode(episode, admitted_input_ref(transitions)),
              {:ok, decided} <- persist_decision(entry, decision, decision_ref, episode),
@@ -905,10 +916,13 @@ defmodule Responder.Admission do
 
   defp maybe_pin_episode(nil, _work_policy), do: :ok
   defp maybe_pin_episode(_episode, nil), do: :ok
+  defp maybe_pin_episode(nil, _work_policy, _decision), do: :ok
+  defp maybe_pin_episode(_episode, nil, _decision), do: :ok
 
   defp maybe_pin_episode(
          %Episode{id: episode_id},
-         %{digest: policy_digest, name: policy} = work_policy
+         %{digest: policy_digest, name: policy} = work_policy,
+         %Decision{} = decision
        ) do
     authority_digest = Map.get(work_policy, :authority_digest)
     repository_ref = Map.get(work_policy, :repository_ref)
@@ -920,7 +934,8 @@ defmodule Responder.Admission do
            policy_digest,
            authority_digest,
            repository_ref,
-           repository_context
+           repository_context,
+           decision.repository_source
          ) do
       {:ok, _session} -> :ok
       {:error, _reason} = error -> error

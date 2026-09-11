@@ -231,6 +231,7 @@ defmodule Responder.Operator.WorkflowsTest do
                "episode_ref" => nil,
                "reaction" => %{"emoji_name" => "eyes"},
                "relation" => "unrelated",
+               "repository_source" => nil,
                "reason" => "Acknowledge without starting an episode.",
                "work_class" => nil
              })
@@ -360,6 +361,7 @@ defmodule Responder.Operator.WorkflowsTest do
                "episode_ref" => nil,
                "reaction" => nil,
                "relation" => "unrelated",
+               "repository_source" => nil,
                "reason" => "Evaluate the retained Slack input privately.",
                "work_class" => "standard"
              })

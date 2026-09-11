@@ -6,13 +6,23 @@ defmodule Responder.Admission.Decision do
   never contains a channel, thread, delivery destination, or raw episode identity.
   """
 
+  alias Responder.Work.RepositorySource
+
   @actions [:start_episode, :continue_episode, :reply, :react, :ignore]
   @relations [:same_work, :history_only, :unrelated]
   @work_classes [:conversational, :standard, :deep]
-  @fields ~w(action episode_ref reaction relation reason work_class)
+  @fields ~w(action episode_ref reaction relation reason repository_source work_class)
   @nonblank_pattern "^[^\\x00]*[^\\s\\x00][^\\x00]*$"
 
-  @enforce_keys [:action, :episode_ref, :reaction, :relation, :reason, :work_class]
+  @enforce_keys [
+    :action,
+    :episode_ref,
+    :reaction,
+    :relation,
+    :reason,
+    :repository_source,
+    :work_class
+  ]
   defstruct @enforce_keys
 
   @type t :: %__MODULE__{
@@ -21,6 +31,7 @@ defmodule Responder.Admission.Decision do
           reaction: %{emoji_name: String.t()} | nil,
           relation: :same_work | :history_only | :unrelated,
           reason: String.t(),
+          repository_source: map() | nil,
           work_class: :conversational | :standard | :deep | nil
         }
 
@@ -34,7 +45,9 @@ defmodule Responder.Admission.Decision do
          {:ok, reaction} <- parse_reaction(value["reaction"]),
          :ok <- validate_reason(value["reason"]),
          :ok <- validate_shape(action, value["episode_ref"], reaction, relation),
-         :ok <- validate_work_class(action, work_class) do
+         :ok <- validate_work_class(action, work_class),
+         {:ok, repository_source} <-
+           parse_repository_source(action, value["repository_source"]) do
       {:ok,
        %__MODULE__{
          action: action,
@@ -42,6 +55,7 @@ defmodule Responder.Admission.Decision do
          reaction: reaction,
          relation: relation,
          reason: value["reason"],
+         repository_source: repository_source,
          work_class: work_class
        }}
     end
@@ -61,6 +75,7 @@ defmodule Responder.Admission.Decision do
       "reaction" => reaction_document(decision.reaction),
       "relation" => Atom.to_string(decision.relation),
       "reason" => decision.reason,
+      "repository_source" => decision.repository_source,
       "work_class" => work_class_document(decision.work_class)
     }
   end
@@ -81,14 +96,25 @@ defmodule Responder.Admission.Decision do
   end
 
   @spec json_schema() :: map()
-  def json_schema, do: json_schema(@actions, :any)
+  def json_schema, do: json_schema(@actions, :any, false)
 
   @spec json_schema([atom()]) :: map()
   def json_schema(allowed_actions) when is_list(allowed_actions),
-    do: json_schema(allowed_actions, :any)
+    do: json_schema(allowed_actions, :any, false)
 
   @spec json_schema([atom()], :any | [String.t()] | nil) :: map()
-  def json_schema(allowed_actions, reaction_names) when is_list(allowed_actions) do
+  def json_schema(allowed_actions, reaction_names) when is_list(allowed_actions),
+    do: json_schema(allowed_actions, reaction_names, false)
+
+  @doc """
+  Publishes the decision contract for one source.
+
+  `repository_source?` is host-owned: only a route whose repository Responder
+  already selected may offer a source selector, and only on a new episode.
+  """
+  @spec json_schema([atom()], :any | [String.t()] | nil, boolean()) :: map()
+  def json_schema(allowed_actions, reaction_names, repository_source?)
+      when is_list(allowed_actions) and is_boolean(repository_source?) do
     actions = Enum.filter(@actions, &(&1 in allowed_actions))
 
     %{
@@ -110,6 +136,7 @@ defmodule Responder.Admission.Decision do
         },
         "relation" => %{"enum" => Enum.map(@relations, &Atom.to_string/1)},
         "reason" => bounded_string_schema(512),
+        "repository_source" => repository_source_schema(repository_source?),
         "work_class" => %{
           "anyOf" => [
             %{"enum" => Enum.map(@work_classes, &Atom.to_string/1), "type" => "string"},
@@ -117,40 +144,48 @@ defmodule Responder.Admission.Decision do
           ]
         }
       },
-      "oneOf" => decision_shapes(actions, reaction_names),
+      "oneOf" => decision_shapes(actions, reaction_names, repository_source?),
       "required" => @fields,
       "title" => "Responder admission decision",
       "type" => "object"
     }
   end
 
-  defp decision_shapes(actions, reaction_names) do
+  defp decision_shapes(actions, reaction_names, repository_source?) do
+    selectable = repository_source? and :start_episode in actions
+
     [
-      shape("start_episode", nil, nil, "unrelated", :investigation),
-      shape("start_episode", :reference, nil, "history_only", :investigation),
-      shape("continue_episode", :reference, nil, "same_work", :investigation),
-      shape("reply", nil, nil, "unrelated", :conversation),
-      shape("reply", :reference, nil, "same_work", :conversation),
-      shape("reply", :reference, nil, "history_only", :conversation),
-      shape("react", nil, {:reaction, reaction_names}, "unrelated", nil),
-      shape("ignore", nil, nil, "unrelated", nil)
+      shape("start_episode", nil, nil, "unrelated", :investigation, selectable),
+      shape("start_episode", :reference, nil, "history_only", :investigation, selectable),
+      shape("continue_episode", :reference, nil, "same_work", :investigation, false),
+      shape("reply", nil, nil, "unrelated", :conversation, false),
+      shape("reply", :reference, nil, "same_work", :conversation, false),
+      shape("reply", :reference, nil, "history_only", :conversation, false),
+      shape("react", nil, {:reaction, reaction_names}, "unrelated", nil, false),
+      shape("ignore", nil, nil, "unrelated", nil, false)
     ]
     |> Enum.filter(fn %{"properties" => %{"action" => %{"const" => action}}} ->
       String.to_existing_atom(action) in actions
     end)
   end
 
-  defp shape(action, episode_ref, reaction, relation, work_class) do
+  defp shape(action, episode_ref, reaction, relation, work_class, selectable) do
     %{
       "properties" => %{
         "action" => %{"const" => action},
         "episode_ref" => reference_shape(episode_ref),
         "reaction" => reaction_shape(reaction),
         "relation" => %{"const" => relation},
+        "repository_source" => repository_source_schema(selectable),
         "work_class" => work_class_shape(work_class)
       }
     }
   end
+
+  defp repository_source_schema(false), do: %{"type" => "null"}
+
+  defp repository_source_schema(true),
+    do: %{"anyOf" => [RepositorySource.json_schema(), %{"type" => "null"}]}
 
   defp reference_shape(nil), do: %{"type" => "null"}
 
@@ -202,6 +237,19 @@ defmodule Responder.Admission.Decision do
   end
 
   defp parse_enum(_value, _allowed, field), do: {:error, {:invalid_decision, field}}
+
+  # A source is chosen once, when the episode is created. Continuing, replying,
+  # reacting and ignoring inherit whatever their work already pinned.
+  defp parse_repository_source(_action, nil), do: {:ok, nil}
+
+  defp parse_repository_source(:start_episode, value) do
+    case RepositorySource.parse(value) do
+      {:ok, source} -> {:ok, source}
+      {:error, _reason} -> invalid(:repository_source)
+    end
+  end
+
+  defp parse_repository_source(_action, _value), do: invalid(:repository_source)
 
   defp parse_work_class(nil), do: {:ok, nil}
   defp parse_work_class(value), do: parse_enum(value, @work_classes, :work_class)

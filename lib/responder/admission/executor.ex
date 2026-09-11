@@ -227,7 +227,8 @@ defmodule Responder.Admission.Executor do
     schema =
       Decision.json_schema(
         Input.allowed_actions(context.input),
-        Input.reaction_names(context.input)
+        Input.reaction_names(context.input),
+        is_binary(entry.repository_ref)
       )
 
     with :ok <- renew_lease(settings),

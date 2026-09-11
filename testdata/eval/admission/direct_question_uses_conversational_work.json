@@ -27,6 +27,7 @@
     "reaction": null,
     "work_class": "conversational",
     "relation": "unrelated",
+    "repository_source": null,
     "reason": "This direct conceptual question can be answered without a longer investigation."
   },
   "expected": {

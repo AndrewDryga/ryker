@@ -48,6 +48,7 @@
     "reaction": null,
     "work_class": "standard",
     "relation": "same_work",
+    "repository_source": null,
     "reason": "Both cards name the same external run."
   },
   "expected": {

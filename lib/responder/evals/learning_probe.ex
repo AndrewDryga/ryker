@@ -114,6 +114,7 @@ defmodule Responder.Evals.LearningProbe do
                reaction: nil,
                relation: :unrelated,
                reason: "Authored held-out recall evaluation; routing is not under test.",
+               repository_source: nil,
                work_class: :standard
              },
              id,

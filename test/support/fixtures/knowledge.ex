@@ -28,6 +28,7 @@ defmodule Responder.Fixtures.Knowledge do
         "episode_ref" => nil,
         "reaction" => nil,
         "relation" => "unrelated",
+        "repository_source" => nil,
         "reason" => "No reply is useful.",
         "work_class" => nil
       })

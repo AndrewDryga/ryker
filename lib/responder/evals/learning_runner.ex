@@ -431,6 +431,7 @@ defmodule Responder.Evals.LearningRunner do
         "episode_ref" => nil,
         "reaction" => nil,
         "relation" => "unrelated",
+        "repository_source" => nil,
         "reason" => "Silent shadow learning evaluation.",
         "work_class" => nil
       })

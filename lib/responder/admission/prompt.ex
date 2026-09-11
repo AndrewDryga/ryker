@@ -72,6 +72,16 @@ defmodule Responder.Admission.Prompt do
   The class chooses compute from a host-owned profile. It never changes repository, tools, credentials,
   or write authority. Do not choose deep merely because the message is long, urgent, or asks for edits.
 
+  repository_source is null unless repository_source_kinds is present, and then only on
+  start_episode: it selects which source inside the already authorized repository the new work
+  begins from. Use {"kind":"default"} for the configured default branch,
+  {"kind":"branch","name":"<branch>"} for a named branch, {"kind":"pull_request","number":<n>} for a
+  pull request, or {"kind":"commit","sha":"<full 40 or 64 character lowercase object id>"} for one
+  exact commit. Use null unless the event actually names a source. You cannot choose a repository,
+  remote, URL, path, tag, or raw ref, and naming somebody's branch or pull request never authorizes
+  writing to it. Continuing, replying, reacting, and ignoring keep whatever source their work
+  already pinned.
+
   Use history_only when the older episode is useful background but the current event is new work. A
   history link never reuses the older destination. Use only candidate references and relations
   present in the supplied context. Do not invent identifiers.

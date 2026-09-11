@@ -432,6 +432,7 @@ defmodule Responder.Webhooks.EndToEndTest do
       "episode_ref" => nil,
       "reaction" => nil,
       "relation" => "unrelated",
+      "repository_source" => nil,
       "reason" => "This unknown event needs a new episode so Responder can inspect it.",
       "work_class" => "standard"
     })

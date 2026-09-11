@@ -107,6 +107,7 @@ defmodule Responder.Evals.CoopRunnerTest do
         "episode_ref" => nil,
         "reaction" => nil,
         "relation" => "unrelated",
+        "repository_source" => nil,
         "reason" => "Treat it as new work.",
         "work_class" => "standard"
       })

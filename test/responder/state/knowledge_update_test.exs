@@ -42,6 +42,7 @@ defmodule Responder.State.KnowledgeUpdateTest do
       "action" => "ignore",
       "episode_ref" => nil,
       "relation" => "unrelated",
+      "repository_source" => nil,
       "reason" => "Learn without responding.",
       "reaction" => nil,
       "work_class" => nil,

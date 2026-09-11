@@ -403,6 +403,7 @@ defmodule Responder.Admission.ContextTest do
                "episode_ref" => candidate.ref,
                "reaction" => nil,
                "relation" => "history_only",
+               "repository_source" => nil,
                "reason" => "The older work is useful history, but this is a new episode.",
                "work_class" => "standard"
              })
@@ -415,6 +416,7 @@ defmodule Responder.Admission.ContextTest do
                "episode_ref" => candidate.ref,
                "reaction" => nil,
                "relation" => "same_work",
+               "repository_source" => nil,
                "reason" => "Continue the old work.",
                "work_class" => "standard"
              })
@@ -430,6 +432,7 @@ defmodule Responder.Admission.ContextTest do
                "episode_ref" => "candidate-not-offered",
                "reaction" => nil,
                "relation" => "same_work",
+               "repository_source" => nil,
                "reason" => "Try an arbitrary reference.",
                "work_class" => "standard"
              })
@@ -450,6 +453,7 @@ defmodule Responder.Admission.ContextTest do
           "episode_ref" => nil,
           "reaction" => nil,
           "relation" => "unrelated",
+          "repository_source" => nil,
           "reason" => "Exact duplicate.",
           "work_class" => nil
         },

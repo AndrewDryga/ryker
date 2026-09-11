@@ -53,6 +53,7 @@ defmodule Responder.ControlPlane.SubscriptionProjectionTest do
       "episode_ref" => nil,
       "reaction" => nil,
       "relation" => "unrelated",
+      "repository_source" => nil,
       "reason" => "Monitor the recorded run.",
       "work_class" => "standard"
     }

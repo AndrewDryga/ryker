@@ -54,6 +54,7 @@
     "reaction": null,
     "work_class": "standard",
     "relation": "history_only",
+    "repository_source": null,
     "reason": "The cards come from the same app, but they identify different external runs."
   },
   "expected": {

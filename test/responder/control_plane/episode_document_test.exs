@@ -456,6 +456,7 @@ defmodule Responder.ControlPlane.EpisodeDocumentTest do
           "reaction" => nil,
           "reason" => "The user sent a greeting that can be answered directly.",
           "relation" => "unrelated",
+          "repository_source" => nil,
           "work_class" => "conversational"
         })
       ]

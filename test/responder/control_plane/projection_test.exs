@@ -181,6 +181,7 @@ defmodule Responder.ControlPlane.ProjectionTest do
       "episode_ref" => target.episode.key,
       "reaction" => nil,
       "relation" => "unrelated",
+      "repository_source" => nil,
       "reason" => "Material work is required.",
       "work_class" => "standard"
     }
@@ -308,6 +309,7 @@ defmodule Responder.ControlPlane.ProjectionTest do
           "episode_ref" => transition.episode.key,
           "reaction" => nil,
           "relation" => "unrelated",
+          "repository_source" => nil,
           "reason" => "Material work is required.",
           "work_class" => "standard"
         },
@@ -317,6 +319,7 @@ defmodule Responder.ControlPlane.ProjectionTest do
             "episode_ref" => transition.episode.key,
             "reaction" => nil,
             "relation" => "unrelated",
+            "repository_source" => nil,
             "reason" => "Material work is required.",
             "work_class" => "standard"
           }),
@@ -2226,6 +2229,7 @@ defmodule Responder.ControlPlane.ProjectionTest do
       "episode_ref" => nil,
       "reaction" => nil,
       "relation" => "unrelated",
+      "repository_source" => nil,
       "reason" => "Requires evidence.",
       "work_class" => "standard"
     }

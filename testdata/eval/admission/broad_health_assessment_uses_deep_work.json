@@ -27,6 +27,7 @@
     "reaction": null,
     "work_class": "deep",
     "relation": "unrelated",
+    "repository_source": null,
     "reason": "This broad, consequential assessment requires multi-source evidence and careful coverage reasoning."
   },
   "expected": {

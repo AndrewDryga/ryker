@@ -48,6 +48,7 @@
     "reaction": null,
     "work_class": "standard",
     "relation": "same_work",
+    "repository_source": null,
     "reason": "The newer card is another lifecycle revision of the active work."
   },
   "expected": {

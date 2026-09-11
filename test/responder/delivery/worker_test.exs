@@ -144,6 +144,7 @@ defmodule Responder.Delivery.WorkerTest do
                "episode_ref" => nil,
                "reaction" => %{"emoji_name" => "eyes"},
                "relation" => "unrelated",
+               "repository_source" => nil,
                "reason" => "Acknowledge without starting work.",
                "work_class" => nil
              })
