@@ -1633,7 +1633,7 @@ defmodule Responder.CoopFleet.ControlPlaneTest do
     }
   end
 
-  defp storage(overrides \\ []) do
+  defp storage(overrides) do
     %{
       "allocation" => Keyword.get(overrides, :allocation, "open"),
       "capacity_bytes" => 536_870_912_000,
