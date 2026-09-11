@@ -630,6 +630,14 @@ defmodule Responder.Admission.Executor do
     "The reaction is unavailable for this source. Allowed emoji names: #{inspect(details[:allowed])}; submitted: #{inspect(details[:submitted])}."
   end
 
+  defp violation({:admission_rejected, :repository_source_not_available}) do
+    "repository_source is unavailable for this source: the route selected no repository. Use null."
+  end
+
+  defp violation({:invalid_decision, :repository_source}) do
+    "repository_source must be null, or on start_episode one of the four authorized selector shapes: {\"kind\":\"default\"}, {\"kind\":\"branch\",\"name\":...}, {\"kind\":\"pull_request\",\"number\":...}, {\"kind\":\"commit\",\"sha\":<full lowercase object id>}. Other actions keep the source their work already pinned."
+  end
+
   defp violation({:invalid_decision, field}) do
     "The decision field #{field} does not satisfy the attached response schema."
   end
