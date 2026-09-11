@@ -19,6 +19,7 @@ defmodule Responder.Retention.DataTest do
 
   alias Responder.State.{
     Behaviors,
+    CaseRecord,
     RecordChangeset,
     Schedule,
     ScheduleChangeset,
@@ -388,6 +389,29 @@ defmodule Responder.Retention.DataTest do
     assert Repo.get(Responder.Episodes.Episode, eligible.episode.id) == nil
     assert Repo.get(Session, eligible.session.id) == nil
     assert Repo.get(Turn, eligible.turn.id) == nil
+  end
+
+  test "routine cleanup reclaims the transcript and leaves the retained case standing" do
+    # A matching incident a year later has to start from what was learned, but
+    # the raw transcript, the Coop workspace and the episode rows it came from
+    # are disposable and must still be reclaimed on schedule.
+    work = settled_work!("retained-case") |> discard_session!()
+    backdate_history!(work, 120)
+
+    assert {:ok, result} =
+             Data.prune(settings(episode_history_seconds: 60, audit_data_seconds: 600))
+
+    assert result.episode_histories == 1
+
+    retained = Repo.get_by!(CaseRecord, case_ref: "case:#{work.episode.id}")
+    assert retained.status == :active
+    assert retained.episode_key == work.episode.key
+
+    # The audit horizon removes the episode row itself; the case does not
+    # depend on it and survives with its own identity.
+    assert {:ok, _result} = Data.prune(settings(audit_data_seconds: 60))
+    assert Repo.get(Responder.Episodes.Episode, work.episode.id) == nil
+    assert Repo.get_by!(CaseRecord, case_ref: "case:#{work.episode.id}").status == :active
   end
 
   test "an inert finding follows history expiry while an unanswered question still pins custody" do

@@ -53,6 +53,7 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
   @routing_digests_version 20_260_911_001_100
   @delivery_targets_version 20_260_911_001_200
   @association_corrections_version 20_260_911_001_300
+  @retained_cases_version 20_260_911_001_400
   @learning_executions_version 20_260_911_001_500
   # Cross-conversation routing migrations stay named as their own group so the
   # ladder can be reconciled with sibling work.
@@ -60,7 +61,8 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
     @episode_origins_version,
     @routing_digests_version,
     @delivery_targets_version,
-    @association_corrections_version
+    @association_corrections_version,
+    @retained_cases_version
   ]
   @latest_versions [
     @typed_question_answers_version,
@@ -76,6 +78,7 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
     @routing_digests_version,
     @delivery_targets_version,
     @association_corrections_version,
+    @retained_cases_version,
     @learning_executions_version
   ]
   @memory_versions Enum.to_list(20_260_908_000_100..20_260_908_001_100//100) ++
@@ -1908,12 +1911,30 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
                [
                  @routing_digests_version,
                  @delivery_targets_version,
-                 @association_corrections_version
+                 @association_corrections_version,
+                 @retained_cases_version
                ]
 
       assert table_exists?(repo, prefix, "episode_routing_digests")
       assert table_exists?(repo, prefix, "episode_association_corrections")
+      assert table_exists?(repo, prefix, "episode_case_records")
+      assert table_exists?(repo, prefix, "episode_case_lessons")
       assert column_exists?(repo, prefix, "episode_work_turns", "delivery_target")
+
+      case_id = insert_case_record!(repo, prefix, ids.episode_id)
+
+      assert_raise Postgrex.Error, ~r/retained cases or lessons have data/, fn ->
+        Ecto.Migrator.run(repo, @migrations_path, :down, step: 1, prefix: prefix, log: false)
+      end
+
+      SQL.query!(
+        repo,
+        "DELETE FROM #{prefix}.episode_case_records WHERE id = $1::text::uuid",
+        [case_id]
+      )
+
+      assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 1, prefix: prefix, log: false) ==
+               [@retained_cases_version]
 
       correction_id = insert_association_correction!(repo, prefix, ids.episode_id)
 
@@ -1949,6 +1970,7 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
 
       refute table_exists?(repo, prefix, "episode_routing_digests")
       refute table_exists?(repo, prefix, "episode_association_corrections")
+      refute table_exists?(repo, prefix, "episode_case_records")
       refute column_exists?(repo, prefix, "episode_work_turns", "delivery_target")
 
       assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 1, prefix: prefix, log: false) ==
@@ -2718,6 +2740,29 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
     )
 
     %{episode_id: episode_id, session_id: session_id, turn_id: turn_id, ingress_id: ingress_id}
+  end
+
+  defp insert_case_record!(repo, prefix, episode_id) do
+    id = Ecto.UUID.generate()
+
+    SQL.query!(
+      repo,
+      """
+      INSERT INTO #{prefix}.episode_case_records (
+        id, case_ref, episode_id, episode_key, execution_mode, transport, conversation_ref,
+        workspace_ref, problem, search_text, status, closed_at, content_fingerprint,
+        inserted_at, updated_at
+      ) VALUES (
+        $1::text::uuid, 'case:ladder', $2::text::uuid, 'ladder', 'live', 'slack',
+        'slack:T1:CDEVOPS', 'slack:T1', 'The reporting database was unavailable.',
+        'reporting database unavailable', 'active', clock_timestamp(), $3,
+        clock_timestamp(), clock_timestamp()
+      )
+      """,
+      [id, episode_id, String.duplicate("a", 64)]
+    )
+
+    id
   end
 
   defp insert_association_correction!(repo, prefix, episode_id) do

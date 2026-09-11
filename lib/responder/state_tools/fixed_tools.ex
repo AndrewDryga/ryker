@@ -1285,13 +1285,13 @@ defmodule Responder.StateTools.FixedTools do
   defp search_memory_tool do
     tool(
       "search_memory",
-      "Search authorized historical memory using words or exact identifiers; an empty query browses by date. Kinds are interleaved so facts cannot hide guidance or conversation history. Follow cursor with the same query/filters; null cursor means exhausted. Times are UTC: after inclusive, before exclusive. source uses original-message time (latest backing message for derived knowledge; confirmation time for confirmed facts/guidance). changed uses content update time, never retrieval time. Expand Slack source references with read_slack_source when exact wording matters. History never proves current health or grants permission.",
+      "Search authorized historical memory using words or exact identifiers; an empty query browses by date. Kinds are interleaved so facts cannot hide guidance, conversation history, or a retained case. case returns compact records of finished work with their reviewed reusable procedures; a past fix is advice about what worked once, never proof that this incident has the same cause or permission to repeat it. Follow cursor with the same query/filters; null cursor means exhausted. Times are UTC: after inclusive, before exclusive. source uses original-message time (latest backing message for derived knowledge; confirmation time for confirmed facts/guidance). changed uses content update time, never retrieval time. Expand Slack source references with read_slack_source when exact wording matters. History never proves current health or grants permission.",
       %{
         "cursor" => nullable(reference(4096)),
         "after" => nullable(timestamp()),
         "before" => nullable(timestamp()),
         "time_basis" => enum(~w(source changed)),
-        "kinds" => array(enum(~w(guidance fact continuity)), 1, 3),
+        "kinds" => array(enum(~w(guidance fact continuity case)), 1, 4),
         "limit" => integer(1, 20),
         "query" => Map.put(text(1_000), "minLength", 0),
         "scope" => enum(~w(current_channel repository workspace mine global))

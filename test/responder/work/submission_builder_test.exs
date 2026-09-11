@@ -6,7 +6,15 @@ defmodule Responder.Work.SubmissionBuilderTest do
   alias Responder.Fixtures.Knowledge, as: KnowledgeFixtures
   alias Responder.GitHub.SourceRef, as: GitHubSourceRef
   alias Responder.Slack.SourceRef
-  alias Responder.State.{BehaviorChangeset, Memories, MemoryEntryChangeset, RecordChangeset}
+
+  alias Responder.State.{
+    BehaviorChangeset,
+    Cases,
+    Memories,
+    MemoryEntryChangeset,
+    RecordChangeset
+  }
+
   alias Responder.State.{Continuity, ConversationObservation, KnowledgeSnapshot, Records}
   alias Responder.Work.{Custody, DeliveryReceipt, Final, Result, Submission, SubmissionBuilder}
 
@@ -31,6 +39,36 @@ defmodule Responder.Work.SubmissionBuilderTest do
 
       assert Enum.any?(knowledge, &(&1["source_ref"] == topic["source_ref"])) == unquote(offered?)
     end
+  end
+
+  test "the first briefing recalls the retained case of a matching older incident" do
+    # Everything learned from last year's outage expired with the transcript it
+    # came from, so the same incident started from nothing and rediscovered the
+    # same fix. The case is recalled as history: advice, never authority.
+    outage = "Postgres primary pgsql-prod-01 is unreachable and replication is stalled"
+    old = claim_episode!("retained-case-history", outage)
+    complete!(old)
+
+    assert {:ok, record} = Cases.capture(old.episode.id)
+
+    assert {:ok, draft} =
+             Cases.draft_lesson(%{
+               case_ref: record.case_ref,
+               conditions: "The primary is unreachable and the replica is healthy",
+               revision: 1,
+               steps: "Promote the healthy replica after confirming its replication lag"
+             })
+
+    assert {:ok, _approved} =
+             Cases.approve_lesson(draft.lesson_ref, "slack:user:UOPERATOR", "review:1")
+
+    current = claim_episode!("retained-case-current", "#{outage} again this morning")
+
+    assert {:ok, submission} = SubmissionBuilder.build(current)
+    assert [recalled] = submission["context"]["retained_cases"]
+    assert recalled["case_ref"] == record.case_ref
+    assert [lesson] = recalled["lessons"]
+    assert lesson["steps"] =~ "Promote the healthy replica"
   end
 
   test "the first turn is a self-contained universal briefing with one attached final schema" do
@@ -1247,6 +1285,20 @@ defmodule Responder.Work.SubmissionBuilderTest do
 
     assert other_turn.selection_ledger == nil
     assert other_turn.submission_fingerprint != nil
+  end
+
+  defp complete!(claim) do
+    assert {:ok, _transition} =
+             Episodes.apply(%Responder.Episodes.Command.AcceptResult{
+               decision_reason: "The replica was promoted and reads recovered.",
+               delivery: :none,
+               delivery_ref: nil,
+               episode_key: claim.episode.key,
+               expected_turn_ref: claim.episode.owner_ref,
+               next_turn_ref: nil,
+               occurred_at: DateTime.add(@now, 60, :second),
+               result_ref: "result:#{claim.episode.id}"
+             })
   end
 
   defp claim_episode!(suffix, text) do

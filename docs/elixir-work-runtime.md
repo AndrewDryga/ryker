@@ -546,6 +546,25 @@ workspace retained only for unpublished, unmerged commits may be explicitly disc
 action always obtains a fresh Coop plan with unmerged acceptance; dirty work remains retained. Both
 actions are idempotent and leave an audit row.
 
+Before a finished episode becomes eligible for that history cleanup, `Responder.State.Cases`
+captures its compact case: the problem, the occurrence identities it was reported under, the
+evidence-backed cause when one was actually established, what was attempted, how it ended, and the
+links back to the sources. The case holds no raw payload, keeps the source identities it was built
+from as lineage, and has no routine age expiry, so a matching incident a year later starts new work
+with last year's record and its reviewed fix in hand while the transcript and Coop workspace that
+produced it are still reclaimed on schedule. Capture is idempotent by content, so repeated close,
+reopen, cleanup and restart events keep one case per intended revision rather than a record that
+feeds on its own output.
+
+A lesson drawn from a case is a draft until it is reviewed; only an approved lesson is presented as
+a reusable procedure, and approving a new revision supersedes the one it replaces. Both are reached
+from `search_memory`'s `case` kind and from the first Work briefing's `retained_cases`, always as
+history: a past fix is advice about what worked once, never proof that this incident has the same
+cause or permission to repeat it. Deletion is explicit and reaches everything derived — the case
+text and every lesson are erased while the identity remains, the next capture does not rebuild a
+deleted case, and somebody deleting the original message redacts every case built from it, because
+routine expiry of a transcript is not a withdrawal but removing the message is.
+
 Large ingress, prompt, candidate, validation, delivery, and artifact bodies are redacted on the
 operational horizon only after all of the episode's Coop sessions are proven discarded. The episode
 event stream remains coherent until `episode_history_seconds`; it is never thinned one event at a
