@@ -90,8 +90,8 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
     @inherited_participation_version,
     @work_placement_version,
     @import_receipts_version,
-    @coop_session_evidence_version,
-    @repository_source_version
+    @repository_source_version,
+    @coop_session_evidence_version
   ]
   @memory_versions Enum.to_list(20_260_908_000_100..20_260_908_001_100//100) ++
                      [@bounded_sources_version]
@@ -1632,8 +1632,8 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
                log: false
              ) ==
                [
-                 @repository_source_version,
                  @coop_session_evidence_version,
+                 @repository_source_version,
                  @import_receipts_version,
                  @work_placement_version,
                  @inherited_participation_version,
@@ -1729,9 +1729,10 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
 
       # The worker session evidence sits above the learning rungs and is empty in
       # this schema, so it rolls back on its own first.
-      assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 5, prefix: prefix, log: false) ==
+      assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 6, prefix: prefix, log: false) ==
                [
                  @coop_session_evidence_version,
+                 @repository_source_version,
                  @import_receipts_version,
                  @work_placement_version,
                  @inherited_participation_version,
@@ -1784,14 +1785,6 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
                [@selection_ledger_version]
 
       refute column_exists?(repo, prefix, "episode_work_turns", "selection_ledger")
-
-      # The repository source column is the newest and plainly reversible.
-      assert column_exists?(repo, prefix, "episode_work_sessions", "repository_source")
-
-      assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 1, prefix: prefix, log: false) ==
-               [@repository_source_version]
-
-      refute column_exists?(repo, prefix, "episode_work_sessions", "repository_source")
 
       configuration_id = insert_default_channel_configuration!(repo, prefix)
 
@@ -1975,6 +1968,7 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
                  @inherited_participation_version,
                  @work_placement_version,
                  @import_receipts_version,
+                 @repository_source_version,
                  @coop_session_evidence_version
                ]
 
@@ -1989,9 +1983,10 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
       # Six newer migrations sit above the routing rungs; all are reversible in
       # this schema, which recorded no worker evidence, no settings and no
       # metered learning execution.
-      assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 6, prefix: prefix, log: false) ==
+      assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 7, prefix: prefix, log: false) ==
                [
                  @coop_session_evidence_version,
+                 @repository_source_version,
                  @import_receipts_version,
                  @work_placement_version,
                  @inherited_participation_version,
@@ -2184,10 +2179,10 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
         [String.duplicate("a", 64), String.duplicate("b", 64)]
       )
 
-      # The worker session evidence is the only rung above the settings tables and
-      # holds nothing in this schema, so it rolls back on its own.
-      assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 1, prefix: prefix, log: false) ==
-               [@coop_session_evidence_version]
+      # The worker session evidence and the repository source column sit above the
+      # settings tables and hold nothing here, so they roll back on their own.
+      assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 2, prefix: prefix, log: false) ==
+               [@coop_session_evidence_version, @repository_source_version]
 
       # The receipt is the only proof that a rerun of the importer is already
       # applied; dropping it under a live installation would let a rerun write
@@ -2244,6 +2239,7 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
                  @inherited_participation_version,
                  @work_placement_version,
                  @import_receipts_version,
+                 @repository_source_version,
                  @coop_session_evidence_version
                ]
     after
