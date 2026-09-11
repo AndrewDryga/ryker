@@ -232,6 +232,7 @@ defmodule Responder.ControlPlane.SettingsEditor do
       <div class="settings-section-head">
         <h2 id={"#{@id}-title"}>{@section.title}</h2>
         <p class="settings-description">{@section.description}</p>
+        <p :if={notice(@section, @view)} class="settings-notice">{notice(@section, @view)}</p>
         <ul :if={@section[:credentials]} class="settings-credentials">
           <li :for={credential <- credentials(@section, @view)} data-status={credential.status}>
             <code>{credential.name}</code>
@@ -471,6 +472,20 @@ defmodule Responder.ControlPlane.SettingsEditor do
 
   defp input_id(id, field), do: "#{id}-#{SettingsSections.field_name(field)}"
   defp help_id(id, field), do: input_id(id, field) <> "-help"
+
+  # A section the deployment has not made usable says so, rather than offering
+  # an empty list of credentials and a save that can only fail.
+  defp notice(%{key: :webhooks}, %{webhook_secret_names: :invalid}),
+    do:
+      "RESPONDER_WEBHOOK_SECRET_NAMES is not a valid list of credential names, " <>
+        "so no source can be saved until the deployment fixes it."
+
+  defp notice(%{key: :webhooks}, %{webhook_secret_names: []}),
+    do:
+      "This deployment registered no webhook credentials. Add names to " <>
+        "RESPONDER_WEBHOOK_SECRET_NAMES, supply their values, and restart before saving a source."
+
+  defp notice(_section, _view), do: nil
 
   defp items(section, view), do: SettingsSections.items(section, view)
 

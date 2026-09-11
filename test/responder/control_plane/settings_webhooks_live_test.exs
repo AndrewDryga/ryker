@@ -195,6 +195,16 @@ defmodule Responder.ControlPlane.SettingsWebhooksLiveTest do
            )
   end
 
+  test "a deployment that registered no webhook credentials says so instead of offering none" do
+    System.delete_env("RESPONDER_WEBHOOK_SECRET_NAMES")
+    installation!()
+
+    {:ok, view, _html} = open()
+
+    assert has_element?(view, ".settings-notice", "registered no webhook credentials")
+    refute has_element?(view, "#settings-webhooks-secret_name option[value='#{@registered}']")
+  end
+
   defp open, do: live(build_conn() |> Map.put(:host, "localhost"), "/configuration")
 
   defp source_params(overrides \\ %{}) do
