@@ -55,6 +55,7 @@ defmodule Responder.ControlPlane.WorkbenchLive do
        row_ids: [],
        new_items: 0,
        episode: nil,
+       disclosed: MapSet.new(),
        requests: nil,
        request_selection: %{},
        lab: nil,
@@ -94,12 +95,20 @@ defmodule Responder.ControlPlane.WorkbenchLive do
        filter_draft: filter_draft,
        filter_draft_for_patch: nil,
        request_selection: %{},
+       disclosed: navigation_disclosures(socket, location.path),
        native: :loading,
        body: "",
        page_title: "Workspace",
        observed_at: nil
      )
      |> refresh(true)}
+  end
+
+  # Reading state belongs to one record. Navigating to a different Timeline must
+  # not carry another record's opened bodies, which would load evidence the
+  # reader never asked for on this page.
+  defp navigation_disclosures(socket, path) do
+    if socket.assigns.path == path, do: socket.assigns.disclosed, else: MapSet.new()
   end
 
   defp subscribe(socket, domain) do
@@ -152,6 +161,23 @@ defmodule Responder.ControlPlane.WorkbenchLive do
   @impl true
   def handle_event(event, _params, socket) when event in ["refresh", "show-new"],
     do: {:noreply, refresh(socket, true)}
+
+  # A heavy body is prepared when the reader opens it and stays prepared while
+  # they read: a refresh that closed the prompt they were halfway through would
+  # make the page unusable during exactly the work it exists to explain.
+  def handle_event("disclose", %{"artifact" => id}, socket)
+      when is_binary(id) and byte_size(id) <= 256 do
+    if MapSet.member?(socket.assigns.disclosed, id) do
+      {:noreply, socket}
+    else
+      {:noreply,
+       socket
+       |> assign(:disclosed, MapSet.put(socket.assigns.disclosed, id))
+       |> refresh()}
+    end
+  end
+
+  def handle_event("disclose", _params, socket), do: {:noreply, socket}
 
   def handle_event("search-activity", params, socket) do
     params =
@@ -286,7 +312,11 @@ defmodule Responder.ControlPlane.WorkbenchLive do
   defp load_detail(socket, options, ["timeline", _ref | _rest]) do
     with {:ok, episode} <- options.projection.episode.(socket.assigns.params["ref"]),
          {:ok, requests} <- episode_requests(socket, options, episode.episode.ref),
-         {:ok, timeline} <- options.projection.model_timeline.(socket.assigns.params["ref"], %{}) do
+         {:ok, timeline} <-
+           options.projection.model_timeline.(
+             socket.assigns.params["ref"],
+             %{"disclosed" => MapSet.to_list(socket.assigns.disclosed)}
+           ) do
       assign(socket,
         native: :episode,
         page_title: "Timeline",

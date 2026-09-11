@@ -87,13 +87,25 @@ defmodule Responder.ControlPlane.EpisodeRequest do
           </details>
         <% end %>
       </div>
-      <details :if={@prompt_section} class="final-prompt" id={"#{@request.id}-final-prompt"}>
+      <details
+        :if={@prompt_section}
+        class="final-prompt"
+        id={"#{@request.id}-final-prompt"}
+        data-artifact={@prompt_section[:artifact_id]}
+        data-revoked={if revoked?(@prompt_section.artifact), do: "true"}
+      >
         <summary>
           Full submitted request
+          <span :if={@prompt_section.artifact.state == :collapsed}>{bytes(
+            @prompt_section.artifact.bytes
+          )}</span>
           <span :if={@prompt_section.artifact.redacted}>Secrets redacted</span><span :if={
             @prompt_section.artifact.truncated
           }>Partial display</span>
         </summary>
+        <p :if={@prompt_section.artifact.state == :collapsed} class="artifact-loading" role="status">
+          Loading the submitted prompt…
+        </p>
         {Phoenix.HTML.raw(
           RequestContextHTML.submitted(@request.sections, @request.id <> "-submitted")
         )}
@@ -320,6 +332,16 @@ defmodule Responder.ControlPlane.EpisodeRequest do
     end
   end
 
+  # Retention, redaction and a withdrawn authorization all remove the body. The
+  # reader's open disclosure must not be restored around content that is gone.
+  defp revoked?(%{state: state}), do: state in [:expired, :not_recorded]
+
+  defp bytes(nil), do: "Size not recorded"
+  defp bytes(count) when count < 1_024, do: "#{count} bytes"
+  defp bytes(count) when count < 1_024 * 1_024, do: "#{div(count, 1_024)} KiB"
+  defp bytes(count), do: "#{Float.round(count / (1_024 * 1_024), 1)} MiB"
+
+  defp availability(%{state: :collapsed}), do: nil
   defp availability(%{state: :expired}), do: "Expired"
   defp availability(%{state: :not_recorded}), do: "Not recorded"
   defp availability(%{truncated: true}), do: "Partial display"

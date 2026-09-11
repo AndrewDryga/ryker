@@ -17,13 +17,15 @@ function fixture(hash = "") {
   document.activeElement = document.body
   const window = {scrollY: 100, innerHeight: 800, scrollTo: value => scrolled.push(value),
     addEventListener: (name, handler) => listeners.set(name, handler), removeEventListener: name => listeners.delete(name)}
+  const rootListeners = new Map()
   const root = {querySelectorAll: selector => selector === "details" ? [outer, response] : [],
-    addEventListener() {}, removeEventListener() {}, contains(node) {
+    addEventListener(name, handler) { rootListeners.set(name, handler) },
+    removeEventListener(name) { rootListeners.delete(name) }, contains(node) {
       for (let current = node; current; current = current.parentElement) if (current === this) return true
       return false
     }}
   function node(id, tagName, parentElement) {
-    const value = {id, tagName, parentElement, isConnected: true, open: false,
+    const value = {id, tagName, parentElement, isConnected: true, open: false, dataset: {},
       querySelector: () => ({textContent: "Response for attempt 1"}),
       focus(options) { document.activeElement = this; this.focusOptions = options },
       scrollIntoView(options) { this.scrollOptions = options },
@@ -45,8 +47,10 @@ function fixture(hash = "") {
   vm.runInNewContext(source.replace(/^import .*$/gm, ""), {document, window, location,
     sessionStorage: {getItem() { return null }}, Socket: class {}, keyFor: () => null, createRelearnPicker,
     LiveSocket: class { constructor(_path, _socket, options) { hook = options.hooks.PreserveReadingState } connect() {} }})
-  const mounted = Object.assign({el: root}, hook)
+  const pushed = []
+  const mounted = Object.assign({el: root, pushEvent: (name, params) => pushed.push([name, params])}, hook)
   return {hook: mounted, document, window, location, root, outer, response, nodes, listeners, scrolled,
+    pushed, rootListeners,
     get body() { return body }, replaceFocusedBody() {
       body.isConnected = false
       body = node("response-1-body", "DIV", response)
@@ -54,6 +58,44 @@ function fixture(hash = "") {
       document.activeElement = document.body
     }}
 }
+
+test("opening a lazily loaded body asks the server for exactly that artifact", () => {
+  // Collapsing rendered HTML alone still paid for every byte of every unopened
+  // artifact on every refresh. The body is not in the page until this fires.
+  const f = fixture()
+  f.hook.mounted()
+  f.response.dataset.artifact = "work-turn-1-request"
+  f.response.open = true
+  f.rootListeners.get("toggle")({target: f.response})
+  assert.equal(f.pushed.length, 1)
+  assert.equal(f.pushed[0][0], "disclose")
+  assert.equal(f.pushed[0][1].artifact, "work-turn-1-request")
+
+  // A disclosure the reader closed is not a request to load anything.
+  f.response.open = false
+  f.rootListeners.get("toggle")({target: f.response})
+  assert.equal(f.pushed.length, 1)
+})
+
+test("a revoked body is closed and never reopened by the reader's earlier state", () => {
+  // Privacy wins over preserving selection. An expired, redacted or withdrawn
+  // body must not be restored around whatever the reader had open before.
+  const f = fixture()
+  f.hook.mounted()
+  f.outer.open = true
+  f.response.open = true
+  f.hook.beforeUpdate()
+  f.response.dataset.revoked = "true"
+  f.hook.updated()
+  assert.equal(f.response.open, false)
+  assert.equal(f.outer.open, true)
+
+  // Nor may a late toggle on a revoked node ask the server to load it again.
+  f.response.dataset.artifact = "work-turn-1-request"
+  f.response.open = true
+  f.rootListeners.get("toggle")({target: f.response})
+  assert.equal(f.pushed.length, 0)
+})
 
 test("a new validation attempt preserves focus on the same retained response", () => {
   // The real 11th-attempt browser append preserved disclosure but dropped focus

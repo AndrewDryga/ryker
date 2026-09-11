@@ -82,14 +82,22 @@ defmodule Responder.ControlPlane.ModelRequests do
   def episode_ref(ref), do: ref
 
   @doc "A bounded chronological document, with bulk-loaded custody and no per-request tool queries."
-  def timeline(ref, _params) do
+  def timeline(ref, params) do
     case Repo.get_by(Episode, key: episode_ref(ref)) do
       nil -> :not_found
-      episode -> timeline_for(episode)
+      episode -> timeline_for(episode, disclosed(params))
     end
   end
 
-  defp timeline_for(episode) do
+  # Only artifacts a reader actually opened are prepared. Everything else keeps
+  # its size and digest so the card can say what is behind the disclosure
+  # without paying for it on every refresh.
+  defp disclosed(%{"disclosed" => ids}) when is_list(ids),
+    do: MapSet.new(Enum.filter(ids, &is_binary/1))
+
+  defp disclosed(_params), do: MapSet.new()
+
+  defp timeline_for(episode, disclosed) do
     turns =
       Repo.all(
         from(t in Turn,
@@ -131,7 +139,8 @@ defmodule Responder.ControlPlane.ModelRequests do
         max_bytes: 2 * 1_024 * 1_024,
         timeline: true,
         episode_ref: episode.key,
-        sessions: sessions
+        sessions: sessions,
+        disclosed: disclosed
       ]
       |> with_responses(Enum.take(turns, 20), %{})
 
@@ -335,7 +344,12 @@ defmodule Responder.ControlPlane.ModelRequests do
         options
       ),
       section("contract", "Required output contract", submission["output_schema"], options),
-      section("request", "Submitted prompt · sanitized raw view", submission["prompt"], options),
+      section(
+        "request",
+        "Submitted prompt · sanitized raw view",
+        submission["prompt"],
+        Keyword.put(options, :artifact_id, "work-#{turn.id}-request")
+      ),
       section(
         "candidate",
         "Response to validate",
@@ -359,7 +373,12 @@ defmodule Responder.ControlPlane.ModelRequests do
       target: turn.execution_target || "Execution target not recorded",
       policy: session.policy,
       fingerprint: turn.submission_fingerprint,
-      sections: Enum.map(sections, &Map.put(&1, :source_kind, :work)),
+      sections:
+        Enum.map(sections, fn section ->
+          section
+          |> Map.put(:source_kind, :work)
+          |> Map.put_new(:artifact_id, "work-#{turn.id}-#{section.id}")
+        end),
       coverage:
         "This is Responder's retained submission. The Coop wrapper, provider-owned instructions, and full provider request are not recorded here. No private reasoning is displayed.",
       tools: tool_page(turn, params, options)
@@ -400,7 +419,11 @@ defmodule Responder.ControlPlane.ModelRequests do
       coverage: admission_coverage(submission),
       sections:
         admission_sections(entry, attempt, submission, prompt, response, generation, options)
-        |> Enum.map(&Map.put(&1, :source_kind, :admission)),
+        |> Enum.map(fn section ->
+          section
+          |> Map.put(:source_kind, :admission)
+          |> Map.put_new(:artifact_id, "admission-#{entry.id}-#{generation}-#{section.id}")
+        end),
       tools: admission_tool_page(entry, generation, params, options)
     }
   end
@@ -619,7 +642,12 @@ defmodule Responder.ControlPlane.ModelRequests do
         unless(expired, do: prompt["context"]),
         options
       ),
-      section("request", "Submitted prompt", submission["prompt"], options),
+      section(
+        "request",
+        "Submitted prompt",
+        submission["prompt"],
+        Keyword.put(options, :artifact_id, "admission-#{entry.id}-#{generation}-request")
+      ),
       section("contract", "Required output contract", submission["output_schema"], options),
       section("response", "Observed model response", response, options),
       section(
@@ -727,19 +755,39 @@ defmodule Responder.ControlPlane.ModelRequests do
     %{items: items, page: page, pages: max(1, ceil(total / @tool_page_size)), total: total}
   end
 
-  defp section("request" = id, title, value, options),
-    do: %{
+  defp section("request" = id, title, value, options) do
+    artifact_id = Keyword.get(options, :artifact_id)
+
+    %{
       id: id,
+      artifact_id: artifact_id,
       title: title,
       artifact:
         Redactor.artifact(
           value,
-          Keyword.merge(options, preserve_format: true, max_bytes: 2 * 1_024 * 1_024)
+          Keyword.merge(options,
+            preserve_format: true,
+            max_bytes: 2 * 1_024 * 1_024,
+            disclosed: opened?(options, artifact_id)
+          )
         )
     }
+  end
 
   defp section(id, title, value, options),
     do: %{id: id, title: title, artifact: Redactor.artifact(value, options)}
+
+  # An artifact with no identity cannot be opened again on the next refresh, so
+  # it is never collapsed: a body a reader could not restore is worse than a
+  # body they did not ask for.
+  defp opened?(_options, nil), do: true
+
+  defp opened?(options, id) do
+    case options[:disclosed] do
+      %MapSet{} = disclosed -> MapSet.member?(disclosed, id)
+      _no_disclosure_tracking -> true
+    end
+  end
 
   defp decode(value) when is_binary(value) do
     case Jason.decode(value) do

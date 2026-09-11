@@ -76,7 +76,18 @@ defmodule Responder.ControlPlane.ModelRequestsTest do
     # open block, while the technical inspector showed only the prompt text.
     {episode, turn, _original} = frozen_turn!()
     {:ok, view} = ModelRequests.project(episode.key, %{})
-    {:ok, timeline} = ModelRequests.timeline(episode.key, %{})
+
+    # On the Timeline the prompt body loads when its disclosure is opened, so
+    # this asks for the opened view of the same artifact the reader would get.
+    {:ok, collapsed} = ModelRequests.timeline(episode.key, %{})
+    prompt_id = "work-#{turn.id}-request"
+
+    assert Enum.find(
+             Enum.flat_map(collapsed.items, & &1.sections),
+             &(&1.id == "request")
+           ).artifact.state == :collapsed
+
+    {:ok, timeline} = ModelRequests.timeline(episode.key, %{"disclosed" => [prompt_id]})
     request = Enum.find(timeline.items, &(&1.id == "request-#{turn.id}"))
     prompt = Enum.find(request.sections, &(&1.id == "request")).artifact.text
     contract = Enum.find(request.sections, &(&1.id == "contract")).artifact.text
@@ -300,7 +311,12 @@ defmodule Responder.ControlPlane.ModelRequestsTest do
       Map.put(turn.submission, "prompt", Jason.encode!(Map.put(prompt, "work", context)))
 
     turn |> Ecto.Changeset.change(submission: submission) |> Repo.update!()
-    {:ok, timeline} = ModelRequests.timeline(episode.key, %{})
+
+    # The prompt body is lazy on the Timeline; open it, because the point of
+    # this test is that opening it gives the whole retained context back.
+    {:ok, timeline} =
+      ModelRequests.timeline(episode.key, %{"disclosed" => ["work-#{turn.id}-request"]})
+
     request = Enum.find(timeline.items, &(&1.id == "request-#{turn.id}"))
 
     for id <- ["context", "request"] do

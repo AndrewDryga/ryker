@@ -75,6 +75,15 @@ const PreserveReadingState = {
       }
     }
     this.el.addEventListener("keydown", this.onKeydown)
+    // Heavy bodies are not in the page until a reader opens them. `toggle` does
+    // not bubble, so this listens in the capture phase from the shell.
+    this.onToggle = event => {
+      const node = event.target
+      if (node?.tagName !== "DETAILS" || !node.open) return
+      const artifact = node.dataset?.artifact
+      if (artifact && !node.dataset.revoked) this.pushEvent("disclose", {artifact})
+    }
+    this.el.addEventListener("toggle", this.onToggle, true)
     this.onHashChange = () => {
       this.fragmentURL = null
       this.revealFragment()
@@ -95,6 +104,10 @@ const PreserveReadingState = {
     const expanded = new Map((this.expanded || []).map(item => [item.key, item.open]))
     this.el.querySelectorAll("details").forEach((node, index) => {
       const key = node.id || `${index}:${node.querySelector("summary")?.textContent}`
+      // Privacy wins over the reader's selection. Once the server says a body
+      // was revoked, expired or redacted, the disclosure it was read in closes
+      // and no earlier open state reopens it.
+      if (node.dataset?.revoked) { node.open = false; return }
       if (expanded.has(key)) node.open = expanded.get(key)
     })
     this.restoreDrafts()
@@ -148,6 +161,7 @@ const PreserveReadingState = {
     this.el.removeEventListener("submit", this.onSubmit)
     this.el.removeEventListener("click", this.onClick)
     this.el.removeEventListener("keydown", this.onKeydown)
+    this.el.removeEventListener("toggle", this.onToggle, true)
     window.removeEventListener("hashchange", this.onHashChange)
   }
 }
