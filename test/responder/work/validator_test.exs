@@ -121,21 +121,43 @@ defmodule Responder.Work.ValidatorTest do
 
     assert Enum.any?(unchanged_violations, &String.contains?(&1, "no committed task changes"))
 
-    assert {:reject, existing_pr_violations} =
+    # Engineering work cannot claim the tree it inherited from the selected source
+    # as its own completed change, whether that source is a branch, a pull request
+    # or one exact commit.
+    assert {:reject, inherited_tree_violations} =
              Validator.validate(
                final,
                context(
                  workspace:
                    workspace_changes(
                      committed: 1,
-                     fork_tree: "tree-pr",
-                     pull_request_tree: "tree-pr"
+                     fork_tree: "tree-source",
+                     admitted_source_tree: "tree-source"
                    )
                ),
                @now
              )
 
-    assert Enum.any?(existing_pr_violations, &String.contains?(&1, "existing pull request"))
+    assert Enum.any?(
+             inherited_tree_violations,
+             &String.contains?(&1, "beyond the admitted source")
+           )
+
+    # Review-only work that starts from the same source may finish unchanged only
+    # when it committed nothing at all; that is the committed_count rule above.
+    assert {:accept, _reviewed} =
+             Validator.validate(
+               final,
+               context(
+                 workspace:
+                   workspace_changes(
+                     committed: 2,
+                     fork_tree: "tree-current",
+                     admitted_source_tree: "tree-source"
+                   )
+               ),
+               @now
+             )
 
     assert {:accept, _accepted} =
              Validator.validate(
@@ -663,8 +685,8 @@ defmodule Responder.Work.ValidatorTest do
       "conflict_count" => Map.get(overrides, :conflicts, 0),
       "fork_head" => "fork",
       "fork_tree" => Map.get(overrides, :fork_tree, "tree-current"),
+      "admitted_source_tree" => Map.get(overrides, :admitted_source_tree),
       "goal_ids" => ["implement-feature"],
-      "pull_request_tree" => Map.get(overrides, :pull_request_tree),
       "repository" => "responder",
       "staged_count" => Map.get(overrides, :staged, 0),
       "unstaged_count" => Map.get(overrides, :unstaged, 0),

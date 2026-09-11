@@ -1645,7 +1645,7 @@ defmodule Responder.Work.ExecutorTest do
       workspace_changes(base_commit: nil),
       workspace_changes(fork_head: <<0>>),
       workspace_changes(fork_tree: String.duplicate("x", 257)),
-      workspace_changes(pull_request_tree: 42),
+      workspace_changes(admitted_source_tree: 42),
       workspace_changes(committed: :invalid),
       workspace_changes(staged: :invalid),
       workspace_changes(unstaged: :invalid),
@@ -2862,16 +2862,21 @@ defmodule Responder.Work.ExecutorTest do
       }
     ]
 
-    FakeAPI.update(fake, fn state ->
-      session =
-        state.session
-        |> Map.put("base_commit", "5d1fa43d2efe46e8409dde0e93e79af93fb6622f")
-        |> Map.put("companions", [companion])
-        |> Map.put("repository_freshness", freshness)
-        |> Map.put("repository_freshness_status", "recorded")
+    binding =
+      source_binding(%{"kind" => "default"},
+        base_commit: "5d1fa43d2efe46e8409dde0e93e79af93fb6622f",
+        default_commit: "5d1fa43d2efe46e8409dde0e93e79af93fb6622f",
+        selected_commit: "5d1fa43d2efe46e8409dde0e93e79af93fb6622f",
+        selected_ref: "refs/heads/main"
+      )
 
-      %{state | session: session}
-    end)
+    bind_source_session!(
+      fake,
+      binding,
+      "5d1fa43d2efe46e8409dde0e93e79af93fb6622f",
+      [companion],
+      freshness
+    )
 
     run_options =
       options(fake)
@@ -2886,6 +2891,7 @@ defmodule Responder.Work.ExecutorTest do
     assert get_in(accepted.submission, ["context", "workspace"]) == %{
              "companions" => [Map.put(companion, "read_only", true)],
              "context_ref" => "platform",
+             "source" => binding,
              "freshness" => %{
                "owner" => "coop",
                "repositories" => [
@@ -2956,63 +2962,44 @@ defmodule Responder.Work.ExecutorTest do
     assert FakeAPI.state(fake).submit_count == 0
   end
 
-  test "freshness correlation is keyed and distinguishes a PR merge base from its base head" do
-    claim = claim_with_bound_empty_session!("pr-workspace-freshness")
-    {:ok, fake} = fake_for(claim, [reply("The repositories are pinned.")])
-
+  test "freshness correlation distinguishes the selected head from the configured default head" do
+    selected = String.duplicate("3", 40)
+    default_head = String.duplicate("2", 40)
     merge_base = String.duplicate("1", 40)
-    base_head = String.duplicate("2", 40)
-    pull_head = String.duplicate("3", 40)
     alpha_head = String.duplicate("4", 40)
     zulu_head = String.duplicate("5", 40)
+
+    source = %{"kind" => "pull_request", "number" => 91}
+    claim = claim_with_bound_source_session!("source-workspace-freshness", "responder", source)
+    {:ok, fake} = fake_for(claim, [reply("The repositories are pinned.")])
 
     companions = [
       %{"base_commit" => zulu_head, "name" => "zulu", "path" => "/coop/repositories/zulu"},
       %{"base_commit" => alpha_head, "name" => "alpha", "path" => "/coop/repositories/alpha"}
     ]
 
-    receipt = fn name, resolved, workspace_base ->
-      %{
-        "fetched_at" => "2026-09-04T08:00:00Z",
-        "name" => name,
-        "remote_identity" => "origin",
-        "requested_revision" => "refs/heads/main",
-        "resolved_revision" => resolved,
-        "stale_base_status" => "unknown",
-        "version" => 2
-      }
-      |> then(fn value ->
-        if workspace_base,
-          do: Map.put(value, "workspace_base_revision", workspace_base),
-          else: value
-      end)
-    end
+    binding =
+      source_binding(source,
+        base_commit: merge_base,
+        default_commit: default_head,
+        selected_commit: selected,
+        selected_ref: "refs/pull/91/head"
+      )
 
     freshness = [
-      receipt.("primary", base_head, merge_base),
-      receipt.("zulu", zulu_head, nil),
-      receipt.("alpha", alpha_head, nil),
-      receipt.("pull_request", pull_head, nil)
+      source_receipt("primary", default_head, "refs/heads/main", selected),
+      source_receipt("zulu", zulu_head, "refs/heads/main", nil),
+      source_receipt("alpha", alpha_head, "refs/heads/main", nil),
+      source_receipt("source", selected, "refs/pull/91/head", nil)
     ]
 
-    FakeAPI.update(fake, fn state ->
-      session =
-        state.session
-        |> Map.put("base_commit", merge_base)
-        |> Map.put("companions", companions)
-        |> Map.put("pull_request", %{
-          "head_commit" => pull_head,
-          "number" => 91,
-          "ref" => "refs/pull/91/head"
-        })
-        |> Map.put("repository_freshness", freshness)
-
-      %{state | session: session}
-    end)
+    bind_source_session!(fake, binding, selected, companions, freshness)
 
     assert {:ok, %{status: :accepted, turn: accepted}} = Executor.run(claim, options(fake))
     workspace = get_in(accepted.submission, ["context", "workspace"])
     assert Enum.map(workspace["companions"], & &1["name"]) == ["alpha", "zulu"]
+    assert workspace["primary"]["base_commit"] == selected
+    assert workspace["source"] == binding
 
     assert workspace["freshness"]["repositories"] ==
              Enum.map(freshness, fn item ->
@@ -3020,6 +3007,152 @@ defmodule Responder.Work.ExecutorTest do
                |> Map.put_new("stale_base_revision", nil)
                |> Map.put_new("workspace_base_revision", nil)
              end)
+  end
+
+  test "a default selection needs no separate source receipt" do
+    default_head = String.duplicate("7", 40)
+    source = %{"kind" => "default"}
+    claim = claim_with_bound_source_session!("source-default-workspace", "responder", source)
+    {:ok, fake} = fake_for(claim, [reply("Starting from the configured default.")])
+
+    binding =
+      source_binding(source,
+        base_commit: default_head,
+        default_commit: default_head,
+        selected_commit: default_head,
+        selected_ref: "refs/heads/main"
+      )
+
+    freshness = [source_receipt("primary", default_head, "refs/heads/main", default_head)]
+    bind_source_session!(fake, binding, default_head, [], freshness)
+
+    assert {:ok, %{status: :accepted, turn: accepted}} = Executor.run(claim, options(fake))
+    workspace = get_in(accepted.submission, ["context", "workspace"])
+    assert workspace["source"] == binding
+  end
+
+  # A commit selection has no advertised ref, so the only evidence that the
+  # configured remote still serves the object is its own receipt. Accepting the
+  # workspace without one would accept whatever happened to be cached locally.
+  test "a selected commit without fresh remote evidence never reaches the model" do
+    selected = String.duplicate("a", 40)
+    default_head = String.duplicate("2", 40)
+    source = %{"kind" => "commit", "sha" => selected}
+    claim = claim_with_bound_source_session!("source-commit-unproven", "responder", source)
+    {:ok, fake} = fake_for(claim, [reply("Must not run.")])
+
+    binding =
+      source_binding(source,
+        base_commit: default_head,
+        default_commit: default_head,
+        selected_commit: selected,
+        selected_ref: nil
+      )
+
+    freshness = [source_receipt("primary", default_head, "refs/heads/main", selected)]
+    bind_source_session!(fake, binding, selected, [], freshness)
+
+    assert Executor.run(claim, options(fake)) ==
+             {:error, {:coop_protocol_error, :repository_freshness}}
+
+    assert FakeAPI.state(fake).submit_count == 0
+  end
+
+  test "a selected commit proven by the configured remote reaches the model" do
+    selected = String.duplicate("a", 40)
+    default_head = String.duplicate("2", 40)
+    source = %{"kind" => "commit", "sha" => selected}
+    claim = claim_with_bound_source_session!("source-commit-proven", "responder", source)
+    {:ok, fake} = fake_for(claim, [reply("Reviewing the exact commit.")])
+
+    binding =
+      source_binding(source,
+        base_commit: default_head,
+        default_commit: default_head,
+        selected_commit: selected,
+        selected_ref: nil
+      )
+
+    freshness = [
+      source_receipt("primary", default_head, "refs/heads/main", selected),
+      source_receipt("source", selected, selected, nil)
+    ]
+
+    bind_source_session!(fake, binding, selected, [], freshness)
+
+    assert {:ok, %{status: :accepted, turn: accepted}} = Executor.run(claim, options(fake))
+    assert get_in(accepted.submission, ["context", "workspace", "source"]) == binding
+  end
+
+  test "a binding that answers another request or another head never reaches the model" do
+    selected = String.duplicate("3", 40)
+    default_head = String.duplicate("2", 40)
+    source = %{"kind" => "branch", "name" => "feature/payments"}
+
+    binding =
+      source_binding(source,
+        base_commit: default_head,
+        default_commit: default_head,
+        selected_commit: selected,
+        selected_ref: "refs/heads/feature/payments"
+      )
+
+    freshness = [
+      source_receipt("primary", default_head, "refs/heads/main", selected),
+      source_receipt("source", selected, "refs/heads/feature/payments", nil)
+    ]
+
+    other_request =
+      binding
+      |> Map.put("requested", %{"kind" => "branch", "name" => "feature/billing"})
+      |> Map.put("selected_ref", "refs/heads/feature/billing")
+
+    cases = [
+      {"answers-another-request", other_request, selected},
+      {"missing-binding", nil, selected},
+      {"moved-workspace-head", binding, String.duplicate("9", 40)}
+    ]
+
+    for {suffix, returned, base_commit} <- cases do
+      claim = claim_with_bound_source_session!("source-#{suffix}", "responder", source)
+      {:ok, fake} = fake_for(claim, [reply("Must not run.")])
+      bind_source_session!(fake, returned, base_commit, [], freshness)
+
+      assert Executor.run(claim, options(fake)) ==
+               {:error, {:coop_protocol_error, :repository_source}},
+             "expected #{suffix} to be refused"
+
+      assert FakeAPI.state(fake).submit_count == 0
+    end
+  end
+
+  # A session bound before source selection existed keeps running: its binding is
+  # checked for internal consistency and never re-resolved against a selector it
+  # never had.
+  test "a historical session without a persisted selector still runs" do
+    claim = claim_with_bound_empty_session!("source-historical-session")
+    {:ok, fake} = fake_for(claim, [reply("The historical session still runs.")])
+
+    assert {:ok, %{status: :accepted, turn: accepted}} = Executor.run(claim, options(fake))
+    workspace = get_in(accepted.submission, ["context", "workspace"])
+    refute Map.has_key?(workspace, "source")
+  end
+
+  test "selector-bound work is never dispatched to a worker without the versioned capability" do
+    source = %{"kind" => "branch", "name" => "feature/payments"}
+    claim = claim_with_source_session!("source-old-worker", "responder", source)
+
+    {:ok, fake} = FakeAPI.start_link([reply("Must not run.")])
+
+    options =
+      protocol_options(fake, %{
+        capabilities: {:ok, %{"repository_freshness_receipt_versions" => [2]}}
+      })
+
+    assert Executor.run(claim, options) ==
+             {:error, {:coop_upgrade_required, :repository_source_selector_v1}}
+
+    assert FakeAPI.state(fake).create_count == 0
   end
 
   test "a submit revision conflict spends only the submit generation" do
@@ -4061,6 +4194,114 @@ defmodule Responder.Work.ExecutorTest do
     end
   end
 
+  defp claim_with_source_session!(suffix, repository_ref, source) do
+    id = Ecto.UUID.generate()
+
+    assert {:ok, _transition} =
+             Episodes.apply(
+               EpisodeFixtures.admit_input(%{
+                 actor_ref: "slack:user:U-stage3",
+                 episode_id: id,
+                 episode_key: "work-executor:#{suffix}:#{id}",
+                 execution_mode: :live,
+                 native_input_id: "slack-message:#{suffix}:#{id}",
+                 occurred_at: @now,
+                 payload: %{"text" => "Please handle #{suffix}."},
+                 turn_ref: "turn:#{suffix}:#{id}"
+               })
+             )
+
+    assert {:ok, _session} =
+             Custody.pin_episode(
+               id,
+               "work-read-only",
+               String.duplicate("a", 64),
+               nil,
+               repository_ref,
+               nil,
+               source
+             )
+
+    assert {:ok, claim} = Custody.claim_next("worker:#{suffix}", 60, :work)
+    claim
+  end
+
+  defp claim_with_bound_source_session!(suffix, repository_ref, source) do
+    claim = claim_with_source_session!(suffix, repository_ref, source)
+
+    assert {:ok, session} =
+             Custody.bind_session(
+               claim.episode.id,
+               claim.turn.turn_ref,
+               claim.lease_ref,
+               claim.session.generation,
+               claim.session.create_generation,
+               "remote:#{claim.episode.id}"
+             )
+
+    %{claim | session: session}
+  end
+
+  defp source_binding(requested, values) do
+    %{
+      "admitted_tree" => Keyword.get(values, :admitted_tree, String.duplicate("e", 40)),
+      "base_commit" => Keyword.fetch!(values, :base_commit),
+      "default_commit" => Keyword.fetch!(values, :default_commit),
+      "default_ref" => "refs/heads/main",
+      "kind" => requested["kind"],
+      "remote_identity" => "origin",
+      "requested" => requested,
+      "resolved_at" => "2026-09-11T08:00:00Z",
+      "selected_commit" => Keyword.fetch!(values, :selected_commit),
+      "selected_ref" => Keyword.fetch!(values, :selected_ref),
+      "version" => 1
+    }
+    |> then(fn binding ->
+      case requested do
+        %{"kind" => "pull_request", "number" => number} ->
+          Map.put(binding, "pull_request_number", number)
+
+        _other ->
+          binding
+      end
+    end)
+  end
+
+  defp source_receipt(name, resolved, requested, workspace_base) do
+    %{
+      "fetched_at" => "2026-09-11T08:00:00Z",
+      "name" => name,
+      "remote_identity" => "origin",
+      "requested_revision" => requested,
+      "resolved_revision" => resolved,
+      "stale_base_status" => "unknown",
+      "version" => 2
+    }
+    |> then(fn receipt ->
+      if workspace_base,
+        do: Map.put(receipt, "workspace_base_revision", workspace_base),
+        else: receipt
+    end)
+  end
+
+  defp bind_source_session!(fake, binding, base_commit, companions, freshness) do
+    FakeAPI.update(fake, fn state ->
+      session =
+        state.session
+        |> Map.put("base_commit", base_commit)
+        |> Map.put("companions", companions)
+        |> Map.put("repository_freshness", freshness)
+        |> Map.put("repository_freshness_status", "recorded")
+
+      session =
+        if binding,
+          do: Map.put(session, "repository_source", binding),
+          else: Map.delete(session, "repository_source")
+
+      %{state | session: session}
+    end)
+  end
+
   defp protocol_options(fake, overrides) do
     options(%{fake: fake, overrides: overrides})
     |> Keyword.put(:api, ProtocolAPI)
@@ -4143,13 +4384,13 @@ defmodule Responder.Work.ExecutorTest do
       "unstaged" => Map.get(overrides, :unstaged, []),
       "untracked" => Map.get(overrides, :untracked, [])
     }
-    |> maybe_put_pull_request_tree(overrides)
+    |> maybe_put_admitted_source_tree(overrides)
   end
 
-  defp maybe_put_pull_request_tree(changes, %{pull_request_tree: tree}),
-    do: Map.put(changes, "pull_request_tree", tree)
+  defp maybe_put_admitted_source_tree(changes, %{admitted_source_tree: tree}),
+    do: Map.put(changes, "admitted_source_tree", tree)
 
-  defp maybe_put_pull_request_tree(changes, _overrides), do: changes
+  defp maybe_put_admitted_source_tree(changes, _overrides), do: changes
 
   defp silent(reason) do
     Jason.encode!(%{

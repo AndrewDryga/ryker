@@ -164,13 +164,13 @@ defmodule Responder.Work.Validator do
   end
 
   defp missing_engineering_change_violations(violations, %{
-         "fork_tree" => fork_tree,
-         "pull_request_tree" => pull_request_tree
+         "admitted_source_tree" => admitted_source_tree,
+         "fork_tree" => fork_tree
        })
-       when is_binary(pull_request_tree) do
-    if fork_tree == pull_request_tree do
+       when is_binary(admitted_source_tree) do
+    if fork_tree == admitted_source_tree do
       [
-        "Do not complete: this workspace has no committed task changes beyond the admitted existing pull request. Continue the implementation in this same turn."
+        "Do not complete: this workspace has no committed task changes beyond the admitted source it started from. Continue the implementation in this same turn."
         | violations
       ]
     else
@@ -693,14 +693,14 @@ defmodule Responder.Work.Validator do
 
   defp prepare_workspace(%{} = workspace) do
     fields =
-      ~w(base_commit committed_count conflict_count fork_head fork_tree goal_ids pull_request_tree repository staged_count unstaged_count untracked_count)
+      ~w(admitted_source_tree base_commit committed_count conflict_count fork_head fork_tree goal_ids repository staged_count unstaged_count untracked_count)
 
     with true <- Map.keys(workspace) |> Enum.sort() == fields,
          true <-
            Enum.all?(~w(base_commit fork_head fork_tree), &bounded_text?(workspace[&1], 256)),
          true <-
-           is_nil(workspace["pull_request_tree"]) or
-             bounded_text?(workspace["pull_request_tree"], 256),
+           is_nil(workspace["admitted_source_tree"]) or
+             bounded_text?(workspace["admitted_source_tree"], 256),
          true <- bounded_text?(workspace["repository"], 256),
          true <- valid_goal_ids?(workspace["goal_ids"]),
          true <- valid_workspace_counts?(workspace) do

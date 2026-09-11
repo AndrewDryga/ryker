@@ -21,6 +21,7 @@ defmodule Responder.Work.Executor do
     Custody,
     FinalPreflight,
     Measurement,
+    RepositorySource,
     Session,
     StateBinding,
     SubmissionBuilder,
@@ -254,14 +255,40 @@ defmodule Responder.Work.Executor do
          {:ok, companions} <- companion_workspaces(Map.get(remote_session, "companions", [])),
          :ok <- repository_context_workspace(claim.session, companions),
          :ok <- required_workspaces(companions, settings.workspace_requirements),
-         {:ok, freshness} <- repository_freshness(remote_session, primary, companions) do
+         {:ok, source} <- repository_source_binding(claim.session, remote_session, primary),
+         {:ok, freshness} <- repository_freshness(remote_session, source, primary, companions) do
       workspace =
         %{"companions" => companions, "freshness" => freshness, "primary" => primary}
         |> maybe_put_repository_context(claim.session.repository_context)
+        |> maybe_put_repository_source(source)
 
       {:ok, workspace}
     end
   end
+
+  # The binding must answer the exact request this session persisted, and the
+  # workspace must actually start at the commit that binding pinned. A session
+  # bound before this contract has no persisted request, so its binding is only
+  # checked for internal consistency; it is never re-resolved.
+  defp repository_source_binding(session, remote_session, primary) do
+    case RepositorySource.reconcile(
+           Map.get(remote_session, "repository_source"),
+           session.repository_source
+         ) do
+      {:ok, nil} -> {:ok, nil}
+      {:ok, binding} -> exact_source_workspace(binding, primary)
+      {:error, _reason} -> {:error, {:coop_protocol_error, :repository_source}}
+    end
+  end
+
+  defp exact_source_workspace(binding, primary) do
+    if binding["selected_commit"] == primary["base_commit"],
+      do: {:ok, binding},
+      else: {:error, {:coop_protocol_error, :repository_source}}
+  end
+
+  defp maybe_put_repository_source(workspace, nil), do: workspace
+  defp maybe_put_repository_source(workspace, source), do: Map.put(workspace, "source", source)
 
   defp primary_workspace(session, %{
          "base_commit" => base_commit,
@@ -380,14 +407,14 @@ defmodule Responder.Work.Executor do
        else: {:error, {:coop_protocol_error, :session_workspace}}
   end
 
-  defp repository_freshness(remote_session, primary, companions) do
+  defp repository_freshness(remote_session, source, primary, companions) do
     case {
       Map.get(remote_session, "repository_freshness_status"),
       Map.get(remote_session, "repository_freshness")
     } do
       {"recorded", receipts} when is_list(receipts) and length(receipts) in 1..34 ->
         with {:ok, receipts} <- repository_freshness_receipts(receipts),
-             :ok <- exact_repository_receipts(receipts, remote_session, primary, companions) do
+             :ok <- exact_repository_receipts(receipts, source, primary, companions) do
           {:ok, %{"owner" => "coop", "repositories" => receipts, "status" => "recorded"}}
         end
 
@@ -460,52 +487,70 @@ defmodule Responder.Work.Executor do
   defp repository_freshness_receipt(_receipt),
     do: {:error, {:coop_protocol_error, :repository_freshness}}
 
-  defp exact_repository_receipts(receipts, remote_session, primary, companions) do
+  defp exact_repository_receipts(receipts, source, primary, companions) do
     by_name = Map.new(receipts, &{&1["name"], &1})
 
     expected_names =
-      ["primary" | Enum.map(companions, & &1["name"])] ++ pull_request_names(remote_session)
+      ["primary" | Enum.map(companions, & &1["name"])] ++ source_receipt_names(source)
 
     valid =
       Map.keys(by_name) |> Enum.sort() == Enum.sort(expected_names) and
-        primary_receipt_matches?(by_name["primary"], remote_session, primary) and
+        primary_receipt_matches?(by_name["primary"], source, primary) and
         Enum.all?(companions, fn companion ->
           receipt = by_name[companion["name"]]
 
           receipt["resolved_revision"] == companion["base_commit"] and
             is_nil(receipt["workspace_base_revision"])
-        end) and pull_request_receipt_matches?(by_name, remote_session)
+        end) and source_receipt_matches?(by_name, source)
 
     if valid, do: :ok, else: {:error, {:coop_protocol_error, :repository_freshness}}
   end
 
-  defp primary_receipt_matches?(receipt, remote_session, primary) when is_map(receipt) do
+  # A default selection starts at the configured default head, so the primary
+  # receipt already proves it. Every other selection needs its own remote proof,
+  # including an exact object id: a cached object is not evidence the configured
+  # remote still serves it.
+  defp source_receipt_names(nil), do: []
+  defp source_receipt_names(%{"kind" => "default"}), do: []
+  defp source_receipt_names(_source), do: ["source"]
+
+  defp primary_receipt_matches?(receipt, source, primary) when is_map(receipt) do
     receipt["workspace_base_revision"] == primary["base_commit"] and
-      (pull_request_names(remote_session) == ["pull_request"] or
-         receipt["resolved_revision"] == primary["base_commit"])
+      primary_revision_matches?(receipt, source, primary)
   end
 
-  defp primary_receipt_matches?(_receipt, _remote_session, _primary), do: false
+  defp primary_receipt_matches?(_receipt, _source, _primary), do: false
 
-  defp pull_request_receipt_matches?(by_name, %{
-         "pull_request" => %{"head_commit" => head_commit}
-       }) do
-    receipt = by_name["pull_request"]
+  defp primary_revision_matches?(receipt, nil, primary),
+    do: receipt["resolved_revision"] == primary["base_commit"]
 
-    is_map(receipt) and receipt["resolved_revision"] == head_commit and
-      is_nil(receipt["workspace_base_revision"])
+  defp primary_revision_matches?(receipt, source, _primary) do
+    receipt["resolved_revision"] == source["default_commit"] and
+      receipt["requested_revision"] == source["default_ref"] and
+      receipt["remote_identity"] == source["remote_identity"]
   end
 
-  defp pull_request_receipt_matches?(_by_name, _remote_session), do: true
+  defp source_receipt_matches?(by_name, source) do
+    case source_receipt_names(source) do
+      [] -> true
+      ["source"] -> exact_source_receipt?(by_name["source"], source)
+    end
+  end
 
-  defp pull_request_names(%{"pull_request" => %{"head_commit" => head_commit}})
-       when is_binary(head_commit),
-       do: ["pull_request"]
+  defp exact_source_receipt?(receipt, source) when is_map(receipt) do
+    receipt["resolved_revision"] == source["selected_commit"] and
+      is_nil(receipt["workspace_base_revision"]) and
+      receipt["remote_identity"] == source["remote_identity"] and
+      receipt["requested_revision"] == source_requested_revision(source)
+  end
 
-  defp pull_request_names(_remote_session), do: []
+  defp exact_source_receipt?(_receipt, _source), do: false
+
+  defp source_requested_revision(%{"kind" => "commit", "requested" => %{"sha" => sha}}), do: sha
+  defp source_requested_revision(%{"selected_ref" => selected_ref}), do: selected_ref
 
   defp repository_name?(name),
-    do: name in ["primary", "pull_request"] or companion_name?(name)
+    do: name in ["primary", "source"] or companion_name?(name)
 
   defp companion_name?(name),
     do: is_binary(name) and Regex.match?(@companion_name_regex, name)
@@ -2442,7 +2487,8 @@ defmodule Responder.Work.Executor do
     with {:ok, base_commit} <- workspace_identity(changes["base_commit"]),
          {:ok, fork_head} <- workspace_identity(changes["fork_head"]),
          {:ok, fork_tree} <- workspace_identity(changes["fork_tree"]),
-         {:ok, pull_request_tree} <- optional_workspace_identity(changes["pull_request_tree"]),
+         {:ok, admitted_source_tree} <-
+           optional_workspace_identity(changes["admitted_source_tree"]),
          {:ok, committed_count} <- workspace_change_count(changes["committed"]),
          {:ok, staged_count} <- workspace_change_count(changes["staged"]),
          {:ok, unstaged_count} <- workspace_change_count(changes["unstaged"]),
@@ -2456,8 +2502,8 @@ defmodule Responder.Work.Executor do
          "conflict_count" => conflict_count,
          "fork_head" => fork_head,
          "fork_tree" => fork_tree,
+         "admitted_source_tree" => admitted_source_tree,
          "goal_ids" => Enum.map(goals, & &1["id"]),
-         "pull_request_tree" => pull_request_tree,
          "repository" => repository,
          "staged_count" => staged_count,
          "unstaged_count" => unstaged_count,
