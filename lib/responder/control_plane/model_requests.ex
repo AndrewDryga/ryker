@@ -817,6 +817,12 @@ defmodule Responder.ControlPlane.ModelRequests do
         options
       ),
       section(
+        "routing",
+        "Routing evidence",
+        unless(expired, do: routing_evidence(entry)),
+        options
+      ),
+      section(
         "request",
         "Submitted prompt",
         submission["prompt"],
@@ -846,6 +852,18 @@ defmodule Responder.ControlPlane.ModelRequests do
       )
     ]
   end
+
+  # The shortlist the model saw is only half the story: which lanes were
+  # searched, how many eligible episodes were examined, what was omitted and
+  # why the cutoff fell where it did are host facts, recorded when the context
+  # was frozen. Without them an operator cannot tell a bounded search from a
+  # missing one.
+  defp routing_evidence(%Entry{admission_context: %{} = snapshot}) do
+    evidence = Map.take(snapshot, ["routing_receipt", "context_manifest"])
+    if map_size(evidence) > 0, do: evidence
+  end
+
+  defp routing_evidence(_entry), do: nil
 
   defp admission_submission(%{operational_pruned_at: nil, submission: submission}, false),
     do: submission || %{}

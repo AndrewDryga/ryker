@@ -1,0 +1,128 @@
+{
+  "actors": [
+    {
+      "actor_ref": "slack:app:alertmanager",
+      "authority": "source_event",
+      "input_profile": {
+        "actor": {
+          "kind": "app",
+          "ref": "alertmanager"
+        },
+        "event_kind": "message",
+        "occurred_at_source": "source",
+        "source": {
+          "kind": "slack",
+          "ref": "TEVAL"
+        },
+        "source_capabilities": {
+          "react": {
+            "emoji_names": null
+          }
+        }
+      },
+      "kind": "automation"
+    },
+    {
+      "actor_ref": "slack:user:engineer",
+      "authority": "operator",
+      "input_profile": {
+        "actor": {
+          "kind": "user",
+          "ref": "engineer"
+        },
+        "event_kind": "message",
+        "occurred_at_source": "source",
+        "source": {
+          "kind": "slack",
+          "ref": "TEVAL"
+        },
+        "source_capabilities": {}
+      },
+      "kind": "human"
+    }
+  ],
+  "clock": {
+    "start": "2026-09-11T09:00:00Z"
+  },
+  "events": [
+    {
+      "actor_ref": "slack:app:alertmanager",
+      "destination": {
+        "conversation_ref": "slack:TEVAL:CDEVOPS",
+        "thread_ref": "1789099000.000100",
+        "transport": "slack"
+      },
+      "kind": "input",
+      "occurred_at": "2026-09-11T09:00:00Z",
+      "payload": {
+        "source_kind": "alertmanager",
+        "state": "firing",
+        "text": "[FIRING:1] PostgresPrimaryUnreachable production\nhost: pgsql-prod-01\nReplication from pgsql-prod-01 has been stalled for 6 minutes and the primary is not accepting connections."
+      }
+    },
+    {
+      "actor_ref": "slack:user:engineer",
+      "destination": {
+        "conversation_ref": "slack:TEVAL:CENGINEERING",
+        "thread_ref": "1789099600.000100",
+        "transport": "slack"
+      },
+      "kind": "input",
+      "occurred_at": "2026-09-11T09:10:00Z",
+      "payload": {
+        "text": "Is pgsql-prod-01 still unreachable? Reads are timing out for us in production and I cannot tell whether anyone is already on it."
+      }
+    }
+  ],
+  "expect": {
+    "hard": [
+      {
+        "kind": "same_session_continuation"
+      },
+      {
+        "conversation_ref": "slack:TEVAL:CENGINEERING",
+        "kind": "delivery_target",
+        "thread_ref": "1789099600.000100",
+        "transport": "slack"
+      }
+    ],
+    "quality_rubric": [
+      {
+        "criterion": "Treats the #engineering question about pgsql-prod-01 as the same outage the #devops alert reported, rather than as new unrelated work.",
+        "weight": 3
+      },
+      {
+        "criterion": "Answers the question in the thread it was asked in and does not broadcast progress to both channels.",
+        "weight": 3
+      },
+      {
+        "criterion": "Uses the alert's own evidence about the stalled primary instead of restating the question.",
+        "weight": 2
+      }
+    ],
+    "trajectory": []
+  },
+  "host_replay": {
+    "model_events": []
+  },
+  "id": "one-outage-two-channels-joins-one-episode",
+  "provenance": {
+    "captured_at": "2026-09-11T09:00:00Z",
+    "episode_refs": [
+      "authored:routing:one-outage-two-channels"
+    ],
+    "kind": "synthetic"
+  },
+  "tags": [
+    "model-world",
+    "routing",
+    "cross-conversation",
+    "multi-user"
+  ],
+  "version": 1,
+  "world": {
+    "repositories": [],
+    "scheduled_events": [],
+    "tool_rules": []
+  }
+}

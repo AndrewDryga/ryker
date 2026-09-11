@@ -29,6 +29,7 @@ defmodule Responder.Evals.WorldRunner do
   alias Responder.Ingress.{Inbox, Input}
   alias Responder.Ingress.Inbox.Entry
   alias Responder.Repo
+  alias Responder.Slack.ChannelMembership
   alias Responder.State.{EventSubscription, EventWaits, Record, Records}
   alias Responder.Work.{Custody, Measurement, Turn}
   alias Responder.Work.Dispatcher, as: WorkDispatcher
@@ -110,6 +111,7 @@ defmodule Responder.Evals.WorldRunner do
     world_started_at = database_now!()
 
     with {:ok, adapters} <- eval_adapters(delivery_agent),
+         :ok <- join_scenario_channels(inputs, world_started_at),
          {:ok, executions, skipped} <-
            execute_inputs(
              inputs,
@@ -129,6 +131,49 @@ defmodule Responder.Evals.WorldRunner do
   catch
     kind, reason -> {:error, {:world_eval_runner_caught, kind, inspect(reason)}}
   end
+
+  # Correlation only reaches conversations Responder has actually joined, so a
+  # scenario that reports one incident in two channels has to declare that
+  # membership. It is evaluation-world setup, not permission: the channels are
+  # exactly the ones the scenario's own inputs arrive in, and every one of them
+  # is an ordinary non-private, non-shared channel.
+  defp join_scenario_channels(inputs, now) do
+    inputs
+    |> Enum.flat_map(&scenario_channel/1)
+    |> Enum.uniq()
+    |> Enum.each(fn {workspace_ref, channel_ref} ->
+      Repo.insert!(
+        %ChannelMembership{
+          id: Ecto.UUID.generate(),
+          workspace_ref: workspace_ref,
+          channel_ref: channel_ref,
+          private: false,
+          external_shared: false,
+          generation: 1,
+          status: :joined,
+          joined_at: now,
+          inserted_at: now,
+          updated_at: now
+        },
+        on_conflict: :nothing,
+        conflict_target: [:workspace_ref, :channel_ref]
+      )
+    end)
+
+    :ok
+  end
+
+  defp scenario_channel(%{
+         "kind" => "input",
+         "destination" => %{"transport" => "slack", "conversation_ref" => reference}
+       }) do
+    case String.split(reference, ":", parts: 3) do
+      ["slack", workspace_ref, "C" <> _ = channel_ref] -> [{workspace_ref, channel_ref}]
+      _other -> []
+    end
+  end
+
+  defp scenario_channel(_event), do: []
 
   defp finish_execution(result, %{cleanup: false}), do: result
 

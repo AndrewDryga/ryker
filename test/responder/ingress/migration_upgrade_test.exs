@@ -1714,7 +1714,6 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
                log: false
              ) == Enum.reverse(@routing_versions)
 
-
       # A recorded selection ledger is evidence about a historical selection that
       # cannot be recomputed, so its rollback refuses while any row holds one.
       SQL.query!(
@@ -1832,8 +1831,10 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
 
       ids = insert_stage3_rows!(repo, prefix)
 
+      # Everything below the migration under test, which is now the selection
+      # ledger rather than the channel configuration.
       Ecto.Migrator.run(repo, @migrations_path, :up,
-        to: @default_channel_configurations_version,
+        to: @selection_ledger_version,
         prefix: prefix,
         log: false
       )
@@ -1912,7 +1913,8 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
                  @routing_digests_version,
                  @delivery_targets_version,
                  @association_corrections_version,
-                 @retained_cases_version
+                 @retained_cases_version,
+                 @learning_executions_version
                ]
 
       assert table_exists?(repo, prefix, "episode_routing_digests")
@@ -1922,6 +1924,11 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
       assert column_exists?(repo, prefix, "episode_work_turns", "delivery_target")
 
       case_id = insert_case_record!(repo, prefix, ids.episode_id)
+
+      # A newer migration sits above the routing rungs; it is reversible in this
+      # schema because nothing metered a learning execution here.
+      assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 1, prefix: prefix, log: false) ==
+               [@learning_executions_version]
 
       assert_raise Postgrex.Error, ~r/retained cases or lessons have data/, fn ->
         Ecto.Migrator.run(repo, @migrations_path, :down, step: 1, prefix: prefix, log: false)
