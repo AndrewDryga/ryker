@@ -36,34 +36,31 @@ An exact retry returns the original receipt with `status: duplicate`. Reusing a 
 identity with different trusted content returns `409 Conflict`. A multi-alert Grafana request is
 atomic: either every alert is recorded or none is.
 
-## Route configuration
+## Source configuration
 
-Every route uses an explicit tagged adapter. Omitting `adapter` is equivalent to `universal` for
-backward-compatible configuration.
+Sources are durable settings, edited under **Settings → Webhook sources**. There is no
+configuration file. One saved source carries:
 
-```yaml
-webhooks:
-  ip: 127.0.0.1
-  port: 4320
-  routes:
-    grafana:
-      adapter:
-        kind: grafana
-        group_by_labels: [cluster, service]
-      auth:
-        kind: bearer
-        secret_env: GRAFANA_WEBHOOK_TOKEN
-      destination:
-        transport: slack
-        conversation_ref: slack:T0123456789:C0123456789
-        thread_ref:
-      work_profile:
-        policy: responder-read-only-v1
-        policy_digest: <64-lowercase-hex-digest>
-        repository_ref: responder
-      max_body_bytes: 40000
-      max_clock_skew_seconds: 300
-```
+| Field | Meaning |
+| --- | --- |
+| Source name | The path segment: `/v1/hooks/<name>`. Stable; it is the route's identity. |
+| Payload shape | `universal`, `grafana` or a custom mapping. A preset also fills in the authentication a provider supports and its grouping labels. |
+| Authentication | Bearer token or HMAC-SHA256. There is no unauthenticated shape and no weaker fallback when verification fails. |
+| Credential | The name of one deployment credential, chosen from `RESPONDER_WEBHOOK_SECRET_NAMES`. The value stays in the environment; the console never displays it and a source can only reference a registered name. |
+| Destination | Transport plus conversation and thread reference. Validated against the configured outbound adapters when the runtime assembles. |
+| Repository context | The context whose reviewed policies this source's work runs under. The payload can never select it. |
+| Correlate by labels | Label values that make events the same ongoing situation. |
+| Custom field mapping | Dotted paths, for a custom shape only. Event ID, status and title are required. |
+| Deployment lifecycle filter | Optional environments, kinds, repositories and targets. |
+
+The listener address and port, the 40 KB body limit and the 300-second clock-skew limit are
+deployment and code defaults, not per-source settings. The Work profile comes from the repository
+context's reviewed policy bindings, so no form ever names a policy digest.
+
+**Check a payload** on the same page runs one pasted delivery through the exact transform the live
+route uses and shows what it would record. It records nothing, opens no incident, submits no model
+work and sends nothing: the route it builds for the check has no Work profile and a credential it
+never uses.
 
 Route names, mapping paths, and grouping labels are bounded. Mapped paths contain at most 16 object
 segments and never index arrays. There is no jq, CEL, template, shell, dynamic module, or script
@@ -158,24 +155,27 @@ curl -f \
 paths. The payload is never copied wholesale into model context; only selected, bounded fields are
 retained.
 
-```yaml
-adapter:
-  kind: mapped_json
-  group_by_labels: [environment, service]
-  mapping:
-    event_id: event.id
-    item_id: incident.alert_id
-    incident_id: incident.id
-    status: incident.state
-    title: incident.title
-    severity: incident.severity
-    summary: incident.summary
-    source_url: incident.url
-    labels: incident.labels
-    annotations: incident.annotations
-    starts_at: incident.started_at
-    ends_at: incident.ended_at
-    revision: event.revision
+A custom source names one dotted path per field, for example `event.id` for the event ID,
+`incident.state` for the status and `incident.title` for the title, with the optional
+`item_id`, `incident_id`, `severity`, `summary`, `source_url`, `starts_at`, `ends_at`, `labels`,
+`annotations` and `revision` paths alongside them. Written out, a saved mapping is:
+
+```json
+{
+  "event_id": "event.id",
+  "item_id": "incident.alert_id",
+  "incident_id": "incident.id",
+  "status": "incident.state",
+  "title": "incident.title",
+  "severity": "incident.severity",
+  "summary": "incident.summary",
+  "source_url": "incident.url",
+  "labels": "incident.labels",
+  "annotations": "incident.annotations",
+  "starts_at": "incident.started_at",
+  "ends_at": "incident.ended_at",
+  "revision": "event.revision"
+}
 ```
 
 `event_id`, `status`, and `title` are required mappings. All other mappings are optional. Scalar
@@ -199,28 +199,11 @@ authority.
 Lifecycle evidence needs a dedicated authenticated route with exact host-owned authority. For
 example:
 
-```yaml
-webhooks:
-  port: 4320
-  routes:
-    deployments:
-      auth:
-        kind: hmac_sha256
-        secret_env: RESPONDER_DEPLOYMENT_WEBHOOK_SECRET
-      destination:
-        transport: slack
-        conversation_ref: slack:T0123456789:C1111111111
-        thread_ref:
-      publication_lifecycle:
-        environments: [production]
-        kinds: [deployment, terraform]
-        repositories: [responder]
-        targets: [responder]
-      work_profile:
-        policy: responder-read-only-v1
-        policy_digest: dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
-        repository_ref: responder
-```
+Save a dedicated source for it: payload shape `universal`, HMAC authentication, its own registered
+credential (not the one an alerting source uses), the destination channel, the repository context
+whose policies it runs under, and a deployment lifecycle filter naming the environments, kinds,
+repositories and targets it may report — for example environments `production`, kinds `deployment`
+and `terraform`, repositories and targets `responder`.
 
 The route is projected as a system actor. Its environment, kind, repository, and target lists are
 an allowlist, not hints. Only such a route may wake merged publication follow-up. Send the version

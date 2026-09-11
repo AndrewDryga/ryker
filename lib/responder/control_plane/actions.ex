@@ -73,6 +73,7 @@ defmodule Responder.ControlPlane.Actions do
       put_settings_item: &SettingsCommands.put_item/3,
       delete_settings_item: &SettingsCommands.delete_item/3,
       preview_retention: &SettingsCommands.preview_retention/2,
+      preview_webhook: &SettingsCommands.preview_webhook/2,
       set_schedule_status: &Schedules.set_status/2,
       view_lab_task_record: lab_task_record_view(work_view_options)
     }

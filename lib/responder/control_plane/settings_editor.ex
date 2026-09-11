@@ -199,10 +199,7 @@ defmodule Responder.ControlPlane.SettingsEditor do
   defp saved_item_key(_socket), do: :keep
 
   defp draft(socket, params) do
-    known = Enum.map(socket.assigns.section.fields, &SettingsSections.field_name/1)
-    submitted = Map.take(params, known)
-
-    draft = Map.new(known, fn name -> {name, Map.get(submitted, name, "")} end)
+    draft = SettingsSections.submitted(socket.assigns.section, params)
 
     baseline =
       SettingsSections.draft(
@@ -239,10 +236,7 @@ defmodule Responder.ControlPlane.SettingsEditor do
         <tbody>
           <tr :for={item <- items(@section, @view)} data-item={item_key(@section, item)}>
             <td :for={field <- @section.fields}>
-              {SettingsSections.form_value(
-                field,
-                Map.get(item, field.name)
-              )}
+              {SettingsSections.row_value(field, Map.get(item, field.name))}
             </td>
             <td
               :if={@section[:row_status]}
@@ -357,10 +351,30 @@ defmodule Responder.ControlPlane.SettingsEditor do
   attr(:field, :map, required: true)
   attr(:id, :string, required: true)
   attr(:help, :string, default: nil)
-  attr(:value, :string, required: true)
+  attr(:value, :any, required: true)
   attr(:options, :list, default: [])
   attr(:invalid, :boolean, default: false)
   attr(:locked, :boolean, default: false)
+
+  # A mapping and a lifecycle filter are several bounded fields, not free text:
+  # the operator names paths and values, and nothing else can be expressed.
+  defp control(%{field: %{kind: kind}} = assigns) when kind in [:mapping, :lifecycle] do
+    ~H"""
+    <fieldset class="settings-composite" id={@id}>
+      <div :for={subfield <- SettingsSections.subfields(@field)}>
+        <label for={"#{@id}-#{subfield}"}>{subfield}</label>
+        <input
+          type="text"
+          id={"#{@id}-#{subfield}"}
+          name={"#{SettingsSections.field_name(@field)}[#{subfield}]"}
+          value={Map.get(@value, subfield, "")}
+          aria-describedby={@help}
+          placeholder={if @field.kind == :lifecycle, do: "Comma separated"}
+        />
+      </div>
+    </fieldset>
+    """
+  end
 
   # Execution evidence, shown so an operator can compare a pin against the fleet,
   # and deliberately not an input: this value is copied from an advertisement.

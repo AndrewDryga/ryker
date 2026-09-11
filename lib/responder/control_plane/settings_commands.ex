@@ -8,9 +8,11 @@ defmodule Responder.ControlPlane.SettingsCommands do
   Nothing here writes a row or decides what is allowed.
   """
 
+  alias Responder.Bootstrap
   alias Responder.ControlPlane.SettingsSections
   alias Responder.Settings
   alias Responder.Settings.WorkerPolicies
+  alias Responder.Webhooks.Preview
 
   @type result :: {:ok, Settings.snapshot()} | {:error, term()}
 
@@ -41,6 +43,23 @@ defmodule Responder.ControlPlane.SettingsCommands do
     with {:ok, section} <- section(section_key),
          {:ok, attributes} <- SettingsSections.cast(section, params) do
       put(section, identify(section, attributes, params), expected_revision)
+    end
+  end
+
+  @doc """
+  Checks one saved webhook source against a sample payload and reports what it maps to.
+
+  Reading only: the preview records no input, opens no incident, submits no
+  model work and sends nothing. It exists so a mapping is proven before an
+  incident depends on it.
+  """
+  @spec preview_webhook(String.t(), String.t()) :: {:ok, [map()]} | {:error, term()}
+  def preview_webhook(name, body) when is_binary(name) and is_binary(body) do
+    with {:ok, snapshot} <- Settings.fetch() do
+      case Enum.find(snapshot.webhook_sources, &(&1.name == name)) do
+        nil -> {:error, :unknown_webhook_source}
+        source -> Preview.check(source, body)
+      end
     end
   end
 
@@ -103,6 +122,17 @@ defmodule Responder.ControlPlane.SettingsCommands do
   defp put(%{key: :github_bindings}, attributes, revision),
     do: Settings.put_github_binding(attributes, revision, actor())
 
+  # A source may reference only a credential this deployment registered. Saving
+  # an unregistered name would leave a route that cannot start, and accepting an
+  # arbitrary name would make the form a way to read the process environment.
+  defp put(%{key: :webhooks}, attributes, revision) do
+    if Map.get(attributes, :secret_name) in registered_secrets() do
+      Settings.put_webhook_source(attributes, revision, actor())
+    else
+      {:error, {:invalid_settings, [{:secret_name, :unregistered_secret}]}}
+    end
+  end
+
   # The form chooses a policy by name; the digest and authority come from the
   # worker advertisement, so a browser can neither invent a pin nor keep one
   # the fleet has stopped offering.
@@ -127,6 +157,16 @@ defmodule Responder.ControlPlane.SettingsCommands do
 
   defp remove(%{key: :policies}, id, revision),
     do: Settings.delete_policy_binding(id, revision, actor())
+
+  defp remove(%{key: :webhooks}, name, revision),
+    do: Settings.delete_webhook_source(name, revision, actor())
+
+  defp registered_secrets do
+    case Bootstrap.registered_webhook_secret_names() do
+      {:ok, names} -> names
+      :error -> []
+    end
+  end
 
   defp workspace_ref do
     case Settings.fetch() do
