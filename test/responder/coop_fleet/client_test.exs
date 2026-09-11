@@ -2,7 +2,15 @@ defmodule Responder.CoopFleet.ClientTest do
   use Responder.DataCase, async: true
 
   alias Responder.{Artifacts, CanonicalJSON, Instructions}
-  alias Responder.CoopFleet.{Client, ControlPlane, Placement, WorkspaceCheckpointTransfer}
+
+  alias Responder.CoopFleet.{
+    Client,
+    Command,
+    ControlPlane,
+    Placement,
+    WorkspaceCheckpointTransfer
+  }
+
   alias Responder.Episodes
   alias Responder.Fixtures.Episodes, as: EpisodeFixtures
   alias Responder.Fixtures.WorkspaceCheckpoint, as: WorkspaceCheckpointFixture
@@ -53,13 +61,18 @@ defmodule Responder.CoopFleet.ClientTest do
              %{"id" => "remote-resource", "state" => "succeeded"}
            )}
 
+        "run_review" ->
+          Process.get(:coop_fleet_run_review_result, {:ok, %{"id" => "remote-resource"}})
+
         _other ->
           {:ok, %{"id" => "remote-resource", "state" => "succeeded"}}
       end
     end
 
-    def await_command(_command_id, _options),
-      do: {:error, :unexpected_command_wait}
+    def await_command(command_id, _options) do
+      send(Process.get(:coop_fleet_client_test_pid), {:fleet_await, command_id})
+      Process.get(:coop_fleet_await_result, {:error, :unexpected_command_wait})
+    end
   end
 
   setup do
@@ -732,6 +745,165 @@ defmodule Responder.CoopFleet.ClientTest do
              "coop_session_id" => session.coop_session_id,
              "plan_operation_id" => "operation-plan-1"
            }
+  end
+
+  test "an uncertain review recovers its completed result without rewriting the transport receipt",
+       %{client: client, session: session} do
+    # The real 54-second review completed after the worker's 30-second HTTP timeout;
+    # every publication retry then replayed the same transport uncertainty forever.
+    response = completed_review_fixture()
+    session = bind_session!(session, response["review"]["session_id"])
+    command = uncertain_review!(session, "completed")
+    Process.put(:coop_fleet_await_result, {:ok, response})
+
+    assert Client.run_review(client, session.coop_session_id, command.idempotency_key, 3) ==
+             {:ok, response}
+
+    assert_receive {:fleet_await, reconciliation_id}
+    reconciliation = Repo.get!(Command, reconciliation_id)
+    assert reconciliation.kind == "reconcile_operation"
+    assert reconciliation.payload == %{"operation_key" => command.idempotency_key}
+    assert reconciliation.placement_id == command.placement_id
+    assert reconciliation.placement_generation == command.placement_generation
+    assert Repo.get!(Command, command.id) == command
+    refute_receive {:fleet_command, _, "run_review", _, _, _}
+  end
+
+  test "review reconciliation preserves pending and definite failed operation outcomes", %{
+    client: client,
+    session: session
+  } do
+    session = bind_session!(session, completed_review_fixture()["review"]["session_id"])
+    command = uncertain_review!(session, "pending")
+
+    for state <- ["reserved", "running", "uncertain"] do
+      Process.put(:coop_fleet_await_result, {:ok, %{"method" => "RunReview", "state" => state}})
+
+      assert {:error, {:coop_unavailable, "Review operation has not completed."}} =
+               Client.run_review(client, session.coop_session_id, command.idempotency_key, 3)
+    end
+
+    Process.put(:coop_fleet_await_result, {
+      :ok,
+      %{
+        "method" => "RunReview",
+        "state" => "failed",
+        "error_code" => "revision_conflict",
+        "error_detail" => "stale revision"
+      }
+    })
+
+    assert {:error, {:coop_error, 409, "revision_conflict", "stale revision"}} =
+             Client.run_review(client, session.coop_session_id, command.idempotency_key, 3)
+
+    assert Repo.get!(Command, command.id) == command
+  end
+
+  test "a worker without completed review lookup names the required upgrade", %{
+    client: client,
+    session: session
+  } do
+    # Independently upgraded workers can still return only the operation metadata;
+    # call that missing capability out instead of misreporting a corrupt review.
+    response = completed_review_fixture()
+    session = bind_session!(session, response["review"]["session_id"])
+    command = uncertain_review!(session, "upgrade")
+    Process.put(:coop_fleet_await_result, {:ok, response["operation"]})
+
+    assert {:error, {:coop_upgrade_required, :completed_review_lookup, detail}} =
+             Client.run_review(client, session.coop_session_id, command.idempotency_key, 3)
+
+    assert detail =~ "Upgrade the Coop daemon and worker connector"
+    assert Repo.get!(Command, command.id) == command
+  end
+
+  test "a completed review crosses the real outbound poll without replacing its uncertain command",
+       %{session: session} do
+    response = completed_review_fixture()
+    session = bind_session!(session, response["review"]["session_id"])
+    command = uncertain_review!(session, "outbound")
+
+    assert {:ok, client} =
+             Client.new(
+               workspace_ref: "workspace-main",
+               max_waits: 2,
+               poll_interval_ms: 1,
+               wait: fn ->
+                 assert {:ok, %{"commands" => [read]}} =
+                          ControlPlane.handle_poll(
+                            command.worker_id,
+                            poll(command.worker_id, "read")
+                          )
+
+                 assert read["kind"] == "reconcile_operation"
+                 assert read["payload"] == %{"operation_key" => command.idempotency_key}
+
+                 result = %{
+                   "command_id" => read["command_id"],
+                   "error" => nil,
+                   "operation_key" => read["idempotency_key"],
+                   "resource" => response,
+                   "state" => "succeeded"
+                 }
+
+                 poll =
+                   command.worker_id
+                   |> poll("result")
+                   |> Map.put("command_results", [result])
+
+                 assert {:ok, acknowledgement} = ControlPlane.handle_poll(command.worker_id, poll)
+                 assert acknowledgement["acknowledged_result_command_ids"] == [read["command_id"]]
+                 :ok
+               end
+             )
+
+    assert Client.run_review(client, session.coop_session_id, command.idempotency_key, 3) ==
+             {:ok, response}
+
+    assert Repo.get!(Command, command.id) == command
+  end
+
+  test "review recovery refuses changed requests and replaced placements without another command",
+       %{client: client, session: session} do
+    session = bind_session!(session, completed_review_fixture()["review"]["session_id"])
+    command = uncertain_review!(session, "fenced")
+
+    assert {:error, {:coop_worker_command_conflict, _key}} =
+             Client.run_review(client, session.coop_session_id, command.idempotency_key, 4)
+
+    Repo.get!(Placement, command.placement_id)
+    |> Ecto.Changeset.change(state: :replaced)
+    |> Repo.update!()
+
+    assert {:error, {:coop_session_replacement_required, _, _}} =
+             Client.run_review(client, session.coop_session_id, command.idempotency_key, 3)
+
+    assert Repo.aggregate(Command, :count) == 1
+    assert Repo.get!(Command, command.id) == command
+    refute_receive {:fleet_await, _}
+    refute_receive {:fleet_command, _, _, _, _, _}
+  end
+
+  test "a recovered review must match the original session revision and operation", %{
+    client: client,
+    session: session
+  } do
+    response = completed_review_fixture()
+    session = bind_session!(session, response["review"]["session_id"])
+    command = uncertain_review!(session, "identity")
+
+    for changed <- [
+          put_in(response, ["operation", "method"], "SubmitTurn"),
+          put_in(response, ["operation", "resource_id"], "another-session"),
+          put_in(response, ["review", "operation_id"], "another-operation"),
+          put_in(response, ["review", "session_id"], "another-session"),
+          put_in(response, ["review", "session_revision"], 4)
+        ] do
+      Process.put(:coop_fleet_await_result, {:ok, changed})
+
+      assert {:error, {:coop_protocol_error, :review_resource}} =
+               Client.run_review(client, session.coop_session_id, command.idempotency_key, 3)
+    end
   end
 
   test "frozen turn transports exact artifact references without persisting their bytes", %{
@@ -1563,6 +1735,27 @@ defmodule Responder.CoopFleet.ClientTest do
              )
 
     session
+  end
+
+  defp completed_review_fixture do
+    Path.join(__DIR__, "fixtures/completed_review_after_timeout.json")
+    |> File.read!()
+    |> Jason.decode!()
+  end
+
+  defp uncertain_review!(session, suffix) do
+    error = {:error, {:coop_unavailable, "worker review request timed out"}}
+    Process.put(:coop_fleet_run_review_result, error)
+
+    session
+    |> command!(suffix,
+      kind: "run_review",
+      payload: %{"coop_session_id" => session.coop_session_id, "expected_revision" => 3}
+    )
+    |> complete_command!(:uncertain, nil, %{
+      "code" => "transport_uncertain",
+      "detail" => "worker review request timed out"
+    })
   end
 
   defp bind_session!(session, coop_session_id) do
