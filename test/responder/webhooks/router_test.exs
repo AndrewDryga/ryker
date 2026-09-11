@@ -53,6 +53,7 @@ defmodule Responder.Webhooks.RouterTest do
                "episode_ref" => nil,
                "reaction" => nil,
                "relation" => "unrelated",
+               "repository_source" => nil,
                "reason" => "This unfamiliar event needs investigation.",
                "work_class" => "standard"
              })
@@ -379,6 +380,7 @@ defmodule Responder.Webhooks.RouterTest do
                "episode_ref" => episode_ref,
                "reaction" => nil,
                "relation" => Atom.to_string(relation),
+               "repository_source" => nil,
                "reason" => "This webhook occurrence belongs to the supplied lifecycle.",
                "work_class" => if(action == :reply, do: "conversational", else: "standard")
              })

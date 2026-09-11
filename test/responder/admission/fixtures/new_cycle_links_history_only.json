@@ -53,6 +53,7 @@
     "reaction": null,
     "work_class": "standard",
     "relation": "history_only",
+    "repository_source": null,
     "reason": "The start identity changed, so this is a new cycle with related history."
   },
   "expected": {

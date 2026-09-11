@@ -274,6 +274,22 @@ defmodule Responder.Evals.LearningRunnerTest do
         Map.merge(state.session, %{
           "base_commit" => head,
           "companions" => [],
+          # The intentionally local learning scratch keeps local semantics: it
+          # resolves its own configured default and never a branch, pull request
+          # or caller-supplied object id.
+          "repository_source" => %{
+            "admitted_tree" => String.duplicate("e", 40),
+            "base_commit" => head,
+            "default_commit" => head,
+            "default_ref" => "refs/heads/main",
+            "kind" => "default",
+            "remote_identity" => "local",
+            "requested" => %{"kind" => "default"},
+            "resolved_at" => "2026-09-08T08:00:00Z",
+            "selected_commit" => head,
+            "selected_ref" => "refs/heads/main",
+            "version" => 1
+          },
           "repository_freshness_status" => "recorded",
           "repository_freshness" => [
             %{

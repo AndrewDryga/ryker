@@ -49,6 +49,7 @@
     "reaction": null,
     "work_class": "standard",
     "relation": "same_work",
+    "repository_source": null,
     "reason": "This is a new instruction in the exact same Slack thread."
   },
   "accepted_alternatives": [
@@ -58,6 +59,7 @@
       "reaction": null,
       "work_class": "conversational",
       "relation": "same_work",
+      "repository_source": null,
       "reason": "This is a direct follow-up to the ads.txt redirect discussion. Whether www is needed can be answered conversationally, while distinguishing general guidance from unverified domain configuration."
     }
   ],

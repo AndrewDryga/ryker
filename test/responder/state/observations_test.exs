@@ -119,6 +119,7 @@ defmodule Responder.State.ObservationsTest do
           "episode_ref" => nil,
           "reaction" => nil,
           "relation" => "unrelated",
+          "repository_source" => nil,
           "reason" => "No response needed.",
           "work_class" => nil
         })
@@ -369,6 +370,7 @@ defmodule Responder.State.ObservationsTest do
         "episode_ref" => nil,
         "reaction" => nil,
         "relation" => "unrelated",
+        "repository_source" => nil,
         "reason" => "A conversation decision requires no interruption.",
         "work_class" => nil
       })

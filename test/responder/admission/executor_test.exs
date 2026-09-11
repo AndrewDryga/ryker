@@ -651,6 +651,7 @@ defmodule Responder.Admission.ExecutorTest do
       "episode_ref" => nil,
       "reaction" => reaction,
       "relation" => "unrelated",
+      "repository_source" => nil,
       "reason" => "This is the best action for the supplied event and candidates.",
       "work_class" => admission_work_class(action, work_class)
     }
@@ -663,6 +664,7 @@ defmodule Responder.Admission.ExecutorTest do
       "episode_ref" => episode_ref,
       "reaction" => nil,
       "relation" => relation,
+      "repository_source" => nil,
       "reason" => "This candidate appears related to the incoming event.",
       "work_class" => admission_work_class(action, :default)
     }

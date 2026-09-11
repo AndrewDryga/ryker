@@ -26,6 +26,7 @@ defmodule Responder.Admission.DecisionTest do
       assert {:ok, decision} =
                fields
                |> Map.put_new("reaction", nil)
+               |> Map.put_new("repository_source", nil)
                |> Map.put("work_class", work_class(expected_action))
                |> Map.put("reason", "A short factual reason.")
                |> Decision.parse()
@@ -42,6 +43,7 @@ defmodule Responder.Admission.DecisionTest do
                "reaction" => nil,
                "relation" => "history_only",
                "reason" => "This is a new lifecycle related to the older work.",
+               "repository_source" => nil,
                "work_class" => "standard"
              })
 
@@ -57,6 +59,7 @@ defmodule Responder.Admission.DecisionTest do
                "reaction" => nil,
                "relation" => "unrelated",
                "reason" => "Duplicate event.",
+               "repository_source" => nil,
                "work_class" => nil,
                "thread_ts" => "the model cannot route"
              })
@@ -68,6 +71,7 @@ defmodule Responder.Admission.DecisionTest do
                "reaction" => nil,
                "relation" => "same_work",
                "reason" => "Continue it.",
+               "repository_source" => nil,
                "work_class" => "standard"
              })
 
@@ -78,6 +82,7 @@ defmodule Responder.Admission.DecisionTest do
                "reaction" => nil,
                "relation" => "same_work",
                "reason" => "Ignore it.",
+               "repository_source" => nil,
                "work_class" => nil
              })
   end
@@ -88,7 +93,15 @@ defmodule Responder.Admission.DecisionTest do
     assert schema["additionalProperties"] == false
 
     assert schema["required"] ==
-             ["action", "episode_ref", "reaction", "relation", "reason", "work_class"]
+             [
+               "action",
+               "episode_ref",
+               "reaction",
+               "relation",
+               "reason",
+               "repository_source",
+               "work_class"
+             ]
 
     assert schema["properties"]["action"]["enum"] ==
              ~w(start_episode continue_episode reply react ignore)
@@ -128,6 +141,7 @@ defmodule Responder.Admission.DecisionTest do
                "reaction" => %{"emoji_name" => "white_check_mark"},
                "relation" => "unrelated",
                "reason" => "Acknowledge the update without adding another message.",
+               "repository_source" => nil,
                "work_class" => nil
              })
 
@@ -140,6 +154,7 @@ defmodule Responder.Admission.DecisionTest do
                "reaction" => nil,
                "relation" => "unrelated",
                "reason" => "This cannot be delivered without an emoji name.",
+               "repository_source" => nil,
                "work_class" => nil
              })
   end
@@ -152,6 +167,7 @@ defmodule Responder.Admission.DecisionTest do
                "reaction" => %{"emoji_name" => "eyes"},
                "relation" => "unrelated",
                "reason" => "Acknowledge this update.",
+               "repository_source" => nil,
                "work_class" => nil
              })
 
@@ -233,6 +249,151 @@ defmodule Responder.Admission.DecisionTest do
              )
   end
 
+  test "only a new repository-backed episode may select a repository source" do
+    branch = %{"kind" => "branch", "name" => "feature/payments"}
+
+    assert {:ok, decision} =
+             Decision.parse(%{
+               "action" => "start_episode",
+               "episode_ref" => nil,
+               "reaction" => nil,
+               "relation" => "unrelated",
+               "reason" => "Review the named branch.",
+               "repository_source" => branch,
+               "work_class" => "standard"
+             })
+
+    assert decision.repository_source == branch
+    assert Decision.document(decision)["repository_source"] == branch
+
+    rebinding = [
+      {"continue_episode", "candidate-1", "same_work", "standard"},
+      {"reply", "candidate-1", "same_work", "conversational"},
+      {"reply", nil, "unrelated", "conversational"},
+      {"react", nil, "unrelated", nil},
+      {"ignore", nil, "unrelated", nil}
+    ]
+
+    for {action, episode_ref, relation, work_class} <- rebinding do
+      document = %{
+        "action" => action,
+        "episode_ref" => episode_ref,
+        "reaction" => if(action == "react", do: %{"emoji_name" => "eyes"}, else: nil),
+        "relation" => relation,
+        "reason" => "A short factual reason.",
+        "repository_source" => branch,
+        "work_class" => work_class
+      }
+
+      assert Decision.parse(document) == {:error, {:invalid_decision, :repository_source}},
+             "expected #{action} to be unable to rebind source"
+    end
+  end
+
+  test "a malformed selector is refused as a decision field, not repaired" do
+    for invalid <- [
+          %{"kind" => "tag", "name" => "v1"},
+          %{"kind" => "branch", "name" => "refs/heads/main"},
+          %{"kind" => "commit", "sha" => String.duplicate("A", 40)},
+          %{"kind" => "pull_request", "number" => 0},
+          "main"
+        ] do
+      document = %{
+        "action" => "start_episode",
+        "episode_ref" => nil,
+        "reaction" => nil,
+        "relation" => "unrelated",
+        "reason" => "Review the named source.",
+        "repository_source" => invalid,
+        "work_class" => "standard"
+      }
+
+      assert Decision.parse(document) == {:error, {:invalid_decision, :repository_source}}
+    end
+  end
+
+  test "a retry that changes only the selector is a different durable decision" do
+    document = fn source ->
+      %{
+        "action" => "start_episode",
+        "episode_ref" => nil,
+        "reaction" => nil,
+        "relation" => "unrelated",
+        "reason" => "Review the named branch.",
+        "repository_source" => source,
+        "work_class" => "standard"
+      }
+    end
+
+    assert {:ok, branch} = Decision.parse(document.(%{"kind" => "branch", "name" => "one"}))
+    assert {:ok, other} = Decision.parse(document.(%{"kind" => "branch", "name" => "two"}))
+    assert {:ok, none} = Decision.parse(document.(nil))
+
+    assert Decision.fingerprint(branch) != Decision.fingerprint(other)
+    assert Decision.fingerprint(branch) != Decision.fingerprint(none)
+  end
+
+  test "a route without a repository publishes a null-only selector" do
+    schema = Decision.json_schema([:start_episode, :reply, :ignore], :any)
+    assert schema["properties"]["repository_source"] == %{"type" => "null"}
+
+    built = JSV.build!(schema)
+
+    assert {:error, _invalid} =
+             JSV.validate(
+               decision_document(
+                 action: "start_episode",
+                 relation: "unrelated",
+                 repository_source: %{"kind" => "default"},
+                 work_class: "standard"
+               ),
+               built,
+               cast: false
+             )
+  end
+
+  test "a repository-backed route publishes the selector only on a new episode" do
+    schema = Decision.json_schema([:start_episode, :continue_episode, :reply], :any, true)
+    built = JSV.build!(schema)
+
+    assert {:ok, _valid} =
+             JSV.validate(
+               decision_document(
+                 action: "start_episode",
+                 relation: "unrelated",
+                 repository_source: %{"kind" => "branch", "name" => "feature/payments"},
+                 work_class: "standard"
+               ),
+               built,
+               cast: false
+             )
+
+    assert {:error, _invalid} =
+             JSV.validate(
+               decision_document(
+                 action: "continue_episode",
+                 episode_ref: "candidate-1",
+                 relation: "same_work",
+                 repository_source: %{"kind" => "branch", "name" => "feature/payments"},
+                 work_class: "standard"
+               ),
+               built,
+               cast: false
+             )
+
+    assert {:ok, _valid} =
+             JSV.validate(
+               decision_document(
+                 action: "continue_episode",
+                 episode_ref: "candidate-1",
+                 relation: "same_work",
+                 work_class: "standard"
+               ),
+               built,
+               cast: false
+             )
+  end
+
   defp decision_document(overrides) do
     defaults = %{
       "action" => "reply",
@@ -240,6 +401,7 @@ defmodule Responder.Admission.DecisionTest do
       "reaction" => nil,
       "relation" => "unrelated",
       "reason" => "Answer directly.",
+      "repository_source" => nil,
       "work_class" => "conversational"
     }
 

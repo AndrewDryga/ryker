@@ -68,6 +68,7 @@ defmodule Responder.Fixtures.AnswerMemory do
         "episode_ref" => "candidate:answer-memory",
         "reaction" => nil,
         "relation" => "same_work",
+        "repository_source" => nil,
         "reason" => "Store-contract answer in the same episode.",
         "work_class" => "standard"
       })

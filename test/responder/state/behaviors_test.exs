@@ -722,6 +722,7 @@ defmodule Responder.State.BehaviorsTest do
                "episode_ref" => nil,
                "reaction" => nil,
                "relation" => "unrelated",
+               "repository_source" => nil,
                "reason" =>
                  "This exact standing assignment event deserves its own bounded review.",
                "work_class" => "standard"

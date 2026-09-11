@@ -27,6 +27,7 @@ defmodule Responder.AdmissionConcurrencyTest do
                  "episode_ref" => nil,
                  "reaction" => nil,
                  "relation" => "unrelated",
+                 "repository_source" => nil,
                  "reason" => "This message asks Responder to do new work.",
                  "work_class" => "standard"
                })
@@ -160,6 +161,7 @@ defmodule Responder.AdmissionConcurrencyTest do
                      "episode_ref" => nil,
                      "reaction" => nil,
                      "relation" => "unrelated",
+                     "repository_source" => nil,
                      "reason" => "The frozen snapshot offered no existing work.",
                      "work_class" => "standard"
                    })
@@ -271,6 +273,7 @@ defmodule Responder.AdmissionConcurrencyTest do
                  "episode_ref" => candidate.ref,
                  "reaction" => nil,
                  "relation" => "history_only",
+                 "repository_source" => nil,
                  "reason" => "This appears to be new work with relevant history.",
                  "work_class" => "standard"
                })

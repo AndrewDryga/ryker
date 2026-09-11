@@ -495,6 +495,7 @@ defmodule Responder.ControlPlane.ConversationLabTest do
                "episode_ref" => nil,
                "reaction" => %{"emoji_name" => "eyes"},
                "relation" => "unrelated",
+               "repository_source" => nil,
                "reason" => "A nonverbal acknowledgement is sufficient.",
                "work_class" => nil
              })

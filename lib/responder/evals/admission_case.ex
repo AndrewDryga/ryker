@@ -290,7 +290,7 @@ defmodule Responder.Evals.AdmissionCase do
   end
 
   defp comparable(%{} = document) do
-    Map.take(document, ~w(action episode_ref reaction relation work_class))
+    Map.take(document, ~w(action episode_ref reaction relation repository_source work_class))
   end
 
   defp comparable(_document), do: nil

@@ -369,6 +369,7 @@ defmodule Responder.Slack.EndToEndTest do
       "episode_ref" => nil,
       "reaction" => nil,
       "relation" => "unrelated",
+      "repository_source" => nil,
       "reason" => "The direct mention requests an investigation.",
       "work_class" => "standard"
     })
@@ -380,6 +381,7 @@ defmodule Responder.Slack.EndToEndTest do
       "episode_ref" => candidate_ref,
       "reaction" => nil,
       "relation" => "same_work",
+      "repository_source" => nil,
       "reason" => "This unmentioned reply belongs to the exact existing Slack thread.",
       "work_class" => "standard"
     })

@@ -651,6 +651,7 @@ defmodule Responder.ControlPlane.ConversationLabEndToEndTest do
       "episode_ref" => nil,
       "reaction" => nil,
       "relation" => "unrelated",
+      "repository_source" => nil,
       "reason" => "The first local message starts one durable conversation episode.",
       "work_class" => "standard"
     })
@@ -662,6 +663,7 @@ defmodule Responder.ControlPlane.ConversationLabEndToEndTest do
       "episode_ref" => candidate_ref,
       "reaction" => nil,
       "relation" => "same_work",
+      "repository_source" => nil,
       "reason" => "The local follow-up explicitly depends on the prior answer in this thread.",
       "work_class" => "standard"
     })
@@ -673,6 +675,7 @@ defmodule Responder.ControlPlane.ConversationLabEndToEndTest do
       "episode_ref" => nil,
       "reaction" => %{"emoji_name" => "eyes"},
       "relation" => "unrelated",
+      "repository_source" => nil,
       "reason" => "A nonverbal acknowledgement is sufficient for this local message.",
       "work_class" => nil
     })

@@ -642,6 +642,7 @@ defmodule Responder.ControlPlane.EpisodeTraceTest do
       "episode_ref" => nil,
       "reaction" => nil,
       "relation" => "unrelated",
+      "repository_source" => nil,
       "reason" => "A direct conversational reply.",
       "work_class" => "conversational"
     }

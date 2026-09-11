@@ -28,6 +28,7 @@
     "reaction": null,
     "work_class": "standard",
     "relation": "unrelated",
+    "repository_source": null,
     "reason": "This new app message contains work worth handling."
   },
   "expected": {

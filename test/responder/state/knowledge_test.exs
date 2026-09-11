@@ -364,6 +364,7 @@ defmodule Responder.State.KnowledgeTest do
         "episode_ref" => nil,
         "reaction" => nil,
         "relation" => "unrelated",
+        "repository_source" => nil,
         "reason" => "Investigate the reported alert.",
         "work_class" => "standard"
       })

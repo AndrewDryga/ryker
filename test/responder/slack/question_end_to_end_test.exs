@@ -673,6 +673,7 @@ defmodule Responder.Slack.QuestionEndToEndTest do
       "episode_ref" => nil,
       "reaction" => nil,
       "relation" => "unrelated",
+      "repository_source" => nil,
       "reason" => "The direct mention asks Responder to choose a rollout plan.",
       "work_class" => "standard"
     })
@@ -684,6 +685,7 @@ defmodule Responder.Slack.QuestionEndToEndTest do
       "episode_ref" => candidate_ref,
       "reaction" => nil,
       "relation" => "same_work",
+      "repository_source" => nil,
       "reason" => "This authorized answer belongs to the exact delivered question thread.",
       "work_class" => "standard"
     })

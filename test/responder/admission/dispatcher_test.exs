@@ -470,6 +470,7 @@ defmodule Responder.Admission.DispatcherTest do
         "episode_ref" => candidate.ref,
         "reaction" => nil,
         "relation" => "history_only",
+        "repository_source" => nil,
         "reason" => "This looks like a new request related to earlier work.",
         "work_class" => "standard"
       })
@@ -605,6 +606,7 @@ defmodule Responder.Admission.DispatcherTest do
         "episode_ref" => candidate.ref,
         "reaction" => nil,
         "relation" => "history_only",
+        "repository_source" => nil,
         "reason" => "This is new work with useful history.",
         "work_class" => "standard"
       })
@@ -615,6 +617,7 @@ defmodule Responder.Admission.DispatcherTest do
         "episode_ref" => candidate.ref,
         "reaction" => nil,
         "relation" => "same_work",
+        "repository_source" => nil,
         "reason" => "This belongs to the reopened work.",
         "work_class" => "standard"
       })
@@ -786,6 +789,7 @@ defmodule Responder.Admission.DispatcherTest do
       "episode_ref" => nil,
       "reaction" => nil,
       "relation" => "unrelated",
+      "repository_source" => nil,
       "reason" => "The incoming request can receive an immediate answer.",
       "work_class" => if(action == "reply", do: "conversational", else: "standard")
     })
@@ -832,6 +836,7 @@ defmodule Responder.Admission.DispatcherTest do
         "episode_ref" => nil,
         "reaction" => nil,
         "relation" => "unrelated",
+        "repository_source" => nil,
         "reason" => "The incoming request can receive an immediate answer.",
         "work_class" => "conversational"
       })

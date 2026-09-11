@@ -690,6 +690,7 @@ defmodule Responder.Evals.WorldRunner do
        reaction: nil,
        relation: :unrelated,
        reason: "Start the scenario's first work episode.",
+       repository_source: nil,
        work_class: :standard
      }, nil}
   end
@@ -713,6 +714,7 @@ defmodule Responder.Evals.WorldRunner do
            reaction: nil,
            relation: :same_work,
            reason: "Continue the scenario's existing work episode.",
+           repository_source: nil,
            work_class: :standard
          }, waiting_event}
 

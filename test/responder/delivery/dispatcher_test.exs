@@ -996,6 +996,7 @@ defmodule Responder.Delivery.DispatcherTest do
                "episode_ref" => nil,
                "reaction" => %{"emoji_name" => emoji_name},
                "relation" => "unrelated",
+               "repository_source" => nil,
                "reason" => "Acknowledge without starting an episode.",
                "work_class" => nil
              })

@@ -52,6 +52,7 @@ defmodule Responder.Admission.Context do
     |> put_knowledge(context.knowledge)
     |> put_slack_addressing(context.slack_addressing)
     |> put_custom_instructions(context.custom_instructions)
+    |> put_repository_source_kinds(context.input_entry.repository_ref)
   end
 
   @doc false
@@ -217,6 +218,13 @@ defmodule Responder.Admission.Context do
 
   defp validate_slack_addressing(_addressing, _source),
     do: {:error, {:invalid_admission_context_snapshot, :slack_addressing}}
+
+  # Present only when the host already selected a repository for this route, so a
+  # conversational route never reads a source selector as available.
+  defp put_repository_source_kinds(document, nil), do: document
+
+  defp put_repository_source_kinds(document, repository_ref) when is_binary(repository_ref),
+    do: Map.put(document, "repository_source_kinds", ~w(default branch pull_request commit))
 
   defp put_observations(document, []), do: document
 

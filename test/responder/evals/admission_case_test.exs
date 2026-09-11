@@ -24,7 +24,7 @@ defmodule Responder.Evals.AdmissionCaseTest do
       assert document["schema"]["title"] == "Responder admission decision"
 
       assert Enum.sort(document["schema"]["required"]) ==
-               ~w(action episode_ref reaction reason relation work_class)
+               ~w(action episode_ref reaction reason relation repository_source work_class)
 
       refute Map.has_key?(document["schema"]["properties"], "observation")
       refute Map.has_key?(document["schema"]["properties"], "knowledge")
@@ -73,6 +73,7 @@ defmodule Responder.Evals.AdmissionCaseTest do
       "episode_ref" => eval.expectation["episode_ref"],
       "reaction" => nil,
       "relation" => "same_work",
+      "repository_source" => nil,
       "reason" =>
         "This is a direct follow-up to the ads.txt redirect discussion. Whether www is needed can be answered conversationally, while distinguishing general guidance from unverified domain configuration.",
       "work_class" => "conversational"
@@ -89,6 +90,7 @@ defmodule Responder.Evals.AdmissionCaseTest do
             "episode_ref" => eval.expectation["episode_ref"],
             "reaction" => nil,
             "relation" => "history_only",
+            "repository_source" => nil,
             "reason" => "Treat the earlier episode only as background.",
             "work_class" => "standard"
           }
@@ -100,7 +102,10 @@ defmodule Responder.Evals.AdmissionCaseTest do
       assert expected == eval.expectation
 
       assert submitted_comparison ==
-               Map.take(submitted, ~w(action episode_ref reaction relation work_class))
+               Map.take(
+                 submitted,
+                 ~w(action episode_ref reaction relation repository_source work_class)
+               )
     end
 
     assert {:error, {:invalid_decision, :work_class}} =
@@ -127,7 +132,10 @@ defmodule Responder.Evals.AdmissionCaseTest do
     assert non_human_expected == non_human_eval.expectation
 
     assert non_human_submitted_comparison ==
-             Map.take(non_human_submitted, ~w(action episode_ref reaction relation work_class))
+             Map.take(
+               non_human_submitted,
+               ~w(action episode_ref reaction relation repository_source work_class)
+             )
   end
 
   test "assessment scores the abstract work class independently of lifecycle prose" do
@@ -175,6 +183,7 @@ defmodule Responder.Evals.AdmissionCaseTest do
          "episode_ref" => "$seed",
          "reaction" => nil,
          "relation" => "history_only",
+         "repository_source" => nil,
          "reason" => "Cancelled work is history, not a resumable owner.",
          "work_class" => "standard"
        }}

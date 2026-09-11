@@ -524,9 +524,11 @@ defmodule Responder.Work.Executor do
   defp primary_revision_matches?(receipt, nil, primary),
     do: receipt["resolved_revision"] == primary["base_commit"]
 
+  # The binding names the pinned default head; how Coop phrased that request is
+  # its own business, but the identity it contacted and the commit it resolved
+  # must be the ones the binding claims.
   defp primary_revision_matches?(receipt, source, _primary) do
     receipt["resolved_revision"] == source["default_commit"] and
-      receipt["requested_revision"] == source["default_ref"] and
       receipt["remote_identity"] == source["remote_identity"]
   end
 

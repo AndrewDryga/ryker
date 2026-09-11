@@ -68,6 +68,7 @@ defmodule Responder.Fixtures.Learning do
         "episode_ref" => nil,
         "reaction" => nil,
         "relation" => "unrelated",
+        "repository_source" => nil,
         "reason" => "Silent shadow learning test.",
         "work_class" => nil
       })
