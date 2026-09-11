@@ -265,7 +265,6 @@ defmodule Responder.Evals.WorldCaseTest do
              MapSet.new(["monitoring.query", "gcp.deployment", "gcp.backend_health"])
 
     assert {:ok, cassette} = WorldCassette.start_link(scenario)
-    on_exit(fn -> if Process.alive?(cassette), do: GenServer.stop(cassette) end)
 
     # Wrong-scope reads must not receive production health from the cassette.
     for tool <- ["gcp.deployment", "gcp.backend_health", "monitoring.query"] do
@@ -418,7 +417,6 @@ defmodule Responder.Evals.WorldCaseTest do
              WorldCase.fetch("current-uptime-check-uses-fresh-source", @scenario_root)
 
     assert {:ok, cassette} = WorldCassette.start_link(scenario)
-    on_exit(fn -> if Process.alive?(cassette), do: GenServer.stop(cassette) end)
 
     assert {:ok, observation} =
              WorldCassette.call(cassette, "monitoring.query", %{
@@ -840,7 +838,6 @@ defmodule Responder.Evals.WorldCaseTest do
   defp cassette!(id) do
     assert {:ok, scenario} = WorldCase.fetch(id, @scenario_root)
     assert {:ok, cassette} = WorldCassette.start_link(scenario)
-    on_exit(fn -> if Process.alive?(cassette), do: GenServer.stop(cassette) end)
     cassette
   end
 end

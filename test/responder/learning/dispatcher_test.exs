@@ -244,7 +244,6 @@ defmodule Responder.Learning.DispatcherTest do
       # write its result, or buy another execution after losing its exact lease.
       entries = inputs!()
       {:ok, fake} = FakeCoopAPI.start_link([result(entries)])
-      on_exit(fn -> if Process.alive?(fake), do: Agent.stop(fake) end)
       owner = self()
       Agent.update(fake, &Map.put(&1, :pause_after, {unquote(phase), owner}))
       settings = Map.put(@settings, :client, fake)
@@ -291,7 +290,6 @@ defmodule Responder.Learning.DispatcherTest do
   test "a lost cancel response reconciles one terminal turn without another execution" do
     [entry | _] = entries = inputs!()
     {:ok, fake} = FakeCoopAPI.start_link([result(entries)])
-    on_exit(fn -> if Process.alive?(fake), do: Agent.stop(fake) end)
     Agent.update(fake, &Map.put(&1, :lose_boundary, :before_accept))
     settings = Map.put(@settings, :client, fake)
     drive_until_fault!(settings, fake, 5)
@@ -324,7 +322,6 @@ defmodule Responder.Learning.DispatcherTest do
     test "a lost #{phase} fence response proves absence without buying another judgment" do
       [entry | _] = entries = inputs!()
       {:ok, fake} = FakeCoopAPI.start_link([result(entries)])
-      on_exit(fn -> if Process.alive?(fake), do: Agent.stop(fake) end)
       Agent.update(fake, &Map.put(&1, :lose_boundary, {:before, unquote(phase)}))
       settings = Map.put(@settings, :client, fake)
       drive_until_fault!(settings, fake, 5)
@@ -362,7 +359,6 @@ defmodule Responder.Learning.DispatcherTest do
       entries = inputs!()
       body = result(entries)
       {:ok, fake} = FakeCoopAPI.start_link([body])
-      on_exit(fn -> if Process.alive?(fake), do: Agent.stop(fake) end)
       Agent.update(fake, &Map.put(&1, :lose_boundary, unquote(boundary)))
       settings = Map.put(@settings, :client, fake)
       drive_until_fault!(settings, fake, 5)
@@ -404,7 +400,6 @@ defmodule Responder.Learning.DispatcherTest do
           [{unquote(boundary), true}, {:async_operations_running, true}]
         )
 
-      on_exit(fn -> if Process.alive?(fake), do: Agent.stop(fake) end)
       settings = Map.put(@settings, :client, fake)
 
       assert {:ok, %{status: :queued, start_count: 1}} = Dispatcher.run_once(settings)
@@ -425,7 +420,6 @@ defmodule Responder.Learning.DispatcherTest do
     # session. Looking only at turn.target hid the real model from operator UI.
     entries = inputs!()
     {:ok, fake} = FakeCoopAPI.start_link([result(entries)])
-    on_exit(fn -> if Process.alive?(fake), do: Agent.stop(fake) end)
     target = "codex:gpt-5.6-sol/medium@emisar"
     Agent.update(fake, &put_in(&1, [:session, "target"], target))
     assert %{status: :applied} = drive_to_applied!(Map.put(@settings, :client, fake), 5)
@@ -515,7 +509,6 @@ defmodule Responder.Learning.DispatcherTest do
     # binding must not receive retained messages even when every project flag is safe.
     entries = inputs!()
     {:ok, fake} = FakeCoopAPI.start_link([result(entries)])
-    on_exit(fn -> if Process.alive?(fake), do: Agent.stop(fake) end)
 
     Agent.update(fake, fn state ->
       put_in(state.session["responder_binding_digest"], String.duplicate("b", 64))
