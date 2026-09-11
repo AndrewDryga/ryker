@@ -132,7 +132,8 @@ retention:
   # One drain pass advances at most this many cleanup phases and must finish
   # inside its own poll interval. A single cleanup item can never take more than
   # one of these slots per pass, and a worker that has already proved unreachable
-  # in the pass stops being claimed so the healthy workers still drain.
+  # in the pass stops being claimed so the healthy workers still drain. These and
+  # the storage budget below are the defaults applied when omitted.
   batch_limit: 25
   batch_seconds: 30
   # A workspace retained because it is dirty is replanned this often, so work the
