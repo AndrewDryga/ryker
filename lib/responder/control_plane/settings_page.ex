@@ -54,7 +54,7 @@ defmodule Responder.ControlPlane.SettingsPage do
     assigns = assign(assigns, :view, elem(assigns.view, 1))
 
     ~H"""
-    <div class="settings-page">
+    <div class="settings-page" id="settings-page" phx-hook="SettingsDraft">
       <header class="settings-status">
         <h1>Settings</h1>
         <dl>
