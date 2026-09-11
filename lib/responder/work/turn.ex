@@ -22,6 +22,7 @@ defmodule Responder.Work.Turn do
     field(:close_expected_revision, :integer)
     field(:submission, Responder.CanonicalJSON.Type)
     field(:submission_fingerprint, :string)
+    field(:selected_input_refs, {:array, :string})
     field(:state_tools_endpoint, :string)
     field(:state_tools_token_sha256, :string)
     field(:coop_turn_id, :string)
@@ -106,6 +107,7 @@ defmodule Responder.Work.Turn do
           close_expected_revision: pos_integer() | nil,
           submission: Responder.Work.Submission.t() | nil,
           submission_fingerprint: String.t() | nil,
+          selected_input_refs: [String.t()] | nil,
           state_tools_endpoint: String.t() | nil,
           state_tools_token_sha256: String.t() | nil,
           coop_turn_id: String.t() | nil,

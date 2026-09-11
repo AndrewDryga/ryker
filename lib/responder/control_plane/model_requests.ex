@@ -150,6 +150,7 @@ defmodule Responder.ControlPlane.ModelRequests do
 
         request_events(
           request,
+          {:turn, turn.id},
           "request-#{turn.id}",
           turn.remote_finished_at,
           turn.candidate != nil or turn.validation_history != [] or turn.accepted_at != nil,
@@ -200,6 +201,7 @@ defmodule Responder.ControlPlane.ModelRequests do
 
     request_events(
       request,
+      {:input, entry.id},
       "admission-#{entry.id}-#{generation}",
       completed,
       attempt != nil and attempt.phase in ~w(response_received host_validation committed),
@@ -218,7 +220,7 @@ defmodule Responder.ControlPlane.ModelRequests do
 
   defp admission_completed_at(_), do: nil
 
-  defp request_events(request, id, completed, has_result, timing, href, kind) do
+  defp request_events(request, owner, id, completed, has_result, timing, href, kind) do
     {submission, outcome} =
       Enum.split_with(
         request.sections,
@@ -227,6 +229,7 @@ defmodule Responder.ControlPlane.ModelRequests do
 
     start = %{
       id: id,
+      owner: owner,
       at: request.at,
       sort_at: request.at,
       title: request.title,

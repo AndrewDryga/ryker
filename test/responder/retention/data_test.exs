@@ -109,6 +109,12 @@ defmodule Responder.Retention.DataTest do
     assert pruned.submission_fingerprint == discarded.turn.submission_fingerprint
     assert pruned.validation_receipt == "validation:discarded-secret"
 
+    # Which inputs a turn read is content-free identity, so it outlives the
+    # prompt body. Losing it would leave an expired turn unable to say what it
+    # was answering, and "not recorded" would then be a lie about this turn.
+    assert pruned.selected_input_refs == discarded.turn.selected_input_refs
+    assert pruned.selected_input_refs != nil
+
     untouched = Repo.get!(Turn, retained.turn.id)
     assert untouched.operational_pruned_at == nil
     assert inspect(untouched.submission) =~ "active-secret"
@@ -650,7 +656,8 @@ defmodule Responder.Retention.DataTest do
                episode_id,
                claim.turn.turn_ref,
                claim.lease_ref,
-               submission
+               submission,
+               selected_input_refs: Enum.uniq(claim.episode.active_input_refs)
              )
 
     assert {:ok, session} =

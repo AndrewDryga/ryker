@@ -15,6 +15,7 @@ defmodule Responder.ControlPlane.EpisodeTrace do
   alias Responder.CanonicalJSON
   alias Responder.ControlPlane.Card
   alias Responder.ControlPlane.CurrentInputs
+  alias Responder.ControlPlane.EpisodeCausality
   alias Responder.ControlPlane.EvidenceLinks
   alias Responder.ControlPlane.InspectionRedactor
   alias Responder.ControlPlane.SourceText
@@ -41,14 +42,20 @@ defmodule Responder.ControlPlane.EpisodeTrace do
 
   @spec project(Episode.t(), [Event.t()], [Record.t()]) :: map()
   def project(%Episode{} = episode, events, records) when is_list(events) and is_list(records) do
-    inputs = inputs(episode.id)
+    input_rows = input_rows(episode.id)
+    inputs = inputs_by_ref(input_rows)
     sessions = sessions(episode.id)
     turns = turns(episode.id)
     activity_page = Activity.page_for_episode(episode.id)
 
+    causality =
+      EpisodeCausality.index(input_rows, turns, activity_page.events,
+        input_refs: input_refs(events, inputs)
+      )
+
     activity =
       activity_page.events
-      |> activity_steps()
+      |> activity_steps(causality)
       |> EvidenceLinks.attach(activity_page.events, turns, records)
 
     current_turn = List.last(turns)
@@ -87,7 +94,8 @@ defmodule Responder.ControlPlane.EpisodeTrace do
       actions: operator_actions(episode, current_turn, review),
       case_file: case_file(episode.id, turns, sessions),
       startup: startup,
-      chapters: chapters(steps, received_at),
+      causality: causality,
+      chapters: chapters(steps, received_at, causality),
       follow_through: follow_through(platform_actions, publications, source),
       history: history(totals, activity_page),
       metrics: metrics(episode, received_at, activity_page, totals, steps),
@@ -245,6 +253,7 @@ defmodule Responder.ControlPlane.EpisodeTrace do
     [
       %{
         id: turn.id,
+        owner: {:turn, turn.id},
         at: turn.delivered_at || turn.accepted_at || turn.inserted_at,
         actor: "Responder",
         delivery_ref: turn.delivery_ref,
@@ -274,6 +283,7 @@ defmodule Responder.ControlPlane.EpisodeTrace do
 
     %{
       id: input.id,
+      owner: {:input, input.id},
       at: input.occurred_at,
       transport: input.destination_transport,
       actor: if(input.actor_kind == :user, do: "User", else: "Source event"),
@@ -301,7 +311,7 @@ defmodule Responder.ControlPlane.EpisodeTrace do
   defp case_reply_status(%{accepted_at: %DateTime{}}), do: "Accepted · delivery not confirmed"
   defp case_reply_status(_turn), do: nil
 
-  defp inputs(episode_id) do
+  defp input_rows(episode_id) do
     Repo.all(
       from(entry in Entry,
         where: entry.episode_id == ^episode_id,
@@ -309,6 +319,21 @@ defmodule Responder.ControlPlane.EpisodeTrace do
         limit: 200
       )
     )
+  end
+
+  # A turn records its selection with the kernel's own input references, so the
+  # projection needs the kernel's mapping from those references back to inputs.
+  # Nothing else can resolve them: matching on the closest recorded time is the
+  # guess this whole grouping exists to stop making.
+  defp input_refs(events, inputs) do
+    for event <- events,
+        input = event_input(event, inputs),
+        into: %{},
+        do: {event.dedupe_key, input.id}
+  end
+
+  defp inputs_by_ref(rows) do
+    rows
     |> Enum.flat_map(&[{&1.dedupe_key, &1}, {"ingress-turn:#{&1.id}", &1}])
     |> Map.new()
   end
@@ -373,6 +398,7 @@ defmodule Responder.ControlPlane.EpisodeTrace do
         %{
           actor: "Episode kernel",
           input_id: input && input.id,
+          owner: if(input, do: {:input, input.id}, else: :episode),
           delivery_ref: get_in(event.payload || %{}, ["expected_delivery_ref"]),
           result_ref: get_in(event.payload || %{}, ["result_ref"]),
           details: kernel_details(event, input),
@@ -449,6 +475,7 @@ defmodule Responder.ControlPlane.EpisodeTrace do
           turn.inserted_at,
           %{
             actor: "Responder",
+            owner: {:turn, turn.id},
             details:
               compact_details([
                 {"Turn", turn.turn_ref},
@@ -481,6 +508,7 @@ defmodule Responder.ControlPlane.EpisodeTrace do
       turn.remote_finished_at || turn.remote_started_at,
       %{
         actor: "Coop",
+        owner: {:turn, turn.id},
         details:
           compact_details([
             {"Target", turn.execution_target},
@@ -572,6 +600,7 @@ defmodule Responder.ControlPlane.EpisodeTrace do
       Keyword.fetch!(options, :at),
       %{
         actor: "Responder",
+        owner: {:turn, turn.id},
         details:
           compact_details([
             {"Turn", ordinal},
@@ -604,6 +633,7 @@ defmodule Responder.ControlPlane.EpisodeTrace do
       turn.accepted_at,
       %{
         actor: "Responder",
+        owner: {:turn, turn.id},
         result_ref: turn.result_ref,
         details:
           compact_details([
@@ -636,6 +666,7 @@ defmodule Responder.ControlPlane.EpisodeTrace do
         turn.accepted_at,
         %{
           actor: "Responder",
+          owner: {:turn, turn.id},
           delivery_ref: turn.delivery_ref,
           details: compact_details([{"Turn", ordinal}]),
           stage: "Delivery",
@@ -659,6 +690,7 @@ defmodule Responder.ControlPlane.EpisodeTrace do
         turn.delivered_at,
         %{
           actor: delivery_actor(turn.external_receipt),
+          owner: {:turn, turn.id},
           delivery_ref: turn.delivery_ref,
           details:
             compact_details([
@@ -749,7 +781,7 @@ defmodule Responder.ControlPlane.EpisodeTrace do
     end)
   end
 
-  defp activity_steps(activity_events) do
+  defp activity_steps(activity_events, causality) do
     routing_ids =
       activity_events
       |> Enum.filter(&(not is_nil(&1.admission_input_id)))
@@ -761,9 +793,18 @@ defmodule Responder.ControlPlane.EpisodeTrace do
     |> Enum.reduce({[], %{}}, &fold_activity/2)
     |> elem(0)
     |> Enum.map(fn step ->
+      step = %{step | owner: activity_step_owner(step.id, causality)}
       if MapSet.member?(routing_ids, step.id), do: %{step | band: :routing}, else: step
     end)
   end
+
+  # The remote turn id on the event is the durable link back to this episode's
+  # Work turn; a tool result is owned by the turn that called it, not by
+  # whatever message happens to precede it in the reader's scroll.
+  defp activity_step_owner("activity-" <> event_id, causality),
+    do: EpisodeCausality.activity_owner(causality, event_id)
+
+  defp activity_step_owner(_id, _causality), do: :episode
 
   defp fold_activity(%ActivityEvent{kind: "tool.started"} = event, {steps, open}) do
     key = activity_tool_key(event)
@@ -1589,16 +1630,29 @@ defmodule Responder.ControlPlane.EpisodeTrace do
 
   defp stopped(_episode, _turn), do: nil
 
-  @doc "Groups adjacent chronological entries without moving later messages ahead of earlier work."
-  def chapters(steps, started_at) do
-    {entries, _state} = Enum.map_reduce(steps, {0, MapSet.new()}, &conversation_part/2)
+  @doc """
+  Groups chronological entries by the conversation position each one actually
+  belongs to.
+
+  A step that carries a durable owner takes its position from that owner: a
+  Turn sits at the position of the earliest input it selected, wherever its
+  receipts happen to land in time. Only a step with no recorded owner falls
+  back to the reader's current position, and an input message still opens a
+  new one. This is what keeps a Turn 1 tool result that arrives after Message 2
+  filed under Turn 1 instead of being blamed on a message that did not exist
+  when the work started.
+  """
+  def chapters(steps, started_at, causality \\ EpisodeCausality.index([], [], [])) do
+    {entries, _state} =
+      Enum.map_reduce(steps, {0, MapSet.new()}, &conversation_part(&1, &2, causality))
 
     entries
-    |> Enum.chunk_by(fn {step, part, _boundary} -> {step.band, part} end)
+    |> Enum.chunk_by(fn {step, part, _boundary, _owner} -> {step.band, part} end)
     |> Enum.map(fn chapter_entries ->
-      [{_step, conversation_turn, _boundary} | _] = chapter_entries
+      [{_step, conversation_turn, _boundary, _owner} | _] = chapter_entries
       chapter_steps = Enum.map(chapter_entries, &elem(&1, 0))
       starts_conversation = Enum.any?(chapter_entries, &elem(&1, 2))
+      owners = chapter_entries |> Enum.map(&elem(&1, 3)) |> Enum.uniq()
 
       {band, title, blurb} =
         Enum.find(@chapters, fn {band, _title, _blurb} ->
@@ -1612,19 +1666,41 @@ defmodule Responder.ControlPlane.EpisodeTrace do
         conversation_turn: conversation_turn,
         starts_conversation: starts_conversation,
         blurb: blurb,
+        owners: owners,
+        turn: chapter_turn(owners, causality),
         span: chapter_span(chapter_steps, started_at),
         steps: chapter_steps
       }
     end)
   end
 
-  defp conversation_part(%{kind: :message, band: :input, id: id} = step, {part, seen}) do
-    boundary = not MapSet.member?(seen, id)
-    part = if boundary, do: part + 1, else: part
-    {{step, part, boundary}, {part, MapSet.put(seen, id)}}
+  @doc "The single Work turn a chapter belongs to, or nil when it has none or several."
+  def chapter_turn(owners, causality) do
+    case Enum.filter(owners, &match?({:turn, _id}, &1)) do
+      [owner] -> EpisodeCausality.describe(causality, owner)
+      _none_or_several -> nil
+    end
   end
 
-  defp conversation_part(step, {part, _seen} = state), do: {{step, part, false}, state}
+  defp conversation_part(step, {part, seen}, causality) do
+    owner = Map.get(step, :owner) || :episode
+    boundary = message_boundary?(step, seen)
+
+    part =
+      cond do
+        boundary -> part + 1
+        position = EpisodeCausality.position(causality, owner) -> position
+        true -> part
+      end
+
+    seen = if boundary, do: MapSet.put(seen, step.id), else: seen
+    {{step, part, boundary, owner}, {part, seen}}
+  end
+
+  defp message_boundary?(%{kind: :message, band: :input, id: id}, seen),
+    do: not MapSet.member?(seen, id)
+
+  defp message_boundary?(_step, _seen), do: false
 
   defp chapter_span(steps, started_at) do
     values = steps |> Enum.map(&relative(&1.at, started_at)) |> Enum.reject(&is_nil/1)
@@ -1647,6 +1723,7 @@ defmodule Responder.ControlPlane.EpisodeTrace do
     %{
       actor: human(Map.fetch!(attributes, :actor)),
       input_id: Map.get(attributes, :input_id),
+      owner: Map.get(attributes, :owner, :episode),
       record_ref: Map.get(attributes, :record_ref),
       result_ref: Map.get(attributes, :result_ref),
       delivery_ref: Map.get(attributes, :delivery_ref),

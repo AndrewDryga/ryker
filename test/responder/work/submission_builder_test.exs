@@ -1100,6 +1100,54 @@ defmodule Responder.Work.SubmissionBuilderTest do
     assert submission["context"]["current_inputs"]["omitted_count"] == 0
   end
 
+  test "recording which inputs a turn read changes nothing the model receives" do
+    # Observation that alters execution is not observation. This selection is
+    # recorded beside the submission precisely so the frozen prompt bytes and
+    # their fingerprint stay identical; a fingerprint change would make every
+    # in-flight turn look like a conflicting resubmission.
+    claim = claim_episode!("selection-neutral", "Investigate the alert")
+    assert {:ok, submission} = SubmissionBuilder.build(claim)
+    refs = Enum.uniq(claim.episode.active_input_refs)
+    assert refs != []
+
+    assert {:ok, turn} =
+             Custody.freeze_submission(
+               claim.episode.id,
+               claim.turn.turn_ref,
+               claim.lease_ref,
+               submission,
+               selected_input_refs: refs
+             )
+
+    assert turn.selected_input_refs == refs
+    assert turn.submission == submission
+    assert turn.submission_fingerprint == Submission.fingerprint(submission)
+
+    # Recording the selection is a different column, so the digest a resubmit
+    # is compared against is the digest of the prompt and nothing else.
+    assert Submission.fingerprint(turn.submission) == turn.submission_fingerprint
+  end
+
+  test "an unusable recorded selection is dropped rather than failing the turn" do
+    # The recorder is optional evidence. If it cannot produce a usable value the
+    # turn still has to run: losing a diagnosis is cheap, losing the answer the
+    # operator asked for is not.
+    claim = claim_episode!("selection-invalid", "Investigate the alert")
+    assert {:ok, submission} = SubmissionBuilder.build(claim)
+
+    assert {:ok, turn} =
+             Custody.freeze_submission(
+               claim.episode.id,
+               claim.turn.turn_ref,
+               claim.lease_ref,
+               submission,
+               selected_input_refs: ["", nil]
+             )
+
+    assert turn.selected_input_refs == nil
+    assert turn.submission_fingerprint != nil
+  end
+
   defp claim_episode!(suffix, text) do
     claim_episode_payload!(suffix, %{"text" => text})
   end
