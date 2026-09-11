@@ -132,6 +132,22 @@ omission with its size. The normalized document is never shown as raw.
 Full prompt bodies on the Timeline load when their disclosure is opened and
 stay loaded across refreshes; a confirmed expiry, redaction or authorization
 loss closes the disclosure and removes the body regardless of reading state.
+Retained tool result bodies (`output`, `error`, `content`, `locations`) and
+model plans follow the same contract, keyed by `activity-<event id>-<field>`;
+so do the retained payloads on the Model calls page, keyed by `tool-<event
+id>`. Tool **arguments** stay prepared, because the compact row a reader scans
+— the command it ran, the file it read, the observation it recorded — is
+derived from them.
+
+Every card carries a link to itself built from its own durable evidence key
+(`event-activity-<id>`, `event-queue-<input id>`, `story-message-<id>`), never
+from its position in the page, so a link keeps resolving as history grows.
+
+Retained history is bounded and says so: the Timeline names how much of each
+retained total it is showing and offers "Show earlier activity", which loads
+one more bounded page of older activity events (`?events=N`, up to ten pages of
+1,000). Older events are added before the ones already read; nothing is dropped
+or duplicated, and when no further page exists the affordance is absent.
 
 The **Incident rooms** page at `/incident-rooms` tracks Slack incident rooms from
 setup through closure, with channel status and linked investigation work. Each

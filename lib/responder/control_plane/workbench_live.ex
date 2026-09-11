@@ -310,7 +310,9 @@ defmodule Responder.ControlPlane.WorkbenchLive do
   end
 
   defp load_detail(socket, options, ["timeline", _ref | _rest]) do
-    disclosed = %{"disclosed" => MapSet.to_list(socket.assigns.disclosed)}
+    disclosed =
+      %{"disclosed" => MapSet.to_list(socket.assigns.disclosed)}
+      |> Map.merge(Map.take(socket.assigns.params, ["events"]))
 
     with {:ok, episode} <- options.projection.episode.(socket.assigns.params["ref"], disclosed),
          {:ok, requests} <- episode_requests(socket, options, episode.episode.ref),

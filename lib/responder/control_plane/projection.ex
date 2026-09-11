@@ -450,7 +450,8 @@ defmodule Responder.ControlPlane.Projection do
 
         trace =
           EpisodeTrace.project(episode, event_records, record_records,
-            disclosed: ModelRequests.disclosed(params)
+            disclosed: ModelRequests.disclosed(params),
+            activity_pages: activity_pages(params)
           )
 
         accounting =
@@ -481,6 +482,18 @@ defmodule Responder.ControlPlane.Projection do
   end
 
   def episode(_ref, _params), do: :not_found
+
+  # Loading older activity is an explicit, bounded step the reader takes. The
+  # page keeps its position: the events already read are still the same rows
+  # with the same identities, with older ones appended before them.
+  defp activity_pages(%{"events" => value}) when is_binary(value) do
+    case Integer.parse(value) do
+      {pages, ""} when pages in 1..10 -> pages
+      _invalid -> 1
+    end
+  end
+
+  defp activity_pages(_params), do: 1
 
   defp related_episodes(episode) do
     related =

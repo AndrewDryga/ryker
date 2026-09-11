@@ -100,8 +100,19 @@ defmodule Responder.ControlPlane.RequestPage do
               Public events only. An observed completion is not a retained tool result body.
             </p><p :if={@view.selected.tools.items == []}>
               No retained tool activity for this request.
-            </p><details :for={tool <- @view.selected.tools.items} id={"retained-tool-#{tool.id}"}>
-              <summary>{label(tool.kind)} <time>{timestamp(tool.at)}</time></summary><pre class="model-document-text">{tool.artifact.text || "Not recorded"}</pre>
+            </p><details
+              :for={tool <- @view.selected.tools.items}
+              id={"retained-tool-#{tool.id}"}
+              data-artifact={
+                if tool.artifact.state in [:collapsed, :retained], do: tool[:artifact_id]
+              }
+              data-revoked={if tool.artifact.state in [:expired, :not_recorded], do: "true"}
+            >
+              <summary>{label(tool.kind)} <time>{timestamp(tool.at)}</time></summary><pre class="model-document-text">{tool.artifact.text ||
+                if(tool.artifact.state == :collapsed,
+                  do: "Loading…",
+                  else: "Not recorded"
+                )}</pre>
             </details><.paging
               path={@path}
               params={@params}

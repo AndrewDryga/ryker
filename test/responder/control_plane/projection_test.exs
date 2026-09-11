@@ -1378,7 +1378,15 @@ defmodule Responder.ControlPlane.ProjectionTest do
              &(&1.label == "Tool calls" and &1.value == "4")
            )
 
-    assert detail.trace.activity == %{shown: 19, tool_calls: 4, total: 19, truncated: false}
+    # `more` is the next retained activity page, or nil when the reader already
+    # has all of it: a bounded window has to say whether anything is behind it.
+    assert detail.trace.activity == %{
+             more: nil,
+             shown: 19,
+             tool_calls: 4,
+             total: 19,
+             truncated: false
+           }
 
     assert {:ok, %{status: :pending}} =
              Custody.request_block(

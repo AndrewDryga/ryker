@@ -155,7 +155,8 @@ defmodule Responder.ControlPlane.NativePagesTest do
     assert html =~ "Delivery confirmed"
     assert html =~ "A retained answer &lt;not markup&gt;"
     refute html =~ "Inspect accepted answer"
-    assert html =~ "History is bounded"
+    # A bounded window now names the bound instead of announcing that one exists.
+    assert html =~ "Older model calls stay under"
     assert html =~ "Already attempted"
     assert html =~ "Reconciled the previous request"
     assert html =~ "Open recovery"
