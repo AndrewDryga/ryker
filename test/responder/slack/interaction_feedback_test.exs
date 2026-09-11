@@ -1,5 +1,5 @@
 defmodule Responder.Slack.InteractionFeedbackTest do
-  use Responder.DataCase, async: true
+  use Responder.DataCase, async: false
 
   import Ecto.Query
 
@@ -232,6 +232,9 @@ defmodule Responder.Slack.InteractionFeedbackTest do
       )
 
     assert Process.alive?(worker)
+    # Observe the first queued poll, not merely the PID returned by start_link.
+    # Without shared sandbox ownership the supervised DB worker dies on that poll.
+    assert :sys.get_state(worker) == options
     assert {:noreply, ^options} = InteractionFeedbackWorker.handle_info(:work, options)
 
     assert InteractionFeedbackWorker.options!(Map.to_list(options)).worker_ref ==

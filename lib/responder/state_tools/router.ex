@@ -29,6 +29,10 @@ defmodule Responder.StateTools.Router do
 
     additional_tools = Keyword.get(options, :additional_tools, [])
     additional_call = Keyword.get(options, :additional_call)
+    answer_authorizer = Keyword.get(options, :answer_authorizer)
+
+    unless is_nil(answer_authorizer) or is_function(answer_authorizer, 1),
+      do: raise(ArgumentError, "answer authorizer must be a trusted one-argument function")
 
     unless valid_token?(token),
       do: raise(ArgumentError, "state-tools token must be at least 16 valid UTF-8 bytes")
@@ -47,6 +51,7 @@ defmodule Responder.StateTools.Router do
     %{
       additional_call: additional_call,
       additional_tools: additional_tools,
+      answer_authorizer: answer_authorizer,
       binding: binding,
       capabilities: capabilities,
       cursor_secret: cursor_secret,

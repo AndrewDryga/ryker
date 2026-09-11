@@ -12,6 +12,8 @@ defmodule Responder.State.Memories do
 
   alias Responder.CanonicalJSON
   alias Responder.Episodes.Episode
+  alias Responder.Ingress.Inbox
+  alias Responder.Ingress.Inbox.Entry
   alias Responder.Repo
   alias Responder.Slack.ChannelFence
 
@@ -25,9 +27,11 @@ defmodule Responder.State.Memories do
     MemorySearchPage,
     MemorySourceLink,
     Record,
-    RecordChangeset
+    RecordChangeset,
+    Response
   }
 
+  alias Responder.StateTools.Binding
   alias Responder.Work.Turn
 
   @confirmation_fields [:actor_ref, :confirmation_ref, :occurred_at, :record_ref, :target]
@@ -51,6 +55,183 @@ defmodule Responder.State.Memories do
       end)
       |> transaction_result()
     end
+  end
+
+  @doc "Save only the normalized answer to an explicitly reusable, delivered question."
+  def confirm_answer(binding, record_ref, value, authorize)
+      when is_binary(record_ref) and is_binary(value) and is_function(authorize, 1) do
+    if String.valid?(value) and String.trim(value) != "" and byte_size(value) <= 4_000 and
+         not String.contains?(value, <<0>>) do
+      Repo.transaction(fn -> confirm_answer_locked(binding, record_ref, value, authorize) end)
+    else
+      {:error, :invalid_answer_memory}
+    end
+  end
+
+  def confirm_answer(_binding, _record_ref, _value, _authorize),
+    do: {:error, :answer_memory_unauthorized}
+
+  defp confirm_answer_locked(binding, record_ref, value, authorize) do
+    with {:ok, current} <- Binding.lock_current(binding),
+         :live <- current.episode.execution_mode,
+         :ok <- lock_review_maintenance!(),
+         {record, response, entry} <- answer_confirmation(current, record_ref),
+         true <- authorize.(entry) == true,
+         %{} = intent <- record.payload["remember"],
+         false <- answer_revised?(entry) do
+      save_answer(record, response, entry, intent, value)
+    else
+      _ -> Repo.rollback(:answer_memory_unauthorized)
+    end
+  end
+
+  defp answer_confirmation(binding, record_ref) do
+    Repo.one(
+      from(record in Record,
+        join: response in Response,
+        on: response.record_id == record.id,
+        join: entry in Entry,
+        on: entry.id == response.inbox_entry_id,
+        where:
+          record.ref == ^record_ref and record.kind == "input_request" and
+            record.status == :answered and record.episode_id == ^binding.episode.id and
+            entry.episode_id == ^binding.episode.id and entry.status == :decided and
+            entry.actor_kind == :user and entry.execution_mode == :live and
+            is_nil(entry.operational_pruned_at),
+        select: {record, response, entry},
+        lock: "FOR UPDATE"
+      )
+    )
+  end
+
+  defp answer_revised?(entry) do
+    Repo.exists?(
+      from(newer in Entry,
+        where:
+          newer.source_kind == ^entry.source_kind and newer.source_ref == ^entry.source_ref and
+            newer.native_input_id == ^entry.native_input_id and newer.revision > ^entry.revision
+      )
+    )
+  end
+
+  @doc "Explicit source changes revoke answer-confirmed facts; ordinary transcript TTL does not."
+  def revoke_answer_source_in_transaction(
+        %Entry{event_kind: kind, source_item_ref: source_ref} = entry
+      )
+      when kind in [:edit, :delete] and is_binary(source_ref) do
+    # Ingress takes this before observation/channel locks; saving an answer uses
+    # the same review lock before checking its original revision and inserting.
+    lock_review_maintenance!()
+
+    Repo.all(
+      from(memory in MemoryEntry,
+        where:
+          memory.scope_kind == :global and memory.status == :active and
+            memory.source_transport == ^entry.destination_transport and
+            memory.source_conversation_ref == ^entry.destination_conversation_ref and
+            memory.source_message_ref == ^source_ref and
+            fragment("(?::jsonb->>'source_revision')::bigint", memory.answer_provenance) <
+              ^entry.revision,
+        lock: "FOR UPDATE"
+      )
+    )
+    |> Enum.each(&redact!(&1, :deleted, "answer_revised_payload_sha256"))
+
+    dismiss_orphan_reviews("system:answer-revision", "installation")
+    :ok
+  end
+
+  def revoke_answer_source_in_transaction(_entry), do: :ok
+
+  defp save_answer(record, response, entry, intent, value) do
+    confirmation_ref = "answer:#{response.id}"
+
+    case Repo.get_by(MemoryEntry, confirmation_ref: confirmation_ref) do
+      nil ->
+        insert_answer(record, response, entry, intent, value, confirmation_ref)
+
+      %MemoryEntry{status: :active, payload: %{"value" => ^value}} = memory ->
+        %{memory: memory, status: :duplicate}
+
+      _ ->
+        Repo.rollback(:answer_memory_conflict)
+    end
+  end
+
+  defp insert_answer(record, response, entry, intent, value, confirmation_ref) do
+    id = Ecto.UUID.generate()
+    now = database_now!()
+    payload = %{"value" => value, "applicability" => intent["applicability"]}
+
+    prepared = %{
+      expires_at: nil,
+      kind: :entity_relationship,
+      payload: payload,
+      payload_fingerprint: CanonicalJSON.digest(payload),
+      scope_kind: :global,
+      scope_ref: "installation:#{CanonicalJSON.digest(intent["applicability"])}",
+      subject: intent["subject"],
+      visibility: :global,
+      workspace_ref: "installation"
+    }
+
+    attributes =
+      Map.merge(prepared, %{
+        id: id,
+        ref: "memory:#{id}",
+        status: :active,
+        confirmed_at: response.occurred_at,
+        confirmed_by_actor_ref: "#{entry.source_kind}:user:#{response.actor_ref}",
+        confirmation_ref: confirmation_ref,
+        source_transport: entry.destination_transport,
+        source_conversation_ref: entry.destination_conversation_ref,
+        source_thread_ref: entry.destination_thread_ref,
+        source_message_ref: entry.source_item_ref || entry.event_ref,
+        answer_provenance: %{
+          "question_ref" => record.ref,
+          "question_sha256" => record.payload_fingerprint,
+          "answer_ref" => response.response_ref,
+          "input_ref" => Inbox.ref(entry),
+          "source_revision" => entry.revision,
+          "answer_sha256" => entry.event_fingerprint
+        }
+      })
+
+    with :ok <- answer_not_obsolete(prepared, response.occurred_at),
+         :ok <- capacity(prepared),
+         :ok <- supersede_existing(prepared),
+         {:ok, memory} <-
+           attributes
+           |> MemoryEntryChangeset.insert()
+           |> Ecto.Changeset.change(inserted_at: now, updated_at: now)
+           |> Repo.insert() do
+      %{memory: memory, status: :confirmed}
+    else
+      {:error, reason} -> Repo.rollback(reason)
+    end
+  end
+
+  defp answer_not_obsolete(prepared, answered_at) do
+    newer =
+      Repo.exists?(
+        from(memory in MemoryEntry,
+          where:
+            memory.workspace_ref == ^prepared.workspace_ref and
+              memory.scope_kind == ^prepared.scope_kind and
+              memory.scope_ref == ^prepared.scope_ref and memory.kind == ^prepared.kind and
+              memory.subject == ^prepared.subject and
+              fragment(
+                "GREATEST(?, ?, CASE WHEN ? = 'deleted' THEN ? END) > ?",
+                memory.confirmed_at,
+                memory.edited_at,
+                memory.status,
+                memory.updated_at,
+                type(^answered_at, :utc_datetime_usec)
+              )
+        )
+      )
+
+    if newer, do: {:error, :answer_memory_conflict}, else: :ok
   end
 
   @spec forget(String.t()) :: {:ok, MemoryEntry.t()} | {:error, term()}
@@ -398,16 +579,7 @@ defmodule Responder.State.Memories do
       conversation_ref = "slack:#{workspace_ref}:#{channel_ref}"
       scoped_workspace_ref = "slack:#{workspace_ref}"
 
-      Repo.all(
-        from(entry in MemoryEntry,
-          where:
-            entry.workspace_ref == ^scoped_workspace_ref and entry.scope_kind == :conversation and
-              entry.scope_ref == ^conversation_ref and entry.status == :active,
-          order_by: [asc: entry.ref],
-          lock: "FOR UPDATE"
-        )
-      )
-      |> Enum.each(&redact!(&1, :deleted, "channel_deleted_payload_sha256"))
+      delete_channel_facts(scoped_workspace_ref, conversation_ref)
 
       Repo.all(
         from(behavior in Behavior,
@@ -428,6 +600,7 @@ defmodule Responder.State.Memories do
       end)
 
       dismiss_orphan_reviews("system:slack-channel-deletion", scoped_workspace_ref)
+      dismiss_orphan_reviews("system:slack-channel-deletion", "installation")
       :ok
     else
       {:error, :memory_review_transaction_required}
@@ -436,6 +609,21 @@ defmodule Responder.State.Memories do
 
   def delete_slack_channel_in_transaction(_workspace_ref, _channel_ref),
     do: {:error, {:invalid_memory_review, :conversation}}
+
+  defp delete_channel_facts(workspace_ref, conversation_ref) do
+    Repo.all(
+      from(entry in MemoryEntry,
+        where:
+          entry.status == :active and
+            ((entry.workspace_ref == ^workspace_ref and entry.scope_kind == :conversation and
+                entry.scope_ref == ^conversation_ref) or
+               (entry.scope_kind == :global and entry.source_conversation_ref == ^conversation_ref)),
+        order_by: [asc: entry.ref],
+        lock: "FOR UPDATE"
+      )
+    )
+    |> Enum.each(&redact!(&1, :deleted, "channel_deleted_payload_sha256"))
+  end
 
   defp confirm_locked(attributes) do
     with {:ok, record, episode, turn} <- lock_offer(attributes.record_ref),
@@ -483,7 +671,7 @@ defmodule Responder.State.Memories do
         from(entry in MemoryEntry,
           where:
             entry.workspace_ref == ^workspace_ref and entry.status == :active and
-              entry.expires_at > ^now,
+              (is_nil(entry.expires_at) or entry.expires_at > ^now),
           order_by: [asc: entry.updated_at, asc: entry.id],
           limit: 1_000
         )
@@ -697,17 +885,7 @@ defmodule Responder.State.Memories do
   end
 
   defp lock_review_entries(entry_refs, workspace_ref) do
-    memories =
-      Repo.all(
-        from(entry in MemoryEntry,
-          where:
-            entry.ref in ^entry_refs and entry.workspace_ref == ^workspace_ref and
-              entry.status == :active and entry.expires_at > fragment("clock_timestamp()"),
-          order_by: [asc: entry.ref],
-          lock: "FOR UPDATE"
-        )
-      )
-      |> Enum.map(&review_source_record(:memory, &1))
+    memories = lock_review_memories(entry_refs, workspace_ref)
 
     guidance =
       Repo.all(
@@ -724,6 +902,20 @@ defmodule Responder.State.Memories do
       |> Enum.map(&review_source_record(:guidance, &1))
 
     Enum.sort_by(memories ++ guidance, &review_entry_ref/1)
+  end
+
+  defp lock_review_memories(entry_refs, workspace_ref) do
+    Repo.all(
+      from(entry in MemoryEntry,
+        where:
+          entry.ref in ^entry_refs and entry.workspace_ref == ^workspace_ref and
+            entry.status == :active and
+            (is_nil(entry.expires_at) or entry.expires_at > fragment("clock_timestamp()")),
+        order_by: [asc: entry.ref],
+        lock: "FOR UPDATE"
+      )
+    )
+    |> Enum.map(&review_source_record(:memory, &1))
   end
 
   defp review_entries_current(review, entries) do
@@ -1248,7 +1440,7 @@ defmodule Responder.State.Memories do
       from(entry in MemoryEntry,
         where:
           entry.workspace_ref == ^workspace_ref and entry.status == :active and
-            entry.expires_at > ^now
+            (is_nil(entry.expires_at) or entry.expires_at > ^now)
       ),
       :count
     )
@@ -1260,7 +1452,7 @@ defmodule Responder.State.Memories do
         where:
           entry.workspace_ref == ^prepared.workspace_ref and
             entry.scope_kind == ^prepared.scope_kind and entry.scope_ref == ^prepared.scope_ref and
-            entry.status == :active and entry.expires_at > ^now
+            entry.status == :active and (is_nil(entry.expires_at) or entry.expires_at > ^now)
       ),
       :count
     )
@@ -1400,11 +1592,12 @@ defmodule Responder.State.Memories do
     query =
       from(e in MemoryEntry,
         where:
-          e.workspace_ref == ^context.workspace_ref and
-            e.status == :active and e.expires_at > fragment("clock_timestamp()"),
+          (e.workspace_ref == ^context.workspace_ref or e.scope_kind == :global) and
+            e.status == :active and
+            (is_nil(e.expires_at) or e.expires_at > fragment("clock_timestamp()")),
         where: ^scoped,
         where:
-          e.visibility == :workspace or
+          e.visibility in [:workspace, :global] or
             (e.visibility == :conversation and
                e.source_conversation_ref == ^context.conversation_ref)
       )
@@ -1437,6 +1630,8 @@ defmodule Responder.State.Memories do
   defp search_scope(context, "workspace"),
     do: dynamic([e], e.scope_kind == :workspace and e.scope_ref == ^context.workspace_ref)
 
+  defp search_scope(_context, "global"), do: dynamic([e], e.scope_kind == :global)
+
   defp search_scope(_context, _scope), do: dynamic([e], false)
 
   defp account_search_result({:ok, entry, position}) do
@@ -1454,8 +1649,8 @@ defmodule Responder.State.Memories do
     Repo.all(
       from(entry in MemoryEntry,
         where:
-          entry.workspace_ref == ^context.workspace_ref and entry.status == :active and
-            entry.expires_at > ^now,
+          (entry.workspace_ref == ^context.workspace_ref or entry.scope_kind == :global) and
+            entry.status == :active and (is_nil(entry.expires_at) or entry.expires_at > ^now),
         order_by: [desc: entry.updated_at, desc: entry.id],
         limit: 1_000
       )
@@ -1483,7 +1678,9 @@ defmodule Responder.State.Memories do
           Repo.update_all(
             from(entry in MemoryEntry,
               where: ^unchanged,
-              where: entry.status == :active and entry.expires_at > fragment("clock_timestamp()"),
+              where:
+                entry.status == :active and
+                  (is_nil(entry.expires_at) or entry.expires_at > fragment("clock_timestamp()")),
               select: entry.id
             ),
             inc: [recall_count: 1],
@@ -1500,6 +1697,8 @@ defmodule Responder.State.Memories do
   defp visible?(%MemoryEntry{visibility: :workspace} = entry, context),
     do: scoped?(entry, context)
 
+  defp visible?(%MemoryEntry{visibility: :global, scope_kind: :global}, _context), do: true
+
   defp scoped?(%MemoryEntry{scope_kind: :conversation, scope_ref: ref}, context),
     do: ref == context.conversation_ref
 
@@ -1515,6 +1714,7 @@ defmodule Responder.State.Memories do
         :conversation -> 0
         :repository -> 1
         :workspace -> 2
+        :global -> 3
       end
 
     visibility_rank = if entry.visibility == :conversation, do: 0, else: 1
@@ -1526,7 +1726,7 @@ defmodule Responder.State.Memories do
   defp document(entry) do
     %{
       "confirmed_at" => DateTime.to_iso8601(entry.confirmed_at),
-      "expires_at" => DateTime.to_iso8601(entry.expires_at),
+      "expires_at" => datetime(entry.expires_at),
       "kind" => Atom.to_string(entry.kind),
       "memory_ref" => entry.ref,
       "scope" => Atom.to_string(entry.scope_kind),
@@ -1547,8 +1747,18 @@ defmodule Responder.State.Memories do
       "value" => entry.payload["value"],
       "visibility" => Atom.to_string(entry.visibility)
     }
+    |> global_fact_document(entry)
     |> put_edit_provenance(entry)
   end
+
+  defp global_fact_document(document, %MemoryEntry{scope_kind: :global} = entry) do
+    # The confirmed mapping is installation-wide; its private source is not.
+    document
+    |> Map.drop(["source", "source_read"])
+    |> Map.put("applicability", entry.payload["applicability"])
+  end
+
+  defp global_fact_document(document, _entry), do: document
 
   defp put_edit_provenance(document, %MemoryEntry{edited_at: %DateTime{} = edited_at} = entry) do
     Map.put(document, "edit", %{

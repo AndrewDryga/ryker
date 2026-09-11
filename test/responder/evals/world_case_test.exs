@@ -62,7 +62,7 @@ defmodule Responder.Evals.WorldCaseTest do
 
   test "compiles the versioned model-world scenario matrix" do
     assert {:ok, scenarios} = WorldCase.all(@scenario_root)
-    assert length(scenarios) == 19
+    assert length(scenarios) == 21
     assert {:ok, scenario} = WorldCase.fetch(@health_scenario, @scenario_root)
 
     assert scenario.id == "va1-health-review-repairs-and-finishes"
@@ -75,6 +75,26 @@ defmodule Responder.Evals.WorldCaseTest do
     document = WorldCase.document(scenario)
     assert document["scenario"]["id"] == scenario.id
     assert document["tool_catalog_sha256"] == scenario.tool_catalog_digest
+  end
+
+  test "the missing-project scenario retains the actual review without invented discovery results" do
+    original =
+      "testdata/work/missing-project-clarification.json" |> File.read!() |> Jason.decode!()
+
+    assert {:ok, scenario} = WorldCase.fetch("missing-project-review-asks-for-context")
+    assert scenario.provenance["kind"] == "synthetic"
+    assert scenario.provenance["episode_refs"] == [original["source"]["episode_id"]]
+    assert [event] = scenario.events
+    assert event["payload"]["retained_review"]["message"] == original["candidate"]["message"]
+
+    assert event["payload"]["original_terraform_notification"] ==
+             original["inputs"]["rows"] |> hd() |> Enum.at(4)
+
+    assert scenario.world["tool_rules"] == []
+    assert WorldCase.fabricated_tools(scenario) == []
+    assert scenario.host_replay["model_events"] == []
+    assert Enum.any?(scenario.expect["hard"], &(&1["tool"] == "request_input"))
+    assert Enum.any?(scenario.expect["hard"], &(&1["tool"] == "wait_for"))
   end
 
   test "host replay scenarios carry recorded model actions in the same versioned unit" do

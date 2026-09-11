@@ -9,6 +9,7 @@ defmodule Responder.StateTools.Server do
   @fields [
     :additional_call,
     :additional_tools,
+    :answer_authorizer,
     :capabilities,
     :emisar_rpc_url,
     :ip,
@@ -26,6 +27,7 @@ defmodule Responder.StateTools.Server do
       |> maybe_put(:emisar_rpc_url, Map.get(options, :emisar_rpc_url))
       |> maybe_put(:additional_tools, Map.get(options, :additional_tools))
       |> maybe_put(:additional_call, Map.get(options, :additional_call))
+      |> maybe_put(:answer_authorizer, Map.get(options, :answer_authorizer))
 
     Bandit.child_spec(
       ip: options.ip,
@@ -55,6 +57,7 @@ defmodule Responder.StateTools.Server do
       |> maybe_put(:emisar_rpc_url, emisar_rpc_url)
       |> maybe_put(:additional_tools, Map.get(configuration, :additional_tools))
       |> maybe_put(:additional_call, Map.get(configuration, :additional_call))
+      |> maybe_put(:answer_authorizer, Map.get(configuration, :answer_authorizer))
 
     _validated = Router.init(router_options)
 
@@ -62,6 +65,7 @@ defmodule Responder.StateTools.Server do
     |> maybe_put(:emisar_rpc_url, emisar_rpc_url)
     |> maybe_put(:additional_tools, Map.get(configuration, :additional_tools))
     |> maybe_put(:additional_call, Map.get(configuration, :additional_call))
+    |> maybe_put(:answer_authorizer, Map.get(configuration, :answer_authorizer))
   end
 
   defp normalize!(configuration) when is_list(configuration) do

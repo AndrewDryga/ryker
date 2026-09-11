@@ -6,6 +6,7 @@ defmodule Responder.State.MemoryEntryChangeset do
   alias Responder.State.MemoryEntry
 
   @insert_fields [
+    :answer_provenance,
     :confirmation_ref,
     :confirmed_at,
     :confirmed_by_actor_ref,
@@ -29,14 +30,24 @@ defmodule Responder.State.MemoryEntryChangeset do
     :workspace_ref
   ]
 
-  @normal_required @insert_fields -- [:cutover_item_id, :source_thread_ref]
+  @normal_required @insert_fields -- [:answer_provenance, :cutover_item_id, :source_thread_ref]
 
   @spec insert(map()) :: Ecto.Changeset.t()
   def insert(attributes) do
     %MemoryEntry{}
     |> cast(attributes, @insert_fields)
-    |> validate_required(@normal_required)
+    |> required_fields()
     |> validate()
+  end
+
+  defp required_fields(changeset) do
+    if get_field(changeset, :scope_kind) == :global do
+      validate_required(changeset, [
+        :answer_provenance | @normal_required -- [:offer_record_id, :expires_at]
+      ])
+    else
+      validate_required(changeset, @normal_required)
+    end
   end
 
   defp validate(changeset) do
@@ -55,6 +66,7 @@ defmodule Responder.State.MemoryEntryChangeset do
     |> unique_constraint(:ref)
     |> unique_constraint(:offer_record_id)
     |> unique_constraint(:cutover_item_id)
+    |> unique_constraint(:confirmation_ref, name: :operational_memory_answer_confirmation)
     |> unique_constraint(:subject, name: :operational_memory_active_identity)
     |> foreign_key_constraint(:offer_record_id)
     |> foreign_key_constraint(:cutover_item_id)

@@ -321,7 +321,7 @@ defmodule Responder.Work.Validator do
   end
 
   defp continuation_violations(violations, final, context, now) do
-    waits = referenced_waits(final, context)
+    waits = final |> referenced_waits(context) |> primary_waits(final.state)
 
     case {final.state, waits} do
       {:complete, []} ->
@@ -365,6 +365,17 @@ defmodule Responder.Work.Validator do
     end
   end
 
+  defp primary_waits(
+         [
+           %{continuation: %{"wait_kind" => "input"}} = question,
+           %{kind: "event_wait", continuation: %{"wait_kind" => "event", "deadline_at" => nil}}
+         ],
+         :waiting_for_input
+       ),
+       do: [question]
+
+  defp primary_waits(waits, _state), do: waits
+
   defp validate_wait(violations, %{continuation: continuation, ref: ref}, expected_kind, now) do
     actual_kind = continuation_kind(continuation)
 
@@ -390,13 +401,14 @@ defmodule Responder.Work.Validator do
     final.record_refs
     |> Enum.flat_map(fn ref ->
       case context.records[ref] do
-        %{continuation: continuation} when is_map(continuation) ->
-          [%{continuation: continuation, ref: ref}]
+        %{continuation: continuation, kind: kind} when is_map(continuation) ->
+          [%{continuation: continuation, kind: kind, ref: ref}]
 
         _not_a_wait ->
           []
       end
     end)
+    |> Enum.sort_by(&{continuation_kind(&1.continuation) != :input, &1.ref})
   end
 
   defp accept(final, context, now) do
@@ -419,7 +431,7 @@ defmodule Responder.Work.Validator do
   defp accepted_continuation(%{state: :complete}, _context), do: %{"kind" => "complete"}
 
   defp accepted_continuation(final, context) do
-    [%{continuation: continuation}] = referenced_waits(final, context)
+    [%{continuation: continuation} | _retained_watch] = referenced_waits(final, context)
     continuation
   end
 

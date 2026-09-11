@@ -1,0 +1,76 @@
+{
+  "source": {
+    "turn_id": "fd316279-9146-4866-831d-7badf1130f75",
+    "episode_id": "d60296db-9f67-40db-86ed-f39b7895f23b",
+    "delivered_at": "2026-09-10 01:25:14.645141",
+    "tables": [
+      "episode_work_turns",
+      "episode_kernel_events"
+    ]
+  },
+  "candidate": {
+    "decision_reason": null,
+    "delivery": "reply",
+    "message": "[This run](https://app.terraform.io/app/Dryga/emisar/runs/run-t2W6yCNeLUU9xFso) awaits Terraform apply confirmation.\n\n• Plan: replace the portal instance template; update its fleet and the portal/registry monitors. No database resources change.\n• Application changes: [329b4b12 → 43f75fc3](https://github.com/AndrewDryga/emisar/compare/329b4b12dc756bbc31c2e6c9e6c33bbad1bff0f7...43f75fc357f18f11e5390b2f04655e512111e73f) adds first-touch referrer attribution, improves development gates, and fixes pack API response handling.\n• Verification gaps: current infrastructure health and backups remain unchecked because the required GCP project ID wasn’t established. Plan values are hidden and four of seven drift entries are omitted; exact image versions remain unverified.\n\nI’ll follow this exact run’s Slack updates and report material changes or its terminal outcome.",
+    "outcome": {
+      "artifact_refs": [],
+      "record_refs": [
+        "record:evidence:7eb1ac60c054bba8d29669b2c4a7f556",
+        "record:evidence:c6988aa885352f0bc043e65c8afd5673",
+        "record:evidence:45161ead3765792c6e5484058c325b5a",
+        "record:evidence:2382b589cc04d3822a29c3e1cbb1c5c5",
+        "record:finding:068a2d078b2e76ec681184db5120ae3b",
+        "record:event_wait:87fa2d46ffd4300cb3ea2f077a45002e"
+      ],
+      "state": "waiting_for_event"
+    }
+  },
+  "inputs": {
+    "columns": [
+      "sequence",
+      "occurred_at",
+      "actor_ref",
+      "source_item_ref",
+      "content"
+    ],
+    "rows": [
+      [
+        1,
+        "2026-09-10 01:17:34.683019",
+        "slack:bot:B0BHPQTBMA7",
+        "1789003054.683019",
+        {
+          "attachments": [
+            {
+              "author_icon": "https://www.gravatar.com/avatar/22f0391852216316eab5c09d226ba02a?s=100&d=mm",
+              "author_name": "AndrewDryga",
+              "color": "5c4ee5",
+              "fallback": "Run run-t2W6yCNeLUU9xFso",
+              "footer": "HCP Terraform",
+              "footer_icon": "https://app.terraform.io/favicon.ico",
+              "id": 1,
+              "pretext": "Run notification for <https://app.terraform.io/app/Dryga/emisar|Dryga/emisar>",
+              "text": "main 43f75fc357f18f11e5390b2f04655e512111e73f (@AndrewDryga, gh run 34424210833)",
+              "title": "Run run-t2W6yCNeLUU9xFso",
+              "title_link": "https://app.terraform.io/app/Dryga/emisar/runs/run-t2W6yCNeLUU9xFso",
+              "ts": 1789003052
+            },
+            {
+              "color": "1563ff",
+              "fallback": "Run run-t2W6yCNeLUU9xFso - Run Planning",
+              "id": 2,
+              "title": "Run Planning",
+              "ts": 1789003054
+            }
+          ],
+          "blocks": [],
+          "bot_id": "B0BHPQTBMA7",
+          "files": [],
+          "slack_event_kind": "message",
+          "subtype": "bot_message",
+          "text": ""
+        }
+      ]
+    ]
+  }
+}

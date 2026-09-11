@@ -4,6 +4,8 @@ defmodule Responder.State.InputRequestsTest do
   alias Responder.Episodes
   alias Responder.Fixtures.Episodes, as: EpisodeFixtures
   alias Responder.Ingress.Inbox
+  alias Responder.Slack.Input, as: SlackInput
+  alias Responder.Slack.InteractionAudit
   alias Responder.State.{InputRequests, Record, Records, Response}
   alias Responder.Work.{Custody, DeliveryReceipt, Result, Submission}
 
@@ -28,6 +30,15 @@ defmodule Responder.State.InputRequestsTest do
     assert entry.content["input_request_ref"] == fixture.record.ref
     assert entry.destination_thread_ref == "1787832000.000100"
 
+    repaint = Repo.get_by(InteractionAudit, event_ref: entry.event_ref)
+
+    assert repaint,
+           "a choice answer must retire its controls even if Socket Mode exits after commit"
+
+    assert repaint.action_id == "choice_question_answer"
+    assert repaint.repaint_status == :pending
+    assert repaint.message_ref == fixture.receipt["message_ref"]
+
     assert %Response{} = Repo.get_by(Response, record_id: fixture.record.id)
     assert Repo.get!(Record, fixture.record.id).status == :answered
 
@@ -35,6 +46,7 @@ defmodule Responder.State.InputRequestsTest do
     assert duplicate.status == :duplicate
     assert duplicate.input_ref == answer.input_ref
     assert Repo.aggregate(Response, :count, :id) == 1
+    assert Repo.aggregate(InteractionAudit, :count, :id) == 1
 
     assert InputRequests.answer(answer(fixture, 0, "answer-2")) ==
              {:error, :input_request_already_answered}
@@ -79,6 +91,74 @@ defmodule Responder.State.InputRequestsTest do
     assert entry.destination_transport == "control_plane"
     assert entry.destination_conversation_ref == fixture.receipt["conversation_ref"]
     assert entry.destination_thread_ref == fixture.receipt["thread_ref"]
+  end
+
+  test "typed answer association keeps one original without inventing a selected choice" do
+    fixture = delivered_question!()
+    entry = typed_answer!(fixture)
+
+    assert {:error, :state_record_transaction_required} =
+             InputRequests.associate_in_transaction(fixture.episode, entry)
+
+    assert Repo.aggregate(Response, :count) == 0
+    associate!(fixture, entry)
+    associate!(fixture, entry)
+
+    response = Repo.get_by!(Response, record_id: fixture.record.id)
+    assert response.inbox_entry_id == entry.id
+    assert is_nil(response.choice)
+    assert is_nil(response.choice_index)
+    assert Repo.aggregate(Response, :count) == 1
+    assert Repo.get!(Record, fixture.record.id).status == :open
+    assert Repo.aggregate(Responder.State.MemoryEntry, :count) == 0
+  end
+
+  test "a bot, another thread, or a pre-question message cannot supply a typed answer" do
+    fixture = delivered_question!()
+
+    for attributes <- [
+          %{actor: %{kind: :bot, ref: "B123"}},
+          %{thread_ref: "1787832000.000999"},
+          %{occurred_at: @now}
+        ] do
+      entry = typed_answer!(fixture, attributes)
+      associate!(fixture, entry)
+      assert Repo.aggregate(Response, :count) == 0
+    end
+  end
+
+  test "a later typed reply does not overwrite an already accepted button answer" do
+    fixture = delivered_question!()
+    assert {:ok, accepted} = InputRequests.answer(answer(fixture, 1, "selected"))
+    entry = typed_answer!(fixture)
+    associate!(fixture, entry)
+    assert Repo.get_by!(Response, record_id: fixture.record.id) == accepted.response
+  end
+
+  defp associate!(fixture, entry) do
+    assert {:ok, :ok} =
+             Repo.transaction(fn ->
+               InputRequests.associate_in_transaction(fixture.episode, entry)
+             end)
+  end
+
+  defp typed_answer!(fixture, overrides \\ %{}) do
+    attributes = %{
+      actor: %{kind: :user, ref: "U123"},
+      channel_ref: "C456",
+      content: %{"text" => "Use one percent, then verify before expanding."},
+      event_kind: :message,
+      event_ref: "answer:#{Ecto.UUID.generate()}",
+      message_ref: "1787832002.000300",
+      occurred_at: DateTime.add(DateTime.utc_now(), 1),
+      revision: 1,
+      thread_ref: fixture.episode.destination_thread_ref,
+      workspace_ref: "T123"
+    }
+
+    assert {:ok, input} = SlackInput.new(Map.merge(attributes, overrides))
+    assert {:ok, %{entry: entry}} = Inbox.record(input)
+    entry
   end
 
   defp delivered_question!(transport \\ :slack) do

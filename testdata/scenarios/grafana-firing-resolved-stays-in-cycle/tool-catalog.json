@@ -183,7 +183,7 @@
           "name": "record_finding"
         },
         {
-          "description": "Create one durable question card for a material human decision.",
+          "description": "Create one durable question card for a material human decision or missing fact. Briefly recap established findings in the accompanying final reply; use context to explain why the answer is needed without repeating the recap or question. For one reusable fact, set remember with its subject and exact workload/environment/repository applicability; this asks to remember an authorized answer across this customer's conversations, not to set a universal default. Omit remember for ordinary decisions, secrets, or unrelated chat. A reusable fact must have exactly one question.",
           "inputSchema": {
             "additionalProperties": false,
             "properties": {
@@ -209,7 +209,7 @@
                         "minLength": 1,
                         "type": "string"
                       },
-                      "maxItems": 5,
+                      "maxItems": 10,
                       "minItems": 0,
                       "type": "array",
                       "uniqueItems": true
@@ -230,6 +230,33 @@
                 "minItems": 1,
                 "type": "array",
                 "uniqueItems": true
+              },
+              "remember": {
+                "anyOf": [
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "applicability": {
+                        "maxLength": 1000,
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "subject": {
+                        "maxLength": 120,
+                        "minLength": 1,
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "applicability",
+                      "subject"
+                    ],
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
               }
             },
             "required": [
@@ -1081,7 +1108,8 @@
                   "current_channel",
                   "repository",
                   "workspace",
-                  "mine"
+                  "mine",
+                  "global"
                 ],
                 "type": "string"
               },
@@ -1186,6 +1214,31 @@
             "type": "object"
           },
           "name": "propose_memory"
+        },
+        {
+          "description": "Save the normalized answer to an explicitly reusable request_input question in this episode. Call only when the authenticated reply actually supplies that fact; an unrelated or ambiguous reply needs clarification. The host verifies the exact answered question, original revision and operator authority, and derives installation-global applicability from the question. No second memory confirmation is needed. Existing proposals still use propose_memory. Say remembered only after this tool succeeds; saved facts never grant action authority or prove current health.",
+          "inputSchema": {
+            "additionalProperties": false,
+            "properties": {
+              "question_ref": {
+                "maxLength": 256,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9_.:-]+$",
+                "type": "string"
+              },
+              "value": {
+                "maxLength": 4000,
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "question_ref",
+              "value"
+            ],
+            "type": "object"
+          },
+          "name": "remember_answer"
         },
         {
           "description": "Stage a bounded derived situation summary. It becomes durable only if this turn's exact final candidate is accepted.",

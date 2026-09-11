@@ -15,7 +15,7 @@ defmodule Responder.Ingress.Inbox do
   alias Responder.Ingress.Projections
   alias Responder.Ingress.WorkProfile
   alias Responder.Repo
-  alias Responder.State.Observations
+  alias Responder.State.{Memories, Observations}
 
   @ref_prefix "ingress-input:"
 
@@ -462,11 +462,17 @@ defmodule Responder.Ingress.Inbox do
 
     with {:ok, receipt} <- reconcile_record(input, load(dedupe_key), settings),
          :ok <- attach_artifacts(input, receipt),
+         :ok <- revoke_answer_memory(receipt),
          :ok <- receive_observation(receipt),
          :ok <- Projections.observe(input, ref(receipt.entry)) do
       {:ok, receipt}
     end
   end
+
+  defp revoke_answer_memory(%{status: :recorded, entry: entry}),
+    do: Memories.revoke_answer_source_in_transaction(entry)
+
+  defp revoke_answer_memory(_receipt), do: :ok
 
   defp receive_observation(%{status: :recorded, entry: entry}),
     do: Observations.receive_in_transaction(entry)

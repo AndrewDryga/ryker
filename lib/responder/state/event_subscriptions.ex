@@ -7,6 +7,10 @@ defmodule Responder.State.EventSubscriptions do
   polling fallbacks protect waits that need verification after a missed webhook.
   Timers share that indexed wakeup time, anchored to the original record rather
   than each reconciliation.
+
+  One event-only watch may remain open alongside a human question. The question
+  owns continuation; source updates remain queued until the answer resumes Work.
+  Reconciliation preserves that exact matcher during the question and Work turn.
   """
 
   import Ecto.Query
@@ -42,15 +46,18 @@ defmodule Responder.State.EventSubscriptions do
 
   defp reconcile_in_transaction do
     cancelled = cancel_stale_in_transaction()
+    retained = retained_wait([:waiting_for_input])
 
     episodes =
       Repo.all(
         from(episode in Episode,
+          as: :episode,
           join: record in Record,
-          on: record.episode_id == episode.id and record.ref == episode.owner_ref,
+          as: :record,
+          on: record.episode_id == episode.id,
           left_join: subscription in EventSubscription,
           on: subscription.record_id == record.id,
-          where: episode.state == :waiting_for_event and episode.owner_kind == :event,
+          where: ^retained,
           where: record.kind == "event_wait" and record.status == :open,
           where: is_nil(record.wait_error),
           where: is_nil(subscription.id),
@@ -90,18 +97,20 @@ defmodule Responder.State.EventSubscriptions do
   end
 
   defp cancel_stale_in_transaction do
+    retained = retained_wait([:waiting_for_input, :working])
+    stale_wait = dynamic([record: record], not (^retained) or record.status != :open)
+
     stale =
       Repo.all(
         from(subscription in EventSubscription,
           join: episode in Episode,
+          as: :episode,
           on: episode.id == subscription.episode_id,
           join: record in Record,
+          as: :record,
           on: record.id == subscription.record_id,
-          where:
-            subscription.status == :active and
-              (episode.state != :waiting_for_event or episode.owner_kind != :event or
-                 fragment("? IS DISTINCT FROM ?", episode.owner_ref, record.ref) or
-                 record.status != :open),
+          where: subscription.status == :active,
+          where: ^stale_wait,
           order_by: [asc: subscription.id],
           limit: @reconcile_limit,
           select: %{record_id: record.id, ref: record.ref, subscription_id: subscription.id}
@@ -132,6 +141,26 @@ defmodule Responder.State.EventSubscriptions do
     end)
 
     length(stale)
+  end
+
+  defp retained_wait(parked_states) do
+    event_only = event_only_record()
+
+    dynamic(
+      [episode: episode, record: record],
+      (episode.state == :waiting_for_event and episode.owner_kind == :event and
+         episode.owner_ref == record.ref) or
+        (episode.state in ^parked_states and ^event_only)
+    )
+  end
+
+  defp event_only_record do
+    dynamic(
+      [record: record],
+      record.kind == "event_wait" and
+        fragment("?::jsonb->'event_matcher'->>'type' = 'source_event'", record.payload) and
+        fragment("?::jsonb->>'deadline_at' IS NULL", record.payload)
+    )
   end
 
   @doc false
@@ -211,6 +240,22 @@ defmodule Responder.State.EventSubscriptions do
              where:
                record.episode_id == ^episode.id and record.ref == ^wait_ref and
                  record.kind == "event_wait" and record.status == :open,
+             lock: "FOR UPDATE"
+           )
+         ) do
+      %Record{} = record -> ensure_record(episode, record)
+      nil -> {:ok, :not_source_event}
+    end
+  end
+
+  defp ensure_locked(%Episode{state: :waiting_for_input, owner_kind: :input} = episode) do
+    event_only = event_only_record()
+
+    case Repo.one(
+           from(record in Record,
+             as: :record,
+             where: record.episode_id == ^episode.id and record.status == :open,
+             where: ^event_only,
              lock: "FOR UPDATE"
            )
          ) do

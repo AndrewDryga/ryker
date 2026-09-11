@@ -849,6 +849,7 @@ defmodule Responder.RuntimeConfiguration do
         emisar_rpc_url: Map.get(state_tools, :emisar_rpc_url),
         additional_tools: Map.get(state_tools, :additional_tools),
         additional_call: Map.get(state_tools, :additional_call),
+        answer_authorizer: Map.get(state_tools, :answer_authorizer),
         token_secret: state_tools.token
       })
     }
@@ -1412,7 +1413,27 @@ defmodule Responder.RuntimeConfiguration do
       token: required_secret!(object["token_env"], env_provider, "state_tools.token_env")
     }
     |> put_optional(:emisar_rpc_url, emisar && emisar.rpc_url)
+    |> Map.put(:answer_authorizer, answer_authorizer(slack, control_plane))
     |> add_platform_capability_tools(slack, github, control_plane)
+  end
+
+  defp answer_authorizer(slack, control_plane) do
+    fn
+      %{source_kind: "slack", source_ref: workspace, actor_kind: :user, actor_ref: actor} ->
+        not is_nil(slack) and workspace == slack.runtime.identity.workspace_ref and
+          actor in slack.runtime.operators
+
+      %{
+        source_kind: "control_plane",
+        source_ref: "local",
+        actor_kind: :user,
+        actor_ref: "local-operator"
+      } ->
+        not is_nil(control_plane)
+
+      _ ->
+        false
+    end
   end
 
   defp add_platform_capability_tools(configuration, slack, github, control_plane) do

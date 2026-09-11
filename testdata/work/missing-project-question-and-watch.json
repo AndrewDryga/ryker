@@ -1,0 +1,76 @@
+{
+  "scenario_id": "missing-project-review-asks-for-context",
+  "records": [
+    {
+      "kind": "event_wait",
+      "payload": {
+        "deadline_at": null,
+        "event_matcher": {
+          "match": {
+            "attachments": [
+              {
+                "title": "Run run-t2W6yCNeLUU9xFso",
+                "title_link": "https://app.terraform.io/app/Dryga/emisar/runs/run-t2W6yCNeLUU9xFso"
+              }
+            ],
+            "bot_id": "B0BHPQTBMA7"
+          },
+          "on_timeout": null,
+          "poll_after": null,
+          "source_kind": "slack",
+          "type": "source_event"
+        },
+        "kind": "source_event",
+        "verification": "On the next exact run notification, recheck run-t2W6yCNeLUU9xFso and report material changes or terminal outcome. Keep updates queued while awaiting the project answer; do not infer live health from run-message Git revisions."
+      },
+      "ref": "record:event_wait:03c4953813e16d651803c96c81ae6d0b",
+      "status": "open"
+    },
+    {
+      "kind": "input_request",
+      "payload": {
+        "choices": [],
+        "question": "The retained review leaves infrastructure health and backups unverified. Global memory has no Emisar project mapping, and the supplied checkout contains no infrastructure files. This session also exposes no GCP or Terraform read tools. An exact-run Slack lifecycle watch is being retained independently.\n\n1. Which GCP project ID hosts the Emisar environment deployed by Terraform workspace Dryga/emisar?",
+        "remember": {
+          "applicability": "Only the Emisar environment deployed by Dryga/emisar for the AndrewDryga/emisar application; not a default for other environments or repositories.",
+          "subject": "GCP project ID for Emisar deployment in Terraform workspace Dryga/emisar"
+        }
+      },
+      "ref": "record:input_request:4699321e7899223e68a8e201a2d66df8",
+      "status": "open"
+    },
+    {
+      "kind": "finding",
+      "payload": {
+        "cause_evidence": [],
+        "reason": "The supplied checkout has no tracked files, global Emisar memory search returned no mapping, and the session exposes no GCP or Terraform source tools. The attached prior review is historical context only.",
+        "scope": "Remaining health and backup verification for Dryga/emisar",
+        "status": "unexplained",
+        "what": "Infrastructure health and backup success remain unverified. Deployment project identity and current authorized infrastructure/backup observations are missing; no outage or backup success can be concluded."
+      },
+      "ref": "record:finding:8b731d41fc2469351149ca4d9b6bc02f",
+      "status": "open"
+    }
+  ],
+  "candidate": {
+    "decision_reason": null,
+    "delivery": "reply",
+    "message": "Which GCP project ID hosts the Emisar environment deployed by Terraform workspace `Dryga/emisar`? I found no saved mapping or infrastructure files in this checkout.\n\nHealth and backups remain unverified; this session also has no GCP or Terraform read tools. I’ve established a watch for the exact run `run-t2W6yCNeLUU9xFso` from its Slack bot, with no polling or expiry.",
+    "outcome": {
+      "artifact_refs": [],
+      "record_refs": [
+        "record:input_request:4699321e7899223e68a8e201a2d66df8",
+        "record:event_wait:03c4953813e16d651803c96c81ae6d0b",
+        "record:finding:8b731d41fc2469351149ca4d9b6bc02f"
+      ],
+      "state": "waiting_for_input"
+    }
+  },
+  "source": {
+    "session_id": "1352be14-8597-47aa-8bb5-3003cd4a7559",
+    "turn_id": "d29eaffc-717e-42f0-8ac0-095d83aa5a57",
+    "model": "gpt-5.6-luna",
+    "prompt_sha256": "a87be237a5dc5ddf03194a81994d1c7d8f49e37eb8f0107608106ebd0ba39fce",
+    "candidate_sha256": "34351e4efd9cea006a289b7ed2f206c49a3c06343f741ee1c72bc068afaa5b4e"
+  }
+}

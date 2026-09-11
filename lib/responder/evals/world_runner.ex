@@ -56,7 +56,7 @@ defmodule Responder.Evals.WorldRunner do
 
   @authority_record_kinds %{
     "operator" => ~w(
-      evidence coverage finding progress alert_assessment input_request memory_offer preference_offer
+      evidence coverage finding progress alert_assessment input_request event_wait memory_offer preference_offer
       guidance_offer
     ),
     "read_only" => ~w(evidence coverage finding progress alert_assessment),

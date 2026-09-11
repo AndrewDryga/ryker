@@ -2,7 +2,24 @@ defmodule Responder.Evals.WorldToolsTest do
   use ExUnit.Case, async: true
 
   alias Responder.Evals.{WorldCase, WorldCassette, WorldTools}
-  alias Responder.StateTools.Tools
+  alias Responder.StateTools.{Router, Tools}
+
+  test "a world with no discovery provider exposes fixed tools without an orphan callback" do
+    assert {:ok, scenario} = WorldCase.fetch("missing-project-review-asks-for-context")
+    assert {:ok, cassette} = start_supervised({WorldCassette, scenario})
+
+    assert {:ok, prepared} =
+             WorldTools.prepare(
+               %{capabilities: [:event_waits, :publication, :schedules]},
+               scenario,
+               cassette
+             )
+
+    assert prepared.state_tools.additional_tools == []
+    assert is_nil(prepared.state_tools.additional_call)
+
+    assert Router.init([token: "no-discovery-world-secret"] ++ Map.to_list(prepared.state_tools))
+  end
 
   test "the model world exposes production schemas with inert platform authority" do
     assert {:ok, scenario} = WorldCase.fetch("va1-health-review-repairs-and-finishes")

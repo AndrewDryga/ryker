@@ -19,6 +19,62 @@ defmodule Responder.Admission.CommitTest do
 
   @now ~U[2026-08-27 12:00:00.000000Z]
 
+  test "a source notification stays queued while the episode is waiting for a human fact" do
+    # Terraform updates must not consume the project-ID question before the
+    # operator answers it. The source event still belongs to this investigation.
+    message = "testdata/slack/hcp-terraform-planning.json" |> File.read!() |> Jason.decode!()
+    original = create_episode!(thread_ref: "1787830000.000001")
+
+    assert {:ok, _} =
+             Custody.pin_episode(original.id, "work-read-only", String.duplicate("a", 64))
+
+    assert {:ok, claim} = Custody.claim_next("project-question", 60, :work)
+
+    assert {:ok, question} =
+             Records.create(Records.token(claim.turn), "project", "input_request", %{
+               "choices" => [],
+               "question" => "Which GCP project should I check?"
+             })
+
+    %{rows: [[now]]} = Repo.query!("SELECT clock_timestamp()")
+
+    assert {:ok, _} =
+             Episodes.apply(%Command.StartWait{
+               episode_key: original.key,
+               expected_turn_ref: original.owner_ref,
+               kind: :input,
+               wait_ref: question.ref,
+               occurred_at: now
+             })
+
+    entry =
+      record_input!(
+        actor: %{kind: :bot, ref: message["bot_id"]},
+        content: message,
+        event_ref: "TFC-while-awaiting-project",
+        thread_ref: original.destination_thread_ref,
+        message_ref: "1787832000.004000",
+        occurred_at: DateTime.add(now, 1)
+      )
+
+    context = context!(entry)
+    candidate = candidate!(context, original.id)
+
+    assert {:ok, result} =
+             Admission.commit(
+               context,
+               decision!(:continue_episode, candidate.ref, :same_work),
+               "queued-tfc-project-question"
+             )
+
+    assert result.episode.state == :waiting_for_input
+    assert result.episode.owner_ref == question.ref
+    assert Repo.get!(Responder.State.Record, question.id).status == :open
+    assert result.entry.episode_id == original.id
+    assert result.episode.queued_input_refs != []
+    assert Repo.aggregate(Responder.State.Response, :count) == 0
+  end
+
   for next_actor <- [:app, :bot, :user] do
     @next_actor next_actor
     test "an admitted #{@next_actor} input resumes the same event-only episode" do

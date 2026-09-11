@@ -27,7 +27,11 @@ defmodule Responder.Evals.WorldTools do
       Enum.all?(all, &valid_tool?/1) and names == Enum.uniq(names) ->
         platform_names = MapSet.new(platform, & &1["name"])
         fabricated_names = MapSet.new(fabricated, & &1["name"])
-        callback = tool_callback(cassette, fabricated_names, platform_names)
+
+        callback =
+          if platform == [] and fabricated == [],
+            do: nil,
+            else: tool_callback(cassette, fabricated_names, platform_names)
 
         state_tools =
           configured

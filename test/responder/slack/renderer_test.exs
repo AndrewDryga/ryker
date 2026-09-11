@@ -922,14 +922,108 @@ defmodule Responder.Slack.RendererTest do
     assert question["text"]["text"] == "Which rollout action should I take?"
 
     assert Enum.map(choices["elements"], &{&1["action_id"], &1["value"]}) == [
-             {"responder_answer_input", "record:input_request:abc123|0"},
-             {"responder_answer_input", "record:input_request:abc123|1"}
+             {"responder_answer_input_0", "record:input_request:abc123|0"},
+             {"responder_answer_input_1", "record:input_request:abc123|1"}
            ]
 
     refute inspect(wait) =~ "Verify the new allocation is healthy."
     assert inspect(wait) =~ "Monitoring deadline <!date^"
     assert inspect(wait) =~ "2026-08-29 12:00 UTC"
     refute inspect(rendered) =~ ~s("deployment" => "responder")
+  end
+
+  test "long answers remain readable and many choices require explicit submission" do
+    # Proposed stress copy from question__many-long-options in the native catalog;
+    # these are UI examples, not harvested answers or a saved retention policy.
+    choices = [
+      "Delete each report after six hours. This gives us a short window to investigate an incident while it is happening, but the reports will not be available for a review the next day.",
+      "Delete each report after twelve hours. This leaves time for another shift to pick up the investigation, while keeping sensitive diagnostics for less than a full day.",
+      "Delete each report after twenty-four hours. This lets someone investigate an overnight failure the following morning, but they will need to review it before that window closes.",
+      "Delete each report after three days. This gives the team time to investigate after a short absence or weekend, without keeping a full week of sensitive diagnostic data.",
+      "Delete each report after seven days. This gives us a week to compare recurring failures and review reports together, at the cost of keeping sensitive diagnostic data for longer.",
+      "Delete each report after fourteen days. This gives us more time to investigate intermittent failures and compare two weeks of reports, but requires a longer retention window for sensitive data.",
+      "Delete each report after thirty days. This provides the longest window for investigating rare failures, but keeps sensitive diagnostics for a month and can use more of the available storage."
+    ]
+
+    record = %{
+      "kind" => "input_request",
+      "ref" => "record:input_request:retention",
+      "status" => "open",
+      "payload" => %{"question" => "How long should diagnostics be kept?", "choices" => choices}
+    }
+
+    assert {:ok, rendered} =
+             Renderer.render(%{
+               "message" => "Reports remain private and size bounded.",
+               "records" => [record]
+             })
+
+    sections =
+      for %{"type" => "section", "text" => %{"text" => text}} <- rendered["blocks"], do: text
+
+    Enum.each(choices, fn choice -> assert Enum.any?(sections, &String.contains?(&1, choice)) end)
+    elements = Enum.flat_map(rendered["blocks"], &Map.get(&1, "elements", []))
+    assert [radio] = Enum.filter(elements, &(&1["type"] == "radio_buttons"))
+    assert length(radio["options"]) == 7
+    refute Map.has_key?(radio, "initial_option")
+    assert Enum.map(radio["options"], & &1["value"]) == Enum.map(0..6, &"#{record["ref"]}|#{&1}")
+
+    assert Enum.any?(
+             elements,
+             &(&1["action_id"] == "responder_submit_input" and
+                 &1["text"]["text"] == "Submit answer")
+           )
+
+    short_set = put_in(record, ["payload", "choices"], Enum.take(choices, 3))
+    assert {:ok, short} = Renderer.render(%{"message" => "Choose one.", "records" => [short_set]})
+
+    buttons =
+      short["blocks"]
+      |> Enum.flat_map(&Map.get(&1, "elements", []))
+      |> Enum.filter(&(&1["type"] == "button"))
+
+    assert Enum.map(buttons, & &1["text"]["text"]) == ["Option 1", "Option 2", "Option 3"]
+    assert length(Enum.uniq_by(buttons, & &1["action_id"])) == 3
+
+    assert {:ok, answered} =
+             Renderer.render(%{
+               "message" => "Choose one.",
+               "records" => [%{record | "status" => "answered"}]
+             })
+
+    assert inspect(answered["blocks"]) =~ record["payload"]["question"]
+    refute Enum.any?(answered["blocks"], &(&1["type"] == "actions"))
+    refute inspect(answered["blocks"]) =~ "responder_question_choice"
+  end
+
+  test "a reusable question explains the saved fact and applicability before the answer" do
+    assert {:ok, rendered} =
+             Renderer.render(%{
+               "message" => "The plan updates the portal template, fleet and monitors.",
+               "records" => [
+                 %{
+                   "kind" => "input_request",
+                   "ref" => "record:input_request:project",
+                   "status" => "open",
+                   "payload" => %{
+                     "question" =>
+                       "Which GCP project should I use for the health and backup checks?",
+                     "choices" => [],
+                     "remember" => %{
+                       "subject" => "GCP project",
+                       "applicability" => "Production portal"
+                     }
+                   }
+                 }
+               ]
+             })
+
+    assert inspect(rendered["blocks"]) =~
+             "I'll remember an operator's answer across conversations"
+
+    assert inspect(rendered["blocks"]) =~ "GCP project"
+    assert inspect(rendered["blocks"]) =~ "Production portal"
+    refute inspect(rendered["blocks"]) =~ "already remembered"
   end
 
   test "event-only watches do not append internal instructions or an empty deadline" do

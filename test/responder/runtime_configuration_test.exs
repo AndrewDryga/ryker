@@ -166,6 +166,28 @@ defmodule Responder.RuntimeConfigurationTest do
 
     assert is_function(additional_call, 3)
 
+    authorize_answer = configuration.state_tools.answer_authorizer
+    assert configuration.coop_worker_gateway.state_tools.answer_authorizer == authorize_answer
+
+    answer = %{
+      source_kind: "slack",
+      source_ref: configuration.slack.identity.workspace_ref,
+      actor_kind: :user,
+      actor_ref: hd(configuration.slack.operators)
+    }
+
+    assert authorize_answer.(answer)
+    refute authorize_answer.(%{answer | actor_ref: "UNOTANOPERATOR"})
+    refute authorize_answer.(%{answer | source_ref: "TOTHERINSTALLATION"})
+    refute authorize_answer.(%{answer | actor_kind: :bot})
+
+    assert authorize_answer.(%{
+             source_kind: "control_plane",
+             source_ref: "local",
+             actor_kind: :user,
+             actor_ref: "local-operator"
+           })
+
     assert Enum.map(additional_tools, & &1["name"]) == [
              "list_slack_channels",
              "search_slack",

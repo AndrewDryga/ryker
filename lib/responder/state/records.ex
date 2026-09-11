@@ -241,16 +241,20 @@ defmodule Responder.State.Records do
   @doc false
   @spec user_resumable_wait?(String.t(), Input.t()) :: boolean()
   def user_resumable_wait?(wait_ref, %Input{} = input) when is_binary(wait_ref) do
+    # A question owns its wait until admission resumes the episode, even after a
+    # native choice already marked the record answered. Only a person may consume it.
     case Repo.one(
            from(record in Record,
-             where: record.ref == ^wait_ref and record.status == :open,
+             where:
+               record.ref == ^wait_ref and
+                 (record.status == :open or record.kind == "input_request"),
              select: %{kind: record.kind, payload: record.payload}
            )
          ) do
       %{kind: "emisar_approval"} -> false
       %{kind: "event_wait"} when input.actor.kind == :user -> true
       %{kind: "event_wait", payload: payload} -> event_wait_matches?(payload, input)
-      %{kind: "input_request"} -> true
+      %{kind: "input_request"} -> input.actor.kind == :user
       nil -> true
       _other_record -> false
     end

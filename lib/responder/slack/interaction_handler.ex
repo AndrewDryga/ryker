@@ -412,6 +412,14 @@ defmodule Responder.Slack.InteractionHandler do
   end
 
   defp apply_action(
+         %Interaction{action_id: "responder_submit_input"},
+         %{kind: "input_request", status: :open},
+         nil,
+         _options
+       ),
+       do: {:ok, %{outcome: :selection_required}}
+
+  defp apply_action(
          %Interaction{action_id: "responder_answer_input"} = interaction,
          %{kind: "input_request"},
          choice_index,

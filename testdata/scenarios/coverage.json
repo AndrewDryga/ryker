@@ -27,7 +27,8 @@
       "explicit-operator-incident-offer"
     ],
     "memory_feedback": [
-      "confirmed-guidance-becomes-memory"
+      "confirmed-guidance-becomes-memory",
+      "missing-project-answer-is-remembered"
     ],
     "multi_user_threads": [
       "rivals-engineering-task-offer"
@@ -53,6 +54,7 @@
       "github-pr-review-remains-in-thread"
     ],
     "missing_stale_contradictory_evidence": [
+      "missing-project-review-asks-for-context",
       "va1-health-review-repairs-and-finishes"
     ],
     "noisy_context": [

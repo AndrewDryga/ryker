@@ -1,6 +1,6 @@
 defmodule Responder.State.InputRequests do
   @moduledoc """
-  Records one authenticated platform choice as generic durable input.
+  Records authenticated answers and their exact question association.
 
   The button carries only an opaque record reference and choice index. This
   boundary re-reads the delivered question, exact choice, current wait owner,
@@ -16,6 +16,7 @@ defmodule Responder.State.InputRequests do
   alias Responder.Ingress.Inbox.Entry
   alias Responder.Repo
   alias Responder.Slack.Input, as: SlackInput
+  alias Responder.Slack.InteractionAudits
 
   alias Responder.State.{
     Record,
@@ -35,6 +36,67 @@ defmodule Responder.State.InputRequests do
     :target
   ]
   @target_fields [:conversation_ref, :message_ref, :thread_ref, :transport]
+
+  @doc """
+  Associate a typed reply while admission holds the input and episode locks.
+
+  This records provenance, not a semantic decision that the reply supplies the
+  requested fact. The original body and revision stay in the immutable inbox;
+  no choice is invented and nothing is automatically trusted as global memory.
+  """
+  def associate_in_transaction(
+        %Episode{state: :waiting_for_input, owner_kind: :input, owner_ref: ref},
+        %Entry{actor_kind: :user, event_kind: :message, content: %{"text" => text}} = entry
+      )
+      when is_binary(text) and text != "" do
+    with true <- Repo.in_transaction?(),
+         {:ok, record, episode, turn} <- lock_request(ref),
+         :ok <- current_wait?(episode, ref) do
+      if typed_answer_source?(entry, episode, turn) and
+           is_nil(Repo.get_by(Response, record_id: record.id)) do
+        persist_typed_response(record, entry, turn)
+      else
+        :ok
+      end
+    else
+      false -> {:error, :state_record_transaction_required}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  def associate_in_transaction(_episode, _entry), do: :ok
+
+  defp persist_typed_response(record, entry, turn) do
+    attributes = %{
+      actor_ref: entry.actor_ref,
+      choice_index: nil,
+      occurred_at: entry.occurred_at,
+      response_ref: entry.event_ref
+    }
+
+    case persist_response(record, entry, nil, attributes) do
+      {:ok, _response} ->
+        InteractionAudits.record_answer_in_transaction(entry, record, turn, :typed)
+
+      {:error, _reason} = error ->
+        error
+    end
+  end
+
+  defp typed_answer_source?(entry, episode, %Turn{external_receipt: receipt} = turn)
+       when is_map(receipt) do
+    target = %{
+      transport: entry.destination_transport,
+      conversation_ref: entry.destination_conversation_ref,
+      thread_ref: entry.destination_thread_ref,
+      message_ref: receipt["message_ref"]
+    }
+
+    delivered_from?(episode, turn, target) == :ok and
+      DateTime.compare(entry.occurred_at, turn.delivered_at) == :gt
+  end
+
+  defp typed_answer_source?(_entry, _episode, _turn), do: false
 
   @spec answer(keyword() | map()) :: {:ok, map()} | {:error, term()}
   def answer(attributes) do
@@ -56,7 +118,7 @@ defmodule Responder.State.InputRequests do
     with {:ok, record, episode, turn} <- lock_request(attributes.record_ref),
          :ok <- delivered_from?(episode, turn, attributes.target) do
       case Repo.get_by(Response, record_id: record.id) do
-        nil -> record_answer(record, episode, attributes)
+        nil -> record_answer(record, episode, turn, attributes)
         response -> duplicate(response, record, attributes)
       end
     else
@@ -82,13 +144,20 @@ defmodule Responder.State.InputRequests do
     end
   end
 
-  defp record_answer(%Record{status: :open} = record, episode, attributes) do
+  defp record_answer(%Record{status: :open} = record, episode, turn, attributes) do
     with :ok <- current_wait?(episode, record.ref),
          {:ok, choice} <- choice(record, attributes.choice_index),
          {:ok, input} <- input(record, choice, attributes),
          {:ok, inbox_receipt} <- Inbox.record(input),
          {:ok, response} <- persist_response(record, inbox_receipt.entry, choice, attributes),
-         {:ok, record} <- record |> RecordChangeset.answer() |> Repo.update() do
+         {:ok, record} <- record |> RecordChangeset.answer() |> Repo.update(),
+         :ok <-
+           InteractionAudits.record_answer_in_transaction(
+             inbox_receipt.entry,
+             record,
+             turn,
+             :choice
+           ) do
       %{
         input_ref: Inbox.ref(inbox_receipt.entry),
         record: record,
@@ -100,7 +169,7 @@ defmodule Responder.State.InputRequests do
     end
   end
 
-  defp record_answer(%Record{}, _episode, _attributes),
+  defp record_answer(%Record{}, _episode, _turn, _attributes),
     do: Repo.rollback(:input_request_stale)
 
   defp duplicate(response, record, attributes) do

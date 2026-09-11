@@ -57,6 +57,9 @@ defmodule Responder.Slack.Renderer do
         "guidance_offer:open",
         "standing_assignment_offer:open",
         "input_request:open",
+        "input_request:answered",
+        "input_request:dismissed",
+        "input_request:superseded",
         "event_wait:open",
         "publication_review:open",
         "publication_result:confirmed"
@@ -1256,13 +1259,21 @@ defmodule Responder.Slack.Renderer do
            "kind" => "input_request",
            "payload" => payload,
            "ref" => ref,
-           "status" => "open"
+           "status" => status
          } = record
        )
-       when map_size(record) == 4 do
+       when map_size(record) == 4 and status in ["open", "answered", "dismissed", "superseded"] do
     with :ok <- reference(ref),
          {:ok, %{payload: prepared}} <- RecordPayload.prepare("input_request", payload, ref) do
-      {:ok, input_request_blocks(ref, prepared)}
+      if status == "open" do
+        {:ok, input_request_blocks(ref, prepared)}
+      else
+        {:ok,
+         [
+           %{"type" => "section", "text" => plain_text(prepared["question"])},
+           context(question_status(status))
+         ]}
+      end
     else
       _invalid -> {:error, {:invalid_slack_render, :record}}
     end
@@ -1707,32 +1718,108 @@ defmodule Responder.Slack.Renderer do
   defp publication_findings(findings),
     do: "Blocked by: " <> Enum.map_join(findings, ", ", &mrkdwn/1)
 
-  defp input_request_blocks(ref, %{"choices" => choices, "question" => question}) do
+  defp input_request_blocks(ref, %{"choices" => choices, "question" => question} = payload) do
     question_block = %{
       "text" => plain_text(question),
       "type" => "section"
     }
 
+    introduction = [question_block] ++ remembered_answer_notice(payload["remember"])
+
     case choices do
       [] ->
-        [question_block]
+        introduction
 
       choices ->
-        elements =
-          choices
-          |> Enum.with_index()
-          |> Enum.map(fn {choice, index} ->
-            %{
-              "action_id" => "responder_answer_input",
-              "text" => plain_text(truncate(choice, @maximum_button_characters)),
-              "type" => "button",
-              "value" => "#{ref}|#{index}"
-            }
-          end)
-
-        [question_block, %{"block_id" => ref, "elements" => elements, "type" => "actions"}]
+        {details, options} = question_options(ref, choices)
+        introduction ++ details ++ question_controls(ref, options)
     end
   end
+
+  defp question_options(ref, choices) do
+    numbered? = Enum.any?(choices, &(String.length(&1) > @maximum_button_characters))
+
+    options =
+      choices
+      |> Enum.with_index()
+      |> Enum.map(fn {choice, index} ->
+        label = if numbered?, do: "Option #{index + 1}", else: choice
+        %{"text" => plain_text(label), "value" => "#{ref}|#{index}"}
+      end)
+
+    details =
+      if numbered? do
+        text =
+          choices
+          |> Enum.with_index(1)
+          |> Enum.map_join("\n\n", fn {choice, index} -> "Option #{index}\n#{choice}" end)
+
+        [%{"type" => "section", "text" => plain_text(text)}]
+      else
+        []
+      end
+
+    {details, options}
+  end
+
+  defp question_controls(ref, options) when length(options) <= 5 do
+    elements =
+      options
+      |> Enum.with_index()
+      |> Enum.map(fn {option, index} ->
+        Map.merge(option, %{"type" => "button", "action_id" => "responder_answer_input_#{index}"})
+      end)
+
+    [%{"block_id" => ref, "elements" => elements, "type" => "actions"}]
+  end
+
+  defp question_controls(ref, options) do
+    [
+      %{
+        "type" => "actions",
+        "block_id" => ref,
+        "elements" => [
+          %{
+            "type" => "radio_buttons",
+            "action_id" => "responder_question_choice",
+            "options" => options
+          }
+        ]
+      },
+      %{
+        "type" => "actions",
+        "block_id" => "#{ref}:submit",
+        "elements" => [
+          %{
+            "type" => "button",
+            "action_id" => "responder_submit_input",
+            "text" => plain_text("Submit answer"),
+            "value" => ref
+          }
+        ]
+      },
+      context("Choose one, then submit. You can also reply in this thread.")
+    ]
+  end
+
+  defp remembered_answer_notice(%{"subject" => subject, "applicability" => applicability}) do
+    [
+      %{
+        "type" => "context",
+        "elements" => [
+          plain_text(
+            "I'll remember an operator's answer across conversations for #{subject} — #{applicability}."
+          )
+        ]
+      }
+    ]
+  end
+
+  defp remembered_answer_notice(_intent), do: []
+
+  defp question_status("answered"), do: "Answered · reply retained separately"
+  defp question_status("dismissed"), do: "Question closed"
+  defp question_status("superseded"), do: "Replaced by a newer question"
 
   defp event_wait_blocks(payload, next_check \\ nil)
   defp event_wait_blocks(%{"deadline_at" => nil}, _next_check), do: []

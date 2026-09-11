@@ -412,6 +412,9 @@ defmodule Responder.Slack.Gateway do
 
   defp handle_interaction(interaction, settings) do
     case settings.interaction_handler.handle(interaction, settings.interaction_options) do
+      {:ok, %{outcome: :selection_required}} ->
+        {:ack, {:interaction, :selection_required}, interaction_feedback(:selection_required)}
+
       {:ok, %{outcome: outcome}} when outcome in [:denied, :invalid] ->
         acknowledge_interaction(interaction, outcome, outcome, settings)
 
@@ -445,6 +448,13 @@ defmodule Responder.Slack.Gateway do
       callback when is_function(callback, 2) -> callback.(interaction, outcome)
       _missing -> {:error, :slack_interaction_audit_unavailable}
     end
+  end
+
+  defp interaction_feedback(:selection_required) do
+    %{
+      "response_type" => "ephemeral",
+      "text" => "Choose an option first, then select Submit answer."
+    }
   end
 
   defp interaction_feedback(:denied) do
