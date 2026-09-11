@@ -142,8 +142,40 @@ defmodule Responder.ControlPlane.ConfigurationHelp do
       "Sets the age threshold for removing eligible compact audit records and custody receipts.",
       "This is the final history horizon and must be at least episode-history retention. Increasing it retains more evidence; it cannot recover records already pruned. Backups have a separate lifecycle.",
       @required_retention
+    },
+    "retention.disposable_bytes_limit" => {
+      "Disposable workspace budget",
+      "Documents how many bytes of inactive disposable forks one worker may hold: eligible or in grace, never dirty, unpublished or running work.",
+      "Workers measure their own filesystem and report it; Responder never estimates bytes it did not receive, and a missing report is unknown rather than zero. Age or pressure never authorises discarding protected work. This bounds workspace allocation, not writes a running task makes inside its own fork.",
+      @required_retention
+    },
+    "retention.reclaim_target_seconds" => {
+      "Reclamation target",
+      "Documents how quickly an eligible disposable fork should disappear from a healthy worker after its grace period ends.",
+      "Cleanup ages work from eligibility, not from session creation, and drains it in bounded fair passes. A worker that is offline retries with bounded backoff and is not counted against this target.",
+      @required_retention
+    },
+    "retention.storage_high_watermark_bytes" => {
+      "Storage high watermark",
+      "Documents the worker storage level above which new fork allocation is refused.",
+      "The worker enforces refusal and reports it; Responder then stops placing new fork-requiring sessions there and names the worker's own reason, while cleanup, control and recovery of existing work continue. Must be above the low watermark and the reserve.",
+      @required_retention
+    },
+    "retention.storage_low_watermark_bytes" => {
+      "Storage low watermark",
+      "Documents the worker storage level below which refused allocation reopens.",
+      "Recovery follows the worker's own report, so there is no second threshold in Responder to oscillate against. Must be below the high watermark.",
+      @required_retention
+    },
+    "retention.storage_reserve_bytes" => {
+      "Cleanup storage reserve",
+      "Documents the free space a worker keeps so that cleanup itself can always finish.",
+      "Allocation that would spend the reserve is refused before any fork is created. Must be below the high watermark.",
+      @required_retention
     }
   }
+
+  @bytes ~w(retention.disposable_bytes_limit retention.storage_high_watermark_bytes retention.storage_low_watermark_bytes retention.storage_reserve_bytes)
 
   @durations %{
     "admission.decision_timeout_ms" => 1,
@@ -151,7 +183,8 @@ defmodule Responder.ControlPlane.ConfigurationHelp do
     "retention.operational_data_seconds" => 1_000,
     "retention.closed_work_seconds" => 1_000,
     "retention.episode_history_seconds" => 1_000,
-    "retention.audit_data_seconds" => 1_000
+    "retention.audit_data_seconds" => 1_000,
+    "retention.reclaim_target_seconds" => 1_000
   }
 
   def setting(key) do
@@ -175,6 +208,16 @@ defmodule Responder.ControlPlane.ConfigurationHelp do
 
   def value(key, "enabled") when key in @components, do: "Configured"
   def value(key, "disabled") when key in @components, do: "Not configured"
+
+  def value(key, value) when key in @bytes do
+    case Integer.parse(value) do
+      {bytes, ""} when bytes > 0 ->
+        :erlang.float_to_binary(bytes / 1_073_741_824, decimals: 2) <> " GiB"
+
+      _other ->
+        value
+    end
+  end
 
   def value(key, value) do
     with multiplier when is_integer(multiplier) <- @durations[key],

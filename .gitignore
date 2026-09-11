@@ -5,6 +5,8 @@
 /_build/
 /deps/
 /cover/
+# Local simulation evidence; the reviewer moves what matters into the task.
+/artifacts/
 /crash.dump
 /.elixir/
 /.responder/

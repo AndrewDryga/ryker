@@ -6,7 +6,7 @@ defmodule Responder.ControlPlane.ConfigurationHelpTest do
   alias Responder.ControlPlane.HTML
   alias Responder.ControlPlane.OperatorProjection
 
-  @settings ~w(admission work control_plane coop_worker_gateway delivery publication retention state_tools event_waits schedules emisar slack github webhooks runtime.mode admission.policy admission.decision_timeout_ms work.concurrency work.poll_interval_ms retention.operational_data_seconds retention.closed_work_seconds retention.episode_history_seconds retention.audit_data_seconds)
+  @settings ~w(admission work control_plane coop_worker_gateway delivery publication retention state_tools event_waits schedules emisar slack github webhooks runtime.mode admission.policy admission.decision_timeout_ms work.concurrency work.poll_interval_ms retention.operational_data_seconds retention.closed_work_seconds retention.episode_history_seconds retention.audit_data_seconds retention.disposable_bytes_limit retention.reclaim_target_seconds retention.storage_high_watermark_bytes retention.storage_low_watermark_bytes retention.storage_reserve_bytes)
 
   test "code editing help explains the required setup without changing it" do
     page = html([])
@@ -74,6 +74,11 @@ defmodule Responder.ControlPlane.ConfigurationHelpTest do
     assert page =~ "30 seconds"
     assert page =~ "250 milliseconds"
     assert page =~ "1 day"
+
+    assert ConfigurationHelp.value("retention.disposable_bytes_limit", "10737418240") ==
+             "10.00 GiB"
+
+    assert ConfigurationHelp.value("retention.reclaim_target_seconds", "3600") == "1 hour"
     assert page =~ "does not make the model think faster"
     assert page =~ "Required when retention is configured; there is no implicit default"
     assert page =~ "restart"
@@ -135,7 +140,12 @@ defmodule Responder.ControlPlane.ConfigurationHelpTest do
         operational_data_seconds: 86_400,
         closed_work_seconds: 604_800,
         episode_history_seconds: 2_592_000,
-        audit_data_seconds: 2_592_000
+        audit_data_seconds: 2_592_000,
+        disposable_bytes_limit: 10_737_418_240,
+        reclaim_target_seconds: 3_600,
+        storage_high_watermark_bytes: 64_424_509_440,
+        storage_low_watermark_bytes: 48_318_382_080,
+        storage_reserve_bytes: 5_368_709_120
       }
     }
 
