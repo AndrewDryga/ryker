@@ -49,7 +49,12 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
   @engagement_receipts_version 20_260_911_000_500
   @default_channel_configurations_version 20_260_911_000_700
   @selection_ledger_version 20_260_911_000_900
+  @episode_origins_version 20_260_911_001_000
+  @routing_digests_version 20_260_911_001_100
   @learning_executions_version 20_260_911_001_500
+  # Cross-conversation routing migrations stay named as their own group so the
+  # ladder can be reconciled with sibling work.
+  @routing_versions [@episode_origins_version, @routing_digests_version]
   @latest_versions [
     @typed_question_answers_version,
     @answer_confirmed_global_facts_version,
@@ -60,6 +65,8 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
     @engagement_receipts_version,
     @default_channel_configurations_version,
     @selection_ledger_version,
+    @episode_origins_version,
+    @routing_digests_version,
     @learning_executions_version
   ]
   @memory_versions Enum.to_list(20_260_908_000_100..20_260_908_001_100//100) ++
@@ -1576,19 +1583,24 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
       assert_reset_notes(repo, prefix, derived["conversation_observations"])
 
       # The inspection-evidence columns and tables, the worker storage columns,
-      # the default channel configuration, the selection ledger and the learning
-      # execution kind are reversible on their own.
-      assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 8, prefix: prefix, log: false) ==
-               [
-                 @learning_executions_version,
-                 @selection_ledger_version,
-                 @default_channel_configurations_version,
-                 @engagement_receipts_version,
-                 @worker_storage_reports_version,
-                 @source_envelopes_version,
-                 @rule_inventories_version,
-                 @selected_work_inputs_version
-               ]
+      # the default channel configuration, the selection ledger, the routing
+      # projections and the learning execution kind are reversible on their own.
+      assert Ecto.Migrator.run(repo, @migrations_path, :down,
+               step: 8 + length(@routing_versions),
+               prefix: prefix,
+               log: false
+             ) ==
+               [@learning_executions_version] ++
+                 Enum.reverse(@routing_versions) ++
+                 [
+                   @selection_ledger_version,
+                   @default_channel_configurations_version,
+                   @engagement_receipts_version,
+                   @worker_storage_reports_version,
+                   @source_envelopes_version,
+                   @rule_inventories_version,
+                   @selected_work_inputs_version
+                 ]
 
       assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 7, prefix: prefix, log: false) ==
                [
@@ -1683,6 +1695,13 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
       assert_raise Postgrex.Error, ~r/execution_usage_identity_valid/, fn ->
         insert_learning_execution!(repo, prefix)
       end
+
+      assert Ecto.Migrator.run(repo, @migrations_path, :down,
+               step: length(@routing_versions),
+               prefix: prefix,
+               log: false
+             ) == Enum.reverse(@routing_versions)
+
 
       # A recorded selection ledger is evidence about a historical selection that
       # cannot be recomputed, so its rollback refuses while any row holds one.
@@ -1779,6 +1798,162 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
 
       assert Ecto.Migrator.run(repo, @migrations_path, :up, all: true, prefix: prefix, log: false) ==
                @latest_versions
+    after
+      SQL.query!(repo, "DROP SCHEMA IF EXISTS #{prefix} CASCADE", [])
+    end
+  end
+
+  test "episode origins are backfilled from retained admitted inputs and refuse rollback only once corrected or claimed" do
+    # Existing episodes keep their destination as home. Their admitted inputs
+    # already carried the input's own destination inside the immutable event;
+    # the backfill projects that without inventing native provenance.
+    repo = start_migration_repo!()
+    prefix = "episode_origins_upgrade_#{System.unique_integer([:positive])}"
+    SQL.query!(repo, "CREATE SCHEMA #{prefix}", [])
+
+    try do
+      Ecto.Migrator.run(repo, @migrations_path, :up,
+        to: @work_custody_version,
+        prefix: prefix,
+        log: false
+      )
+
+      ids = insert_stage3_rows!(repo, prefix)
+
+      Ecto.Migrator.run(repo, @migrations_path, :up,
+        to: @default_channel_configurations_version,
+        prefix: prefix,
+        log: false
+      )
+
+      insert_admitted_input_events!(repo, prefix, ids.episode_id)
+
+      assert Ecto.Migrator.run(repo, @migrations_path, :up,
+               to: @episode_origins_version,
+               prefix: prefix,
+               log: false
+             ) == [@episode_origins_version]
+
+      assert %{rows: rows} =
+               SQL.query!(
+                 repo,
+                 """
+                 SELECT input_ref, sequence, native_input_id, revision, source_kind, source_item_ref,
+                        actor_ref, transport, conversation_ref, thread_ref, origin_kind, root_ref, effective
+                 FROM #{prefix}.episode_input_origins
+                 WHERE episode_id = $1::text::uuid
+                 ORDER BY sequence
+                 """,
+                 [ids.episode_id]
+               )
+
+      assert rows == [
+               [
+                 "admit_input:root",
+                 1,
+                 "slack-message:root",
+                 1,
+                 "slack",
+                 "1710000000.000100",
+                 "slack:app:B1",
+                 "slack",
+                 "slack:T1:CDEVOPS",
+                 "1710000000.000100",
+                 "channel_root",
+                 "1710000000.000100",
+                 true
+               ],
+               [
+                 "admit_input:reply",
+                 2,
+                 "slack-message:reply",
+                 1,
+                 "slack",
+                 "1710000005.000200",
+                 "slack:user:U1",
+                 "slack",
+                 "slack:T1:CALERTS",
+                 "1710000001.000100",
+                 "thread_reply",
+                 "1710000001.000100",
+                 true
+               ],
+               [
+                 "admit_input:task",
+                 3,
+                 "task-confirmation:record",
+                 1,
+                 nil,
+                 nil,
+                 "slack:user:U1",
+                 "slack",
+                 "slack:T1:CDEVOPS",
+                 "1710000000.000100",
+                 "conversation",
+                 nil,
+                 true
+               ]
+             ]
+
+      assert Ecto.Migrator.run(repo, @migrations_path, :up, all: true, prefix: prefix, log: false) ==
+               [@routing_digests_version]
+
+      assert table_exists?(repo, prefix, "episode_routing_digests")
+
+      # The derived digest carries no evidence of its own, so it rolls back
+      # freely; the projections that record decisions do not.
+      assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 1, prefix: prefix, log: false) ==
+               [@routing_digests_version]
+
+      refute table_exists?(repo, prefix, "episode_routing_digests")
+
+      assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 1, prefix: prefix, log: false) ==
+               [@episode_origins_version]
+
+      refute table_exists?(repo, prefix, "episode_input_origins")
+      refute table_exists?(repo, prefix, "episode_correlation_claims")
+
+      assert Ecto.Migrator.run(repo, @migrations_path, :up,
+               to: @episode_origins_version,
+               prefix: prefix,
+               log: false
+             ) == [@episode_origins_version]
+
+      SQL.query!(
+        repo,
+        """
+        INSERT INTO #{prefix}.episode_correlation_claims (
+          id, episode_id, input_ref, scope_ref, namespace, occurrence_ref, established_at,
+          inserted_at, updated_at
+        ) VALUES (
+          gen_random_uuid(), $1::text::uuid, 'admit_input:root', 'slack:T1', 'slack:app:B1',
+          'run-1', clock_timestamp(), clock_timestamp(), clock_timestamp()
+        )
+        """,
+        [ids.episode_id]
+      )
+
+      assert_raise Postgrex.Error, ~r/correlation claims have data/, fn ->
+        Ecto.Migrator.run(repo, @migrations_path, :down, step: 1, prefix: prefix, log: false)
+      end
+
+      SQL.query!(repo, "DELETE FROM #{prefix}.episode_correlation_claims", [])
+
+      SQL.query!(
+        repo,
+        "UPDATE #{prefix}.episode_input_origins SET effective = false, correction_ref = 'correction:1' WHERE input_ref = 'admit_input:reply'",
+        []
+      )
+
+      assert_raise Postgrex.Error,
+                   ~r/association corrections or correlation claims have data/,
+                   fn ->
+                     Ecto.Migrator.run(repo, @migrations_path, :down,
+                       step: 1,
+                       prefix: prefix,
+                       log: false
+                     )
+                   end
     after
       SQL.query!(repo, "DROP SCHEMA IF EXISTS #{prefix} CASCADE", [])
     end
@@ -2499,6 +2674,91 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
     )
 
     %{episode_id: episode_id, session_id: session_id, turn_id: turn_id, ingress_id: ingress_id}
+  end
+
+  defp insert_admitted_input_events!(repo, prefix, episode_id) do
+    root =
+      admitted_event_document(
+        "slack-message:root",
+        "slack:app:B1",
+        %{
+          "actor" => %{"kind" => "app", "ref" => "B1"},
+          "content" => %{"text" => "Database is unavailable"},
+          "destination" => %{
+            "conversation_ref" => "slack:T1:CDEVOPS",
+            "thread_ref" => "1710000000.000100",
+            "transport" => "slack"
+          },
+          "event_kind" => "message",
+          "source" => %{"kind" => "slack", "ref" => "T1"},
+          "source_item_ref" => "1710000000.000100"
+        }
+      )
+
+    reply =
+      admitted_event_document(
+        "slack-message:reply",
+        "slack:user:U1",
+        %{
+          "actor" => %{"kind" => "user", "ref" => "U1"},
+          "content" => %{"text" => "Replica recovered"},
+          "destination" => %{
+            "conversation_ref" => "slack:T1:CALERTS",
+            "thread_ref" => "1710000001.000100",
+            "transport" => "slack"
+          },
+          "event_kind" => "message",
+          "source" => %{"kind" => "slack", "ref" => "T1"},
+          "source_item_ref" => "1710000005.000200"
+        }
+      )
+
+    task =
+      admitted_event_document("task-confirmation:record", "slack:user:U1", %{
+        "confirmed_by" => "slack:user:U1",
+        "record_ref" => "record",
+        "task" => %{"objective" => "Rotate the credentials"}
+      })
+
+    for {dedupe_key, sequence, document} <- [
+          {"admit_input:root", 1, root},
+          {"admit_input:reply", 2, reply},
+          {"admit_input:task", 3, task}
+        ] do
+      SQL.query!(
+        repo,
+        """
+        INSERT INTO #{prefix}.episode_kernel_events (
+          id, episode_id, sequence, kind, dedupe_key, fingerprint, payload, occurred_at, inserted_at
+        ) VALUES (
+          gen_random_uuid(), $1::text::uuid, $2, 'input_admitted', $3, repeat('c', 64), $4,
+          clock_timestamp(), clock_timestamp()
+        )
+        """,
+        [episode_id, sequence, dedupe_key, Jason.encode!(document)]
+      )
+    end
+  end
+
+  defp admitted_event_document(native_input_id, actor_ref, payload) do
+    %{
+      "actor_ref" => actor_ref,
+      "destination" => %{
+        "conversation_ref" => "slack:T1:CDEVOPS",
+        "thread_ref" => "1710000000.000100",
+        "transport" => "slack"
+      },
+      "episode_id" => "00000000-0000-0000-0000-000000000001",
+      "episode_key" => "episode:stage3",
+      "execution_mode" => "live",
+      "kind" => "admit_input",
+      "linked_episode_id" => nil,
+      "native_input_id" => native_input_id,
+      "occurred_at" => "2026-09-11T08:00:00.000000Z",
+      "payload" => payload,
+      "revision" => 1,
+      "turn_ref" => "turn:stage3"
+    }
   end
 
   defp assert_upgraded_rows!(repo, prefix, ids) do

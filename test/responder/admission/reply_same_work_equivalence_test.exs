@@ -78,13 +78,22 @@ defmodule Responder.Admission.ReplySameWorkEquivalenceTest do
     }
 
     candidate =
-      Candidate.new(
-        seed,
-        %{first: endpoint, latest: endpoint},
-        current_input.destination.thread_ref,
-        now,
-        fixture["continuation_window_seconds"]
-      )
+      Candidate.new(%{
+        allowed_relations:
+          Candidate.allowed_relations(seed, %{
+            continuation_window: fixture["continuation_window_seconds"],
+            input_repository: nil,
+            now: now,
+            pinned_repository: nil,
+            source_owner: false
+          }),
+        digest: nil,
+        endpoints: %{first: endpoint, latest: endpoint},
+        episode: seed,
+        match: %{},
+        same_thread: seed.destination_thread_ref == current_input.destination.thread_ref,
+        source_owner: false
+      })
 
     context = %Context{
       active_episode_fingerprint: Responder.CanonicalJSON.digest([]),

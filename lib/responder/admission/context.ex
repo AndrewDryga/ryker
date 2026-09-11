@@ -24,6 +24,9 @@ defmodule Responder.Admission.Context do
                 source_dependencies: nil,
                 slack_addressing: nil,
                 custom_instructions: nil,
+                conversation_context: nil,
+                context_manifest: nil,
+                routing_receipt: nil,
                 fitted?: false
               ]
 
@@ -44,6 +47,7 @@ defmodule Responder.Admission.Context do
       "execution_mode" => Atom.to_string(context.input_entry.execution_mode),
       "input" => Input.model_document(context.input)
     }
+    |> put_conversation_context(context.conversation_context, context.context_manifest)
     |> put_observations(context.observations)
     |> put_knowledge(context.knowledge)
     |> put_slack_addressing(context.slack_addressing)
@@ -61,6 +65,8 @@ defmodule Responder.Admission.Context do
       "source_dependencies" => context.source_dependencies,
       "knowledge_omissions" => context.knowledge_omissions
     }
+    |> put_conversation_context(context.conversation_context, context.context_manifest)
+    |> put_routing_receipt(context.routing_receipt)
     |> put_observations(context.observations)
     |> put_knowledge(context.knowledge)
     |> put_slack_addressing(context.slack_addressing)
@@ -93,6 +99,9 @@ defmodule Responder.Admission.Context do
                  Map.drop(snapshot, [
                    "conversation_observations",
                    "conversation_knowledge",
+                   "conversation_context",
+                   "context_manifest",
+                   "routing_receipt",
                    "source_dependencies",
                    "knowledge_omissions",
                    "slack_addressing",
@@ -113,6 +122,9 @@ defmodule Responder.Admission.Context do
          {:ok, built_at} <- parse_datetime(snapshot["built_at"]),
          true <- valid_fingerprint?(snapshot["active_episode_fingerprint"]),
          true <- valid_count?(snapshot["conversation_episode_count"]),
+         {:ok, conversation_context} <- restore_document(snapshot, "conversation_context"),
+         {:ok, context_manifest} <- restore_document(snapshot, "context_manifest"),
+         {:ok, routing_receipt} <- restore_document(snapshot, "routing_receipt"),
          {:ok, candidates} <- restore_candidates(snapshot["candidates"], episodes) do
       {:ok,
        %__MODULE__{
@@ -125,6 +137,9 @@ defmodule Responder.Admission.Context do
          fitted?: true,
          slack_addressing: slack_addressing,
          custom_instructions: custom_instructions,
+         conversation_context: conversation_context,
+         context_manifest: context_manifest,
+         routing_receipt: routing_receipt,
          observations: observations,
          knowledge: knowledge,
          knowledge_omissions: omissions,
@@ -138,6 +153,27 @@ defmodule Responder.Admission.Context do
 
   def restore(_snapshot, _input, _entry, _episodes),
     do: {:error, {:invalid_admission_context_snapshot, :document}}
+
+  # The frozen bundle and its manifest travel together: a receipt that claimed
+  # coverage the model never received would be worse than no receipt at all.
+  defp put_conversation_context(document, nil, _manifest), do: document
+
+  defp put_conversation_context(document, bundle, manifest) do
+    document
+    |> Map.put("conversation_context", bundle)
+    |> Map.put("context_manifest", manifest)
+  end
+
+  defp put_routing_receipt(document, nil), do: document
+  defp put_routing_receipt(document, receipt), do: Map.put(document, "routing_receipt", receipt)
+
+  defp restore_document(snapshot, key) do
+    case Map.fetch(snapshot, key) do
+      :error -> {:ok, nil}
+      {:ok, %{} = document} -> {:ok, document}
+      {:ok, _invalid} -> {:error, {:invalid_admission_context_snapshot, String.to_atom(key)}}
+    end
+  end
 
   defp put_slack_addressing(document, nil), do: document
 
