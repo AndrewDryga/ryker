@@ -73,7 +73,8 @@ defmodule Responder.ControlPlane.RequestPage do
                 RequestContextHTML.briefing(
                   @view.selected.sections,
                   @view.kind,
-                  "selected-#{@view.selected.id}"
+                  "selected-#{@view.selected.id}",
+                  @view.selected[:counts] || %{}
                 )
               )}
             </div>

@@ -242,7 +242,7 @@ defmodule Responder.Retention.Policy do
       table: "episode_work_turns",
       class: :episode_history,
       why:
-        "logical turn history whose large transport bodies expire earlier; the recorded input selection is content-free identity and survives body pruning"
+        "logical turn history whose large transport bodies expire earlier; the recorded input selection and its selection ledger are content-free counts and identities that survive body pruning"
     },
     %{
       table: "execution_usage",

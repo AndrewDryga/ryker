@@ -78,6 +78,20 @@ facts and say a newer revision won. No source acknowledgement log exists, so
 that row is always "Not recorded". The standalone input view at
 `/timeline/ingress-input:<id>` carries the same four Getting ready cards.
 
+Each briefing card's counted rows say what they counted over. Included comes
+from the frozen context, which is the exact set that reached the model, so a
+stale or wrong ledger can never inflate it. Eligible and the two kinds of
+omission come from `episode_work_turns.selection_ledger`, written beside the
+frozen submission while the selection was being made: how many inputs were
+eligible, how many fell outside the bounded history window, and how many were
+cut to fit. A turn frozen before that column renders "selection not recorded"
+rather than a zero, and a same-session update counts earlier messages as "not
+resent", never as omitted. Routing rows read the frozen admission snapshot:
+"N checked · M offered" from its conversation episode count and candidate list,
+with recorded knowledge omissions; without a retained snapshot the row says the
+search scope was not recorded. Offered is not chosen — the model's choice is a
+later fact on its own card.
+
 The work phase opens with a **Work setup** card per Work turn (and one on the
 pinned session while no turn has claimed it), before the Work briefing. It
 distinguishes the pinned setup from the session, worker and workspace the turn

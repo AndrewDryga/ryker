@@ -39,11 +39,37 @@ defmodule Responder.Work.SubmissionBuilder do
   @state_tool_capabilities [:emisar_approvals, :event_waits, :publication, :schedules]
   @truncation_marker "...<truncated>..."
 
+  @doc """
+  The frozen submission for this claim.
+
+  Callers that only need the exact bytes to submit use this; `prepare/2`
+  additionally returns the selection ledger, which is evidence about the
+  selection rather than part of it.
+  """
   @spec build(%{episode: Episode.t(), session: Session.t(), turn: Turn.t()}, keyword()) ::
           {:ok, Submission.t()} | {:error, term()}
-  def build(claim, options \\ [])
+  def build(claim, options \\ []) do
+    case prepare(claim, options) do
+      {:ok, %{submission: submission}} -> {:ok, submission}
+      {:error, _reason} = error -> error
+    end
+  end
 
-  def build(
+  @doc """
+  The frozen submission plus the ledger of what this turn actually selected.
+
+  The context keeps the items that reached the model and one omitted total. It
+  cannot say how many inputs were eligible, how many fell outside the history
+  window, and how many were cut to fit; those are measured here, while the
+  selection is being made, and frozen beside the submission. The ledger never
+  enters the submission, so the prompt bytes and their fingerprint are
+  identical with or without it.
+  """
+  @spec prepare(%{episode: Episode.t(), session: Session.t(), turn: Turn.t()}, keyword()) ::
+          {:ok, %{submission: Submission.t(), ledger: map()}} | {:error, term()}
+  def prepare(claim, options \\ [])
+
+  def prepare(
         %{episode: %Episode{} = episode, session: %Session{} = session, turn: %Turn{} = turn},
         options
       )
@@ -54,19 +80,97 @@ defmodule Responder.Work.SubmissionBuilder do
          previous <- previous_turn(episode.id, turn.id),
          records <- Records.model_records(episode, session.repository_ref),
          {:ok, metadata} <- context_metadata(episode, options),
-         {:ok, context} <-
-           submission_context(episode, session, snapshot, records, previous, metadata) do
-      Submission.new(
-        context,
-        Prompt.build(context),
-        Final.json_schema(),
-        "work-final-v1",
-        model_artifact_refs(context)
-      )
+         {:ok, context, eligible} <-
+           submission_context(episode, session, snapshot, records, previous, metadata),
+         {:ok, submission} <-
+           Submission.new(
+             context,
+             Prompt.build(context),
+             Final.json_schema(),
+             "work-final-v1",
+             model_artifact_refs(context)
+           ) do
+      {:ok, %{submission: submission, ledger: ledger(context, snapshot, eligible)}}
     end
   end
 
-  def build(_claim, _options), do: {:error, {:invalid_work_submission_builder, :claim}}
+  def prepare(_claim, _options), do: {:error, {:invalid_work_submission_builder, :claim}}
+
+  # Every count carries the scope it was measured over. Eligible is every
+  # visible input for this episode; the window is the bounded set the builder
+  # offered itself; included is what survived fitting. Omitted is therefore
+  # two distinct facts -- outside the window, and cut to fit -- which one
+  # stored total could never separate.
+  defp ledger(%{"mode" => "full"} = context, snapshot, eligible) do
+    items = get_in(context, ["inputs", "items"]) || []
+    current = Enum.count(items, & &1["current"])
+    earlier = length(items) - current
+    offered = length(snapshot.active) + length(snapshot.historical)
+
+    %{
+      "version" => 1,
+      "mode" => "full",
+      "inputs" => %{
+        "eligible" => snapshot.total_count,
+        "current" => current,
+        "earlier_included" => earlier,
+        "omitted_window" => max(snapshot.total_count - offered, 0),
+        "omitted_fit" => max(offered - length(items), 0)
+      },
+      "limits" => limits()
+    }
+    |> Map.merge(optional_counts(context, eligible))
+  end
+
+  defp ledger(%{"mode" => "continuation"} = context, snapshot, eligible) do
+    items = get_in(context, ["current_inputs", "items"]) || []
+
+    %{
+      "version" => 1,
+      "mode" => "continuation",
+      "inputs" => %{
+        "current" => length(items),
+        # Earlier messages are not resent in a same-session update. They are not
+        # budget omissions and must never be counted as any kind of loss.
+        "earlier_not_resent" => max(snapshot.total_count - length(items), 0)
+      },
+      "limits" => limits()
+    }
+    |> Map.merge(optional_counts(context, eligible))
+  end
+
+  defp ledger(_context, _snapshot, _eligible), do: %{"version" => 1}
+
+  defp optional_counts(context, eligible) do
+    for {key, path} <- [
+          {"observations", ["operator_context", "continuity", "observations"]},
+          {"knowledge", ["operator_context", "continuity", "knowledge"]},
+          {"records", ["records"]},
+          {"related_outcomes", ["related_outcomes"]},
+          {"guidance", ["operator_context", "guidance"]},
+          {"memory", ["operator_context", "memory"]},
+          {"standing_assignments", ["operator_context", "standing_assignments"]}
+        ],
+        included = get_in(context, path),
+        is_list(included),
+        into: %{} do
+      counts = %{"included" => length(included)}
+
+      {key,
+       case Map.fetch(eligible, key) do
+         {:ok, offered} -> Map.put(counts, "eligible", offered)
+         :error -> counts
+       end}
+    end
+  end
+
+  defp limits do
+    %{
+      "max_inputs" => @maximum_inputs,
+      "context_bytes" => @maximum_context_bytes,
+      "input_content_bytes" => @input_content_bytes
+    }
+  end
 
   defp context_metadata(episode, options) do
     with {:ok, state_tools} <- state_tool_names(episode, options),
@@ -149,8 +253,17 @@ defmodule Responder.Work.SubmissionBuilder do
     end
   end
 
+  # Optional notes are dropped from the tail to fit. The count before the drop
+  # is the only place the eligible total exists, so it is measured here.
   defp fit_optional_observations(context) do
-    context |> fit_memory("observations") |> fit_memory("knowledge")
+    eligible =
+      for key <- ["observations", "knowledge"],
+          notes = get_in(context, ["operator_context", "continuity", key]),
+          is_list(notes),
+          into: %{},
+          do: {key, length(notes)}
+
+    {context |> fit_memory("observations") |> fit_memory("knowledge"), eligible}
   end
 
   defp fit_memory(context, key) do
@@ -228,14 +341,14 @@ defmodule Responder.Work.SubmissionBuilder do
         context
       end
 
-    context = context |> Map.merge(metadata) |> fit_optional_observations()
+    {context, eligible} = context |> Map.merge(metadata) |> fit_optional_observations()
     context_bytes = context |> CanonicalJSON.encode!() |> byte_size()
 
     artifact_count = context |> model_artifact_refs() |> length()
 
     cond do
       context_bytes <= @maximum_context_bytes and artifact_count <= 5 ->
-        {:ok, context}
+        {:ok, context, eligible}
 
       historical != [] ->
         fit_full_context(
@@ -283,11 +396,11 @@ defmodule Responder.Work.SubmissionBuilder do
       "repository_ref" => session.repository_ref
     }
 
-    context = context |> Map.merge(metadata) |> fit_optional_observations()
+    {context, eligible} = context |> Map.merge(metadata) |> fit_optional_observations()
     context_bytes = context |> CanonicalJSON.encode!() |> byte_size()
 
     if context_bytes <= @maximum_context_bytes,
-      do: {:ok, context},
+      do: {:ok, context, eligible},
       else: {:error, {:work_active_input_bytes_overflow, context_bytes, @maximum_context_bytes}}
   end
 

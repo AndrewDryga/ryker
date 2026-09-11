@@ -76,27 +76,41 @@ defmodule Responder.Work.TurnChangeset do
     |> work_constraints()
   end
 
-  @spec freeze(Turn.t(), Responder.Work.Submission.t(), String.t(), [String.t()] | nil) ::
+  @spec freeze(Turn.t(), Responder.Work.Submission.t(), String.t(), keyword()) ::
           Ecto.Changeset.t()
-  def freeze(%Turn{} = turn, submission, fingerprint, selected_input_refs \\ nil) do
-    # The selected inputs are recorded beside the submission, never inside it.
-    # A turn that has no recorded selection stays null rather than claiming the
-    # empty list, because "nobody recorded which inputs this turn read" and
-    # "this turn read no inputs" are different facts about the same row.
+  def freeze(%Turn{} = turn, submission, fingerprint, evidence \\ []) do
+    # The selected inputs and the selection ledger are recorded beside the
+    # submission, never inside it. A turn with no recorded selection stays null
+    # rather than claiming the empty list, because "nobody recorded which
+    # inputs this turn read" and "this turn read no inputs" are different facts
+    # about the same row. Both are observation: an unusable value is dropped so
+    # that losing a diagnosis never costs the answer the operator asked for.
     turn
     |> cast(
       %{
         submission: submission,
         submission_fingerprint: fingerprint,
-        selected_input_refs: normalize_refs(selected_input_refs)
+        selected_input_refs: normalize_refs(Keyword.get(evidence, :selected_input_refs)),
+        selection_ledger: normalize_ledger(Keyword.get(evidence, :selection_ledger))
       },
-      [:submission, :submission_fingerprint, :selected_input_refs]
+      [:submission, :submission_fingerprint, :selected_input_refs, :selection_ledger]
     )
     |> validate_required([:submission, :submission_fingerprint])
     |> validate_length(:submission_fingerprint, is: 64)
     |> validate_selected_input_refs()
     |> work_constraints()
   end
+
+  @ledger_bytes 4_096
+
+  defp normalize_ledger(%{} = ledger) when map_size(ledger) > 0 do
+    case Responder.CanonicalJSON.validate(ledger, max_bytes: @ledger_bytes) do
+      :ok -> ledger
+      {:error, _reason} -> nil
+    end
+  end
+
+  defp normalize_ledger(_ledger), do: nil
 
   defp normalize_refs(refs) when is_list(refs) do
     case Enum.uniq(Enum.filter(refs, &(is_binary(&1) and &1 != ""))) do
