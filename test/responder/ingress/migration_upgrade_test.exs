@@ -60,6 +60,7 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
   @import_receipts_version 20_260_911_001_603
   @learning_executions_version 20_260_911_001_500
   @coop_session_evidence_version 20_260_911_001_900
+  @repository_source_version 20_260_911_001_700
   # Cross-conversation routing migrations stay named as their own group so the
   # ladder can be reconciled with sibling work.
   @routing_versions [
@@ -89,7 +90,8 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
     @inherited_participation_version,
     @work_placement_version,
     @import_receipts_version,
-    @coop_session_evidence_version
+    @coop_session_evidence_version,
+    @repository_source_version
   ]
   @memory_versions Enum.to_list(20_260_908_000_100..20_260_908_001_100//100) ++
                      [@bounded_sources_version]
@@ -1599,6 +1601,15 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
                  []
                )
 
+      # Sessions pinned before source selection existed are already bound. The
+      # upgrade must not relabel them as `default` and invite a re-resolution.
+      assert %{rows: [[0]]} =
+               SQL.query!(
+                 repo,
+                 "SELECT count(*) FROM #{prefix}.episode_work_sessions WHERE repository_source IS NOT NULL",
+                 []
+               )
+
       # Adding completion custody must not fabricate a receipt for historical work.
       assert %{rows: [[0]]} =
                SQL.query!(
@@ -1616,11 +1627,12 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
       # projections, the learning execution kind and the recorded worker session
       # evidence and the empty settings tables are reversible on their own.
       assert Ecto.Migrator.run(repo, @migrations_path, :down,
-               step: 13 + length(@routing_versions),
+               step: 14 + length(@routing_versions),
                prefix: prefix,
                log: false
              ) ==
                [
+                 @repository_source_version,
                  @coop_session_evidence_version,
                  @import_receipts_version,
                  @work_placement_version,
@@ -1772,6 +1784,14 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
                [@selection_ledger_version]
 
       refute column_exists?(repo, prefix, "episode_work_turns", "selection_ledger")
+
+      # The repository source column is the newest and plainly reversible.
+      assert column_exists?(repo, prefix, "episode_work_sessions", "repository_source")
+
+      assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 1, prefix: prefix, log: false) ==
+               [@repository_source_version]
+
+      refute column_exists?(repo, prefix, "episode_work_sessions", "repository_source")
 
       configuration_id = insert_default_channel_configuration!(repo, prefix)
 

@@ -914,8 +914,6 @@ defmodule Responder.Admission do
      {:error, {:admission_rejected, :occurrence_claimed, owner_episode_id: owner.episode_id}}}
   end
 
-  defp maybe_pin_episode(nil, _work_policy), do: :ok
-  defp maybe_pin_episode(_episode, nil), do: :ok
   defp maybe_pin_episode(nil, _work_policy, _decision), do: :ok
   defp maybe_pin_episode(_episode, nil, _decision), do: :ok
 

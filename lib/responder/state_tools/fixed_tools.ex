@@ -23,7 +23,7 @@ defmodule Responder.StateTools.FixedTools do
     Records
   }
 
-  alias Responder.Work.{Custody, Final, FinalPreflight, Validator}
+  alias Responder.Work.{Custody, Final, FinalPreflight, RepositorySource, Validator}
 
   @contract_version "responder-state:v1"
   @confirmation_tools ~w(propose_automation propose_memory request_task)
@@ -253,6 +253,8 @@ defmodule Responder.StateTools.FixedTools do
     arguments = Map.put(arguments, "kind", kind)
 
     with :ok <- task_repository(kind, arguments["repository"]),
+         {:ok, repository_source} <-
+           task_repository_source(arguments["repository"], arguments["repository_source"]),
          {:ok, instruction_ref} <- task_instruction_ref(arguments, binding) do
       payload = %{
         "authority_limits" => arguments["authority_limits"],
@@ -260,6 +262,7 @@ defmodule Responder.StateTools.FixedTools do
         "kind" => kind,
         "prompt" => task_prompt(arguments, instruction_ref),
         "repository" => arguments["repository"],
+        "repository_source" => repository_source,
         "source_refs" => arguments["source_refs"],
         "success_checks" => arguments["success_checks"],
         "title" => arguments["title"]
@@ -454,6 +457,19 @@ defmodule Responder.StateTools.FixedTools do
   defp task_repository("engineering", nil), do: {:error, :task_repository_required}
   defp task_repository("incident", value) when is_nil(value) or is_binary(value), do: :ok
   defp task_repository(_kind, _repository), do: {:error, {:invalid_state_record, :repository}}
+
+  # The selector names a source inside the proposed task's own repository. It is
+  # carried into the new linked session after confirmation; it never rebinds the
+  # current workspace and never turns a read-only companion into a writable one.
+  defp task_repository_source(_repository, nil), do: {:ok, nil}
+  defp task_repository_source(nil, _source), do: {:error, :task_repository_source_unscoped}
+
+  defp task_repository_source(_repository, source) do
+    case RepositorySource.parse(source) do
+      {:ok, source} -> {:ok, source}
+      {:error, _reason} -> {:error, :invalid_arguments}
+    end
+  end
 
   defp prepare_automation_record({proposal, index}, records, binding) do
     case automation_record(binding, proposal, index) do
@@ -980,6 +996,10 @@ defmodule Responder.StateTools.FixedTools do
     do:
       "repository_required: engineering tasks require a non-null configured target. Use work.repository_ref or the relevant supplied work.workspace.companions[].name. This is an inert proposal, not execution. Never substitute generic primary, an unrelated companion, or an unoffered path/GitHub slug. Ask for configuration only if no matching supplied target exists."
 
+  defp error_code(:task_repository_source_unscoped),
+    do:
+      "invalid_arguments: repository_source selects a branch, pull request or commit inside the task's own configured repository, so it requires a non-null repository. It never changes this session's workspace."
+
   defp error_code(:invalid_repository_reference),
     do:
       "invalid_repository_reference: use a configured repository reference supported by this task interface: 1-256 letters, digits, underscores, dots, colons, or hyphens. A GitHub slug or checkout path is not automatically a configured reference."
@@ -1237,6 +1257,12 @@ defmodule Responder.StateTools.FixedTools do
           |> Map.put(
             "description",
             "Configured target: required (non-null) for engineering; null is allowed for incident. Use work.repository_ref or the relevant supplied work.workspace.companions[].name. Never substitute generic primary, an unrelated companion, or an unoffered path/GitHub slug. Ask for configuration only if no matching supplied target exists."
+          ),
+        "repository_source" =>
+          nullable(RepositorySource.json_schema())
+          |> Map.put(
+            "description",
+            ~s(Optional source inside the task's repository that the new linked work starts from: {"kind":"default"}, {"kind":"branch","name":"<branch>"}, {"kind":"pull_request","number":<n>} or {"kind":"commit","sha":"<full lowercase object id>"}. Null means the configured default branch. It requires a non-null repository, never changes this session's workspace, and never authorizes pushing to the selected branch or pull request.)
           ),
         "source_refs" => array(reference(256), 0, 20),
         "success_checks" => array(text(1_000), 1, 20),

@@ -62,6 +62,7 @@ defmodule Responder.TestSupport.FakeWorkCoopAPI do
           "workspace_task" => Keyword.get(options, :workspace_task),
           "repository_freshness" => freshness_receipts(options),
           "repository_freshness_status" => "recorded",
+          "repository_source" => default_source_binding(),
           "revision" => 1,
           "state" => "open",
           "target" => Keyword.get(options, :session_target, "codex:gpt-5.6-sol/high@work")
@@ -76,6 +77,24 @@ defmodule Responder.TestSupport.FakeWorkCoopAPI do
         validations: []
       }
     end)
+  end
+
+  # The fake policy resolves its own configured default, as every new
+  # repository-backed session does when nobody selected another source.
+  defp default_source_binding do
+    %{
+      "admitted_tree" => "3f0b9f1d5a7e2c4b6d8a0c2e4f6a8b0c2d4e6f80",
+      "base_commit" => "5d1fa43d2efe46e8409dde0e93e79af93fb6622f",
+      "default_commit" => "5d1fa43d2efe46e8409dde0e93e79af93fb6622f",
+      "default_ref" => "refs/heads/main",
+      "kind" => "default",
+      "remote_identity" => "local",
+      "requested" => %{"kind" => "default"},
+      "resolved_at" => "2026-09-04T08:00:00Z",
+      "selected_commit" => "5d1fa43d2efe46e8409dde0e93e79af93fb6622f",
+      "selected_ref" => "refs/heads/main",
+      "version" => 1
+    }
   end
 
   defp freshness_receipts(options) do
