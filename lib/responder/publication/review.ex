@@ -82,6 +82,24 @@ defmodule Responder.Publication.Review do
   @spec draft_shareable?(term()) :: boolean()
   def draft_shareable?(document), do: draft_verdict(document)["shareable"]
 
+  @doc """
+  How the trusted gate failed, in the operator's words, or `nil` when it did not.
+
+  A gate that ran and failed is deliberately not an incomplete check: it has a
+  result, and `incomplete_checks/1` answers why a required check has none. Both
+  still have to fail the stage that reports whether the change was checked, so
+  this is the other half, named apart rather than folded in.
+  """
+  @spec gate_failure(term()) :: String.t() | nil
+  def gate_failure(%{"gate" => "failed"} = document) do
+    case document["gate_error"] do
+      error when is_binary(error) -> presence(String.trim(error)) || gate_reason("failed")
+      _absent -> gate_reason("failed")
+    end
+  end
+
+  def gate_failure(_document), do: nil
+
   defp draft_reasons(document) do
     blocking =
       [
@@ -150,6 +168,9 @@ defmodule Responder.Publication.Review do
   defp incomplete_check_label("startup_error"), do: ["The trusted gate could not start."]
   defp incomplete_check_label("not_run"), do: ["The trusted gate did not run."]
   defp incomplete_check_label("none"), do: ["This workspace has no trusted gate configured."]
+
+  defp presence(""), do: nil
+  defp presence(value), do: value
 
   defp fields(document) do
     keys = Map.keys(document)

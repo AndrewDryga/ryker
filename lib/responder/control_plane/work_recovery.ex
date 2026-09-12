@@ -8,6 +8,11 @@ defmodule Responder.ControlPlane.WorkRecovery do
     "{:invalid_work_executor, :workspace_checkpoint_api}"
   ]
 
+  # The saved error keeps a Coop refusal as the third element of an inspected
+  # tuple, wherever the retry ladder nested it. An unterminated literal is a
+  # truncated detail, and a half sentence is not a cause.
+  @coop_refusal ~r/:coop_operation_failed, "(?:[^"\\]|\\.)*", "((?:[^"\\]|\\.)*)"/
+
   def project(
         %Turn{} = turn,
         workspace_recovery,
@@ -176,9 +181,48 @@ defmodule Responder.ControlPlane.WorkRecovery do
          "Restore the worker connection and inspect the last confirmed step before retrying."}
 
       _ ->
-        {"The task stopped before it could finish",
-         "The saved error does not establish a specific cause. The worker’s final response, if available below, may describe a separate task blocker.",
+        {cause, step} = execution_failure(turn.last_error_detail || "")
+        {"The task stopped before it could finish", cause, step}
+    end
+  end
+
+  # The saved error usually names the blocker outright, and the code alone never
+  # can. Reading only the code answered "no specific cause" to a refusal the host
+  # was holding word for word, leaving the operator with nothing to do. Say the
+  # cause, and never repeat the enum, the session identifier or the raw tuple.
+  defp execution_failure(detail) do
+    cond do
+      refusal = coop_refusal(detail) ->
+        {"The worker rejected the operation: " <> refusal,
+         "Correct the condition the worker named, then retry this task."}
+
+      String.contains?(detail, "coop_worker_capacity_unavailable") ->
+        {"No eligible worker with available capacity was found, so this task was never placed on one.",
+         "Make a worker for this repository available again — enrolled, reporting and not draining — then retry this task."}
+
+      String.contains?(detail, "work_remote_operation_in_flight") ->
+        {"The host still treats an earlier worker operation for this session as unresolved, so it will not start another one.",
+         "Confirm on the worker whether that operation finished and let the host reconcile it before retrying."}
+
+      true ->
+        {"The saved error does not establish a specific cause. The worker’s final response, if available below, may describe a separate task blocker.",
          "Inspect the saved response and technical details. Correct the underlying problem and preserve unfinished changes before retrying."}
+    end
+  end
+
+  # The refusal is a provider's own sentence inside an inspected tuple, so it is
+  # unescaped back out of that literal, then redacted and bounded like any other
+  # untrusted text the page displays.
+  defp coop_refusal(detail) do
+    case Regex.run(@coop_refusal, detail, capture: :all_but_first) do
+      [escaped] ->
+        escaped
+        |> Macro.unescape_string()
+        |> InspectionRedactor.artifact(max_bytes: 500)
+        |> Map.fetch!(:text)
+
+      nil ->
+        nil
     end
   end
 

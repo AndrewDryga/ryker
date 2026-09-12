@@ -231,6 +231,67 @@ defmodule Responder.ControlPlane.WorkRecoveryTest do
     assert action < report
   end
 
+  # Found 2026-09-12 — the card told the operator no specific cause existed
+  # while the host held the exact refusal, and the operator had no next move.
+  # All three details are harvested verbatim from production turns blocked that
+  # night; each one is the sentence the operator needed and did not get.
+  test "a blocked task explains itself with the cause its saved error already names" do
+    refusal =
+      blocked(
+        ~S|work_retry_exhausted: {:work_retry_exhausted, {:coop_operation_failed, "invalid_request", "invalid_request: policy \"emisar-standard-v1\" has no operator-configured remote, so only its default source can be selected"}}|
+      )
+
+    assert refusal.headline == "The task stopped before it could finish"
+
+    assert refusal.cause =~
+             ~S|policy "emisar-standard-v1" has no operator-configured remote|
+
+    refute refusal.cause =~ "does not establish a specific cause"
+    assert refusal.next_step =~ "retry"
+    # The enum and the raw tuple are the host's bookkeeping, never the answer.
+    refute refusal.cause =~ "coop_operation_failed"
+    refute refusal.cause =~ "work_retry_exhausted"
+
+    capacity =
+      blocked(
+        ~S|coop_worker_capacity_unavailable: {:coop_worker_capacity_unavailable, "8faf8d81-a6b4-42a5-91e6-2bf27e82a6c3"}|
+      )
+
+    assert capacity.cause =~ "No eligible worker"
+    assert capacity.next_step =~ "worker"
+    # A session identifier is not something an operator can act on, and the
+    # card design forbids printing one at them.
+    refute inspect(capacity) =~ "8faf8d81"
+    refute capacity.cause =~ "coop_worker_capacity_unavailable"
+
+    in_flight = blocked("work_remote_operation_in_flight: :work_remote_operation_in_flight")
+    assert in_flight.cause =~ "unresolved"
+    assert in_flight.next_step =~ "before retrying"
+    refute in_flight.cause =~ "work_remote_operation_in_flight"
+  end
+
+  test "a refusal the host repeats is bounded, and one that names nothing stays generic" do
+    flood =
+      blocked(
+        ~s|work_execution_blocked: {:coop_operation_failed, "invalid_request", "#{String.duplicate("a", 4_000)}"}|
+      )
+
+    # The refusal is a provider's text, so it is quoted under a bound.
+    assert flood.cause =~ "aaaa"
+    assert byte_size(flood.cause) <= 600
+
+    silent = blocked("work_execution_failed: {:work_execution_failed, :unknown}")
+    assert silent.cause =~ "does not establish a specific cause"
+    assert silent.next_step =~ "Inspect the saved response"
+  end
+
+  defp blocked(detail) do
+    WorkRecovery.project(
+      %{incident_turn() | last_error_code: "work_execution_blocked", last_error_detail: detail},
+      :ok
+    )
+  end
+
   defp incident_turn do
     source = "testdata/work/hosted-runner-waiting.json" |> File.read!() |> Jason.decode!()
 
