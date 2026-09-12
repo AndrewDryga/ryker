@@ -417,6 +417,69 @@ defmodule Responder.Work.TaskStagesTest do
              "#91 · earlier snapshot, newer work not saved"
   end
 
+  test "a task whose work never started says so in words instead of its saved error term" do
+    # Found live 2026-09-12 on episode e231a79d — the card rendered
+    # `{:work_retry_exhausted, {:coop_operation_failed, …}}` at the operator and
+    # told them to open the episode. The saved detail is an inspected internal
+    # term, so the row that owns the failure has to say what the host knows in
+    # its own words; the term itself is never an answer for a reader.
+    refused =
+      never_started(
+        ~S|work_retry_exhausted: {:work_retry_exhausted, {:coop_operation_failed, "invalid_request", "invalid_request: policy \"emisar-standard-v1\" has no operator-configured remote, so only its default source can be selected"}}|
+      )
+
+    assert row(refused, "workspace_setup")["state"] == "failed"
+    detail = row(refused, "workspace_setup")["detail"]
+
+    assert detail ==
+             ~S|work never started · The worker rejected the operation: invalid_request: policy "emisar-standard-v1" has no operator-configured remote, so only its default source can be selected|
+
+    # Nothing of the term travels: not the enum the ladder exhausted, not the
+    # operation code it nested, not tuple syntax, not the escaping it was
+    # inspected with.
+    refute detail =~ "work_retry_exhausted"
+    refute detail =~ "coop_operation_failed"
+    refute detail =~ "{:"
+    refute detail =~ ~S|\"|
+
+    # A saved error that names nothing the host can characterise still says the
+    # one thing it does know, and invents no cause.
+    silent = never_started("work_execution_failed: {:work_execution_failed, :unknown}")
+    assert row(silent, "workspace_setup")["detail"] == "work never started"
+
+    # The refusal is a provider's own sentence: untrusted text, bounded like
+    # every other detail this ledger carries.
+    flood =
+      never_started(
+        ~s|work_retry_exhausted: {:coop_operation_failed, "invalid_request", "#{String.duplicate("a", 4_000)}"}|
+      )
+
+    flooded = row(flood, "workspace_setup")["detail"]
+    assert String.length(flooded) == 200
+
+    assert String.starts_with?(
+             flooded,
+             "work never started · The worker rejected the operation: aaaa"
+           )
+
+    refute flooded =~ "{:"
+
+    # A turn that did reach a worker failed somewhere else; this stage completed
+    # and keeps saying so.
+    started =
+      facts(
+        turn: %Turn{
+          status: :blocked,
+          coop_turn_id: "turn-1",
+          last_error_detail: "The worker lost its workspace."
+        },
+        plan: plan([])
+      )
+
+    assert row(TaskStages.build(started), "workspace_setup")["state"] == "completed"
+    assert row(TaskStages.build(started), "workspace_setup")["detail"] == nil
+  end
+
   test "a draft whose gate never ran leaves the check stage open and the merge untouched" do
     # The check stage read ✓ and Review and merge read "← 🙋 your turn" for a
     # change no required check had run against, because "a publication exists"
@@ -524,6 +587,18 @@ defmodule Responder.Work.TaskStagesTest do
   end
 
   defp row(rows, stage), do: Enum.find(rows, &(&1["stage"] == stage))
+
+  # A turn the host blocked before any worker turn was bound: no session id, no
+  # coop turn, nothing but the saved error to say what happened.
+  defp never_started(detail) do
+    TaskStages.build(
+      facts(
+        session: %Session{coop_session_id: nil},
+        turn: %Turn{status: :blocked, coop_turn_id: nil, last_error_detail: detail},
+        plan: plan([])
+      )
+    )
+  end
 
   defp facts(overrides) do
     Map.merge(

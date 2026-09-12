@@ -15,7 +15,7 @@ defmodule Responder.Slack.TaskCardProjection do
   alias Responder.Repo
   alias Responder.Slack.TaskCard
   alias Responder.State.{DerivedContext, Record, Records}
-  alias Responder.Work.{Session, TaskStages, Turn}
+  alias Responder.Work.{FailureCause, Session, TaskStages, Turn}
 
   @ui_revision 6
   @publication_conflicts ~w(publication_branch_already_exists publication_branch_changed publication_existing_pull_request_changed publication_pull_request_mismatch)
@@ -265,8 +265,19 @@ defmodule Responder.Slack.TaskCardProjection do
   defp public_error(%Publication{last_error_code: code}, _turn, _hold) when is_binary(code),
     do: "Draft pull-request work needs operator attention. Open the episode for details."
 
-  defp public_error(_publication, %Turn{status: :blocked}, _hold),
-    do: "Task work is blocked and needs operator attention. Open the episode for details."
+  # The generic notice keeps untrusted error text out of Slack, and for a task
+  # that never started it was also everything the card ever said — above a
+  # Workspace setup row printing the saved term. When the host can characterise
+  # that same error, its own words are the only line an operator can act on; the
+  # term still never travels, and an error naming nothing keeps the notice.
+  # The cause ends in a worker's own sentence, which owes the host no full stop,
+  # so the step answering it starts its own line rather than running on.
+  defp public_error(_publication, %Turn{status: :blocked} = turn, _hold) do
+    case FailureCause.explain(turn.last_error_detail) do
+      %{cause: cause, next_step: next_step} -> compact(cause <> "\n" <> next_step, 2_000)
+      nil -> "Task work is blocked and needs operator attention. Open the episode for details."
+    end
+  end
 
   defp public_error(_publication, _turn, _hold), do: nil
 

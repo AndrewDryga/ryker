@@ -12,7 +12,7 @@ defmodule Responder.Work.TaskStages do
 
   alias Responder.Episodes.Episode
   alias Responder.Publication.{Followup, Publication, Review}
-  alias Responder.Work.{Session, Turn}
+  alias Responder.Work.{FailureCause, Session, Turn}
 
   @stages ~w(workspace_setup planning implementation self_review draft_pr ci review_and_merge)
   @terminal_goal_states ~w(completed excluded cancelled)
@@ -73,14 +73,25 @@ defmodule Responder.Work.TaskStages do
   defp workspace_setup(%{session: %Session{coop_session_id: id}}) when is_binary(id) and id != "",
     do: row("workspace_setup", "completed")
 
+  # A turn the host blocked before any worker turn was bound never started, and
+  # its saved error is an inspected internal term: the enum, the tuple and the
+  # identifiers in it are bookkeeping, not an explanation. Printing it put
+  # `{:work_retry_exhausted, {:coop_operation_failed, …}}` on an operator's card.
   defp workspace_setup(%{turn: %Turn{status: :blocked, coop_turn_id: nil} = turn}),
-    do: row("workspace_setup", "failed", detail: turn.last_error_detail)
+    do: row("workspace_setup", "failed", detail: never_started(turn.last_error_detail))
 
   defp workspace_setup(%{episode: %Episode{state: :cancelled}}),
     do: row("workspace_setup", "stopped")
 
   defp workspace_setup(_facts),
     do: row("workspace_setup", "waiting", detail: "waiting for a worker")
+
+  defp never_started(detail) do
+    case FailureCause.explain(detail) do
+      %{cause: cause} -> "work never started · " <> cause
+      nil -> "work never started"
+    end
+  end
 
   defp planning(facts, workspace) do
     bucket = bucket(facts, "planning")
