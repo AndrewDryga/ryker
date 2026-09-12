@@ -156,7 +156,7 @@ defmodule Responder.Slack.InteractionFeedbackTest do
              InteractionRepaint.repaint(audit, %{
                api: SlackAPI,
                client: self(),
-               setup: %{bot_user_ref: "UBOT", on_call_count: 0}
+               setup: %{bot_user_ref: "UBOT"}
              })
 
     assert_received {:updated_message, "C456", "1787832001.000200", document, delivery_ref}

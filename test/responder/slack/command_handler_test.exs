@@ -53,7 +53,7 @@ defmodule Responder.Slack.CommandHandlerTest do
              "*Alerts*\nOffer an in-place task or incident room",
              "*Repositories*\n<https://github.com/acme/responder|responder>",
              "*Default repository*\n<https://github.com/acme/responder|responder>",
-             "*Incident invitations*\nThe configured on-call responders",
+             "*Incident invitations*\nNo one automatically — you can add people yourself",
              "*Observation mode*\nOff"
            ]
 
@@ -290,7 +290,7 @@ defmodule Responder.Slack.CommandHandlerTest do
            "configuration_ref" => "6a2f8a5e-2f6a-4a6d-9d2f-2c3f4e5a6b7c",
            "customized_by" => "U123",
            "default_repository" => "responder",
-           "invitations" => %{"on_call_count" => 1, "user_group_refs" => [], "user_refs" => []},
+           "invitations" => %{"user_group_refs" => [], "user_refs" => []},
            "observation" => %{"on" => false, "source" => "channel"},
            "participation" => %{"source" => "channel", "value" => "proactive"},
            "repositories" => [

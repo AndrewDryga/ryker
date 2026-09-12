@@ -267,7 +267,6 @@ defmodule Responder.Slack.ChannelConfigurations do
       "customized_by" => configuration && configuration.actor_ref,
       "default_repository" => default_repository(configuration, catalog),
       "invitations" => %{
-        "on_call_count" => Map.get(catalog, :on_call_count, 0),
         "user_group_refs" => (configuration && configuration.invite_user_group_refs) || [],
         "user_refs" => (configuration && configuration.invite_user_refs) || []
       },

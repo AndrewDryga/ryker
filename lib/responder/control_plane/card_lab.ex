@@ -641,7 +641,6 @@ defmodule Responder.ControlPlane.CardLab do
           if(repositories == [], do: nil, else: "responder")
         ),
       "invitations" => %{
-        "on_call_count" => 2,
         "user_group_refs" => [],
         "user_refs" => Keyword.get(overrides, :invite_user_refs, [])
       },
@@ -2285,7 +2284,6 @@ defmodule Responder.ControlPlane.CardLab do
         "bot_user_ref" => "UCARDLAB",
         "draft" => draft,
         "expires_at" => "2099-09-04T12:30:00.000000Z",
-        "on_call_count" => 2,
         "revision" => 1,
         "session_ref" => "018f3ef7-1f62-7ee0-a83c-0c12f21d83e6",
         "status" => status,

@@ -1214,9 +1214,9 @@ defmodule Responder.Slack.Renderer do
     end
   end
 
-  defp conversation_sentence(%{"observation" => %{"on" => true}}, _bot_user_ref),
+  defp conversation_sentence(%{"observation" => %{"on" => true}}, bot_user_ref),
     do:
-      "I'll read the messages I can access here to build useful knowledge, but I won't send automatic replies while observation mode is on."
+      "I'm watching quietly for now — reading along to learn how this channel works, and staying out of the conversation. Mention #{mention(bot_user_ref)} whenever you want me in it."
 
   defp conversation_sentence(%{"participation" => %{"value" => "proactive"}}, bot_user_ref),
     do:
@@ -1227,7 +1227,8 @@ defmodule Responder.Slack.Renderer do
       "Talk to me like any other teammate. I'll read the messages I can access here to build useful knowledge. In conversations, I'll reply when you mention #{mention(bot_user_ref)}."
 
   defp alert_sentence(%{"observation" => %{"on" => true}}),
-    do: "I won't start proactive alert investigations while observation mode is on."
+    do:
+      "Alerts posted here go into that reading too, and I'll wait to be asked before looking into one."
 
   defp alert_sentence(%{"alert_policy" => "reply"}),
     do:
@@ -1325,11 +1326,9 @@ defmodule Responder.Slack.Renderer do
       Enum.map(invitations["user_refs"], &mention/1) ++
         Enum.map(invitations["user_group_refs"], &group_mention/1)
 
-    case {invitations["on_call_count"], chosen} do
-      {0, []} -> "no one automatically — you can add people yourself"
-      {0, chosen} -> join_names(chosen)
-      {_count, []} -> "the configured on-call responders"
-      {_count, chosen} -> "the configured on-call responders and #{join_names(chosen)}"
+    case chosen do
+      [] -> "no one automatically — you can add people yourself"
+      chosen -> join_names(chosen)
     end
   end
 
@@ -1426,14 +1425,9 @@ defmodule Responder.Slack.Renderer do
 
   defp settings_observation?(_observation), do: false
 
-  defp settings_invitations?(
-         %{"on_call_count" => count, "user_group_refs" => groups, "user_refs" => users} =
-           invitations
-       )
-       when map_size(invitations) == 3 and is_list(groups) and is_list(users),
-       do:
-         is_integer(count) and count >= 0 and
-           Enum.all?(users ++ groups, &slack_reference?/1)
+  defp settings_invitations?(%{"user_group_refs" => groups, "user_refs" => users} = invitations)
+       when map_size(invitations) == 2 and is_list(groups) and is_list(users),
+       do: Enum.all?(users ++ groups, &slack_reference?/1)
 
   defp settings_invitations?(_invitations), do: false
 
@@ -1524,24 +1518,21 @@ defmodule Responder.Slack.Renderer do
            "bot_user_ref" => bot_user_ref,
            "draft" => draft,
            "expires_at" => expires_at,
-           "on_call_count" => on_call_count,
            "revision" => revision,
            "session_ref" => session_ref,
            "status" => status,
            "step" => step
          } = setup
        )
-       when map_size(setup) == 8 and status in @setup_statuses and step in @setup_steps and
-              is_integer(revision) and revision > 0 and is_map(draft) and
-              is_integer(on_call_count) and on_call_count >= 0 do
+       when map_size(setup) == 7 and status in @setup_statuses and step in @setup_steps and
+              is_integer(revision) and revision > 0 and is_map(draft) do
     with :ok <- slack_user(bot_user_ref),
          {:ok, _uuid} <- Ecto.UUID.cast(session_ref),
          {:ok, _datetime, 0} <- DateTime.from_iso8601(expires_at),
          {:ok, blocks, text} <-
            setup_blocks(status, step, draft, session_ref, %{
              bot_user_ref: bot_user_ref,
-             expires_at: expires_at,
-             on_call_count: on_call_count
+             expires_at: expires_at
            }) do
       {:ok, blocks, text}
     else
@@ -1612,39 +1603,33 @@ defmodule Responder.Slack.Renderer do
 
     text = "Which repo should I use for coding tasks when you don't name one?"
 
-    options =
-      Enum.map(repositories, fn repository ->
-        "*#{mrkdwn(repository)}* — I'll use it for coding tasks when you don't say which repo you mean."
-      end)
-
     explanation =
       [
         "*#{heading("2 · Repositories")}*",
         text,
-        "" | Enum.intersperse(options, "")
-      ] ++
-        [
-          "",
-          "You can still ask me to work in any other connected repo. This only sets the default; it doesn't give me access to anything new."
-        ]
+        "",
+        Enum.map_join(repositories, "   ", &"*#{mrkdwn(&1)}*"),
+        "",
+        "You can still ask me to work in any other connected repo. This only sets the default; it doesn't give me access to anything new."
+      ]
 
     {:ok, [section(Enum.join(explanation, "\n"))] ++ setup_action_groups(session_ref, buttons),
      text}
   end
 
   defp setup_blocks("asking", "alerts", _draft, session_ref, _presentation) do
-    text = "When an alert needs attention, where should I investigate it?"
+    text = "When an alert needs attention, should I open an incident room for it?"
 
     explanation =
       [
         "*#{heading("3 · Alerts")}*",
         text,
         "",
-        "*Investigate* — I'll look into it in the alert's thread and share what I find. I won't create a separate room.",
+        "*Investigate here* — I'll look into it in the alert's own thread and share what I find. This is the default.",
         "",
-        "*Offer a choice* — I'll ask whether you'd like me to investigate here or create an incident room, and wait for your choice before starting.",
+        "*Offer a room* — I'll start in the thread, and offer a room when the alert looks big enough to need one.",
         "",
-        "*Create automatically* — I'll create an incident room and start investigating there. I'll invite the people you choose in the next step."
+        "*Always open a room* — every alert I investigate gets its own room, and I'll work there."
       ]
       |> Enum.join("\n")
 
@@ -1652,11 +1637,11 @@ defmodule Responder.Slack.Renderer do
      [
        section(explanation),
        actions("setup:#{session_ref}", [
-         setup_button("responder_setup_alerts_reply", "Investigate", session_ref, nil),
-         setup_button("responder_setup_alerts_offer", "Offer a choice", session_ref, nil),
+         setup_button("responder_setup_alerts_reply", "Investigate here", session_ref, nil),
+         setup_button("responder_setup_alerts_offer", "Offer a room", session_ref, nil),
          setup_button(
            "responder_setup_alerts_automatic",
-           "Create automatically",
+           "Always open a room",
            session_ref,
            "danger"
          )
@@ -1664,18 +1649,17 @@ defmodule Responder.Slack.Renderer do
      ], text}
   end
 
-  defp setup_blocks("asking", "audience", _draft, session_ref, presentation) do
-    text = "Who should I invite when I create an incident room?"
-    {label, none_sentence} = audience_none_option(presentation.on_call_count)
+  defp setup_blocks("asking", "audience", _draft, session_ref, _presentation) do
+    text = "Who should I invite when I open an incident room?"
 
     explanation =
       [
         "*#{heading("4 · Invitations")}*",
         text,
         "",
-        "*#{label}* — #{none_sentence}",
+        "Reply in this thread with the people or user groups you want in the room, as @mentions. I'll remember them for the next one in this channel, and you can change them any time.",
         "",
-        "*Choose responders* — Reply in this thread with the people or user groups you want me to invite, as @mentions. I'll use that list for future incident rooms in this channel."
+        "If you'd rather invite people yourself each time, choose *Nobody automatically*."
       ]
       |> Enum.join("\n")
 
@@ -1684,7 +1668,7 @@ defmodule Responder.Slack.Renderer do
        section(explanation),
        actions(
          "setup:#{session_ref}",
-         setup_button("responder_setup_audience_none", label, session_ref, nil)
+         setup_button("responder_setup_audience_none", "Nobody automatically", session_ref, nil)
        )
      ], text}
   end
@@ -1718,16 +1702,6 @@ defmodule Responder.Slack.Renderer do
   defp setup_blocks(_status, _step, _draft, _session_ref, _presentation),
     do: {:error, {:invalid_slack_render, :channel_setup}}
 
-  defp audience_none_option(0),
-    do:
-      {"No invitations",
-       "I'll create the room without inviting anyone automatically. You can add people yourself."}
-
-  defp audience_none_option(count),
-    do:
-      {"On-call responders only",
-       "I'll invite only the #{count} configured on-call #{if count == 1, do: "responder", else: "responders"}. You can add more people yourself."}
-
   defp setup_confirmation(draft, session_ref, presentation) do
     text = "Here's how I'll work in this channel:"
 
@@ -1738,7 +1712,7 @@ defmodule Responder.Slack.Renderer do
         "• " <> draft_participation_sentence(draft["participation"], presentation.bot_user_ref),
         "• " <> draft_alert_sentence(draft["alert_policy"]),
         "• I'll use *#{mrkdwn(draft["repository_ref"])}* for coding tasks when you don't name a repo.",
-        "• If I create an incident room, I'll invite #{draft_audience_phrase(draft, presentation.on_call_count)}.",
+        "• If I create an incident room, I'll invite #{draft_audience_phrase(draft)}.",
         "",
         "*Save settings* — I'll start using these choices and update my welcome message to match.",
         "",
@@ -1778,10 +1752,9 @@ defmodule Responder.Slack.Renderer do
   defp draft_alert_sentence("automatic"),
     do: "When an alert needs investigation, I'll create an incident room automatically."
 
-  defp draft_audience_phrase(draft, on_call_count) do
+  defp draft_audience_phrase(draft) do
     audience_phrase(%{
       "invitations" => %{
-        "on_call_count" => on_call_count,
         "user_group_refs" => draft["invite_user_group_refs"],
         "user_refs" => draft["invite_user_refs"]
       }

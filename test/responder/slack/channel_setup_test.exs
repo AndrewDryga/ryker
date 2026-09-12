@@ -104,7 +104,7 @@ defmodule Responder.Slack.ChannelSetupTest do
     def effective_settings(_workspace_ref, _channel_ref, catalog, overrides) do
       ChannelConfigurations.settings_document(
         Process.get({__MODULE__, :configuration}),
-        Map.merge(%{on_call_count: 0, repository_urls: %{}}, catalog),
+        Map.merge(%{repository_urls: %{}}, catalog),
         overrides
       )
       |> then(&{:ok, &1})
@@ -126,7 +126,6 @@ defmodule Responder.Slack.ChannelSetupTest do
       bot_user_ref: "UBOT",
       catalog: %{
         default_repository: "infrastructure",
-        on_call_count: 1,
         repository_refs: ["backend", "infrastructure"],
         repository_urls: %{"backend" => "https://github.com/acme/backend"}
       },
@@ -307,7 +306,8 @@ defmodule Responder.Slack.ChannelSetupTest do
              %{message_ref: "1.000001", document: %{"channel_welcome" => welcome}}
            ] = last_updates
 
-    assert welcome["notice"] == "Settings updated."
+    # The channel should read who changed it and when, not a system notice.
+    assert welcome["notice"] =~ ~r/\ASettings changed by <@U123> at \d{2}:\d{2} UTC\z/
     assert welcome["revision"] == 2
     assert welcome["settings"]["participation"]["value"] == "proactive"
     assert welcome["settings"]["alert_policy"] == "offer"
@@ -635,7 +635,6 @@ defmodule Responder.Slack.ChannelSetupTest do
              List.last(updates(options))
 
     assert welcome["settings"]["invitations"] == %{
-             "on_call_count" => 1,
              "user_group_refs" => ["S123"],
              "user_refs" => ["U456"]
            }
