@@ -947,6 +947,9 @@ details.measurement-notes > summary { cursor:pointer; font-weight:600; color:var
 .request-provenance > summary { cursor:pointer; padding:2px 0; }
 .request-provenance > p { margin:8px 0; max-width:85ch; }
 .request-result-evidence { margin-top:10px; }
+.request-result-evidence > h4 { font-size:13px; font-weight:550; color:var(--secondary); margin:0 0 6px; padding:0 16px; }
+.timeline-artifact > summary { cursor:pointer; font-size:14px; }
+.timeline-artifact > summary > span { color:var(--secondary); font-size:12px; margin-left:8px; }
 .timeline-artifact { padding:12px 16px; min-width:0; overflow-wrap:anywhere; }
 .timeline-artifact + .timeline-artifact { border-top:1px solid var(--stroke); }
 .timeline-artifact h4 { font-size:15px; margin:0 0 8px; }
@@ -1419,6 +1422,9 @@ details.measurement-notes > summary { cursor:pointer; font-weight:600; color:var
 /* The retained submission is the page's subject, not something to fold away:
    it reads as a plain section heading with no disclosure affordance. */
 .document-heading-fixed { cursor:default; list-style:none; }
+/* The last source already ends the body; the identity footer draws the
+   one line that separates them. Both drew it. */
+.prompt-assembly > .prompt-group:last-child > .prompt-source:last-child { border-bottom:0; }
 .document-heading-fixed::-webkit-details-marker { display:none; }
 .document-heading-fixed::marker { content:''; }
 .inspector-document.artifact-request { border-top:0; }

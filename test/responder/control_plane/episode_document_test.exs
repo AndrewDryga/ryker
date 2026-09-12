@@ -517,8 +517,12 @@ defmodule Responder.ControlPlane.EpisodeDocumentTest do
              &(LazyHTML.text(&1) == "The answer")
            ) == 1
 
-    assert Enum.count(LazyHTML.query(document, ".case-request details.request-evidence")) == 1
-    assert Enum.empty?(LazyHTML.query(document, ".request-evidence[open]"))
+    # Each record is its own disclosure under one heading, and none of them is
+    # expanded: the point is that the protocol JSON stays out of the page until
+    # a reader asks for the specific record they want.
+    assert Enum.count(LazyHTML.query(document, ".case-request section.request-evidence")) == 1
+    assert Enum.empty?(LazyHTML.query(document, ".request-evidence details[open]"))
+    assert Enum.count(LazyHTML.query(document, ".request-evidence details")) == 1
     assert html =~ "Committed admission decision"
     refute html =~ "Inspect admission"
     refute html =~ "CONVERSATION · PART"
