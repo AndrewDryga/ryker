@@ -7,7 +7,7 @@ defmodule Responder.Slack.AppHomeControls do
   again by the host.
   """
 
-  alias Responder.Slack.{HomeEvent, HomeInteraction, HomeSubmission}
+  alias Responder.Slack.{Collections, HomeEvent, HomeInteraction, HomeSubmission}
 
   @spec handle(HomeInteraction.t(), map()) :: {:ok, map()} | {:error, term()}
   def handle(%HomeInteraction{} = interaction, %{} = options) do
@@ -282,9 +282,35 @@ defmodule Responder.Slack.AppHomeControls do
     end
   end
 
+  defp dispatch(
+         %HomeInteraction{action: :show_collection, resource_ref: "home-collection:" <> value} =
+           interaction,
+         options
+       ) do
+    with {:ok, kind, offset} <- collection_page(value) do
+      show_collection(options, interaction, kind, offset)
+    end
+  end
+
+  defp dispatch(
+         %HomeInteraction{action: :show_dashboard, resource_ref: "home-collection:dashboard"},
+         _options
+       ),
+       do: {:ok, :refreshed}
+
   defp dispatch(%HomeInteraction{action: :open_resource}, _options), do: {:ok, :opened}
 
   defp dispatch(_interaction, _options), do: {:error, :app_home_control_mismatch}
+
+  defp collection_page(value) do
+    with [kind, offset] <- String.split(value, ":"),
+         kind when not is_nil(kind) <- Enum.find(Collections.kinds(), &(to_string(&1) == kind)),
+         {offset, ""} when offset >= 0 <- Integer.parse(offset) do
+      {:ok, kind, offset}
+    else
+      _invalid -> {:error, :app_home_control_mismatch}
+    end
+  end
 
   defp memory_review_action(:keep_memory_review), do: :keep
   defp memory_review_action(:merge_memory_review), do: :merge
@@ -357,6 +383,20 @@ defmodule Responder.Slack.AppHomeControls do
 
       _missing ->
         {:error, {:invalid_app_home_control, :open_memory_review_editor}}
+    end
+  end
+
+  defp show_collection(options, interaction, kind, offset) do
+    case Map.get(options, :show_collection) do
+      callback when is_function(callback, 3) ->
+        case callback.(home_event(interaction), kind, offset) do
+          {:ok, _published} -> {:ok, :listed}
+          {:error, _reason} = error -> error
+          _invalid -> {:error, {:invalid_app_home_control, :show_collection}}
+        end
+
+      _missing ->
+        {:error, {:invalid_app_home_control, :show_collection}}
     end
   end
 
@@ -549,20 +589,24 @@ defmodule Responder.Slack.AppHomeControls do
 
   defp refresh(interaction, options) do
     case Map.get(options, :refresh_home) do
-      callback when is_function(callback, 1) ->
-        callback.(%HomeEvent{
-          actor_ref: interaction.actor_ref,
-          event_ref: interaction.event_ref,
-          workspace_ref: interaction.workspace_ref
-        })
-
-      _missing ->
-        {:error, {:invalid_app_home_control, :refresh_home}}
+      callback when is_function(callback, 1) -> callback.(home_event(interaction))
+      _missing -> {:error, {:invalid_app_home_control, :refresh_home}}
     end
   end
 
-  defp refresh_if_needed(_interaction, outcome, _options) when outcome in [:editing, :opened],
-    do: :ok
+  defp home_event(interaction) do
+    %HomeEvent{
+      actor_ref: interaction.actor_ref,
+      event_ref: interaction.event_ref,
+      workspace_ref: interaction.workspace_ref
+    }
+  end
+
+  # A published collection page is the view the operator asked for; repainting
+  # the dashboard over it would answer the click with the digest it replaces.
+  defp refresh_if_needed(_interaction, outcome, _options)
+       when outcome in [:editing, :listed, :opened],
+       do: :ok
 
   defp refresh_if_needed(interaction, _outcome, options) do
     case refresh(interaction, options) do

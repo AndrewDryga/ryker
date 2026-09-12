@@ -1566,6 +1566,36 @@ defmodule Responder.ControlPlane.CardLab do
           | memory_review_count: 1,
             memory_reviews: [duplicate_memory_review()]
         })
+      ),
+      view_state(
+        "collection-page",
+        "Complete list · page 2",
+        "The whole authorized list a channel card points at, past the five the sections show.",
+        AppHome.render(:collection, home_collection())
+      ),
+      view_state(
+        "collection-empty",
+        "Complete list · nothing saved",
+        "Nothing is saved in the channels this operator shares.",
+        AppHome.render(:collection, %{
+          home_collection()
+          | offset: 0,
+            outcome: :empty,
+            rows: [],
+            total: 0
+        })
+      ),
+      view_state(
+        "collection-unavailable",
+        "Complete list · could not load",
+        "A query that did not run is never reported as an empty list.",
+        AppHome.render(:collection, %{
+          home_collection()
+          | offset: 0,
+            outcome: :unavailable,
+            rows: [],
+            total: 0
+        })
       )
     ]
 
@@ -2307,6 +2337,40 @@ defmodule Responder.ControlPlane.CardLab do
       needs_attention: [],
       schedules: [],
       work: []
+    }
+  end
+
+  defp home_collection do
+    titles = [
+      "Daily deploy readiness",
+      "Weekly capacity review",
+      "Nightly backup verification",
+      "Monday release notes",
+      "Quarterly access review",
+      "Disk growth follow-up",
+      "Certificate expiry sweep",
+      "Staging data refresh",
+      "On-call handover summary",
+      "Month-end cost report"
+    ]
+
+    %{
+      kind: :schedules,
+      offset: 10,
+      outcome: :listed,
+      page_size: 10,
+      rows:
+        titles
+        |> Enum.with_index(11)
+        |> Enum.map(fn {title, index} ->
+          %{
+            detail: if(index == 14, do: "Schedule paused", else: "Schedule active"),
+            ref: "schedule:#{index}",
+            title: title,
+            url: "https://slack.com/app_redirect?channel=C123"
+          }
+        end),
+      total: 27
     }
   end
 

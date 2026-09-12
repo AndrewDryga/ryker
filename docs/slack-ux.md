@@ -93,7 +93,12 @@ request and jump to the exact Slack channel or thread; memory and behavior rows 
 while the exact user still shares it. Operators can edit stale memory, run or manage schedules,
 recover publication conflicts, and explicitly discard a clean retained unmerged workspace there;
 dirty work remains protected. Schedule replacement returns to the source conversation so the new
-request goes through normal confirmation. The Agent Messages tab offers the suggested
+request goes through normal confirmation. Its item sections are a capped digest, so **All
+schedules**, **All standing rules** and **All saved knowledge** open the complete authorized list
+of that collection in the same Home tab, ten rows to a page, with **Previous**, **Next** and **Back
+to Home**. Each page is read again from the same scoped query the channel's own page is cut from,
+under the channels the operator shares with Responder at that moment, so a channel they have left
+is gone from the next page. A page that could not be read says so and is never an empty list. The Agent Messages tab offers the suggested
 prompts declared in the app manifest — production health, alert explanation, and open work. A
 direct message always starts
 read-only triage and does not require proactive mode or an `@mention`.
@@ -277,7 +282,8 @@ Asking Responder for the active schedules, standing rules or saved knowledge in 
 **View schedules** / **View standing rules** on a settings reply, posts one saved-entity card per
 item in that thread, with the same detail and removal controls. A page holds at most five items,
 ordered by next run or recency, followed by "Showing 5 of N" with the exact total from the same
-scoped query and a pointer to App Home for the complete list. Every item has its own delivery
+scoped query and a pointer to the complete list in an operator's App Home; the sentence names
+operators because Home discloses operational detail to no one else. Every item has its own delivery
 identity, so a failed item is retried without posting earlier items again. An empty result says
 so; a query that could not run says it could not load, and never "no schedules". Items scoped to
 other channels, operators' private guidance and deleted or expired entities are never listed.

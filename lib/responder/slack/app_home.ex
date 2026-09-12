@@ -5,9 +5,14 @@ defmodule Responder.Slack.AppHome do
   Operational detail is restricted to configured operators. Other active full
   members receive a small availability page, so opening Home cannot disclose
   private incident, task, memory, or schedule state.
+
+  The dashboard sections are a capped digest. `publish_collection/4` opens the
+  complete authorized list of one collection in the same Home tab, one bounded
+  page at a time, which is what a channel card means when it says an operator
+  can open Home for the complete list.
   """
 
-  alias Responder.Slack.HomeEvent
+  alias Responder.Slack.{Collections, HomeEvent}
 
   @maximum_attention 8
   @maximum_work 8
@@ -16,6 +21,7 @@ defmodule Responder.Slack.AppHome do
   @maximum_memories 5
   @maximum_memory_reviews 2
   @maximum_schedules 5
+  @maximum_collection_rows 10
   @maximum_text 240
   @action_instance_separator "__i"
 
@@ -33,8 +39,31 @@ defmodule Responder.Slack.AppHome do
 
   def handle(_event, _options), do: {:error, {:invalid_app_home, :request}}
 
+  @doc """
+  Publishes one bounded page of a collection's complete authorized list.
+
+  The page is read again on every click, so it carries the reader's current
+  channel access rather than the access they had when the button was rendered.
+  """
+  @spec publish_collection(HomeEvent.t(), Collections.kind(), non_neg_integer(), map()) ::
+          {:ok, map()} | {:error, term()}
+  def publish_collection(%HomeEvent{} = event, kind, offset, %{} = options) do
+    with {:ok, true} <- allowed?(event, options),
+         {:ok, access, view} <- collection_page(event, kind, offset, options),
+         :ok <- publish(event, view, options) do
+      {:ok, %{access: access, outcome: :published}}
+    else
+      {:ok, false} -> {:ok, %{access: :denied, outcome: :ignored}}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  def publish_collection(_event, _kind, _offset, _options),
+    do: {:error, {:invalid_app_home, :request}}
+
   @doc false
-  @spec render(:operator | :restricted, map()) :: map()
+  @spec render(:collection | :operator | :restricted, map()) :: map()
+  def render(:collection, %{} = collection), do: collection_view(collection)
   def render(:operator, %{} = snapshot), do: operator_view(snapshot)
   def render(:restricted, %{}), do: restricted_view()
 
@@ -53,22 +82,48 @@ defmodule Responder.Slack.AppHome do
   end
 
   defp view(event, options) do
-    operators = Map.get(options, :operators)
-
-    if match?(%MapSet{}, operators) and MapSet.member?(operators, event.actor_ref) do
-      with {:ok, shared_conversations} <- shared_conversations(event, options),
-           projection when is_function(projection, 3) <- Map.get(options, :projection),
+    authorized_view(event, options, fn shared_conversations ->
+      with projection when is_function(projection, 3) <- Map.get(options, :projection),
            %{} = snapshot <-
              projection.(event.workspace_ref, event.actor_ref, shared_conversations) do
-        {:ok, :operator, operator_view(snapshot)}
+        {:ok, operator_view(snapshot)}
       else
         {:error, _reason} = error -> error
         _invalid -> {:error, {:invalid_app_home, :projection}}
       end
-    else
-      if match?(%MapSet{}, operators),
-        do: {:ok, :restricted, restricted_view()},
-        else: {:error, {:invalid_app_home, :operators}}
+    end)
+  end
+
+  defp collection_page(event, kind, offset, options) do
+    authorized_view(event, options, fn shared_conversations ->
+      with projection when is_function(projection, 4) <- Map.get(options, :collection),
+           %{} = collection <-
+             projection.(kind, event.workspace_ref, shared_conversations, offset) do
+        {:ok, collection_view(collection)}
+      else
+        {:error, _reason} = error -> error
+        _invalid -> {:error, {:invalid_app_home, :collection}}
+      end
+    end)
+  end
+
+  # One place decides who sees operational detail, so the dashboard and the
+  # complete lists cannot drift apart on who is an operator.
+  defp authorized_view(event, options, build) do
+    operators = Map.get(options, :operators)
+
+    cond do
+      not match?(%MapSet{}, operators) ->
+        {:error, {:invalid_app_home, :operators}}
+
+      not MapSet.member?(operators, event.actor_ref) ->
+        {:ok, :restricted, restricted_view()}
+
+      true ->
+        with {:ok, shared_conversations} <- shared_conversations(event, options),
+             {:ok, view} <- build.(shared_conversations) do
+          {:ok, :operator, view}
+        end
     end
   end
 
@@ -125,12 +180,132 @@ defmodule Responder.Slack.AppHome do
       |> append_control_section("Behaviors", behaviors, &behavior_blocks/1)
       |> append_control_section("Schedules", schedules, &schedule_blocks/1)
       |> Kernel.++([
+        collection_controls(),
         context("Refreshed when you open Home. Durable state remains authoritative.")
       ])
       |> unique_action_ids()
 
     %{"blocks" => blocks, "type" => "home"}
   end
+
+  # The sections above are a capped digest of what is active. These open the
+  # complete authorized list a channel card points an operator at.
+  defp collection_controls do
+    actions(
+      Enum.map(
+        [
+          {:schedules, "All schedules"},
+          {:standing_rules, "All standing rules"},
+          {:knowledge, "All saved knowledge"}
+        ],
+        fn {kind, text} ->
+          button("responder_home_show_collection", text, collection_value(kind, 0))
+        end
+      )
+    )
+  end
+
+  defp collection_value(kind, offset), do: "home-collection:#{kind}:#{offset}"
+
+  defp collection_view(collection) do
+    kind = Map.get(collection, :kind)
+    rows = collection |> Map.get(:rows, []) |> List.wrap()
+
+    blocks =
+      [header(collection_title(kind)), collection_summary_block(collection)] ++
+        Enum.map(rows, &collection_row/1) ++
+        [actions(collection_page_controls(collection))]
+
+    %{"blocks" => unique_action_ids(blocks), "type" => "home"}
+  end
+
+  # A count belongs in the quiet line above a list; "this could not be loaded"
+  # is the answer itself and is read as body text.
+  defp collection_summary_block(%{outcome: outcome} = collection)
+       when outcome in [:empty, :unavailable],
+       do: section(collection_summary(collection))
+
+  defp collection_summary_block(collection), do: context(collection_summary(collection))
+
+  defp collection_row(row) do
+    title = bounded(Map.get(row, :title) || Map.get(row, :ref, "Saved item"))
+    detail = bounded_part(Map.get(row, :detail) || "Saved", 60)
+    section("#{title} — #{detail}", open_button(row))
+  end
+
+  defp collection_page_controls(collection) do
+    kind = Map.get(collection, :kind)
+    offset = Map.get(collection, :offset, 0)
+    page_size = collection_page_size(collection)
+    total = Map.get(collection, :total, 0)
+
+    [
+      if(offset > 0,
+        do:
+          button(
+            "responder_home_show_collection",
+            "Previous",
+            collection_value(kind, max(offset - page_size, 0))
+          )
+      ),
+      if(offset + page_size < total,
+        do:
+          button(
+            "responder_home_show_collection",
+            "Next",
+            collection_value(kind, offset + page_size)
+          )
+      ),
+      button("responder_home_show_dashboard", "Back to Home", "home-collection:dashboard")
+    ]
+    |> Enum.reject(&is_nil/1)
+  end
+
+  defp collection_summary(%{outcome: :unavailable} = collection),
+    do:
+      "I couldn't load your #{collection_label(Map.get(collection, :kind))} right now. " <>
+        "Try again in a moment."
+
+  defp collection_summary(%{outcome: :empty} = collection),
+    do: collection_empty(Map.get(collection, :kind))
+
+  defp collection_summary(collection) do
+    total = Map.get(collection, :total, 0)
+    page_size = collection_page_size(collection)
+    pages = max(ceil(total / page_size), 1)
+    page = div(Map.get(collection, :offset, 0), page_size) + 1
+    counted = "#{total} #{collection_label(Map.get(collection, :kind))} in the channels we share"
+
+    if pages > 1, do: "#{counted} · page #{page} of #{pages}", else: "#{counted}."
+  end
+
+  defp collection_page_size(collection) do
+    case Map.get(collection, :page_size) do
+      size when is_integer(size) and size > 0 -> size
+      _unknown -> @maximum_collection_rows
+    end
+  end
+
+  defp collection_title(:schedules), do: "All active schedules"
+  defp collection_title(:standing_rules), do: "All active standing rules"
+  defp collection_title(:knowledge), do: "All saved knowledge"
+  defp collection_title(_kind), do: "Saved items"
+
+  defp collection_label(:schedules), do: "schedules"
+  defp collection_label(:standing_rules), do: "standing rules"
+  defp collection_label(:knowledge), do: "saved knowledge items"
+  defp collection_label(_kind), do: "saved items"
+
+  defp collection_empty(:schedules),
+    do: "No active schedules are set up in the channels we share."
+
+  defp collection_empty(:standing_rules),
+    do: "No standing rules are set up in the channels we share."
+
+  defp collection_empty(:knowledge),
+    do: "I haven't saved any preferences, guidance or memories in the channels we share."
+
+  defp collection_empty(_kind), do: "Nothing is saved in the channels we share."
 
   defp restricted_view do
     %{

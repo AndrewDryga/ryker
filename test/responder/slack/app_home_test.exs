@@ -202,6 +202,149 @@ defmodule Responder.Slack.AppHomeTest do
 
     assert text =~ "responder_home_open"
     assert text =~ "https://slack.com/app_redirect?team=T123&channel=COPS"
+
+    assert text =~ "responder_home_show_collection"
+    assert text =~ "home-collection:schedules:0"
+    assert text =~ "home-collection:standing_rules:0"
+    assert text =~ "home-collection:knowledge:0"
+  end
+
+  # The channel card said "operators can open my App Home for the complete
+  # list" while Home showed five rows of each kind and stopped. Opening a
+  # collection from Home shows the whole authorized list, one page at a time.
+  test "a complete list shows the items the capped sections leave out" do
+    {:ok, calls} = Agent.start_link(fn -> [] end)
+    parent = self()
+
+    options =
+      options(calls, fn _, _, _ -> flunk("the dashboard projection must not be queried") end)
+      |> Map.put(:collection, fn kind, workspace_ref, shared_conversations, offset ->
+        send(parent, {:collection, kind, workspace_ref, shared_conversations, offset})
+
+        %{
+          kind: :schedules,
+          offset: offset,
+          outcome: :listed,
+          page_size: 10,
+          rows:
+            Enum.map((offset + 1)..(offset + 10), fn index ->
+              %{
+                detail: "Schedule active",
+                ref: "schedule:#{index}",
+                title: "Check #{index}",
+                url: "https://slack.com/app_redirect?team=T123&channel=COPS"
+              }
+            end),
+          total: 27
+        }
+      end)
+
+    assert {:ok, %{access: :operator, outcome: :published}} =
+             AppHome.publish_collection(event("U123"), :schedules, 10, options)
+
+    assert_received {:collection, :schedules, "T123", shared_conversations, 10}
+    assert shared_conversations == MapSet.new(["COPS"])
+
+    assert [{"U123", %{"blocks" => blocks, "type" => "home"}}] = Agent.get(calls, & &1)
+    assert length(blocks) < 100
+    text = Jason.encode!(blocks)
+
+    assert text =~ "All active schedules"
+    assert text =~ "27 schedules in the channels we share"
+    assert text =~ "page 2 of 3"
+    assert text =~ "Check 11 — Schedule active"
+    assert text =~ "Check 20 — Schedule active"
+    assert text =~ "home-collection:schedules:0"
+    assert text =~ "home-collection:schedules:20"
+    assert text =~ "responder_home_show_dashboard"
+    assert text =~ "home-collection:dashboard"
+    assert text =~ "https://slack.com/app_redirect?team=T123&channel=COPS"
+  end
+
+  test "paging stops at the ends of the complete list" do
+    first =
+      AppHome.render(:collection, %{
+        kind: :knowledge,
+        offset: 0,
+        outcome: :listed,
+        page_size: 10,
+        rows: [
+          %{detail: "Guidance active", ref: "behavior:one", title: "Deploy reviews", url: nil}
+        ],
+        total: 4
+      })
+
+    values = control_values(first["blocks"])
+    assert "home-collection:dashboard" in values
+    refute Enum.any?(values, &String.starts_with?(&1, "home-collection:knowledge:"))
+    assert Jason.encode!(first) =~ "4 saved knowledge items in the channels we share"
+    refute Jason.encode!(first) =~ "page 1 of 1"
+
+    last =
+      AppHome.render(:collection, %{
+        kind: :schedules,
+        offset: 20,
+        outcome: :listed,
+        page_size: 10,
+        rows: [%{detail: "Schedule paused", ref: "schedule:21", title: "Check 21", url: nil}],
+        total: 21
+      })
+
+    values = control_values(last["blocks"])
+    assert "home-collection:schedules:10" in values
+    refute "home-collection:schedules:30" in values
+    assert Jason.encode!(last) =~ "page 3 of 3"
+  end
+
+  # A complete list that could not be read must not read as "you have none":
+  # the operator would stop looking for the schedule they still have.
+  test "an empty complete list and one that could not be read are different pages" do
+    empty =
+      AppHome.render(:collection, %{
+        kind: :standing_rules,
+        offset: 0,
+        outcome: :empty,
+        page_size: 10,
+        rows: [],
+        total: 0
+      })
+
+    unavailable =
+      AppHome.render(:collection, %{
+        kind: :standing_rules,
+        offset: 0,
+        outcome: :unavailable,
+        page_size: 10,
+        rows: [],
+        total: 0
+      })
+
+    assert Jason.encode!(empty) =~ "No standing rules are set up in the channels we share."
+    assert Jason.encode!(unavailable) =~ "I couldn't load your standing rules right now."
+    refute Jason.encode!(unavailable) =~ "No standing rules"
+    assert "home-collection:dashboard" in control_values(empty["blocks"])
+    assert "home-collection:dashboard" in control_values(unavailable["blocks"])
+  end
+
+  test "a full nonoperator cannot open a complete list" do
+    {:ok, calls} = Agent.start_link(fn -> [] end)
+
+    options =
+      options(calls, fn _, _, _ -> flunk("must not query") end)
+      |> Map.put(:collection, fn _kind, _workspace, _conversations, _offset ->
+        flunk("the collection must not be read for a nonoperator")
+      end)
+
+    assert {:ok, %{access: :restricted, outcome: :published}} =
+             AppHome.publish_collection(event("U456"), :schedules, 0, options)
+
+    assert [{"U456", %{"blocks" => blocks}}] = Agent.get(calls, & &1)
+    assert Jason.encode!(blocks) =~ "operational details are limited"
+
+    denied = put_in(options, [:client, :allowed], MapSet.new())
+
+    assert AppHome.publish_collection(event("U123"), :schedules, 0, denied) ==
+             {:ok, %{access: :denied, outcome: :ignored}}
   end
 
   test "a maximal operator view remains complete and below Slack's block limit" do
@@ -264,8 +407,10 @@ defmodule Responder.Slack.AppHomeTest do
              AppHome.handle(event("U123"), options(calls, fn _, _, _ -> snapshot end))
 
     assert [{"U123", %{"blocks" => blocks}}] = Agent.get(calls, & &1)
+    # Slack rejects a view over 100 blocks, so the complete-list controls cost
+    # exactly one actions block for all three collections.
     assert length(blocks) < 100
-    assert length(blocks) == 98
+    assert length(blocks) == 99
     action_ids = action_ids(blocks)
     assert length(action_ids) == length(Enum.uniq(action_ids))
     rendered = Jason.encode!(blocks)
@@ -387,6 +532,17 @@ defmodule Responder.Slack.AppHomeTest do
         {:ok, MapSet.new(["COPS"])}
       end
     }
+  end
+
+  defp control_values(blocks) do
+    Enum.flat_map(blocks, fn block ->
+      block
+      |> Map.get("elements", [])
+      |> Enum.flat_map(fn
+        %{"value" => value} -> [value]
+        _not_a_control -> []
+      end)
+    end)
   end
 
   defp action_ids(blocks) do

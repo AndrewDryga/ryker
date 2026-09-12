@@ -1,13 +1,10 @@
 defmodule Responder.Slack.CollectionsTest do
   use Responder.DataCase, async: true
 
-  alias Responder.{Episodes, Repo}
-  alias Responder.Fixtures.Episodes, as: Fixtures
+  alias Responder.Fixtures.SavedEntities, as: Fixtures
+  alias Responder.Repo
   alias Responder.Slack.Collections
-  alias Responder.State.{Behavior, MemoryEntry, Records, Schedule}
-  alias Responder.Work.Custody
 
-  @now ~U[2026-08-28 12:00:00.000000Z]
   @workspace "T123"
   @channel "C456"
   @conversation "slack:T123:C456"
@@ -84,7 +81,7 @@ defmodule Responder.Slack.CollectionsTest do
 
     assert more.document == %{
              "message" =>
-               "Showing 5 of 7 schedules in this channel. Open my App Home to see the complete list."
+               "Showing 5 of 7 schedules in this channel. Operators can open my App Home for the complete list."
            }
 
     assert more.delivery_ref == "slack-collection:event:list-1:more"
@@ -144,6 +141,90 @@ defmodule Responder.Slack.CollectionsTest do
 
     assert Collections.deliver(:everything, request("event:kind"), options) ==
              {:error, :invalid_collection}
+  end
+
+  # A rescue nobody exercised: the failed query used to be indistinguishable
+  # from an empty channel for anyone reading the thread, so an operator went
+  # looking for the schedule they still had. Only a query that ran may say
+  # "none"; a query that did not run says it could not load.
+  test "a collection whose query never ran says so instead of reporting an empty channel", %{
+    options: options
+  } do
+    source = source!()
+    _still_here = schedule!(source, "Still here", 1)
+
+    # The collection's own query fails for real: with this connection's schema
+    # search path emptied, the `Repo.all` inside the collection raises
+    # Postgrex.Error the way an unreachable table does mid-request.
+    Repo.query!("SET LOCAL search_path TO pg_temp")
+
+    assert {:ok, %{outcome: :unavailable, shown: 0, total: 0}} =
+             Collections.deliver(:schedules, request("event:down"), options)
+
+    assert [%{delivery_ref: "slack-collection:event:down:unavailable", document: document}] =
+             posts(options)
+
+    assert document == %{
+             "message" =>
+               "I couldn't load this channel's schedules right now. Try again in a moment."
+           }
+
+    refute inspect(document) =~ "No active schedules"
+  end
+
+  # "Open my App Home to see the complete list" was a promise no surface kept:
+  # every list stopped at five. The complete list is read one bounded page at a
+  # time from the same scoped query the first page was cut from.
+  test "every authorized item past the first page is reachable one bounded page at a time" do
+    source = source!()
+    here = for index <- 1..7, do: schedule!(source, "Check #{index}", index)
+    _elsewhere = schedule!(source, "Other channel", 8, destination: "slack:T123:C999")
+    scope = %{channel_refs: [@channel], workspace_ref: @workspace}
+
+    assert {:ok, %{entries: first, offset: 0, total: 7}} =
+             Collections.page(:schedules, scope, 0, 5)
+
+    assert {:ok, %{entries: second, offset: 5, total: 7}} =
+             Collections.page(:schedules, scope, 5, 5)
+
+    assert length(first) == 5
+    assert length(second) == 2
+    assert Enum.map(first ++ second, & &1.ref) == Enum.map(here, & &1.ref)
+    refute inspect(second) =~ "Other channel"
+
+    # A page named by a button that was rendered before items were removed
+    # shows the last page that exists, never a blank one.
+    assert {:ok, %{entries: clamped, offset: 5, total: 7}} =
+             Collections.page(:schedules, scope, 40, 5)
+
+    assert Enum.map(clamped, & &1.ref) == Enum.map(second, & &1.ref)
+
+    assert {:ok, %{entries: [], offset: 0, total: 0}} =
+             Collections.page(:standing_rules, scope, 15, 5)
+
+    assert Collections.page(:everything, scope, 0, 5) == {:error, :invalid_collection}
+    assert Collections.page(:schedules, scope, -1, 5) == {:error, :invalid_collection}
+    assert Collections.page(:schedules, scope, 0, 0) == {:error, :invalid_collection}
+  end
+
+  # Every channel the reader shares with Responder is one scoped query, so the
+  # complete list an operator opens is the same rows the thread page came from.
+  test "a multi-channel scope lists each channel's items and no one else's" do
+    source = source!()
+    mine = schedule!(source, "Mine", 1)
+    shared = schedule!(source, "Also mine", 2, destination: "slack:T123:C999")
+    _private = schedule!(source, "Not mine", 3, destination: "slack:T123:CPRIVATE")
+
+    assert {:ok, %{entries: entries, total: 2}} =
+             Collections.page(
+               :schedules,
+               %{channel_refs: [@channel, "C999"], workspace_ref: @workspace},
+               0,
+               20
+             )
+
+    assert Enum.map(entries, & &1.ref) == [mine.ref, shared.ref]
+    refute inspect(entries) =~ "Not mine"
   end
 
   test "saved knowledge lists preferences, guidance and memories visible in this channel", %{
@@ -223,142 +304,13 @@ defmodule Responder.Slack.CollectionsTest do
 
   defp posts(options), do: Agent.get(options.client, & &1.posts)
 
-  defp source! do
-    id = Ecto.UUID.generate()
+  defp source!, do: Fixtures.source!(@conversation)
 
-    {:ok, started} =
-      Episodes.apply(
-        Fixtures.admit_input(%{
-          destination: %{
-            conversation_ref: @conversation,
-            thread_ref: "1.000001",
-            transport: "slack"
-          },
-          episode_id: id,
-          episode_key: "collections:#{id}",
-          native_input_id: "collections:#{id}",
-          turn_ref: "turn:#{id}"
-        })
-      )
+  defp schedule!(source, title, index, overrides \\ []),
+    do: Fixtures.schedule!(source, title, index, overrides)
 
-    {:ok, _session} = Custody.pin_episode(id, "policy:collections", String.duplicate("a", 64))
-    {:ok, claim} = Custody.claim_next("collections:#{id}", 60, :work)
-    %{episode: started.episode, turn: claim.turn}
-  end
+  defp behavior!(source, kind, payload, overrides),
+    do: Fixtures.behavior!(source, kind, payload, overrides)
 
-  defp offer!(source, kind, payload) do
-    {:ok, record} =
-      Records.create(Records.token(source.turn), "offer:#{Ecto.UUID.generate()}", kind, payload)
-
-    record
-  end
-
-  defp schedule!(source, title, index, overrides \\ []) do
-    payload = %{
-      "authority" => "read_only",
-      "catch_up" => "latest",
-      "expires_at" => nil,
-      "recurrence" => %{"kind" => "daily", "time" => "13:00:00"},
-      "repository" => nil,
-      "task" => "Inspect #{title}.",
-      "timezone" => "Etc/UTC",
-      "title" => title
-    }
-
-    record = offer!(source, "schedule_offer", payload)
-    id = Ecto.UUID.generate()
-    at = DateTime.add(@now, index, :hour)
-
-    Repo.insert!(%Schedule{
-      id: id,
-      ref: "schedule:#{id}",
-      offer_record_id: record.id,
-      source_episode_id: source.episode.id,
-      status: Keyword.get(overrides, :status, :active),
-      title: title,
-      task: payload["task"],
-      recurrence: payload["recurrence"],
-      timezone: "Etc/UTC",
-      catch_up: :latest,
-      authority: :read_only,
-      repository: nil,
-      destination_transport: "slack",
-      destination_conversation_ref: Keyword.get(overrides, :destination, @conversation),
-      destination_thread_ref: "1.000001",
-      confirmed_by_actor_ref: "slack:user:U123",
-      confirmation_ref: "interaction:#{id}",
-      confirmed_at: @now,
-      next_occurrence_at: at,
-      inserted_at: at,
-      updated_at: at
-    })
-  end
-
-  defp behavior!(source, kind, payload, overrides) do
-    record = offer!(source, "#{kind}_offer", payload)
-    id = Ecto.UUID.generate()
-
-    Repo.insert!(%Behavior{
-      id: id,
-      ref: "behavior:#{id}",
-      offer_record_id: record.id,
-      kind: kind,
-      status: :active,
-      workspace_ref: "slack:#{@workspace}",
-      scope_kind: Keyword.get(overrides, :scope_kind, :conversation),
-      scope_ref: Keyword.fetch!(overrides, :scope_ref),
-      identity_key: payload["subject"] || payload["key"],
-      payload: payload,
-      confirmed_by_actor_ref: "slack:user:U123",
-      confirmation_ref: "interaction:#{id}",
-      confirmed_at: @now,
-      source_transport: "slack",
-      source_conversation_ref: @conversation,
-      source_thread_ref: "1.000001",
-      source_message_ref: "1.000002",
-      expires_at: DateTime.add(@now, 30, :day),
-      inserted_at: @now,
-      updated_at: @now
-    })
-  end
-
-  defp memory!(source, subject, value) do
-    payload = %{
-      "expires_in" => "30d",
-      "kind" => "entity_relationship",
-      "repository" => nil,
-      "scope" => "workspace",
-      "subject" => subject,
-      "value" => value,
-      "visibility" => "workspace"
-    }
-
-    record = offer!(source, "memory_offer", payload)
-    id = Ecto.UUID.generate()
-
-    Repo.insert!(%MemoryEntry{
-      id: id,
-      ref: "memory:#{id}",
-      offer_record_id: record.id,
-      kind: :entity_relationship,
-      status: :active,
-      workspace_ref: "slack:#{@workspace}",
-      scope_kind: :workspace,
-      scope_ref: "slack:#{@workspace}",
-      visibility: :workspace,
-      subject: subject,
-      payload: payload,
-      payload_fingerprint: Responder.CanonicalJSON.digest(payload),
-      confirmed_by_actor_ref: "slack:user:U123",
-      confirmation_ref: "interaction:#{id}",
-      confirmed_at: @now,
-      source_transport: "slack",
-      source_conversation_ref: @conversation,
-      source_thread_ref: "1.000001",
-      source_message_ref: "1.000002",
-      expires_at: DateTime.add(@now, 30, :day),
-      inserted_at: @now,
-      updated_at: @now
-    })
-  end
+  defp memory!(source, subject, value), do: Fixtures.memory!(source, subject, value)
 end
