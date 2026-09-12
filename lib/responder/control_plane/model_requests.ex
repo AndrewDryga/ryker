@@ -3,6 +3,7 @@ defmodule Responder.ControlPlane.ModelRequests do
   @moduledoc "Bounded, explicitly sensitive read boundary for retained model requests."
   import Ecto.Query
   alias Responder.Admission.Attempt
+  alias Responder.ControlPlane.Activity
   alias Responder.ControlPlane.EpisodeTrace
   alias Responder.ControlPlane.InspectionRedactor, as: Redactor
   alias Responder.ControlPlane.WorkRecovery
@@ -309,7 +310,7 @@ defmodule Responder.ControlPlane.ModelRequests do
            title: EpisodeTrace.unrouted_title(entry),
            received_at: entry.occurred_at || entry.inserted_at,
            conversation_href:
-             Responder.ControlPlane.Activity.conversation_path(
+             Activity.conversation_path(
                entry.destination_transport,
                entry.destination_conversation_ref
              )

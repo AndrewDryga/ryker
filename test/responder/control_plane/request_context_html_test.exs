@@ -152,7 +152,10 @@ defmodule Responder.ControlPlane.RequestContextHTMLTest do
       })
 
     html = artifact |> RequestContextHTML.assembly("$.work", "request-1") |> IO.iodata_to_binary()
-    assert html =~ "Runtime context"
+    # The request settings read as named blocks now; no field is erased by that,
+    # because Raw context carries the exact submitted bytes.
+    assert html =~ "What it was allowed to do"
+    assert html =~ "Raw context"
     assert html =~ "$.work.operator_context.guidance"
     assert html =~ "$.work.operator_context.memory"
     assert html =~ "$.work.offer_confirmation_supported"
@@ -201,7 +204,9 @@ defmodule Responder.ControlPlane.RequestContextHTMLTest do
 
     html = artifact |> RequestContextHTML.assembly("$.work", "all") |> IO.iodata_to_binary()
     assert html =~ "<p>51</p>"
-    assert html =~ "Empty"
+    # A field with no named home is still retained in full, in Raw context.
+    assert html =~ "Raw context"
+    assert html =~ "unknown"
     refute html =~ "Additional entries remain"
     assert Enum.empty?(html |> LazyHTML.from_fragment() |> LazyHTML.query("details[open]"))
   end
