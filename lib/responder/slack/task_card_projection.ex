@@ -13,6 +13,7 @@ defmodule Responder.Slack.TaskCardProjection do
   alias Responder.Episodes.Episode
   alias Responder.Publication.{Followup, Publication, Review}
   alias Responder.Repo
+  alias Responder.Settings
   alias Responder.Slack.{Permalink, TaskCard}
   alias Responder.State.{DerivedContext, Record, Records}
   alias Responder.Work.{FailureCause, Session, TaskStages, Turn}
@@ -505,7 +506,7 @@ defmodule Responder.Slack.TaskCardProjection do
   # stored every other part of it. With the origin unset this stays nil and the
   # card describes the question instead of linking nowhere.
   defp question_url(%Episode{state: :waiting_for_input} = episode) do
-    with %{workspace_url: workspace_url} when is_binary(workspace_url) <- slack_settings(),
+    with workspace_url when is_binary(workspace_url) <- Settings.slack_workspace_url(),
          %Record{turn_id: turn_id} when not is_nil(turn_id) <- open_question(episode.id),
          %Turn{external_receipt: %{"conversation_ref" => conversation, "message_ref" => message}} <-
            Repo.get(Turn, turn_id) do
@@ -516,15 +517,6 @@ defmodule Responder.Slack.TaskCardProjection do
   end
 
   defp question_url(_episode), do: nil
-
-  defp slack_settings do
-    case Responder.Settings.fetch() do
-      {:ok, %{slack: %{} = slack}} -> slack
-      _unavailable -> nil
-    end
-  rescue
-    _error -> nil
-  end
 
   defp open_question(episode_id) do
     Repo.one(
