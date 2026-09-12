@@ -112,12 +112,6 @@ defmodule Responder.ControlPlane.SettingsSections do
           help:
             "Slack user IDs allowed to run operator commands. " <>
               "A disconnected Slack does not revoke them; removing them here does."
-        },
-        %{
-          name: :incident_invite_users,
-          kind: :list,
-          label: "Incident invitees",
-          help: "Slack user IDs invited to every incident channel."
         }
       ]
     },

@@ -620,7 +620,6 @@ defmodule Responder.Runtime.Assembly do
             bot_user_ref: settings.slack.bot_user_ref,
             workspace_ref: settings.slack.workspace_ref
           },
-          incident_invite_users: settings.slack.incident_invite_users,
           incident_policy: incident_policy,
           incident_private: settings.slack.incident_private,
           operators: settings.slack.operators,

@@ -64,7 +64,7 @@ defmodule Responder.Settings.Import do
       ~w(audit_data_seconds closed_work_seconds conversation_memory_seconds episode_history_seconds operational_data_seconds)a,
     schedules: ~w(governed_operation_policy read_only_policy)a,
     slack:
-      ~w(api_url app_token_env bot_token_env channel_prefix default_repository identity incident_invite_users incident_policy incident_private operators watch_channels)a,
+      ~w(api_url app_token_env bot_token_env channel_prefix default_repository identity incident_policy incident_private operators watch_channels)a,
     work: ~w(capability_names execution source_and_action_tools workspace_ref)a
   }
   @deployment [
@@ -591,7 +591,6 @@ defmodule Responder.Settings.Import do
 
       slack ->
         identity = slack.identity
-        invitees = Map.get(slack, :incident_invite_users, [])
         prefix = Map.get(slack, :channel_prefix, "ems")
         private = Map.get(slack, :incident_private, true)
 
@@ -602,7 +601,6 @@ defmodule Responder.Settings.Import do
           {"slack.identity.bot_user_ref", :bot_user_ref, identity.bot_user_ref},
           {"slack.default_repository", :default_repository_ref, slack.default_repository},
           {"slack.operators", :operators, slack.operators},
-          {"slack.incident_invite_users", :incident_invite_users, invitees},
           {"slack.channel_prefix", :channel_prefix, prefix},
           {"slack.incident_private", :incident_private, private},
           {"slack.watch_channels", :default_participation, participation.installation_default}
@@ -1099,7 +1097,6 @@ defmodule Responder.Settings.Import do
           default_participation: participation.installation_default,
           default_repository_ref: slack.default_repository,
           enabled: true,
-          incident_invite_users: Map.get(slack, :incident_invite_users, []),
           incident_private: Map.get(slack, :incident_private, true),
           operators: slack.operators,
           workspace_ref: slack.identity.workspace_ref

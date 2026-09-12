@@ -207,7 +207,7 @@ defmodule Responder.Slack.RendererTest do
     text = Jason.encode!(rendered)
     assert text =~ "join conversations when I can help"
     assert text =~ "I'll offer to investigate in its thread or create a dedicated incident room"
-    assert text =~ "I'll invite the configured on-call responders and <@U456>"
+    assert text =~ "I'll invite <@U456>"
     assert text =~ "*Settings updated.*"
 
     assert [controls] = Enum.filter(rendered["blocks"], &(&1["type"] == "actions"))
@@ -224,8 +224,8 @@ defmodule Responder.Slack.RendererTest do
     assert {:ok, rendered} = Renderer.render(welcome_document(configuration_ref, observing))
     text = Jason.encode!(rendered)
     assert text =~ "I don't have access to any repos, so please connect one (or more)"
-    assert text =~ "I won't send automatic replies while observation mode is on"
-    assert text =~ "I won't start proactive alert investigations while observation mode is on"
+    assert text =~ "watching quietly for now"
+    assert text =~ "I'll wait to be asked before looking into one"
     assert text =~ "/responder shadow inherit"
 
     assert [controls] = Enum.filter(rendered["blocks"], &(&1["type"] == "actions"))
@@ -263,7 +263,7 @@ defmodule Responder.Slack.RendererTest do
                "*Alerts*\nInvestigate in the existing thread",
                "*Repositories*\n<https://github.com/acme/backend|backend>\n`infrastructure`",
                "*Default repository*\n`infrastructure`",
-               "*Incident invitations*\nThe configured on-call responders",
+               "*Incident invitations*\nNo one automatically — you can add people yourself",
                "*Observation mode*\nOff"
              ]
 
@@ -366,32 +366,31 @@ defmodule Responder.Slack.RendererTest do
     [explanation, actions] = rendered["blocks"]
 
     assert explanation["text"]["text"] =~
-             "*Investigate* — I'll look into it in the alert's thread"
+             "*Investigate here* — I'll look into it in the alert's own thread"
 
-    assert explanation["text"]["text"] =~ "*Offer a choice* — I'll ask whether"
-    assert explanation["text"]["text"] =~ "*Create automatically* — I'll create an incident room"
+    assert explanation["text"]["text"] =~ "*Offer a room* — I'll start in the thread"
+    assert explanation["text"]["text"] =~ "*Always open a room* — every alert I investigate"
 
     assert Enum.map(actions["elements"], & &1["text"]["text"]) == [
-             "Investigate",
-             "Offer a choice",
-             "Create automatically"
+             "Investigate here",
+             "Offer a room",
+             "Always open a room"
            ]
 
     audience =
       setup_document(session_ref)
       |> put_in(["channel_setup", "step"], "audience")
-      |> put_in(["channel_setup", "on_call_count"], 2)
 
     assert {:ok, rendered} = Renderer.render(audience)
     [explanation, actions] = rendered["blocks"]
 
     assert explanation["text"]["text"] =~
-             "*On-call responders only* — I'll invite only the 2 configured on-call responders"
+             "Reply in this thread with the people or user groups you want in the room"
 
-    assert explanation["text"]["text"] =~ "*Choose responders* — Reply in this thread"
+    assert explanation["text"]["text"] =~ "Reply in this thread with the people or user groups"
 
     assert Enum.map(actions["elements"], &{&1["action_id"], &1["text"]["text"]}) == [
-             {"responder_setup_audience_none", "On-call responders only"}
+             {"responder_setup_audience_none", "Nobody automatically"}
            ]
 
     confirm =
@@ -2574,7 +2573,6 @@ defmodule Responder.Slack.RendererTest do
           "repository_ref" => nil
         },
         "expires_at" => "2026-08-28T12:30:00.000000Z",
-        "on_call_count" => 0,
         "revision" => 1,
         "session_ref" => session_ref,
         "status" => "asking",
@@ -2589,7 +2587,7 @@ defmodule Responder.Slack.RendererTest do
       "configuration_ref" => Ecto.UUID.generate(),
       "customized_by" => nil,
       "default_repository" => "infrastructure",
-      "invitations" => %{"on_call_count" => 2, "user_group_refs" => [], "user_refs" => []},
+      "invitations" => %{"user_group_refs" => [], "user_refs" => []},
       "observation" => %{"on" => false, "source" => "installation"},
       "participation" => %{"source" => "installation", "value" => "mentions"},
       "repositories" => [

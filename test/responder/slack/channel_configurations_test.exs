@@ -511,7 +511,6 @@ defmodule Responder.Slack.ChannelConfigurationsTest do
   test "effective settings fold emergency overrides over the saved configuration without mutating" do
     catalog =
       Map.merge(@catalog, %{
-        on_call_count: 2,
         repository_urls: %{"backend" => "https://github.com/acme/backend"}
       })
 
@@ -537,7 +536,7 @@ defmodule Responder.Slack.ChannelConfigurationsTest do
              "configuration_ref" => configuration.id,
              "customized_by" => nil,
              "default_repository" => "infrastructure",
-             "invitations" => %{"on_call_count" => 2, "user_group_refs" => [], "user_refs" => []},
+             "invitations" => %{"user_group_refs" => [], "user_refs" => []},
              "observation" => %{"on" => false, "source" => "installation"},
              "participation" => %{"source" => "installation", "value" => "mentions"},
              "repositories" => [

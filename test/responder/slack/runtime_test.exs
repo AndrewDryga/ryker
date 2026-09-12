@@ -217,10 +217,6 @@ defmodule Responder.Slack.RuntimeTest do
       Runtime.options!(Map.put(base, :maximum_open_incidents, 0))
     end
 
-    assert_raise ArgumentError, fn ->
-      Runtime.options!(Map.put(base, :incident_invite_users, ["guest"]))
-    end
-
     assert_raise ArgumentError, fn -> Runtime.options!(Map.put(base, :unknown, true)) end
     assert_raise ArgumentError, fn -> Runtime.options!(:invalid) end
 

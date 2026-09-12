@@ -67,7 +67,6 @@ defmodule Responder.Slack.Runtime do
     :default_repository,
     :handshake_timeout_ms,
     :identity,
-    :incident_invite_users,
     :incident_policy,
     :incident_private,
     :incident_room_interval_ms,
@@ -150,13 +149,10 @@ defmodule Responder.Slack.Runtime do
 
     channel_prefix = configuration |> Map.get(:channel_prefix, "ems") |> channel_prefix!()
 
-    incident_invite_users =
-      configuration
-      |> Map.get(:incident_invite_users, [])
-      |> references!(:incident_invite_users)
-      |> MapSet.union(operators)
-      |> MapSet.to_list()
-      |> Enum.sort()
+    # An incident room invites the operators, who are the people authorized to
+    # act on it, plus whoever the channel named in its own setup thread. There
+    # is no third list to keep in a configuration file.
+    incident_invite_users = operators |> MapSet.to_list() |> Enum.sort()
 
     incident_private =
       configuration |> Map.get(:incident_private, true) |> boolean!(:incident_private)
@@ -279,7 +275,6 @@ defmodule Responder.Slack.Runtime do
 
     catalog = %{
       default_repository: default_repository,
-      on_call_count: length(incident_invite_users),
       repository_refs: repositories |> Map.keys() |> Enum.sort(),
       repository_urls: repository_urls(repositories)
     }

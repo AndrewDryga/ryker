@@ -203,8 +203,6 @@ slack:
     authority_digest: a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0
   operators:
     - U1111111111
-  incident_invite_users:
-    - U1111111111
   watch_channels:
     - C1111111111
   channel_prefix: ems

@@ -315,16 +315,12 @@ defmodule Responder.Slack.ChannelSetup do
           bot_user_ref: String.t(),
           on_call_count: non_neg_integer()
         }) :: map()
-  def document(%ConfigurationSession{} = session, %{
-        bot_user_ref: bot_user_ref,
-        on_call_count: on_call_count
-      }) do
+  def document(%ConfigurationSession{} = session, %{bot_user_ref: bot_user_ref}) do
     %{
       "channel_setup" => %{
         "bot_user_ref" => bot_user_ref,
         "draft" => session.draft,
         "expires_at" => DateTime.to_iso8601(session.expires_at),
-        "on_call_count" => on_call_count,
         "revision" => session.revision,
         "session_ref" => session.id,
         "status" => Atom.to_string(session.status),
@@ -439,10 +435,19 @@ defmodule Responder.Slack.ChannelSetup do
 
   defp maybe_welcome(_result, _options), do: {:ok, :none}
 
+  # Who changed it and when, the way a teammate would say it — not a system
+  # notice that leaves the channel guessing which of them pressed something.
+  defp settings_notice(%ChannelConfiguration{actor_ref: actor, saved_at: %DateTime{} = at})
+       when is_binary(actor),
+       do: "Settings changed by <@#{actor}> at #{Calendar.strftime(at, "%H:%M UTC")}"
+
+  defp settings_notice(_configuration), do: "Settings changed."
+
   defp welcome_after_save(%{status: :saved, session: session}, options) do
     case options.configurations.configuration(session.workspace_ref, session.channel_ref) do
       %ChannelConfiguration{} = configuration ->
-        with {:ok, _delivered} <- ensure_welcome(configuration, "Settings updated.", options) do
+        with {:ok, _delivered} <-
+               ensure_welcome(configuration, settings_notice(configuration), options) do
           :ok
         end
 

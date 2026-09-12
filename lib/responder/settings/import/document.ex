@@ -221,7 +221,6 @@ defmodule Responder.Settings.Import.Document do
       optional: [
         channel_prefix: {:pattern, ~r/\A[a-z0-9_-]{1,20}\z/},
         handshake_timeout_ms: {:integer, 100..60_000},
-        incident_invite_users: {:list, :slack_id},
         incident_private: :boolean,
         incident_room_interval_ms: {:integer, 1..86_400_000},
         incident_room_reconcile_ms: {:integer, 1_000..86_400_000},

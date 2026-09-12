@@ -5,7 +5,7 @@ defmodule Responder.Settings.Slack do
   alias Responder.Settings.Validation
 
   @primary_key {:id, :string, autogenerate: false}
-  @fields ~w(enabled workspace_ref workspace_url bot_ref bot_user_ref default_repository_ref channel_prefix incident_private default_participation operators incident_invite_users)a
+  @fields ~w(enabled workspace_ref workspace_url bot_ref bot_user_ref default_repository_ref channel_prefix incident_private default_participation operators)a
 
   schema "slack_settings" do
     field(:enabled, :boolean, default: false)
@@ -23,7 +23,6 @@ defmodule Responder.Settings.Slack do
     )
 
     field(:operators, {:array, :string}, default: [])
-    field(:incident_invite_users, {:array, :string}, default: [])
   end
 
   def fields, do: @fields
@@ -45,9 +44,7 @@ defmodule Responder.Settings.Slack do
     |> validate_format(:channel_prefix, ~r/\A[a-z0-9_-]{1,20}\z/)
     |> Validation.validate_known(:default_repository_ref, repositories, :unknown_repository)
     |> Validation.validate_slack_ids(:operators)
-    |> Validation.validate_slack_ids(:incident_invite_users)
     |> validate_length(:operators, max: 256)
-    |> validate_length(:incident_invite_users, max: 256)
     |> validate_enabled()
   end
 
