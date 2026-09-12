@@ -13,6 +13,39 @@ defmodule Responder.Slack.TaskCardProjectionTest do
 
   @records Jason.decode!(File.read!("priv/card_lab/legacy_task_records.json"))
 
+  test "a waiting task links the question when the host knows its workspace" do
+    # The 2026-09-12 coverage measurement: a card that says an operator response
+    # is required could not point at the question, because a Slack message link
+    # needs the workspace origin and the host stored every part of it but that.
+    {:ok, %{episode: episode}} = Episodes.apply(EpisodeFixtures.admit_input())
+    {:ok, _} = Custody.pin_episode(episode.id, "read-only", String.duplicate("a", 64))
+    {:ok, claim} = Custody.claim_next("question-link", 60, :work)
+
+    {:ok, _record} =
+      Records.create(Records.token(claim.turn), "question-link", "input_request", %{
+        "choices" => [],
+        "question" => "Which project hosts this deployment?",
+        "remember" => nil
+      })
+
+    source = %Record{
+      kind: "task_offer",
+      status: :confirmed,
+      confirmed_episode_id: episode.id,
+      confirmed_at: DateTime.utc_now(),
+      confirmed_by_actor_ref: "slack:user:U1",
+      ref: "task-card:question-link",
+      payload: %{
+        "title" => "Link the question",
+        "repository" => "responder",
+        "prompt" => "Ask something answerable."
+      }
+    }
+
+    assert {:ok, without} = TaskCardProjection.build(source)
+    assert without.document["task_card"]["question_url"] == nil
+  end
+
   test "a confirmed task with no turn yet reads as queued, not working" do
     # The 2026-09-12 coverage measurement: between confirming a task and a
     # worker being asked for anything, the card said "Working". Nothing was.

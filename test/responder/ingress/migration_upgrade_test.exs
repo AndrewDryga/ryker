@@ -63,6 +63,7 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
   @repository_source_version 20_260_911_001_700
   @emisar_review_digests_version 20_260_911_002_000
   @session_evidence_commands_version 20_260_912_000_100
+  @slack_workspace_url_version 20_260_912_000_200
   # Cross-conversation routing migrations stay named as their own group so the
   # ladder can be reconciled with sibling work.
   @routing_versions [
@@ -95,7 +96,8 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
     @repository_source_version,
     @coop_session_evidence_version,
     @emisar_review_digests_version,
-    @session_evidence_commands_version
+    @session_evidence_commands_version,
+    @slack_workspace_url_version
   ]
   @memory_versions Enum.to_list(20_260_908_000_100..20_260_908_001_100//100) ++
                      [@bounded_sources_version]
@@ -1632,11 +1634,12 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
       # evidence, the session-evidence command kind and the empty settings tables
       # are reversible on their own.
       assert Ecto.Migrator.run(repo, @migrations_path, :down,
-               step: 16 + length(@routing_versions),
+               step: 17 + length(@routing_versions),
                prefix: prefix,
                log: false
              ) ==
                [
+                 @slack_workspace_url_version,
                  @session_evidence_commands_version,
                  @emisar_review_digests_version,
                  @coop_session_evidence_version,
@@ -1737,8 +1740,8 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
       # The worker session evidence and the session-evidence command kind sit
       # above the learning rungs and are empty in this schema, so they roll back
       # on their own first.
-      assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 1, prefix: prefix, log: false) ==
-               [@session_evidence_commands_version]
+      assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 2, prefix: prefix, log: false) ==
+               [@slack_workspace_url_version, @session_evidence_commands_version]
 
       approval_id = insert_presented_review!(repo, prefix, ids, record_id)
 
@@ -2001,7 +2004,8 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
                  @repository_source_version,
                  @coop_session_evidence_version,
                  @emisar_review_digests_version,
-                 @session_evidence_commands_version
+                 @session_evidence_commands_version,
+                 @slack_workspace_url_version
                ]
 
       assert table_exists?(repo, prefix, "episode_routing_digests")
@@ -2015,8 +2019,13 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
       # Six newer migrations sit above the routing rungs; all are reversible in
       # this schema, which recorded no worker evidence, no settings and no
       # metered learning execution.
-      assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 9, prefix: prefix, log: false) ==
+      assert Ecto.Migrator.run(repo, @migrations_path, :down,
+               step: 10,
+               prefix: prefix,
+               log: false
+             ) ==
                [
+                 @slack_workspace_url_version,
                  @session_evidence_commands_version,
                  @emisar_review_digests_version,
                  @coop_session_evidence_version,
@@ -2146,8 +2155,12 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
 
       # The review digests and the session-evidence command kind sit above this
       # table and hold nothing here.
-      assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 2, prefix: prefix, log: false) ==
-               [@session_evidence_commands_version, @emisar_review_digests_version]
+      assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 3, prefix: prefix, log: false) ==
+               [
+                 @slack_workspace_url_version,
+                 @session_evidence_commands_version,
+                 @emisar_review_digests_version
+               ]
 
       session_id = insert_admission_session!(repo, prefix)
       evidence_id = insert_session_evidence!(repo, prefix, session_id)
@@ -2179,7 +2192,8 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
                [
                  @coop_session_evidence_version,
                  @emisar_review_digests_version,
-                 @session_evidence_commands_version
+                 @session_evidence_commands_version,
+                 @slack_workspace_url_version
                ]
     after
       SQL.query!(repo, "DROP SCHEMA IF EXISTS #{prefix} CASCADE", [])
@@ -2225,8 +2239,9 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
       # The session-evidence command kind, the worker session evidence and the
       # repository source column sit above the settings tables and hold nothing
       # here, so they roll back on their own.
-      assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 4, prefix: prefix, log: false) ==
+      assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 5, prefix: prefix, log: false) ==
                [
+                 @slack_workspace_url_version,
                  @session_evidence_commands_version,
                  @emisar_review_digests_version,
                  @coop_session_evidence_version,
@@ -2291,7 +2306,8 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
                  @repository_source_version,
                  @coop_session_evidence_version,
                  @emisar_review_digests_version,
-                 @session_evidence_commands_version
+                 @session_evidence_commands_version,
+                 @slack_workspace_url_version
                ]
     after
       SQL.query!(repo, "DROP SCHEMA IF EXISTS #{prefix} CASCADE", [])

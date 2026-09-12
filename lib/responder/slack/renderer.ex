@@ -409,7 +409,7 @@ defmodule Responder.Slack.Renderer do
        when status in @task_statuses do
     repository_url = Map.get(task, "repository_url")
 
-    with true <- Map.keys(task) -- (@task_fields ++ ~w(repository_url request)) == [],
+    with true <- Map.keys(task) -- (@task_fields ++ ~w(question_url repository_url request)) == [],
          true <- TaskCardDetails.valid?(task),
          :ok <- task_reference(task_ref),
          :ok <- bounded_text(confirmed_by, 1_024),
