@@ -104,8 +104,7 @@ defmodule Responder.ControlPlane.ModelRequestsTest do
       full = LazyHTML.query(document, ".final-prompt")
       assert Enum.count(full) == 1
 
-      assert full |> LazyHTML.query("summary") |> Enum.at(0) |> LazyHTML.text() =~
-               "Full submitted request"
+      assert LazyHTML.text(full) =~ "Full submitted request"
 
       # The retained submission is the page's subject and reads as a plain
       # section; its components inside it stay collapsed.
@@ -128,6 +127,26 @@ defmodule Responder.ControlPlane.ModelRequestsTest do
       assert ids == Enum.uniq(ids)
       refute html =~ "xoxb-recorded-credential"
     end
+
+    # On the page whose subject is this request, it is a section with a heading.
+    # It had been a disclosure held permanently open, whose summary then had to
+    # be made unfocusable so it would stop behaving like a control nobody could
+    # use — three workarounds for not being the element it already was.
+    page =
+      LazyHTML.from_document(
+        render_component(&RequestPage.render/1,
+          view: view,
+          params: %{},
+          path: "/timeline/#{URI.encode_www_form(episode.key)}/model-calls"
+        )
+      )
+
+    assert Enum.count(LazyHTML.query(page, "section.final-prompt")) == 1
+    assert Enum.empty?(LazyHTML.query(page, "details.final-prompt"))
+
+    assert page
+           |> LazyHTML.query(".final-prompt > .document-heading h4")
+           |> LazyHTML.text() =~ "Full submitted request"
   end
 
   test "validation history shows each recorded check and its violations without inventing response bodies" do

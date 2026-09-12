@@ -156,57 +156,83 @@ defmodule Responder.ControlPlane.RequestPage do
       )
 
     ~H"""
-    <details
-      class={[
-        "inspector-document artifact-#{@section.id}",
-        @section.id == "request" && "final-prompt"
-      ]}
+    <section
+      :if={@section.id == "request"}
+      class="inspector-document artifact-request final-prompt"
       id={"#{@prefix}-#{@section.id}"}
-      open={assigns[:expanded_source] || @section.id in ["request", "validation"]}
     >
-      <summary
-        class={["document-heading", @section.id == "request" && "document-heading-fixed"]}
-        tabindex={if @section.id == "request", do: "-1"}
-      >
+      <header class="document-heading document-heading-fixed">
+        <h4>{@heading}</h4><span>{artifact_label(@section.artifact)}{if @section.artifact.truncated,
+          do: " · truncated display"}</span>
+      </header>
+      <.artifact_body
+        prefix={@prefix}
+        readable_context={@readable_context}
+        section={@section}
+        validation_steps={@validation_steps}
+      />
+    </section>
+    <details
+      :if={@section.id != "request"}
+      class={"inspector-document artifact-#{@section.id}"}
+      id={"#{@prefix}-#{@section.id}"}
+      open={assigns[:expanded_source] || @section.id == "validation"}
+    >
+      <summary class="document-heading">
         <h4>{@heading}</h4><span>{artifact_label(@section.artifact)}{if @section.artifact.truncated,
           do: " · truncated display"}</span>
       </summary>
-      <p :if={@section.artifact.state != :retained} class="artifact-unavailable">
-        {if @section.artifact.state == :expired,
-          do: "This artifact has expired",
-          else: "This artifact was not recorded"}. No reconstructed substitute is shown.
-      </p>
-      <div
-        :if={@section.artifact.state == :retained}
-        id={if @section.id == "candidate", do: "#{@prefix}-candidate-body"}
-      >
-        <.validation_checks
-          :if={@section.id == "validation"}
-          steps={@validation_steps}
-          prefix={@prefix}
-          page={@section[:response_page]}
-        />
-        <div :if={@readable_context != ""} class="readable-model-context">
-          {Phoenix.HTML.raw(@readable_context)}
-        </div>
-        <pre
-          :if={@readable_context == "" && @section.id != "validation"}
-          class="model-document-text"
-          tabindex="0"
-        >{@section.artifact.text}</pre>
-        <details
-          class={["document-provenance", @section.id == "validation" && "validation-raw"]}
-          id={"#{@prefix}-#{@section.id}-provenance"}
-        >
-          <summary>
-            {if @section.id == "validation", do: "Raw validation record", else: "Artifact identity"}{if @section.artifact.redacted,
-              do: " · redacted display"}
-          </summary>
-          <p>Original retained bytes: {@section.artifact.bytes}</p><code>{@section.artifact.sha256}</code>
-          <pre :if={@section.id in ["context", "validation"]} class="model-document-text" tabindex="0">{@section.artifact.text}</pre>
-        </details>
-      </div>
+      <.artifact_body
+        prefix={@prefix}
+        readable_context={@readable_context}
+        section={@section}
+        validation_steps={@validation_steps}
+      />
     </details>
+    """
+  end
+
+  # The submitted request is the whole point of this page, so it is a section
+  # with a heading rather than a disclosure that is always open and whose
+  # summary had to be made unfocusable to stop it behaving like a control.
+  # Everything below the heading is identical either way.
+  defp artifact_body(assigns) do
+    ~H"""
+    <p :if={@section.artifact.state != :retained} class="artifact-unavailable">
+      {if @section.artifact.state == :expired,
+        do: "This artifact has expired",
+        else: "This artifact was not recorded"}. No reconstructed substitute is shown.
+    </p>
+    <div
+      :if={@section.artifact.state == :retained}
+      id={if @section.id == "candidate", do: "#{@prefix}-candidate-body"}
+    >
+      <.validation_checks
+        :if={@section.id == "validation"}
+        steps={@validation_steps}
+        prefix={@prefix}
+        page={@section[:response_page]}
+      />
+      <div :if={@readable_context != ""} class="readable-model-context">
+        {Phoenix.HTML.raw(@readable_context)}
+      </div>
+      <pre
+        :if={@readable_context == "" && @section.id != "validation"}
+        class="model-document-text"
+        tabindex="0"
+      >{@section.artifact.text}</pre>
+      <details
+        class={["document-provenance", @section.id == "validation" && "validation-raw"]}
+        id={"#{@prefix}-#{@section.id}-provenance"}
+      >
+        <summary>
+          {if @section.id == "validation", do: "Raw validation record", else: "Artifact identity"}{if @section.artifact.redacted,
+            do: " · redacted display"}
+        </summary>
+        <p>Original retained bytes: {@section.artifact.bytes}</p><code>{@section.artifact.sha256}</code>
+        <pre :if={@section.id in ["context", "validation"]} class="model-document-text" tabindex="0">{@section.artifact.text}</pre>
+      </details>
+    </div>
     """
   end
 

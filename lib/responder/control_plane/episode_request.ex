@@ -145,20 +145,19 @@ defmodule Responder.ControlPlane.EpisodeRequest do
           View response with attempt {@archived_response.attempt}'s checks ↑
         </a>
       </p>
-      <details
+      <section
         :if={@result? && !@archived_response}
         class="request-evidence request-result-evidence"
         id={"#{@request.id}-evidence"}
       >
-        <summary>
-          {if @request.source_kind == :work, do: "Raw model response", else: "Routing records"}
-        </summary>
-        <.artifact_text
+        <h4>{if @request.source_kind == :work, do: "Raw model response", else: "Routing records"}</h4>
+        <.artifact_disclosure
           :for={section <- @request.sections}
           :if={@request.source_kind != :work || section.id == "candidate"}
+          id={"#{@request.id}-evidence-#{section.id}"}
           section={section}
         />
-      </details>
+      </section>
     </div>
     """
   end
@@ -171,8 +170,24 @@ defmodule Responder.ControlPlane.EpisodeRequest do
       section.artifact.state != :retained || section.artifact.truncated ||
         not is_map(document(%{sections: [section]}, "context"))
 
-  # The main timeline uses a single disclosure for raw evidence. Identity and
-  # artifact-level inspection remain on the linked full request record.
+  # One disclosure per record, not one disclosure over all of them. A routing
+  # result carries the evidence, the committed decision, the milestones and the
+  # exact response; stacking every one of them inside a single "Routing records"
+  # toggle meant opening all of it to read any of it, and the titles that say
+  # which is which were only visible after that.
+  defp artifact_disclosure(assigns) do
+    ~H"""
+    <details class={"timeline-artifact artifact-#{@section.id}"} id={@id}>
+      <summary>
+        {@section.title}<span :if={availability(@section.artifact)}>{availability(@section.artifact)}</span>
+      </summary>
+      <pre :if={@section.artifact.state == :retained}>{@section.artifact.text}</pre>
+    </details>
+    """
+  end
+
+  # Identity and artifact-level inspection remain on the linked full request
+  # record; this is the body inside a disclosure that already named the record.
   defp artifact_text(assigns) do
     ~H"""
     <section class={"timeline-artifact artifact-#{@section.id}"}>
