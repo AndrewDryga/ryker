@@ -7,7 +7,7 @@ defmodule Responder.State.SchedulesTest do
   alias Responder.Episodes.Episode
   alias Responder.Fixtures.Episodes, as: EpisodeFixtures
   alias Responder.Repo
-  alias Responder.Slack.{AppHomeProjection, ReplyRecords}
+  alias Responder.Slack.{AppHomeProjection, Renderer, ReplyRecords}
 
   alias Responder.State.{
     Automations,
@@ -197,6 +197,58 @@ defmodule Responder.State.SchedulesTest do
              ReplyRecords.documents("slack", fixture.episode.id, [%{record | status: :open}])
 
     refute Map.has_key?(open, "presentation")
+  end
+
+  # The delete dialog was a hand-written Card Lab specimen with no test behind
+  # it, and it is the last thing an operator reads before a destructive press:
+  # it has to name this schedule, say what stops, and say what survives. A card
+  # state nobody drives from a real record is only a claim — the 2026-09-12
+  # audit found one such claim ("the parked state clears native activity") was
+  # false, and a thread had been told "is working..." every 90 seconds ever
+  # since.
+  test "deleting a saved schedule is confirmed against that schedule by name" do
+    fixture = delivered_offer!("delete-dialog")
+    assert {:ok, confirmation} = Schedules.confirm(confirmation(fixture, "delete-dialog"))
+    schedule = confirmation.schedule
+    record = Repo.get!(Record, fixture.record.id)
+    scope = %{conversation_prefix: "slack:T123:", transport: "slack"}
+
+    assert [document] = ReplyRecords.documents("slack", fixture.episode.id, [record])
+    assert {:ok, rendered} = Renderer.render(%{"message" => "Saved.", "records" => [document]})
+
+    assert [delete] = List.last(rendered["blocks"])["elements"]
+    assert delete["action_id"] == "responder_delete_schedule"
+    assert delete["style"] == "danger"
+    assert delete["value"] == "schedule-control:#{schedule.ref}:1"
+    assert delete["text"]["text"] == "Delete schedule"
+    assert delete["confirm"]["title"]["text"] == "Delete schedule?"
+
+    assert delete["confirm"]["text"]["text"] ==
+             "Stop future runs of “Daily service health”. Already-started work and its history remain."
+
+    assert delete["confirm"]["confirm"]["text"] == "Delete schedule"
+    assert delete["confirm"]["deny"]["text"] == "Cancel"
+
+    # A paused schedule is still removable, and the control follows its revision.
+    assert {:ok, paused} = Schedules.set_status(schedule.ref, :paused, scope)
+    assert [paused_document] = ReplyRecords.documents("slack", fixture.episode.id, [record])
+
+    assert {:ok, rendered} =
+             Renderer.render(%{"message" => "Saved.", "records" => [paused_document]})
+
+    assert [paused_delete] = List.last(rendered["blocks"])["elements"]
+    assert paused_delete["value"] == "schedule-control:#{schedule.ref}:#{paused.revision}"
+    assert paused_delete["confirm"]["title"]["text"] == "Delete schedule?"
+
+    # Once it is gone there is nothing left to confirm.
+    assert {:ok, _deleted} = Schedules.set_status(schedule.ref, :deleted, scope)
+    assert [deleted_document] = ReplyRecords.documents("slack", fixture.episode.id, [record])
+
+    assert {:ok, rendered} =
+             Renderer.render(%{"message" => "Saved.", "records" => [deleted_document]})
+
+    refute Enum.any?(rendered["blocks"], &(&1["type"] == "actions"))
+    assert inspect(rendered) =~ "Schedule deleted"
   end
 
   test "a stale skipped occurrence is recorded without starting work" do

@@ -213,6 +213,30 @@ defmodule Responder.Slack.IncidentRoomsTest do
              {:error, {:invalid_incident_investigation, :fields}}
   end
 
+  # The in-place path authorizes the press against the exact card this host
+  # delivered, and nothing exercised that check: the room path's mismatch had a
+  # test, the investigate path's did not. A card state nobody drives from its
+  # producing condition is a claim, not a fact — the 2026-09-12 audit found one
+  # such claim ("the parked state clears native activity") was simply false, and
+  # a thread had been told "is working..." every 90 seconds ever since.
+  test "investigating from a message this host never delivered starts no work" do
+    fixture = delivered_offer!()
+
+    crossed = put_in(investigate(fixture), [:target, :message_ref], "1787832999.999999")
+
+    assert IncidentRooms.investigate(crossed) == {:error, :incident_offer_delivery_mismatch}
+
+    record = Repo.get!(Record, fixture.record.id)
+    assert record.status == :open
+    assert is_nil(record.confirmed_episode_id)
+    refute Repo.get_by(IncidentRoom, record_id: record.id)
+    assert Repo.aggregate(Session, :count, :id) == 1
+
+    # The offer itself is untouched: only the crossed message was refused.
+    assert {:ok, investigation} = IncidentRooms.investigate(investigate(fixture))
+    assert investigation.status == :confirmed
+  end
+
   test "a delivered incident offer provisions one usable room before starting linked work" do
     fixture = delivered_offer!()
     save_channel_configuration!()

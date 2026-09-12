@@ -7,6 +7,7 @@ defmodule Responder.State.AutomationsTest do
   alias Responder.Episodes.Episode
   alias Responder.Fixtures.Episodes, as: EpisodeFixtures
   alias Responder.Repo
+  alias Responder.Slack.{Renderer, ReplyRecords}
 
   alias Responder.State.{
     Automations,
@@ -308,6 +309,72 @@ defmodule Responder.State.AutomationsTest do
 
     assert Automations.confirm(Map.to_list(valid)) ==
              {:error, :automation_change_offer_not_found}
+  end
+
+  # `SavedEntity`'s `:updated` event existed only as a hand-written Card Lab
+  # specimen ("Schedule has been updated"), with nothing driving it from a
+  # confirmed change. An unverified card state is a claim: the 2026-09-12 audit
+  # found one such claim ("the parked state clears native activity") was simply
+  # false, and a thread had been told "is working..." every 90 seconds ever
+  # since. The card has to show the automation as it now stands, because the
+  # change offer's own payload describes a proposal that has already happened.
+  test "a confirmed change shows the automation as it now stands, with its new revision" do
+    source = delivered_record!("updated-card", "schedule_offer", schedule_offer())
+    assert {:ok, created} = Schedules.confirm(confirmation(source, "create-updated-card"))
+    schedule = created.schedule
+
+    assert {:ok, updated} =
+             change!(source.episode, "update-card", schedule.ref, 1, "update", %{
+               "prompt" => "Inspect service health and report only material changes.",
+               "title" => "Daily material service health"
+             })
+
+    change = Repo.get_by!(Record, ref: updated.fixture.record.ref)
+    assert change.status == :confirmed
+
+    assert [%{"presentation" => %{"entity" => entity}} = document] =
+             ReplyRecords.documents("slack", updated.fixture.episode.id, [change])
+
+    assert entity["kind"] == "schedule"
+    assert entity["ref"] == schedule.ref
+    assert entity["notice"] == "Schedule has been updated"
+    assert entity["revision"] == 2
+    assert entity["status"] == "active"
+    assert entity["removable"] == true
+    assert entity["title"] == "Daily material service health"
+    assert entity["instructions"] == "Inspect service health and report only material changes."
+    assert ["When", "Daily at 13:00:00 · Etc/UTC"] in entity["facts"]
+
+    assert {:ok, rendered} =
+             Renderer.render(%{"message" => "Change saved.", "records" => [document]})
+
+    assert [_message, detail, _facts, context, controls] = rendered["blocks"]
+    assert detail["text"]["text"] =~ "*Daily material service health*"
+    assert detail["text"]["text"] =~ "only material changes"
+    assert hd(context["elements"])["text"] =~ "Schedule has been updated · saved by <@U123>"
+
+    # The control the operator is offered removes the revision they are looking
+    # at, not the one the change superseded.
+    assert [delete] = controls["elements"]
+    assert delete["action_id"] == "responder_delete_schedule"
+    assert delete["value"] == "schedule-control:#{schedule.ref}:2"
+
+    # A deleted automation is described by its current state, not by the change
+    # that last edited it, and offers nothing to press.
+    assert {:ok, _deleted} =
+             change!(source.episode, "delete-card", schedule.ref, 2, "delete", %{})
+
+    assert [%{"presentation" => %{"entity" => gone}} = removed] =
+             ReplyRecords.documents("slack", updated.fixture.episode.id, [change])
+
+    assert gone["notice"] == "Schedule deleted"
+    assert gone["status"] == "deleted"
+    assert gone["removable"] == false
+
+    assert {:ok, rendered} =
+             Renderer.render(%{"message" => "Change saved.", "records" => [removed]})
+
+    refute Enum.any?(rendered["blocks"], &(&1["type"] == "actions"))
   end
 
   defp change!(episode, suffix, automation_id, revision, action, patch) do
