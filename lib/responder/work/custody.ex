@@ -2804,10 +2804,10 @@ defmodule Responder.Work.Custody do
   @spec portable_workspace(Turn.t()) ::
           %{byte_size: pos_integer(), checkpoint_ref: String.t(), repository_ref: String.t()}
           | nil
-  def portable_workspace(%Turn{session_id: session_id}) when is_binary(session_id) do
+  def portable_workspace(%Turn{status: :blocked, session_id: session_id})
+      when is_binary(session_id) do
     with %Session{} = session <- Repo.get(Session, session_id),
-         {:ok, %{work: %{workspace_ref: workspace_ref}}} when is_binary(workspace_ref) <-
-           Settings.fetch() do
+         workspace_ref when is_binary(workspace_ref) <- Settings.work_workspace_ref() do
       FleetControlPlane.portable_workspace(session, %{
         capability_names: Defaults.fetch!(:work).capability_names,
         capability_versions: %{},

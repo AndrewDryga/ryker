@@ -1485,23 +1485,26 @@ defmodule Responder.Work.CustodyTest do
              )
 
     assert {:ok, claim} = Custody.claim_next("worker:portable", 60)
+    blocked = %{claim.turn | status: :blocked}
 
     # No worker yet, and no checkpoint: nothing to offer.
-    assert Custody.portable_workspace(claim.turn) == nil
+    assert Custody.portable_workspace(blocked) == nil
 
     enroll!("worker-portable")
-    assert Custody.portable_workspace(claim.turn) == nil
+    assert Custody.portable_workspace(blocked) == nil
 
     checkpoint!(session)
 
-    assert Custody.portable_workspace(claim.turn) == %{
+    assert Custody.portable_workspace(blocked) == %{
              byte_size: 4_096,
              checkpoint_ref: "checkpoint:custody",
              repository_ref: "responder"
            }
 
-    # A turn with no session of its own has nowhere to resume from.
-    assert Custody.portable_workspace(%Turn{}) == nil
+    # A turn with no session of its own has nowhere to resume from, and a turn
+    # that is still running is not being resumed at all.
+    assert Custody.portable_workspace(%Turn{status: :blocked}) == nil
+    assert Custody.portable_workspace(claim.turn) == nil
   end
 
   defp enroll!(id) do
