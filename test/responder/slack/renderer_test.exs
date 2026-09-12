@@ -15,7 +15,6 @@ defmodule Responder.Slack.RendererTest do
     ref = hd(captured["accepted_candidate"]["outcome"]["record_refs"])
 
     payload = %{
-      "catch_up" => proposal["catch_up"],
       "context_channel" => "slack:T0BHXKZJVDX:C0BHTRPHXP0",
       "delivery_channel" => "slack:T0BHXKZJVDX:C0BHTRPHXP0",
       "expires_at" => nil,
@@ -1325,7 +1324,6 @@ defmodule Responder.Slack.RendererTest do
                    "kind" => "schedule_offer",
                    "payload" => %{
                      "authority" => "read_only",
-                     "catch_up" => "latest",
                      "expires_at" => nil,
                      "recurrence" => %{
                        "kind" => "weekly",
@@ -1436,7 +1434,6 @@ defmodule Responder.Slack.RendererTest do
   test "renders a complete automation before and after with one host-owned confirmation" do
     before = %{
       "automation_id" => "schedule:daily-health",
-      "catch_up" => "latest",
       "context_channel" => "slack:T123:C456",
       "delivery_channel" => "slack:T123:C456",
       "expires_at" => nil,
@@ -1495,7 +1492,6 @@ defmodule Responder.Slack.RendererTest do
   test "renders a complete maximum-sized automation update for operator review" do
     before = %{
       "automation_id" => "schedule:large-health-review",
-      "catch_up" => "latest",
       "context_channel" => "slack:T123:C456",
       "delivery_channel" => "slack:T123:C456",
       "expires_at" => nil,
@@ -1595,7 +1591,6 @@ defmodule Responder.Slack.RendererTest do
       %{
         "kind" => "standing_assignment_offer",
         "payload" => %{
-          "catch_up" => "skip",
           "context_channel" => "slack:T123:C456",
           "delivery_channel" => "slack:T123:C456",
           "expires_at" => nil,

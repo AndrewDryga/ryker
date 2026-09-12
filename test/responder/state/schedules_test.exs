@@ -174,7 +174,6 @@ defmodule Responder.State.SchedulesTest do
     assert ["When", "Daily at 13:00:00 · Etc/UTC"] in entity["facts"]
     assert ["Channel", %{"channel_ref" => "C456"}] in entity["facts"]
     assert ["Expires", "No expiry"] in entity["facts"]
-    assert ["Missed runs", "Run the latest missed occurrence"] in entity["facts"]
     assert ["Access", "Read-only"] in entity["facts"]
     assert Enum.any?(entity["facts"], &match?(["Next run", _], &1))
 
@@ -252,7 +251,7 @@ defmodule Responder.State.SchedulesTest do
   end
 
   test "a stale skipped occurrence is recorded without starting work" do
-    fixture = delivered_offer!("misfire", catch_up: "skip")
+    fixture = delivered_offer!("misfire")
     assert {:ok, confirmation} = Schedules.confirm(confirmation(fixture, "misfire"))
 
     make_due!(confirmation.schedule, DateTime.add(database_now!(), -3_600, :second))
@@ -294,7 +293,7 @@ defmodule Responder.State.SchedulesTest do
     assert Schedules.renew(claim.schedule.ref, "wrong-lease", 60) ==
              {:error, :schedule_lease_lost}
 
-    assert Schedules.dispatch(claim.schedule.ref, claim.lease_ref, fn _ -> {:ok, %{}} end, 0) ==
+    assert Schedules.dispatch(claim.schedule.ref, claim.lease_ref, fn _ -> {:ok, %{}} end, 60) ==
              {:error, :schedule_policy_unavailable}
 
     reason = {:temporary_failure, String.duplicate("x", 8_000)}
@@ -322,9 +321,13 @@ defmodule Responder.State.SchedulesTest do
     assert Repo.get!(Schedule, confirmed.schedule.id).status == :expired
   end
 
-  test "latest catch-up dispatches only the newest due interval and keeps the next run future" do
+  test "a schedule that was missed stays missed and runs next time" do
+    # A schedule used to carry a choice about missed runs, and the card had to
+    # explain it: "Missed runs — Run the latest missed occurrence". Nobody wants
+    # a morning check firing at four in the afternoon because the host was down;
+    # a missed run is recorded as missed and the next one runs on time.
     fixture =
-      delivered_offer!("latest-catch-up",
+      delivered_offer!("missed",
         recurrence: %{
           "every_seconds" => 300,
           "kind" => "interval",
@@ -332,23 +335,19 @@ defmodule Responder.State.SchedulesTest do
         }
       )
 
-    assert {:ok, confirmed} = Schedules.confirm(confirmation(fixture, "latest-catch-up"))
+    assert {:ok, confirmed} = Schedules.confirm(confirmation(fixture, "missed"))
     now = database_now!()
     make_due!(confirmed.schedule, DateTime.add(now, -3_601, :second))
 
-    assert {:ok, claim} = Schedules.claim_due("schedule-worker:latest-catch-up", 60)
+    assert {:ok, claim} = Schedules.claim_due("schedule-worker:missed", 60)
 
     assert {:ok, dispatched} =
              Schedules.dispatch(claim.schedule.ref, claim.lease_ref, &policy/1, 60)
 
-    assert dispatched.status == :dispatched
-    assert DateTime.compare(dispatched.occurrence.scheduled_for, now) != :gt
-    assert DateTime.diff(now, dispatched.occurrence.scheduled_for, :second) < 300
+    assert dispatched.status == :missed
+    assert dispatched.occurrence.status == :missed
 
-    assert DateTime.compare(
-             dispatched.schedule.next_occurrence_at,
-             dispatched.occurrence.scheduled_for
-           ) == :gt
+    assert DateTime.compare(dispatched.schedule.next_occurrence_at, now) == :gt
   end
 
   test "a one-time schedule completes after its only exact occurrence" do
@@ -654,7 +653,6 @@ defmodule Responder.State.SchedulesTest do
 
     payload = %{
       "authority" => "read_only",
-      "catch_up" => Keyword.get(options, :catch_up, "latest"),
       "expires_at" => Keyword.get(options, :expires_at),
       "recurrence" =>
         Keyword.get(options, :recurrence, %{"kind" => "daily", "time" => "13:00:00"}),

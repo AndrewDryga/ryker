@@ -1837,7 +1837,6 @@ defmodule Responder.ControlPlane.ProjectionTest do
     schedule =
       %{
         authority: :read_only,
-        catch_up: :latest,
         confirmation_ref: "schedule-confirmation:operator",
         confirmed_at: now,
         confirmed_by_actor_ref: "U123",

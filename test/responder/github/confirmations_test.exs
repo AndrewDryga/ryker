@@ -233,7 +233,6 @@ defmodule Responder.GitHub.ConfirmationsTest do
     assert {:ok, schedule} =
              Records.create(Records.token(claim.turn), "github-schedule", "schedule_offer", %{
                "authority" => "read_only",
-               "catch_up" => "latest",
                "expires_at" => nil,
                "recurrence" => %{"kind" => "daily", "time" => "09:00:00"},
                "repository" => nil,

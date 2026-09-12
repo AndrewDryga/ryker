@@ -184,7 +184,6 @@ defmodule Responder.ControlPlane.OperatorProjection do
         limit: @list_limit,
         select: %{
           authority: schedule.authority,
-          catch_up: schedule.catch_up,
           destination_conversation_ref: schedule.destination_conversation_ref,
           destination_transport: schedule.destination_transport,
           failures: schedule.failure_count,
@@ -317,7 +316,6 @@ defmodule Responder.ControlPlane.OperatorProjection do
            occurrences: occurrences,
            schedule: %{
              authority: schedule.authority,
-             catch_up: schedule.catch_up,
              confirmed_at: schedule.confirmed_at,
              destination_conversation_ref: schedule.destination_conversation_ref,
              destination_thread_ref: schedule.destination_thread_ref,

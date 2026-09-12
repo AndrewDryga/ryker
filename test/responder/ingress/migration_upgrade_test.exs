@@ -65,6 +65,7 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
   @session_evidence_commands_version 20_260_912_000_100
   @slack_workspace_url_version 20_260_912_000_200
   @channel_invitations_version 20_260_912_000_300
+  @schedule_catch_up_version 20_260_912_000_400
   # Cross-conversation routing migrations stay named as their own group so the
   # ladder can be reconciled with sibling work.
   @routing_versions [
@@ -99,7 +100,8 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
     @emisar_review_digests_version,
     @session_evidence_commands_version,
     @slack_workspace_url_version,
-    @channel_invitations_version
+    @channel_invitations_version,
+    @schedule_catch_up_version
   ]
   @memory_versions Enum.to_list(20_260_908_000_100..20_260_908_001_100//100) ++
                      [@bounded_sources_version]
@@ -1636,11 +1638,12 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
       # evidence, the session-evidence command kind and the empty settings tables
       # are reversible on their own.
       assert Ecto.Migrator.run(repo, @migrations_path, :down,
-               step: 18 + length(@routing_versions),
+               step: 19 + length(@routing_versions),
                prefix: prefix,
                log: false
              ) ==
                [
+                 @schedule_catch_up_version,
                  @channel_invitations_version,
                  @slack_workspace_url_version,
                  @session_evidence_commands_version,
@@ -1743,8 +1746,9 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
       # The worker session evidence and the session-evidence command kind sit
       # above the learning rungs and are empty in this schema, so they roll back
       # on their own first.
-      assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 3, prefix: prefix, log: false) ==
+      assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 4, prefix: prefix, log: false) ==
                [
+                 @schedule_catch_up_version,
                  @channel_invitations_version,
                  @slack_workspace_url_version,
                  @session_evidence_commands_version
@@ -2013,7 +2017,8 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
                  @emisar_review_digests_version,
                  @session_evidence_commands_version,
                  @slack_workspace_url_version,
-                 @channel_invitations_version
+                 @channel_invitations_version,
+                 @schedule_catch_up_version
                ]
 
       assert table_exists?(repo, prefix, "episode_routing_digests")
@@ -2028,11 +2033,12 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
       # in this schema, which recorded no worker evidence, no settings and no
       # metered learning execution.
       assert Ecto.Migrator.run(repo, @migrations_path, :down,
-               step: 11,
+               step: 12,
                prefix: prefix,
                log: false
              ) ==
                [
+                 @schedule_catch_up_version,
                  @channel_invitations_version,
                  @slack_workspace_url_version,
                  @session_evidence_commands_version,
@@ -2164,8 +2170,9 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
 
       # The review digests and the session-evidence command kind sit above this
       # table and hold nothing here.
-      assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 4, prefix: prefix, log: false) ==
+      assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 5, prefix: prefix, log: false) ==
                [
+                 @schedule_catch_up_version,
                  @channel_invitations_version,
                  @slack_workspace_url_version,
                  @session_evidence_commands_version,
@@ -2204,7 +2211,8 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
                  @emisar_review_digests_version,
                  @session_evidence_commands_version,
                  @slack_workspace_url_version,
-                 @channel_invitations_version
+                 @channel_invitations_version,
+                 @schedule_catch_up_version
                ]
     after
       SQL.query!(repo, "DROP SCHEMA IF EXISTS #{prefix} CASCADE", [])
@@ -2250,8 +2258,9 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
       # The session-evidence command kind, the worker session evidence and the
       # repository source column sit above the settings tables and hold nothing
       # here, so they roll back on their own.
-      assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 6, prefix: prefix, log: false) ==
+      assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 7, prefix: prefix, log: false) ==
                [
+                 @schedule_catch_up_version,
                  @channel_invitations_version,
                  @slack_workspace_url_version,
                  @session_evidence_commands_version,
@@ -2320,7 +2329,8 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
                  @emisar_review_digests_version,
                  @session_evidence_commands_version,
                  @slack_workspace_url_version,
-                 @channel_invitations_version
+                 @channel_invitations_version,
+                 @schedule_catch_up_version
                ]
     after
       SQL.query!(repo, "DROP SCHEMA IF EXISTS #{prefix} CASCADE", [])

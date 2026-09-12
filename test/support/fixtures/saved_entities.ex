@@ -45,7 +45,6 @@ defmodule Responder.Fixtures.SavedEntities do
   def schedule!(source, title, index, overrides \\ []) do
     payload = %{
       "authority" => "read_only",
-      "catch_up" => "latest",
       "expires_at" => nil,
       "recurrence" => %{"kind" => "daily", "time" => "13:00:00"},
       "repository" => nil,
@@ -68,7 +67,6 @@ defmodule Responder.Fixtures.SavedEntities do
       task: payload["task"],
       recurrence: payload["recurrence"],
       timezone: "Etc/UTC",
-      catch_up: :latest,
       authority: :read_only,
       repository: nil,
       destination_transport: "slack",

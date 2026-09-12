@@ -394,7 +394,6 @@ defmodule Responder.State.AutomationsTest do
   defp schedule_offer do
     %{
       "authority" => "read_only",
-      "catch_up" => "latest",
       "expires_at" => nil,
       "recurrence" => %{"kind" => "daily", "time" => "13:00:00"},
       "repository" => nil,
@@ -406,7 +405,6 @@ defmodule Responder.State.AutomationsTest do
 
   defp standing_assignment_offer do
     %{
-      "catch_up" => "skip",
       "context_channel" => "slack:T123:C456",
       "delivery_channel" => "slack:T123:C456",
       "expires_at" => "2099-08-29T12:00:00.000000Z",

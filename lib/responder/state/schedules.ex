@@ -30,7 +30,6 @@ defmodule Responder.State.Schedules do
 
   @confirmation_fields [:actor_ref, :confirmation_ref, :occurred_at, :record_ref, :target]
   @target_fields [:conversation_ref, :message_ref, :thread_ref, :transport]
-  @maximum_catch_up_steps 10_000
 
   @spec confirm(keyword() | map()) :: {:ok, map()} | {:error, term()}
   def confirm(attributes) do
@@ -296,7 +295,6 @@ defmodule Responder.State.Schedules do
 
       %{
         authority: payload["authority"],
-        catch_up: payload["catch_up"],
         confirmation_ref: attributes.confirmation_ref,
         confirmed_at: attributes.occurred_at,
         confirmed_by_actor_ref: attributes.actor_ref,
@@ -422,8 +420,7 @@ defmodule Responder.State.Schedules do
         released = release_schedule(schedule, DateTime.add(now, 60, :second))
         %{schedule: released, status: :overlap}
 
-      schedule.catch_up == :skip and
-          DateTime.diff(now, schedule.next_occurrence_at, :second) > misfire_grace_seconds ->
+      DateTime.diff(now, schedule.next_occurrence_at, :second) > misfire_grace_seconds ->
         miss_occurrence(schedule, now)
 
       true ->
@@ -459,37 +456,10 @@ defmodule Responder.State.Schedules do
     end
   end
 
-  defp scheduled_for(%Schedule{catch_up: :skip, next_occurrence_at: scheduled_for}, _now),
-    do: {:ok, scheduled_for}
-
-  defp scheduled_for(%Schedule{} = schedule, now) do
-    latest_due(schedule.recurrence, schedule.timezone, schedule.next_occurrence_at, now, 0)
-  end
-
-  defp latest_due(_recurrence, _timezone, candidate, _now, @maximum_catch_up_steps),
-    do: {:ok, candidate}
-
-  defp latest_due(recurrence, timezone, candidate, now, steps) do
-    if DateTime.compare(candidate, now) == :gt do
-      {:error, :schedule_not_due}
-    else
-      next_due(recurrence, timezone, candidate, now, steps)
-    end
-  end
-
-  defp next_due(recurrence, timezone, candidate, now, steps) do
-    case ScheduleRecurrence.next_after(recurrence, timezone, candidate) do
-      {:ok, nil} -> {:ok, candidate}
-      {:ok, next} -> choose_due(recurrence, timezone, candidate, next, now, steps)
-      {:error, _reason} = error -> error
-    end
-  end
-
-  defp choose_due(recurrence, timezone, candidate, next, now, steps) do
-    if DateTime.compare(next, now) == :gt,
-      do: {:ok, candidate},
-      else: latest_due(recurrence, timezone, next, now, steps + 1)
-  end
+  # A run whose moment has passed is recorded as missed and the next one runs on
+  # time. Catching up meant a morning check could fire in the afternoon because
+  # the host had been down, and the card had to carry an option explaining it.
+  defp scheduled_for(%Schedule{next_occurrence_at: scheduled_for}, _now), do: {:ok, scheduled_for}
 
   defp create_occurrence(schedule, scheduled_for, policy, trigger \\ :scheduled) do
     occurrence_id = Ecto.UUID.generate()

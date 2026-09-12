@@ -1201,7 +1201,6 @@ defmodule Responder.State.BehaviorsTest do
                "source-event-assignment",
                "standing_assignment_offer",
                %{
-                 "catch_up" => "skip",
                  "context_channel" => "slack:T123:C456",
                  "delivery_channel" => "slack:T123:C456",
                  "expires_at" => nil,

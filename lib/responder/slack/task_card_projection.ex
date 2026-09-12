@@ -111,7 +111,7 @@ defmodule Responder.Slack.TaskCardProjection do
       "title" => record.payload["title"],
       "ui_revision" => @ui_revision,
       "updated_at" => DateTime.to_iso8601(updated_at(episode)),
-      "resume_ref" => resume_ref(task_ref, turn),
+      "resume_ref" => resume_ref(task_ref, turn, snapshot.workspace_hold),
       "work_state" => turn && Atom.to_string(turn.status)
     }
 
@@ -655,7 +655,7 @@ defmodule Responder.Slack.TaskCardProjection do
   defp controls(record, episode, turn, session, publication, hold) do
     []
     |> maybe_control(stop_allowed?(episode, turn), "stop")
-    |> maybe_control(resumable?(turn), "resume")
+    |> maybe_control(is_nil(hold) and resumable?(turn), "resume")
     |> maybe_control(is_nil(hold) and bound_session?(session), "view_diff")
     |> maybe_control(close_allowed?(episode, turn, publication), "close")
     |> Kernel.++(~w(timeline evidence handoff))
@@ -671,11 +671,11 @@ defmodule Responder.Slack.TaskCardProjection do
   defp resumable?(%Turn{status: :blocked, cancellation_intent: %{"action" => "block"}}), do: true
   defp resumable?(_turn), do: false
 
-  defp resume_ref(task_ref, %Turn{} = turn) do
+  defp resume_ref(task_ref, %Turn{} = turn, nil) do
     if resumable?(turn), do: "#{task_ref}|#{Custody.recovery_fingerprint(turn)}"
   end
 
-  defp resume_ref(_task_ref, _turn), do: nil
+  defp resume_ref(_task_ref, _turn, _hold), do: nil
 
   defp incident?(%Record{payload: %{"kind" => "incident"}}), do: true
   defp incident?(_record), do: false

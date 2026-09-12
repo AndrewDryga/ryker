@@ -17,7 +17,6 @@ defmodule Responder.State.Schedule do
     field(:task, :string)
     field(:recurrence, Responder.CanonicalJSON.Type)
     field(:timezone, :string)
-    field(:catch_up, Ecto.Enum, values: [:latest, :skip])
     field(:authority, Ecto.Enum, values: [:read_only, :repository_write, :governed_operation])
     field(:repository, :string)
     field(:destination_transport, :string)

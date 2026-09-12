@@ -733,7 +733,6 @@ defmodule Responder.StateTools.RouterTest do
                    %{
                      "action" => "create",
                      "automation_id" => nil,
-                     "catch_up" => "latest",
                      "context_channel" => nil,
                      "delivery_channel" => nil,
                      "expires_at" => nil,
@@ -762,7 +761,6 @@ defmodule Responder.StateTools.RouterTest do
     schedule =
       %{
         authority: :read_only,
-        catch_up: :latest,
         confirmation_ref: "confirmation:fixed-product-surface",
         confirmed_at: now,
         confirmed_by_actor_ref: "slack:user:U1",
@@ -1008,7 +1006,6 @@ defmodule Responder.StateTools.RouterTest do
       |> Enum.map(fn {trigger, index} ->
         %{
           "action" => "create",
-          "catch_up" => "skip",
           "patch" => %{},
           "prompt" => "Verify occurrence #{index}.",
           "repository" => nil,
@@ -1044,7 +1041,6 @@ defmodule Responder.StateTools.RouterTest do
                    %{
                      "action" => "create",
                      "automation_id" => nil,
-                     "catch_up" => "skip",
                      "context_channel" => claim.episode.destination_conversation_ref,
                      "delivery_channel" => claim.episode.destination_conversation_ref,
                      "expires_at" => nil,
@@ -1083,7 +1079,6 @@ defmodule Responder.StateTools.RouterTest do
                "proposals" => [
                  %{
                    "action" => "create",
-                   "catch_up" => "skip",
                    "patch" => %{},
                    "prompt" => "Prepare the review.",
                    "repository" => nil,
@@ -1115,7 +1110,6 @@ defmodule Responder.StateTools.RouterTest do
       for index <- 1..5 do
         %{
           "action" => "create",
-          "catch_up" => "skip",
           "patch" => %{},
           "prompt" => "Verify bounded occurrence #{index}.",
           "repository" => nil,
@@ -1161,7 +1155,6 @@ defmodule Responder.StateTools.RouterTest do
                "schedule_offer",
                %{
                  "authority" => "read_only",
-                 "catch_up" => "latest",
                  "expires_at" => nil,
                  "recurrence" => %{"kind" => "daily", "time" => "13:00:00"},
                  "repository" => nil,
@@ -1176,7 +1169,6 @@ defmodule Responder.StateTools.RouterTest do
     schedule =
       %{
         authority: :read_only,
-        catch_up: :latest,
         confirmation_ref: "confirmation:existing-schedule",
         confirmed_at: ~U[2026-08-29 12:00:00.000000Z],
         confirmed_by_actor_ref: "slack:user:U1",
@@ -1276,7 +1268,6 @@ defmodule Responder.StateTools.RouterTest do
                    %{
                      "action" => "create",
                      "automation_id" => nil,
-                     "catch_up" => "skip",
                      "context_channel" => nil,
                      "delivery_channel" => nil,
                      "expires_at" => "2027-08-29T12:00:00.000000Z",
@@ -1304,7 +1295,6 @@ defmodule Responder.StateTools.RouterTest do
              Repo.get_by!(Record, ref: ref)
 
     assert payload == %{
-             "catch_up" => "skip",
              "context_channel" => claim.episode.destination_conversation_ref,
              "delivery_channel" => claim.episode.destination_conversation_ref,
              "expires_at" => "2027-08-29T12:00:00.000000Z",

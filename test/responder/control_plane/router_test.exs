@@ -2531,7 +2531,6 @@ defmodule Responder.ControlPlane.RouterTest do
           [
             %{
               authority: :read_only,
-              catch_up: :latest,
               destination_conversation_ref: "slack:T123:C456",
               destination_transport: "slack",
               failures: 0,
@@ -2587,7 +2586,6 @@ defmodule Responder.ControlPlane.RouterTest do
                ],
                schedule: %{
                  authority: :read_only,
-                 catch_up: :latest,
                  confirmed_at: ~U[2026-08-27 12:00:00Z],
                  destination_conversation_ref: "slack:T123:C456",
                  destination_thread_ref: "1787832000.001000",

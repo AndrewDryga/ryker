@@ -1079,7 +1079,6 @@ defmodule Responder.Retention.DataTest do
     schedule =
       %{
         authority: :read_only,
-        catch_up: :latest,
         confirmation_ref: "schedule-confirmation:#{schedule_id}",
         confirmed_at: @old,
         confirmed_by_actor_ref: "operator:retention-test",

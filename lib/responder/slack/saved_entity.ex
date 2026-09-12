@@ -27,7 +27,6 @@ defmodule Responder.Slack.SavedEntity do
           {"Channel", destination(schedule.destination_conversation_ref)},
           {"Next run", next_run(schedule)},
           {"Expires", expiry(schedule.expires_at, "No expiry")},
-          {"Missed runs", catch_up(schedule.catch_up)},
           {"Access", authority(schedule.authority)},
           {"Repository", schedule.repository || "No fixed binding"}
         ]),
@@ -57,7 +56,6 @@ defmodule Responder.Slack.SavedEntity do
             {"Event filter", event_filter(source_kind, payload["filter"])},
             {"Repository", payload["repository"] || "No fixed binding"},
             {"Expires", expiry(behavior.expires_at, "Until disabled")},
-            {"Missed events", catch_up(payload["catch_up"])},
             {"Access", "Read-only"}
           ]
 
@@ -211,12 +209,6 @@ defmodule Responder.Slack.SavedEntity do
     do: time(at)
 
   defp next_run(_schedule), do: nil
-
-  defp catch_up(:latest), do: "Run the latest missed occurrence"
-  defp catch_up("latest"), do: "Run the latest missed occurrence"
-  defp catch_up(:skip), do: "Skip missed occurrences"
-  defp catch_up("skip"), do: "Skip missed occurrences"
-  defp catch_up(_other), do: nil
 
   defp authority(:read_only), do: "Read-only"
   defp authority(:repository_write), do: "Repository write"
