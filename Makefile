@@ -1,6 +1,6 @@
 .DEFAULT_GOAL := dev-check
 
-.PHONY: retention-simulation product-e2e elixir-product-e2e live-acceptance live-acceptance-wrapper-check eval-world-pack eval-world-smoke eval-world eval-host-replay eval-replay model-release-check eval-trend customer-check elixir-unit elixir-test elixir-check elixir-release elixir-release-check elixir-install elixir-activate elixir-candidate-check control-plane-js-check shellcheck watchdog-check dev-check check release-check clean
+.PHONY: retention-simulation product-e2e elixir-product-e2e live-acceptance live-acceptance-wrapper-check eval-world-pack eval-world-smoke eval-world eval-host-replay eval-replay model-release-check eval-trend customer-check elixir-unit elixir-test elixir-check coverage elixir-release elixir-release-check elixir-install elixir-activate elixir-candidate-check control-plane-js-check shellcheck watchdog-check dev-check check release-check clean
 
 ELIXIR_INSTALL_PREFIX ?= $(HOME)/.local/libexec/responder
 RESPONDER_ELIXIR_RELEASE ?= $(ELIXIR_INSTALL_PREFIX)/current/bin/responder
@@ -24,14 +24,28 @@ retention-simulation:
 	RESPONDER_TEST_ISOLATED=1 scripts/elixir-test.sh --include simulation \
 		test/responder/retention/thirty_day_simulation_test.exs
 
+# ELIXIR_CHECK_ARGS is how dev-check leaves the `slow` capacity tests to the
+# full gate; `make check` runs the same target with nothing excluded.
 elixir-check:
-	bash scripts/test-release-build-isolation.sh
-	RESPONDER_TEST_ISOLATED=1 scripts/elixir-test.sh --check
+	RESPONDER_TEST_ISOLATED=1 scripts/elixir-test.sh --check $(ELIXIR_CHECK_ARGS)
 
+# Coverage instrumentation slows the suite and gates nothing; run it on demand.
+coverage:
+	RESPONDER_TEST_ISOLATED=1 scripts/elixir-test.sh --cover
+
+# Incremental: only changed modules recompile. The version lives in the .app
+# file, and Mix only rewrites that when mix.exs or the ebin directory changed,
+# so compile.app is forced to stamp the exact commit — in its own invocation,
+# because inside one `mix do` chain a task that already ran is skipped and the
+# release then carried the previous commit's version. Previous release trees
+# and archives are dropped first; a hundred of them once grew to two gigabytes.
 elixir-release:
 	@version=$$(scripts/elixir-release-version.sh); \
-		RESPONDER_ELIXIR_VERSION="$$version" MIX_ENV=prod \
-		scripts/elixir-mix.sh do clean --only prod + release responder --overwrite
+		rm -rf _build/prod/rel _build/prod/responder-*.tar.gz; \
+		export RESPONDER_ELIXIR_VERSION="$$version" MIX_ENV=prod; \
+		scripts/elixir-mix.sh compile && \
+		scripts/elixir-mix.sh compile.app --force && \
+		scripts/elixir-mix.sh release responder --overwrite
 
 elixir-release-check: elixir-release
 	@version=$$(awk '{print $$2}' _build/prod/rel/responder/releases/start_erl.data); \
@@ -127,10 +141,18 @@ shellcheck:
 watchdog-check:
 	scripts/watchdog_test.sh
 
+# The commit and deploy gate: everything deterministic that the suite itself
+# proves, minus the `slow` capacity tests, and nothing that is already inside
+# it. The full gate runs the suite complete, the host replay again in its own
+# database, the script self-tests, and the simulation.
 dev-check:
-	+$(MAKE) --no-print-directory -j$(DEV_CHECK_JOBS) elixir-check control-plane-js-check eval-replay shellcheck watchdog-check live-acceptance-wrapper-check
+	+$(MAKE) --no-print-directory -j$(DEV_CHECK_JOBS) ELIXIR_CHECK_ARGS="--exclude slow" \
+		elixir-check control-plane-js-check shellcheck
 
-check: dev-check retention-simulation
+check:
+	+$(MAKE) --no-print-directory -j$(DEV_CHECK_JOBS) \
+		elixir-check control-plane-js-check shellcheck eval-replay watchdog-check live-acceptance-wrapper-check
+	+$(MAKE) --no-print-directory retention-simulation
 	scripts/test-eval-trend.sh
 
 release-check: check elixir-candidate-check

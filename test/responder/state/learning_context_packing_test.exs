@@ -20,6 +20,8 @@ defmodule Responder.State.LearningContextPackingTest do
   @policy %{policy: "recorded-read-only-policy", policy_digest: String.duplicate("a", 64)}
   @fixture "testdata/learning/retained-auth-wal-context-packing.json"
 
+  # Capacity proofs, not per-commit checks: twenty-four seconds of the serial suite.
+  @tag :slow
   test "an oversized first topic does not hide an affordable later subject from learning" do
     # One actual replay batch lost all 25 selected topics because the first
     # needed 130 roots. The affordable auth subject needed only 20; hiding it
@@ -90,6 +92,7 @@ defmodule Responder.State.LearningContextPackingTest do
     assert Repo.aggregate(LearningRun, :count) == 2
   end
 
+  @tag :slow
   test "an affordable priority topic is not displaced when the next topic exceeds the remaining capacity" do
     %{entries: entries, heads: [priority, later], selected: selected} = setup_topics!(9_981, 17)
     assert {:ok, run} = Learning.prepare(Enum.map(entries, & &1.id), @policy)

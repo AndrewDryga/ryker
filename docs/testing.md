@@ -24,12 +24,16 @@ Before committing, run:
 make dev-check
 ```
 
-It checks the Elixir release-build boundary, formatting, compilation warnings, Credo, migrations,
-ExUnit coverage, deterministic host replay, control-plane JavaScript, shell scripts, and the
-watchdog.
+It checks formatting, compilation warnings, Credo, migrations, and the whole ExUnit suite in a
+freshly created test database, plus the control-plane JavaScript tests and ShellCheck. Nothing in
+it calls a model. It is the gate for every commit and every deploy.
+
+`make coverage` runs the suite with coverage instrumentation and writes the report under `cover/`.
+It is not part of any gate.
 
 `make eval-host-replay` runs the deterministic side of the checked-in scenario bundles with fake
-Coop and inert delivery. It does not call a model or an external platform.
+Coop and inert delivery. It does not call a model or an external platform. The same files run
+inside `make dev-check`; the standalone target isolates them in their own database.
 
 For customer-facing Slack, incident, memory, or response-contract changes, run:
 
@@ -40,13 +44,16 @@ make customer-check
 This adds the Elixir end-to-end customer journeys. Run only those journeys with
 `make product-e2e` while iterating on a workflow.
 
-The broader deterministic gate is:
+The full deterministic gate is:
 
 ```bash
 make check
 ```
 
-It adds the evaluation-trend script's deterministic self-test used by CI and release qualification.
+It adds the isolated host replay, the watchdog and live-acceptance wrapper tests, the accelerated
+thirty-day retention simulation, and the evaluation-trend script's self-test. CI runs it on every
+push. Run it locally before a tagged release or when a change touches retention custody or the
+release scripts, not before every deploy.
 
 ## Model evaluation
 

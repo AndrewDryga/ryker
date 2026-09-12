@@ -104,6 +104,8 @@ defmodule Responder.State.LearningCapacityTest do
     assert visible["source_count"] == 2
   end
 
+  # Capacity proof, not a per-commit check: sixteen seconds of the serial suite.
+  @tag :slow
   @tag timeout: 240_000
   test "ten thousand revisions keep linear memberships and the next root is explicitly omitted" do
     # Structural scale qualification, not 10,000 invented model judgments. Seed

@@ -15,7 +15,9 @@ concurrency:
 jobs:
   check:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # The full gate carries the whole suite plus the nine-minute retention
+    # simulation; on a shared runner that does not fit in fifteen minutes.
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:

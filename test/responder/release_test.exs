@@ -88,10 +88,18 @@ defmodule Responder.ReleaseTest do
     assert makefile =~ "scripts/elixir-release-version.sh"
     assert makefile =~ "RESPONDER_ELIXIR_VERSION="
 
-    assert makefile =~
-             "scripts/elixir-mix.sh do clean --only prod + release responder --overwrite"
-
-    assert makefile =~ "bash scripts/test-release-build-isolation.sh"
+    # The release recipe must never clean. `mix clean` there once erased the dev
+    # and test BEAM files beneath a running VM, and cleaning was also what hid
+    # the real hazard: the version lives in the .app file, Mix rewrites that
+    # only when mix.exs or the ebin directory changed, and a task that already
+    # ran inside one `mix do` chain is skipped — so the archive silently carried
+    # the previous commit's version. A forced compile.app in its own invocation
+    # stamps the exact commit, and cleaning nothing cannot erase another
+    # environment. A full rebuild per deploy cost sixteen seconds; this costs six.
+    release_recipe = recipe!(makefile, "elixir-release")
+    refute release_recipe =~ "clean"
+    assert release_recipe =~ "scripts/elixir-mix.sh compile.app --force"
+    assert release_recipe =~ "scripts/elixir-mix.sh release responder --overwrite"
 
     version_script = File.read!(Path.expand("../../scripts/elixir-release-version.sh", __DIR__))
     assert version_script =~ "describe --exact-match --tags"
@@ -134,13 +142,32 @@ defmodule Responder.ReleaseTest do
 
     assert deploy =~ "make elixir-candidate-check"
     assert deploy =~ "scripts/install-elixir-release.sh"
-    assert deploy =~ "systemctl restart"
     assert deploy =~ "/readyz"
     assert deploy =~ ~S|installed_version=$("$prefix/current/bin/responder" version)|
     assert deploy =~ ~S|scripts/check-running-elixir-release.sh "$health_url" "$version"|
     refute deploy =~ ~S|installed_version=$($prefix/current/bin/responder version)|
-    refute deploy =~ "launchctl"
     refute deploy =~ "responder-$sha"
+
+    # One script owns deployment on both hosts. Every macOS deploy used to be a
+    # hand-written throwaway activation helper because this script required
+    # systemd, and a helper reused or mistyped once left production down. The
+    # host branch selects a service manager; it never selects a second path.
+    assert deploy =~ "systemctl restart"
+    assert deploy =~ "launchctl bootstrap"
+    assert deploy =~ "deploy/launchd/responder.plist.template"
+
+    launchd = File.read!(Path.expand("../../deploy/launchd/responder.plist.template", __DIR__))
+    unit = File.read!(Path.expand("../../deploy/systemd/responder.service", __DIR__))
+
+    for definition <- [launchd, unit] do
+      assert definition =~ "Responder.Release.migrate()"
+      assert definition =~ "bin/responder"
+    end
+
+    # A Responder deploy never installs, upgrades or restarts a Coop worker;
+    # production workers are enrolled through the outbound fleet protocol.
+    refute deploy =~ "coop"
+    refute launchd =~ "coop"
 
     assert operations =~ "Elixir/PostgreSQL"
     assert operations =~ "scripts/deploy.sh"
@@ -374,6 +401,15 @@ defmodule Responder.ReleaseTest do
     archive = Path.join(root, "#{name}.tar.gz")
     {_output, 0} = System.cmd("tar", ["-czf", archive, "-C", source, "."])
     archive
+  end
+
+  # The recipe for one target: everything between its rule line and the next
+  # blank line, so an assertion about the release build cannot be satisfied by
+  # an unrelated target elsewhere in the Makefile.
+  defp recipe!(makefile, target) do
+    [_before, after_rule] = String.split(makefile, "\n#{target}:", parts: 2)
+    [recipe | _rest] = String.split(after_rule, "\n\n", parts: 2)
+    recipe
   end
 
   defp run_running_release_check(checker, expected_version, served_version) do

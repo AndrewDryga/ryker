@@ -13,7 +13,7 @@ defmodule Responder.Evals.TestDatabaseIsolationTest do
       command =
         commands
         |> String.split("\n")
-        |> Enum.find(&String.ends_with?(&1, "elixir-test.sh --check"))
+        |> Enum.find(&String.contains?(&1, "elixir-test.sh --check"))
 
       assert command
       root = Path.join(System.tmp_dir!(), "test-database-isolation-#{Ecto.UUID.generate()}")
@@ -31,8 +31,7 @@ defmodule Responder.Evals.TestDatabaseIsolationTest do
       executable!(root, "bin/docker", """
       #!/bin/bash
       case "$*" in
-        *'ps --quiet episode-db') echo fixture-container ;;
-        'inspect '*) echo healthy ;;
+        *'up --detach --wait episode-db') ;;
         *'port episode-db 5432') echo 127.0.0.1:5432 ;;
         *) exit 91 ;;
       esac
@@ -67,7 +66,7 @@ defmodule Responder.Evals.TestDatabaseIsolationTest do
       assert database =~ ~r/^responder_test_\d+_\d+$/
       assert Enum.any?(calls, &String.ends_with?(&1, "|ecto.create --quiet"))
       assert Enum.any?(calls, &String.ends_with?(&1, "|ecto.drop --quiet"))
-      assert Enum.any?(calls, &String.contains?(&1, "ecto.migrate --quiet + test --cover"))
+      assert Enum.any?(calls, &String.contains?(&1, "ecto.migrate --quiet + test"))
       assert status == @exit_status
     end
   end

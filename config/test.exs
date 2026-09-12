@@ -10,7 +10,11 @@ config :responder, Responder.Repo,
   hostname: System.get_env("PGHOST", "127.0.0.1"),
   password: System.get_env("PGPASSWORD", "postgres"),
   pool: repo_pool,
-  pool_size: System.schedulers_online() * 2,
+  # The pool serves test processes, not CPUs. Deriving it from the scheduler
+  # count meant `ERL_FLAGS='+S 2:2'` — the usual advice for a contended host —
+  # silently shrank it to four, so any test checking out four or more unboxed
+  # connections failed for a reason that had nothing to do with the code.
+  pool_size: 24,
   port: String.to_integer(System.get_env("PGPORT", "5432")),
   queue_interval: 10_000,
   queue_target: 5_000,

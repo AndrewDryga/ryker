@@ -528,14 +528,15 @@ Run the owning Elixir test while editing:
 scripts/elixir-test.sh test/responder/work/executor_test.exs
 ```
 
-Run the deterministic repository gates before committing and shipping:
+Run the deterministic repository gate before committing, then deploy:
 
 ```bash
 make dev-check
-make check
+scripts/deploy.sh
 ```
 
-Use `make customer-check` for the Elixir product journeys and deterministic host replay.
+`make check` is the full gate, which CI runs on every push; run it locally before a tagged
+release. Use `make customer-check` for the Elixir product journeys and deterministic host replay.
 Use `make model-release-check` (with the `RESPONDER_EVAL_*` environment set) only when the
 model contract changes. Build and qualify the immutable Elixir release with:
 

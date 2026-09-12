@@ -1,6 +1,23 @@
 services:
   episode-db:
     image: postgres:18.4-alpine
+    # Every test VM opens schedulers * 2 connections (24 on this host) and
+    # several agents run suites against this one server at once; the stock
+    # limit of 100 turned into too_many_connections failures across unrelated
+    # modules (52 of them in one gate on 2026-09-11). Durability is off because
+    # the data directory is tmpfs anyway; it is recreated on every container start.
+    command:
+      - postgres
+      - -c
+      - max_connections=500
+      - -c
+      - shared_buffers=256MB
+      - -c
+      - fsync=off
+      - -c
+      - synchronous_commit=off
+      - -c
+      - full_page_writes=off
     environment:
       POSTGRES_DB: responder_test
       POSTGRES_PASSWORD: postgres
