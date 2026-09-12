@@ -26,6 +26,11 @@ defmodule Responder.Slack.InteractionFeedbackTest do
 
       :ok
     end
+
+    def post_ephemeral(observer, channel_ref, actor_ref, thread_ref, text) do
+      send(observer, {:ephemeral, channel_ref, actor_ref, thread_ref, text})
+      :ok
+    end
   end
 
   test "denied and stale controls are durable, idempotent, and conflict on crossed identity" do
@@ -208,6 +213,43 @@ defmodule Responder.Slack.InteractionFeedbackTest do
 
     assert {:ok, %{action: :rearm, ref: "interaction:retry-block", status: :blocked}} =
              Projection.slack_interaction("interaction:retry-block")
+  end
+
+  test "a repaint the host gave up on tells the person who pressed the button" do
+    # The click acknowledgement is optimistic: it says the press was accepted
+    # before the repaint is attempted. When the repaint then failed for good,
+    # nothing ever spoke again, so the operator saw an accepted press and a card
+    # that never changed, with no way to tell the two apart.
+    assert {:ok, %{audit: audit}} =
+             interaction("interaction:blocked-speaks")
+             |> InteractionAudits.record(:invalid)
+
+    options =
+      worker_options(
+        max_attempts: 1,
+        repaint: fn _audit, _options -> {:error, :slack_unavailable} end
+      )
+
+    assert {:ok, {:blocked, "interaction:blocked-speaks"}} =
+             InteractionFeedbackWorker.run_once(options)
+
+    assert_receive {:ephemeral, channel_ref, actor_ref, thread_ref, text}
+    assert channel_ref == audit.channel_ref
+    assert actor_ref == audit.actor_ref
+    assert thread_ref == audit.thread_ref
+    assert text =~ "recorded"
+    refute text =~ "slack_unavailable"
+  end
+
+  test "a repaint that succeeds says nothing extra" do
+    assert {:ok, %{audit: _audit}} =
+             interaction("interaction:quiet-success")
+             |> InteractionAudits.record(:invalid)
+
+    assert {:ok, {:repainted, "interaction:quiet-success"}} =
+             InteractionFeedbackWorker.run_once(worker_options([]))
+
+    refute_receive {:ephemeral, _channel, _actor, _thread, _text}
   end
 
   test "an operator can rearm only the exact blocked stale-control repaint" do

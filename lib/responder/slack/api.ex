@@ -5,6 +5,15 @@ defmodule Responder.Slack.API do
               {:ok, String.t()} | :not_found | {:error, term()}
   @callback post_message(term(), String.t(), String.t() | nil, String.t() | map(), String.t()) ::
               {:ok, String.t()} | {:error, term()}
+  @doc """
+  Posts one private line to exactly one person in a channel they are already in.
+
+  Used when the host must tell a reader something their card cannot say, and
+  never for content anyone else needs to see.
+  """
+  @callback post_ephemeral(term(), String.t(), String.t(), String.t() | nil, String.t()) ::
+              :ok | {:error, term()}
+
   @callback update_message(term(), String.t(), String.t(), String.t() | map(), String.t()) ::
               :ok | {:error, term()}
   @callback find_files(term(), String.t(), String.t() | nil, [String.t()]) ::

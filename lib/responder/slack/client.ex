@@ -130,6 +130,24 @@ defmodule Responder.Slack.Client do
   end
 
   @impl true
+  def post_ephemeral(client, channel, actor, thread, text) do
+    with :ok <- text(channel),
+         :ok <- text(actor),
+         :ok <- optional_text(thread),
+         :ok <- text(text),
+         document <-
+           %{"channel" => channel, "text" => text, "user" => actor}
+           |> put_thread(thread),
+         {:ok, response} <- request(client, :post, "/chat.postEphemeral", document),
+         {:ok, _body} <- slack_response(response) do
+      :ok
+    end
+  end
+
+  defp put_thread(document, nil), do: document
+  defp put_thread(document, thread), do: Map.put(document, "thread_ts", thread)
+
+  @impl true
   def update_message(client, channel, message_ref, body, delivery_ref) do
     with {:ok, rendered} <- render(body) do
       update_rendered_message(client, channel, message_ref, rendered, delivery_ref)
