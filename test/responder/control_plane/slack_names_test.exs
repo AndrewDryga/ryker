@@ -39,11 +39,11 @@ defmodule Responder.ControlPlane.SlackNamesTest do
        end}
     )
 
-    assert SlackNames.name("T123", "U789") == "Slack member"
+    assert SlackNames.name("T123", "U789") == "Slack user"
     assert SlackNames.name("T123", "../../secrets") == "Slack reference"
     assert :ok = GenServer.call(SlackNames, :refresh)
     assert_receive {:lookup, "U789"}
-    assert SlackNames.name("T123", "U789") == "Slack member"
+    assert SlackNames.name("T123", "U789") == "Slack user"
     assert :ok = GenServer.call(SlackNames, :refresh)
     refute_receive {:lookup, _}
   end
@@ -155,7 +155,7 @@ defmodule Responder.ControlPlane.SlackNamesTest do
       })
 
     context = RequestContextHTML.render(artifact) |> IO.iodata_to_binary()
-    assert context =~ "<strong>Andrew &lt;admin&gt;</strong>"
+    assert context =~ "<strong>@Andrew &lt;admin&gt;</strong>"
     assert context =~ "#test"
 
     title =

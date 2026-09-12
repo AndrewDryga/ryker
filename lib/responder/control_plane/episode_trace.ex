@@ -406,7 +406,9 @@ defmodule Responder.ControlPlane.EpisodeTrace do
       owner: {:input, input.id},
       at: input.occurred_at,
       transport: input.destination_transport,
-      actor: if(input.actor_kind == :user, do: "User", else: "Source event"),
+      # "User" told a reader nothing they could act on. Slack writes a person as
+      # @name, so the page does too, and says which workspace they are from.
+      actor: actor_label(input),
       display_actor:
         if(input.source_kind == "slack",
           do: SlackNames.name(input.source_ref, input.actor_ref)
@@ -426,6 +428,10 @@ defmodule Responder.ControlPlane.EpisodeTrace do
       details: input_details(input, options)
     }
   end
+
+  defp actor_label(%{actor_kind: :user, source_kind: "slack"}), do: "Slack user"
+  defp actor_label(%{actor_kind: :user}), do: "User"
+  defp actor_label(_input), do: "Source event"
 
   # Input details, in the approved order: readable extracted metadata first,
   # then the raw source envelope, the normalized input and the original message
