@@ -2268,6 +2268,18 @@ defmodule Responder.Slack.RendererTest do
             "id" => "verify",
             "outcome" => "Verify the recovery",
             "state" => "ready"
+          },
+          %{
+            "detail" => nil,
+            "id" => "wait",
+            "outcome" => "Wait for the vendor",
+            "state" => "waiting"
+          },
+          %{
+            "detail" => nil,
+            "id" => "drop",
+            "outcome" => "Rule out the cache",
+            "state" => "excluded"
           }
         ]
     }
@@ -2286,6 +2298,10 @@ defmodule Responder.Slack.RendererTest do
     assert ledger["text"]["text"] =~ "▸ Name the cause\n"
     assert ledger["text"]["text"] =~ "! Restore checkout · The rollback needs an owner"
     assert ledger["text"]["text"] =~ "○ Verify the recovery"
+    # One goal-state vocabulary across the cards: a goal waiting on someone else
+    # and a goal ruled out do not both read as "not started yet".
+    assert ledger["text"]["text"] =~ "◷ Wait for the vendor"
+    assert ledger["text"]["text"] =~ "− Rule out the cache"
 
     assert {:ok, empty} =
              Renderer.render(%{"incident_room" => incident_document("investigating")})
