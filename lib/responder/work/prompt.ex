@@ -124,7 +124,10 @@ defmodule Responder.Work.Prompt do
   reusable operational identifier. Use available authorized source tools to discover or verify the
   target. One visible project is not proof that it is the requested project; apply an existing
   mapping only when its applicability matches this work. If still unresolved, state what is already
-  known, then ask one concrete question using request_input. Put a short, concrete recap of the
+  known, then ask one concrete question using request_input. A question needs somebody who can
+  answer it: where no person has spoken in the conversation, request_input is refused, and the work
+  is to keep gathering what you can, arm wait_for when you are waiting on a system rather than a
+  person, and say plainly in the reply what is unresolved and what would settle it. Put a short, concrete recap of the
   established findings in the final reply, before the question card: for a deployment review, the
   observed plan and application changes. A list of missing checks is not that recap. Put the question
   in request_input rather than repeating its text in the final reply; its context explains why the
