@@ -162,6 +162,31 @@ defmodule Responder.Slack.TaskCardProjectionTest do
     assert json =~ "Showing 6 of 9 subtasks"
   end
 
+  test "a blocked publication names the branch it is blocked on" do
+    # The 2026-09-12 coverage measurement: the blocked card carries the material
+    # cause but not the branch, so an operator reading "PR creation is blocked"
+    # cannot tell which of the task's branches is stuck without opening the web
+    # console, which this installation does not publish a URL for.
+    %{publication: publication, episode: episode} = PublicationFixture.published!("branch-fact")
+
+    source = %Record{
+      kind: "task_offer",
+      status: :confirmed,
+      confirmed_episode_id: episode.id,
+      confirmed_at: DateTime.utc_now(),
+      confirmed_by_actor_ref: "slack:user:U1",
+      ref: "task-card:branch-fact",
+      payload: %{
+        "title" => "Name the blocked branch",
+        "repository" => "responder",
+        "prompt" => "Name the blocked branch on the card."
+      }
+    }
+
+    assert {:ok, projection} = TaskCardProjection.build(source)
+    assert projection.document["task_card"]["publication"]["branch"] == publication.branch_ref
+  end
+
   test "draft, CI and merge facts come from publication custody and its follow-up" do
     # The follow-up row already retained checks and merge receipts, but the
     # Slack card never read it: a merged task still said "Draft pull request

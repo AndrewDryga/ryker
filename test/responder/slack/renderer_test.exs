@@ -594,6 +594,30 @@ defmodule Responder.Slack.RendererTest do
     end
   end
 
+  test "a blocked publication names the branch it is stuck on" do
+    # The 2026-09-12 coverage measurement: "PR creation is blocked" told the
+    # reader nothing about which branch, and this installation publishes no web
+    # console URL to go and look. The branch is a fact the host already held.
+    blocked =
+      publication_task_card(%{
+        "branch" => "refs/heads/responder/publication-42",
+        "controls" => ["update", "discard"],
+        "publication_ref" => "publication:def456",
+        "pull_request_number" => nil,
+        "pull_request_url" => nil,
+        "recovery_generation" => 1,
+        "status" => "blocked",
+        "unverified" => nil
+      })
+
+    assert {:ok, rendered} = Renderer.render(%{"task_card" => blocked})
+    assert Jason.encode!(rendered) =~ "refs/heads/responder/publication-42"
+
+    reviewed = put_in(blocked, ["publication", "status"], "reviewed")
+    assert {:ok, reviewed_rendered} = Renderer.render(%{"task_card" => reviewed})
+    refute Jason.encode!(reviewed_rendered) =~ "refs/heads/responder/publication-42"
+  end
+
   test "renders only publication actions valid for the durable task state" do
     task = %{
       "action_needed" => nil,
@@ -602,6 +626,7 @@ defmodule Responder.Slack.RendererTest do
       "controls" => ["view_diff", "timeline", "evidence", "handoff"],
       "episode_state" => "complete",
       "publication" => %{
+        "branch" => "refs/heads/responder/card",
         "controls" => ["open", "check"],
         "publication_ref" => "publication:def456",
         "pull_request_number" => 91,
@@ -644,6 +669,7 @@ defmodule Responder.Slack.RendererTest do
 
     reviewed =
       put_in(task, ["publication"], %{
+        "branch" => "refs/heads/responder/card",
         "controls" => ["publish"],
         "publication_ref" => "publication:def456",
         "pull_request_number" => nil,
@@ -661,6 +687,7 @@ defmodule Responder.Slack.RendererTest do
 
     recoverable =
       put_in(task, ["publication"], %{
+        "branch" => "refs/heads/responder/card",
         "controls" => ["update", "discard"],
         "publication_ref" => "publication:def456",
         "pull_request_number" => nil,
@@ -686,6 +713,7 @@ defmodule Responder.Slack.RendererTest do
 
     stale =
       put_in(task, ["publication"], %{
+        "branch" => "refs/heads/responder/card",
         "controls" => ["open", "check", "update", "discard"],
         "publication_ref" => "publication:def456",
         "pull_request_number" => 91,
@@ -720,6 +748,7 @@ defmodule Responder.Slack.RendererTest do
       "controls" => ["view_diff", "timeline", "evidence", "handoff"],
       "episode_state" => "complete",
       "publication" => %{
+        "branch" => "refs/heads/responder/card",
         "controls" => ["open", "check"],
         "publication_ref" => "publication:def456",
         "pull_request_number" => 91,
@@ -1638,6 +1667,7 @@ defmodule Responder.Slack.RendererTest do
   test "an unverified draft offer names its repository and its missing check" do
     task =
       publication_task_card(%{
+        "branch" => "refs/heads/responder/card",
         "controls" => ["publish", "update", "discard"],
         "publication_ref" => "publication:def456",
         "pull_request_number" => nil,
@@ -1684,6 +1714,7 @@ defmodule Responder.Slack.RendererTest do
   test "a reviewed candidate explains the missing grant rather than handing work back" do
     task =
       publication_task_card(%{
+        "branch" => "refs/heads/responder/card",
         "controls" => ["publish", "update", "discard"],
         "publication_ref" => "publication:def456",
         "pull_request_number" => nil,
@@ -1711,6 +1742,7 @@ defmodule Responder.Slack.RendererTest do
     # click and never re-poses the question.
     publishing =
       publication_task_card(%{
+        "branch" => "refs/heads/responder/card",
         "controls" => [],
         "publication_ref" => "publication:def456",
         "pull_request_number" => nil,
@@ -2135,6 +2167,7 @@ defmodule Responder.Slack.RendererTest do
     readiness =
       task_document("reviewing")
       |> put_in(["publication"], %{
+        "branch" => "refs/heads/responder/card",
         "controls" => [],
         "publication_ref" => "publication:review123",
         "pull_request_number" => nil,
@@ -2179,6 +2212,7 @@ defmodule Responder.Slack.RendererTest do
     malformed_publication =
       task_document("working")
       |> put_in(["publication"], %{
+        "branch" => "refs/heads/responder/card",
         "controls" => ["open"],
         "publication_ref" => nil,
         "pull_request_number" => 1,
