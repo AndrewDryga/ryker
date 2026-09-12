@@ -917,12 +917,14 @@ defmodule Responder.Slack.Renderer do
     ]
   end
 
-  defp saved_entity_controls(%{
-         "kind" => kind,
-         "ref" => ref,
-         "revision" => revision,
-         "title" => title
-       }) do
+  defp saved_entity_controls(
+         %{
+           "kind" => kind,
+           "ref" => ref,
+           "revision" => revision,
+           "title" => title
+         } = entity
+       ) do
     {label, action_id, value, consequence} =
       case kind do
         "schedule" ->
@@ -944,11 +946,32 @@ defmodule Responder.Slack.Renderer do
       end
 
     [
-      actions("#{ref}:controls", [
-        button(action_id, label, value, "danger", "#{label}?", consequence, label)
-      ])
+      actions(
+        "#{ref}:controls",
+        resume_control(entity) ++
+          [button(action_id, label, value, "danger", "#{label}?", consequence, label)]
+      )
     ]
   end
+
+  # A paused rule governs nothing until someone restarts it, and App Home was
+  # the only surface that could — one most readers of a channel's list cannot
+  # act in. It sits beside the entity's own control, never instead of it.
+  defp resume_control(%{"resumable" => true, "ref" => ref, "revision" => revision} = entity) do
+    [
+      button(
+        "responder_resume_behavior",
+        "Resume",
+        "behavior-control:#{ref}:#{revision}",
+        nil,
+        "Resume this rule?",
+        "I'll start reacting to “#{entity["title"]}” again from now on. Nothing that happened while it was paused is replayed.",
+        "Resume"
+      )
+    ]
+  end
+
+  defp resume_control(_entity), do: []
 
   defp saved_entity(
          %{
@@ -958,6 +981,7 @@ defmodule Responder.Slack.Renderer do
            "notice" => notice,
            "ref" => ref,
            "removable" => removable,
+           "resumable" => resumable,
            "revision" => revision,
            "saved_at" => saved_at,
            "saved_by" => saved_by,
@@ -965,10 +989,11 @@ defmodule Responder.Slack.Renderer do
            "title" => title
          } = entity
        )
-       when map_size(entity) == 11 do
+       when map_size(entity) == 12 do
     valid =
       kind in @saved_entity_kinds and status in @saved_entity_statuses and
-        is_boolean(removable) and saved_entity_texts?(title, instructions, notice, saved_by) and
+        is_boolean(removable) and is_boolean(resumable) and
+        saved_entity_texts?(title, instructions, notice, saved_by) and
         match?({:ok, _, 0}, DateTime.from_iso8601(saved_at)) and
         saved_entity_ref?(kind, ref, revision) and saved_entity_facts?(facts)
 

@@ -40,6 +40,7 @@ defmodule Responder.Slack.RendererTest do
       "notice" => "Standing rule saved",
       "ref" => "behavior:2f6a1c0e-9c1d-4c2e-8d3f-4a5b6c7d8e9f",
       "removable" => true,
+      "resumable" => false,
       "revision" => 1,
       "saved_at" => "2026-08-28T12:00:00.000000Z",
       "saved_by" => "slack:user:U123",
@@ -87,6 +88,7 @@ defmodule Responder.Slack.RendererTest do
       put_in(record, ["presentation", "entity"], %{
         entity
         | "removable" => false,
+          "resumable" => false,
           "status" => "deleted",
           "notice" => "Standing rule deleted"
       })
@@ -117,6 +119,7 @@ defmodule Responder.Slack.RendererTest do
       "notice" => "Memory saved",
       "ref" => "memory:rollback-proof",
       "removable" => true,
+      "resumable" => false,
       "revision" => nil,
       "saved_at" => "2026-08-28T12:00:00.000000Z",
       "saved_by" => "slack:user:U123",

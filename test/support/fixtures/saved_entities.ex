@@ -94,11 +94,13 @@ defmodule Responder.Fixtures.SavedEntities do
       ref: "behavior:#{id}",
       offer_record_id: record.id,
       kind: kind,
-      status: :active,
+      status: Keyword.get(overrides, :status, :active),
       workspace_ref: workspace_ref(source.conversation_ref),
       scope_kind: Keyword.get(overrides, :scope_kind, :conversation),
       scope_ref: Keyword.fetch!(overrides, :scope_ref),
-      identity_key: payload["subject"] || payload["key"] || payload["title"],
+      identity_key:
+        payload["subject"] || payload["key"] || payload["title"] ||
+          Keyword.get(overrides, :identity_key, payload["task"]),
       payload: payload,
       confirmed_by_actor_ref: "slack:user:U123",
       confirmation_ref: "interaction:#{id}",

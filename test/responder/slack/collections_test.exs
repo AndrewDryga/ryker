@@ -227,6 +227,56 @@ defmodule Responder.Slack.CollectionsTest do
     refute inspect(entries) =~ "Not mine"
   end
 
+  test "a paused standing rule is counted as paused and can be resumed from the channel", %{
+    options: options
+  } do
+    # The 2026-09-12 coverage measurement: paused rules were listed, but the
+    # count line called them all standing rules and the only way to restart one
+    # was App Home, which most readers of this list cannot act in.
+    source = source!()
+
+    for index <- 1..2 do
+      behavior!(
+        source,
+        :standing_assignment,
+        %{
+          "action" => "triage_alert",
+          "expires_in" => "30d",
+          "repository" => nil,
+          "source_filter" => "human",
+          "task" => "Summarise the alert for rule #{index}.",
+          "trigger" => "operational_alert"
+        },
+        scope_ref: @conversation
+      )
+    end
+
+    behavior!(
+      source,
+      :standing_assignment,
+      %{
+        "action" => "triage_alert",
+        "expires_in" => "30d",
+        "repository" => nil,
+        "source_filter" => "human",
+        "task" => "Summarise the alert for the paused rule.",
+        "trigger" => "operational_alert"
+      },
+      scope_ref: @conversation,
+      status: :disabled
+    )
+
+    assert {:ok, %{outcome: :delivered, shown: 3, total: 3}} =
+             Collections.deliver(:standing_rules, request("event:paused"), options)
+
+    cards = posts(options)
+
+    resumable =
+      Enum.map(cards, &get_in(&1.document, ["saved_entity", "resumable"])) |> Enum.sort()
+
+    assert resumable == [false, false, true]
+  end
+
   test "saved knowledge lists preferences, guidance and memories visible in this channel", %{
     options: options
   } do

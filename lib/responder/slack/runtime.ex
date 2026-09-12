@@ -356,6 +356,16 @@ defmodule Responder.Slack.Runtime do
             action_ref
           )
         end,
+        resume_behavior: fn ref, revision, actor_ref, workspace_ref, action_ref ->
+          Behaviors.set_home_status(
+            ref,
+            :active,
+            revision,
+            "slack:user:#{actor_ref}",
+            "slack:#{workspace_ref}",
+            action_ref
+          )
+        end,
         delete_schedule: fn ref, revision, actor_ref, workspace_ref, action_ref ->
           Schedules.set_home_status(
             ref,
