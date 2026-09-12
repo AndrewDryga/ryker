@@ -249,6 +249,35 @@ defmodule Responder.CoopFleet.ControlPlaneTest do
     assert placement.worker_id == "worker-a"
   end
 
+  test "an evidence export the worker advertises can be queued for it" do
+    # Found live 2026-09-12: the production worker advertised session-evidence:1
+    # all day and coop_session_evidence stayed empty, because the enqueue
+    # authority kept a private copy of the command vocabulary and that copy
+    # never learned the kind the wire contract already carried. Every capture
+    # was refused as :command_kind before a worker ever saw it, and nothing in
+    # the client tests noticed because they answer through a fake bridge.
+    authorize_and_poll!("worker-a", capacity: capacity(1, 1))
+    placement = place!("session-evidence-command")
+
+    assert {:ok, command} =
+             ControlPlane.enqueue_command(
+               placement.id,
+               "get_session_evidence",
+               %{"coop_session_id" => "coop-session-evidence-command"},
+               "responder:test:session-evidence-command"
+             )
+
+    assert command.kind == "get_session_evidence"
+
+    assert {:ok, %{"commands" => [delivered]}} =
+             ControlPlane.handle_poll(
+               "worker-a",
+               poll("worker-a", "workspace-main", "poll:worker-a:session-evidence")
+             )
+
+    assert delivered["kind"] == "get_session_evidence"
+  end
+
   test "a successfully closed session no longer reserves a reported worker slot" do
     # Two recovered Slack runs closed remotely but their still-current placement
     # rows consumed every host reservation, so all fresh work was blocked even

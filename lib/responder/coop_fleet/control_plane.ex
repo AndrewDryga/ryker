@@ -20,26 +20,6 @@ defmodule Responder.CoopFleet.ControlPlane do
 
   @current_placement_states [:assigning, :active, :draining, :revoking]
   @terminal_command_states [:succeeded, :failed, :uncertain]
-  @command_kinds ~w(
-    ensure_workspace
-    create_session
-    get_session
-    submit_turn
-    get_turn
-    get_output_artifact
-    get_changes
-    get_changes_page
-    run_review
-    plan_discard
-    discard_session
-    get_review_patch
-    validate_candidate
-    cancel_turn
-    fence_operation
-    checkpoint_workspace
-    close_session
-    reconcile_operation
-  )
   @reference ~r/\A[A-Za-z0-9_.:-]+\z/
   @maximum_lease_seconds 3_600
   @heartbeat_stale_seconds 60
@@ -142,7 +122,7 @@ defmodule Responder.CoopFleet.ControlPlane do
           {:ok, Command.t()} | {:error, term()}
   def enqueue_command(placement_id, kind, payload, idempotency_key) do
     with :ok <- uuid(placement_id, :placement_id),
-         :ok <- enum(kind, @command_kinds, :command_kind),
+         :ok <- enum(kind, Protocol.command_kinds(), :command_kind),
          :ok <- CanonicalJSON.validate(payload, max_bytes: 768 * 1_024),
          :ok <- reference(idempotency_key, 512, :idempotency_key) do
       transaction(fn ->
