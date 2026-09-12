@@ -1971,11 +1971,17 @@ defmodule Responder.Slack.Renderer do
            "status" => status
          } = record
        )
-       when map_size(record) == 4 and status in ["open", "confirmed"] do
-    with :ok <- reference(ref),
+       when map_size(record) in [4, 5] and status in ["open", "confirmed"] do
+    # The host adds `message_url` once the post has actually landed; it is the
+    # one key on this card the model never authored.
+    url = Map.get(record, "message_url")
+
+    with true <- Map.keys(record) -- ~w(kind payload ref status message_url) == [],
+         :ok <- reference(ref),
+         :ok <- optional_https_url(url),
          {:ok, %{payload: prepared}} <-
            RecordPayload.prepare("slack_post_offer", payload, ref) do
-      {:ok, slack_post_offer_blocks(ref, prepared, status)}
+      {:ok, slack_post_offer_blocks(ref, Map.put(prepared, "message_url", url), status)}
     else
       _invalid -> {:error, {:invalid_slack_render, :record}}
     end
@@ -2305,11 +2311,18 @@ defmodule Responder.Slack.Renderer do
   end
 
   defp slack_post_offer_blocks(_ref, payload, "confirmed") do
-    [
-      section(
-        "*Additional Slack post confirmed*\nDestination: `#{mrkdwn(payload["destination_ref"])}`\n_The durable delivery worker is sending or reconciling this exact message._"
-      )
-    ]
+    [section(confirmed_slack_post_summary(payload))]
+  end
+
+  # Until the host could build a message link this card said the worker was
+  # "sending or reconciling" the post forever, even long after it had landed.
+  # The link is the only honest way to say it is sent.
+  defp confirmed_slack_post_summary(%{"message_url" => url} = payload) when is_binary(url) do
+    "*Additional Slack post sent*\nDestination: `#{mrkdwn(payload["destination_ref"])}` · <#{url}|Open message>"
+  end
+
+  defp confirmed_slack_post_summary(payload) do
+    "*Additional Slack post confirmed*\nDestination: `#{mrkdwn(payload["destination_ref"])}`\n_The durable delivery worker is sending or reconciling this exact message._"
   end
 
   defp behavior_offer_blocks("preference_offer", ref, payload) do
