@@ -788,32 +788,37 @@ defmodule Responder.ControlPlane.EpisodeTrace do
     })
   end
 
+  # What happened to this input while it waited: when it arrived, who claimed
+  # it, how long that took, and whether it is coming back. The lease belongs
+  # here too — it is the claim, not an identifier.
   defp queue_facts(input, state, claimed_at, wait_ms) do
+    held? = state.kind == :handed and state.current
+
     compact_details([
-      {"Storage", "Saved · #{timestamp_precise(input.inserted_at)}"},
+      {"Arrived", timestamp_precise(input.inserted_at)},
       {"Source occurrence", queue_occurrence(input)},
-      {"Input / revision", "ingress-input:#{input.id} · revision #{input.revision}"},
-      {"Execution mode", "#{capitalize(human(input.execution_mode))} · fixed on first receipt"},
-      {"Source acknowledgement", "Not recorded"},
       {"Routing claim", if(claimed_at, do: timestamp_precise(claimed_at), else: "Not recorded")},
       {"Queue wait", format_ms(wait_ms) || "Not recorded"},
       {"Queue claims", input.attempt_count},
+      {"Held by", if(held?, do: input.lease_owner)},
+      {"Hold expires", if(held?, do: timestamp_precise(input.lease_expires_at))},
       {"Eligible for retry after",
        if(state.kind == :retry, do: timestamp_precise(input.next_attempt_at))},
       {"Last routing error", if(input.status != :decided, do: error_label(input.last_error_code))}
     ])
   end
 
-  defp queue_technical(input, state) do
-    held? = state.kind == :handed and state.current
-
+  # The identifiers somebody debugging this input needs to find it elsewhere.
+  # "Source acknowledgement" is gone: no adapter records one, so the row was
+  # always "Not recorded".
+  defp queue_technical(input, _state) do
     compact_details([
+      {"Input / revision", "ingress-input:#{input.id} · revision #{input.revision}"},
       {"Identity", input.dedupe_key},
       {"Event fingerprint", short_digest(input.event_fingerprint)},
+      {"Execution mode", capitalize(human(input.execution_mode))},
       {"Execution generation", input.execution_generation},
-      {"Validation generation", input.validation_generation},
-      {"Current lease owner", if(held?, do: input.lease_owner)},
-      {"Current lease expires", if(held?, do: timestamp_precise(input.lease_expires_at))}
+      {"Validation generation", input.validation_generation}
     ])
   end
 
