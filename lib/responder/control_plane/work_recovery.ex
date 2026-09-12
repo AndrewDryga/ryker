@@ -17,12 +17,16 @@ defmodule Responder.ControlPlane.WorkRecovery do
   """
   @spec brief(Turn.t()) :: map()
   def brief(%Turn{} = turn) do
-    project(
-      turn,
-      Custody.completed_workspace_recoverable(turn),
-      CodeEditingSetup.checkpoint_supported?(),
-      Custody.portable_workspace(turn)
-    )
+    recovery = Custody.completed_workspace_recoverable(turn)
+    supported? = CodeEditingSetup.checkpoint_supported?()
+    base = project(turn, recovery, supported?)
+
+    # Only this state can act on the answer, and the failures page renders a
+    # brief per row, so the fleet is asked once for the rows that could resume
+    # rather than once for every row on the page.
+    if base.action == :retry and base.kind == :execution,
+      do: project(turn, recovery, supported?, Custody.portable_workspace(turn)),
+      else: base
   end
 
   def project(
