@@ -61,17 +61,26 @@ defmodule Responder.Publication.DispatcherTest do
     def publish_message(request, agent) do
       Agent.get_and_update(agent, fn state ->
         index = length(state.delivery_requests) + 1
+        errors = Map.get(state, :delivery_errors, %{})
+        {reason, remaining} = Map.pop(errors, request.ref)
 
-        {:ok, receipt} =
-          DeliveryReceipt.new(
-            request.ref,
-            request.transport,
-            request.conversation_ref,
-            request.thread_ref,
-            "message:publication:#{index}"
-          )
+        result =
+          case reason do
+            nil ->
+              DeliveryReceipt.new(
+                request.ref,
+                request.transport,
+                request.conversation_ref,
+                request.thread_ref,
+                "message:publication:#{index}"
+              )
 
-        {{:ok, receipt}, %{state | delivery_requests: state.delivery_requests ++ [request]}}
+            failure ->
+              {:error, failure}
+          end
+
+        next = %{state | delivery_requests: state.delivery_requests ++ [request]}
+        {result, Map.put(next, :delivery_errors, remaining)}
       end)
     end
   end
@@ -197,6 +206,112 @@ defmodule Responder.Publication.DispatcherTest do
     assert request.patch == patch
     assert request.review == review
     assert request.approval_ref == "interaction:publish:runtime"
+  end
+
+  # The result card is painted after the draft exists, so a Slack failure there
+  # returns a publication that already owns pull request 91 to the queue. The
+  # retry has to be the repaint and nothing else: a second publish would give
+  # one approval two drafts and orphan the first behind a card that never
+  # repainted. Nothing exercised this retry — the catalog claimed the state and
+  # no test drove it, which is how the 2026-09-12 audit found a "parked state
+  # clears native activity" claim that was false and had been re-sending "is
+  # working..." to a thread every 90 seconds forever.
+  test "a failed result repaint retries onto the same pull request and never opens a second draft" do
+    %{claim: work_claim, offer: offer, offer_receipt: offer_receipt} = delivered_offer!("repaint")
+
+    assert {:ok, %{publication: publication}} =
+             PublicationCustody.request_review(review_request(work_claim, offer, offer_receipt))
+
+    patch = "diff --git a/lib/fix.ex b/lib/fix.ex\n+fixed\n"
+    review = review_document(work_claim, patch)
+    result_ref = "publication-result:#{publication.id}:g1"
+
+    {:ok, coop} =
+      Agent.start_link(fn ->
+        %{
+          patch: patch,
+          patch_calls: [],
+          review: review,
+          review_calls: [],
+          session: %{
+            "external_ref" => work_claim.session.external_ref,
+            "id" => work_claim.session.coop_session_id,
+            "policy" => work_claim.session.policy,
+            "policy_digest" => work_claim.session.policy_digest,
+            "revision" => 7,
+            "state" => "exhausted"
+          }
+        }
+      end)
+
+    {:ok, effects} =
+      Agent.start_link(fn ->
+        %{
+          delivery_errors: %{result_ref => {:slack_api_error, "ratelimited"}},
+          delivery_requests: [],
+          publication_id: publication.id,
+          publication_requests: []
+        }
+      end)
+
+    options = dispatcher_options(coop, effects)
+
+    assert {:ok, {:executed, %{phase: :reviewed}}} = Dispatcher.run_once(options)
+    assert {:ok, {:executed, %{phase: :delivered}}} = Dispatcher.run_once(options)
+    reviewed = Repo.get!(Publication, publication.id)
+
+    assert {:ok, %{status: :approved}} =
+             PublicationCustody.approve(%{
+               actor_ref: "slack:user:U-operator",
+               approval_ref: "interaction:publish:repaint",
+               occurred_at: DateTime.add(@now, 2, :second),
+               publication_ref: publication.ref,
+               target: %{
+                 conversation_ref: work_claim.episode.destination_conversation_ref,
+                 message_ref: reviewed.review_delivery_receipt["message_ref"],
+                 thread_ref: work_claim.episode.destination_thread_ref,
+                 transport: "slack"
+               }
+             })
+
+    assert {:ok, {:executed, %{phase: :published}}} = Dispatcher.run_once(options)
+    opened = Repo.get!(Publication, publication.id)
+    assert opened.status == :published_ready
+    assert opened.pull_request_number == 91
+
+    assert {:ok, {:deferred, {:slack_api_error, "ratelimited"}}} = Dispatcher.run_once(options)
+
+    deferred = Repo.get!(Publication, publication.id)
+    assert deferred.status == :published_ready
+    assert deferred.last_error_code == "slack_api_error"
+    assert deferred.lease_ref == nil
+    assert deferred.pull_request_number == 91
+    assert deferred.pull_request_url == "https://github.com/acme/responder/pull/91"
+    assert deferred.publication_receipt == opened.publication_receipt
+
+    Repo.update_all(
+      from(saved in Publication, where: saved.id == ^publication.id),
+      set: [next_attempt_at: @now]
+    )
+
+    assert {:ok, {:executed, %{phase: :delivered}}} = Dispatcher.run_once(options)
+
+    published = Repo.get!(Publication, publication.id)
+    assert published.status == :published
+    assert published.pull_request_number == 91
+    assert published.pull_request_url == "https://github.com/acme/responder/pull/91"
+    assert published.publication_receipt == opened.publication_receipt
+
+    state = Agent.get(effects, & &1)
+
+    # One approval, one create: the publisher was never asked a second time.
+    assert [_only] = state.publication_requests
+
+    # The retry addresses the exact delivery ref the failed attempt used, which
+    # is the ref Slack reconciles onto the message already holding it.
+    assert [_review, failed, retried] = state.delivery_requests
+    assert failed.ref == result_ref
+    assert retried.ref == result_ref
   end
 
   test "readiness completes without publication credentials but cannot publish a draft" do

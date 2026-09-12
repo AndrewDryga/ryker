@@ -13,7 +13,7 @@ defmodule Responder.State.BehaviorsTest do
   alias Responder.Fixtures.DatabaseClock
   alias Responder.Fixtures.Episodes, as: EpisodeFixtures
   alias Responder.Ingress.{Inbox, Input}
-  alias Responder.Slack.{AppHomeProjection, Event}
+  alias Responder.Slack.{AppHomeProjection, Event, Renderer, ReplyRecords}
 
   alias Responder.State.{
     Behavior,
@@ -685,6 +685,118 @@ defmodule Responder.State.BehaviorsTest do
     # has to be the one holding the recorded message.
     assert confirmed.behavior.source_thread_ref == "1787832500.000700"
     assert confirmed.behavior.source_message_ref == fixture.receipt["message_ref"]
+  end
+
+  # The preference delete dialog existed only as a hand-written Card Lab
+  # specimen, and it is the last thing an operator reads before a destructive
+  # press: it has to name this preference, say what stops and say what survives.
+  # A card state nobody drives from a real record is a claim, not a fact — the
+  # 2026-09-12 audit found one such claim ("the parked state clears native
+  # activity") was false, and a thread had been told "is working..." every 90
+  # seconds ever since.
+  test "deleting a saved preference is confirmed against that preference by name" do
+    fixture = delivered_offers!("preference-delete-dialog")
+
+    assert {:ok, confirmed} =
+             Behaviors.confirm(
+               confirmation(fixture, fixture.workspace_preference, "preference-delete")
+             )
+
+    behavior = confirmed.behavior
+    record = Repo.get!(Record, fixture.workspace_preference.id)
+
+    assert [document] = ReplyRecords.documents("slack", fixture.episode.id, [record])
+    assert %{"presentation" => %{"entity" => entity}} = document
+    assert entity["kind"] == "preference"
+    assert entity["title"] == "response_detail"
+    assert entity["instructions"] == "response_detail = standard"
+    assert ["Scope", "Whole workspace"] in entity["facts"]
+
+    assert {:ok, rendered} = Renderer.render(%{"message" => "Saved.", "records" => [document]})
+
+    assert [delete] = List.last(rendered["blocks"])["elements"]
+    assert delete["action_id"] == "responder_delete_behavior"
+    assert delete["style"] == "danger"
+    assert delete["value"] == "behavior-control:#{behavior.ref}:1"
+    assert delete["text"]["text"] == "Delete preference"
+    assert delete["confirm"]["title"]["text"] == "Delete preference?"
+
+    assert delete["confirm"]["text"]["text"] ==
+             "Stop applying “response_detail”. Replies I already sent stay as they are."
+
+    assert delete["confirm"]["confirm"]["text"] == "Delete preference"
+    assert delete["confirm"]["deny"]["text"] == "Cancel"
+
+    # A paused preference is still removable, and the control follows its
+    # revision. The notice keeps naming the save event while the entity is
+    # live, so the pause is carried by the status, not by the headline.
+    assert {:ok, disabled} = Behaviors.set_status(behavior.ref, :disabled, "slack:T123")
+    assert [paused_document] = ReplyRecords.documents("slack", fixture.episode.id, [record])
+    assert paused_document["presentation"]["entity"]["status"] == "disabled"
+    assert paused_document["presentation"]["entity"]["removable"] == true
+    assert paused_document["presentation"]["entity"]["notice"] == "Preference saved"
+
+    assert {:ok, rendered} =
+             Renderer.render(%{"message" => "Saved.", "records" => [paused_document]})
+
+    assert [paused_delete] = List.last(rendered["blocks"])["elements"]
+    assert paused_delete["value"] == "behavior-control:#{behavior.ref}:#{disabled.revision}"
+    assert paused_delete["confirm"]["title"]["text"] == "Delete preference?"
+
+    # Once it is gone there is nothing left to confirm.
+    assert {:ok, _deleted} = Behaviors.set_status(behavior.ref, :deleted, "slack:T123")
+    assert [deleted_document] = ReplyRecords.documents("slack", fixture.episode.id, [record])
+
+    assert {:ok, rendered} =
+             Renderer.render(%{"message" => "Saved.", "records" => [deleted_document]})
+
+    refute Enum.any?(rendered["blocks"], &(&1["type"] == "actions"))
+    assert inspect(rendered) =~ "Preference deleted"
+  end
+
+  # Same gap for guidance, whose dialog has to promise something different:
+  # deleting guidance stops Responder following it, and changes nothing it has
+  # already said.
+  test "deleting saved guidance is confirmed against that guidance by name" do
+    fixture = delivered_offers!("guidance-delete-dialog")
+
+    assert {:ok, confirmed} =
+             Behaviors.confirm(confirmation(fixture, fixture.guidance, "guidance-delete"))
+
+    behavior = confirmed.behavior
+    record = Repo.get!(Record, fixture.guidance.id)
+
+    assert [document] = ReplyRecords.documents("slack", fixture.episode.id, [record])
+    assert %{"presentation" => %{"entity" => entity}} = document
+    assert entity["kind"] == "guidance"
+    assert entity["title"] == "terraform_review_style"
+    assert entity["instructions"] =~ "lead with availability risk and drift"
+    assert ["Scope", "This conversation"] in entity["facts"]
+    assert ["Visibility", "This conversation"] in entity["facts"]
+
+    assert {:ok, rendered} = Renderer.render(%{"message" => "Saved.", "records" => [document]})
+
+    assert [delete] = List.last(rendered["blocks"])["elements"]
+    assert delete["action_id"] == "responder_delete_behavior"
+    assert delete["style"] == "danger"
+    assert delete["value"] == "behavior-control:#{behavior.ref}:1"
+    assert delete["text"]["text"] == "Delete guidance"
+    assert delete["confirm"]["title"]["text"] == "Delete guidance?"
+
+    assert delete["confirm"]["text"]["text"] ==
+             "Stop following “terraform_review_style”. Replies I already sent stay as they are."
+
+    assert delete["confirm"]["confirm"]["text"] == "Delete guidance"
+    assert delete["confirm"]["deny"]["text"] == "Cancel"
+
+    assert {:ok, _deleted} = Behaviors.set_status(behavior.ref, :deleted, "slack:T123")
+    assert [deleted_document] = ReplyRecords.documents("slack", fixture.episode.id, [record])
+
+    assert {:ok, rendered} =
+             Renderer.render(%{"message" => "Saved.", "records" => [deleted_document]})
+
+    refute Enum.any?(rendered["blocks"], &(&1["type"] == "actions"))
+    assert inspect(rendered) =~ "Guidance deleted"
   end
 
   test "crossed and stale behavior controls fail closed" do
