@@ -2136,11 +2136,7 @@ defmodule Responder.ControlPlane.EpisodeTrace do
     next_target = payload["next_target"]
     reset = payload["reset_at"] || payload["retry_after"] || retry_in(payload)
 
-    [
-      target && "#{target} is rate limited",
-      next_target && "#{next_target} will be used instead",
-      is_nil(next_target) && reset && "retrying #{reset}"
-    ]
+    [limited(target), replacement(next_target), fallback_retry(next_target, reset)]
     |> Enum.filter(&is_binary/1)
     |> Enum.join(", ")
     |> case do
@@ -2148,6 +2144,15 @@ defmodule Responder.ControlPlane.EpisodeTrace do
       summary -> summary <> "."
     end
   end
+
+  defp limited(nil), do: nil
+  defp limited(target), do: "#{target} is rate limited"
+
+  defp replacement(nil), do: nil
+  defp replacement(next_target), do: "#{next_target} will be used instead"
+
+  defp fallback_retry(nil, reset) when is_binary(reset), do: "retrying #{reset}"
+  defp fallback_retry(_next_target, _reset), do: nil
 
   defp retry_in(%{"retry_after_seconds" => seconds}) when is_integer(seconds),
     do: "in #{seconds}s"
