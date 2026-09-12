@@ -48,15 +48,25 @@ defmodule Responder.Slack.AppHomeProjectionTest do
     assert length(snapshot.schedules) <= 5
   end
 
-  test "invalid workspace identity returns an empty bounded projection" do
-    assert AppHomeProjection.snapshot("not a Slack workspace", "U123", MapSet.new()) ==
-             AppHomeProjection.empty()
+  test "an identity the projection cannot read is unreadable, never an empty dashboard" do
+    # The 2026-09-12 coverage measurement: this returned `empty/0`, so a
+    # dashboard the host could not read was indistinguishable from a person who
+    # genuinely has no schedules, rules or work. The collection views already
+    # keep that distinction; the dashboard did not.
+    for arguments <- [
+          {"not a Slack workspace", "U123", MapSet.new()},
+          {"T123", "not a Slack user", MapSet.new()},
+          {"T123", "U123", ["C456"]}
+        ] do
+      {workspace, actor, shared} = arguments
+      snapshot = AppHomeProjection.snapshot(workspace, actor, shared)
 
-    assert AppHomeProjection.snapshot("T123", "not a Slack user", MapSet.new()) ==
-             AppHomeProjection.empty()
+      refute snapshot == AppHomeProjection.empty()
+      assert snapshot.readable == false
+      assert snapshot.counts == AppHomeProjection.empty().counts
+    end
 
-    assert AppHomeProjection.snapshot("T123", "U123", ["C456"]) ==
-             AppHomeProjection.empty()
+    assert AppHomeProjection.empty().readable == true
   end
 
   test "private conversation titles and counts are absent when Home user no longer shares them" do

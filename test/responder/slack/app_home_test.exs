@@ -419,6 +419,20 @@ defmodule Responder.Slack.AppHomeTest do
     assert rendered =~ "Durable state remains authoritative"
   end
 
+  test "a dashboard the host could not read says so instead of showing nothing" do
+    # The 2026-09-12 coverage measurement: an unreadable dashboard rendered
+    # exactly like a person with no schedules, no rules and no work. A quiet
+    # zero is the most convincing wrong answer a surface can give.
+    view = AppHome.render(:operator, Responder.Slack.AppHomeProjection.unreadable())
+    encoded = Jason.encode!(view)
+
+    assert encoded =~ "couldn't read"
+    refute encoded =~ "Nothing needs you right now"
+
+    empty = Jason.encode!(AppHome.render(:operator, Responder.Slack.AppHomeProjection.empty()))
+    refute empty =~ "couldn't read"
+  end
+
   test "a sparse operator view stays useful and renders terminal lifecycle choices safely" do
     {:ok, calls} = Agent.start_link(fn -> [] end)
 

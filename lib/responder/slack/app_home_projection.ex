@@ -74,11 +74,11 @@ defmodule Responder.Slack.AppHomeProjection do
         work: work(workspace_ref, destination_refs)
       }
     else
-      empty()
+      unreadable()
     end
   end
 
-  def snapshot(_workspace_ref, _actor_ref, _shared_conversations), do: empty()
+  def snapshot(_workspace_ref, _actor_ref, _shared_conversations), do: unreadable()
 
   @spec empty() :: map()
   def empty do
@@ -100,10 +100,21 @@ defmodule Responder.Slack.AppHomeProjection do
       memory_review_count: 0,
       memory_reviews: [],
       needs_attention: [],
+      readable: true,
       schedules: [],
       work: []
     }
   end
+
+  @doc """
+  The dashboard for a reader whose identity this projection cannot resolve.
+
+  Returning `empty/0` here said the person has nothing, which is a different
+  claim from not being able to tell. The collection views already keep those
+  apart; the dashboard read them the same until 2026-09-12.
+  """
+  @spec unreadable() :: map()
+  def unreadable, do: %{empty() | readable: false}
 
   @doc """
   One bounded page of a requested collection across the channels the reader
