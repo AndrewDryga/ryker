@@ -18,7 +18,17 @@ defmodule Responder.Work.PromptTest do
 
     assert instructions =~ "Search global memory for the exact workload"
     assert instructions =~ "One visible project is not proof"
-    assert instructions =~ "state what is already known, then ask one concrete question"
+
+    # Discovery comes before the question, and the question carries what
+    # discovery found. Five scenarios failed by asking a person to name a
+    # project the same session could have listed, which also arrives without
+    # the candidates, so nothing can check the answer against anything.
+    assert instructions =~ "enumerate the real candidates, and only then ask"
+
+    assert instructions =~
+             "state what it found and what it could not reach, then ask one concrete"
+
+    assert instructions =~ "arm that watch with wait_for in the same turn as the question"
     assert instructions =~ "concrete recap of the established findings in the final reply"
     assert instructions =~ "A list of missing checks is not that recap"
     assert instructions =~ "rather than repeating its text in the final reply"
@@ -134,6 +144,13 @@ defmodule Responder.Work.PromptTest do
 
     assert instructions =~ "planning, pending, queued, or running"
     assert instructions =~ "durable wait for the next exact lifecycle update"
+
+    # Six observations delivered "I have scheduled a follow-up in 10 minutes"
+    # in a turn that called no wait_for. The episode ends there and the person
+    # told to expect an answer waits for one nobody scheduled, so the rule about
+    # claiming the wait sits in the same sentence as the call that creates it.
+    assert instructions =~ "create one durable wait by calling wait_for, and say you are waiting"
+    assert instructions =~ "only in a turn where that call succeeded"
     assert instructions =~ "Call validate_final"
     assert instructions =~ "exact JSON"
     assert instructions =~ "repair it in"
