@@ -189,10 +189,12 @@ defmodule Responder.Slack.TaskCardDetails do
   defp glyph("unknown"), do: "?"
   defp glyph("pending"), do: "○"
 
-  defp goal_glyph("completed"), do: "✓"
-  defp goal_glyph("working"), do: "▸"
-  defp goal_glyph("waiting"), do: "◷"
-  defp goal_glyph("blocked"), do: "!"
-  defp goal_glyph(state) when state in ~w(excluded cancelled), do: "−"
-  defp goal_glyph("ready"), do: "○"
+  @doc "The shared glyph for a goal state, on any card that shows a goal."
+  @spec goal_glyph(String.t()) :: String.t()
+  def goal_glyph("completed"), do: "✓"
+  def goal_glyph("working"), do: "▸"
+  def goal_glyph("waiting"), do: "◷"
+  def goal_glyph("blocked"), do: "!"
+  def goal_glyph(state) when state in ~w(excluded cancelled), do: "−"
+  def goal_glyph("ready"), do: "○"
 end

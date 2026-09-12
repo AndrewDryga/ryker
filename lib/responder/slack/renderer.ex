@@ -402,7 +402,7 @@ defmodule Responder.Slack.Renderer do
   defp incident_goals_block(goals) do
     rendered =
       Enum.map_join(goals, "\n", fn goal ->
-        "#{incident_goal_marker(goal["state"])} #{mrkdwn(goal["outcome"])}#{incident_goal_detail(goal["detail"])}"
+        "#{TaskCardDetails.goal_glyph(goal["state"])} #{mrkdwn(goal["outcome"])}#{incident_goal_detail(goal["detail"])}"
       end)
 
     section("*What this investigation is establishing*\n#{rendered}")
@@ -410,11 +410,6 @@ defmodule Responder.Slack.Renderer do
 
   defp incident_goal_detail(nil), do: ""
   defp incident_goal_detail(detail), do: " · #{mrkdwn(detail)}"
-
-  defp incident_goal_marker("completed"), do: "✓"
-  defp incident_goal_marker("blocked"), do: "!"
-  defp incident_goal_marker("working"), do: "▸"
-  defp incident_goal_marker(_state), do: "○"
 
   defp render_task_card(
          %{
