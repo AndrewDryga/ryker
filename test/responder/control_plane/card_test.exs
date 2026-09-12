@@ -160,6 +160,41 @@ defmodule Responder.ControlPlane.CardTest do
     assert card.ref == source.ref
   end
 
+  test "a goal card shows the stage it belongs to and the attempt it replaces" do
+    # The 2026-09-12 audit found the episode view renders neither. A goal's stage is
+    # what says whether the work is planning or self-review, and successor_of is the
+    # only thing distinguishing a fresh attempt from a reopened goal, which the host
+    # never does. Both were in the payload and neither reached the operator.
+    payload = %{
+      "authority" => "read_only",
+      "completion_contract" => "A current worker-health observation is recorded.",
+      "id" => "verify-workers-2",
+      "kind" => "check",
+      "requested_outcome" => "Verify background-worker health",
+      "required" => true,
+      "stage" => "self_review",
+      "successor_of" => "verify-workers"
+    }
+
+    assert {:ok, card} = Card.project(record("goal", payload))
+    assert {"Stage", "Self review"} in card.details
+    assert {"Replaces attempt", "verify-workers"} in card.details
+  end
+
+  test "a completed check reports the evidence it was completed on" do
+    # Same audit: evidence_refs is the receipt a completion claim rests on, and the
+    # card dropped it, so a completion and an unevidenced assertion looked identical.
+    payload = %{
+      "detail" => "Both workers reported healthy.",
+      "evidence_refs" => ["record:evidence:aa11", "record:evidence:bb22"],
+      "goal_id" => "verify-workers",
+      "state" => "completed"
+    }
+
+    assert {:ok, card} = Card.project(record("goal_state", payload))
+    assert {"Evidence", "record:evidence:aa11, record:evidence:bb22"} in card.details
+  end
+
   test "a completed goal transition never displays the record storage status as Open" do
     # Harvested from Lab bd9abb20: a successful acceptance still showed GOAL STATE OPEN.
     payload = %{
