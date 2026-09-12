@@ -184,6 +184,7 @@ defmodule Responder.Slack.Runtime do
     home_options = %{
       api: Client,
       client: bot_client,
+      collection: &AppHomeProjection.collection/4,
       directory: Client,
       operators: operators,
       projection: &AppHomeProjection.snapshot/3,
@@ -251,7 +252,8 @@ defmodule Responder.Slack.Runtime do
             transport: "slack"
           }
         )
-      end
+      end,
+      show_collection: &AppHome.publish_collection(&1, &2, &3, home_options)
     }
 
     request_incident_room = fn attributes ->

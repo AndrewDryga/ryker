@@ -124,6 +124,69 @@ defmodule Responder.Slack.AppHomeControlsTest do
     refute_received {:set_schedule, _, _, _, _, _, _}
   end
 
+  # Opening the complete list must not be followed by the dashboard repaint
+  # every mutating control ends with, or the list the operator asked for is
+  # replaced by the digest it was meant to complete.
+  test "opening a complete list publishes that page and leaves it on screen" do
+    parent = self()
+    options = options(parent)
+
+    assert {:ok, %{outcome: :listed, resource_ref: "home-collection:schedules:0"}} =
+             AppHomeControls.handle(
+               interaction(:show_collection, "home-collection:schedules:0"),
+               options
+             )
+
+    assert_received {:shown_collection, :schedules, 0, "U123", "T123"}
+    refute_received {:refreshed_home, _, _}
+
+    assert {:ok, %{outcome: :listed}} =
+             AppHomeControls.handle(
+               interaction(:show_collection, "home-collection:knowledge:20"),
+               options
+             )
+
+    assert_received {:shown_collection, :knowledge, 20, "U123", "T123"}
+
+    assert {:ok, %{outcome: :refreshed, resource_ref: "home-collection:dashboard"}} =
+             AppHomeControls.handle(
+               interaction(:show_dashboard, "home-collection:dashboard"),
+               options
+             )
+
+    assert_received {:refreshed_home, "U123", "T123"}
+    refute_received {:shown_collection, _, _, _, _}
+  end
+
+  test "a nonoperator cannot open a complete list, and a malformed page is not a request" do
+    parent = self()
+
+    assert AppHomeControls.handle(
+             interaction(:show_collection, "home-collection:schedules:0"),
+             %{options(parent) | operators: MapSet.new()}
+           ) == {:ok, %{outcome: :denied}}
+
+    refute_received {:shown_collection, _, _, _, _}
+
+    for value <- [
+          "home-collection:everything:0",
+          "home-collection:schedules:-1",
+          "home-collection:schedules:many",
+          "home-collection:schedules",
+          "home-collection:schedules:0:0"
+        ] do
+      assert AppHomeControls.handle(interaction(:show_collection, value), options(parent)) ==
+               {:error, :app_home_control_mismatch}
+    end
+
+    refute_received {:shown_collection, _, _, _, _}
+
+    assert AppHomeControls.handle(
+             interaction(:show_collection, "home-collection:schedules:0"),
+             Map.delete(options(parent), :show_collection)
+           ) == {:error, {:invalid_app_home_control, :show_collection}}
+  end
+
   test "a control that discovers schedule expiry settles and repaints as stale" do
     expired_receipt = {:ok, %{outcome: %{"status" => "expired"}}}
 
@@ -606,6 +669,10 @@ defmodule Responder.Slack.AppHomeControlsTest do
         )
 
         {:ok, %{status: :recorded}}
+      end,
+      show_collection: fn event, kind, offset ->
+        send(parent, {:shown_collection, kind, offset, event.actor_ref, event.workspace_ref})
+        {:ok, %{access: :operator, outcome: :published}}
       end
     }
   end

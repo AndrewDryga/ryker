@@ -12,11 +12,12 @@ defmodule Responder.Slack.AppHomeProjection do
   alias Responder.Episodes.{Episode, Event}
   alias Responder.Publication.Publication
   alias Responder.Repo
-  alias Responder.Slack.IncidentRoom
+  alias Responder.Slack.{Collections, IncidentRoom, SavedEntity}
   alias Responder.State.{Behavior, Memories, MemoryEntry, Schedule}
   alias Responder.Work.{Session, Turn}
 
   @active_episode_states [:working, :waiting_for_input, :waiting_for_event]
+  @maximum_collection_rows 10
   @maximum_attention 8
   @maximum_work 8
   @maximum_incidents 5
@@ -103,6 +104,76 @@ defmodule Responder.Slack.AppHomeProjection do
       work: []
     }
   end
+
+  @doc """
+  One bounded page of a requested collection across the channels the reader
+  shares with Responder.
+
+  The dashboard sections are a capped digest; this is the complete authorized
+  list the collections card points at, read from the same scoped query the
+  channel's own page is cut from. A page that could not be read is
+  `:unavailable`, never an empty list.
+  """
+  @spec collection(Collections.kind(), String.t(), MapSet.t(String.t()), non_neg_integer()) ::
+          map()
+  def collection(kind, workspace_ref, shared_conversations, offset) do
+    with true <- kind in Collections.kinds(),
+         true <- workspace_ref?(workspace_ref),
+         %MapSet{} <- shared_conversations,
+         true <- shared_conversations?(shared_conversations),
+         true <- is_integer(offset) and offset >= 0,
+         {:ok, page} <-
+           Collections.page(
+             kind,
+             %{
+               channel_refs: shared_conversations |> MapSet.to_list() |> Enum.sort(),
+               workspace_ref: workspace_ref
+             },
+             offset,
+             @maximum_collection_rows
+           ) do
+      %{
+        kind: kind,
+        offset: page.offset,
+        outcome: if(page.total == 0, do: :empty, else: :listed),
+        page_size: @maximum_collection_rows,
+        rows: Enum.map(page.entries, &collection_row(&1, workspace_ref, shared_conversations)),
+        total: page.total
+      }
+    else
+      _unreadable ->
+        %{
+          kind: kind,
+          offset: 0,
+          outcome: :unavailable,
+          page_size: @maximum_collection_rows,
+          rows: [],
+          total: 0
+        }
+    end
+  end
+
+  defp collection_row(entity, workspace_ref, shared_conversations) do
+    document = SavedEntity.document(entity)
+
+    %{
+      detail: document["notice"],
+      ref: document["ref"],
+      title: document["title"],
+      url: collection_url(entity, workspace_ref, shared_conversations)
+    }
+  end
+
+  defp collection_url(%Schedule{} = schedule, workspace_ref, _shared_conversations) do
+    slack_url(
+      workspace_ref,
+      schedule.destination_conversation_ref,
+      schedule.destination_thread_ref
+    )
+  end
+
+  defp collection_url(entity, workspace_ref, shared_conversations),
+    do: source_url(entity, workspace_ref, shared_conversations)
 
   defp counts(workspace_ref, actor_ref, destination_refs, channel_refs, now) do
     %{

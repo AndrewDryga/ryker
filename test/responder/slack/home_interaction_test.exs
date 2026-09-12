@@ -53,7 +53,10 @@ defmodule Responder.Slack.HomeInteractionTest do
           {"responder_home_discard_workspace",
            "responder-work-control:responder-work:abc:session:1:#{String.duplicate("a", 64)}",
            :discard_workspace},
-          {"responder_home_open", "task-card:abc-123", :open_resource}
+          {"responder_home_open", "task-card:abc-123", :open_resource},
+          {"responder_home_show_collection", "home-collection:schedules:0", :show_collection},
+          {"responder_home_show_collection", "home-collection:knowledge:20", :show_collection},
+          {"responder_home_show_dashboard", "home-collection:dashboard", :show_dashboard}
         ] do
       assert {:ok, parsed} = HomeInteraction.from_socket(envelope(action_id, value), "T123", @now)
       assert parsed.action == action
@@ -68,6 +71,12 @@ defmodule Responder.Slack.HomeInteractionTest do
 
     assert HomeInteraction.from_socket(
              envelope("model_chosen_action", "memory:abc-123"),
+             "T123",
+             @now
+           ) == :ignore
+
+    assert HomeInteraction.from_socket(
+             envelope("responder_home_show_collection", "schedule:abc-123"),
              "T123",
              @now
            ) == :ignore

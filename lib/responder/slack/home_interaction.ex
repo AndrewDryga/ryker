@@ -18,6 +18,8 @@ defmodule Responder.Slack.HomeInteraction do
     "responder_home_resume_schedule" => {:resume_schedule, ["schedule-control:", "schedule:"]},
     "responder_home_retry_publication" => {:retry_publication, "publication-recovery:"},
     "responder_home_run_schedule" => {:run_schedule, "schedule:"},
+    "responder_home_show_collection" => {:show_collection, "home-collection:"},
+    "responder_home_show_dashboard" => {:show_dashboard, "home-collection:"},
     "responder_home_update_publication" => {:update_publication, "publication-recovery:"}
   }
   @reference ~r/\A[A-Za-z0-9_.:-]{1,256}\z/
@@ -50,6 +52,8 @@ defmodule Responder.Slack.HomeInteraction do
           | :resume_schedule
           | :retry_publication
           | :run_schedule
+          | :show_collection
+          | :show_dashboard
           | :update_publication
 
   @type t :: %__MODULE__{
