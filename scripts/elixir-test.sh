@@ -6,12 +6,10 @@ compose=(docker compose --project-name responder-kernel --file "$root/compose.te
 
 cd "$root"
 
-container=$("${compose[@]}" ps --quiet episode-db)
-
-if [[ -z "$container" ]] ||
-  [[ $(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$container") != "healthy" ]]; then
-  "${compose[@]}" up --detach --wait episode-db >/dev/null
-fi
+# `up` is a no-op when the healthy container already matches compose.test.yml
+# and recreates it when the file changed, so a capacity change lands on the
+# next run instead of after someone remembers to down it.
+"${compose[@]}" up --detach --wait episode-db >/dev/null
 
 address=$("${compose[@]}" port episode-db 5432)
 
@@ -50,7 +48,7 @@ if [[ ${1:-} == "--check" ]]; then
     compile --warnings-as-errors + \
     credo --strict + \
     ecto.migrate --quiet + \
-    test --cover "$@"
+    test "$@"
 else
   env MIX_ENV=test scripts/elixir-mix.sh "do" ecto.migrate --quiet + test "$@"
 fi

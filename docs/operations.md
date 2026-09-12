@@ -61,6 +61,26 @@ waits for both `/healthz` and `/readyz`. It then requires the ready process's
 `x-responder-version` header to match the exact installed release; inspecting
 the `current` symlink alone is not proof that systemd is serving that build.
 
+When the archive carries migrations the live database has not applied and the
+runtime environment file is readable, the script first writes a custom-format
+`pg_dump` of the live database to `backups/` under the state directory and
+applies those migrations to a copy restored into the disposable test
+PostgreSQL. A migration that fails on real rows fails there, with the old
+release still serving. Deploys without new migrations skip this step.
+
+On macOS the same script manages the service through launchd instead of
+systemd: it renders `deploy/launchd/responder.plist.template` into
+`~/Library/LaunchAgents/ai.emisar.responder.plist`, which sources the runtime
+environment file, runs migrations, and starts the release in the foreground
+with restart-on-failure, exactly as the systemd unit does. The install prefix,
+state directory, environment file, label, and scheduler flags default to
+`~/.local/lib/responder-elixir`, `~/.local/state/responder/emisar`,
+`runtime.env` in that directory, `ai.emisar.responder`, and `+S 4:4`; override
+them with `RESPONDER_DEPLOY_PREFIX`, `RESPONDER_STATE_ROOT`,
+`RESPONDER_RUNTIME_ENV`, `RESPONDER_LAUNCHD_LABEL`, and `RESPONDER_ERL_FLAGS`.
+Logs go to `log/responder.stdout.log` and `log/responder.stderr.log` under the
+state directory. The script keeps the five most recent installed releases.
+
 This is a normal one-writer restart, not a canary or promote workflow. Do not
 start a second Slack socket, GitHub/webhook listener, scheduler, or delivery
 worker against the same platform identities. Pending custody is recovered from

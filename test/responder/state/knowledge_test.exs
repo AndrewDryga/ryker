@@ -468,6 +468,8 @@ defmodule Responder.State.KnowledgeTest do
     end
   end
 
+  # Capacity proof, not a per-commit check: eleven seconds of the serial suite.
+  @tag :slow
   test "a saturated topic advances from newly supplied sources without blocking the inbox" do
     # A long-lived alert topic must not trap input 129 in an endless context-stale retry.
     first = input!(1, @firing)

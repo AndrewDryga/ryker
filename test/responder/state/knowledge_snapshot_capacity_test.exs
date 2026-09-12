@@ -14,6 +14,8 @@ defmodule Responder.State.KnowledgeSnapshotCapacityTest do
 
   alias Responder.Work.Custody
 
+  # Capacity proof, not a per-commit check: six seconds of the serial suite.
+  @tag :slow
   test "later recall pages cannot overflow the session's cumulative source budget" do
     # Structural cardinality expansion of a harvested source. Per-call limits
     # previously admitted 10,001 roots across pages, breaking later summaries.

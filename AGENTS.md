@@ -22,18 +22,28 @@ legacy fallbacks, temporary dual paths, or staged compatibility migrations.
 Preserve user data; removing an old interface does not authorize deleting history.
 
 
+## The gate
+
 Use the narrowest validation that proves the current edit while iterating:
 
-1. Run the owning package or named test after each code change, for example
-   `scripts/elixir-test.sh test/responder/work/executor_test.exs:120`.
-2. Run `make dev-check` before committing. It is the fast deterministic repository gate.
-3. Run `make check` once before shipping changes that affect concurrency, persistence,
-   security, release behavior, or broad shared contracts. CI and release workflows always
-   run it.
-4. Run live Slack, Coop, or Emisar acceptance only when the changed integration boundary
+1. Run the owning test after each code change, for example
+   `scripts/elixir-test.sh test/responder/work/executor_test.exs:120`. It runs against the
+   shared test database and finishes in about a second.
+2. Run `make dev-check` once before committing. It is the deterministic repository gate:
+   formatting, warnings-as-errors, Credo, the whole ExUnit suite in a fresh database,
+   control-plane JavaScript, and ShellCheck. It takes a few minutes and never calls a model.
+3. Commit, then run `scripts/deploy.sh` (see "Finish by deploying").
+4. `make check` is the full gate: dev-check plus the deterministic host replay in an
+   isolated database, the watchdog and live-acceptance wrapper tests, the thirty-day
+   retention simulation, and the eval-trend self-test. CI runs it on every push to origin.
+   Run it locally before a tagged release or when a change touches retention custody or the
+   release scripts, not before every deploy.
+5. Run live Slack, Coop, or Emisar acceptance only when the changed integration boundary
    requires it. Do not substitute live smoke tests for focused offline tests.
 
-Do not repeatedly run credentialed model evals during ordinary edit-test cycles.
+Do not repeatedly run credentialed model evals during ordinary edit-test cycles. Agents
+working in parallel run their owning tests; one `make dev-check` on the merged tree before
+the commit is the gate, not one per agent.
 
 ## Every fix carries the test that would have caught it
 
@@ -89,12 +99,14 @@ list of verdicts.
 
 Work is not done when the gate is green. It is done when the code is running.
 
-Commit the change, then run `scripts/deploy.sh`. It refuses a dirty tree, builds
-and qualifies the exact Elixir release against PostgreSQL, installs it under the configured
-immutable release prefix, atomically updates `current`, restarts the systemd unit, and waits for
-both `/healthz` and `/readyz`. PostgreSQL custody resumes pending admission, Work, delivery,
-schedule, and remote-worker state after the normal one-writer restart; there is no canary/promote
-deployment state.
+Commit the change, then run `scripts/deploy.sh`. It refuses a dirty tree, builds the exact
+Elixir release incrementally, qualifies the archive against a disposable PostgreSQL, rehearses
+any migrations the live database has not applied on a restored backup of it, installs the
+release under the immutable prefix, atomically updates `current`, restarts the service under
+systemd on Linux or launchd on macOS, and waits for `/healthz`, `/readyz`, and the exact running
+version header. PostgreSQL custody resumes pending admission, Work, delivery, schedule, and
+remote-worker state after the normal one-writer restart; there is no canary/promote deployment
+state. A deploy without new migrations takes about two minutes end to end.
 
 Production Coop workers are enrolled and upgraded independently through the outbound fleet
 protocol. Do not make the Responder deployment restart or install Coop. A deliberately configured

@@ -790,6 +790,8 @@ defmodule Responder.State.ContinuityTest do
   end
 
   for boundary <- [:count, :bytes] do
+    # Overflow proofs, not per-commit checks: sixteen seconds of the serial suite.
+    @tag :slow
     test "#{boundary} source overflow cannot publish a summary without its expiry receipts" do
       # Reproduce an already-running historical oversized transcript. New
       # disclosure is now refused by KnowledgeSnapshot before this can happen.
