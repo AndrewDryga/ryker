@@ -29,7 +29,10 @@ defmodule Responder.ControlPlane.SubscriptionPresentationTest do
     assert view.title == "Run run-k9CpPp3nWjQrkCMG"
     assert view.condition == "Next matching Slack update"
     assert view.target_url == hd(@matcher["attachments"])["title_link"]
-    assert view.context_label == "Slack channel · emisar"
+    # The reference stays on screen while the name is unresolved, so two
+    # channels never read identically; "Slack" is dropped because
+    # "Slack channel" already says it.
+    assert view.context_label == "Slack channel C0BLU1GACKC · emisar"
     assert view.episode_title == @episode.title
     refute view.condition =~ "approval"
     refute view.condition =~ "terminal"

@@ -19,7 +19,7 @@ defmodule Responder.ControlPlane.SlackNames do
 
       [] ->
         request(workspace, ref)
-        fallback(ref)
+        unresolved(ref)
     end
   end
 
@@ -36,6 +36,22 @@ defmodule Responder.ControlPlane.SlackNames do
   def destination("control_plane:" <> _), do: "Conversation Lab"
   def destination("control-plane:lab:" <> _), do: "Conversation Lab"
   def destination(value), do: value
+
+  @doc """
+  Whether a destination resolved to a real Slack name.
+
+  Callers used to ask this by comparing the rendered string to "Slack channel",
+  which made a display fallback an API: the moment that text carried the
+  reference as well, the comparison silently stopped matching.
+  """
+  def named?("slack:" <> rest) do
+    case String.split(rest, ":", parts: 3) do
+      [workspace, ref | _] -> resolved?(workspace, ref)
+      _ -> false
+    end
+  end
+
+  def named?(_destination), do: false
 
   def workspace_from_destination("slack:" <> rest),
     do: rest |> String.split(":", parts: 2) |> hd()
@@ -156,6 +172,12 @@ defmodule Responder.ControlPlane.SlackNames do
     :exit, _ -> {:error, :directory_unavailable}
   end
 
+  defp resolved?(workspace, ref) when is_binary(workspace) and is_binary(ref) do
+    match?([{_key, label, _expires}] when is_binary(label), cached({workspace, ref}))
+  end
+
+  defp resolved?(_workspace, _ref), do: false
+
   defp fresh?(key) do
     case cached(key) do
       [{^key, _label, expires}] -> expires > now()
@@ -175,10 +197,17 @@ defmodule Responder.ControlPlane.SlackNames do
   end
 
   defp valid_ref?(ref), do: byte_size(ref) <= 64 and Regex.match?(~r/\A[TCGDUWA][A-Z0-9]+\z/, ref)
-  defp display(ref, nil), do: fallback(ref)
+  defp display(ref, nil), do: unresolved(ref)
   defp display(<<prefix, _::binary>>, label) when prefix in [?C, ?G], do: "#" <> label
   defp display(<<prefix, _::binary>>, label) when prefix in [?U, ?W], do: "@" <> label
   defp display(_, label), do: label
+  # The channels page listed five identical "Slack channel" rows with the
+  # reference only in a tooltip, so nothing on screen told #test from #test2.
+  # A reference Slack itself would reject is never echoed back into the page.
+  defp unresolved(ref) do
+    if valid_ref?(ref), do: fallback(ref) <> " " <> ref, else: fallback(ref)
+  end
+
   defp fallback(<<prefix, _::binary>>) when prefix in [?C, ?G], do: "Slack channel"
   defp fallback("D" <> _), do: "Direct message"
   defp fallback("T" <> _), do: "Slack workspace"
