@@ -113,6 +113,15 @@ defmodule Responder.Settings do
   end
 
   @doc """
+  The recorded Slack workspace origin, or nil when none has been saved.
+
+  Card projections ask this per card they build, so it reads the one column it
+  needs rather than the whole settings snapshot.
+  """
+  @spec slack_workspace_url() :: String.t() | nil
+  def slack_workspace_url, do: Repo.one(from(slack in Slack, select: slack.workspace_url))
+
+  @doc """
   The enrolled worker workspace Work runs in, or nil when none is selected.
 
   The recovery surfaces ask this once per blocked row; loading the whole
