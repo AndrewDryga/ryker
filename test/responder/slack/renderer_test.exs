@@ -2362,6 +2362,7 @@ defmodule Responder.Slack.RendererTest do
           | "controls" => ["stop", "close", "timeline", "evidence", "handoff", "postmortem"]
         }
       },
+      %{"saved_entity" => paused_rule()},
       %{
         "task_card" => %{
           task_document("working")
@@ -2379,7 +2380,7 @@ defmodule Responder.Slack.RendererTest do
         |> Enum.flat_map(&presses/1)
       end)
 
-    assert length(pressable) >= 10
+    assert length(pressable) >= 12
 
     for {action_id, value} <- pressable do
       envelope =
@@ -2389,12 +2390,32 @@ defmodule Responder.Slack.RendererTest do
           [%{"action_id" => action_id, "type" => "button", "value" => value}]
         )
 
-      assert {:ok, interaction} = Interaction.from_socket(envelope, "T123", @now),
-             "the renderer emits #{action_id} with #{value}, which the host ignores"
+      result = Interaction.from_socket(envelope, "T123", @now)
 
-      assert interaction.action_id == action_id
-      assert interaction.action_value == value
+      assert match?({:ok, %{action_id: ^action_id, action_value: ^value}}, result),
+             "the renderer emits #{action_id} with #{inspect(value)}, " <>
+               "and the host answers #{inspect(result)}"
     end
+  end
+
+  # A saved entity's ref carries the durable id, and the interaction layer
+  # requires that exact shape — a control built from anything looser is one the
+  # host would ignore, which is what this test exists to notice.
+  defp paused_rule do
+    %{
+      "facts" => [["Scope", "Whole workspace"]],
+      "instructions" => "Watch the checkout dashboards every morning.",
+      "kind" => "standing_rule",
+      "notice" => "Standing rule paused",
+      "ref" => "behavior:0b6b4c90-1f3a-4a2e-9a4a-0f0b3a6a8f21",
+      "removable" => true,
+      "resumable" => true,
+      "revision" => 7,
+      "saved_at" => "2026-08-28T12:00:00.000000Z",
+      "saved_by" => "slack:user:U123",
+      "status" => "paused",
+      "title" => "Morning checkout watch"
+    }
   end
 
   defp presses(%{"type" => "button", "action_id" => action_id, "value" => value}),
