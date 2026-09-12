@@ -35,7 +35,7 @@ defmodule Responder.ControlPlane.CardLabTest do
         destination_thread_ref: "1787832000.000100"
       }
 
-      [projected] = ThreadStatusProjection.targets([], [episode], "T123")
+      [projected] = ThreadStatusProjection.targets([], [episode], MapSet.new(), "T123")
       state_id = phase |> Atom.to_string() |> String.replace("_", "-")
       assert {:ok, specimen} = CardLab.fetch("thread-status", state_id)
       assert specimen.rendered["status"] == projected.status
