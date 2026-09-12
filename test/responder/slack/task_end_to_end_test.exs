@@ -607,15 +607,56 @@ defmodule Responder.Slack.TaskEndToEndTest do
     assert final_receipt["thread_ref"] == "1788268000.000100"
 
     # A completed correction must not mint another Publication and replace the
-    # existing PR link with a fresh Create draft PR control.
+    # existing PR link with a fresh Create draft PR control. It re-arms the
+    # publication this task already owns, so the corrected candidate runs its
+    # checks again and lands on the pull request that is already open. Before
+    # this, readiness refused the second publication outright: the correction
+    # never reached the PR and the operator had to retype the whole task.
     assert [same_publication] =
              Repo.all(from(p in Publication, where: p.episode_id == ^task_episode.id))
 
     assert same_publication.id == publication.id
+    assert same_publication.status == :review_pending
+    assert same_publication.review_generation == published.review_generation + 1
+    assert same_publication.pull_request_number == 91
+    assert same_publication.pull_request_url == published.pull_request_url
+    assert same_publication.branch_ref == published.branch_ref
+    assert is_nil(same_publication.approval_ref)
     assert {:ok, after_correction} = TaskCardProjection.build(Repo.get!(TaskCard, card.id))
 
     assert after_correction.document["task_card"]["publication"]["pull_request_url"] ==
              same_publication.pull_request_url
+
+    for phase <- [:reviewed, :delivered, :published, :delivered] do
+      assert {:ok, {:executed, %{phase: ^phase}}} = Dispatcher.run_once(publication_options)
+    end
+
+    updated = Repo.get!(Publication, publication.id)
+    assert updated.status == :published
+    assert updated.pull_request_url == "https://github.com/acme/responder/pull/91"
+
+    assert [_first_review, corrected_review] =
+             Agent.get(publication_coop, & &1.review_calls)
+
+    assert {"responder:publication:review:#{publication.id}:g2", 7} == corrected_review
+
+    # The corrected candidate is handed to the publisher with the pull request
+    # this publication already owns, so the recorded client updates PR 91
+    # instead of opening a second draft for the same task.
+    assert [_first_request, corrected_request] = Agent.get(draft_publisher, & &1.requests)
+    assert corrected_request.publication_ref == publication.ref
+
+    assert corrected_request.existing_pull_request == %{
+             "head_commit" => published.commit_sha,
+             "number" => 91,
+             "ref" => published.branch_ref,
+             "url" => "https://github.com/acme/responder/pull/91"
+           }
+
+    assert [one_publication] =
+             Repo.all(from(p in Publication, where: p.episode_id == ^task_episode.id))
+
+    assert one_publication.id == publication.id
   end
 
   defp claim_episode! do

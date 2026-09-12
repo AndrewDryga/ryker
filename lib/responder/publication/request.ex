@@ -116,11 +116,18 @@ defmodule Responder.Publication.Request do
   defp validate_existing_pull_request(_pull_request),
     do: {:error, {:invalid_publication_request, :existing_pull_request}}
 
-  defp existing_pull_request(%Publication{expected_remote_head_sha: nil}), do: nil
+  defp existing_pull_request(%Publication{pull_request_number: nil}), do: nil
 
+  # Every publication that already opened a pull request carries it into its
+  # next generation, so a corrected candidate updates that exact draft instead
+  # of searching by branch and opening a second one. `head_commit` is the head
+  # Responder last put on its own branch — the head observed when it drifted
+  # outside the publication, otherwise the commit this publication published —
+  # and Git pushes with a force-with-lease against it, so a branch somebody else
+  # moved fails closed rather than being overwritten.
   defp existing_pull_request(%Publication{} = publication) do
     %{
-      "head_commit" => publication.expected_remote_head_sha,
+      "head_commit" => publication.expected_remote_head_sha || publication.commit_sha,
       "number" => publication.pull_request_number,
       "ref" => publication.branch_ref,
       "url" => publication.pull_request_url

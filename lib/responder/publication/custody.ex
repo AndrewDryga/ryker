@@ -70,8 +70,17 @@ defmodule Responder.Publication.Custody do
           target: %{message_ref: message, thread_ref: receipt["thread_ref"]}
         }
 
-        _request = insert_review_request(offer, episode, session, repository, attributes)
-        :ok
+        # Later completed turns belong to the task's existing publication,
+        # including its pull request and recovery history. Re-arm that one for a
+        # fresh review; never open a second draft workflow for the same task.
+        case episode_publication(episode.id) do
+          nil ->
+            _request = insert_review_request(offer, episode, session, repository, attributes)
+            :ok
+
+          %Publication{} = publication ->
+            rearm_task_review(publication, session, repository, attributes)
+        end
 
       nil ->
         :ok
@@ -81,10 +90,6 @@ defmodule Responder.Publication.Custody do
   def ensure_task_review_in_transaction(_episode, _session, _turn), do: :ok
 
   defp confirmed_task_readiness(episode, turn, task_ref) do
-    # Later completed turns belong to the task's existing publication, including
-    # its PR and recovery history. Never replace it with a second draft workflow.
-    publication_episode_ids = from(publication in Publication, select: publication.episode_id)
-
     Repo.one(
       from(offer in Record,
         join: task in Record,
@@ -97,11 +102,87 @@ defmodule Responder.Publication.Custody do
             offer.operation_id == "host:publication:ready",
         where: task.kind == "task_offer" and task.status == :confirmed,
         where: source_turn.status == :settled,
-        where: offer.episode_id not in subquery(publication_episode_ids),
         select: {offer, task, source_turn}
       )
     )
   end
+
+  defp episode_publication(episode_id) do
+    Repo.one(
+      from(publication in Publication,
+        where: publication.episode_id == ^episode_id,
+        order_by: [desc: publication.inserted_at, desc: publication.id],
+        limit: 1,
+        lock: "FOR UPDATE"
+      )
+    )
+  end
+
+  # A corrected candidate is the same task's work, so it belongs on the pull
+  # request that task already opened. Before this the second review was refused
+  # outright: the correction's checks never ran, the open draft never moved, and
+  # the operator's only routes back were "Review latest state" or retyping the
+  # whole task. The review generation, not the row, is what is superseded — the
+  # pull request, the branch and the review history all stay.
+  defp rearm_task_review(publication, session, repository, attributes) do
+    cond do
+      # Accepting one result twice is ordinary Work custody; the turn that armed
+      # the current generation is named on the publication, so a replay is inert.
+      publication.review_request_ref == attributes.request_ref ->
+        :ok
+
+      rearmable?(publication, repository) ->
+        now = database_now!()
+
+        _rearmed =
+          update!(
+            publication,
+            publication
+            |> fresh_review_attributes(now)
+            |> Map.merge(%{
+              approval_ref: nil,
+              approved_at: nil,
+              approved_by_actor_ref: nil,
+              publication_receipt: nil,
+              publication_receipt_fingerprint: nil,
+              published_at: nil,
+              published_delivery_receipt: nil,
+              published_delivery_receipt_fingerprint: nil,
+              recovery_generation: publication.recovery_generation + 1,
+              review_request_ref: attributes.request_ref,
+              review_requested_at: attributes.occurred_at,
+              review_requested_by_actor_ref: attributes.actor_ref,
+              session_id: session.id
+            }),
+            now
+          )
+
+        :ok
+
+      true ->
+        :ok
+    end
+  end
+
+  # Only a settled generation of this task's own repository is re-armable. A
+  # review, approval or publish phase still in flight keeps the publication it
+  # holds; a discarded candidate is never resurrected; and a head that moved
+  # outside this publication is not the agent's to reconcile, which is why the
+  # operator's "Review latest state" recovery stays the route through it.
+  defp rearmable?(
+         %Publication{status: :published, expected_remote_head_sha: nil, repository: repository},
+         repository
+       ),
+       do: true
+
+  defp rearmable?(
+         %Publication{status: status, approval_ref: nil, repository: repository},
+         repository
+       )
+       when status in [:reviewed, :blocked],
+       do: true
+
+  defp rearmable?(_publication, _repository), do: false
 
   @spec claim_next(String.t(), pos_integer()) ::
           {:ok,
@@ -158,7 +239,7 @@ defmodule Responder.Publication.Custody do
 
     delivery_request(
       publication,
-      "publication-review:#{publication.id}",
+      review_delivery_ref(publication),
       message,
       Card.review(publication, authorized?)
     )
@@ -170,7 +251,7 @@ defmodule Responder.Publication.Custody do
 
     delivery_request(
       publication,
-      "publication-result:#{publication.id}",
+      result_delivery_ref(publication),
       message,
       Card.published(publication)
     )
@@ -1069,8 +1150,8 @@ defmodule Responder.Publication.Custody do
   defp exact_delivery_receipt(publication, receipt) do
     expected_ref =
       case publication.status do
-        :review_ready -> "publication-review:#{publication.id}"
-        :published_ready -> "publication-result:#{publication.id}"
+        :review_ready -> review_delivery_ref(publication)
+        :published_ready -> result_delivery_ref(publication)
         _other -> nil
       end
 
@@ -1083,6 +1164,16 @@ defmodule Responder.Publication.Custody do
       {:error, :publication_delivery_receipt_mismatch}
     end
   end
+
+  # Two review generations of one publication are two facts, not one message.
+  # Slack reconciles a repeat delivery ref onto the message that already carries
+  # it, so a ref naming only the publication landed a re-armed review silently
+  # on the card its superseded generation had posted.
+  defp review_delivery_ref(publication),
+    do: "publication-review:#{publication.id}:g#{publication.review_generation}"
+
+  defp result_delivery_ref(publication),
+    do: "publication-result:#{publication.id}:g#{publication.review_generation}"
 
   defp delivery_request(publication, ref, message, record) do
     Request.new(%{

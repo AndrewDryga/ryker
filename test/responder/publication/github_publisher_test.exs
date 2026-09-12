@@ -144,6 +144,94 @@ defmodule Responder.Publication.GitHubPublisherTest do
     assert published_request.existing_pull_request["head_commit"] == observed
   end
 
+  # A correction that follows a published draft has to land on the pull request
+  # the host already opened. Publication identity used to travel only when the
+  # head had drifted outside the publication, so a re-reviewed candidate arrived
+  # with no pull request at all and the publisher searched by branch and opened
+  # a SECOND draft. The task's log records the cost: the corrected candidate
+  # silently never reached its PR and the operator had to retype the task.
+  test "a corrected candidate updates the exact published pull request without a second create" do
+    published = String.duplicate("7", 40)
+    commit = String.duplicate("9", 40)
+    branch = "responder/published-task"
+    request = request!(nil, published_attributes(branch, published))
+
+    assert request.existing_pull_request == %{
+             "head_commit" => published,
+             "number" => 42,
+             "ref" => "refs/heads/#{branch}",
+             "url" => "https://github.com/acme/responder/pull/42"
+           }
+
+    {:ok, state} =
+      Agent.start_link(fn ->
+        %{
+          api_calls: [],
+          create_result: :unused,
+          find_result: :unused,
+          get_results: [
+            {:ok, pull(branch, published, false)},
+            {:ok, pull(branch, commit, false)}
+          ],
+          git_calls: [],
+          git_result: %{branch_ref: "refs/heads/#{branch}", commit_sha: commit}
+        }
+      end)
+
+    assert {:ok, receipt} = GitHubPublisher.publish(request, publisher_binding(state))
+    assert receipt["pull_request_number"] == 42
+    assert receipt["pull_request_url"] == "https://github.com/acme/responder/pull/42"
+    assert receipt["commit_sha"] == commit
+
+    stored = Agent.get(state, & &1)
+    assert stored.api_calls == [{:get, "acme/responder", 42}, {:get, "acme/responder", 42}]
+    assert [{published_request, _repository}] = stored.git_calls
+    assert published_request.existing_pull_request["head_commit"] == published
+  end
+
+  # An uncertain remote create reconciles by publication identity, never by a
+  # second blind create. A re-armed publication carries its own recorded pull
+  # request, so the branch race is answered by that number instead of a search
+  # that can fail closed and lose the draft the host already owns.
+  test "an uncertain create after a correction reconciles by the publication's pull request" do
+    published = String.duplicate("7", 40)
+    observed = String.duplicate("8", 40)
+    candidate = String.duplicate("9", 40)
+    branch = "responder/published-task"
+    request = request!(nil, published_attributes(branch, published))
+
+    conflict = %{
+      "branch_ref" => "refs/heads/#{branch}",
+      "candidate_commit_sha" => candidate,
+      "observed_head_sha" => observed
+    }
+
+    {:ok, state} =
+      Agent.start_link(fn ->
+        %{
+          api_calls: [],
+          create_result: :unused,
+          find_result: :not_found,
+          get_results: [
+            {:ok, pull(branch, published, false)},
+            {:ok, pull(branch, observed, false)}
+          ],
+          git_calls: [],
+          git_result: {:error, {:publication_git_conflict, :publication_branch_changed, conflict}}
+        }
+      end)
+
+    assert {:error, {:publication_conflict, :publication_branch_changed, receipt}} =
+             GitHubPublisher.publish(request, publisher_binding(state))
+
+    assert receipt["pull_request_number"] == 42
+    assert receipt["pull_request_url"] == "https://github.com/acme/responder/pull/42"
+    assert receipt["observed_head_sha"] == observed
+
+    stored = Agent.get(state, & &1)
+    assert stored.api_calls == [{:get, "acme/responder", 42}, {:get, "acme/responder", 42}]
+  end
+
   test "a crossed GitHub head never becomes a publication receipt" do
     request = request!()
     commit = String.duplicate("9", 40)
@@ -243,6 +331,18 @@ defmodule Responder.Publication.GitHubPublisherTest do
 
     assert List.last(Agent.get(repository_b, & &1.api_calls)) ==
              {:status, "acme/repository-b", 42}
+  end
+
+  # One publication that already published a draft: the pull request Responder
+  # owns, at the head Responder last pushed, with nothing moved outside it.
+  defp published_attributes(branch, commit_sha) do
+    %{
+      branch_ref: "refs/heads/#{branch}",
+      commit_sha: commit_sha,
+      github_repository: "acme/responder",
+      pull_request_number: 42,
+      pull_request_url: "https://github.com/acme/responder/pull/42"
+    }
   end
 
   defp publisher_binding(agent) do
