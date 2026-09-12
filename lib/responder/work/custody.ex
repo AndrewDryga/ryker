@@ -11,11 +11,14 @@ defmodule Responder.Work.Custody do
 
   alias Responder.Artifacts.References, as: ArtifactReferences
   alias Responder.CanonicalJSON
+  alias Responder.CoopFleet.ControlPlane, as: FleetControlPlane
+  alias Responder.Defaults
   alias Responder.Episodes
   alias Responder.Episodes.{Command, Episode, Origin}
   alias Responder.Publication.Custody, as: PublicationCustody
   alias Responder.Publication.Publication
   alias Responder.Repo
+  alias Responder.Settings
   alias Responder.State.{Continuity, EventSubscriptions, KnowledgeSnapshot}
 
   alias Responder.Work.{
@@ -2789,6 +2792,34 @@ defmodule Responder.Work.Custody do
   end
 
   def completed_workspace_recoverable(_turn), do: :ok
+
+  @doc """
+  The snapshot a blocked turn could be resumed from on another worker.
+
+  `blocked-task-recovery.md` state 2 allows the offer only when a suitable
+  worker and a verified portable snapshot both exist, so the fleet answers both
+  halves at once. An uninitialized or non-fleet installation has nowhere to
+  resume, which is not a failure — the surfaces simply keep their plain retry.
+  """
+  @spec portable_workspace(Turn.t()) ::
+          %{byte_size: pos_integer(), checkpoint_ref: String.t(), repository_ref: String.t()}
+          | nil
+  def portable_workspace(%Turn{session_id: session_id}) when is_binary(session_id) do
+    with %Session{} = session <- Repo.get(Session, session_id),
+         {:ok, %{work: %{workspace_ref: workspace_ref}}} when is_binary(workspace_ref) <-
+           Settings.fetch() do
+      FleetControlPlane.portable_workspace(session, %{
+        capability_names: Defaults.fetch!(:work).capability_names,
+        capability_versions: %{},
+        repository_ref: session.repository_ref,
+        workspace_ref: workspace_ref
+      })
+    else
+      _unavailable -> nil
+    end
+  end
+
+  def portable_workspace(_turn), do: nil
 
   defp resumed_episode(%{episode: episode}), do: {:ok, episode}
 

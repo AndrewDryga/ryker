@@ -15,7 +15,7 @@ defmodule Responder.Slack.WorkRecord do
   alias Responder.Repo
   alias Responder.Slack.WorkTarget
   alias Responder.State.Record
-  alias Responder.Work.{Custody, Turn}
+  alias Responder.Work.Turn
 
   @maximum_events 60
   @maximum_records 80
@@ -207,7 +207,7 @@ defmodule Responder.Slack.WorkRecord do
         nil
 
       _held ->
-        brief = WorkRecovery.project(turn, Custody.completed_workspace_recoverable(turn))
+        brief = WorkRecovery.brief(turn)
 
         [
           "Recovery for #{snapshot.work_ref}",

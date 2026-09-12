@@ -37,7 +37,7 @@ defmodule Responder.ControlPlane.EpisodeTrace do
   alias Responder.Slack.IncidentRoom
   alias Responder.State.{Behaviors, CaseRecord, LearningRun, Record, Schedule}
 
-  alias Responder.Work.{Activity, ActivityEvent, ActivityPaths, Custody, Session, Turn}
+  alias Responder.Work.{Activity, ActivityEvent, ActivityPaths, Session, Turn}
 
   @chapters [
     {:input, "What came in", "The input, continuation, or trigger that opened this work."},
@@ -2805,8 +2805,7 @@ defmodule Responder.ControlPlane.EpisodeTrace do
   end
 
   defp stopped(episode, %Turn{status: :blocked} = turn) do
-    recovery =
-      WorkRecovery.project(turn, Custody.completed_workspace_recoverable(turn))
+    recovery = WorkRecovery.brief(turn)
 
     attempts =
       [
@@ -3284,11 +3283,7 @@ defmodule Responder.ControlPlane.EpisodeTrace do
   defp operator_actions(episode, current_turn, review) do
     recovery =
       if current_blocked_turn?(episode, current_turn) and is_nil(current_turn.delivery_ref),
-        do:
-          WorkRecovery.project(
-            current_turn,
-            Custody.completed_workspace_recoverable(current_turn)
-          )
+        do: WorkRecovery.brief(current_turn)
 
     []
     |> maybe_action(

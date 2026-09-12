@@ -4,7 +4,16 @@ defmodule Responder.CoopFleet.ControlPlaneTest do
   import Ecto.Query
 
   alias Responder.Admission.FleetSession
-  alias Responder.CoopFleet.{Command, ControlPlane, Event, Placement, Worker}
+
+  alias Responder.CoopFleet.{
+    Command,
+    ControlPlane,
+    Event,
+    Placement,
+    Worker,
+    WorkspaceCheckpointTransfer
+  }
+
   alias Responder.Episodes
   alias Responder.Fixtures.Episodes, as: EpisodeFixtures
   alias Responder.Ingress.Inbox
@@ -1562,6 +1571,98 @@ defmodule Responder.CoopFleet.ControlPlaneTest do
     assert Repo.aggregate(ActivityEvent, :count) == 0
   end
 
+  test "a session can only be told to resume where a worker could actually take it" do
+    # The learning lane sat unplaceable for twelve hours in 2026-09-11 because a
+    # worker advertised no digest for its policy, and every surface still said
+    # the work was fine. A recovery surface that offers to resume work no worker
+    # can accept repeats that, this time in front of an operator.
+    session = session!("resume-capability")
+
+    requirements = %{
+      capability_names: ["responder-state"],
+      capability_versions: %{},
+      repository_ref: "responder",
+      workspace_ref: "workspace-main"
+    }
+
+    refute ControlPlane.worker_available?(session, requirements)
+
+    authorize_and_poll!("worker-resume")
+    assert ControlPlane.worker_available?(session, requirements)
+
+    # Each half of eligibility withdraws the offer on its own.
+    refute ControlPlane.worker_available?(session, %{requirements | repository_ref: "other"})
+
+    refute ControlPlane.worker_available?(session, %{
+             requirements
+             | capability_names: ["responder-state", "unbuilt"]
+           })
+
+    refute ControlPlane.worker_available?(session, %{requirements | workspace_ref: "workspace-b"})
+
+    authorize_and_poll!("worker-resume", capacity: capacity(0, 4))
+    refute ControlPlane.worker_available?(session, requirements)
+
+    authorize_and_poll!("worker-resume")
+    assert ControlPlane.worker_available?(session, requirements)
+
+    # The policy the session runs under is the one the worker must advertise.
+    Repo.update_all(from(worker in Worker, where: worker.id == "worker-resume"),
+      set: [policy_digests: %{"work-read-only" => String.duplicate("f", 64)}]
+    )
+
+    refute ControlPlane.worker_available?(session, requirements)
+  end
+
+  test "work is portable only when the host holds a snapshot of the source it is pinned to" do
+    # `blocked-task-recovery.md` state 2: a recovery surface may offer to resume
+    # somewhere else only when a suitable worker AND a verified portable
+    # snapshot exist. Offering it without the snapshot promises continuity the
+    # host cannot deliver; the operator would lose the working copy instead.
+    session = session!("portable-workspace")
+    authorize_and_poll!("worker-portable")
+
+    requirements = %{
+      capability_names: ["responder-state"],
+      capability_versions: %{},
+      repository_ref: "responder",
+      workspace_ref: "workspace-main"
+    }
+
+    assert ControlPlane.portable_workspace(session, requirements) == nil
+
+    command = checkpoint_command!(session)
+    transfer!(command, session, "checkpoint:portable")
+
+    assert ControlPlane.portable_workspace(session, requirements) == %{
+             byte_size: 4_096,
+             checkpoint_ref: "checkpoint:portable",
+             repository_ref: "responder"
+           }
+
+    # A checkpoint carries the exact tree of the source it was taken from, so a
+    # replacement pinned to a different source may never be seeded from it.
+    moved =
+      Repo.insert!(
+        SessionChangeset.insert_with_authority(
+          Ecto.UUID.generate(),
+          session.episode_id,
+          2,
+          session.policy,
+          session.policy_digest,
+          session.repository_ref,
+          "resume-moved",
+          %{
+            authority_digest: session.authority_digest,
+            repository_source: %{"kind" => "branch", "name" => "feature/other"},
+            workspace_task: nil
+          }
+        )
+      )
+
+    assert ControlPlane.portable_workspace(moved, requirements) == nil
+  end
+
   defp authorize_and_poll!(worker_id, options \\ []) do
     assert {:ok, _worker} =
              ControlPlane.authorize_worker(
@@ -1776,6 +1877,61 @@ defmodule Responder.CoopFleet.ControlPlaneTest do
       "workspace_slots_free" => free,
       "workspace_slots_total" => total
     }
+  end
+
+  defp checkpoint_command!(session) do
+    assert {:ok, placement} =
+             ControlPlane.place_session(
+               session.id,
+               %{
+                 capability_names: ["responder-state"],
+                 repository_ref: session.repository_ref,
+                 workspace_ref: "workspace-main"
+               },
+               60
+             )
+
+    assert {:ok, command} =
+             ControlPlane.enqueue_command(
+               placement.id,
+               "checkpoint_workspace",
+               %{
+                 "coop_session_id" => "remote:#{session.id}",
+                 "expected_revision" => 2,
+                 "repository_ref" => session.repository_ref,
+                 "session_ref" => session.id
+               },
+               "checkpoint:#{session.id}"
+             )
+
+    Repo.update!(
+      Ecto.Changeset.change(command,
+        completed_at: database_now!(),
+        operation_key: command.idempotency_key,
+        result: %{"state" => "stored"},
+        result_fingerprint: String.duplicate("d", 64),
+        status: :succeeded
+      )
+    )
+  end
+
+  defp transfer!(command, session, checkpoint_ref) do
+    Repo.insert!(%WorkspaceCheckpointTransfer{
+      id: Ecto.UUID.generate(),
+      bundle_byte_size: 4_096,
+      bundle_sha256: String.duplicate("c", 64),
+      checkpoint_ref: checkpoint_ref,
+      ciphertext: :binary.copy(<<3>>, 4_096),
+      command_id: command.id,
+      descriptor: %{"checkpoint_ref" => checkpoint_ref},
+      encryption_key_sha256: String.duplicate("a", 64),
+      encryption_nonce: :binary.copy(<<1>>, 12),
+      encryption_tag: :binary.copy(<<2>>, 16),
+      placement_generation: command.placement_generation,
+      repository_ref: session.repository_ref,
+      session_ref: session.id,
+      worker_id: command.worker_id
+    })
   end
 
   defp database_now! do

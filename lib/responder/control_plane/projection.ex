@@ -35,7 +35,7 @@ defmodule Responder.ControlPlane.Projection do
   alias Responder.Retention.Custody, as: RetentionCustody
   alias Responder.Slack.{IncidentRoom, InteractionAudit, ThreadStatus}
   alias Responder.State.{Behavior, Memories, MemoryEntry, Record, Schedule}
-  alias Responder.Work.{Custody, Session, Turn}
+  alias Responder.Work.{Session, Turn}
 
   @episode_record_limit 500
   @maximum_page 10_000
@@ -1850,8 +1850,7 @@ defmodule Responder.ControlPlane.Projection do
   end
 
   defp work_item({%Turn{} = turn, %Episode{} = episode}) do
-    recovery =
-      WorkRecovery.project(turn, Custody.completed_workspace_recoverable(turn))
+    recovery = WorkRecovery.brief(turn)
 
     %{
       action: recovery.action,

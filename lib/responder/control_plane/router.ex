@@ -1473,9 +1473,11 @@ defmodule Responder.ControlPlane.Router do
          work_recovery: %{fingerprint: fingerprint} = recovery
        }} ->
         title =
-          if recovery.kind == :completion,
-            do: "Resume saving this completed result?",
-            else: "Retry this blocked work?"
+          cond do
+            recovery.kind == :completion -> "Resume saving this completed result?"
+            Map.get(recovery, :resume) -> "Resume this work in another workspace?"
+            true -> "Retry this blocked work?"
+          end
 
         {:ok, title, recovery.retry_effect, "work:retry:" <> fingerprint}
 

@@ -8,10 +8,28 @@ defmodule Responder.ControlPlane.WorkRecovery do
     "{:invalid_work_executor, :workspace_checkpoint_api}"
   ]
 
+  @doc """
+  The brief for a live turn, with the host facts every surface must share.
+
+  The recovery page, the episode trace and the Slack recovery record described
+  the same failure from separately gathered facts once, and disagreed. There is
+  one gatherer now; `project/4` stays pure for tests and recorded turns.
+  """
+  @spec brief(Turn.t()) :: map()
+  def brief(%Turn{} = turn) do
+    project(
+      turn,
+      Custody.completed_workspace_recoverable(turn),
+      CodeEditingSetup.checkpoint_supported?(),
+      Custody.portable_workspace(turn)
+    )
+  end
+
   def project(
         %Turn{} = turn,
         workspace_recovery,
-        checkpoint_supported? \\ CodeEditingSetup.checkpoint_supported?()
+        checkpoint_supported? \\ CodeEditingSetup.checkpoint_supported?(),
+        portable_workspace \\ nil
       ) do
     saved = saved_output(turn)
     closed = get_in(turn.cancellation_receipt, ["session_state"]) in ["closed", "discarded"]
@@ -22,6 +40,8 @@ defmodule Responder.ControlPlane.WorkRecovery do
     stranded = workspace_recovery == {:error, :work_completed_workspace_recovery_required}
 
     {headline, cause, next_step} = explanation(turn, unsupported, finalizing, closed, saved)
+    action = recovery_action(stranded, unsupported, checkpoint_supported?)
+    resumable = if action == :retry and not finalizing, do: portable_workspace
 
     brief = %{
       kind: if(finalizing, do: :completion, else: :execution),
@@ -38,15 +58,10 @@ defmodule Responder.ControlPlane.WorkRecovery do
       workspace: workspace_status(unsupported, finalizing, closed),
       setup_href: if(unsupported, do: "/configuration#code-editing"),
       not_started: not_started?(turn),
-      action: recovery_action(stranded, unsupported, checkpoint_supported?),
-      action_label: if(finalizing, do: "Resume saving result", else: "Retry work"),
-      retry_effect:
-        if(finalizing,
-          do:
-            "Reconciles the same completed turn, saves its workspace and releases the retained reply. It does not run the model again.",
-          else:
-            "Starts a new logical turn after reconciling the stopped worker. Inspect and preserve unfinished changes first."
-        )
+      action: action,
+      action_label: action_label(finalizing, resumable),
+      resume: resumable,
+      retry_effect: retry_effect(finalizing, resumable)
     }
 
     startup_explanation(brief, checkpoint_supported?)
@@ -86,6 +101,26 @@ defmodule Responder.ControlPlane.WorkRecovery do
       report: saved_output(turn)
     }
   end
+
+  defp action_label(true, _resumable), do: "Resume saving result"
+  defp action_label(_finalizing, nil), do: "Retry work"
+  defp action_label(_finalizing, _resumable), do: "Resume in another workspace"
+
+  defp retry_effect(true, _resumable),
+    do:
+      "Reconciles the same completed turn, saves its workspace and releases the retained reply. It does not run the model again."
+
+  defp retry_effect(_finalizing, nil),
+    do:
+      "Starts a new logical turn after reconciling the stopped worker. Inspect and preserve unfinished changes first."
+
+  # The host holds this exact tree, so the next placement restores it instead of
+  # starting from the repository. Saying what the resume does not do matters as
+  # much: a snapshot whose checks never ran is the thing an operator is most
+  # likely to read as a waiver.
+  defp retry_effect(_finalizing, %{byte_size: bytes, repository_ref: repository}),
+    do:
+      "Restores the saved working copy of #{repository} (#{bytes} bytes) onto another eligible worker and continues the task there. It does not waive any check, and it does not merge or deploy."
 
   defp recovery_action(true, _, _), do: nil
   defp recovery_action(_, true, false), do: nil
