@@ -13,10 +13,20 @@ defmodule Responder.CoopFleet.ControlPlane do
   import Ecto.Query
 
   alias Responder.CanonicalJSON
-  alias Responder.CoopFleet.{Certificate, Command, Event, Placement, Protocol, Worker}
+
+  alias Responder.CoopFleet.{
+    Certificate,
+    Command,
+    Event,
+    Placement,
+    Protocol,
+    Worker,
+    WorkspaceCheckpointTransfer
+  }
+
   alias Responder.Repo
   alias Responder.StateTools.Binding
-  alias Responder.Work.{Activity, Session, StateBinding, Turn}
+  alias Responder.Work.{Activity, RepositorySource, Session, StateBinding, Turn}
 
   @current_placement_states [:assigning, :active, :draining, :revoking]
   @terminal_command_states [:succeeded, :failed, :uncertain]
@@ -117,6 +127,84 @@ defmodule Responder.CoopFleet.ControlPlane do
        do: {:error, {:coop_session_replacement_pending, session_id, generation, lease_expires_at}}
 
   defp placement_result(result, _session_id), do: result
+
+  @doc """
+  Whether any current worker could take this session's next placement.
+
+  A recovery surface may only offer to move work when the fleet could actually
+  accept it. The learning lane sat unplaceable for twelve hours on 2026-09-11
+  because one worker advertised no digest for its policy, so this asks the same
+  question placement asks — policy, authority, repository, capabilities,
+  freshness and capacity — without taking a slot to find out.
+  """
+  @spec worker_available?(Session.t(), map()) :: boolean()
+  def worker_available?(%Session{} = session, requirements) do
+    case requirements(requirements) do
+      {:ok, prepared} ->
+        now = database_now!()
+
+        Worker
+        |> Repo.all()
+        |> Enum.any?(fn worker ->
+          worker_current?(worker, prepared.workspace_ref, now) and
+            worker_eligible?(worker, session, prepared, now) and worker_has_capacity?(worker)
+        end)
+
+      {:error, _reason} ->
+        false
+    end
+  end
+
+  def worker_available?(_session, _requirements), do: false
+
+  @doc """
+  The snapshot this session's work could continue from on another worker.
+
+  Both halves must hold: a checkpoint the host still has for the exact source
+  the session is pinned to, and a worker that could take it. Either one missing
+  means the offer is a promise the fleet cannot keep, and the operator would
+  lose the working copy by accepting it.
+  """
+  @spec portable_workspace(Session.t(), map()) ::
+          %{byte_size: pos_integer(), checkpoint_ref: String.t(), repository_ref: String.t()}
+          | nil
+  def portable_workspace(%Session{} = session, requirements) do
+    with true <- worker_available?(session, requirements),
+         %WorkspaceCheckpointTransfer{} = transfer <- portable_checkpoint(session) do
+      %{
+        byte_size: transfer.bundle_byte_size,
+        checkpoint_ref: transfer.checkpoint_ref,
+        repository_ref: transfer.repository_ref
+      }
+    else
+      _unavailable -> nil
+    end
+  end
+
+  def portable_workspace(_session, _requirements), do: nil
+
+  # The newest checkpoint a rotation of this session would actually restore:
+  # same episode and repository, taken by this generation or one before it, and
+  # pinned to the same repository source. Client.restore_checkpoint/1 selects by
+  # the same rule, so the offer and the restore cannot disagree.
+  defp portable_checkpoint(%Session{} = session) do
+    from(transfer in WorkspaceCheckpointTransfer,
+      join: command in Command,
+      on: command.id == transfer.command_id,
+      join: source in Session,
+      on: source.id == command.session_id,
+      where:
+        source.episode_id == ^session.episode_id and
+          source.generation <= ^session.generation and
+          source.repository_ref == ^session.repository_ref and command.status == :succeeded,
+      order_by: [desc: transfer.inserted_at, desc: transfer.id],
+      select: {transfer, source}
+    )
+    |> Repo.all()
+    |> Enum.find_value(fn {transfer, source} ->
+      RepositorySource.same?(source.repository_source, session.repository_source) and transfer
+    end)
+  end
 
   @spec enqueue_command(Ecto.UUID.t(), String.t(), map(), String.t()) ::
           {:ok, Command.t()} | {:error, term()}

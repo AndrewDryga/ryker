@@ -1101,6 +1101,39 @@ defmodule Responder.ControlPlane.RouterTest do
     refute_received {:retried_work, _}
   end
 
+  test "a resumable blocked task says where its saved work is going" do
+    # The confirmation is the last thing an operator reads before pressing, so
+    # it has to name the resume rather than a fresh retry that would restart
+    # from the repository with the saved working copy left behind.
+    path = "/actions/work/episode%3Ablocked/retry"
+    initial = options()
+    {:ok, row} = initial.projection.work.("episode:blocked")
+
+    recovery = %{
+      fingerprint: String.duplicate("a", 64),
+      kind: :execution,
+      resume: %{byte_size: 4_096, checkpoint_ref: "checkpoint:one", repository_ref: "responder"},
+      retry_effect: "Restores the saved working copy of responder (4096 bytes)."
+    }
+
+    resumable =
+      put_in(initial, [:projection, :work], fn _ ->
+        {:ok, Map.put(row, :work_recovery, recovery)}
+      end)
+
+    confirmation = request_with_options(:get, path, nil, resumable)
+    assert confirmation.status == 200
+    assert confirmation.resp_body =~ "Resume this work in another workspace?"
+    assert confirmation.resp_body =~ "Restores the saved working copy of responder"
+
+    plain =
+      put_in(initial, [:projection, :work], fn _ ->
+        {:ok, Map.put(row, :work_recovery, %{recovery | resume: nil})}
+      end)
+
+    assert request_with_options(:get, path, nil, plain).resp_body =~ "Retry this blocked work?"
+  end
+
   test "each recoverable blocked custody has a typed confirmed action" do
     failures = request(:get, "/failures")
 

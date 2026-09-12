@@ -45,6 +45,37 @@ defmodule Responder.ControlPlane.WorkRecoveryTest do
     refute ready.next_step =~ "will fail for the same reason"
   end
 
+  test "a blocked task with a portable snapshot is offered a resume, not a fresh start" do
+    # `blocked-task-recovery.md` state 2. The retry said "Inspect and preserve
+    # unfinished changes first", which reads as a warning that pressing it loses
+    # the work — while the host was holding a checkpoint that the next placement
+    # would have restored. The operator has to know which of the two it is.
+    turn = %{incident_turn() | last_error_detail: "{:coop_protocol_error, :turn}"}
+    plain = WorkRecovery.project(turn, :ok, true)
+    assert plain.action == :retry
+    assert plain.action_label == "Retry work"
+    assert plain.retry_effect =~ "preserve unfinished changes"
+
+    resumable = WorkRecovery.project(turn, :ok, true, snapshot())
+    assert resumable.action == :retry
+    assert resumable.action_label == "Resume in another workspace"
+    assert resumable.retry_effect =~ "responder"
+    assert resumable.retry_effect =~ "saved working copy"
+    # The confirmation has to say what it does not do, because a snapshot whose
+    # checks never ran is exactly what an operator might read it as waiving.
+    assert resumable.retry_effect =~ "does not waive"
+    refute resumable.retry_effect =~ "preserve unfinished changes"
+
+    # A state with no action of its own is not given one by a snapshot.
+    held = WorkRecovery.project(incident_turn(), :ok, false, snapshot())
+    assert held.action == nil
+    assert held.action_label == "Retry work"
+  end
+
+  defp snapshot do
+    %{byte_size: 4_096, checkpoint_ref: "checkpoint:portable", repository_ref: "responder"}
+  end
+
   defp not_started_turn do
     source = "testdata/work/hosted-runner-not-started.json" |> File.read!() |> Jason.decode!()
 

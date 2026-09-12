@@ -3,13 +3,18 @@ defmodule Responder.Work.CustodyTest do
 
   import Ecto.Query
 
+  alias Responder.CoopFleet.ControlPlane, as: FleetControlPlane
+  alias Responder.CoopFleet.{Worker, WorkspaceCheckpointTransfer}
   alias Responder.Episodes
   alias Responder.Fixtures.Episodes, as: EpisodeFixtures
   alias Responder.Repo
+  alias Responder.Settings
   alias Responder.Work.{Cancellation, Custody, Submission, Turn, TurnChangeset}
 
   @now ~U[2026-08-28 12:00:00.000000Z]
   @authority_digest String.duplicate("f", 64)
+  @policy_digest String.duplicate("b", 64)
+  @actor "control-plane:local"
 
   test "one worker owns one durable logical turn and episode session" do
     command = create_episode!("one-owner")
@@ -1458,6 +1463,123 @@ defmodule Responder.Work.CustodyTest do
              "https://late.example.test/mcp",
              state_digest
            ) == {:error, :work_state_tools_binding_conflict}
+  end
+
+  test "a blocked turn is only portable when the fleet could restore it somewhere" do
+    # The wiring, not the rule: the recovery surfaces ask Custody, and Custody
+    # has to find this turn's own session and the operator's selected workspace
+    # before the fleet can answer. Reading either one wrong offers a resume for
+    # work that would restart from the repository instead.
+    {:ok, %{installation: %{revision: revision}}} = Settings.initialize(@actor)
+    {:ok, _snapshot} = Settings.save_work(%{workspace_ref: "workspace-main"}, revision, @actor)
+
+    command = create_kernel_episode!("portable")
+
+    assert {:ok, session} =
+             Custody.pin_episode(
+               command.episode_id,
+               "work-read-only",
+               @policy_digest,
+               @authority_digest,
+               "responder"
+             )
+
+    assert {:ok, claim} = Custody.claim_next("worker:portable", 60)
+
+    # No worker yet, and no checkpoint: nothing to offer.
+    assert Custody.portable_workspace(claim.turn) == nil
+
+    enroll!("worker-portable")
+    assert Custody.portable_workspace(claim.turn) == nil
+
+    checkpoint!(session)
+
+    assert Custody.portable_workspace(claim.turn) == %{
+             byte_size: 4_096,
+             checkpoint_ref: "checkpoint:custody",
+             repository_ref: "responder"
+           }
+
+    # A turn with no session of its own has nowhere to resume from.
+    assert Custody.portable_workspace(%Turn{}) == nil
+  end
+
+  defp enroll!(id) do
+    Repo.insert!(%Worker{
+      capabilities: [%{"name" => "responder-state", "version" => "1"}],
+      capacity: %{
+        "session_slots_free" => 2,
+        "session_slots_total" => 4,
+        "state" => "eligible",
+        "turn_slots_free" => 2,
+        "turn_slots_total" => 4,
+        "workspace_slots_free" => 2,
+        "workspace_slots_total" => 4
+      },
+      certificate_sha256: :crypto.hash(:sha256, id) |> Base.encode16(case: :lower),
+      clock_at: DateTime.utc_now(),
+      id: id,
+      last_seen_at: DateTime.utc_now(),
+      policy_authority_digests: %{"work-read-only" => @authority_digest},
+      policy_digests: %{"work-read-only" => @policy_digest},
+      repositories: [%{"ref" => "responder", "revision" => "commit:abc123"}],
+      state: :eligible,
+      workspace_ref: "workspace-main"
+    })
+  end
+
+  defp checkpoint!(session) do
+    assert {:ok, placement} =
+             FleetControlPlane.place_session(
+               session.id,
+               %{
+                 capability_names: ["responder-state"],
+                 repository_ref: session.repository_ref,
+                 workspace_ref: "workspace-main"
+               },
+               60
+             )
+
+    assert {:ok, command} =
+             FleetControlPlane.enqueue_command(
+               placement.id,
+               "checkpoint_workspace",
+               %{
+                 "coop_session_id" => "remote:#{session.id}",
+                 "expected_revision" => 2,
+                 "repository_ref" => session.repository_ref,
+                 "session_ref" => session.id
+               },
+               "checkpoint:#{session.id}"
+             )
+
+    command =
+      Repo.update!(
+        Ecto.Changeset.change(command,
+          completed_at: DateTime.utc_now(),
+          operation_key: command.idempotency_key,
+          result: %{"state" => "stored"},
+          result_fingerprint: String.duplicate("d", 64),
+          status: :succeeded
+        )
+      )
+
+    Repo.insert!(%WorkspaceCheckpointTransfer{
+      bundle_byte_size: 4_096,
+      bundle_sha256: String.duplicate("c", 64),
+      checkpoint_ref: "checkpoint:custody",
+      ciphertext: :binary.copy(<<3>>, 4_096),
+      command_id: command.id,
+      descriptor: %{"checkpoint_ref" => "checkpoint:custody"},
+      encryption_key_sha256: String.duplicate("a", 64),
+      encryption_nonce: :binary.copy(<<1>>, 12),
+      encryption_tag: :binary.copy(<<2>>, 16),
+      id: Ecto.UUID.generate(),
+      placement_generation: command.placement_generation,
+      repository_ref: session.repository_ref,
+      session_ref: session.id,
+      worker_id: command.worker_id
+    })
   end
 
   defp create_episode!(suffix, turn_ref \\ nil) do
