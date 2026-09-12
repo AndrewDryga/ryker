@@ -215,34 +215,36 @@ defmodule Responder.Work.TaskStages do
     # the run's own URL since it first polled GitHub.
     url = facts.followup && facts.followup.checks_url
 
-    cond do
-      stale? ->
-        row("ci", "stale",
-          detail: [checks, "on the published revision"] |> compact_join(),
-          url: url
-        )
-
-      is_nil(facts.followup) or facts.followup.checks_state == "unknown" ->
-        row("ci", "waiting", detail: "waiting for GitHub")
-
-      facts.followup.pr_state == "merged" ->
-        row("ci", "completed", detail: checks, url: url)
-
-      facts.followup.checks_state == "none" ->
-        row("ci", "skipped", detail: "no checks configured")
-
-      facts.followup.checks_state == "failing" ->
-        row("ci", "failed", detail: checks, url: url)
-
-      facts.followup.checks_state == "passing" ->
-        row("ci", "completed", detail: checks, url: url)
-
-      true ->
-        row("ci", "running", detail: checks, url: url)
+    if stale? do
+      row("ci", "stale",
+        detail: [checks, "on the published revision"] |> compact_join(),
+        url: url
+      )
+    else
+      ci_state(facts.followup, checks, url)
     end
   end
 
   defp ci(_facts, _stale?), do: row("ci", "pending")
+
+  defp ci_state(nil, _checks, _url), do: row("ci", "waiting", detail: "waiting for GitHub")
+
+  defp ci_state(%Followup{checks_state: "unknown"}, _checks, _url),
+    do: row("ci", "waiting", detail: "waiting for GitHub")
+
+  defp ci_state(%Followup{pr_state: "merged"}, checks, url),
+    do: row("ci", "completed", detail: checks, url: url)
+
+  defp ci_state(%Followup{checks_state: "none"}, _checks, _url),
+    do: row("ci", "skipped", detail: "no checks configured")
+
+  defp ci_state(%Followup{checks_state: "failing"}, checks, url),
+    do: row("ci", "failed", detail: checks, url: url)
+
+  defp ci_state(%Followup{checks_state: "passing"}, checks, url),
+    do: row("ci", "completed", detail: checks, url: url)
+
+  defp ci_state(%Followup{}, checks, url), do: row("ci", "running", detail: checks, url: url)
 
   defp review_and_merge(%{followup: %Followup{pr_state: "merged"}} = facts, _ci, _stale?),
     do:
