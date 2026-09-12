@@ -544,8 +544,12 @@ defmodule Responder.Slack.RendererTest do
                }
              })
 
-    assert rendered["text"] =~ "Engineering task abc123"
+    # Slack truncates a notification hard, so the first characters are the most
+    # valuable ones on the card and they were spent on eight characters of an
+    # opaque ref. The title is what a person recognizes the work by.
+    assert String.starts_with?(rendered["text"], "Fix parser retries: Working.")
     assert rendered["text"] =~ "The parser fix is being validated"
+    refute rendered["text"] =~ "abc123"
 
     # The ledger is the status; a boilerplate reply instruction is not.
     assert Enum.any?(rendered["blocks"], fn block ->
@@ -2329,10 +2333,21 @@ defmodule Responder.Slack.RendererTest do
     task_statuses =
       ~w(waiting_for_input waiting_for_event action_required stopping reviewing ready_to_publish completed cancelled)
 
+    labels = %{
+      "action_required" => "Action required",
+      "cancelled" => "Closed",
+      "completed" => "Completed",
+      "ready_to_publish" => "Reviewed and ready for operator publication",
+      "reviewing" => "Checking the change before it is published",
+      "stopping" => "Stopping current work",
+      "waiting_for_event" => "Waiting for verification",
+      "waiting_for_input" => "Waiting for input"
+    }
+
     Enum.each(task_statuses, fn status ->
       task = task_document(status)
       assert {:ok, rendered} = Renderer.render(%{"task_card" => task})
-      assert rendered["text"] =~ "Engineering task"
+      assert String.starts_with?(rendered["text"], "#{task["title"]}: #{labels[status]}.")
       refute Enum.any?(rendered["blocks"], &(&1["type"] == "actions"))
     end)
 

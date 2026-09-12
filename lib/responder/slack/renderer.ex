@@ -455,10 +455,11 @@ defmodule Responder.Slack.Renderer do
          :ok <- iso8601(updated_at) do
       label = task_status_label(status)
 
-      short = task_ref |> String.split(":") |> List.last() |> String.slice(0, 8)
-
+      # Slack truncates a notification, so what survives is the front of this
+      # string. It used to open with eight characters of the task ref, which
+      # names the work to nobody; the title is how a person recognizes it.
       text =
-        "Engineering task #{short}: #{title}. #{label}. #{summary}" <>
+        "#{title}: #{label}. #{summary}" <>
           if(action_needed, do: " Action needed: #{action_needed}", else: "")
 
       blocks =
@@ -626,7 +627,10 @@ defmodule Responder.Slack.Renderer do
   defp task_status_label("waiting_for_event"), do: "Waiting for verification"
   defp task_status_label("action_required"), do: "Action required"
   defp task_status_label("stopping"), do: "Stopping current work"
-  defp task_status_label("reviewing"), do: "Review or publication in progress"
+  # Every publication status folded in here is a step before the change is
+  # public. "Review or publication in progress" named the host's two internal
+  # phases and left the reader unable to say when they would see it.
+  defp task_status_label("reviewing"), do: "Checking the change before it is published"
   defp task_status_label("ready_to_publish"), do: "Reviewed and ready for operator publication"
   defp task_status_label("published"), do: "Draft pull request published"
   defp task_status_label("completed"), do: "Completed"
