@@ -1,7 +1,7 @@
 defmodule Responder.Slack.AppHomeTest do
   use ExUnit.Case, async: true
 
-  alias Responder.Slack.{AppHome, HomeEvent}
+  alias Responder.Slack.{AppHome, AppHomeProjection, HomeEvent}
 
   @plan_fingerprint String.duplicate("a", 64)
 
@@ -423,13 +423,13 @@ defmodule Responder.Slack.AppHomeTest do
     # The 2026-09-12 coverage measurement: an unreadable dashboard rendered
     # exactly like a person with no schedules, no rules and no work. A quiet
     # zero is the most convincing wrong answer a surface can give.
-    view = AppHome.render(:operator, Responder.Slack.AppHomeProjection.unreadable())
+    view = AppHome.render(:operator, AppHomeProjection.unreadable())
     encoded = Jason.encode!(view)
 
     assert encoded =~ "couldn't read"
     refute encoded =~ "Nothing needs you right now"
 
-    empty = Jason.encode!(AppHome.render(:operator, Responder.Slack.AppHomeProjection.empty()))
+    empty = Jason.encode!(AppHome.render(:operator, AppHomeProjection.empty()))
     refute empty =~ "couldn't read"
   end
 
