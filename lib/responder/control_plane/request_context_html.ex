@@ -271,31 +271,166 @@ defmodule Responder.ControlPlane.RequestContextHTML do
     ]
   end
 
+  # One collapsible named after a JSON path, holding whatever was left over,
+  # answered "what is in the struct" when the reader is asking what the model
+  # knew. Three named blocks answer that instead, each readable closed, and the
+  # exact bytes keep their own block at the end where the path belongs.
   defp runtime_context(scope, root, prefix) do
-    source(
-      "scope",
-      root,
-      Map.new(scope, fn {key, value, parent} -> {field_path(parent, key), value} end),
-      {"Runtime context", "runtime", "Bound scope and remaining fields",
-       "The remaining fields retained with this request."},
-      Enum.map(scope, fn {key, value, parent} ->
-        {title, _, owner, _} = metadata(key, parent)
+    values = Map.new(scope, fn {key, value, _parent} -> {key, value} end)
 
-        [
-          "<section class=\"prompt-runtime-field\"><h4>",
-          escape(title),
-          "</h4><p>",
-          escape(owner),
-          " · <code>",
-          escape(field_path(parent, key)),
-          "</code></p>",
-          fields(value, 0),
-          "</section>"
-        ]
-      end),
+    # Raw context keeps every retained field under its own exact path, so
+    # naming the blocks above it erases nothing.
+    paths = Map.new(scope, fn {key, value, parent} -> {field_path(parent, key), value} end)
+
+    [
+      context_block(
+        "where",
+        "Where this ran",
+        where_summary(values),
+        where_rows(values),
+        values,
+        root,
+        prefix
+      ),
+      context_block(
+        "seen",
+        "What it could see",
+        seen_summary(values),
+        seen_rows(values),
+        values,
+        root,
+        prefix
+      ),
+      context_block(
+        "allowed",
+        "What it was allowed to do",
+        allowed_summary(values),
+        allowed_rows(values),
+        values,
+        root,
+        prefix
+      ),
+      source(
+        "raw",
+        root,
+        paths,
+        {"Raw context", "runtime", "exact retained bytes",
+         "The context as submitted, for reading the record rather than the request."},
+        ["<pre>", escape(Jason.encode!(paths, pretty: true)), "</pre>"],
+        prefix
+      )
+    ]
+  end
+
+  defp context_block(_key, _title, _summary, [], _values, _root, _prefix), do: []
+
+  defp context_block(key, title, summary, rows, values, root, prefix) do
+    source(
+      key,
+      root <> "." <> key,
+      values,
+      {title, "runtime", summary, nil},
+      ["<dl class=\"context-rows\">", rows, "</dl>"],
       prefix
     )
   end
+
+  defp context_row(_label, nil), do: []
+  defp context_row(_label, ""), do: []
+
+  defp context_row(label, value),
+    do: ["<div><dt>", escape(label), "</dt><dd>", escape(to_string(value)), "</dd></div>"]
+
+  defp where_rows(values) do
+    Enum.reject(
+      [
+        context_row("Source", source_name(values["input"])),
+        context_row("Asked by", actor_name(values["input"])),
+        context_row("Execution", values["execution_mode"]),
+        context_row("Assembly", values["mode"])
+      ],
+      &(&1 == [])
+    )
+  end
+
+  defp where_summary(values) do
+    [source_name(values["input"]), actor_name(values["input"]), values["execution_mode"]]
+    |> Enum.filter(&is_binary/1)
+    |> Enum.join(" · ")
+  end
+
+  defp source_name(%{"source" => %{"kind" => kind, "ref" => ref}}), do: "#{kind}:#{ref}"
+  defp source_name(_input), do: nil
+
+  defp actor_name(%{"actor" => %{"ref" => ref}}), do: ref
+  defp actor_name(_input), do: nil
+
+  defp seen_rows(values) do
+    manifest = values["context_manifest"] || %{}
+
+    Enum.reject(
+      [
+        context_row("Earlier messages", messages_seen(manifest)),
+        context_row("Channel summary", summary_state(manifest["channel_summary"])),
+        context_row("Thread summary", summary_state(manifest["thread_summary"])),
+        context_row("Read", manifest["source_read"] && human(manifest["source_read"])),
+        context_row("Up to", manifest["cutoff"])
+      ],
+      &(&1 == [])
+    )
+  end
+
+  defp seen_summary(values) do
+    case values["context_manifest"] do
+      %{} = manifest -> messages_seen(manifest) || "no history recorded"
+      _absent -> "no history recorded"
+    end
+  end
+
+  # The number a reader wants is how much of what was asked for actually
+  # arrived: "0 of 20" is usually why a decision looks wrong.
+  defp messages_seen(%{"included" => included, "requested" => requested})
+       when is_integer(included) and is_integer(requested),
+       do: "#{included} of #{requested} asked for"
+
+  defp messages_seen(%{"included" => included}) when is_integer(included),
+    do: "#{included} included"
+
+  defp messages_seen(_manifest), do: nil
+
+  defp summary_state(%{"status" => "unavailable"}), do: "none saved"
+  defp summary_state(%{"status" => status}), do: human(status)
+  defp summary_state(_summary), do: nil
+
+  defp allowed_rows(values) do
+    Enum.reject(
+      [
+        context_row("Actions", word_list(values["allowed_actions"])),
+        context_row("Repository sources", word_list(values["repository_source_kinds"])),
+        context_row("Offer confirmation", values["offer_confirmation_supported"])
+      ],
+      &(&1 == [])
+    )
+  end
+
+  defp allowed_summary(values) do
+    [
+      count_label(values["allowed_actions"], "action"),
+      count_label(values["repository_source_kinds"], "source kind")
+    ]
+    |> Enum.filter(&is_binary/1)
+    |> Enum.join(" · ")
+  end
+
+  defp count_label(values, noun) when is_list(values) and values != [],
+    do: "#{length(values)} #{noun}#{if length(values) == 1, do: "", else: "s"}"
+
+  defp count_label(_values, _noun), do: nil
+
+  defp word_list(values) when is_list(values) and values != [],
+    do: Enum.map_join(values, " · ", &human/1)
+
+  defp word_list(_values), do: nil
 
   def assembly_instructions(%{state: :retained, text: text} = artifact, prefix) do
     source(

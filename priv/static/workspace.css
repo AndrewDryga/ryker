@@ -1431,3 +1431,9 @@ details.measurement-notes > summary { cursor:pointer; font-weight:600; color:var
 .request-decision > div { display:flex; gap:6px; align-items:baseline; }
 .request-decision dt { font-size:12px; color:var(--secondary); }
 .request-decision dd { margin:0; font-size:13px; font-weight:600; }
+
+/* Named context blocks read as label/value pairs, not as a field dump. */
+.context-rows { display:grid; grid-template-columns:max-content 1fr; gap:4px 18px; margin:4px 0 0; }
+.context-rows dt { color:var(--secondary); font-size:13px; }
+.context-rows dd { margin:0; font-size:14px; }
+.context-rows > div { display:contents; }
