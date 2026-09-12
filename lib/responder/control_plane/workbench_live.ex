@@ -687,8 +687,13 @@ defmodule Responder.ControlPlane.WorkbenchLive do
             />
             {Phoenix.HTML.raw(@body)}
           </div>
-          <div :if={@native == :request} class="standalone-inspector">
-            <.link navigate="/" class="back-to-activity">← Activity</.link>
+          <div :if={@native == :request} class="episode-workbench execution-document">
+            <EpisodePage.unrouted_intro
+              :if={@requests[:heading]}
+              title={@requests.heading.title}
+              received_at={@requests.heading.received_at}
+              conversation_href={@requests.heading.conversation_href}
+            />
             <EpisodePage.getting_ready
               :if={@requests[:preparation]}
               steps={@requests.preparation}

@@ -218,6 +218,34 @@ defmodule Responder.ControlPlane.EpisodePage do
   end
 
   @doc """
+  The page heading for a message that has not become an episode yet.
+
+  It is the same furniture as an episode: the title of the request, its state,
+  where it came from and when. A message waiting on routing is an episode that
+  has not started, not a different kind of thing with a page of its own.
+  """
+  attr(:title, :string, required: true)
+  attr(:received_at, :any, default: nil)
+  attr(:source, :any, default: nil)
+  attr(:conversation_href, :string, default: nil)
+
+  def unrouted_intro(assigns) do
+    ~H"""
+    <div class="episode-page-intro">
+      <.link navigate="/" class="back-to-activity">← Activity</.link>
+      <div class="episode-title-row">
+        <h1>{@title}</h1><.status state="not_started" />
+      </div>
+      <p class="episode-location">
+        <time :if={@received_at}>{timestamp(@received_at)}</time>
+        <a :if={@source} href={@source.href} rel="noopener noreferrer">{@source.label} →</a>
+        <a :if={@conversation_href} href={@conversation_href}>All activity in this conversation →</a>
+      </p>
+    </div>
+    """
+  end
+
+  @doc """
   The phases this page renders, grouped by the durable owner of each step.
 
   Exposed so the grouping can be asserted without going through HTML: which
