@@ -2406,7 +2406,6 @@ defmodule Responder.Evals.WorldRunnerTest do
                  "proposals" => [
                    %{
                      "action" => "create",
-                     "catch_up" => "latest",
                      "patch" => %{},
                      "prompt" =>
                        "Prepare a fresh evidence-backed production health review and report it in this conversation.",

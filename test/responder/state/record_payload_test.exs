@@ -217,7 +217,6 @@ defmodule Responder.State.RecordPayloadTest do
   test "automation changes preserve one exact revision-fenced before and after definition" do
     before = %{
       "automation_id" => "schedule:daily-health",
-      "catch_up" => "latest",
       "context_channel" => "slack:T123:C456",
       "delivery_channel" => "slack:T123:C456",
       "expires_at" => nil,
@@ -463,7 +462,6 @@ defmodule Responder.State.RecordPayloadTest do
 
     payload = %{
       "authority" => "repository_write",
-      "catch_up" => "latest",
       "expires_at" => expiry,
       "recurrence" => %{"kind" => "daily", "time" => "09:00:00"},
       "repository" => "responder",

@@ -32,7 +32,7 @@ defmodule Responder.State.Automations do
   @actions ~w(update pause resume delete)
   @confirmation_fields [:actor_ref, :confirmation_ref, :occurred_at, :record_ref, :target]
   @target_fields [:conversation_ref, :message_ref, :thread_ref, :transport]
-  @time_patch_fields ~w(catch_up context_channel delivery_channel expires_at prompt repository title trigger)
+  @time_patch_fields ~w(context_channel delivery_channel expires_at prompt repository title trigger)
   @source_patch_fields @time_patch_fields ++ ["hold"]
 
   @spec list_for_episode(Episode.t()) :: [map()]
@@ -129,7 +129,6 @@ defmodule Responder.State.Automations do
   def document(%Schedule{} = schedule) do
     %{
       "automation_id" => schedule.ref,
-      "catch_up" => Atom.to_string(schedule.catch_up),
       "context_channel" => schedule.destination_conversation_ref,
       "delivery_channel" => schedule.destination_conversation_ref,
       "expires_at" => schedule.expires_at && DateTime.to_iso8601(schedule.expires_at),
@@ -149,7 +148,6 @@ defmodule Responder.State.Automations do
 
     %{
       "automation_id" => behavior.ref,
-      "catch_up" => payload["catch_up"],
       "context_channel" => payload["context_channel"],
       "delivery_channel" => payload["delivery_channel"],
       "expires_at" => behavior.expires_at && DateTime.to_iso8601(behavior.expires_at),
@@ -358,7 +356,6 @@ defmodule Responder.State.Automations do
       {:ok,
        %{
          authority: if(after_document["repository"], do: :repository_write, else: :read_only),
-         catch_up: String.to_existing_atom(after_document["catch_up"]),
          expires_at: expires_at,
          failure_count: 0,
          last_error: nil,
@@ -403,7 +400,6 @@ defmodule Responder.State.Automations do
       trigger = after_document["trigger"]
 
       payload = %{
-        "catch_up" => after_document["catch_up"],
         "context_channel" => after_document["context_channel"],
         "delivery_channel" => after_document["delivery_channel"],
         "expires_at" => after_document["expires_at"],
@@ -481,9 +477,8 @@ defmodule Responder.State.Automations do
          :ok <-
            exact_fields(
              document,
-             ~w(automation_id catch_up context_channel delivery_channel expires_at next_occurrence_at prompt repository revision status title trigger)
+             ~w(automation_id context_channel delivery_channel expires_at next_occurrence_at prompt repository revision status title trigger)
            ),
-         :ok <- enum(document["catch_up"], ~w(latest skip)),
          :ok <- optional_reference(document["repository"]) do
       time_trigger(document["trigger"])
     end
@@ -494,9 +489,8 @@ defmodule Responder.State.Automations do
          :ok <-
            exact_fields(
              document,
-             ~w(automation_id catch_up context_channel delivery_channel expires_at hold next_occurrence_at prompt repository revision status title trigger)
+             ~w(automation_id context_channel delivery_channel expires_at hold next_occurrence_at prompt repository revision status title trigger)
            ),
-         :ok <- enum(document["catch_up"], ~w(latest skip)),
          :ok <- optional_reference(document["repository"]),
          :ok <- enum(document["hold"], [nil]) do
       source_trigger(document["trigger"])

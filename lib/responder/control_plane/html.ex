@@ -860,7 +860,6 @@ defmodule Responder.ControlPlane.HTML do
         {"Revision", schedule.revision},
         {"Recurrence", schedule.recurrence},
         {"Timezone", schedule.timezone},
-        {"Catch-up", schedule.catch_up},
         {"Authority", schedule.authority},
         {"Repository", schedule.repository || "none"},
         {"Destination", destination(schedule)},

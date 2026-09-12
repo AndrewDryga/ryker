@@ -390,7 +390,6 @@ defmodule Responder.Slack.AppHomeActionsTest do
 
     %{
       authority: :read_only,
-      catch_up: :latest,
       confirmation_ref: "interaction:app-home-schedule",
       confirmed_at: @now,
       confirmed_by_actor_ref: "slack:user:U123",

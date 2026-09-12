@@ -151,7 +151,6 @@ defmodule Responder.Slack.InteractionRepaintSourcesTest do
     proposal = hd(captured["automation_arguments"]["proposals"])
 
     payload = %{
-      "catch_up" => proposal["catch_up"],
       "context_channel" => fixture.claim.episode.destination_conversation_ref,
       "delivery_channel" => fixture.claim.episode.destination_conversation_ref,
       "expires_at" => nil,

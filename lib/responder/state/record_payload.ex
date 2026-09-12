@@ -113,7 +113,7 @@ defmodule Responder.State.RecordPayload do
     with :ok <-
            exact_fields(
              payload,
-             ~w(authority catch_up expires_at recurrence repository task timezone title)
+             ~w(authority expires_at recurrence repository task timezone title)
            ),
          :ok <-
            enum(
@@ -121,7 +121,6 @@ defmodule Responder.State.RecordPayload do
              ~w(read_only repository_write governed_operation),
              :authority
            ),
-         :ok <- enum(payload["catch_up"], ~w(latest skip), :catch_up),
          :ok <- text(payload["title"], 120, :title),
          :ok <- text(payload["task"], 12_000, :task),
          :ok <- text(payload["timezone"], 128, :timezone),
@@ -225,9 +224,8 @@ defmodule Responder.State.RecordPayload do
     with :ok <-
            exact_fields(
              payload,
-             ~w(catch_up context_channel delivery_channel expires_at filter hold repository source_kind task title)
+             ~w(context_channel delivery_channel expires_at filter hold repository source_kind task title)
            ),
-         :ok <- enum(payload["catch_up"], ~w(latest skip), :catch_up),
          :ok <- reference(payload["context_channel"], :context_channel),
          :ok <- reference(payload["delivery_channel"], :delivery_channel),
          {:ok, expires_at} <- optional_utc_datetime(payload["expires_at"]),

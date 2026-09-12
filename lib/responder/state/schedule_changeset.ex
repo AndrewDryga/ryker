@@ -7,7 +7,6 @@ defmodule Responder.State.ScheduleChangeset do
 
   @fields [
     :authority,
-    :catch_up,
     :confirmation_ref,
     :confirmed_at,
     :confirmed_by_actor_ref,

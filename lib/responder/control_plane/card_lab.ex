@@ -1037,7 +1037,6 @@ defmodule Responder.ControlPlane.CardLab do
       Enum.map(recurrences, fn {id, recurrence} ->
         record_state(id, humanize(id), "A #{id} recurring-work offer.", "schedule_offer", %{
           "authority" => "read_only",
-          "catch_up" => "latest",
           "expires_at" => nil,
           "recurrence" => recurrence,
           "repository" => nil,
@@ -1174,7 +1173,6 @@ defmodule Responder.ControlPlane.CardLab do
         "Generic GitHub or platform event automation.",
         "standing_assignment_offer",
         %{
-          "catch_up" => "skip",
           "context_channel" => "slack:T123:C456",
           "delivery_channel" => "slack:T123:C456",
           "expires_at" => nil,
@@ -2317,7 +2315,6 @@ defmodule Responder.ControlPlane.CardLab do
   defp automation_document(status, revision),
     do: %{
       "automation_id" => "schedule:daily-health",
-      "catch_up" => "latest",
       "context_channel" => "slack:T123:C456",
       "delivery_channel" => "slack:T123:C456",
       "expires_at" => nil,

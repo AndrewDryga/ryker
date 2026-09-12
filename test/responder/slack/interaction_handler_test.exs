@@ -69,7 +69,6 @@ defmodule Responder.Slack.InteractionHandlerTest do
            kind: "schedule_offer",
            payload: %{
              "authority" => "read_only",
-             "catch_up" => "latest",
              "expires_at" => nil,
              "recurrence" => %{"kind" => "daily", "time" => "09:00:00"},
              "repository" => nil,

@@ -552,13 +552,6 @@
                             }
                           ]
                         },
-                        "catch_up": {
-                          "enum": [
-                            "latest",
-                            "skip"
-                          ],
-                          "type": "string"
-                        },
                         "context_channel": {
                           "anyOf": [
                             {
@@ -737,7 +730,6 @@
                       },
                       "required": [
                         "action",
-                        "catch_up",
                         "patch",
                         "prompt",
                         "title",

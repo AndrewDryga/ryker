@@ -2326,7 +2326,7 @@ defmodule Responder.Slack.Renderer do
         "*#{mrkdwn(payload["title"])}*",
         mrkdwn(payload["task"]),
         "When: `#{mrkdwn(schedule_description(payload["recurrence"]))}`",
-        "Timezone: `#{mrkdwn(payload["timezone"])}` · Catch-up: `#{payload["catch_up"]}`",
+        "Timezone: `#{mrkdwn(payload["timezone"])}`",
         "Scope: `#{mrkdwn(scope)}` · Expires: `#{mrkdwn(expiry)}`",
         "_This is only an offer; no schedule exists yet._"
       ]
@@ -2495,7 +2495,7 @@ defmodule Responder.Slack.Renderer do
         mrkdwn(payload["task"]),
         "Source event: `#{mrkdwn(source_kind)}` · Filter: `#{mrkdwn(Jason.encode!(payload["filter"]))}`",
         "Context/delivery: `#{mrkdwn(payload["context_channel"])}` · Repository: `#{mrkdwn(repository)}`",
-        "Catch-up: `#{payload["catch_up"]}` · Expires: `#{mrkdwn(expiry)}`",
+        "Expires: `#{mrkdwn(expiry)}`",
         "_Read-only initiative in this channel; it cannot approve, publish, deploy, or mutate infrastructure._"
       ]
       |> compact_lines()

@@ -206,7 +206,6 @@ defmodule Responder.ControlPlane.Card do
       |> optional_detail("Authority", payload["authority"])
       |> optional_detail("Repository", payload["repository"])
       |> optional_detail("Timezone", payload["timezone"])
-      |> optional_detail("Catch-up", payload["catch_up"])
 
     common(record, "Schedule", payload["title"], payload["task"], details, :confirm_schedule)
   end

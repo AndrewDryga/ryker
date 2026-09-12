@@ -7,7 +7,7 @@ defmodule Responder.ControlPlane.BehaviorLibrary do
   alias Responder.State.{Behavior, StandingAssignmentRun}
 
   @kinds %{"rules" => :standing_assignment, "preferences" => :preference, "guidance" => :guidance}
-  @payload_fields ~w(title task trigger source_kind source_filter filter action repository key value subject summary text visibility context_channel delivery_channel catch_up)
+  @payload_fields ~w(title task trigger source_kind source_filter filter action repository key value subject summary text visibility context_channel delivery_channel)
 
   def kind(path), do: Map.fetch!(@kinds, path)
   def path(:standing_assignment), do: "/rules"

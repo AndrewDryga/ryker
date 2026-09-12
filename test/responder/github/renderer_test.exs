@@ -243,7 +243,6 @@ defmodule Responder.GitHub.RendererTest do
       }),
       record("schedule_offer", %{
         "authority" => "read_only",
-        "catch_up" => "latest",
         "expires_at" => nil,
         "recurrence" => %{"kind" => "daily", "time" => "09:00:00"},
         "repository" => nil,

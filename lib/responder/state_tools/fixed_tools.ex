@@ -493,7 +493,6 @@ defmodule Responder.StateTools.FixedTools do
          {:ok, delivery_channel} <- automation_channel(proposal["delivery_channel"], binding),
          :ok <- source_event_hold(proposal["hold"]) do
       payload = %{
-        "catch_up" => proposal["catch_up"],
         "context_channel" => context_channel,
         "delivery_channel" => delivery_channel,
         "expires_at" => proposal["expires_at"],
@@ -522,7 +521,6 @@ defmodule Responder.StateTools.FixedTools do
 
       payload = %{
         "authority" => if(proposal["repository"], do: "repository_write", else: "read_only"),
-        "catch_up" => proposal["catch_up"],
         "expires_at" => proposal["expires_at"],
         "recurrence" => recurrence,
         "repository" => proposal["repository"],
@@ -1210,7 +1208,6 @@ defmodule Responder.StateTools.FixedTools do
         %{
           "action" => const("create"),
           "automation_id" => nullable(reference(256)),
-          "catch_up" => enum(~w(latest skip)),
           "context_channel" => nullable(reference(256)),
           "delivery_channel" => nullable(reference(256)),
           "expires_at" => nullable(timestamp()),
@@ -1222,7 +1219,7 @@ defmodule Responder.StateTools.FixedTools do
           "title" => text(120),
           "trigger" => automation_trigger(capabilities)
         },
-        ~w(action catch_up patch prompt title trigger)
+        ~w(action patch prompt title trigger)
       )
 
     mutation =
