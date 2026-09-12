@@ -13,6 +13,29 @@ defmodule Responder.Slack.TaskCardProjectionTest do
 
   @records Jason.decode!(File.read!("priv/card_lab/legacy_task_records.json"))
 
+  test "a confirmed task with no turn yet reads as queued, not working" do
+    # The 2026-09-12 coverage measurement: between confirming a task and a
+    # worker being asked for anything, the card said "Working". Nothing was.
+    {:ok, %{episode: episode}} = Episodes.apply(EpisodeFixtures.admit_input())
+
+    source = %Record{
+      kind: "task_offer",
+      status: :confirmed,
+      confirmed_episode_id: episode.id,
+      confirmed_at: DateTime.utc_now(),
+      confirmed_by_actor_ref: "slack:user:U1",
+      ref: "task-card:queued",
+      payload: %{
+        "title" => "Wait for a worker",
+        "repository" => "responder",
+        "prompt" => "Do the thing once a worker is free."
+      }
+    }
+
+    assert {:ok, projection} = TaskCardProjection.build(source)
+    assert projection.document["task_card"]["status"] == "queued"
+  end
+
   test "subtask transitions refresh the stage rows and the durable card fingerprint" do
     # The old projection retained only the last progress summary plus a flat
     # goal list, so a subtask moving under its stage never refreshed the pinned

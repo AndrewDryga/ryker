@@ -408,6 +408,10 @@ defmodule Responder.Slack.TaskCardProjection do
   defp status(%Episode{state: :waiting_for_event}, _turn, _publication, _offer),
     do: "waiting_for_event"
 
+  # Between confirming a task and a worker being asked for anything there is no
+  # turn at all, and the card said "Working" for it. Nothing was.
+  defp status(%Episode{state: :working}, nil, nil, _offer), do: "queued"
+
   defp status(_episode, %Turn{status: :cancel_pending}, _publication, _offer), do: "stopping"
   defp status(_episode, _turn, _publication, _offer), do: "working"
 
