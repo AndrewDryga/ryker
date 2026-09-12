@@ -565,6 +565,7 @@ defmodule Responder.Slack.RendererTest do
       "alert" => nil,
       "controls" => ["stop", "view_diff", "close", "timeline", "evidence", "handoff"],
       "episode_state" => "working",
+      "goals" => [],
       "opened_at" => "2026-08-28T12:00:00.000000Z",
       "opened_by" => "slack:user:U123",
       "repository" => "responder",
@@ -842,6 +843,7 @@ defmodule Responder.Slack.RendererTest do
         "handoff",
         "postmortem"
       ],
+      "goals" => [],
       "episode_state" => "working",
       "opened_at" => "2026-08-28T12:00:00.000000Z",
       "opened_by" => "slack:user:U123",
@@ -2236,6 +2238,43 @@ defmodule Responder.Slack.RendererTest do
     end)
   end
 
+  test "an incident room shows what the investigation has established" do
+    # The 2026-09-12 coverage measurement: the incident card carried a prose
+    # summary and nothing else, on the surface where "what do we actually
+    # know by now" is the entire question a responder brings to it.
+    room = %{
+      incident_document("investigating")
+      | "goals" => [
+          %{
+            "id" => "confirm-scope",
+            "outcome" => "Confirm which service is affected",
+            "state" => "completed"
+          },
+          %{"id" => "find-cause", "outcome" => "Name the cause", "state" => "working"},
+          %{"id" => "restore", "outcome" => "Restore checkout", "state" => "blocked"},
+          %{"id" => "verify", "outcome" => "Verify the recovery", "state" => "ready"}
+        ]
+    }
+
+    assert {:ok, rendered} = Renderer.render(%{"incident_room" => room})
+
+    ledger =
+      Enum.find(rendered["blocks"], fn block ->
+        block["type"] == "section" and
+          String.contains?(block["text"]["text"] || "", "What this investigation is establishing")
+      end)
+
+    assert ledger["text"]["text"] =~ "✓ Confirm which service is affected"
+    assert ledger["text"]["text"] =~ "▸ Name the cause"
+    assert ledger["text"]["text"] =~ "! Restore checkout"
+    assert ledger["text"]["text"] =~ "○ Verify the recovery"
+
+    assert {:ok, empty} =
+             Renderer.render(%{"incident_room" => incident_document("investigating")})
+
+    refute inspect(empty) =~ "What this investigation is establishing"
+  end
+
   test "rejects malformed cards, controls, publication identities, and dates" do
     assert Renderer.render(:not_a_document) == {:error, {:invalid_slack_render, :document}}
 
@@ -2454,6 +2493,7 @@ defmodule Responder.Slack.RendererTest do
       "alert" => %{"impact" => "Checkout traffic is affected.", "verdict" => "firing"},
       "controls" => [],
       "episode_state" => "working",
+      "goals" => [],
       "opened_at" => "2026-08-28T12:00:00.000000Z",
       "opened_by" => "slack:user:U123",
       "repository" => "responder",

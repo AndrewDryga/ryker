@@ -9,10 +9,15 @@ defmodule Responder.State.InvestigationPayload do
   # host owns Workspace setup, Draft PR, CI and Review and merge from its own
   # receipts, so those can never be claimed by a goal.
   @goal_stages ~w(planning implementation self_review)
+  @goal_states ~w(ready working waiting completed blocked excluded cancelled)
 
   @doc "Lifecycle stages a model-authored goal may belong to."
   @spec goal_stages() :: [String.t()]
   def goal_stages, do: @goal_stages
+
+  @doc "States a goal may stand in."
+  @spec goal_states() :: [String.t()]
+  def goal_states, do: @goal_states
 
   @spec prepare(String.t(), term()) :: {:ok, map()} | {:error, term()}
   def prepare("evidence", payload), do: evidence(payload)
@@ -155,11 +160,7 @@ defmodule Responder.State.InvestigationPayload do
     with :ok <- fields(payload, ~w(goal_id state), ~w(detail evidence_refs)),
          :ok <- reference(payload["goal_id"], 120, :goal_id),
          :ok <-
-           enum(
-             payload["state"],
-             ~w(ready working waiting completed blocked excluded cancelled),
-             :state
-           ),
+           enum(payload["state"], @goal_states, :state),
          :ok <- optional_text(payload, "detail", 2_000, :detail),
          :ok <- optional_references(payload, "evidence_refs", 12, :evidence_refs),
          :ok <- canonical(payload) do
