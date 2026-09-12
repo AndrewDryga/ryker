@@ -6,6 +6,7 @@ defmodule Responder.StateTools.FixedTools do
   alias Responder.Artifacts.Outputs
   alias Responder.CanonicalJSON
   alias Responder.Delivery.{PlatformActionCustody, Presentation}
+  alias Responder.Episodes.Origins
   alias Responder.Ingress.Adapters, as: IngressAdapters
   alias Responder.Repo
   alias Responder.Slack.{ChannelMembership, Mentions}
@@ -1004,6 +1005,10 @@ defmodule Responder.StateTools.FixedTools do
     do:
       "invalid_repository_reference: use a configured repository reference supported by this task interface: 1-256 letters, digits, underscores, dots, colons, or hyphens. A GitHub slug or checkout path is not automatically a configured reference."
 
+  defp error_code(:no_addressee),
+    do:
+      "no_addressee: nobody has spoken in this conversation, so a question would wait unanswered. Continue with the evidence you can gather, use wait_for when you are waiting on a system rather than a person, and say plainly in the reply what is unresolved and what would settle it."
+
   defp error_code(:not_configured), do: "not_configured"
   defp error_code(:not_found), do: "not_found"
   defp error_code(:deadline_elapsed), do: "deadline_elapsed"
@@ -1465,6 +1470,20 @@ defmodule Responder.StateTools.FixedTools do
 
   defp capability_available(name, _arguments, options) when name in @confirmation_tools do
     if confirmation_surface?(options), do: :ok, else: {:error, :unknown_tool}
+  end
+
+  # A question parks the episode until a person answers it, so an episode no
+  # person has ever spoken in cannot ask one: the wait would sit open until
+  # somebody happened to read the channel. Production had three such questions,
+  # every one still open, against seven answered where a person was present.
+  defp capability_available("request_input", _arguments, options) do
+    case tool_binding(options) do
+      {:ok, %{episode: %{id: episode_id}}} ->
+        if Origins.person_participated?(episode_id), do: :ok, else: {:error, :no_addressee}
+
+      _unbound ->
+        :ok
+    end
   end
 
   defp capability_available("wait_for", _arguments, options) do

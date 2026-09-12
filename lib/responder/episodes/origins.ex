@@ -106,6 +106,28 @@ defmodule Responder.Episodes.Origins do
   end
 
   @doc """
+  Whether a person has ever spoken in this episode.
+
+  A question needs somebody who could answer it. An episode admitted only by an
+  alert app, a bot or the scheduler has no addressee: the wait sits open until a
+  human happens to read the channel. Production on 2026-09-12 had three such
+  questions, all still open, the oldest for days, against seven asked where a
+  person had spoken and every one of those answered.
+  """
+  @spec person_participated?(Ecto.UUID.t()) :: boolean()
+  def person_participated?(episode_id) when is_binary(episode_id) do
+    Repo.exists?(
+      from(origin in Origin,
+        where:
+          origin.episode_id == ^episode_id and origin.effective and
+            like(origin.actor_ref, "%:user:%")
+      )
+    )
+  end
+
+  def person_participated?(_episode_id), do: false
+
+  @doc """
   The episode's one progress home.
 
   Adding evidence from another conversation never moves it: default progress

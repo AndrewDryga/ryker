@@ -1675,6 +1675,53 @@ defmodule Responder.StateTools.RouterTest do
     assert "wait_for" in names
   end
 
+  test "a question is refused where no person has ever spoken" do
+    # Production on 2026-09-12: every question asked in an episode a person had
+    # spoken in was answered — 7 of 7 — and every question asked where no person
+    # ever spoke is still open, 3 of 3, the oldest for days. The world matrix
+    # charges the same behaviour as a hard authority failure on eight
+    # observations, and it is what `one-outage-two-channels-joins-one-episode`
+    # failed on every time: an alert-sourced turn that asks a question parks the
+    # investigation behind a wait nobody is addressed to answer. `wait_for` is
+    # that lane's instrument and it is offered alongside.
+    alert = claim!("alert-only", %{actor_ref: "slack:app:alertmanager"})
+
+    refused =
+      rpc(
+        "tools/call",
+        %{"arguments" => question_arguments(), "name" => "request_input"},
+        bound_options(alert)
+      )
+
+    assert %{"result" => %{"isError" => true, "content" => [%{"text" => text}]}} =
+             Jason.decode!(refused.resp_body)
+
+    assert text =~ "no_addressee"
+
+    # The same call in an episode a person started is untouched.
+    operator = claim!("operator-present", %{actor_ref: "slack:user:U0BHTNFCW6S"})
+
+    accepted =
+      rpc(
+        "tools/call",
+        %{"arguments" => question_arguments(), "name" => "request_input"},
+        bound_options(operator)
+      )
+
+    assert %{"result" => %{"structuredContent" => %{"kind" => "input_request"}}} =
+             Jason.decode!(accepted.resp_body)
+  end
+
+  defp question_arguments do
+    %{
+      "context" => "The rollback needs an owner.",
+      "questions" => [
+        %{"choices" => ["roll back", "continue"], "text" => "Should we roll back?"}
+      ],
+      "remember" => nil
+    }
+  end
+
   test "omits unowned wait tools and rejects their direct calls" do
     list = rpc("tools/list", %{}, @no_owner_options)
 
