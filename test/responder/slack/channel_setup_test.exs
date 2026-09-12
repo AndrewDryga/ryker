@@ -306,8 +306,10 @@ defmodule Responder.Slack.ChannelSetupTest do
              %{message_ref: "1.000001", document: %{"channel_welcome" => welcome}}
            ] = last_updates
 
-    # The channel should read who changed it and when, not a system notice.
-    assert welcome["notice"] =~ ~r/\ASettings changed by <@U123> at \d{2}:\d{2} UTC\z/
+    # The channel should read who changed it and when, not a system notice. It
+    # travels as a host fact so the renderer can build a real mention from it.
+    assert %{"actor_ref" => "U123", "at" => at} = welcome["notice"]
+    assert {:ok, _at, 0} = DateTime.from_iso8601(at)
     assert welcome["revision"] == 2
     assert welcome["settings"]["participation"]["value"] == "proactive"
     assert welcome["settings"]["alert_policy"] == "offer"
