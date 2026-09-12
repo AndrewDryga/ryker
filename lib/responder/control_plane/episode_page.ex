@@ -524,14 +524,18 @@ defmodule Responder.ControlPlane.EpisodePage do
             <dt>{fact.label}</dt><dd>{fact.value}</dd>
           </div>
         </dl>
-        <details :if={@step.queue.technical != []} id={"queue-technical-#{@step.id}"}>
-          <summary>Technical details</summary>
-          <dl class="event-facts">
-            <div :for={fact <- @step.queue.technical}>
-              <dt>{fact.label}</dt><dd>{fact.value}</dd>
-            </div>
-          </dl>
-        </details>
+      </details>
+      <details
+        :if={@step.queue.technical != []}
+        class="case-event-details"
+        id={"queue-technical-#{@step.id}"}
+      >
+        <summary>Technical details</summary>
+        <dl class="event-facts">
+          <div :for={fact <- @step.queue.technical}>
+            <dt>{fact.label}</dt><dd>{fact.value}</dd>
+          </div>
+        </dl>
       </details>
     </div>
     """
