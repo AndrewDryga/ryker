@@ -151,6 +151,22 @@ defmodule Responder.Slack.AppHome do
     end
   end
 
+  # A dashboard the host could not read is not a dashboard with nothing on it.
+  # Rendering the ordinary empty view for it was the most convincing wrong
+  # answer this surface could give: the reader concluded they had no schedules,
+  # no rules and no work.
+  defp operator_view(%{readable: false}) do
+    %{
+      "blocks" => [
+        header("Responder"),
+        section(
+          "I couldn't read your dashboard just now, so this is not a list of everything you have. Try again shortly."
+        )
+      ],
+      "type" => "home"
+    }
+  end
+
   defp operator_view(snapshot) do
     needs_attention = bounded_list(snapshot, :needs_attention, @maximum_attention)
     work = bounded_list(snapshot, :work, @maximum_work)
