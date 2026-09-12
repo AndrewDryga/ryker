@@ -402,7 +402,9 @@ defmodule Responder.ControlPlane.Card do
         {"Kind", humanize(payload["kind"])},
         {"Authority", humanize(payload["authority"])},
         {"Required", if(payload["required"], do: "Yes", else: "No")}
-      ],
+      ]
+      |> optional_detail("Stage", payload["stage"] && humanize(payload["stage"]))
+      |> optional_detail("Replaces attempt", payload["successor_of"]),
       nil
     )
   end
@@ -413,7 +415,8 @@ defmodule Responder.ControlPlane.Card do
       "Goal updated",
       humanize(payload["state"]),
       payload["detail"] || "Goal #{payload["goal_id"]}",
-      [{"Goal", payload["goal_id"]}],
+      [{"Goal", payload["goal_id"]}]
+      |> optional_detail("Evidence", evidence_refs(payload["evidence_refs"])),
       nil
     )
   end
@@ -542,6 +545,11 @@ defmodule Responder.ControlPlane.Card do
       url: nil
     }
   end
+
+  # An empty evidence list is honest for qualitative review work, so it stays absent
+  # rather than rendering a row with nothing in it.
+  defp evidence_refs(refs) when is_list(refs) and refs != [], do: Enum.join(refs, ", ")
+  defp evidence_refs(_refs), do: nil
 
   defp optional_detail(details, _label, nil), do: details
   defp optional_detail(details, label, value), do: details ++ [{label, to_string(value)}]
