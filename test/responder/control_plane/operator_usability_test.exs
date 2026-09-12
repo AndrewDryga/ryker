@@ -193,7 +193,8 @@ defmodule Responder.ControlPlane.OperatorUsabilityTest do
              {"Cleanup", "2"},
              {"Slack updates", "0"},
              {"Incident rooms", "0"},
-             {"Approvals", "0"}
+             {"Approvals", "0"},
+             {"Publishing", "0"}
            ]
 
     assert Enum.count(LazyHTML.query(document, ".failure-types .has-failures")) == 3
@@ -206,7 +207,7 @@ defmodule Responder.ControlPlane.OperatorUsabilityTest do
   test "empty failures show zero for every type without a surrounding panel" do
     document = [] |> HTML.failures() |> IO.iodata_to_binary() |> LazyHTML.from_fragment()
     counts = LazyHTML.query(document, ".failure-summary dd, .failure-types dd")
-    assert Enum.count(counts) == 9
+    assert Enum.count(counts) == 10
     assert Enum.all?(counts, &(LazyHTML.text(&1) == "0"))
     assert Enum.empty?(LazyHTML.query(document, ".has-failures"))
     assert LazyHTML.text(document) =~ "Nothing needs attention"

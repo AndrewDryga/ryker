@@ -9,10 +9,14 @@ defmodule Responder.Fixtures.Publication do
 
   @now ~U[2026-08-28 12:00:00.000000Z]
 
-  def published!(suffix, options \\ []) do
+  @doc """
+  A publication whose review has been requested and nothing further.
+
+  The state a publication sits in while a review it cannot finish keeps failing,
+  which is what production had for two days in September 2026.
+  """
+  def review_requested!(suffix, options \\ []) do
     repository = Keyword.get(options, :repository, "responder")
-    github_repository = Keyword.get(options, :github_repository, "acme/responder")
-    pull_request_number = Keyword.get(options, :pull_request_number, 91)
     thread_ref = Keyword.get(options, :thread_ref, "thread:#{suffix}")
     # Sandbox transactions hold conversation advisory locks until the test exits.
     # Shared fixture destinations stalled four unrelated suites for 15 seconds;
@@ -125,6 +129,23 @@ defmodule Responder.Fixtures.Publication do
           transport: "slack"
         }
       })
+
+    %{
+      claim: claim,
+      episode: claim.episode,
+      options: options,
+      publication: publication,
+      repository: repository,
+      suffix: suffix
+    }
+  end
+
+  def published!(suffix, options \\ []) do
+    %{claim: claim, publication: publication, repository: repository} =
+      review_requested!(suffix, options)
+
+    github_repository = Keyword.get(options, :github_repository, "acme/responder")
+    pull_request_number = Keyword.get(options, :pull_request_number, 91)
 
     {:ok, review_claim} = PublicationCustody.claim_next("publication:review:#{suffix}", 60)
 

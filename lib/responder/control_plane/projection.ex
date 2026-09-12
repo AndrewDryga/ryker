@@ -598,6 +598,36 @@ defmodule Responder.ControlPlane.Projection do
       )
       |> Enum.map(&incident_item/1)
 
+    publications =
+      Repo.all(
+        from(publication in Publication,
+          join: episode in Episode,
+          on: episode.id == publication.episode_id,
+          where:
+            publication.status not in [:published, :discarded] and
+              not is_nil(publication.last_error_code),
+          order_by: [desc: publication.updated_at, desc: publication.id],
+          limit: 100,
+          select: {publication, episode}
+        )
+      )
+      |> Enum.map(&publication_item/1)
+
+    publications =
+      Repo.all(
+        from(publication in Publication,
+          join: episode in Episode,
+          on: episode.id == publication.episode_id,
+          where:
+            publication.status not in [:published, :discarded] and
+              not is_nil(publication.last_error_code),
+          order_by: [desc: publication.updated_at, desc: publication.id],
+          limit: 100,
+          select: {publication, episode}
+        )
+      )
+      |> Enum.map(&publication_item/1)
+
     with {:ok, delivery_items} <- DeliveryOperator.list_blocked(100),
          {:ok, emisar_items} <- EmisarOperator.list_blocked(100) do
       failures =
@@ -607,6 +637,8 @@ defmodule Responder.ControlPlane.Projection do
           retention ++
           interaction_feedback ++
           incident_rooms ++
+          publications ++
+          publications ++
           Enum.map(emisar_items, &emisar_item/1)
 
       {:ok,
@@ -635,6 +667,38 @@ defmodule Responder.ControlPlane.Projection do
   defp failure_exact("slack_incident", ref), do: slack_incident(ref)
   defp failure_exact("slack_interaction", ref), do: slack_interaction(ref)
   defp failure_exact("work", ref), do: work(ref)
+
+  defp failure_exact("publication", ref) when is_binary(ref) and byte_size(ref) <= 1_024 do
+    case Repo.one(
+           from(publication in Publication,
+             join: episode in Episode,
+             on: episode.id == publication.episode_id,
+             where:
+               publication.ref == ^ref and publication.status not in [:published, :discarded] and
+                 not is_nil(publication.last_error_code),
+             select: {publication, episode}
+           )
+         ) do
+      nil -> :not_found
+      row -> {:ok, row |> publication_item() |> decorate_failure()}
+    end
+  end
+
+  defp failure_exact("publication", ref) when is_binary(ref) and byte_size(ref) <= 1_024 do
+    case Repo.one(
+           from(publication in Publication,
+             join: episode in Episode,
+             on: episode.id == publication.episode_id,
+             where:
+               publication.ref == ^ref and publication.status not in [:published, :discarded] and
+                 not is_nil(publication.last_error_code),
+             select: {publication, episode}
+           )
+         ) do
+      nil -> :not_found
+      row -> {:ok, row |> publication_item() |> decorate_failure()}
+    end
+  end
 
   defp failure_exact("retention", ref) when is_binary(ref) and byte_size(ref) <= 1_024 do
     case Repo.one(
@@ -1943,6 +2007,56 @@ defmodule Responder.ControlPlane.Projection do
       status: session.cleanup_status,
       summary: session.cleanup_last_error_code || "retention blocked",
       updated_at: session.updated_at
+    }
+  end
+
+  # A publication that keeps failing was invisible: not a failure kind here, and
+  # not action_needed on its task card until it is `:blocked`. Production ran two
+  # of them for days — 2,902 attempts against a Coop session that closed on the
+  # 10th, and 1,087 against a repository whose GitHub App is not installed —
+  # while this page, whose question is "what is broken and can I retry it?", said
+  # nothing. A recorded failure is the same evidence custody requires before it
+  # will offer recovery: a publication that is merely slow is not stuck.
+  defp publication_item({%Publication{} = publication, %Episode{} = episode}) do
+    %{
+      action: nil,
+      attempt_count: publication.attempt_count || 0,
+      detail: FailureDetail.project(publication.last_error_detail),
+      diagnosis: FailureDetail.facts(publication.last_error_detail),
+      destination: failure_destination(episode),
+      episode_id: episode.id,
+      episode_ref: episode.key,
+      kind: "publication",
+      ref: publication.ref,
+      source: publication.repository || "no repository",
+      status: publication.status,
+      summary: publication.last_error_code || "publication blocked",
+      updated_at: publication.updated_at
+    }
+  end
+
+  # A publication that keeps failing was invisible: not a failure kind here, and
+  # not action_needed on its task card until it is `:blocked`. Production ran two
+  # for days — 2,902 attempts against a Coop session that closed on the 10th, and
+  # 1,087 against a repository whose GitHub App is not installed — while this
+  # page, whose question is "what is broken and can I retry it?", said nothing.
+  # A recorded failure is the same evidence custody already requires before it
+  # offers recovery: a publication that is merely slow is not stuck.
+  defp publication_item({%Publication{} = publication, %Episode{} = episode}) do
+    %{
+      action: nil,
+      attempt_count: publication.attempt_count || 0,
+      detail: FailureDetail.project(publication.last_error_detail),
+      diagnosis: FailureDetail.facts(publication.last_error_detail),
+      destination: failure_destination(episode),
+      episode_id: episode.id,
+      episode_ref: episode.key,
+      kind: "publication",
+      ref: publication.ref,
+      source: publication.repository || "no repository",
+      status: publication.status,
+      summary: publication.last_error_code || "publication blocked",
+      updated_at: publication.updated_at
     }
   end
 
