@@ -101,8 +101,11 @@ configured aggregate, per-case, paired-regression, hard-invariant, execution, an
 The YAML must configure dedicated `model_evals.socket`, `model_evals.no_tools_policy`, and
 `model_evals.world_policy` values. The full paired gate also requires
 `model_evals.world_baseline_policy`. These identities must be isolated from production policies and
-repositories. The evaluation database must contain no pre-existing episodes. Successful runs drop
-their database; failed runs preserve and name it for custody inspection.
+repositories. The evaluation database must contain no pre-existing episodes. Each observation runs
+against its own database, copied from the migrated campaign database the run creates and always
+drops, so no observation sees another's custody and a failed one never stops the rest of the plan.
+An observation that passed drops its database; one that failed or faulted preserves it, and the run
+names it at the end for custody inspection.
 
 Detailed reports are written mode `0600` under `$(EVAL_HISTORY)`, which defaults to
 `~/.local/state/responder/eval-history`. Inspect the series with:
