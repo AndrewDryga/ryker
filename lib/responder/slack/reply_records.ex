@@ -15,6 +15,7 @@ defmodule Responder.Slack.ReplyRecords do
 
   alias Responder.Delivery.PlatformAction
   alias Responder.Repo
+  alias Responder.Settings
   alias Responder.Slack.{IncidentRoom, Permalink, SavedEntity}
   alias Responder.State.{Behavior, EventWaitTiming, MemoryEntry, Schedule, SlackPostOffers}
   alias Responder.Work.{ActivityEvent, ActivityRetention}
@@ -51,7 +52,8 @@ defmodule Responder.Slack.ReplyRecords do
     with %PlatformAction{status: :delivered, conversation_ref: conversation} = action <-
            sent_action(record),
          %{"message_ref" => message} <- action.external_receipt,
-         url when is_binary(url) <- Permalink.message_url(workspace_url(), conversation, message) do
+         url when is_binary(url) <-
+           Permalink.message_url(Settings.slack_workspace_url(), conversation, message) do
       Map.put(document, "message_url", url)
     else
       _unsent -> document
@@ -65,15 +67,6 @@ defmodule Responder.Slack.ReplyRecords do
       turn_id: record.turn_id,
       host_slot: SlackPostOffers.host_slot(record)
     )
-  end
-
-  defp workspace_url do
-    case Responder.Settings.fetch() do
-      {:ok, %{slack: %{workspace_url: url}}} -> url
-      _unavailable -> nil
-    end
-  rescue
-    _error -> nil
   end
 
   # A confirmed offer is shown as the entity it saved, with the entity's current
