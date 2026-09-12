@@ -14,15 +14,15 @@ defmodule Responder.ControlPlane.ProjectionTest do
   alias Responder.CoopFleet.{Event, Placement, Worker}
   alias Responder.Delivery.{PlatformAction, PlatformActionCustody}
   alias Responder.Episodes
-  alias Responder.Fixtures.Publication, as: PublicationFixture
-  alias Responder.Publication.Custody, as: PublicationCustody
   alias Responder.Episodes.Command
   alias Responder.Episodes.Episode
   alias Responder.Fixtures.Episodes, as: EpisodeFixtures
+  alias Responder.Fixtures.Publication, as: PublicationFixture
   alias Responder.Ingress.Inbox
   alias Responder.Ingress.Inbox.Entry
   alias Responder.Ingress.Input, as: GenericInput
   alias Responder.Publication.Changeset, as: PublicationChangeset
+  alias Responder.Publication.Custody, as: PublicationCustody
   alias Responder.Publication.Publication
   alias Responder.Repo
   alias Responder.Retention.Custody, as: RetentionCustody
