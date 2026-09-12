@@ -165,6 +165,15 @@ If a writable session was closed before a workspace checkpoint was confirmed,
 preserve and restore its working copy and task notes into a correctly bound fleet
 workspace first; ordinary retry is unavailable.
 
+When the host still holds a checkpoint of the blocked turn's own workspace *and* an
+eligible worker could take the session — same policy digest and authority, the
+repository and capabilities it needs, a fresh heartbeat and a free slot — the same
+retry is presented as **Resume in another workspace**, and its effect names the
+repository, the saved copy and that nothing is waived. It is the same action: the
+replacement session restores that checkpoint by itself. Both halves are required,
+because offering to move work no worker can accept loses the working copy instead of
+continuing it.
+
 Retry accepts only `admission`, `delivery`, `emisar`, `retention`,
 `slack_incident`, `slack_interaction`, and `work`. Inspect the current item
 first. Publication review is a semantic decision and deliberately has no
