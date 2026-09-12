@@ -37,6 +37,7 @@ defmodule Responder.Evals.WorldTools do
           configured
           |> Map.put(:additional_tools, platform ++ fabricated)
           |> Map.put(:additional_call, callback)
+          |> Map.put(:answer_authorizer, WorldCase.answer_authorizer(scenario))
 
         catalog = %{
           "servers" => [%{"name" => "responder-state", "tools" => all}],

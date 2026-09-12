@@ -4,6 +4,40 @@ defmodule Responder.Evals.WorldToolsTest do
   alias Responder.Evals.{WorldCase, WorldCassette, WorldTools}
   alias Responder.StateTools.{Router, Tools}
 
+  test "the operator a scenario declares is the only actor who can save its answer" do
+    # Found 2026-09-12 running the judge lane for `missing-project-answer-is-remembered`:
+    # three of four criteria passed and the fourth failed on "remember_answer was denied
+    # with answer_memory_unauthorized". The world evaluation configured no answer
+    # authorizer at all, so `Memories.confirm_answer/4` refused every save and no
+    # scenario could ever prove the durable half of a remembered answer, however well
+    # the model behaved.
+    assert {:ok, scenario} = WorldCase.fetch("missing-project-answer-is-remembered")
+    assert {:ok, cassette} = start_supervised({WorldCassette, scenario})
+
+    assert {:ok, prepared} =
+             WorldTools.prepare(
+               %{capabilities: [:event_waits, :publication, :schedules]},
+               scenario,
+               cassette
+             )
+
+    authorize = prepared.state_tools.answer_authorizer
+    assert is_function(authorize, 1)
+
+    operator = %{
+      source_kind: "slack",
+      source_ref: "TEVAL",
+      actor_kind: :user,
+      actor_ref: "U-operator"
+    }
+
+    assert authorize.(operator)
+    refute authorize.(%{operator | actor_ref: "U-bystander"})
+    refute authorize.(%{operator | source_ref: "TOTHER"})
+    refute authorize.(%{operator | source_kind: "control_plane"})
+    refute authorize.(%{operator | actor_kind: :bot})
+  end
+
   test "a world with no discovery provider exposes fixed tools without an orphan callback" do
     assert {:ok, scenario} = WorldCase.fetch("missing-project-review-asks-for-context")
     assert {:ok, cassette} = start_supervised({WorldCassette, scenario})
