@@ -82,7 +82,6 @@ defmodule Responder.ControlPlane.RequestContextHTML do
   def briefing(sections, kind, prefix, counts \\ %{}) do
     instructions = Enum.find(sections, &(&1.id == "instructions"))
     context = Enum.find(sections, &(&1.id == "context"))
-    contract = Enum.find(sections, &(&1.id == "contract"))
     root = if kind == :admission, do: "$.context", else: "$.work"
 
     [
@@ -96,15 +95,9 @@ defmodule Responder.ControlPlane.RequestContextHTML do
         else: []
       ),
       if(context, do: assembly(context.artifact, root, prefix, counts), else: []),
-      if(contract,
-        do:
-          group(
-            "Response format",
-            "The output contract was supplied alongside the prompt text.",
-            contract(contract.artifact, prefix)
-          ),
-        else: []
-      )
+      # The output contract is shown once, under the retained submission it was
+      # sent beside; repeating it above the prompt said the same thing twice.
+      []
     ]
   end
 
@@ -136,9 +129,6 @@ defmodule Responder.ControlPlane.RequestContextHTML do
       )
     ]
   end
-
-  defp contract(artifact, prefix),
-    do: submitted_source(artifact, "contract", "Output contract", "$.output_schema", prefix)
 
   defp submitted_source(artifact, id, title, path, prefix) do
     state = artifact_availability(artifact)

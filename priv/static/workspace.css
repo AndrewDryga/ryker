@@ -1415,3 +1415,10 @@ details.measurement-notes > summary { cursor:pointer; font-weight:600; color:var
   .settings-rows td { border:0; padding:2px 0; }
   .settings-row-actions { padding-top:8px; }
 }
+
+/* The retained submission is the page's subject, not something to fold away:
+   it reads as a plain section heading with no disclosure affordance. */
+.document-heading-fixed { cursor:default; list-style:none; }
+.document-heading-fixed::-webkit-details-marker { display:none; }
+.document-heading-fixed::marker { content:''; }
+.inspector-document.artifact-request { border-top:0; }

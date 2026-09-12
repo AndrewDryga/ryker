@@ -107,7 +107,9 @@ defmodule Responder.ControlPlane.ModelRequestsTest do
       assert full |> LazyHTML.query("summary") |> Enum.at(0) |> LazyHTML.text() =~
                "Full submitted request"
 
-      assert Enum.empty?(LazyHTML.query(full, "details[open]"))
+      # The retained submission is the page's subject and reads as a plain
+      # section; its components inside it stay collapsed.
+      assert Enum.empty?(LazyHTML.query(full, ".prompt-source[open]"))
 
       for {id, title, text} <- [
             {"request", "Prompt text", prompt},
