@@ -451,7 +451,8 @@ defmodule Responder.Slack.Gateway do
       {:ok, %{outcome: outcome}}
       when outcome in [:deleted, :forgotten, :resumed] and
              interaction.action_id in ~w(responder_delete_schedule responder_delete_behavior responder_forget_memory responder_resume_behavior) ->
-        # The saved-entity message repaints to its removed state with no controls.
+        # The saved-entity message repaints from the entity's current state: a
+        # removed one loses its controls, and a resumed one comes back active.
         acknowledge_interaction(interaction, outcome, :confirmed, settings)
 
       {:ok, %{outcome: outcome}} ->
