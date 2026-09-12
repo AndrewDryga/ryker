@@ -263,6 +263,18 @@ case $manager in
 
     domain="gui/$(id -u)"
     launchctl bootout "$domain/$label" 2>/dev/null || true
+    # bootout returns before launchd has finished tearing the job down, and a
+    # bootstrap that races it fails with "Input/output error" -- which on
+    # 2026-09-12 left the old release already stopped and nothing serving. Wait
+    # for the label to actually leave the domain before loading it again.
+    for _attempt in $(seq 1 60); do
+      launchctl print "$domain/$label" >/dev/null 2>&1 || break
+      sleep 1
+    done
+    if launchctl print "$domain/$label" >/dev/null 2>&1; then
+      echo "deploy: $label is still loaded in $domain 60s after bootout" >&2
+      exit 1
+    fi
     stop_unmanaged_listener
     launchctl bootstrap "$domain" "$plist"
     ;;
