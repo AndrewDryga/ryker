@@ -2445,6 +2445,62 @@ defmodule Responder.Slack.RendererTest do
     }
   end
 
+  test "the settings notice names a person Slack will actually link" do
+    # Caught by rendering the preview rather than by a test: the first version
+    # passed "Settings changed by <@U123>" as free text, which the welcome
+    # escapes against invented mentions, so the channel would have read a
+    # literal <@U123>. Who changed it is a host fact, so it travels as one.
+    settings = welcome_settings()
+
+    document = %{
+      "channel_welcome" => %{
+        "bot_user_ref" => "UBOT",
+        "configuration_ref" => "9a51fa43-977f-4b27-93f6-0c2ad3652ddc",
+        "notice" => %{"actor_ref" => "U123", "at" => "2026-09-12T19:56:00.000000Z"},
+        "revision" => 2,
+        "settings" => settings
+      }
+    }
+
+    assert {:ok, rendered} = Renderer.render(document)
+    text = inspect(rendered)
+    assert text =~ "Settings changed by <@U123> at 19:56 UTC"
+    refute text =~ "&lt;@U123&gt;"
+    # The fallback is read aloud, where a mention is noise.
+    assert rendered["text"] =~ "Settings changed at 19:56 UTC."
+
+    # Free text is still escaped, because anything else may not be host-written.
+    forged = put_in(document, ["channel_welcome", "notice"], "Updated by <@U999>")
+    assert {:ok, escaped} = Renderer.render(forged)
+    assert inspect(escaped) =~ "&lt;@U999&gt;"
+
+    for invalid <- [
+          %{"actor_ref" => "U123"},
+          %{"actor_ref" => "not-a-user", "at" => "2026-09-12T19:56:00.000000Z"},
+          %{"actor_ref" => "U123", "at" => "yesterday"}
+        ] do
+      assert Renderer.render(put_in(document, ["channel_welcome", "notice"], invalid)) ==
+               {:error, {:invalid_slack_render, :channel_welcome}}
+    end
+  end
+
+  defp welcome_settings do
+    %{
+      "alert_policy" => "offer",
+      "configuration_ref" => "9a51fa43-977f-4b27-93f6-0c2ad3652ddc",
+      "customized_by" => nil,
+      "default_repository" => "blitz-infra",
+      "invitations" => %{"user_group_refs" => [], "user_refs" => ["U456"]},
+      "observation" => %{"on" => false, "source" => "channel"},
+      "participation" => %{"source" => "installation", "value" => "mentions"},
+      "repositories" => [
+        %{"ref" => "blitz-infra", "url" => nil},
+        %{"ref" => "blitz-app-svelte", "url" => nil}
+      ],
+      "revision" => 2
+    }
+  end
+
   test "rejects malformed cards, controls, publication identities, and dates" do
     assert Renderer.render(:not_a_document) == {:error, {:invalid_slack_render, :document}}
 

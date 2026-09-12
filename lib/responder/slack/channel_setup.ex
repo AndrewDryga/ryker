@@ -439,7 +439,7 @@ defmodule Responder.Slack.ChannelSetup do
   # notice that leaves the channel guessing which of them pressed something.
   defp settings_notice(%ChannelConfiguration{actor_ref: actor, saved_at: %DateTime{} = at})
        when is_binary(actor),
-       do: "Settings changed by <@#{actor}> at #{Calendar.strftime(at, "%H:%M UTC")}"
+       do: %{"actor_ref" => actor, "at" => DateTime.to_iso8601(at)}
 
   defp settings_notice(_configuration), do: "Settings changed."
 

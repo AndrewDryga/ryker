@@ -1180,7 +1180,7 @@ defmodule Responder.Slack.Renderer do
       "Hey there, I'm your AI teammate. I'm here to help with work in this channel.",
       participation_summary(settings),
       alert_summary(settings),
-      notice && neutralize_control_syntax(notice)
+      notice_fallback(notice)
     ]
     |> compact_lines()
   end
@@ -1243,15 +1243,29 @@ defmodule Responder.Slack.Renderer do
       "When an alert needs investigation, I'll automatically create an incident room and invite #{audience_phrase(settings)}."
 
   defp welcome_closing(settings, notice) do
-    [
-      override_sentence(settings),
-      if(notice,
-        do: "*#{neutralize_control_syntax(notice)}*",
-        else: "You're ready to go. Use the buttons below if you'd like to change how I work."
-      )
-    ]
-    |> compact_lines()
+    [override_sentence(settings), notice_line(notice)] |> compact_lines()
   end
+
+  # The fallback line is read aloud and shown in notifications, where a mention
+  # is noise rather than a link.
+  defp notice_fallback(nil), do: nil
+
+  defp notice_fallback(%{"at" => at}) do
+    {:ok, changed_at, 0} = DateTime.from_iso8601(at)
+    "Settings changed at #{Calendar.strftime(changed_at, "%H:%M UTC")}."
+  end
+
+  defp notice_fallback(notice), do: neutralize_control_syntax(notice)
+
+  defp notice_line(nil),
+    do: "You're ready to go. Use the buttons below if you'd like to change how I work."
+
+  defp notice_line(%{"actor_ref" => actor, "at" => at}) do
+    {:ok, changed_at, 0} = DateTime.from_iso8601(at)
+    "*Settings changed by #{mention(actor)} at #{Calendar.strftime(changed_at, "%H:%M UTC")}*"
+  end
+
+  defp notice_line(notice), do: "*#{neutralize_control_syntax(notice)}*"
 
   defp override_sentence(%{"participation" => %{"source" => "channel", "value" => value}})
        when value in ~w(proactive shadow) do
@@ -1454,6 +1468,18 @@ defmodule Responder.Slack.Renderer do
     do: {:error, :invalid_channel_settings}
 
   defp optional_notice(nil), do: :ok
+
+  # Who changed the settings is a host fact, so it is carried as one: free text
+  # is escaped against invented mentions, and this exact pair is the only shape
+  # that may render a real one.
+  defp optional_notice(%{"actor_ref" => actor, "at" => at} = notice) when map_size(notice) == 2 do
+    with :ok <- slack_user(actor),
+         {:ok, _at, 0} <- DateTime.from_iso8601(at) do
+      :ok
+    else
+      _invalid -> {:error, :invalid_notice}
+    end
+  end
 
   defp optional_notice(notice) do
     if text?(notice) and String.length(notice) <= 200, do: :ok, else: {:error, :invalid_notice}
