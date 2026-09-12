@@ -421,6 +421,56 @@ defmodule Responder.Slack.RendererTest do
            ]
   end
 
+  test "an engineering offer briefs the reader from facts, never from the prompt" do
+    # The catalog's `long-task-offer/offer` wants the reader to see what the task
+    # will do before they authorize it, and `d98b1d9f` forbids the model's own
+    # instruction on a surface whose button grants authority. Both hold at once:
+    # the brief is built from the fields the host validated — what it checks,
+    # what it may not do, and the exact source — and never from `prompt`.
+    document = %{
+      "message" => "I can prepare that repository change.",
+      "records" => [
+        %{
+          "kind" => "task_offer",
+          "payload" => %{
+            "authority_limits" => ["do not merge or deploy", "no schema changes"],
+            "instruction_ref" => "input:slack:abc123",
+            "kind" => "engineering",
+            "prompt" => "Change the parser and run focused tests.",
+            "repository" => "responder",
+            "repository_source" => %{"kind" => "branch", "name" => "main"},
+            "source_refs" => ["record:evidence:one", "record:evidence:two"],
+            "success_checks" => ["focused parser tests pass", "no new credo findings"],
+            "title" => "Fix parser retries"
+          },
+          "ref" => "record:task_offer:abc123",
+          "status" => "open"
+        }
+      ]
+    }
+
+    assert {:ok, rendered} = Renderer.render(document)
+
+    text =
+      rendered["blocks"]
+      |> Enum.map(fn
+        %{"text" => %{"text" => value}} -> value
+        _block -> nil
+      end)
+      |> Enum.reject(&is_nil/1)
+      |> Enum.join("\n")
+
+    assert text =~ "Fix parser retries"
+    assert text =~ "focused parser tests pass"
+    assert text =~ "no new credo findings"
+    assert text =~ "do not merge or deploy"
+    assert text =~ "branch `main`"
+    assert text =~ "2 sources"
+
+    # The rule that made this a conflict, still enforced.
+    refute inspect(rendered) =~ "Change the parser"
+  end
+
   test "renders an engineering task offer as host-owned Block Kit" do
     document = %{
       "message" => "I can prepare that repository change.",

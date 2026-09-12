@@ -2111,18 +2111,53 @@ defmodule Responder.Slack.Renderer do
 
   defp render_record(_record), do: {:error, {:invalid_slack_render, :record}}
 
-  defp task_offer_blocks(ref, %{
-         "kind" => "engineering",
-         "repository" => repository,
-         "title" => title
-       }) do
-    summary = "*#{mrkdwn(title)}*\nRepository: `#{mrkdwn(repository)}`"
+  defp task_offer_blocks(ref, %{"kind" => "engineering", "repository" => repository} = offer) do
+    summary =
+      ["*#{mrkdwn(offer["title"])}*\nRepository: `#{mrkdwn(repository)}`#{offer_source(offer)}"] ++
+        offer_brief(offer)
 
     [
-      section(summary),
+      section(Enum.join(summary, "\n")),
       actions(ref, engineering_button(ref, repository))
     ]
   end
+
+  # What the task will do, from the fields the host validated. The offer's
+  # `prompt` is the worker's own instruction and never appears here: this card
+  # carries a button that grants authority, and d98b1d9f keeps model-authored
+  # instructions off that surface. Checks, limits and the exact source say what
+  # is being authorized without quoting what the worker was told.
+  defp offer_brief(%{"success_checks" => checks, "authority_limits" => limits} = offer)
+       when is_list(checks) and is_list(limits) do
+    [
+      offer_list("Checks", checks, 4),
+      offer_list("Will not", limits, 4),
+      offer_sources(offer["source_refs"])
+    ]
+    |> Enum.reject(&is_nil/1)
+  end
+
+  defp offer_brief(_offer), do: []
+
+  defp offer_list(_label, [], _limit), do: nil
+
+  defp offer_list(label, values, limit) do
+    shown = values |> Enum.take(limit) |> Enum.map_join("; ", &truncate(mrkdwn(&1), 200))
+    remainder = length(values) - min(length(values), limit)
+    more = if remainder > 0, do: " · #{remainder} more", else: ""
+    "*#{label}:* #{shown}#{more}"
+  end
+
+  defp offer_sources(refs) when is_list(refs) and refs != [],
+    do: "*Evidence:* #{length(refs)} sources"
+
+  defp offer_sources(_refs), do: nil
+
+  defp offer_source(%{"repository_source" => %{"kind" => kind, "name" => name}})
+       when is_binary(kind) and is_binary(name),
+       do: " · #{mrkdwn(kind)} `#{mrkdwn(name)}`"
+
+  defp offer_source(_offer), do: ""
 
   # One offer owns both incident paths; the host starts exactly one of them.
   defp task_offer_blocks(ref, %{
