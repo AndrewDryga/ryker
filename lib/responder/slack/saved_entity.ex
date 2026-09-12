@@ -36,6 +36,7 @@ defmodule Responder.Slack.SavedEntity do
       "notice" => notice("Schedule", status, event),
       "ref" => schedule.ref,
       "removable" => status in ~w(active paused),
+      "resumable" => false,
       "revision" => schedule.revision,
       "saved_at" => DateTime.to_iso8601(schedule.confirmed_at),
       "saved_by" => schedule.confirmed_by_actor_ref,
@@ -136,6 +137,7 @@ defmodule Responder.Slack.SavedEntity do
       "notice" => notice("Memory", status, event),
       "ref" => entry.ref,
       "removable" => status == "active",
+      "resumable" => false,
       "revision" => nil,
       "saved_at" => DateTime.to_iso8601(entry.confirmed_at),
       "saved_by" => entry.confirmed_by_actor_ref,
@@ -154,6 +156,11 @@ defmodule Responder.Slack.SavedEntity do
       "notice" => notice(label, status, event),
       "ref" => behavior.ref,
       "removable" => status in ~w(active disabled),
+      # A paused standing rule governs nothing until someone restarts it, and
+      # App Home was the only surface that could — one most readers of a
+      # channel's rule list cannot act in. Preferences and guidance keep their
+      # existing single control; this row is about rules.
+      "resumable" => kind == "standing_rule" and status == "disabled",
       "revision" => behavior.revision,
       "saved_at" => DateTime.to_iso8601(behavior.confirmed_at),
       "saved_by" => behavior.confirmed_by_actor_ref,

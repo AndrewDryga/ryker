@@ -636,6 +636,41 @@ defmodule Responder.Slack.InteractionHandlerTest do
                     }, :update}
   end
 
+  test "resuming a paused rule restarts exactly that rule at its exact revision" do
+    # The 2026-09-12 coverage measurement: a paused rule could only be restarted
+    # from App Home, a surface most readers of a channel's rule list cannot act
+    # in. The control now exists on the list itself and must be as exact as the
+    # delete beside it.
+    parent = self()
+
+    options =
+      Map.put(%{options(["U123"]) | operators: MapSet.new(["U123"])}, :resume_behavior, fn ref,
+                                                                                           revision,
+                                                                                           actor_ref,
+                                                                                           workspace_ref,
+                                                                                           action_ref ->
+        send(parent, {:resumed, ref, revision, actor_ref, workspace_ref, action_ref})
+        {:ok, %{status: :active}}
+      end)
+
+    interaction = %Interaction{
+      action_id: "responder_resume_behavior",
+      action_value: "behavior-control:behavior:abc123:7",
+      actor_ref: "U123",
+      channel_ref: "C0BLU1GACKC",
+      event_ref: "interaction:resume-1",
+      message_ref: "1.000002",
+      occurred_at: DateTime.utc_now(),
+      thread_ref: "1.000001",
+      workspace_ref: "T0BHXKZJVDX"
+    }
+
+    assert {:ok, %{outcome: :resumed}} = InteractionHandler.handle(interaction, options)
+
+    assert_received {:resumed, "behavior:abc123", 7, "U123", "T0BHXKZJVDX",
+                     "interaction:resume-1"}
+  end
+
   defp interaction(action_id, kind) do
     %Interaction{
       action_id: action_id,

@@ -1858,6 +1858,7 @@ defmodule Responder.ControlPlane.CardLab do
       "notice" => notice,
       "ref" => ref,
       "removable" => true,
+      "resumable" => false,
       "revision" => revision,
       "saved_at" => "2099-09-04T12:00:00.000000Z",
       "saved_by" => "slack:user:U123",

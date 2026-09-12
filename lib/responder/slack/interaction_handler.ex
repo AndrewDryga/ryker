@@ -81,7 +81,7 @@ defmodule Responder.Slack.InteractionHandler do
   ]
   @work_record_kinds ~w(timeline evidence handoff recovery postmortem)
 
-  @entity_actions ~w(responder_delete_schedule responder_delete_behavior responder_forget_memory)
+  @entity_actions ~w(responder_delete_schedule responder_delete_behavior responder_forget_memory responder_resume_behavior)
   @settled_entity_errors [
     :behavior_not_found,
     :behavior_revision_stale,
@@ -186,6 +186,22 @@ defmodule Responder.Slack.InteractionHandler do
              interaction.event_ref
            ) do
       {:ok, :deleted}
+    end
+  end
+
+  # Resuming is not removal, but it travels the same versioned-control path: the
+  # exact rule, the exact revision, the operator who pressed it.
+  defp remove_entity(%Interaction{action_id: "responder_resume_behavior"} = interaction, options) do
+    with {:ok, ref, revision} <- versioned_resource(interaction.action_value, "behavior"),
+         {:ok, _result} <-
+           options.resume_behavior.(
+             ref,
+             revision,
+             interaction.actor_ref,
+             interaction.workspace_ref,
+             interaction.event_ref
+           ) do
+      {:ok, :resumed}
     end
   end
 
