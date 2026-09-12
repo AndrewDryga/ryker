@@ -33,8 +33,13 @@ The root card is the authoritative incident snapshot. It shows:
 - plain-language alert and Responder states;
 - severity, firing/total signals, repository, lifecycle times, and isolated fork;
 - the latest alert summary and a validated alert-source link with its hostname visible when supplied;
+- what the investigation is establishing: each goal it set, where that goal stands (`✓` completed,
+  `▸` working, `!` blocked, `○` otherwise) and what that state found, in the order they were set,
+  newest attempts only and the first eight of them. It is the same composed ledger the engineering
+  task card reads, not a second copy of it, and a room that set no goals shows no ledger;
 - a prominent action-needed section when work is blocked;
-- only controls that are valid for the current lifecycle state.
+- only controls that are valid for the current lifecycle state, with **Open evidence** as a button
+  rather than a menu row, because what an investigation found is the subject of its card.
 
 The top-level fallback text carries the same essential status for notifications and screen readers.
 Responder updates this message in place and alternates card writes with thread delivery so a busy
@@ -652,7 +657,9 @@ host rejects them for nonoperators before any repository or session mutation:
 Every work card's single overflow menu includes **Work record**. It opens a compact second-level
 directory with **Timeline**, **Evidence**, **Handoff summary**, **Review recovery** on a task whose
 workspace or reply the host is still holding, and **Postmortem draft** on an incident. This keeps
-the primary card to one clearly owned menu while staying below Block Kit's five-option ceiling.
+the primary card to one clearly owned menu while staying below Block Kit's five-option ceiling. An
+incident card is the one exception: it carries **Open evidence** as a button and keeps the rest in
+the menu, because on that card the findings are the subject rather than an aside.
 
 **Timeline** presents the chronological remediation record: alerts, agent runs, operator and
 lifecycle events, Emisar approvals and terminal run results, and draft-PR publication. It derives
