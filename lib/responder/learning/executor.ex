@@ -415,11 +415,12 @@ defmodule Responder.Learning.Executor do
         session["project_env"] == false and session["project_mcp"] == false and
         Map.get(session, "companions", []) == []
 
-  defp exact_turn(%{"id" => id, "session_id" => sid}, sid, expected)
-       when is_binary(id) and byte_size(id) in 1..1024 and (is_nil(expected) or expected == id),
-       do: :ok
+  @doc false
+  def exact_turn(%{"id" => id, "session_id" => sid}, sid, expected)
+      when is_binary(id) and byte_size(id) in 1..1024 and (is_nil(expected) or expected == id),
+      do: :ok
 
-  defp exact_turn(_, _, _), do: {:error, :learning_remote_identity_conflict}
+  def exact_turn(_, _, _), do: {:error, :learning_remote_identity_conflict}
 
   defp call(claim, settings, operation, arguments) do
     with {:ok, _} <- Batches.renew(claim, settings.lease_seconds) do
