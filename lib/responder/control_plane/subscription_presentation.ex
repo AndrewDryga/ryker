@@ -72,7 +72,10 @@ defmodule Responder.ControlPlane.SubscriptionPresentation do
     destination =
       if episode.source == "Slack", do: SlackNames.destination(episode.conversation)
 
-    source = if destination == "Slack channel", do: nil, else: episode.source
+    # "Slack · Slack channel" says Slack twice; the word is only worth keeping
+    # once the destination resolved to a name of its own.
+    source =
+      if destination && not SlackNames.named?(episode.conversation), do: nil, else: episode.source
 
     [source, destination, text(episode.repository, secrets)]
     |> Enum.reject(&(&1 in [nil, ""]))

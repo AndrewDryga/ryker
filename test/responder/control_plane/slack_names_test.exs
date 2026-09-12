@@ -17,12 +17,12 @@ defmodule Responder.ControlPlane.SlackNamesTest do
        end}
     )
 
-    assert SlackNames.name("T123", "C456") == "Slack channel"
-    assert SlackNames.name("T999", "C456") == "Slack channel"
+    assert SlackNames.name("T123", "C456") == "Slack channel C456"
+    assert SlackNames.name("T999", "C456") == "Slack channel C456"
     assert :ok = GenServer.call(SlackNames, :refresh)
     assert_receive {:lookup, "C456"}
     assert SlackNames.name("T123", "C456") == "#test"
-    assert SlackNames.name("T999", "C456") == "Slack channel"
+    assert SlackNames.name("T999", "C456") == "Slack channel C456"
     assert SlackNames.destination("slack:T123:C456") == "#test"
     refute_receive {:lookup, "C456"}
   end
@@ -39,11 +39,16 @@ defmodule Responder.ControlPlane.SlackNamesTest do
        end}
     )
 
-    assert SlackNames.name("T123", "U789") == "Slack user"
+    # An unresolved reference still has to tell one row from another. The
+    # channels page listed five "Slack channel" rows with the id only in a
+    # tooltip, so an operator could not tell #test from #test2 at all.
+    assert SlackNames.name("T123", "U789") == "Slack user U789"
+
+    # A reference Slack would reject is never echoed back into the page.
     assert SlackNames.name("T123", "../../secrets") == "Slack reference"
     assert :ok = GenServer.call(SlackNames, :refresh)
     assert_receive {:lookup, "U789"}
-    assert SlackNames.name("T123", "U789") == "Slack user"
+    assert SlackNames.name("T123", "U789") == "Slack user U789"
     assert :ok = GenServer.call(SlackNames, :refresh)
     refute_receive {:lookup, _}
   end
@@ -81,7 +86,7 @@ defmodule Responder.ControlPlane.SlackNamesTest do
     start_supervised!({SlackNames, workspace: "T123", fetch: fn _ -> exit(:timeout) end})
     SlackNames.name("T123", "C456")
     assert :ok = GenServer.call(SlackNames, :refresh)
-    assert SlackNames.name("T123", "C456") == "Slack channel"
+    assert SlackNames.name("T123", "C456") == "Slack channel C456"
   end
 
   test "resolved names cannot reintroduce credentials into sanitized request inspection" do
