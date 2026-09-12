@@ -169,6 +169,46 @@ defmodule Responder.ControlPlane.WorkRecoveryTest do
     refute WorkRecovery.project(turn, :ok).kind == :completion
   end
 
+  test "only a finished worker's unsaved workspace or unreleased reply is a hold" do
+    # Slack and the recovery page have to describe one failure. When each decided
+    # separately, the card said "Task work is blocked and needs operator
+    # attention. Open the episode for details." over a page that already knew the
+    # working copy was stranded, the session closed and the answer retained.
+    held = WorkRecovery.workspace_hold(incident_turn())
+    assert held.held == :workspace
+    assert held.closed
+    assert held.report =~ "lacks Docker"
+
+    open_session =
+      WorkRecovery.workspace_hold(%{
+        incident_turn()
+        | cancellation_receipt: %{"remote_state" => "completed", "session_state" => "open"}
+      })
+
+    refute open_session.closed
+
+    stopped_finalization =
+      WorkRecovery.workspace_hold(%{
+        incident_turn()
+        | completion_receipt: %{},
+          last_error_detail: "{:coop_unavailable, :offline}"
+      })
+
+    assert stopped_finalization.held == :reply
+
+    # Nothing was edited and nothing was answered, so nothing is being held.
+    assert WorkRecovery.workspace_hold(not_started_turn()) == nil
+
+    # Neither is an ordinary failure with no retained completion behind it.
+    assert WorkRecovery.workspace_hold(%{
+             incident_turn()
+             | last_error_detail: "{:coop_protocol_error, :turn}"
+           }) == nil
+
+    assert WorkRecovery.workspace_hold(%Turn{status: :settled}) == nil
+    assert WorkRecovery.workspace_hold(nil) == nil
+  end
+
   test "recovery puts the action before a collapsed safely formatted worker report" do
     brief =
       WorkRecovery.project(incident_turn(), {:error, :work_completed_workspace_recovery_required})

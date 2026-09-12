@@ -57,6 +57,36 @@ defmodule Responder.ControlPlane.WorkRecovery do
 
   defp completion_pending?(_), do: false
 
+  @doc """
+  What a finished worker left the host holding, or `nil` when nothing is held.
+
+  The recovery page and the Slack card must describe one failure from one set of
+  facts, so this decides it once: `:workspace` when the connection could not
+  snapshot the working copy, `:reply` when finalization stopped before the saved
+  answer was released. A turn that never started holds nothing — there is no
+  working copy to restore and no answer to release.
+  """
+  @spec workspace_hold(term()) ::
+          %{closed: boolean(), held: :reply | :workspace, report: String.t() | nil} | nil
+  def workspace_hold(%Turn{status: :blocked} = turn) do
+    cond do
+      not_started?(turn) -> nil
+      completion_pending?(turn) -> hold(turn, :reply)
+      turn.last_error_detail in @checkpoint_api_errors -> hold(turn, :workspace)
+      true -> nil
+    end
+  end
+
+  def workspace_hold(_turn), do: nil
+
+  defp hold(turn, held) do
+    %{
+      closed: get_in(turn.cancellation_receipt, ["session_state"]) in ["closed", "discarded"],
+      held: held,
+      report: saved_output(turn)
+    }
+  end
+
   defp recovery_action(true, _, _), do: nil
   defp recovery_action(_, true, false), do: nil
   defp recovery_action(_, _, _), do: :retry

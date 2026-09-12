@@ -259,6 +259,45 @@ defmodule Responder.ControlPlane.CardLab do
           %{task_status: "action_required"}
         ),
         state(
+          "held-workspace",
+          "Workspace not recoverable yet",
+          "The worker finished and answered, the host could not snapshot its working copy, and the session was then closed. Recovery is the only control this state can offer: there is no changes page, nothing to publish, and no retry that reaches the stranded copy.",
+          task_document("action_required")
+          |> put_in(["task_card", "controls"], ~w(close timeline evidence handoff recovery))
+          |> put_in(["task_card", "work_state"], "blocked")
+          |> put_in(
+            ["task_card", "action_needed"],
+            "The worker finished, but I couldn't save its working copy, so its reply is still held. Nothing was published. Keep its working copy and task notes: the worker session is closed, so a retry can't recover them. The worker's own report, which is not a check result: “Prepared the internal hosted runner bump from 0.23.1 to 0.27.0. Terraform validation, formatting, TFLint, release-pin checks and rendered startup syntax checks passed. The full infra gate stopped because this box lacks Docker.”"
+          )
+          |> put_in(
+            ["task_card", "stages"],
+            specimen_stages(
+              ~w(failed completed completed pending pending pending pending),
+              %{"workspace_setup" => "no saved snapshot · session closed"},
+              nil
+            )
+          ),
+          %{task_status: "action_required"}
+        ),
+        state(
+          "unverified-draft-open",
+          "Draft open, checks incomplete",
+          "The operator opened the unverified draft. The pull request exists and CI on its exact head is its own row, but the trusted gate still never ran, so the check stage stays open and nobody is handed a merge.",
+          task_document(
+            "published",
+            publication("published", ["open", "check"], 5, true, "docker: command not found")
+          )
+          |> put_in(
+            ["task_card", "stages"],
+            specimen_stages(
+              ~w(completed completed completed failed completed completed pending),
+              %{"self_review" => "docker: command not found", "draft_pr" => "#91", "ci" => "8/8"},
+              publication("published", ["open", "check"], 5, true)
+            )
+          ),
+          %{task_status: "published"}
+        ),
+        state(
           "conflicted-publication",
           "Publication conflict",
           "A stale or conflicting candidate remains operator-owned and recoverable.",
@@ -1942,6 +1981,26 @@ defmodule Responder.ControlPlane.CardLab do
         "your_turn" => stage == "review_and_merge" and state == "waiting"
       }
       |> Map.update!("url", fn url -> url || nil end)
+    end)
+    |> current_only()
+  end
+
+  # A blocked-recovery ledger is not one of the per-status shapes: it puts the
+  # cause on the stage that owns it and leaves the stages that did run alone.
+  defp specimen_stages(states, details, publication) do
+    TaskStages.stages()
+    |> Enum.zip(states)
+    |> Enum.map(fn {stage, state} ->
+      %{
+        "current" => state in ~w(running waiting failed),
+        "detail" => details[stage],
+        "stage" => stage,
+        "state" => state,
+        "subtasks" => [],
+        "subtasks_total" => nil,
+        "url" => (stage == "draft_pr" && publication && publication["pull_request_url"]) || nil,
+        "your_turn" => false
+      }
     end)
     |> current_only()
   end

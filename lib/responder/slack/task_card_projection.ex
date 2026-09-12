@@ -9,6 +9,7 @@ defmodule Responder.Slack.TaskCardProjection do
   import Ecto.Query
 
   alias Responder.CanonicalJSON
+  alias Responder.ControlPlane.WorkRecovery
   alias Responder.Episodes.Episode
   alias Responder.Publication.{Followup, Publication, Review}
   alias Responder.Repo
@@ -78,11 +79,13 @@ defmodule Responder.Slack.TaskCardProjection do
 
     projection = %{
       "action_needed" =>
-        action_needed(episode, turn, records, publication) ||
+        held_work(snapshot.workspace_hold, publication) ||
+          action_needed(episode, turn, records, publication) ||
           unstarted_review(episode, publication, publication_offer),
       "confirmed_at" => DateTime.to_iso8601(record.confirmed_at),
       "confirmed_by" => record.confirmed_by_actor_ref,
-      "controls" => controls(record, episode, turn, session, publication),
+      "controls" =>
+        controls(record, episode, turn, session, publication, snapshot.workspace_hold),
       "episode_state" => Atom.to_string(episode.state),
       "publication" => publication(publication, publication_offer),
       "request" => compact(record.payload["prompt"], 600),
@@ -97,7 +100,8 @@ defmodule Responder.Slack.TaskCardProjection do
           publication: publication,
           publication_offer: publication_offer,
           session: session,
-          turn: turn
+          turn: turn,
+          workspace_hold: snapshot.workspace_hold
         }),
       "status" => status(episode, turn, publication, publication_offer),
       "summary" => summary(record, progress),
@@ -120,16 +124,18 @@ defmodule Responder.Slack.TaskCardProjection do
 
   defp snapshot(episode) do
     publication = latest_publication(episode.id)
+    turn = current_turn(episode)
 
     %{
-      turn: current_turn(episode),
+      turn: turn,
       session: latest_session(episode.id),
       publication: publication,
       followup: followup(publication),
       records: Records.retained_records(episode.id),
       publication_offer: latest_publication_offer(episode.id),
       goal_records: goal_records(episode.id),
-      progress_records: progress_records(episode.id)
+      progress_records: progress_records(episode.id),
+      workspace_hold: WorkRecovery.workspace_hold(turn)
     }
   end
 
@@ -235,7 +241,7 @@ defmodule Responder.Slack.TaskCardProjection do
     }
 
   defp public_errors(projection, snapshot) do
-    case public_error(snapshot.publication, snapshot.turn) do
+    case public_error(snapshot.publication, snapshot.turn, snapshot.workspace_hold) do
       nil ->
         projection
 
@@ -247,16 +253,22 @@ defmodule Responder.Slack.TaskCardProjection do
     end
   end
 
-  defp public_error(%Publication{status: :blocked}, _turn),
+  # The generic notice exists so untrusted error text never reaches Slack. A held
+  # workspace already carries a host-authored explanation and the worker's own
+  # redacted reply for this exact destination, and replacing that with "open the
+  # episode for details" is what hid the runner's actual question for two days.
+  defp public_error(_publication, _turn, hold) when is_map(hold), do: nil
+
+  defp public_error(%Publication{status: :blocked}, _turn, _hold),
     do: "Draft pull-request work needs operator attention. Open the episode for details."
 
-  defp public_error(%Publication{last_error_code: code}, _turn) when is_binary(code),
+  defp public_error(%Publication{last_error_code: code}, _turn, _hold) when is_binary(code),
     do: "Draft pull-request work needs operator attention. Open the episode for details."
 
-  defp public_error(_publication, %Turn{status: :blocked}),
+  defp public_error(_publication, %Turn{status: :blocked}, _hold),
     do: "Task work is blocked and needs operator attention. Open the episode for details."
 
-  defp public_error(_publication, _turn), do: nil
+  defp public_error(_publication, _turn, _hold), do: nil
 
   defp neutral(projection) do
     task = projection.document["task_card"]
@@ -388,6 +400,46 @@ defmodule Responder.Slack.TaskCardProjection do
   defp status(_episode, %Turn{status: :cancel_pending}, _publication, _offer), do: "stopping"
   defp status(_episode, _turn, _publication, _offer), do: "working"
 
+  # The worker's answer and its unsaved working copy are what an operator can act
+  # on; `{:invalid_work_executor, :workspace_checkpoint_api}` is not, and neither
+  # is "open the episode for details". Both are what the card said about the
+  # hosted-runner bump while the runner's own answer sat retained and unread.
+  defp held_work(nil, _publication), do: nil
+
+  defp held_work(%{closed: closed?, held: held, report: report}, publication) do
+    [held_cause(held), held_draft(publication), held_restore(closed?), held_report(report)]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.join(" ")
+    |> compact(2_000)
+  end
+
+  # A pull request opened earlier stays reachable, but it predates the work the
+  # host could not keep. Leaving "Draft PR created. Open it to review the
+  # changes." as the only word about it offers an older snapshot as the current one.
+  defp held_draft(%Publication{status: status, pull_request_number: number})
+       when status in [:published, :published_ready] and is_integer(number),
+       do: "Draft PR ##{number} stays open, but it is an earlier snapshot without this work."
+
+  defp held_draft(_publication), do: "Nothing was published."
+
+  defp held_cause(:workspace),
+    do: "The worker finished, but I couldn't save its working copy, so its reply is still held."
+
+  defp held_cause(:reply),
+    do: "The worker finished, but saving its result stopped, so its reply is still held."
+
+  defp held_restore(true),
+    do:
+      "Keep its working copy and task notes: the worker session is closed, so a retry can't recover them."
+
+  defp held_restore(false),
+    do: "Keep its working copy and task notes until they are restored into a bound workspace."
+
+  defp held_report(nil), do: nil
+
+  defp held_report(report),
+    do: "The worker's own report, which is not a check result: “#{compact(report, 900)}”"
+
   defp unstarted_review(%Episode{state: :complete}, nil, %{"status" => "open"}),
     do:
       "Prepared changes are saved, but checks have not started. Open the episode to review workspace recovery."
@@ -466,8 +518,10 @@ defmodule Responder.Slack.TaskCardProjection do
 
   # Which required check has no result, in the operator's words. Without it a
   # blocked candidate can only say that something is missing, which is how a
-  # missing tool, a failed assertion and a policy finding read the same.
-  defp unverified(%Publication{status: :blocked, review_document: review}) do
+  # missing tool, a failed assertion and a policy finding read the same — and a
+  # draft opened on that candidate then read as an ordinary checked pull request.
+  defp unverified(%Publication{status: status, review_document: review})
+       when status in [:blocked, :publish_pending, :published_ready, :published] do
     case Review.draft_verdict(review) do
       %{"shareable" => true, "incomplete_checks" => [reason | _rest]} -> compact(reason, 500)
       _decided -> nil
@@ -548,12 +602,15 @@ defmodule Responder.Slack.TaskCardProjection do
   defp host_publication_offer?(%{operation_id: "host:publication:ready"}), do: true
   defp host_publication_offer?(_record), do: false
 
-  defp controls(record, episode, turn, session, publication) do
+  # A workspace the host never saved has no changes page to open, so the diff
+  # control would link to nothing; recovery is the control that state allows.
+  defp controls(record, episode, turn, session, publication, hold) do
     []
     |> maybe_control(stop_allowed?(episode, turn), "stop")
-    |> maybe_control(bound_session?(session), "view_diff")
+    |> maybe_control(is_nil(hold) and bound_session?(session), "view_diff")
     |> maybe_control(close_allowed?(episode, turn, publication), "close")
     |> Kernel.++(~w(timeline evidence handoff))
+    |> maybe_control(not is_nil(hold), "recovery")
     |> maybe_control(incident?(record), "postmortem")
   end
 

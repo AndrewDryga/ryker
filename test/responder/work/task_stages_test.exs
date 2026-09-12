@@ -368,6 +368,100 @@ defmodule Responder.Work.TaskStagesTest do
     assert row(rows, "implementation")["detail"] == "1/2 subtasks"
   end
 
+  test "a held working copy fails its own stage without rolling back the work that ran" do
+    # Marking the workspace stage failed is the point — "✓ Workspace setup" above
+    # a working copy the host never snapshotted is the one claim that is false.
+    # But the guard behind Planning read "no completed workspace, so nothing has
+    # started yet", which turned every later row back to ○ on a task whose worker
+    # had already finished.
+    held =
+      facts(
+        episode: %Episode{state: :working, owner_kind: :turn},
+        turn: %Turn{status: :blocked, coop_turn_id: "turn-1"},
+        plan: plan([goal("drain", "implementation", "completed")]),
+        workspace_hold: %{closed: true, held: :workspace, report: "Prepared the bump."}
+      )
+
+    rows = TaskStages.build(held)
+
+    assert Enum.map(rows, & &1["state"]) ==
+             ~w(failed completed completed pending pending pending pending)
+
+    assert row(rows, "workspace_setup")["detail"] == "no saved snapshot · session closed"
+    assert row(rows, "workspace_setup")["current"]
+
+    # Without the hold the same bound session is an ordinary completed workspace.
+    assert row(TaskStages.build(%{held | workspace_hold: nil}), "workspace_setup")["state"] ==
+             "completed"
+
+    still_open =
+      TaskStages.build(%{
+        held
+        | workspace_hold: %{closed: false, held: :reply, report: nil}
+      })
+
+    assert row(still_open, "workspace_setup")["detail"] == "no saved snapshot"
+
+    # An earlier pull request stays reachable, marked as the earlier snapshot.
+    with_draft =
+      TaskStages.build(%{
+        held
+        | publication: published(),
+          followup: %Followup{pr_state: "open", checks_state: "passing"}
+      })
+
+    assert row(with_draft, "draft_pr")["state"] == "stale"
+    assert row(with_draft, "draft_pr")["url"] == "https://github.com/acme/responder/pull/91"
+
+    assert row(with_draft, "draft_pr")["detail"] ==
+             "#91 · earlier snapshot, newer work not saved"
+  end
+
+  test "a draft whose gate never ran leaves the check stage open and the merge untouched" do
+    # The check stage read ✓ and Review and merge read "← 🙋 your turn" for a
+    # change no required check had run against, because "a publication exists"
+    # was being read as "the checks finished".
+    unrun =
+      facts(
+        episode: %Episode{state: :complete, owner_kind: :turn},
+        turn: %Turn{status: :settled, coop_turn_id: "turn-1"},
+        publication: %{
+          published()
+          | review_document: %{
+              "gate" => "startup_error",
+              "gate_error" => "docker: command not found",
+              "patch_artifact_id" => "review-patch:1",
+              "patch_bytes" => 64,
+              "patch_digest" => String.duplicate("a", 64),
+              "patch_truncated" => false,
+              "policy_findings" => [],
+              "publishable" => false,
+              "rebase" => "clean"
+            }
+        },
+        followup: %Followup{
+          pr_state: "open",
+          checks_state: "passing",
+          checks_total: 6,
+          checks_passed: 6
+        },
+        plan: plan([goal("drain", "implementation", "completed")])
+      )
+
+    rows = TaskStages.build(unrun)
+
+    assert Enum.map(rows, & &1["state"]) ==
+             ~w(completed completed completed failed completed completed pending)
+
+    assert row(rows, "self_review")["detail"] == "docker: command not found"
+    refute row(rows, "review_and_merge")["your_turn"]
+
+    # The same ledger with a gate that actually passed still hands over.
+    passed = put_in(unrun.publication.review_document["gate"], "passed")
+    assert row(TaskStages.build(passed), "self_review")["state"] == "completed"
+    assert row(TaskStages.build(passed), "review_and_merge")["your_turn"]
+  end
+
   test "historical goals without a stage are listed as unassigned, never backfilled" do
     rows =
       TaskStages.build(
@@ -393,7 +487,8 @@ defmodule Responder.Work.TaskStagesTest do
         publication: nil,
         followup: nil,
         publication_offer: nil,
-        plan: plan([])
+        plan: plan([]),
+        workspace_hold: nil
       },
       Map.new(overrides)
     )

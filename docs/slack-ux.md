@@ -519,6 +519,17 @@ observed a result; a declared completion never overrides a failing, missing or s
 Once newer implementation work lands after a publication, Self-review, Draft PR and CI show `↻`
 against the published revision rather than a green check for work that was never checked.
 
+Self-review and checks is never complete while a required check has no result. A candidate whose
+trusted gate could not start, did not run or is not configured shows `!` with that missing check
+named — `! Self-review and checks · docker: command not found` — and it keeps showing it after an
+operator opens the draft. CI on the exact published head is a separate row and may well be green;
+it is not the trusted gate, so Review and merge stays `○` instead of becoming `← 🙋 your turn`.
+
+When the host is still holding a finished worker's working copy or its reply, Workspace setup
+carries the cause — `! Workspace setup · no saved snapshot · session closed` — and the stages the
+worker did reach keep their own dispositions. A pull request published earlier stays linked from
+its Draft PR row, marked `↻ #91 · earlier snapshot, newer work not saved`.
+
 ## Controls
 
 Card buttons change with state rather than presenting actions that cannot succeed. Publication,
@@ -550,6 +561,13 @@ host rejects them for nonoperators before any repository or session mutation:
   transient Coop inspection failure;
 - safety-ceiling blocked: **Close incident** and an action-needed explanation naming
   `coop.turn_limit`, saying plainly that raising it needs a deployment change;
+- workspace not recoverable yet: the worker finished, but the host could not save its working copy
+  or could not release its reply. The card says so in plain language, says what to keep and whether
+  the worker session is closed, and attributes the retained answer as the worker's own report
+  rather than a check result. The only control it adds is **Review recovery**; there is no saved
+  snapshot, so the diff control is withheld and nothing is offered that would create a draft or
+  replay the completed work. An earlier pull request keeps its **Open PR** link, named on the card
+  as the earlier snapshot without this work;
 - closed: read-only record controls only; otherwise no controls.
 
 - **Ask agent for update** requests fresh verified facts, hypothesis, changes, blockers, and next
@@ -585,7 +603,10 @@ host rejects them for nonoperators before any repository or session mutation:
   App repository binding. On a blocked candidate whose checks could not finish, the same control
   offers an explicitly unverified draft: its confirmation names the repository and the check that
   never ran, and says that a draft waives nothing and neither merges nor deploys.
-  After publication the task shows **Open PR** and **Check delivery**. Responder polls GitHub for
+  After publication the task shows **Open PR** and **Check delivery**, and a draft opened that way
+  keeps saying which check never finished instead of reading as an ordinary reviewed pull request.
+  Responder reuses and updates that same authorized publication; an uncertain create reconciles
+  against the App-owned pull request it already published rather than issuing another blind create. Responder polls GitHub for
   check and merge transitions without occupying a model turn. Checks that fail on that exact head
   return the task to in-scope correction once, without a click and without widening the task; a
   hard deadline, a head that moved outside the publication, a close and a merge stay history for a
@@ -612,7 +633,8 @@ host rejects them for nonoperators before any repository or session mutation:
   Dirty uncommitted files are still refused.
 
 Every work card's single overflow menu includes **Work record**. It opens a compact second-level
-directory with **Timeline**, **Evidence**, **Handoff summary**, and **Postmortem draft**. This keeps
+directory with **Timeline**, **Evidence**, **Handoff summary**, **Review recovery** on a task whose
+workspace or reply the host is still holding, and **Postmortem draft** on an incident. This keeps
 the primary card to one clearly owned menu while staying below Block Kit's five-option ceiling.
 
 **Timeline** presents the chronological remediation record: alerts, agent runs, operator and
@@ -620,10 +642,14 @@ lifecycle events, Emisar approvals and terminal run results, and draft-PR public
 these entries from their canonical rows rather than copying them. **Evidence** shows the latest
 source ledger and material unknowns. **Handoff summary** prepares an evidence-backed shift summary.
 **Postmortem draft** regenerates the post-incident draft that closing also posts, including after
-the incident has closed; it does not invent impact, root cause, owners, or corrective actions. All
-four are host-rendered from the stored record — the model never writes a timeline.
+the incident has closed; it does not invent impact, root cause, owners, or corrective actions.
+**Review recovery** appears only while the host is holding a finished worker's working copy or its
+reply: it shows the same brief the control-plane recovery page shows — the host failure in plain
+language, what to restore, the workspace and delivery status, and the complete retained answer
+attributed as the worker's own report. All of them are host-rendered from the stored record — the
+model never writes a timeline.
 
-These four were slash subcommands. A button carries the work it belongs to in its own value, so a
+These were slash subcommands. A button carries the work it belongs to in its own value, so a
 task thread can ask for its own handoff; the slash spelling resolved an incident by channel and
 could not name a thread at all.
 
