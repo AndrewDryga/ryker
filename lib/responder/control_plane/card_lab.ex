@@ -2112,6 +2112,7 @@ defmodule Responder.ControlPlane.CardLab do
 
   defp publication(status, controls, generation \\ 1, published \\ false, unverified \\ nil) do
     %{
+      "branch" => "refs/heads/responder/card-lab",
       "controls" => controls,
       "publication_ref" => "publication:card-lab",
       "pull_request_number" => if(published, do: 91, else: nil),

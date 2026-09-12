@@ -517,6 +517,7 @@ defmodule Responder.Slack.TaskCardProjection do
 
   defp publication(%Publication{} = publication, _offer) do
     %{
+      "branch" => publication.branch_ref,
       "controls" => publication_controls(publication),
       "publication_ref" => publication.ref,
       "pull_request_number" => publication.pull_request_number,

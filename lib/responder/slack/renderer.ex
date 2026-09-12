@@ -559,6 +559,7 @@ defmodule Responder.Slack.Renderer do
 
   defp task_publication(
          %{
+           "branch" => branch,
            "controls" => controls,
            "publication_ref" => publication_ref,
            "pull_request_number" => number,
@@ -568,8 +569,9 @@ defmodule Responder.Slack.Renderer do
            "unverified" => unverified
          } = publication
        )
-       when map_size(publication) == 7 do
+       when map_size(publication) == 8 do
     with :ok <- bounded_text(status, 120),
+         :ok <- optional_bounded_text(branch, 512),
          :ok <- publication_controls(controls),
          :ok <- optional_publication_reference(publication_ref),
          :ok <- optional_positive_integer(number),
@@ -591,6 +593,7 @@ defmodule Responder.Slack.Renderer do
   defp task_publication_blocks(_task_ref, _repository, nil), do: []
 
   defp task_publication_blocks(task_ref, repository, %{
+         "branch" => branch,
          "controls" => controls,
          "publication_ref" => publication_ref,
          "pull_request_number" => number,
@@ -604,7 +607,10 @@ defmodule Responder.Slack.Renderer do
         do: " · <#{url}|Open draft PR ##{number}>",
         else: ""
 
-    summary = section("#{publication_status_message(status, controls, unverified)}#{detail}")
+    summary =
+      section(
+        "#{publication_status_message(status, controls, unverified)}#{detail}#{publication_branch_line(status, branch)}"
+      )
 
     buttons =
       Enum.map(controls, fn
@@ -714,6 +720,15 @@ defmodule Responder.Slack.Renderer do
   defp publish_confirmation(repository, unverified),
     do:
       "Open a draft pull request in #{repository} from this exact saved change? The checks did not finish (#{unverified}). A draft does not waive them, and it does not merge or deploy anything."
+
+  # Which branch is stuck is a fact the host holds and the card withheld, so
+  # "PR creation is blocked" sent the reader to a web console this installation
+  # publishes no URL for. Only the blocked state needs it: every other state
+  # either links the pull request or has no branch worth naming yet.
+  defp publication_branch_line("blocked", branch) when is_binary(branch) and branch != "",
+    do: " · `#{branch}`"
+
+  defp publication_branch_line(_status, _branch), do: ""
 
   defp publication_controls(controls) when is_list(controls) do
     if controls == Enum.uniq(controls) and length(controls) <= length(@publication_controls) and
