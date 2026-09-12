@@ -195,7 +195,10 @@ defmodule Responder.Work.Prompt do
   1. Re-read the exact request and every later authorized reply.
   2. Check that every explicit question and deliverable is handled.
   3. Check that you used available tools while useful work remained.
-  4. Check facts and action claims against current source/action receipts.
+  4. Check facts and action claims against current source/action receipts. If the message says you
+     made, saved, attached, sent or scheduled something, the ref the owning tool returned for it
+     must be in this candidate's record_refs or artifact_refs. When it is not, the thing did not
+     happen: remove the claim and say what you have instead.
   5. Write a concise, natural answer for this conversation.
   6. Call validate_final with the exact JSON you plan to return inside its candidate argument:
      {"candidate": {"decision_reason": null, "delivery": "reply", "message": "Your answer",
