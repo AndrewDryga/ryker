@@ -2148,34 +2148,33 @@ defmodule Responder.Slack.Renderer do
 
   defp render_record(_record), do: {:error, {:invalid_slack_render, :record}}
 
-  defp task_offer_blocks(ref, %{"kind" => "engineering", "repository" => repository} = offer) do
-    summary =
-      ["*#{mrkdwn(offer["title"])}*\nRepository: `#{mrkdwn(repository)}`#{offer_source(offer)}"] ++
-        offer_brief(offer)
-
-    [
-      section(Enum.join(summary, "\n")),
-      actions(ref, engineering_button(ref, repository))
-    ]
-  end
+  defp task_offer_blocks(ref, %{"kind" => "engineering", "repository" => repository} = offer),
+    do: [section(offer_summary(offer)), actions(ref, engineering_button(ref, repository))]
 
   # One offer owns both incident paths; the host starts exactly one of them.
-  defp task_offer_blocks(ref, %{
-         "kind" => "incident",
-         "repository" => repository,
-         "title" => title
-       }) do
-    summary =
-      case repository do
-        nil -> "*#{mrkdwn(title)}*"
-        value -> "*#{mrkdwn(title)}*\nRepository: `#{mrkdwn(value)}`"
-      end
-
-    [
-      section(summary),
+  defp task_offer_blocks(ref, %{"kind" => "incident", "repository" => _repository} = offer),
+    do: [
+      section(offer_summary(offer)),
       actions(ref, [investigate_button(ref), incident_button(ref)])
     ]
-  end
+
+  # Both the open and the confirmed card render this. An operator returning to
+  # the thread reads the confirmed card to find out what was authorized, and
+  # repainting it down to a title and a check mark answered nothing.
+  defp offer_summary(%{"kind" => "engineering", "repository" => repository} = offer),
+    do:
+      offer_lines(
+        "*#{mrkdwn(offer["title"])}*\nRepository: `#{mrkdwn(repository)}`#{offer_source(offer)}",
+        offer
+      )
+
+  defp offer_summary(%{"repository" => nil, "title" => title} = offer),
+    do: offer_lines("*#{mrkdwn(title)}*", offer)
+
+  defp offer_summary(%{"repository" => repository, "title" => title} = offer),
+    do: offer_lines("*#{mrkdwn(title)}*\nRepository: `#{mrkdwn(repository)}`", offer)
+
+  defp offer_lines(head, offer), do: Enum.join([head | offer_brief(offer)], "\n")
 
   # What the task will do, from the fields the host validated. The offer's
   # `prompt` is the worker's own instruction and never appears here: this card
@@ -2214,13 +2213,13 @@ defmodule Responder.Slack.Renderer do
 
   defp offer_source(_offer), do: ""
 
-  defp confirmed_task_offer_blocks(%{"kind" => "engineering", "title" => title}, _presentation),
-    do: [section("*#{mrkdwn(title)}*\n✓ Task started in this thread.")]
+  defp confirmed_task_offer_blocks(%{"kind" => "engineering"} = offer, _presentation),
+    do: [section(offer_outcome(offer, "✓ Task started in this thread."))]
 
-  defp confirmed_task_offer_blocks(%{"title" => title}, %{"incident_room" => %{"url" => url}})
+  defp confirmed_task_offer_blocks(offer, %{"incident_room" => %{"url" => url}})
        when is_binary(url) do
     [
-      section("*#{mrkdwn(title)}*\n✓ Incident room created."),
+      section(offer_outcome(offer, "✓ Incident room created.")),
       actions(
         "incident-room-link",
         url_button("responder_open_incident_room", "Open incident room", "room", url)
@@ -2228,11 +2227,13 @@ defmodule Responder.Slack.Renderer do
     ]
   end
 
-  defp confirmed_task_offer_blocks(%{"title" => title}, %{"incident_room" => _room}),
-    do: [section("*#{mrkdwn(title)}*\n◷ Incident room requested · creating the channel")]
+  defp confirmed_task_offer_blocks(offer, %{"incident_room" => _room}),
+    do: [section(offer_outcome(offer, "◷ Incident room requested · creating the channel"))]
 
-  defp confirmed_task_offer_blocks(%{"title" => title}, _presentation),
-    do: [section("*#{mrkdwn(title)}*\n✓ Investigating in this thread.")]
+  defp confirmed_task_offer_blocks(offer, _presentation),
+    do: [section(offer_outcome(offer, "✓ Investigating in this thread."))]
+
+  defp offer_outcome(offer, outcome), do: offer_summary(offer) <> "\n\n" <> outcome
 
   defp incident_room_presentation(presentation) when map_size(presentation) == 0, do: :ok
 

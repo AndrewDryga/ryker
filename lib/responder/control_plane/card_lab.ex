@@ -941,11 +941,25 @@ defmodule Responder.ControlPlane.CardLab do
     )
   end
 
+  # Production incident offers carry the same structured authority engineering
+  # offers do, so the specimen does too: a preview showing only a title is not
+  # the card an operator decides on.
   defp incident_offer_payload do
     %{
+      "authority_limits" => [
+        "Do not restart the checkout service",
+        "Do not page the on-call",
+        "Do not change any configuration"
+      ],
+      "instruction_ref" => "admit_input:#{String.duplicate("4", 64)}",
       "kind" => "incident",
       "prompt" => "Coordinate the current production symptoms.",
       "repository" => nil,
+      "source_refs" => ["admit_input:#{String.duplicate("4", 64)}"],
+      "success_checks" => [
+        "Which of the three firing signals share a cause is answered",
+        "Whether checkout is still failing for users is answered"
+      ],
       "title" => "Checkout errors"
     }
   end
