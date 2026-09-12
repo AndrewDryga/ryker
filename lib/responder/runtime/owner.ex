@@ -145,8 +145,13 @@ defmodule Responder.Runtime.Owner do
     else
       case Assembly.build(state.bootstrap, settings) do
         {:ok, configuration} ->
-          state = reconcile_children(state, applied_children(state, configuration))
+          # Publish before starting anything. A child that reads another
+          # runtime's published configuration in `init` — the Slack name cache
+          # does — otherwise starts against the previous value and declines with
+          # `:ignore`, which is permanent: nothing restarts a runtime whose own
+          # configuration never changed again.
           Assembly.publish(configuration)
+          state = reconcile_children(state, applied_children(state, configuration))
           record(revision, :ok)
           {{:ok, :applied}, %{state | revision: revision}}
 

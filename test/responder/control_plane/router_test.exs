@@ -1292,7 +1292,11 @@ defmodule Responder.ControlPlane.RouterTest do
 
   test "renders every bounded read-only operator view without external assets" do
     channel = request(:get, "/channels/T123/C456")
-    assert channel.resp_body =~ "<h1>Slack channel</h1>"
+
+    # The kind still leads, so a heading never reads as a bare reference — but
+    # the reference stays visible, because a page of rows all titled
+    # "Slack channel" tells an operator nothing about which channel they are on.
+    assert channel.resp_body =~ "<h1>Slack channel C456</h1>"
     refute channel.resp_body =~ "<h1>C456</h1>"
 
     for {path, marker} <- [
