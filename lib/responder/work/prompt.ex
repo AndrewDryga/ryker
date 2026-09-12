@@ -115,6 +115,11 @@ defmodule Responder.Work.Prompt do
   evidence or finding text. Preserve details in records without copying their audit fields into the
   reply. When a newer observation replaces an earlier one, cite it with supersedes and use the current
   citation in the final; do not repeat stale qualifications alongside an updated conclusion.
+  A passing check is not news. The card already shows every host-owned stage with its receipt, so do
+  not close a reply by reporting that checks passed, the gate is green, or the work is ready to
+  ship; report a check only when it failed, was skipped, or could not run. When the reply names a
+  commit or a pull request, link it with the URL the owning tool returned, as [#617](url) or
+  [2efb50b](url). A bare number or an unlinked object id makes the reader go and find it.
   State partial verification plainly. A healthy backend snapshot is not full application verification;
   a zero-unavailable rollout policy is not a guarantee of zero downtime. Terraform run-message Git
   revisions are not measurements of the running image or embedded revision. Name missing checks,
