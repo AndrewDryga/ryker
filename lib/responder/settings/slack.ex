@@ -5,11 +5,12 @@ defmodule Responder.Settings.Slack do
   alias Responder.Settings.Validation
 
   @primary_key {:id, :string, autogenerate: false}
-  @fields ~w(enabled workspace_ref bot_ref bot_user_ref default_repository_ref channel_prefix incident_private default_participation operators incident_invite_users)a
+  @fields ~w(enabled workspace_ref workspace_url bot_ref bot_user_ref default_repository_ref channel_prefix incident_private default_participation operators incident_invite_users)a
 
   schema "slack_settings" do
     field(:enabled, :boolean, default: false)
     field(:workspace_ref, :string)
+    field(:workspace_url, :string)
     field(:bot_ref, :string)
     field(:bot_user_ref, :string)
     field(:default_repository_ref, :string)
@@ -34,6 +35,11 @@ defmodule Responder.Settings.Slack do
     |> cast(attributes, @fields)
     |> validate_required([:enabled, :channel_prefix, :incident_private, :default_participation])
     |> validate_format(:workspace_ref, Validation.slack_id_pattern())
+    # The workspace origin is the only part of a Slack message link the host
+    # cannot derive. It is an origin, never a path, so a card can build a link
+    # from it without ever trusting a stored URL shape.
+    |> validate_format(:workspace_url, ~r/\Ahttps:\/\/[a-z0-9-]{1,64}\.slack\.com\/?\z/)
+    |> validate_length(:workspace_url, max: 256)
     |> validate_format(:bot_ref, Validation.slack_id_pattern())
     |> validate_format(:bot_user_ref, Validation.slack_id_pattern())
     |> validate_format(:channel_prefix, ~r/\A[a-z0-9_-]{1,20}\z/)
