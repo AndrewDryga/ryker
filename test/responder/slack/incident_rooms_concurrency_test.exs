@@ -2,6 +2,7 @@ defmodule Responder.Slack.IncidentRoomsConcurrencyTest do
   use Responder.ConcurrencyCase, async: false
 
   alias Ecto.Adapters.SQL.Sandbox
+  alias Responder.Accounting.Execution
   alias Responder.Episodes
   alias Responder.Episodes.{Episode, Event}
   alias Responder.Fixtures.Episodes, as: EpisodeFixtures
@@ -28,6 +29,7 @@ defmodule Responder.Slack.IncidentRoomsConcurrencyTest do
   # spending attempts on the same incident.
   test "two concurrent incident choices start exactly one path" do
     Sandbox.unboxed_run(Repo, fn ->
+      occupied = non_empty_tables()
       fixture = delivered_offer!()
       parent = self()
 
@@ -81,6 +83,16 @@ defmodule Responder.Slack.IncidentRoomsConcurrencyTest do
         stop_tasks([holder, investigation, room])
         cleanup!(fixture)
       end
+
+      # The check that would have caught the orphaned accounting row below on
+      # its first run, stated as the invariant it belongs to rather than as a
+      # list of tables somebody has to remember to extend, and naming the table
+      # so the next reader is not left to find it the way this one was found.
+      leaked = non_empty_tables() -- occupied
+
+      assert leaked == [],
+             "unboxed work must leave the database as it found it, " <>
+               "but #{inspect(leaked)} still holds rows"
     end)
   end
 
@@ -306,6 +318,19 @@ defmodule Responder.Slack.IncidentRoomsConcurrencyTest do
     episode_ids = [fixture.episode.id | linked]
 
     Repo.delete_all(from(room in IncidentRoom, where: room.record_id == ^fixture.record.id))
+
+    # Accounting deliberately has no cascading foreign key, so accepting a
+    # result leaves a row that outlives every episode row keyed to it. Missing
+    # it turned the repository gate red on 18376794: `Evals.WorldRunner` refuses
+    # to start unless every application table is empty, and 45 of the 57
+    # world-runner tests failed with
+    # `:model_world_requires_an_empty_disposable_database` for one orphaned row.
+    Repo.delete_all(
+      from(usage in Execution,
+        where: usage.episode_id in ^episode_ids or usage.source_id == ^fixture.input_entry.id
+      )
+    )
+
     Repo.delete_all(from(record in Record, where: record.episode_id in ^episode_ids))
     Repo.delete_all(from(turn in Turn, where: turn.episode_id in ^episode_ids))
     Repo.delete_all(from(session in Session, where: session.episode_id in ^episode_ids))
@@ -313,5 +338,27 @@ defmodule Responder.Slack.IncidentRoomsConcurrencyTest do
     Repo.delete_all(from(episode in Episode, where: episode.id in ^linked))
     Repo.delete_all(from(episode in Episode, where: episode.id == ^fixture.episode.id))
     delete_entries!(from(entry in Entry, where: entry.id == ^fixture.input_entry.id))
+  end
+
+  # Exactly the query `Evals.WorldRunner.disposable_database/1` runs before a
+  # world case, so this test is held to the standard that refused it.
+  defp non_empty_tables do
+    %{rows: rows} =
+      Repo.query!("""
+      SELECT table_name
+      FROM information_schema.tables
+      WHERE table_schema = current_schema()
+        AND table_type = 'BASE TABLE'
+        AND table_name <> 'schema_migrations'
+      ORDER BY table_name
+      """)
+
+    rows
+    |> Enum.map(fn [table] -> table end)
+    |> Enum.reject(fn table ->
+      quoted = ~s("#{String.replace(table, "\"", "\"\"")}")
+      %{rows: [[empty]]} = Repo.query!("SELECT NOT EXISTS (SELECT 1 FROM #{quoted} LIMIT 1)")
+      empty
+    end)
   end
 end
