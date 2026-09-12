@@ -132,7 +132,7 @@ defmodule Responder.Fixtures.Publication do
       PublicationCustody.freeze_review_revision(publication.ref, review_claim.lease_ref, 7)
 
     patch = "diff --git a/lib/fix.ex b/lib/fix.ex\n+fixed\n"
-    review = review_document(claim, patch)
+    review = review_document(claim, patch, options)
 
     {:ok, _reviewed} =
       PublicationCustody.store_review(
@@ -280,30 +280,48 @@ defmodule Responder.Fixtures.Publication do
     %{claim | session: session, turn: turn}
   end
 
-  defp review_document(claim, patch) do
-    %{
-      "candidate_head" => String.duplicate("6", 40),
-      "candidate_tree" => String.duplicate("7", 40),
-      "creation_base" => String.duplicate("1", 40),
-      "gate" => "passed",
-      "not_publishable_reasons" => [],
-      "operation_id" => "operation:review:#{claim.turn.id}",
-      "parent_head" => String.duplicate("5", 40),
-      "parent_tree" => String.duplicate("4", 40),
-      "patch_artifact_id" => "review-patch:#{claim.turn.id}",
-      "patch_bytes" => byte_size(patch),
-      "patch_digest" => digest(patch),
-      "patch_truncated" => false,
-      "policy_digest" => claim.session.policy_digest,
-      "policy_findings" => [],
-      "publishable" => true,
-      "pull_request" => nil,
-      "rebase" => "clean",
-      "session_id" => claim.session.coop_session_id,
-      "session_revision" => 7,
-      "source_head" => String.duplicate("2", 40),
-      "source_tree" => String.duplicate("3", 40)
-    }
+  # A gate that could not start is the hosted-runner incident's own shape: the
+  # review is never publishable, yet the snapshot stays exactly identified, so
+  # custody carries it to a published draft only through an operator approval.
+  defp review_document(claim, patch, options) do
+    gate = Keyword.get(options, :gate, "passed")
+    gate_error = Keyword.get(options, :gate_error)
+
+    incomplete =
+      if gate == "passed",
+        do: %{},
+        else: %{
+          "gate_error" => gate_error,
+          "not_publishable_reasons" => ["The trusted gate could not start."],
+          "publishable" => false
+        }
+
+    Map.merge(
+      %{
+        "candidate_head" => String.duplicate("6", 40),
+        "candidate_tree" => String.duplicate("7", 40),
+        "creation_base" => String.duplicate("1", 40),
+        "gate" => gate,
+        "not_publishable_reasons" => [],
+        "operation_id" => "operation:review:#{claim.turn.id}",
+        "parent_head" => String.duplicate("5", 40),
+        "parent_tree" => String.duplicate("4", 40),
+        "patch_artifact_id" => "review-patch:#{claim.turn.id}",
+        "patch_bytes" => byte_size(patch),
+        "patch_digest" => digest(patch),
+        "patch_truncated" => false,
+        "policy_digest" => claim.session.policy_digest,
+        "policy_findings" => [],
+        "publishable" => true,
+        "pull_request" => nil,
+        "rebase" => "clean",
+        "session_id" => claim.session.coop_session_id,
+        "session_revision" => 7,
+        "source_head" => String.duplicate("2", 40),
+        "source_tree" => String.duplicate("3", 40)
+      },
+      incomplete
+    )
   end
 
   defp digest(value), do: :crypto.hash(:sha256, value) |> Base.encode16(case: :lower)

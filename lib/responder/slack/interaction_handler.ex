@@ -79,7 +79,7 @@ defmodule Responder.Slack.InteractionHandler do
     :work_delivery_must_settle,
     :work_record_not_available
   ]
-  @work_record_kinds ~w(timeline evidence handoff postmortem)
+  @work_record_kinds ~w(timeline evidence handoff recovery postmortem)
 
   @entity_actions ~w(responder_delete_schedule responder_delete_behavior responder_forget_memory)
   @settled_entity_errors [
@@ -278,7 +278,7 @@ defmodule Responder.Slack.InteractionHandler do
          record_kind,
          options
        )
-       when record_kind in [:timeline, :evidence, :handoff, :postmortem] do
+       when record_kind in [:timeline, :evidence, :handoff, :recovery, :postmortem] do
     attributes =
       interaction
       |> work_attributes(work_ref)

@@ -709,6 +709,92 @@ defmodule Responder.Slack.RendererTest do
            ]
   end
 
+  # A draft opened because a required check could not run stays unverified after
+  # it exists. "Draft PR created. Open it to review the changes." said nothing
+  # about the gate that never started, one message after a card that had named it.
+  test "an opened draft keeps naming the check that never finished" do
+    task = %{
+      "action_needed" => nil,
+      "confirmed_at" => "2026-08-28T12:00:00.000000Z",
+      "confirmed_by" => "slack:user:U123",
+      "controls" => ["view_diff", "timeline", "evidence", "handoff"],
+      "episode_state" => "complete",
+      "publication" => %{
+        "controls" => ["open", "check"],
+        "publication_ref" => "publication:def456",
+        "pull_request_number" => 91,
+        "pull_request_url" => "https://github.com/acme/responder/pull/91",
+        "recovery_generation" => 1,
+        "status" => "published",
+        "unverified" => "docker: command not found"
+      },
+      "repository" => "responder",
+      "session_generation" => 1,
+      "stages" => task_stages(),
+      "status" => "published",
+      "summary" => "The saved change is available as an unverified draft PR.",
+      "task_ref" => "task-card:abc123",
+      "title" => "Bump the hosted runner",
+      "ui_revision" => 7,
+      "updated_at" => "2026-08-28T12:01:00.000000Z",
+      "work_state" => "settled"
+    }
+
+    assert {:ok, rendered} = Renderer.render(%{"task_card" => task})
+    json = Jason.encode!(rendered)
+    assert json =~ "the checks still haven't finished (docker: command not found)"
+    assert json =~ "It isn't verified, and a draft doesn't merge or deploy anything."
+    assert json =~ "Open PR"
+    refute json =~ "Open it to review the changes"
+
+    checked = put_in(task, ["publication", "unverified"], nil)
+    assert {:ok, checked_rendered} = Renderer.render(%{"task_card" => checked})
+    assert Jason.encode!(checked_rendered) =~ "Draft PR created. Open it to review the changes."
+  end
+
+  # "Review recovery" is the only control a card with no saved workspace can
+  # offer: there is no changes page to open, nothing to publish and no retry
+  # that reaches the stranded working copy.
+  test "a work card offers recovery as a record control, never as a work button" do
+    task = %{
+      "action_needed" => "The worker finished, but I couldn't save its working copy.",
+      "confirmed_at" => "2026-08-28T12:00:00.000000Z",
+      "confirmed_by" => "slack:user:U123",
+      "controls" => ["close", "timeline", "evidence", "handoff", "recovery"],
+      "episode_state" => "working",
+      "publication" => nil,
+      "repository" => "responder",
+      "session_generation" => 1,
+      "stages" => task_stages(),
+      "status" => "action_required",
+      "summary" => "The prepared change is saved but unrecovered.",
+      "task_ref" => "task-card:abc123",
+      "title" => "Bump the hosted runner",
+      "ui_revision" => 7,
+      "updated_at" => "2026-08-28T12:01:00.000000Z",
+      "work_state" => "blocked"
+    }
+
+    assert {:ok, rendered} = Renderer.render(%{"task_card" => task})
+
+    elements = Enum.flat_map(rendered["blocks"], &Map.get(&1, "elements", []))
+    overflow = Enum.find(elements, &(&1["action_id"] == "responder_work_record"))
+
+    assert Enum.map(overflow["options"], &{&1["text"]["text"], &1["value"]}) == [
+             {"Timeline", "task-card:abc123|timeline"},
+             {"Evidence", "task-card:abc123|evidence"},
+             {"Handoff summary", "task-card:abc123|handoff"},
+             {"Review recovery", "task-card:abc123|recovery"}
+           ]
+
+    refute Enum.any?(
+             elements,
+             &(&1["type"] == "button" and &1["text"]["text"] == "Review recovery")
+           )
+
+    refute Jason.encode!(rendered) =~ "View diff"
+  end
+
   test "renders incident controls from the host projection and rejects invented controls" do
     room_ref = "incident-room:82208f8f-2ef4-4f1b-a011-626aabdc9342"
 

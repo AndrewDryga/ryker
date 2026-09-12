@@ -9,26 +9,32 @@ defmodule Responder.Slack.WorkRecord do
 
   import Ecto.Query
 
+  alias Responder.ControlPlane.WorkRecovery
   alias Responder.Episodes.{Episode, Event}
   alias Responder.Publication.Publication
   alias Responder.Repo
   alias Responder.Slack.WorkTarget
   alias Responder.State.Record
+  alias Responder.Work.{Custody, Turn}
 
   @maximum_events 60
   @maximum_records 80
   @maximum_publications 10
   @maximum_message_characters 18_000
 
-  @type kind :: :timeline | :evidence | :handoff | :postmortem
+  @type kind :: :timeline | :evidence | :handoff | :recovery | :postmortem
 
   @spec build(String.t(), map(), kind()) :: {:ok, map()} | {:error, term()}
   def build(work_ref, target, kind)
-      when kind in [:timeline, :evidence, :handoff, :postmortem] do
+      when kind in [:timeline, :evidence, :handoff, :recovery, :postmortem] do
     with {:ok, resolved} <- WorkTarget.resolve(work_ref, target),
          :ok <- kind_available(resolved.kind, kind) do
       snapshot = snapshot(resolved)
-      {:ok, %{"message" => render(kind, snapshot) |> compact_message()}}
+
+      case render(kind, snapshot) do
+        nil -> {:error, :work_record_not_available}
+        message -> {:ok, %{"message" => compact_message(message)}}
+      end
     end
   end
 
@@ -42,13 +48,15 @@ defmodule Responder.Slack.WorkRecord do
         kind
       )
       when offered_kind in ["engineering", "incident"] and
-             kind in [:timeline, :evidence, :handoff, :postmortem] and is_binary(work_ref) do
+             kind in [:timeline, :evidence, :handoff, :recovery, :postmortem] and
+             is_binary(work_ref) do
     work_kind = if offered_kind == "incident", do: :incident, else: :task
 
     with true <- Regex.match?(~r/\Arecord:task_offer:[A-Za-z0-9_.:-]{1,220}\z/, work_ref),
-         :ok <- kind_available(work_kind, kind) do
-      snapshot = snapshot(%{episode: episode, kind: work_kind, work_ref: work_ref})
-      {:ok, %{"message" => render(kind, snapshot) |> compact_message()}}
+         :ok <- kind_available(work_kind, kind),
+         message when is_binary(message) <-
+           render(kind, snapshot(%{episode: episode, kind: work_kind, work_ref: work_ref})) do
+      {:ok, %{"message" => compact_message(message)}}
     else
       _unavailable -> {:error, :work_record_not_available}
     end
@@ -95,8 +103,22 @@ defmodule Responder.Slack.WorkRecord do
       kind: resolved.kind,
       publications: publications,
       records: records,
+      turn: current_turn(resolved.episode),
       work_ref: resolved.work_ref
     }
+  end
+
+  defp current_turn(%Episode{owner_kind: :turn, owner_ref: turn_ref} = episode),
+    do: Repo.get_by(Turn, episode_id: episode.id, turn_ref: turn_ref)
+
+  defp current_turn(episode) do
+    Repo.one(
+      from(turn in Turn,
+        where: turn.episode_id == ^episode.id,
+        order_by: [desc: turn.inserted_at, desc: turn.id],
+        limit: 1
+      )
+    )
   end
 
   defp render(:timeline, snapshot) do
@@ -173,6 +195,34 @@ defmodule Responder.Slack.WorkRecord do
     |> Enum.reject(&is_nil/1)
     |> Enum.join("\n")
   end
+
+  # The recovery view exists only while the host is holding a finished worker's
+  # working copy or its reply. It is the same brief the recovery page shows, so
+  # an operator reading Slack and an operator reading the control plane act on
+  # one set of facts, and the worker's own retained answer is attributed to it
+  # rather than read as a check result.
+  defp render(:recovery, %{turn: %Turn{} = turn} = snapshot) do
+    case WorkRecovery.workspace_hold(turn) do
+      nil ->
+        nil
+
+      _held ->
+        brief = WorkRecovery.project(turn, Custody.completed_workspace_recoverable(turn))
+
+        [
+          "Recovery for #{snapshot.work_ref}",
+          brief.headline,
+          brief.cause,
+          "What you need to do:\n#{brief.next_step}",
+          "Workspace: #{brief.workspace}",
+          "Reply: #{brief.delivery}",
+          worker_report(brief.model_output)
+        ]
+        |> Enum.join("\n")
+    end
+  end
+
+  defp render(:recovery, _snapshot), do: nil
 
   defp render(:postmortem, snapshot) do
     assessment = latest(snapshot.records, "alert_assessment")
@@ -386,6 +436,12 @@ defmodule Responder.Slack.WorkRecord do
 
   defp maybe_unknown(lines, true, line), do: lines ++ ["- #{line}"]
   defp maybe_unknown(lines, false, _line), do: lines
+
+  defp worker_report(nil),
+    do: "Worker's saved response:\nNo retained response is available."
+
+  defp worker_report(output),
+    do: "Worker's saved response, which is its own report and not a check result:\n#{output}"
 
   defp kind_available(:task, :postmortem), do: {:error, :work_record_not_available}
   defp kind_available(_work_kind, _record_kind), do: :ok

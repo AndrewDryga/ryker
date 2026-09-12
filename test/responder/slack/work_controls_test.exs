@@ -100,6 +100,15 @@ defmodule Responder.Slack.WorkControlsTest do
              :postmortem
            ) == {:error, :work_record_not_available}
 
+    # Recovery describes a workspace or reply the host is still holding. An
+    # ordinary running task holds neither, so the view has nothing to say and
+    # must not manufacture a recovery brief for work that is fine.
+    assert WorkRecord.build(
+             fixture.card.ref,
+             attributes(fixture.card.ref).target,
+             :recovery
+           ) == {:error, :work_record_not_available}
+
     assert WorkRecord.build("unknown", %{}, :timeline) ==
              {:error, :work_control_not_found}
 

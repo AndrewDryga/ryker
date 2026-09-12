@@ -11,7 +11,7 @@ defmodule Responder.Work.TaskStages do
   """
 
   alias Responder.Episodes.Episode
-  alias Responder.Publication.{Followup, Publication}
+  alias Responder.Publication.{Followup, Publication, Review}
   alias Responder.Work.{Session, Turn}
 
   @stages ~w(workspace_setup planning implementation self_review draft_pr ci review_and_merge)
@@ -27,7 +27,8 @@ defmodule Responder.Work.TaskStages do
           publication: Publication.t() | nil,
           publication_offer: map() | nil,
           session: Session.t() | nil,
-          turn: Turn.t() | nil
+          turn: Turn.t() | nil,
+          workspace_hold: map() | nil
         }
 
   @doc "The stable stage order, oldest first."
@@ -60,6 +61,15 @@ defmodule Responder.Work.TaskStages do
     |> mark_current()
   end
 
+  # Setting the workspace up is also keeping it: a working copy the host never
+  # snapshotted is this stage's failure, and saying "✓ Workspace setup" above it
+  # told a reader the one thing that was not true.
+  defp workspace_setup(%{workspace_hold: %{closed: closed?}}),
+    do:
+      row("workspace_setup", "failed",
+        detail: if(closed?, do: "no saved snapshot · session closed", else: "no saved snapshot")
+      )
+
   defp workspace_setup(%{session: %Session{coop_session_id: id}}) when is_binary(id) and id != "",
     do: row("workspace_setup", "completed")
 
@@ -72,18 +82,24 @@ defmodule Responder.Work.TaskStages do
   defp workspace_setup(_facts),
     do: row("workspace_setup", "waiting", detail: "waiting for a worker")
 
-  defp planning(facts, %{"state" => workspace_state}) do
+  defp planning(facts, workspace) do
     bucket = bucket(facts, "planning")
 
     cond do
       bucket["goals"] != [] -> model_row("planning", facts, bucket)
       planned?(facts) -> row("planning", "completed")
-      workspace_state != "completed" -> row("planning", "pending")
+      not workspace_reached?(facts, workspace) -> row("planning", "pending")
       unrecorded?(facts) -> row("planning", "unknown", detail: "not recorded")
       facts.episode.state == :cancelled -> row("planning", "stopped")
       true -> row("planning", "running")
     end
   end
+
+  # A workspace the host later failed to keep was still reached: the worker ran
+  # in it and answered. Only a workspace that never existed means planning has
+  # not begun, so a held snapshot must not roll the later stages back to "○".
+  defp workspace_reached?(_facts, %{"state" => "completed"}), do: true
+  defp workspace_reached?(%{workspace_hold: hold}, _workspace), do: not is_nil(hold)
 
   defp implementation(facts, %{"state" => planning_state}) do
     bucket = bucket(facts, "implementation")
@@ -111,8 +127,15 @@ defmodule Responder.Work.TaskStages do
        when status in [:review_pending, :review_ready],
        do: row("self_review", "running", subtasks(bucket))
 
-  defp review_row(%{publication: %Publication{}}, bucket),
-    do: row("self_review", "completed", subtasks(bucket))
+  # A draft a person opened because the gate could not run is not a checked
+  # change. Marking this stage complete for it said the opposite on the one card
+  # whose whole job is to say which checks are missing.
+  defp review_row(%{publication: %Publication{review_document: review}}, bucket) do
+    case incomplete_check(review) do
+      nil -> row("self_review", "completed", subtasks(bucket))
+      reason -> row("self_review", "failed", [detail: reason] ++ subtasks(bucket))
+    end
+  end
 
   defp review_row(%{publication_offer: %{"status" => "open"}}, bucket),
     do: row("self_review", "failed", [detail: "checks have not started"] ++ subtasks(bucket))
@@ -125,17 +148,29 @@ defmodule Responder.Work.TaskStages do
     end
   end
 
-  defp draft_pr(%{publication: %Publication{status: status} = publication}, stale?)
+  defp draft_pr(%{publication: %Publication{status: status} = publication} = facts, stale?)
        when status in @published_statuses do
     detail = "##{publication.pull_request_number}"
 
-    if stale?,
-      do:
+    # An existing pull request stays reachable when its worker's later work was
+    # stranded — but it is the earlier snapshot, and saying only "✓ #91" would
+    # offer it as the current state of the change.
+    cond do
+      facts.workspace_hold ->
+        row("draft_pr", "stale",
+          detail: "#{detail} · earlier snapshot, newer work not saved",
+          url: publication.pull_request_url
+        )
+
+      stale? ->
         row("draft_pr", "stale",
           detail: "#{detail} · newer changes not published",
           url: publication.pull_request_url
-        ),
-      else: row("draft_pr", "completed", detail: detail, url: publication.pull_request_url)
+        )
+
+      true ->
+        row("draft_pr", "completed", detail: detail, url: publication.pull_request_url)
+    end
   end
 
   defp draft_pr(%{publication: %Publication{status: :publish_pending}}, _stale?),
@@ -197,14 +232,17 @@ defmodule Responder.Work.TaskStages do
   defp review_and_merge(%{followup: %Followup{pr_state: "closed"}}, _ci, _stale?),
     do: row("review_and_merge", "stopped", detail: "closed without merging")
 
-  defp review_and_merge(%{publication: %Publication{status: status}}, ci, stale?)
+  defp review_and_merge(%{publication: %Publication{status: status} = publication}, ci, stale?)
        when status in @published_statuses do
     # A person reviews and merges once the draft reflects the current work and
     # its checks have settled; while the agent still owns a failing or
-    # unpublished change, this is not their turn yet.
-    if not stale? and ci["state"] in ~w(completed skipped),
-      do: row("review_and_merge", "waiting", your_turn: true),
-      else: row("review_and_merge", "pending")
+    # unpublished change, or a required check never ran at all, this is not their
+    # turn yet. A draft opened on an unrun gate used to land here as "🙋 your
+    # turn", which reads as work that stood through its checks.
+    if not stale? and ci["state"] in ~w(completed skipped) and
+         is_nil(incomplete_check(publication.review_document)),
+       do: row("review_and_merge", "waiting", your_turn: true),
+       else: row("review_and_merge", "pending")
   end
 
   defp review_and_merge(_facts, _ci, _stale?), do: row("review_and_merge", "pending")
@@ -350,6 +388,15 @@ defmodule Responder.Work.TaskStages do
   end
 
   defp stale_work?(_facts), do: false
+
+  # The one required check this review has no result for, in the same words the
+  # publication card uses, or nil when every required check has an answer.
+  defp incomplete_check(review) do
+    case Review.draft_verdict(review) do
+      %{"incomplete_checks" => [reason | _rest]} -> compact(reason, 200)
+      _decided -> nil
+    end
+  end
 
   defp bucket(%{plan: plan}, stage), do: Map.fetch!(plan, stage)
 

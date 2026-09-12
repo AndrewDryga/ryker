@@ -7,9 +7,18 @@ defmodule Responder.State.TaskOffersTest do
   alias Responder.Fixtures.Episodes, as: EpisodeFixtures
   alias Responder.Publication.Changeset
   alias Responder.Repo
-  alias Responder.Slack.{TaskCard, TaskCardProjection, TaskCards, TaskCardWorker}
+
+  alias Responder.Slack.{
+    Renderer,
+    TaskCard,
+    TaskCardProjection,
+    TaskCards,
+    TaskCardWorker,
+    WorkRecord
+  }
+
   alias Responder.State.{KnowledgeSnapshot, Record, Records, TaskOffers}
-  alias Responder.Work.{Custody, DeliveryReceipt, Result, Session, Submission}
+  alias Responder.Work.{Cancellation, Custody, DeliveryReceipt, Result, Session, Submission}
 
   @now ~U[2026-08-28 12:00:00.000000Z]
   @policy_digest String.duplicate("b", 64)
@@ -438,6 +447,94 @@ defmodule Responder.State.TaskOffersTest do
            }) == {:error, :task_card_source_not_found}
 
     assert TaskCardProjection.build(:invalid) == {:error, :invalid_task_card}
+  end
+
+  # Andrew's 2026-09-09 hosted-runner bump. The worker answered — it had changed
+  # the pin and was asking whether to proceed without the full gate — the host
+  # could not snapshot its working copy, and the session was then closed. The
+  # card said "Task work is blocked and needs operator attention. Open the
+  # episode for details." for two days while that answer sat retained and unread,
+  # and the record projection behind it printed
+  # "invalid_work_executor: {:invalid_work_executor, :workspace_checkpoint_api}".
+  test "a held workspace names what to restore instead of an executor error" do
+    fixture = held_workspace_card!("held-workspace")
+
+    assert {:ok, projection} = TaskCardProjection.build(fixture.card)
+    task = projection.document["task_card"]
+
+    refute task["action_needed"] =~ "invalid_work_executor"
+    refute task["action_needed"] =~ "Open the episode for details"
+    assert task["action_needed"] =~ "The worker finished"
+    assert task["action_needed"] =~ "couldn't save its working copy"
+    assert task["action_needed"] =~ "Nothing was published."
+    assert task["action_needed"] =~ "Keep its working copy and task notes"
+    assert task["action_needed"] =~ "the worker session is closed"
+
+    # The retained answer is the worker's own report, never independent proof.
+    assert task["action_needed"] =~ "not a check result"
+    assert task["action_needed"] =~ "lacks Docker"
+
+    # The workspace stage owns the cause; nothing above it claims completion it
+    # never reached, and no publication stage invents one either.
+    assert Enum.map(task["stages"], &{&1["stage"], &1["state"]}) == [
+             {"workspace_setup", "failed"},
+             {"planning", "running"},
+             {"implementation", "pending"},
+             {"self_review", "pending"},
+             {"draft_pr", "pending"},
+             {"ci", "pending"},
+             {"review_and_merge", "pending"}
+           ]
+
+    assert stage(task, "workspace_setup")["detail"] == "no saved snapshot · session closed"
+    assert task["publication"] == nil
+
+    # No snapshot exists, so there is no changes page to open and nothing to
+    # publish; recovery is the only thing this state can offer.
+    assert task["controls"] == ["close", "timeline", "evidence", "handoff", "recovery"]
+
+    assert {:ok, rendered} = Renderer.render(projection.document)
+    json = Jason.encode!(rendered)
+    assert json =~ "Review recovery"
+    refute json =~ "View diff"
+    refute json =~ "responder_task_publish"
+    refute json =~ "Create draft PR"
+    refute json =~ "Retry"
+    refute json =~ "Resume in another workspace"
+
+    # The full brief and the complete retained answer belong one control away.
+    target = %{
+      conversation_ref: fixture.episode.destination_conversation_ref,
+      message_ref: fixture.card.message_ref,
+      thread_ref: fixture.card.thread_ref,
+      transport: "slack"
+    }
+
+    assert {:ok, recovery} = WorkRecord.build(fixture.card.ref, target, :recovery)
+    assert recovery["message"] =~ "The worker finished, but its workspace could not be saved"
+    assert recovery["message"] =~ "Preserve the existing working copy"
+    assert recovery["message"] =~ "its own report and not a check result"
+    assert recovery["message"] =~ "Can this task resume in a Docker-capable workspace"
+    refute recovery["message"] =~ "invalid_work_executor"
+
+    # A refresh repaints the one durable card and its one Slack message.
+    agent = start_supervised!({Agent, fn -> %{updates: []} end})
+
+    Repo.get!(TaskCard, fixture.card.id)
+    |> Ecto.Changeset.change(card_checked_at: nil)
+    |> Repo.update!()
+
+    assert {:ok, {:updated, card_ref}} =
+             TaskCardWorker.run_once(card_worker_options(agent))
+
+    assert card_ref == fixture.card.ref
+
+    assert [{"C456", message_ref, %{"task_card" => repainted}, ^card_ref}] =
+             Agent.get(agent, & &1.updates)
+
+    assert message_ref == fixture.card.message_ref
+    assert Repo.aggregate(TaskCard, :count, :id) == 1
+    assert repainted["action_needed"] =~ "Keep its working copy and task notes"
   end
 
   test "task-card refresh failures defer exact custody and workers reject unsafe options" do
@@ -878,6 +975,122 @@ defmodule Responder.State.TaskOffersTest do
     assert {:ok, confirmation} = TaskOffers.confirm(confirmation(fixture))
     assert {:ok, card} = TaskCards.ensure_one()
     %{card: card, episode: confirmation.episode}
+  end
+
+  defp stage(task, stage), do: Enum.find(task["stages"], &(&1["stage"] == stage))
+
+  # The harvested hosted-runner turn: a completed worker whose working copy the
+  # host could not snapshot, on a session that was then closed. Its exact final
+  # output is testdata/work/hosted-runner-waiting.json.
+  defp held_workspace_card!(suffix) do
+    fixture = confirmed_card!(suffix)
+    harvested = "testdata/work/hosted-runner-waiting.json" |> File.read!() |> Jason.decode!()
+
+    assert {:ok, claim} = Custody.claim_next("task-card:#{suffix}", 60, :work)
+    assert claim.episode.id == fixture.episode.id
+    assert :ok = KnowledgeSnapshot.expose(claim, [])
+
+    assert {:ok, submission} =
+             Submission.new(
+               %{"episode_id" => claim.episode.id},
+               "Bump the internal hosted runner.",
+               %{"type" => "object"},
+               "work-final-v1"
+             )
+
+    assert {:ok, frozen} =
+             Custody.freeze_submission(
+               claim.episode.id,
+               claim.turn.turn_ref,
+               claim.lease_ref,
+               submission
+             )
+
+    assert {:ok, session} =
+             Custody.bind_session(
+               claim.episode.id,
+               claim.turn.turn_ref,
+               claim.lease_ref,
+               claim.session.generation,
+               claim.session.create_generation,
+               "coop-session:#{suffix}"
+             )
+
+    assert {:ok, _bound} =
+             Custody.bind_turn(
+               claim.episode.id,
+               claim.turn.turn_ref,
+               claim.lease_ref,
+               session.generation,
+               frozen.submit_generation,
+               "coop-turn:#{suffix}"
+             )
+
+    candidate = Jason.encode!(harvested["candidate"])
+    sha256 = :crypto.hash(:sha256, candidate) |> Base.encode16(case: :lower)
+
+    assert {:ok, _staged} =
+             Custody.stage_candidate(
+               claim.episode.id,
+               claim.turn.turn_ref,
+               claim.lease_ref,
+               nil,
+               nil,
+               candidate,
+               sha256,
+               1
+             )
+
+    assert {:ok, result} =
+             Result.new(:reply, harvested["candidate"], nil, %{
+               "deadline_at" => nil,
+               "kind" => "wait",
+               "wait_kind" => "input",
+               "wait_ref" => hd(harvested["candidate"]["outcome"]["record_refs"])
+             })
+
+    assert {:ok, _validated} =
+             Custody.prepare_validation(
+               claim.episode.id,
+               claim.turn.turn_ref,
+               claim.lease_ref,
+               sha256,
+               1,
+               :accept,
+               result
+             )
+
+    assert {:ok, _blocked} =
+             Custody.request_block(
+               claim.episode.id,
+               claim.episode.key,
+               claim.turn.turn_ref,
+               claim.lease_ref,
+               harvested["last_error_detail"]
+             )
+
+    assert {:ok, closing} = Custody.claim_next("task-card:close:#{suffix}", 60, :work)
+
+    assert {:ok, receipt} =
+             Cancellation.terminal_receipt(
+               session.coop_session_id,
+               "coop-turn:#{suffix}",
+               "completed",
+               nil,
+               "closed",
+               "responder:work:cancel-close:#{claim.turn.id}:g1"
+             )
+
+    assert {:ok, _closed} =
+             Custody.settle_cancellation(
+               claim.episode.id,
+               claim.episode.key,
+               claim.turn.turn_ref,
+               closing.lease_ref,
+               receipt
+             )
+
+    fixture
   end
 
   defp publication!(fixture, suffix) do

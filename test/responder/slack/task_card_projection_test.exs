@@ -1,13 +1,15 @@
 defmodule Responder.Slack.TaskCardProjectionTest do
   use Responder.DataCase, async: true
 
+  import Ecto.Query
+
   alias Responder.Episodes
   alias Responder.Fixtures.Episodes, as: EpisodeFixtures
   alias Responder.Fixtures.Publication, as: PublicationFixture
   alias Responder.Publication.{FollowupChangeset, Followups}
   alias Responder.Slack.{Renderer, TaskCardProjection}
   alias Responder.State.{Record, Records}
-  alias Responder.Work.Custody
+  alias Responder.Work.{Custody, Turn}
 
   @records Jason.decode!(File.read!("priv/card_lab/legacy_task_records.json"))
 
@@ -233,6 +235,142 @@ defmodule Responder.Slack.TaskCardProjectionTest do
     assert json =~ "✓ CI · 8/8"
     assert json =~ "✓ Review and merge · merged"
     assert json =~ "<https://github.com/acme/responder|responder>"
+  end
+
+  # A gate that could not start is never publishable, but its snapshot is exact,
+  # so an operator may open it as an explicitly unverified draft. The moment that
+  # draft existed the card forgot why: "✓ Self-review and checks", "Draft PR
+  # created. Open it to review the changes.", and — once CI settled — "Review and
+  # merge ← 🙋 your turn" on a change no required check had ever run against.
+  test "a draft opened on an unrun gate never reads as a checked change" do
+    %{episode: episode, publication: publication} =
+      PublicationFixture.published!("unrun-gate",
+        gate: "startup_error",
+        gate_error: "docker: command not found"
+      )
+
+    assert publication.status == :published
+    assert publication.review_document["gate"] == "startup_error"
+
+    source = %Record{
+      kind: "task_offer",
+      status: :confirmed,
+      confirmed_episode_id: episode.id,
+      confirmed_at: DateTime.utc_now(),
+      confirmed_by_actor_ref: "slack:user:U1",
+      ref: "task-card:unrun-gate",
+      payload: %{
+        "title" => "Bump the hosted runner",
+        "repository" => "responder",
+        "prompt" => "Bump the internal hosted runner from 0.23.1 to 0.27.0."
+      }
+    }
+
+    assert {:ok, opened} = TaskCardProjection.build(source)
+    task = opened.document["task_card"]
+
+    assert stage(opened, "self_review")["state"] == "failed"
+    assert stage(opened, "self_review")["detail"] == "docker: command not found"
+
+    # The pull request exists and stays reachable; only the check is missing.
+    assert stage(opened, "draft_pr")["state"] == "completed"
+    assert stage(opened, "draft_pr")["url"] == "https://github.com/acme/responder/pull/91"
+    assert task["publication"]["controls"] == ["open", "check"]
+    assert task["publication"]["unverified"] == "docker: command not found"
+    refute "publish" in task["publication"]["controls"]
+
+    assert {:ok, rendered} = Renderer.render(opened.document)
+    json = Jason.encode!(rendered)
+    assert json =~ "! Self-review and checks · docker: command not found"
+    assert json =~ "the checks still haven't finished (docker: command not found)"
+    assert json =~ "Open PR"
+    refute json =~ "Create draft PR"
+
+    {:ok, followup} =
+      Repo.transaction(fn ->
+        Followups.ensure_published_in_transaction(publication, DateTime.utc_now())
+      end)
+
+    followup
+    |> FollowupChangeset.update(%{
+      checks_failed: 0,
+      checks_passed: 8,
+      checks_state: "passing",
+      checks_total: 8
+    })
+    |> Repo.update!()
+
+    assert {:ok, checked} = TaskCardProjection.build(source)
+
+    # CI on the exact published head is its own stage and may well be green. It
+    # is not the trusted gate, so it cannot hand the task to a reviewer.
+    assert stage(checked, "ci")["state"] == "completed"
+    assert stage(checked, "ci")["detail"] == "8/8"
+    assert stage(checked, "self_review")["state"] == "failed"
+    assert stage(checked, "review_and_merge")["state"] == "pending"
+    refute stage(checked, "review_and_merge")["your_turn"]
+    refute Jason.encode!(elem(Renderer.render(checked.document), 1)) =~ "your turn"
+
+    # The retained snapshot keeps its own changes page, so local work that is not
+    # in the pull request stays readable.
+    assert "view_diff" in task["controls"]
+  end
+
+  # "Keep any existing PR link, clearly identifying its older snapshot." A card
+  # that says only "Draft PR created. Open it to review the changes." above a
+  # working copy the host could not keep offers an older snapshot as the current
+  # state of the change.
+  test "a held workspace keeps an earlier draft's link and says which snapshot it is" do
+    %{episode: episode, publication: publication} = PublicationFixture.published!("held-draft")
+
+    # Force this episode's own turn into the harvested hosted-runner shape: a
+    # completed worker whose working copy the host could not snapshot. The
+    # projection still reads it from the database, and the closed-session variant
+    # is covered end to end in Responder.State.TaskOffersTest.
+    {1, _rows} =
+      Repo.update_all(
+        from(turn in Turn, where: turn.episode_id == ^episode.id),
+        set: [
+          last_error_code: "work_execution_blocked",
+          last_error_detail:
+            "invalid_work_executor: {:invalid_work_executor, :workspace_checkpoint_api}",
+          status: :blocked
+        ]
+      )
+
+    source = %Record{
+      kind: "task_offer",
+      status: :confirmed,
+      confirmed_episode_id: episode.id,
+      confirmed_at: DateTime.utc_now(),
+      confirmed_by_actor_ref: "slack:user:U1",
+      ref: "task-card:held-draft",
+      payload: %{
+        "title" => "Bump the hosted runner",
+        "repository" => "responder",
+        "prompt" => "Bump the internal hosted runner from 0.23.1 to 0.27.0."
+      }
+    }
+
+    assert {:ok, projection} = TaskCardProjection.build(source)
+    task = projection.document["task_card"]
+
+    assert task["action_needed"] =~
+             "Draft PR ##{publication.pull_request_number} stays open, but it is an earlier snapshot without this work."
+
+    refute task["action_needed"] =~ "Nothing was published"
+
+    assert stage(projection, "draft_pr")["state"] == "stale"
+    assert stage(projection, "draft_pr")["url"] == publication.pull_request_url
+
+    assert stage(projection, "draft_pr")["detail"] ==
+             "##{publication.pull_request_number} · earlier snapshot, newer work not saved"
+
+    # The link survives; the controls that would act on a snapshot nobody has do not.
+    assert "open" in task["publication"]["controls"]
+    refute "publish" in task["publication"]["controls"]
+    refute "view_diff" in task["controls"]
+    assert "recovery" in task["controls"]
   end
 
   defp stage(projection, stage) do

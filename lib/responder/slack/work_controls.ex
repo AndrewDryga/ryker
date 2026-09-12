@@ -358,7 +358,13 @@ defmodule Responder.Slack.WorkControls do
 
   defp valid_record_kind?(attributes, fields) do
     :record_kind not in fields or
-      Map.get(attributes, :record_kind) in [:timeline, :evidence, :handoff, :postmortem]
+      Map.get(attributes, :record_kind) in [
+        :timeline,
+        :evidence,
+        :handoff,
+        :recovery,
+        :postmortem
+      ]
   end
 
   defp reference?(value, regex), do: is_binary(value) and Regex.match?(regex, value)

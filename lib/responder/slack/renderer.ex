@@ -28,9 +28,9 @@ defmodule Responder.Slack.Renderer do
   # The work document is shared with the control-plane card, which owns diff
   # reading. `view_diff` stays a valid document control there and never becomes
   # a Slack control: Slack links out and never pages a patch.
-  @work_controls ~w(stop view_diff close timeline evidence handoff postmortem)
+  @work_controls ~w(stop view_diff close timeline evidence handoff recovery postmortem)
   @work_buttons ~w(stop close)
-  @record_controls ~w(timeline evidence handoff postmortem)
+  @record_controls ~w(timeline evidence handoff recovery postmortem)
   @confirmation_kinds ~w(automation_change_offer guidance_offer memory_offer preference_offer schedule_offer standing_assignment_offer)
   @saved_entity_kinds ~w(schedule standing_rule preference guidance memory)
   @saved_entity_statuses ~w(active paused disabled completed expired deleted superseded)
@@ -537,6 +537,7 @@ defmodule Responder.Slack.Renderer do
         "timeline" -> "Timeline"
         "evidence" -> "Evidence"
         "handoff" -> "Handoff summary"
+        "recovery" -> "Review recovery"
         "postmortem" -> "Postmortem draft"
       end
 
@@ -682,8 +683,15 @@ defmodule Responder.Slack.Renderer do
     end
   end
 
-  defp publication_status_message("published", _controls, _unverified),
+  defp publication_status_message("published", _controls, nil),
     do: "Draft PR created. Open it to review the changes."
+
+  # A draft opened because a check could not run stays explicitly unverified
+  # after it exists. Saying only "open it to review the changes" is how an
+  # unrun gate reads as a checked change one message later.
+  defp publication_status_message("published", _controls, unverified),
+    do:
+      "Draft PR created from the saved change, but the checks still haven't finished (#{unverified}). It isn't verified, and a draft doesn't merge or deploy anything."
 
   defp publication_status_message("published_ready", _controls, _unverified),
     do: "Draft PR created. Sending the publication update."
