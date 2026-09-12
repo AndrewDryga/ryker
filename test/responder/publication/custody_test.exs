@@ -6,9 +6,10 @@ defmodule Responder.Publication.CustodyTest do
   alias Responder.Episodes
   alias Responder.Fixtures.Episodes, as: EpisodeFixtures
   alias Responder.Observability
+  alias Responder.Publication.Changeset, as: PublicationChangeset
   alias Responder.Publication.Custody, as: PublicationCustody
+  alias Responder.Publication.{Followup, Publication, Review}
   alias Responder.Publication.Operator, as: PublicationOperator
-  alias Responder.Publication.{Publication, Review}
   alias Responder.Repo
   alias Responder.State.Records
 
@@ -17,6 +18,8 @@ defmodule Responder.Publication.CustodyTest do
     Custody,
     DeliveryReceipt,
     Result,
+    Session,
+    SessionChangeset,
     Submission,
     Turn,
     TurnChangeset
@@ -196,7 +199,7 @@ defmodule Responder.Publication.CustodyTest do
     assert {:ok, review_delivery} =
              PublicationCustody.delivery_request(review_delivery_claim.publication)
 
-    assert review_delivery.ref == "publication-review:#{publication.id}"
+    assert review_delivery.ref == "publication-review:#{publication.id}:g1"
 
     assert review_delivery.document["records"] |> hd() |> Map.fetch!("kind") ==
              "publication_review"
@@ -1109,6 +1112,473 @@ defmodule Responder.Publication.CustodyTest do
     end
   end
 
+  # A correction reached nothing. Readiness refused a second publication for an
+  # episode that already had one, so the corrected candidate never ran its
+  # checks and never reached the pull request the host had already opened: the
+  # operator's only routes back were "Review latest state" or retyping the whole
+  # task. The task's own publication and its PR are what the correction belongs
+  # to, so re-arm them for a fresh review instead of minting a second draft.
+  test "a corrected candidate re-arms the task's own publication and keeps its pull request" do
+    %{claim: claim} = task_episode!("rearm")
+    %{claim: first} = corrected_candidate!(claim, "rearm", "one")
+    published = publish_task_publication!(first, "rearm", "one")
+
+    assert published.status == :published
+    assert published.pull_request_number == 91
+
+    correction = corrected_candidate!(first, "rearm", "two")
+    turn = correction.turn
+
+    assert [rearmed] =
+             Repo.all(from(p in Publication, where: p.episode_id == ^claim.episode.id))
+
+    assert rearmed.id == published.id
+    assert rearmed.status == :review_pending
+
+    assert rearmed.review_generation == published.review_generation + 1,
+           "a corrected candidate asks Coop a new question, not the frozen one"
+
+    assert rearmed.recovery_generation == published.recovery_generation + 1
+    assert rearmed.review_request_ref == "task-readiness:#{turn.id}"
+    assert rearmed.review_requested_at == turn.accepted_at
+    assert rearmed.review_requested_by_actor_ref == "slack:user:U-confirmer"
+    assert rearmed.session_id == correction.claim.session.id
+    assert is_nil(rearmed.lease_ref)
+    assert %DateTime{} = rearmed.next_attempt_at
+
+    # The pull request Responder owns is retained, so the corrected candidate
+    # updates it instead of opening a second one.
+    assert rearmed.pull_request_number == published.pull_request_number
+    assert rearmed.pull_request_url == published.pull_request_url
+    assert rearmed.branch_ref == published.branch_ref
+    assert rearmed.commit_sha == published.commit_sha
+    assert rearmed.github_repository == published.github_repository
+    assert is_nil(rearmed.expected_remote_head_sha)
+
+    # The superseded generation's approval and publication receipt cannot carry
+    # a new candidate; the PR itself and the review history stay.
+    assert is_nil(rearmed.approval_ref)
+    assert is_nil(rearmed.approved_by_actor_ref)
+    assert is_nil(rearmed.publication_receipt)
+    assert is_nil(rearmed.published_at)
+    assert is_nil(rearmed.published_delivery_receipt)
+    assert is_nil(rearmed.review_document)
+    assert is_nil(rearmed.review_patch)
+    assert is_nil(rearmed.review_delivery_receipt)
+
+    # Accepting the same result twice arms one review, not two.
+    assert {:ok, _duplicate} = reaccept!(correction)
+    assert Repo.get!(Publication, rearmed.id).review_generation == rearmed.review_generation
+
+    assert Repo.aggregate(
+             from(p in Publication, where: p.episode_id == ^claim.episode.id),
+             :count
+           ) == 1
+  end
+
+  # Two review generations of one publication are two facts, not one. The
+  # delivery ref named only the publication, and a repeat delivery ref
+  # reconciles onto the message that already carries it, so a fresh review
+  # landed silently on the superseded card and told the operator nothing.
+  test "each review generation delivers its own card" do
+    reviewed = reviewed_publication!("review-card-generations", true)
+
+    assert {:ok, %{publication: updated}} =
+             PublicationCustody.recover(reviewed.ref, :update, 1)
+
+    assert updated.review_generation == reviewed.review_generation + 1
+
+    assert {:ok, claim} =
+             PublicationCustody.claim_next("publication:review-card-generations:2", 60)
+
+    assert {:ok, frozen} =
+             PublicationCustody.freeze_review_revision(reviewed.ref, claim.lease_ref, 7)
+
+    patch = "diff --git a/lib/fix.ex b/lib/fix.ex\n+corrected\n"
+
+    review =
+      %{
+        episode: %{id: reviewed.episode_id},
+        session: Repo.get!(Session, reviewed.session_id)
+      }
+      |> review_document()
+      |> Map.merge(%{
+        "patch_artifact_id" => "review-patch:review-card-generations:2",
+        "patch_bytes" => byte_size(patch),
+        "patch_digest" => digest(patch)
+      })
+
+    assert {:ok, ready} =
+             PublicationCustody.store_review(
+               reviewed.ref,
+               claim.lease_ref,
+               frozen.review_generation,
+               review,
+               patch
+             )
+
+    assert ready.status == :review_ready
+
+    assert {:ok, delivery_claim} =
+             PublicationCustody.claim_next("publication:review-card-generations:delivery", 60)
+
+    assert {:ok, request} = PublicationCustody.delivery_request(delivery_claim.publication)
+    assert request.ref == "publication-review:#{reviewed.id}:g2"
+
+    assert {:ok, receipt} =
+             DeliveryReceipt.new(
+               request.ref,
+               request.transport,
+               request.conversation_ref,
+               request.thread_ref,
+               "message:review-card-generations:2"
+             )
+
+    assert {:ok, delivered} =
+             PublicationCustody.confirm_delivery(reviewed.ref, delivery_claim.lease_ref, receipt)
+
+    assert delivered.review_delivery_receipt["message_ref"] ==
+             "message:review-card-generations:2"
+
+    refute delivered.review_delivery_receipt["message_ref"] ==
+             reviewed.review_delivery_receipt["message_ref"]
+  end
+
+  # A head that moved outside this publication is not the correction's to fix:
+  # nothing the agent commits can reconcile a branch somebody else pushed. That
+  # is why "Review latest state" is retained — it is the operator's explicit
+  # decision to review against the moved head.
+  test "a corrected candidate never re-arms a publication whose head moved outside it" do
+    %{claim: claim} = task_episode!("moved-head")
+    %{claim: first} = corrected_candidate!(claim, "moved-head", "one")
+    published = publish_task_publication!(first, "moved-head", "one")
+    observed = String.duplicate("d", 40)
+
+    # Exactly what the follow-up poller records when the PR head is no longer
+    # the commit this publication pushed.
+    stale =
+      published
+      |> PublicationChangeset.update(%{expected_remote_head_sha: observed})
+      |> Repo.update!()
+
+    Repo.update_all(
+      from(followup in Followup, where: followup.publication_id == ^published.id),
+      set: [pr_state: "stale"]
+    )
+
+    %{claim: _second} = corrected_candidate!(first, "moved-head", "two")
+
+    assert [untouched] =
+             Repo.all(from(p in Publication, where: p.episode_id == ^claim.episode.id))
+
+    assert untouched.id == published.id
+    assert untouched.status == :published
+    assert untouched.expected_remote_head_sha == observed
+    assert untouched.review_generation == stale.review_generation
+    assert untouched.review_request_ref == stale.review_request_ref
+
+    # The retained operator control is still the route through a moved head.
+    assert {:ok, %{publication: recovered}} =
+             PublicationCustody.recover(untouched.ref, :update, untouched.recovery_generation)
+
+    assert recovered.status == :review_pending
+    assert recovered.pull_request_number == published.pull_request_number
+  end
+
+  test "a corrected candidate never resurrects a discarded publication" do
+    %{claim: claim} = task_episode!("discarded")
+    %{claim: first} = corrected_candidate!(claim, "discarded", "one")
+    publication = Repo.get_by!(Publication, episode_id: claim.episode.id)
+    blocked = review_task_publication!(publication, first, "discarded", "one", gate: "failed")
+    assert blocked.status == :blocked
+
+    assert {:ok, %{publication: discarded}} =
+             PublicationCustody.recover(blocked.ref, :discard, blocked.recovery_generation)
+
+    assert discarded.status == :discarded
+
+    corrected_candidate!(first, "discarded", "two")
+
+    assert [still_discarded] =
+             Repo.all(from(p in Publication, where: p.episode_id == ^claim.episode.id))
+
+    assert still_discarded.id == blocked.id
+    assert still_discarded.status == :discarded
+    assert still_discarded.review_generation == discarded.review_generation
+    assert still_discarded.recovery_generation == discarded.recovery_generation
+  end
+
+  # The pull request lives in the publication's own repository, which is not
+  # always the session's: an operator-requested publication takes it from the
+  # episode's repository-write goal. Re-arming across that boundary would hand
+  # one repository's exact PR number to another repository's App binding.
+  test "a corrected candidate never re-arms a publication bound to another repository" do
+    %{claim: claim} = task_episode!("crossed-repository")
+    %{claim: first} = corrected_candidate!(claim, "crossed-repository", "one")
+    published = publish_task_publication!(first, "crossed-repository", "one")
+
+    crossed =
+      published
+      |> PublicationChangeset.update(%{repository: "other-service"})
+      |> Repo.update!()
+
+    corrected_candidate!(first, "crossed-repository", "two")
+
+    assert [untouched] =
+             Repo.all(from(p in Publication, where: p.episode_id == ^claim.episode.id))
+
+    assert untouched.id == crossed.id
+    assert untouched.status == :published
+    assert untouched.review_generation == crossed.review_generation
+  end
+
+  # A correction can be accepted while the publication is already opening its
+  # draft. Re-arming there would race the publisher against a candidate it is
+  # mid-push, so a running phase keeps the publication it holds.
+  test "a corrected candidate never disturbs a publication phase that is still running" do
+    %{claim: claim} = task_episode!("in-flight")
+    %{claim: first} = corrected_candidate!(claim, "in-flight", "one")
+
+    publication = Repo.get_by!(Publication, episode_id: claim.episode.id)
+    authorized = review_task_publication!(publication, first, "in-flight", "one")
+    assert authorized.status == :publish_pending
+
+    corrected_candidate!(first, "in-flight", "two")
+
+    assert [held] = Repo.all(from(p in Publication, where: p.episode_id == ^claim.episode.id))
+    assert held.id == authorized.id
+    assert held.status == :publish_pending
+    assert held.review_generation == authorized.review_generation
+    assert held.approval_ref == authorized.approval_ref
+  end
+
+  # One confirmed engineering task on its own episode: the task record settles
+  # on the first turn, and the session carries the workspace task that makes
+  # every later completed turn a candidate for this task's own publication.
+  defp task_episode!(suffix) do
+    %{claim: claim, task: task} =
+      delivered_offer!(suffix, repository: "responder", task_repository: "responder")
+
+    confirm_task!(task, claim, suffix, confirmed_repository: "responder")
+
+    session =
+      Repo.get!(Session, claim.session.id)
+      |> SessionChangeset.bind_workspace_task(%{
+        "offer_ref" => task.ref,
+        "prompt" => "Implement #{suffix} and run the focused checks.",
+        "title" => "Implement #{suffix}"
+      })
+      |> Repo.update!()
+
+    %{claim: %{claim | session: session}, task: task}
+  end
+
+  # One accepted completed turn carrying the host's own `host:publication:ready`
+  # offer, exactly as `Work.Executor` writes it after a checkpointed workspace.
+  defp corrected_candidate!(claim, suffix, label) do
+    admit_followup!(claim, label)
+    assert {:ok, work} = Custody.claim_next("work:#{suffix}:#{label}", 60, :work)
+    work = bind_remote!(work)
+
+    assert {:ok, _offer} =
+             Records.create(
+               Records.token(work.turn),
+               "host:publication:ready",
+               "publication_offer",
+               %{
+                 "body" => "Corrected #{suffix} on the #{label} pass.",
+                 "title" => "Implement #{suffix}"
+               }
+             )
+
+    final = %{
+      "decision_reason" => nil,
+      "delivery" => "reply",
+      "message" => "The #{label} correction is committed.",
+      "outcome" => %{"artifact_refs" => [], "record_refs" => [], "state" => "complete"}
+    }
+
+    candidate = Jason.encode!(final)
+    candidate_sha256 = digest(candidate)
+
+    assert {:ok, _staged} =
+             Custody.stage_candidate(
+               work.episode.id,
+               work.turn.turn_ref,
+               work.lease_ref,
+               nil,
+               nil,
+               candidate,
+               candidate_sha256,
+               1
+             )
+
+    assert {:ok, result} = Result.new(:reply, final)
+
+    assert {:ok, _intent} =
+             Custody.prepare_validation(
+               work.episode.id,
+               work.turn.turn_ref,
+               work.lease_ref,
+               candidate_sha256,
+               1,
+               :accept,
+               result
+             )
+
+    assert {:ok, accepted} =
+             Custody.accept_result(
+               work.episode.id,
+               work.episode.key,
+               work.turn.turn_ref,
+               work.lease_ref,
+               candidate_sha256,
+               1,
+               "validation:#{work.turn.id}"
+             )
+
+    assert {:ok, delivery} =
+             Custody.claim_next("delivery:#{suffix}:#{label}", 60, :delivery)
+
+    assert {:ok, receipt} =
+             DeliveryReceipt.new(
+               accepted.turn.delivery_ref,
+               "slack",
+               work.episode.destination_conversation_ref,
+               work.episode.destination_thread_ref,
+               "message:#{suffix}:#{label}:reply"
+             )
+
+    assert {:ok, _settled} =
+             Custody.confirm_delivery(
+               work.episode.id,
+               work.episode.key,
+               work.turn.turn_ref,
+               delivery.lease_ref,
+               receipt
+             )
+
+    %{claim: work, sha256: candidate_sha256, turn: accepted.turn}
+  end
+
+  defp reaccept!(%{claim: work, sha256: sha256}) do
+    Custody.accept_result(
+      work.episode.id,
+      work.episode.key,
+      work.turn.turn_ref,
+      work.lease_ref,
+      sha256,
+      1,
+      "validation:#{work.turn.id}"
+    )
+  end
+
+  defp publish_task_publication!(claim, suffix, label) do
+    publication = Repo.get_by!(Publication, episode_id: claim.episode.id)
+    authorized = review_task_publication!(publication, claim, suffix, label)
+
+    assert {:ok, publish_claim} =
+             PublicationCustody.claim_next("publication:#{suffix}:#{label}:publish", 60)
+
+    receipt = %{
+      "branch_ref" => "refs/heads/responder/#{publication.id}",
+      "candidate_tree" => authorized.review_document["candidate_tree"],
+      "commit_sha" => String.duplicate("9", 40),
+      "pull_request_number" => 91,
+      "pull_request_url" => "https://github.com/acme/responder/pull/91",
+      "repository" => "responder"
+    }
+
+    assert {:ok, %Publication{status: :published_ready}} =
+             PublicationCustody.store_publication(
+               publication.ref,
+               publish_claim.lease_ref,
+               receipt
+             )
+
+    assert {:ok, result_claim} =
+             PublicationCustody.claim_next("publication:#{suffix}:#{label}:result", 60)
+
+    assert {:ok, result_request} =
+             PublicationCustody.delivery_request(result_claim.publication)
+
+    assert {:ok, result_receipt} =
+             DeliveryReceipt.new(
+               result_request.ref,
+               result_request.transport,
+               result_request.conversation_ref,
+               result_request.thread_ref,
+               "message:#{suffix}:#{label}:published"
+             )
+
+    assert {:ok, published} =
+             PublicationCustody.confirm_delivery(
+               publication.ref,
+               result_claim.lease_ref,
+               result_receipt
+             )
+
+    published
+  end
+
+  defp review_task_publication!(publication, claim, suffix, label, options \\ []) do
+    assert {:ok, review_claim} =
+             PublicationCustody.claim_next("publication:#{suffix}:#{label}:review", 60)
+
+    assert review_claim.publication.id == publication.id
+
+    assert {:ok, frozen} =
+             PublicationCustody.freeze_review_revision(publication.ref, review_claim.lease_ref, 7)
+
+    gate = Keyword.get(options, :gate, "passed")
+    publishable? = gate == "passed"
+    patch = if publishable?, do: "diff --git a/lib/fix.ex b/lib/fix.ex\n+#{label}\n"
+
+    review =
+      claim
+      |> review_document()
+      |> Map.merge(%{
+        "gate" => gate,
+        "not_publishable_reasons" => if(publishable?, do: [], else: ["The checks did not pass."]),
+        "patch_artifact_id" => "review-patch:#{suffix}:#{label}",
+        "patch_bytes" => if(patch, do: byte_size(patch), else: 0),
+        "patch_digest" => if(patch, do: digest(patch), else: nil),
+        "publishable" => publishable?
+      })
+
+    assert {:ok, _ready} =
+             PublicationCustody.store_review(
+               publication.ref,
+               review_claim.lease_ref,
+               frozen.review_generation,
+               review,
+               patch
+             )
+
+    assert {:ok, delivery_claim} =
+             PublicationCustody.claim_next("publication:#{suffix}:#{label}:delivery", 60)
+
+    assert {:ok, request} = PublicationCustody.delivery_request(delivery_claim.publication)
+
+    assert {:ok, receipt} =
+             DeliveryReceipt.new(
+               request.ref,
+               request.transport,
+               request.conversation_ref,
+               request.thread_ref,
+               "message:#{suffix}:#{label}:review"
+             )
+
+    assert {:ok, authorized} =
+             PublicationCustody.confirm_delivery(
+               publication.ref,
+               delivery_claim.lease_ref,
+               receipt
+             )
+
+    authorized
+  end
+
   defp task_reviewed_publication!(suffix, options) do
     %{claim: claim, offer: offer, offer_receipt: receipt, task: task} =
       delivered_offer!(suffix, task_repository: Keyword.fetch!(options, :confirmed_repository))
@@ -1205,7 +1675,7 @@ defmodule Responder.Publication.CustodyTest do
     :ok
   end
 
-  defp admit_followup!(claim) do
+  defp admit_followup!(claim, label \\ "one") do
     command =
       EpisodeFixtures.admit_input(%{
         destination: %{
@@ -1215,10 +1685,10 @@ defmodule Responder.Publication.CustodyTest do
         },
         episode_id: claim.episode.id,
         episode_key: claim.episode.key,
-        native_input_id: "followup:#{claim.episode.id}",
+        native_input_id: "followup:#{label}:#{claim.episode.id}",
         occurred_at: DateTime.utc_now(),
         payload: %{"text" => "Please include the follow-up correction."},
-        turn_ref: "turn:followup:#{claim.episode.id}"
+        turn_ref: "turn:followup:#{label}:#{claim.episode.id}"
       })
 
     assert {:ok, _transition} = Episodes.apply(command)
@@ -1288,7 +1758,7 @@ defmodule Responder.Publication.CustodyTest do
   end
 
   defp delivered_offer!(suffix, options \\ []) do
-    claim = claim_episode!(suffix)
+    claim = claim_episode!(suffix, Keyword.get(options, :repository))
 
     delivery_thread_ref =
       Keyword.get(options, :delivery_thread_ref, claim.episode.destination_thread_ref)
@@ -1418,7 +1888,7 @@ defmodule Responder.Publication.CustodyTest do
     task
   end
 
-  defp claim_episode!(suffix) do
+  defp claim_episode!(suffix, repository) do
     id = Ecto.UUID.generate()
 
     assert {:ok, _transition} =
@@ -1439,7 +1909,7 @@ defmodule Responder.Publication.CustodyTest do
              )
 
     assert {:ok, _session} =
-             Custody.pin_episode(id, "work-contributor", String.duplicate("a", 64))
+             Custody.pin_episode(id, "work-contributor", String.duplicate("a", 64), repository)
 
     assert {:ok, claim} = Custody.claim_next("worker:#{suffix}", 60)
     bind_remote!(claim)

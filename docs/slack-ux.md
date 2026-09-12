@@ -543,7 +543,9 @@ host rejects them for nonoperators before any repository or session mutation:
   **Discard candidate** render from durable publication state without waiting for a fresh Coop
   inspection. Review latest state invalidates the prior approval and review, records the exact
   observed GitHub head, reruns Coop review, and can update the same PR only with a
-  `--force-with-lease` compare-and-swap against that observed head;
+  `--force-with-lease` compare-and-swap against that observed head. A head that moved outside the
+  publication is the one case an in-scope correction cannot re-arm on its own, so this control
+  stays the operator's explicit decision to review against that head;
 - published draft PR: **Open PR** and **Check delivery** remain available independently of a
   transient Coop inspection failure;
 - safety-ceiling blocked: **Close incident** and an action-needed explanation naming
@@ -587,7 +589,14 @@ host rejects them for nonoperators before any repository or session mutation:
   check and merge transitions without occupying a model turn. Checks that fail on that exact head
   return the task to in-scope correction once, without a click and without widening the task; a
   hard deadline, a head that moved outside the publication, a close and a merge stay history for a
-  person. After merge, matching deployment and
+  person. A correction that completes in scope re-arms the task's own publication for a fresh
+  review and updates that same pull request: one task keeps one publication and one draft PR, the
+  card returns to the reviewing stage with its **Open draft PR** link intact, and each review
+  generation posts its own card rather than overwriting the superseded one. The prior generation's
+  approval cannot carry a new candidate, so a corrected candidate is authorized again by the same
+  task grant or waits for **Create draft PR**. A candidate the operator discarded is never
+  resurrected, and a review, approval or publish phase still in flight keeps the publication it
+  holds. After merge, matching deployment and
   Terraform app messages from other watched channels return to the original task thread only when
   the source message contains that publication's exact PR, branch, head SHA, or merge SHA. Loose
   topic, repository-name, and timing matches are rejected. An exact reference activates this
