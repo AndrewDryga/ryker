@@ -200,6 +200,13 @@ defmodule Responder.ControlPlane.RequestContextHTML do
             {key, value, root <> ".operator_context"}
           end)
 
+        # One collapsible per scope. A single "Custom instructions" block made a
+        # reader open it to find out whether the channel had said anything.
+        {"custom_instructions", value} when is_map(value) and map_size(value) > 0 ->
+          Enum.map(Enum.sort(value), fn {key, value} ->
+            {key, value, root <> ".custom_instructions"}
+          end)
+
         {key, value} ->
           [{key, value, root}]
       end)
@@ -349,6 +356,23 @@ defmodule Responder.ControlPlane.RequestContextHTML do
   end
 
   defp metadata(key, root)
+       when root in ["$.work.custom_instructions", "$.context.custom_instructions"] do
+    case key do
+      "global" ->
+        {"Global instructions", "policy", "Saved with this request",
+         "The workspace-wide instruction text as it stood when this request was sent, not today's."}
+
+      "channel" ->
+        {"Channel instructions", "policy", "Saved with this request",
+         "This channel's own instruction text as it stood when this request was sent. It takes priority over the global text."}
+
+      other ->
+        {human(other) <> " instructions", "policy", "Saved with this request",
+         "Instruction text saved with this request at that scope."}
+    end
+  end
+
+  defp metadata(key, root)
        when root in ["$.work.operator_context", "$.context.operator_context"] do
     case key do
       "continuity" ->
@@ -397,6 +421,28 @@ defmodule Responder.ControlPlane.RequestContextHTML do
     end
   end
 
+  @doc "One instruction scope: its identity on a line, then the text itself."
+  def instruction_scope(%{} = layer) do
+    identity =
+      [{"Revision", layer["revision"]}, {"Scope", layer["scope"]}]
+      |> Enum.filter(fn {_label, value} -> value not in [nil, ""] end)
+      |> Enum.map_join(" · ", fn {label, value} -> "#{label} #{value}" end)
+
+    [
+      if(identity == "",
+        do: [],
+        else: ["<p class=\"instruction-identity\">", escape(identity), "</p>"]
+      ),
+      instruction_text(layer["text"])
+    ]
+  end
+
+  defp instruction_text(text) when is_binary(text) and text != "",
+    do: ["<pre class=\"model-document-text\">", escape(text), "</pre>"]
+
+  defp instruction_text(_text),
+    do: ["<p class=\"context-absent\">No instruction saved at this scope.</p>"]
+
   def instruction_layers(value) when is_map(value) do
     Enum.map([{"global", "Global instructions"}, {"channel", "Channel instructions"}], fn {key,
                                                                                            label} ->
@@ -416,6 +462,13 @@ defmodule Responder.ControlPlane.RequestContextHTML do
 
   defp body("candidates", value, _path, _prefix) when is_list(value) and value != [],
     do: candidates(value)
+
+  defp body(key, value, path, _prefix)
+       when key in ~w(global channel) and is_map(value) do
+    if String.contains?(path, ".custom_instructions."),
+      do: instruction_scope(value),
+      else: fields(value, 0)
+  end
 
   defp body("custom_instructions", value, _path, _prefix) when is_map(value),
     do: instruction_layers(value)

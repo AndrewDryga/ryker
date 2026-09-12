@@ -20,9 +20,13 @@ defmodule Responder.ControlPlane.RequestContextHTMLTest do
     html =
       artifact |> RequestContextHTML.assembly("$.work", "instructions") |> IO.iodata_to_binary()
 
-    assert html =~ "Custom instructions"
-    assert html =~ "Submitted settings"
+    # Each scope is its own collapsible, so a reader sees whether the channel
+    # said anything without opening the workspace text.
+    assert html =~ "Global instructions"
+    assert html =~ "Channel instructions"
+    assert html =~ "Saved with this request"
     assert html =~ "Saved global"
+    assert html =~ "Revision 7"
     assert html =~ "slack:T1:C1"
     refute html =~ "PRIVATE_TOKEN"
     refute html =~ "<script>text</script>"
