@@ -116,6 +116,49 @@ defmodule Responder.Runtime.OwnerTest do
     assert Application.get_env(:responder, :webhooks) == nil
   end
 
+  # Production ran for weeks with every Slack user, channel and workspace in the
+  # control plane rendering as a kind — "Slack user", "Slack channel" — because
+  # the name cache reads `Application.get_env(:responder, :slack)` in `init` and
+  # the children were started one line before that configuration was published.
+  # It declined with `:ignore`, which is permanent: nothing restarts a runtime
+  # whose own configuration never changed again.
+  test "a child reads the configuration it is being started for", context do
+    owner = start_owner(context)
+    {:ok, saved} = initialize()
+
+    {:ok, saved} =
+      Settings.put_policy_binding(
+        %{
+          policy_digest: @digest,
+          policy_name: "responder-incident-v1",
+          purpose: :incident,
+          scope_kind: :installation,
+          scope_ref: "",
+          verified_by: :import
+        },
+        saved.installation.revision,
+        @actor
+      )
+
+    {:ok, _} =
+      Settings.save_slack(
+        %{
+          bot_ref: "A0123456789",
+          bot_user_ref: "U0123456789",
+          default_repository_ref: "responder",
+          enabled: true,
+          operators: ["U1111111111"],
+          workspace_ref: "T0123456789"
+        },
+        saved.installation.revision,
+        @actor
+      )
+
+    assert Owner.reconcile(owner) == {:ok, :applied}
+    assert is_map(Application.get_env(:responder, :slack))
+    assert is_pid(Process.whereis(Responder.ControlPlane.SlackNames))
+  end
+
   defp start_owner(context) do
     owner =
       start_supervised!(
