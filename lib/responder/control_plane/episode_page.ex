@@ -765,7 +765,7 @@ defmodule Responder.ControlPlane.EpisodePage do
         id={"input-raw-#{@message.id}"}
         title="Raw input (JSON)"
         body={@message.details.raw}
-        absent="The adapter did not hand over its source payload for this input, so there is no raw record; the normalized input below is not a substitute."
+        absent={@message.details.raw.absent}
       />
       <.input_body
         id={"input-normalized-#{@message.id}"}
