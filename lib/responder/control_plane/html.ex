@@ -1292,7 +1292,8 @@ defmodule Responder.ControlPlane.HTML do
       {"retention", "Cleanup"},
       {"slack_interaction", "Slack updates"},
       {"slack_incident", "Incident rooms"},
-      {"emisar", "Approvals"}
+      {"emisar", "Approvals"},
+      {"publication", "Publishing"}
     ]
 
     [

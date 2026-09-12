@@ -14,6 +14,8 @@ defmodule Responder.ControlPlane.ProjectionTest do
   alias Responder.CoopFleet.{Event, Placement, Worker}
   alias Responder.Delivery.{PlatformAction, PlatformActionCustody}
   alias Responder.Episodes
+  alias Responder.Fixtures.Publication, as: PublicationFixture
+  alias Responder.Publication.Custody, as: PublicationCustody
   alias Responder.Episodes.Command
   alias Responder.Episodes.Episode
   alias Responder.Fixtures.Episodes, as: EpisodeFixtures
@@ -2436,6 +2438,41 @@ defmodule Responder.ControlPlane.ProjectionTest do
     assert html =~ "refused: reserve_exhausted"
     assert html =~ "unknown"
     assert html =~ "close the remote session"
+  end
+
+  test "a publication that cannot proceed is visible on the failures page" do
+    # Production, 2026-09-12: one publication had been `review_pending` for two
+    # days across 2,902 attempts of {:publication_coop_protocol_error, :session}
+    # — its Coop session closed on the 10th, so no retry could ever clear it —
+    # and another had 1,087 attempts of publication_repository_not_configured.
+    # Neither appeared here, because publication was not a failure kind, and the
+    # task card only raises action_needed once a publication is :blocked. The
+    # page whose question is "what is broken and can I retry it?" said nothing.
+    fixture = PublicationFixture.review_requested!("failures-page")
+
+    assert {:ok, claim} = PublicationCustody.claim_next("publication:failures", 60)
+
+    assert {:ok, _deferred} =
+             PublicationCustody.defer(
+               fixture.publication.ref,
+               claim.lease_ref,
+               60,
+               "publication_coop_protocol_error",
+               "private session transport detail"
+             )
+
+    assert {:ok, failures} = Projection.failures(%{})
+
+    assert %{detail: detail, kind: "publication", ref: ref, summary: summary} =
+             Enum.find(failures, &(&1.kind == "publication"))
+
+    assert ref == fixture.publication.ref
+    assert summary == "publication_coop_protocol_error"
+    refute detail =~ "private session transport detail"
+
+    assert {:ok, exact} = Projection.failure("publication", fixture.publication.ref)
+    assert exact.kind == "publication"
+    assert exact.attempt_count >= 1
   end
 
   test "retention failures and safe operator actions are visible without plan payloads" do
