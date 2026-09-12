@@ -2246,13 +2246,29 @@ defmodule Responder.Slack.RendererTest do
       incident_document("investigating")
       | "goals" => [
           %{
+            "detail" => "Checkout is the affected service.",
             "id" => "confirm-scope",
             "outcome" => "Confirm which service is affected",
             "state" => "completed"
           },
-          %{"id" => "find-cause", "outcome" => "Name the cause", "state" => "working"},
-          %{"id" => "restore", "outcome" => "Restore checkout", "state" => "blocked"},
-          %{"id" => "verify", "outcome" => "Verify the recovery", "state" => "ready"}
+          %{
+            "detail" => nil,
+            "id" => "find-cause",
+            "outcome" => "Name the cause",
+            "state" => "working"
+          },
+          %{
+            "detail" => "The rollback needs an owner who can approve it.",
+            "id" => "restore",
+            "outcome" => "Restore checkout",
+            "state" => "blocked"
+          },
+          %{
+            "detail" => nil,
+            "id" => "verify",
+            "outcome" => "Verify the recovery",
+            "state" => "ready"
+          }
         ]
     }
 
@@ -2264,15 +2280,56 @@ defmodule Responder.Slack.RendererTest do
           String.contains?(block["text"]["text"] || "", "What this investigation is establishing")
       end)
 
-    assert ledger["text"]["text"] =~ "✓ Confirm which service is affected"
-    assert ledger["text"]["text"] =~ "▸ Name the cause"
-    assert ledger["text"]["text"] =~ "! Restore checkout"
+    assert ledger["text"]["text"] =~
+             "✓ Confirm which service is affected · Checkout is the affected service."
+
+    assert ledger["text"]["text"] =~ "▸ Name the cause\n"
+    assert ledger["text"]["text"] =~ "! Restore checkout · The rollback needs an owner"
     assert ledger["text"]["text"] =~ "○ Verify the recovery"
 
     assert {:ok, empty} =
              Renderer.render(%{"incident_room" => incident_document("investigating")})
 
     refute inspect(empty) =~ "What this investigation is establishing"
+  end
+
+  test "an incident room opens its evidence without a menu" do
+    # The catalog's `incident-room/observed` names Open evidence as the card's
+    # primary control. It was a row in the overflow: on the one card whose
+    # subject is what was found, reading the findings took two taps and a guess.
+    room = %{
+      incident_document("investigating")
+      | "controls" => ["stop", "close", "timeline", "evidence", "handoff"]
+    }
+
+    assert {:ok, rendered} = Renderer.render(%{"incident_room" => room})
+
+    elements =
+      rendered["blocks"] |> Enum.flat_map(&Map.get(&1, "elements", []))
+
+    assert %{"type" => "button", "value" => value} =
+             Enum.find(elements, &(&1["text"]["text"] == "Open evidence"))
+
+    assert value == "incident-room:82208f8f-2ef4-4f1b-a011-626aabdc9342|evidence"
+
+    overflow = Enum.find(elements, &(&1["type"] == "overflow"))
+    labels = Enum.map(overflow["options"], & &1["text"]["text"])
+    assert labels == ["Timeline", "Handoff summary"]
+
+    # A task card reads its evidence from the menu, where a task's own work is
+    # the headline and its records are the aside.
+    card = %{task_document("working") | "controls" => ["stop", "timeline", "evidence", "handoff"]}
+
+    assert {:ok, task} = Renderer.render(%{"task_card" => card})
+
+    task_labels =
+      task["blocks"]
+      |> Enum.flat_map(&Map.get(&1, "elements", []))
+      |> Enum.find(&(&1["type"] == "overflow"))
+      |> Map.fetch!("options")
+      |> Enum.map(& &1["text"]["text"])
+
+    assert "Evidence" in task_labels
   end
 
   test "rejects malformed cards, controls, publication identities, and dates" do

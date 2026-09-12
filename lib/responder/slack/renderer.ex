@@ -402,11 +402,14 @@ defmodule Responder.Slack.Renderer do
   defp incident_goals_block(goals) do
     rendered =
       Enum.map_join(goals, "\n", fn goal ->
-        "#{incident_goal_marker(goal["state"])} #{mrkdwn(goal["outcome"])}"
+        "#{incident_goal_marker(goal["state"])} #{mrkdwn(goal["outcome"])}#{incident_goal_detail(goal["detail"])}"
       end)
 
     section("*What this investigation is establishing*\n#{rendered}")
   end
+
+  defp incident_goal_detail(nil), do: ""
+  defp incident_goal_detail(detail), do: " · #{mrkdwn(detail)}"
 
   defp incident_goal_marker("completed"), do: "✓"
   defp incident_goal_marker("blocked"), do: "!"
@@ -504,15 +507,29 @@ defmodule Responder.Slack.Renderer do
       |> Enum.filter(&(&1 in @work_buttons))
       |> Enum.map(&work_button(&1, work_ref, kind))
 
-    records = Enum.filter(controls, &(&1 in @record_controls))
+    records = Enum.filter(controls, &(&1 in record_controls(kind)))
 
     elements =
-      if records == [],
-        do: buttons,
-        else: buttons ++ [work_record_overflow(work_ref, records)]
+      buttons ++
+        evidence_button(work_ref, controls, kind) ++
+        if records == [], do: [], else: [work_record_overflow(work_ref, records)]
 
     actions("#{work_ref}:controls", elements)
   end
+
+  # What an investigation found is the subject of its card, so an incident opens
+  # its evidence in one tap. A task's records are the aside to its work and stay
+  # in the menu.
+  defp record_controls(:incident), do: @record_controls -- ["evidence"]
+  defp record_controls(_kind), do: @record_controls
+
+  defp evidence_button(work_ref, controls, :incident) do
+    if "evidence" in controls,
+      do: [plain_button("responder_work_record", "Open evidence", "#{work_ref}|evidence")],
+      else: []
+  end
+
+  defp evidence_button(_work_ref, _controls, _kind), do: []
 
   defp work_button("stop", work_ref, _kind) do
     button(
@@ -862,9 +879,12 @@ defmodule Responder.Slack.Renderer do
 
   defp incident_goals(_goals), do: {:error, :invalid_incident_goals}
 
-  defp incident_goal?(%{"id" => id, "outcome" => outcome, "state" => state} = goal)
-       when map_size(goal) == 3 and state in @goal_states do
-    bounded_text(id, 120) == :ok and bounded_text(outcome, @goal_outcome) == :ok
+  defp incident_goal?(
+         %{"detail" => detail, "id" => id, "outcome" => outcome, "state" => state} = goal
+       )
+       when map_size(goal) == 4 and state in @goal_states do
+    bounded_text(id, 120) == :ok and bounded_text(outcome, @goal_outcome) == :ok and
+      optional_bounded_text(detail, @goal_outcome) == :ok
   end
 
   defp incident_goal?(_goal), do: false

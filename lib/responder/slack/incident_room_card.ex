@@ -113,6 +113,7 @@ defmodule Responder.Slack.IncidentRoomCard do
     |> Enum.take(@goals_shown)
     |> Enum.map(
       &%{
+        "detail" => compact(&1["detail"], 200),
         "id" => &1["id"],
         "outcome" => compact(&1["requested_outcome"], 200),
         "state" => &1["state"]
