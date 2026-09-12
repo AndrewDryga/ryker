@@ -59,6 +59,17 @@ defmodule Responder.CoopFleet.Protocol do
   @spec version() :: 1
   def version, do: @version
 
+  @doc """
+  Every command kind a placed worker can be asked to execute.
+
+  The enqueue authority reads this same list. A kind the wire contract can
+  carry but the control plane refuses to enqueue is a command no worker can
+  ever receive: session evidence sat unenqueueable behind a stale private copy
+  of this vocabulary while the production worker advertised it.
+  """
+  @spec command_kinds() :: [String.t()]
+  def command_kinds, do: @command_kinds
+
   @spec decode_poll(binary()) :: {:ok, map()} | {:error, term()}
   def decode_poll(document)
       when is_binary(document) and byte_size(document) <= @maximum_document_bytes do
