@@ -33,8 +33,9 @@ The root card is the authoritative incident snapshot. It shows:
 - plain-language alert and Responder states;
 - severity, firing/total signals, repository, lifecycle times, and isolated fork;
 - the latest alert summary and a validated alert-source link with its hostname visible when supplied;
-- what the investigation is establishing: each goal it set, where that goal stands (`✓` completed,
-  `▸` working, `!` blocked, `○` otherwise) and what that state found, in the order they were set,
+- what the investigation is establishing: each goal it set, where that goal stands in the shared
+  goal vocabulary (`✓` completed, `▸` working, `◷` waiting, `!` blocked, `−` excluded or cancelled,
+  `○` ready) and what that state found, in the order they were set,
   newest attempts only and the first eight of them. It is the same composed ledger the engineering
   task card reads, not a second copy of it, and a room that set no goals shows no ledger;
 - a prominent action-needed section when work is blocked;
