@@ -1033,6 +1033,88 @@ defmodule Responder.Slack.RendererTest do
     assert inspect(task) =~ "✓ Task started in this thread."
   end
 
+  # Confirming an offer used to repaint the card down to its title and a check
+  # mark, so the one message that recorded what was authorized stopped saying
+  # what that was. The reader who comes back to the thread an hour later is
+  # reading this card to find out what it agreed to, and the answer was gone.
+  test "confirming an offer keeps what the card said it was authorizing" do
+    payload = %{
+      "authority_limits" => ["Never deploy", "No production writes"],
+      "instruction_ref" => "record:instruction:aa11",
+      "kind" => "engineering",
+      "prompt" => "Raise the memory limit.",
+      "repository" => "blitz-infra",
+      "repository_source" => %{"kind" => "branch", "name" => "main"},
+      "source_refs" => ["record:evidence:bb22"],
+      "success_checks" => ["Traefik stays under its limit", "Five replicas remain"],
+      "title" => "Prevent the next Traefik OOM"
+    }
+
+    offer = %{
+      "kind" => "task_offer",
+      "payload" => payload,
+      "ref" => "record:task_offer:abc123",
+      "status" => "open"
+    }
+
+    assert {:ok, open} = Renderer.render(%{"message" => "Want me to?", "records" => [offer]})
+
+    assert {:ok, confirmed} =
+             Renderer.render(%{
+               "message" => "Started.",
+               "records" => [%{offer | "status" => "confirmed"}]
+             })
+
+    for kept <- [
+          "Prevent the next Traefik OOM",
+          "blitz-infra",
+          "branch",
+          "Traefik stays under its limit",
+          "Never deploy",
+          "1 sources"
+        ] do
+      assert inspect(open) =~ kept
+      assert inspect(confirmed) =~ kept
+    end
+
+    # The authority is spent, so the button that granted it is gone.
+    assert inspect(confirmed) =~ "✓ Task started in this thread."
+    refute Enum.any?(confirmed["blocks"], &(&1["type"] == "actions"))
+
+    # An incident offer carries the same authority fields — production offers
+    # do, harvested 2026-09-13 — and showing none of them left the card that
+    # decides whether to open a room saying only what it was called.
+    incident = %{
+      offer
+      | "payload" => %{
+          "authority_limits" => ["Do not restart the agent", "Do not page the on-call"],
+          "instruction_ref" => "record:instruction:cc33",
+          "kind" => "incident",
+          "prompt" => "Coordinate this incident.",
+          "repository" => nil,
+          "source_refs" => ["record:evidence:dd44"],
+          "success_checks" => ["Whether logs are being lost is answered"],
+          "title" => "Vector logging errors"
+        }
+    }
+
+    assert {:ok, incident_open} =
+             Renderer.render(%{"message" => "Where?", "records" => [incident]})
+
+    assert {:ok, incident_confirmed} =
+             Renderer.render(%{
+               "message" => "Started.",
+               "records" => [%{incident | "status" => "confirmed"}]
+             })
+
+    for kept <- ["Whether logs are being lost is answered", "Do not restart the agent"] do
+      assert inspect(incident_open) =~ kept
+      assert inspect(incident_confirmed) =~ kept
+    end
+
+    assert inspect(incident_confirmed) =~ "✓ Investigating in this thread."
+  end
+
   test "renders an inert publication offer with a host-owned review control" do
     assert {:ok, rendered} =
              Renderer.render(%{
