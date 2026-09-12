@@ -1116,6 +1116,40 @@ defmodule Responder.CoopFleet.ClientTest do
     refute_receive {:fleet_command, _, _, _, _, _}
   end
 
+  # Found live 2026-09-12 — the create that stranded an operator retry was never enqueued
+  # at all. An unbound session whose placement is gone fails closed before any command row
+  # exists, so the durable boundary holds no operation under that key. Those two answers
+  # together are the host's proof that nothing crossed, and Work releases the create fence
+  # on them instead of refusing its own session replacement on every later retry.
+  test "a create the fleet cannot place enqueues nothing and leaves its key unknown", %{
+    session: session
+  } do
+    stale = command!(session, "unplaceable-create")
+
+    Repo.get!(Placement, stale.placement_id)
+    |> Ecto.Changeset.change(
+      lease_expires_at: DateTime.add(database_now!(), -1, :second),
+      state: :replaced
+    )
+    |> Repo.update!()
+
+    assert {:ok, placing} = Client.new(workspace_ref: "workspace-main")
+    key = "responder:work:create:#{session.id}:g1"
+
+    assert Client.create_session(
+             placing,
+             key,
+             @policy,
+             session.external_ref,
+             session.repository_source
+           ) ==
+             {:error,
+              {:coop_session_replacement_required, session.id, stale.placement_generation}}
+
+    assert Client.operation_by_key(placing, key) == :not_found
+    assert Repo.aggregate(Command, :count) == 1
+  end
+
   test "a recovered review must match the original session revision and operation", %{
     client: client,
     session: session
