@@ -299,7 +299,9 @@ defmodule Responder.State.TaskOffersTest do
 
     assert task["title"] == "Fix parser retries"
     assert task["repository"] == "responder"
-    assert task["status"] == "working"
+    # A session exists but no turn does, so no worker has been asked for
+    # anything yet. Since 07df8ca0 the card says so instead of "Working".
+    assert task["status"] == "queued"
     assert task["session_generation"] == 1
     assert task["controls"] == ["close", "timeline", "evidence", "handoff"]
 
