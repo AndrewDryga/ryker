@@ -1,8 +1,10 @@
 defmodule Responder.Slack.RendererTest do
   use ExUnit.Case, async: true
 
-  alias Responder.Slack.Renderer
+  alias Responder.Slack.{Interaction, Renderer}
   alias Responder.Work.TaskStages
+
+  @now ~U[2026-08-28 12:00:00.000000Z]
 
   # Every confirmed entity used to collapse to "*Automation confirmed*" plus its
   # title: the trigger, filter, delivery, expiry and the only way to remove it
@@ -2346,6 +2348,81 @@ defmodule Responder.Slack.RendererTest do
       |> Enum.map(& &1["text"]["text"])
 
     assert "Evidence" in task_labels
+  end
+
+  test "every control a card renders is one the host would accept back" do
+    # `responder_confirm_slack_post` shipped to production rendered but absent
+    # from the interaction allowlist, so pressing it did nothing at all and
+    # nothing said so (fixed in d315b9f3). A control the host refuses is worse
+    # than no control: it asks for a press and then drops it.
+    documents = [
+      %{
+        "incident_room" => %{
+          incident_document("investigating")
+          | "controls" => ["stop", "close", "timeline", "evidence", "handoff", "postmortem"]
+        }
+      },
+      %{
+        "task_card" => %{
+          task_document("working")
+          | "controls" => ["stop", "close", "timeline", "evidence", "handoff"]
+        }
+      }
+    ]
+
+    pressable =
+      Enum.flat_map(documents, fn document ->
+        assert {:ok, rendered} = Renderer.render(document)
+
+        rendered["blocks"]
+        |> Enum.flat_map(&Map.get(&1, "elements", []))
+        |> Enum.flat_map(&presses/1)
+      end)
+
+    assert length(pressable) >= 10
+
+    for {action_id, value} <- pressable do
+      envelope =
+        put_in(
+          interaction_envelope(),
+          ["payload", "actions"],
+          [%{"action_id" => action_id, "type" => "button", "value" => value}]
+        )
+
+      assert {:ok, interaction} = Interaction.from_socket(envelope, "T123", @now),
+             "the renderer emits #{action_id} with #{value}, which the host ignores"
+
+      assert interaction.action_id == action_id
+      assert interaction.action_value == value
+    end
+  end
+
+  defp presses(%{"type" => "button", "action_id" => action_id, "value" => value}),
+    do: [{action_id, value}]
+
+  defp presses(%{"type" => "overflow", "action_id" => action_id, "options" => options}),
+    do: Enum.map(options, &{action_id, &1["value"]})
+
+  defp presses(_element), do: []
+
+  defp interaction_envelope do
+    %{
+      "envelope_id" => "env-render",
+      "payload" => %{
+        "actions" => [],
+        "container" => %{
+          "channel_id" => "C456",
+          "is_ephemeral" => false,
+          "message_ts" => "1787832001.000200",
+          "thread_ts" => "1787832000.000100",
+          "type" => "message"
+        },
+        "team" => %{"id" => "T123"},
+        "type" => "block_actions",
+        "user" => %{"id" => "U123"}
+      },
+      "type" => "interactive"
+    }
   end
 
   test "rejects malformed cards, controls, publication identities, and dates" do
