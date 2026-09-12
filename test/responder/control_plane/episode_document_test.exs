@@ -376,6 +376,41 @@ defmodule Responder.ControlPlane.EpisodeDocumentTest do
     assert html =~ "Retained host policy &lt;not markup&gt;"
   end
 
+  test "the routing card states the decision it made, not only its reasoning" do
+    # The card showed a paragraph of the model's reasoning and two timings while
+    # the record behind it held the decision itself, one collapsible away.
+    candidate = %{
+      "action" => "continue_episode",
+      "episode_ref" => "episode:abc123",
+      "reason" => "The alert continues the checkout outage already under way.",
+      "relation" => "continues",
+      "repository_source" => %{"kind" => "branch", "name" => "main"},
+      "work_class" => "engineering"
+    }
+
+    request = %{
+      id: "routing-decision",
+      phase: :result,
+      source_kind: :admission,
+      target: "codex:recorded",
+      timing: [],
+      coverage: "Retained",
+      href: "/",
+      sections: [section("candidate", "Candidate", candidate)]
+    }
+
+    facts =
+      render_component(&EpisodeRequest.render/1, request: request)
+      |> LazyHTML.from_fragment()
+      |> LazyHTML.query(".request-decision")
+      |> LazyHTML.text()
+
+    assert facts =~ "Continue existing work"
+    assert facts =~ "episode:abc123"
+    assert facts =~ "engineering"
+    assert facts =~ "branch main"
+  end
+
   test "a model call names the confirmed rules and recalled instructions it actually received" do
     # A rule affecting a reply was invisible unless the operator decoded context JSON.
     context = %{

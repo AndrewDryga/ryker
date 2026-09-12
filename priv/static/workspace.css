@@ -1425,3 +1425,9 @@ details.measurement-notes > summary { cursor:pointer; font-weight:600; color:var
 
 /* An instruction scope reads as one identity line and then the text itself. */
 .instruction-identity { margin:0 0 8px; font-size:12px; color:var(--secondary); font-variant-numeric:tabular-nums; }
+
+/* The routing decision reads as facts on one line, like the timings beside it. */
+.request-decision { display:flex; flex-wrap:wrap; gap:6px 20px; margin:8px 0 4px; }
+.request-decision > div { display:flex; gap:6px; align-items:baseline; }
+.request-decision dt { font-size:12px; color:var(--secondary); }
+.request-decision dd { margin:0; font-size:13px; font-weight:600; }

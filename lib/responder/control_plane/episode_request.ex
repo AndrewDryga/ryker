@@ -16,6 +16,7 @@ defmodule Responder.ControlPlane.EpisodeRequest do
       |> assign(:headline, headline(request))
       |> assign(:explanation, explanation(request))
       |> assign(:timing, request.timing)
+      |> assign(:decision, decision_facts(request))
       |> assign(:result?, request.phase == :result)
       |> assign(:archived_response, archived)
       |> assign(
@@ -60,6 +61,14 @@ defmodule Responder.ControlPlane.EpisodeRequest do
           <a href={group.href}>Manage {group.manage} →</a>
         </div>
       </section>
+      <dl :if={@decision != []} class="request-decision">
+        <div :for={fact <- @decision}>
+          <dt>{fact.label}</dt>
+          <dd>
+            <a :if={fact[:href]} href={fact.href}>{fact.value}</a><span :if={!fact[:href]}>{fact.value}</span>
+          </dd>
+        </div>
+      </dl>
       <dl :if={@timing != []} class="request-timing">
         <div :for={metric <- @timing} :if={metric.value != "Not recorded"}>
           <dt>{timing_label(metric.label)}</dt><dd>{metric.value}</dd>
@@ -281,6 +290,60 @@ defmodule Responder.ControlPlane.EpisodeRequest do
       _ -> "Model result"
     end
   end
+
+  # The routing card showed a paragraph of reasoning and two timings, while the
+  # record behind it held the decision itself. These are the parts a person
+  # reads to know what happened: what it chose to do, whether it joined existing
+  # work, and what kind of work it asked for.
+  defp decision_facts(%{source_kind: :admission} = request) do
+    case document(request, "candidate") do
+      %{"action" => action} = candidate ->
+        [
+          %{label: "Decision", value: decision_label(action)},
+          relation_fact(candidate),
+          work_fact(candidate),
+          source_fact(candidate),
+          reaction_fact(candidate)
+        ]
+        |> Enum.reject(&is_nil/1)
+
+      _other ->
+        []
+    end
+  end
+
+  defp decision_facts(_request), do: []
+
+  defp decision_label("start_episode"), do: "Start new work"
+  defp decision_label("continue_episode"), do: "Continue existing work"
+  defp decision_label("reply"), do: "Reply in the conversation"
+  defp decision_label("react"), do: "React only"
+  defp decision_label("ignore"), do: "No response"
+  defp decision_label(action) when is_binary(action), do: String.replace(action, "_", " ")
+
+  defp relation_fact(%{"episode_ref" => ref}) when is_binary(ref) and ref != "",
+    do: %{label: "Joins", value: ref, href: "/timeline/#{URI.encode_www_form(ref)}"}
+
+  defp relation_fact(%{"relation" => relation}) when is_binary(relation),
+    do: %{label: "Relation", value: String.replace(relation, "_", " ")}
+
+  defp relation_fact(_candidate), do: nil
+
+  defp work_fact(%{"work_class" => class}) when is_binary(class),
+    do: %{label: "Work", value: String.replace(class, "_", " ")}
+
+  defp work_fact(_candidate), do: nil
+
+  defp source_fact(%{"repository_source" => %{"kind" => kind, "name" => name}})
+       when is_binary(kind) and is_binary(name),
+       do: %{label: "Source", value: "#{kind} #{name}"}
+
+  defp source_fact(_candidate), do: nil
+
+  defp reaction_fact(%{"reaction" => %{"emoji_name" => emoji}}) when is_binary(emoji),
+    do: %{label: "Reaction", value: ":#{emoji}:"}
+
+  defp reaction_fact(_candidate), do: nil
 
   defp explanation(%{phase: :submission, source_kind: :admission}),
     do: "Classify this message and choose how to respond."
