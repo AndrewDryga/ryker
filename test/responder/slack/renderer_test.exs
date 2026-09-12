@@ -2081,6 +2081,46 @@ defmodule Responder.Slack.RendererTest do
     assert length(Enum.filter(rendered["blocks"], &(&1["type"] == "actions"))) == 2
   end
 
+  # Since 2026-09-12 the Workspace setup row quotes the worker's own refusal when
+  # work never started, so a stage detail is the first part of the ledger that is
+  # not host-authored end to end. The escape that keeps it inert is what stands
+  # between a provider's sentence and a channel-wide mention.
+  test "a stage detail quoting the worker's own words reaches Slack inert" do
+    stages =
+      Enum.map(task_stages(), fn
+        %{"stage" => "workspace_setup"} = stage ->
+          %{
+            stage
+            | "detail" =>
+                "work never started · The worker rejected the operation: <!everyone> & <https://example.invalid|urgent>",
+              "state" => "failed"
+          }
+
+        stage ->
+          stage
+      end)
+
+    task = %{task_document("action_required") | "stages" => stages}
+
+    assert {:ok, rendered} = Renderer.render(%{"task_card" => task})
+    json = Jason.encode!(rendered)
+
+    assert json =~
+             "Workspace setup · work never started · The worker rejected the operation: &lt;!everyone&gt; &amp; &lt;https://example.invalid|urgent&gt;"
+
+    refute json =~ "<!everyone>"
+
+    # The row is bounded before it is escaped, and a detail over the bound is
+    # not a card the host will send.
+    over_bound =
+      put_in(task, ["stages"], [
+        %{Enum.at(stages, 0) | "detail" => String.duplicate("a", 201)} | Enum.drop(stages, 1)
+      ])
+
+    assert Renderer.render(%{"task_card" => over_bound}) ==
+             {:error, {:invalid_slack_render, :task_card}}
+  end
+
   test "renders every task and incident lifecycle label from host-owned state" do
     task_statuses =
       ~w(waiting_for_input waiting_for_event action_required stopping reviewing ready_to_publish completed cancelled)

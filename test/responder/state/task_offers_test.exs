@@ -18,7 +18,7 @@ defmodule Responder.State.TaskOffersTest do
   }
 
   alias Responder.State.{KnowledgeSnapshot, Record, Records, TaskOffers}
-  alias Responder.Work.{Cancellation, Custody, DeliveryReceipt, Result, Session, Submission}
+  alias Responder.Work.{Cancellation, Custody, DeliveryReceipt, Result, Session, Submission, Turn}
 
   @now ~U[2026-08-28 12:00:00.000000Z]
   @policy_digest String.duplicate("b", 64)
@@ -537,6 +537,73 @@ defmodule Responder.State.TaskOffersTest do
     assert repainted["action_needed"] =~ "Keep its working copy and task notes"
   end
 
+  # Found live 2026-09-12 on episode e231a79d, in #test: the Workspace setup row
+  # rendered `{:work_retry_exhausted, {:coop_operation_failed, …}}` at the
+  # operator while the card's own action line said "Task work is blocked and
+  # needs operator attention. Open the episode for details." One card leaked a
+  # host term and named nothing to do, about an error whose own sentence was the
+  # fix. The detail is harvested from that turn.
+  test "a card for work that never started names the condition it can act on" do
+    fixture =
+      never_started_card!(
+        "never-started",
+        ~S|work_retry_exhausted: {:work_retry_exhausted, {:coop_operation_failed, "invalid_request", "invalid_request: policy \"emisar-standard-v1\" has no operator-configured remote, so only its default source can be selected"}}|
+      )
+
+    assert {:ok, projection} = TaskCardProjection.build(fixture.card)
+    task = projection.document["task_card"]
+
+    assert stage(task, "workspace_setup")["state"] == "failed"
+
+    assert stage(task, "workspace_setup")["detail"] ==
+             ~S|work never started · The worker rejected the operation: invalid_request: policy "emisar-standard-v1" has no operator-configured remote, so only its default source can be selected|
+
+    assert task["action_needed"] ==
+             ~S|The worker rejected the operation: invalid_request: policy "emisar-standard-v1" has no operator-configured remote, so only its default source can be selected| <>
+               "\nCorrect the condition the worker named, then retry this task."
+
+    refute task["action_needed"] =~ "Open the episode for details"
+
+    assert {:ok, rendered} = Renderer.render(projection.document)
+    json = Jason.encode!(rendered)
+    assert json =~ "Workspace setup · work never started · The worker rejected the operation"
+    assert json =~ "has no operator-configured remote"
+    refute json =~ "work_retry_exhausted"
+    refute json =~ "coop_operation_failed"
+    refute json =~ "{:"
+
+    # A worker that answers with a flood is still untrusted text: the card stays
+    # inside its own bound and keeps the step the operator needs. The settled
+    # turn keeps its shape throughout; only the words the host saved differ.
+    saved!(
+      fixture,
+      ~s|work_retry_exhausted: {:coop_operation_failed, "invalid_request", "#{String.duplicate("b", 4_000)}"}|
+    )
+
+    assert {:ok, flooded} = TaskCardProjection.build(fixture.card)
+    flooded_task = flooded.document["task_card"]
+
+    assert String.length(flooded_task["action_needed"]) <= 2_000
+    assert flooded_task["action_needed"] =~ "Correct the condition the worker named"
+    assert String.length(stage(flooded_task, "workspace_setup")["detail"]) == 200
+    assert {:ok, _bounded} = Renderer.render(flooded.document)
+
+    # An error the host genuinely cannot characterise keeps the generic notice —
+    # and still never prints the term it could not read.
+    saved!(fixture, "work_execution_failed: {:work_execution_failed, :unknown}")
+
+    assert {:ok, unreadable} = TaskCardProjection.build(fixture.card)
+    unreadable_task = unreadable.document["task_card"]
+
+    assert unreadable_task["action_needed"] ==
+             "Task work is blocked and needs operator attention. Open the episode for details."
+
+    assert stage(unreadable_task, "workspace_setup")["detail"] == "work never started"
+
+    assert {:ok, generic} = Renderer.render(unreadable.document)
+    refute Jason.encode!(generic) =~ "work_execution_failed"
+  end
+
   test "task-card refresh failures defer exact custody and workers reject unsafe options" do
     fixture = delivered_offer!("defer")
     assert {:ok, _confirmation} = TaskOffers.confirm(confirmation(fixture))
@@ -978,6 +1045,61 @@ defmodule Responder.State.TaskOffersTest do
   end
 
   defp stage(task, stage), do: Enum.find(task["stages"], &(&1["stage"] == stage))
+
+  # A task the retry ladder gave up on before any worker turn was bound, taken
+  # through the genuine custody path the dispatcher uses: request_block with the
+  # exhausted reason, then settlement on an absent-turn receipt because no
+  # remote session was ever created. Nothing is held, and coop_turn_id is nil.
+  defp never_started_card!(suffix, detail) do
+    fixture = confirmed_card!(suffix)
+    assert {:ok, claim} = Custody.claim_next("task-card:#{suffix}", 60, :work)
+    assert claim.episode.id == fixture.episode.id
+    assert :ok = KnowledgeSnapshot.expose(claim, [])
+
+    assert {:ok, _requested} =
+             Custody.request_block(
+               claim.episode.id,
+               claim.episode.key,
+               claim.turn.turn_ref,
+               claim.lease_ref,
+               detail
+             )
+
+    assert {:ok, blocking} = Custody.claim_next("task-card:#{suffix}:block", 60, :work)
+
+    assert {:ok, receipt} =
+             Cancellation.absent_receipt(
+               "responder:work:create:#{claim.session.id}:g#{claim.session.create_generation}",
+               nil,
+               nil,
+               nil,
+               nil
+             )
+
+    assert {:ok, settled} =
+             Custody.settle_cancellation(
+               claim.episode.id,
+               claim.episode.key,
+               claim.turn.turn_ref,
+               blocking.lease_ref,
+               receipt
+             )
+
+    assert settled.turn.status == :blocked
+    assert settled.turn.coop_turn_id == nil
+    assert settled.turn.last_error_detail == detail
+
+    fixture
+  end
+
+  # The same settled blocked turn with different saved words.
+  defp saved!(fixture, detail) do
+    {1, _rows} =
+      Repo.update_all(
+        from(turn in Turn, where: turn.episode_id == ^fixture.episode.id),
+        set: [last_error_detail: detail]
+      )
+  end
 
   # The harvested hosted-runner turn: a completed worker whose working copy the
   # host could not snapshot, on a session that was then closed. Its exact final

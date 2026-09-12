@@ -532,6 +532,15 @@ carries the cause — `! Workspace setup · no saved snapshot · session closed`
 worker did reach keep their own dispositions. A pull request published earlier stays linked from
 its Draft PR row, marked `↻ #91 · earlier snapshot, newer work not saved`.
 
+When the work never started at all — the host blocked the turn before any worker turn was bound —
+that same row says so in the host's own words instead of the saved error term:
+`! Workspace setup · work never started · The worker rejected the operation: …`, with the worker's
+own sentence quoted, redacted, bounded and escaped, and never the enum, the tuple or the session
+identifier around it. Action needed carries the same cause and the step that answers it, so the
+card names a condition rather than pointing at the episode. A saved error the host cannot
+characterise keeps `! Workspace setup · work never started` and the generic notice, because a
+cause nobody has is not one to invent.
+
 ## Controls
 
 Card buttons change with state rather than presenting actions that cannot succeed. Publication,
