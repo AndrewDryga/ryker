@@ -448,9 +448,6 @@ defmodule Responder.Slack.Gateway do
         # a crash between commit and acknowledgement retains one repaint intent.
         acknowledge_interaction(interaction, outcome, :confirmed, settings)
 
-      {:ok, %{outcome: :resumed, work_ref: _work_ref}} ->
-        acknowledge_interaction(interaction, :resumed, :confirmed, settings)
-
       {:ok, %{outcome: outcome}}
       when outcome in [:deleted, :forgotten, :resumed] and
              interaction.action_id in ~w(responder_delete_schedule responder_delete_behavior responder_forget_memory responder_resume_behavior) ->

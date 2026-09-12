@@ -277,7 +277,7 @@ defmodule Responder.Slack.TaskCardProjectionTest do
     turn = Repo.one!(from(turn in Turn, where: turn.episode_id == ^episode.id))
 
     assert card["resume_ref"] ==
-             "#{card_record.ref}|#{Responder.Work.Custody.recovery_fingerprint(turn)}"
+             "#{card_record.ref}|#{Custody.recovery_fingerprint(turn)}"
 
     assert {:ok, rendered} = Renderer.render(%{"task_card" => card})
 
