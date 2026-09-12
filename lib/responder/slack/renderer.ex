@@ -12,7 +12,7 @@ defmodule Responder.Slack.Renderer do
   alias Responder.Emisar.ApprovalStatus
   alias Responder.Publication.Card, as: PublicationCard
   alias Responder.Slack.{Mentions, ReplyRecords, TaskCardDetails}
-  alias Responder.State.RecordPayload
+  alias Responder.State.{InvestigationPayload, RecordPayload}
 
   @maximum_message_characters 20_000
   @maximum_markdown_characters 12_000
@@ -22,6 +22,11 @@ defmodule Responder.Slack.Renderer do
   @maximum_button_characters 75
   @reference ~r/\A(?:record|publication):[A-Za-z0-9_.:-]{1,240}\z/
   @investigation_kinds ~w(evidence coverage finding progress goal goal_state alert_assessment)
+  @goal_states InvestigationPayload.goal_states()
+  # A room that set more goals than this is not asking a responder to read them
+  # all on a phone; the projection sends the first eight, each compacted.
+  @incident_goals 8
+  @goal_outcome 200
   @incident_statuses ~w(provisioning investigating action_required waiting_for_input waiting_for_event stopping resolved cancelled paused)
   @task_statuses ~w(queued working waiting_for_input waiting_for_event action_required stopping reviewing ready_to_publish published completed cancelled)
   @task_fields ~w(action_needed confirmed_at confirmed_by controls episode_state publication repository session_generation stages status summary task_ref title ui_revision updated_at work_state)
@@ -316,6 +321,7 @@ defmodule Responder.Slack.Renderer do
            "alert" => alert,
            "controls" => controls,
            "episode_state" => episode_state,
+           "goals" => goals,
            "opened_at" => opened_at,
            "opened_by" => opened_by,
            "repository" => repository,
@@ -331,7 +337,7 @@ defmodule Responder.Slack.Renderer do
            "updated_at" => updated_at
          } = room
        )
-       when map_size(room) == 17 and is_map(source) and status in @incident_statuses do
+       when map_size(room) == 18 and is_map(source) and status in @incident_statuses do
     with :ok <- incident_reference(room_ref),
          :ok <- bounded_text(opened_by, 1_024),
          :ok <- bounded_text(repository, 256),
@@ -343,6 +349,7 @@ defmodule Responder.Slack.Renderer do
          :ok <- incident_source(source),
          :ok <- incident_alert(alert),
          :ok <- incident_signals(signals),
+         :ok <- incident_goals(goals),
          :ok <- incident_generation(session_generation),
          :ok <- work_controls(controls),
          :ok <- positive_integer(ui_revision),
@@ -367,6 +374,7 @@ defmodule Responder.Slack.Renderer do
             "Severity: *#{mrkdwn(severity)}* · Signals: #{mrkdwn(signal_text)}\nRepository: `#{mrkdwn(repository)}` · Episode: `#{mrkdwn(episode_state)}` · Session: `#{session_text}`"
           ),
           incident_alert_block(alert),
+          incident_goals_block(goals),
           incident_action_block(action_needed),
           work_controls_block(room_ref, controls, :incident),
           section(
@@ -385,6 +393,25 @@ defmodule Responder.Slack.Renderer do
   end
 
   defp render_incident_room(_room), do: {:error, {:invalid_slack_render, :incident_room}}
+
+  # "What have we actually established" is the whole question on an incident
+  # card, and it carried only a prose summary. Each goal with where it stands,
+  # bounded, in the order the investigation set them.
+  defp incident_goals_block([]), do: nil
+
+  defp incident_goals_block(goals) do
+    rendered =
+      Enum.map_join(goals, "\n", fn goal ->
+        "#{incident_goal_marker(goal["state"])} #{mrkdwn(goal["outcome"])}"
+      end)
+
+    section("*What this investigation is establishing*\n#{rendered}")
+  end
+
+  defp incident_goal_marker("completed"), do: "✓"
+  defp incident_goal_marker("blocked"), do: "!"
+  defp incident_goal_marker("working"), do: "▸"
+  defp incident_goal_marker(_state), do: "○"
 
   defp render_task_card(
          %{
@@ -828,6 +855,19 @@ defmodule Responder.Slack.Renderer do
   end
 
   defp incident_signals(_signals), do: {:error, :invalid_incident_signals}
+
+  defp incident_goals(goals) when is_list(goals) and length(goals) <= @incident_goals do
+    if Enum.all?(goals, &incident_goal?/1), do: :ok, else: {:error, :invalid_incident_goals}
+  end
+
+  defp incident_goals(_goals), do: {:error, :invalid_incident_goals}
+
+  defp incident_goal?(%{"id" => id, "outcome" => outcome, "state" => state} = goal)
+       when map_size(goal) == 3 and state in @goal_states do
+    bounded_text(id, 120) == :ok and bounded_text(outcome, @goal_outcome) == :ok
+  end
+
+  defp incident_goal?(_goal), do: false
 
   defp incident_signal_text(%{"firing" => nil, "total" => nil}), do: "not supplied"
 

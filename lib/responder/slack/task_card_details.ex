@@ -7,9 +7,10 @@ defmodule Responder.Slack.TaskCardDetails do
   handoff is marked beside the item that needs the person.
   """
 
+  alias Responder.State.InvestigationPayload
   alias Responder.Work.TaskStages
 
-  @goal_states ~w(ready working waiting completed blocked excluded cancelled)
+  @goal_states InvestigationPayload.goal_states()
   @stage_states ~w(pending running waiting completed failed stale skipped stopped unknown)
   @stage_keys ~w(current detail stage state subtasks subtasks_total url your_turn)
   @subtask_keys ~w(current detail id outcome state)

@@ -13,11 +13,12 @@ defmodule Responder.Slack.IncidentRoomCard do
   alias Responder.Episodes.Episode
   alias Responder.Repo
   alias Responder.Slack.IncidentRoom
-  alias Responder.State.Record
+  alias Responder.State.{Record, Records}
   alias Responder.Work.{Session, Turn}
 
   @ui_revision 2
   @record_kinds ~w(alert_assessment event_wait input_request progress)
+  @goals_shown 8
 
   @spec build(IncidentRoom.t()) ::
           {:ok, %{document: map(), fingerprint: String.t(), ui_revision: pos_integer()}}
@@ -45,6 +46,7 @@ defmodule Responder.Slack.IncidentRoomCard do
        "alert" => nil,
        "controls" => [],
        "episode_state" => "provisioning",
+       "goals" => [],
        "session_generation" => nil,
        "severity" => "not supplied",
        "signals" => %{"firing" => nil, "total" => nil},
@@ -71,6 +73,7 @@ defmodule Responder.Slack.IncidentRoomCard do
            "alert" => alert(records),
            "controls" => controls(episode, turn, session),
            "episode_state" => Atom.to_string(episode.state),
+           "goals" => goals(episode.id),
            "session_generation" => session && session.generation,
            "severity" => "not supplied",
            "signals" => %{"firing" => nil, "total" => nil},
@@ -95,6 +98,26 @@ defmodule Responder.Slack.IncidentRoomCard do
       "title" => room.title,
       "ui_revision" => @ui_revision
     }
+  end
+
+  # What the investigation set out to establish, and where each of those stands.
+  # The task card has carried this ledger since 405e9443; an incident room, the
+  # one surface where "what have we actually found" is the whole question, had
+  # only a prose summary. The task's seven build stages are meaningless here, so
+  # this is the goals themselves, bounded and in the order they were set. A goal
+  # a later attempt superseded is not part of what the room is establishing now.
+  defp goals(episode_id) do
+    episode_id
+    |> Records.goals()
+    |> Enum.reject(& &1["successor_id"])
+    |> Enum.take(@goals_shown)
+    |> Enum.map(
+      &%{
+        "id" => &1["id"],
+        "outcome" => compact(&1["requested_outcome"], 200),
+        "state" => &1["state"]
+      }
+    )
   end
 
   defp latest_records(episode_id) do

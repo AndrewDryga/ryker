@@ -998,6 +998,28 @@ defmodule Responder.Slack.IncidentRoomsTest do
                "question" => "Should we roll back the checkout deployment?"
              })
 
+    # The 2026-09-12 coverage measurement: an incident card carried a prose
+    # summary and no ledger, on the one surface where "what have we actually
+    # established" is the whole question. The task card has had this since
+    # 405e9443.
+    assert {:ok, _goal} =
+             Records.create(Records.token(claim.turn), "scope", "goal", %{
+               "authority" => "read_only",
+               "completion_contract" => "The affected service is named from a current signal.",
+               "id" => "confirm-scope",
+               "kind" => "check",
+               "requested_outcome" => "Confirm which service is affected",
+               "required" => true,
+               "stage" => "planning"
+             })
+
+    assert {:ok, _state} =
+             Records.create(Records.token(claim.turn), "scope-done", "goal_state", %{
+               "detail" => "Checkout is the affected service.",
+               "goal_id" => "confirm-scope",
+               "state" => "completed"
+             })
+
     assert {:ok, _waiting} =
              Episodes.apply(
                EpisodeFixtures.start_wait(%{
@@ -1010,6 +1032,15 @@ defmodule Responder.Slack.IncidentRoomsTest do
 
     assert {:ok, projection} = IncidentRoomCard.build(input_wait.room)
     card = projection.document["incident_room"]
+
+    assert card["goals"] == [
+             %{
+               "id" => "confirm-scope",
+               "outcome" => "Confirm which service is affected",
+               "state" => "completed"
+             }
+           ]
+
     assert card["status"] == "waiting_for_input"
     assert card["action_needed"] =~ "roll back"
 
