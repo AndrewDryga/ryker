@@ -29,12 +29,12 @@ defmodule Responder.Slack.Renderer do
   @goal_outcome 200
   @incident_statuses ~w(provisioning investigating action_required waiting_for_input waiting_for_event stopping resolved cancelled paused)
   @task_statuses ~w(queued working waiting_for_input waiting_for_event action_required stopping reviewing ready_to_publish published completed cancelled)
-  @task_fields ~w(action_needed confirmed_at confirmed_by controls episode_state publication repository session_generation stages status summary task_ref title ui_revision updated_at work_state)
+  @task_fields ~w(action_needed confirmed_at confirmed_by controls episode_state publication repository resume_ref session_generation stages status summary task_ref title ui_revision updated_at work_state)
   # The work document is shared with the control-plane card, which owns diff
   # reading. `view_diff` stays a valid document control there and never becomes
   # a Slack control: Slack links out and never pages a patch.
-  @work_controls ~w(stop view_diff close timeline evidence handoff recovery postmortem)
-  @work_buttons ~w(stop close)
+  @work_controls ~w(stop resume view_diff close timeline evidence handoff recovery postmortem)
+  @work_buttons ~w(stop resume close)
   @record_controls ~w(timeline evidence handoff recovery postmortem)
   @confirmation_kinds ~w(automation_change_offer guidance_offer memory_offer preference_offer schedule_offer standing_assignment_offer)
   @saved_entity_kinds ~w(schedule standing_rule preference guidance memory)
@@ -435,6 +435,8 @@ defmodule Responder.Slack.Renderer do
     repository_url = Map.get(task, "repository_url")
 
     with true <- Map.keys(task) -- (@task_fields ++ ~w(question_url repository_url request)) == [],
+         :ok <- work_controls(controls),
+         :ok <- resume_reference(task["resume_ref"], controls),
          true <- TaskCardDetails.valid?(task),
          :ok <- task_reference(task_ref),
          :ok <- bounded_text(confirmed_by, 1_024),
@@ -466,7 +468,7 @@ defmodule Responder.Slack.Renderer do
            task_publication_blocks(task_ref, repository, publication) ++
            [
              incident_action_block(action_needed),
-             work_controls_block(task_ref, controls, :task),
+             work_controls_block(task_ref, controls, :task, task["resume_ref"]),
              TaskCardDetails.context("_Updated #{display_time(updated_at)}_")
            ])
         |> Enum.reject(&is_nil/1)
@@ -494,13 +496,34 @@ defmodule Responder.Slack.Renderer do
 
   defp work_controls(_controls), do: {:error, :invalid_work_controls}
 
-  defp work_controls_block(_work_ref, [], _kind), do: nil
+  # A resume button is only as safe as the fingerprint it carries, so the card
+  # may not offer the control without one, and may not carry one it cannot use.
+  defp resume_reference(nil, controls) do
+    if "resume" in controls, do: {:error, :invalid_work_controls}, else: :ok
+  end
 
-  defp work_controls_block(work_ref, controls, kind) do
+  defp resume_reference(reference, controls) when is_binary(reference) do
+    with true <- "resume" in controls,
+         [work_ref, fingerprint] <- String.split(reference, "|", parts: 2),
+         :ok <- task_reference(work_ref),
+         true <- Regex.match?(~r/\A[0-9a-f]{64}\z/, fingerprint) do
+      :ok
+    else
+      _invalid -> {:error, :invalid_work_controls}
+    end
+  end
+
+  defp resume_reference(_reference, _controls), do: {:error, :invalid_work_controls}
+
+  defp work_controls_block(work_ref, controls, kind, resume_ref \\ nil)
+
+  defp work_controls_block(_work_ref, [], _kind, _resume_ref), do: nil
+
+  defp work_controls_block(work_ref, controls, kind, resume_ref) do
     buttons =
       controls
       |> Enum.filter(&(&1 in @work_buttons))
-      |> Enum.map(&work_button(&1, work_ref, kind))
+      |> Enum.map(&work_button(&1, if(&1 == "resume", do: resume_ref, else: work_ref), kind))
 
     records = Enum.filter(controls, &(&1 in record_controls(kind)))
 
@@ -535,6 +558,20 @@ defmodule Responder.Slack.Renderer do
       "Stop current run",
       "Cancel only the active agent turn. The task, session context, queue, and working copy remain available for a later correction.",
       "Stop run"
+    )
+  end
+
+  # Resuming carries the recovery fingerprint of the turn the card was rendered
+  # against, so a stale card cannot restart work that has already moved on.
+  defp work_button("resume", resume_ref, _kind) do
+    button(
+      "responder_resume_work",
+      "Resume task",
+      resume_ref,
+      "primary",
+      "Resume this task?",
+      "Continue from the stopped run, in the same session and working copy. Nothing already done is repeated.",
+      "Resume task"
     )
   end
 
@@ -2122,6 +2159,24 @@ defmodule Responder.Slack.Renderer do
     ]
   end
 
+  # One offer owns both incident paths; the host starts exactly one of them.
+  defp task_offer_blocks(ref, %{
+         "kind" => "incident",
+         "repository" => repository,
+         "title" => title
+       }) do
+    summary =
+      case repository do
+        nil -> "*#{mrkdwn(title)}*"
+        value -> "*#{mrkdwn(title)}*\nRepository: `#{mrkdwn(value)}`"
+      end
+
+    [
+      section(summary),
+      actions(ref, [investigate_button(ref), incident_button(ref)])
+    ]
+  end
+
   # What the task will do, from the fields the host validated. The offer's
   # `prompt` is the worker's own instruction and never appears here: this card
   # carries a button that grants authority, and d98b1d9f keeps model-authored
@@ -2158,24 +2213,6 @@ defmodule Responder.Slack.Renderer do
        do: " · #{mrkdwn(kind)} `#{mrkdwn(name)}`"
 
   defp offer_source(_offer), do: ""
-
-  # One offer owns both incident paths; the host starts exactly one of them.
-  defp task_offer_blocks(ref, %{
-         "kind" => "incident",
-         "repository" => repository,
-         "title" => title
-       }) do
-    summary =
-      case repository do
-        nil -> "*#{mrkdwn(title)}*"
-        value -> "*#{mrkdwn(title)}*\nRepository: `#{mrkdwn(value)}`"
-      end
-
-    [
-      section(summary),
-      actions(ref, [investigate_button(ref), incident_button(ref)])
-    ]
-  end
 
   defp confirmed_task_offer_blocks(%{"kind" => "engineering", "title" => title}, _presentation),
     do: [section("*#{mrkdwn(title)}*\n✓ Task started in this thread.")]

@@ -322,6 +322,38 @@ defmodule Responder.Work.TaskStagesTest do
              ~w(working ready ready completed completed completed)
   end
 
+  test "the published stages link to the pull request and the checks that ran" do
+    # Read on a phone, "Draft PR · #617" and "CI · 6/6" are the two rows a person
+    # wants to open, and neither was a link: the pull request URL reached only
+    # the draft row, and the checks URL the followup already stores reached
+    # nothing at all.
+    settled =
+      facts(
+        episode: %Episode{state: :complete, owner_kind: :turn},
+        turn: %Turn{status: :settled, coop_turn_id: "turn-1"},
+        publication: published(~U[2026-09-11 10:00:00.000000Z]),
+        followup: %Followup{
+          checks_failed: 0,
+          checks_passed: 6,
+          checks_state: "passing",
+          checks_total: 6,
+          checks_url: "https://github.com/acme/responder/actions/runs/1",
+          pr_state: "open"
+        },
+        plan:
+          plan([
+            goal("drain", "implementation", "completed", %{}, 1),
+            goal("review", "self_review", "completed", %{}, 3)
+          ])
+      )
+
+    stages = Map.new(TaskStages.build(settled), &{&1["stage"], &1})
+
+    assert stages["draft_pr"]["url"] =~ "/pull/"
+    assert stages["ci"]["url"] == "https://github.com/acme/responder/actions/runs/1"
+    assert stages["review_and_merge"]["url"] == stages["draft_pr"]["url"]
+  end
+
   test "newer implementation work marks the previous checks and draft as stale instead of green" do
     completed_review = [
       goal("drain", "implementation", "completed", %{}, 1),

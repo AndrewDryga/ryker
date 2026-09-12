@@ -16,7 +16,7 @@ defmodule Responder.Slack.TaskCardProjection do
   alias Responder.Settings
   alias Responder.Slack.{Permalink, TaskCard}
   alias Responder.State.{DerivedContext, Record, Records}
-  alias Responder.Work.{FailureCause, Session, TaskStages, Turn}
+  alias Responder.Work.{Custody, FailureCause, Session, TaskStages, Turn}
 
   @ui_revision 6
   @publication_conflicts ~w(publication_branch_already_exists publication_branch_changed publication_existing_pull_request_changed publication_pull_request_mismatch)
@@ -111,6 +111,7 @@ defmodule Responder.Slack.TaskCardProjection do
       "title" => record.payload["title"],
       "ui_revision" => @ui_revision,
       "updated_at" => DateTime.to_iso8601(updated_at(episode)),
+      "resume_ref" => resume_ref(task_ref, turn),
       "work_state" => turn && Atom.to_string(turn.status)
     }
 
@@ -654,12 +655,27 @@ defmodule Responder.Slack.TaskCardProjection do
   defp controls(record, episode, turn, session, publication, hold) do
     []
     |> maybe_control(stop_allowed?(episode, turn), "stop")
+    |> maybe_control(resumable?(turn), "resume")
     |> maybe_control(is_nil(hold) and bound_session?(session), "view_diff")
     |> maybe_control(close_allowed?(episode, turn, publication), "close")
     |> Kernel.++(~w(timeline evidence handoff))
     |> maybe_control(not is_nil(hold), "recovery")
     |> maybe_control(incident?(record), "postmortem")
   end
+
+  # A run an operator stopped could only be continued from the control plane, so
+  # a person who stopped one in Slack had nowhere to say "carry on" from. The
+  # button carries the recovery fingerprint the card was rendered against, which
+  # is the same guard the control-plane action uses: a card that has gone stale
+  # cannot resume a turn that has moved on.
+  defp resumable?(%Turn{status: :blocked, cancellation_intent: %{"action" => "block"}}), do: true
+  defp resumable?(_turn), do: false
+
+  defp resume_ref(task_ref, %Turn{} = turn) do
+    if resumable?(turn), do: "#{task_ref}|#{Custody.recovery_fingerprint(turn)}"
+  end
+
+  defp resume_ref(_task_ref, _turn), do: nil
 
   defp incident?(%Record{payload: %{"kind" => "incident"}}), do: true
   defp incident?(_record), do: false

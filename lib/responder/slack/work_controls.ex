@@ -42,6 +42,24 @@ defmodule Responder.Slack.WorkControls do
     end
   end
 
+  @doc """
+  Continue a run an operator stopped, from the exact turn the card showed.
+
+  `expected_recovery` is the fingerprint the card carried, so a stale card
+  refuses rather than restarting work that has moved on since.
+  """
+  @spec resume(map()) :: {:ok, map()} | {:error, term()}
+  def resume(%{expected_recovery: fingerprint} = attributes) when is_binary(fingerprint) do
+    with {:ok, prepared} <-
+           attributes(Map.delete(attributes, :expected_recovery), @control_fields),
+         {:ok, resolved} <- WorkTarget.resolve(prepared.work_ref, prepared.target),
+         {:ok, episode} <- Custody.retry_blocked(resolved.episode.key, fingerprint) do
+      {:ok, %{outcome: :resumed, episode: episode, work_ref: resolved.work_ref}}
+    end
+  end
+
+  def resume(_attributes), do: {:error, :invalid_slack_work_control}
+
   @spec close(map()) :: {:ok, map()} | {:error, term()}
   def close(attributes) do
     with {:ok, attributes} <- attributes(attributes, @control_fields),
