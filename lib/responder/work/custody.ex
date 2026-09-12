@@ -558,6 +558,32 @@ defmodule Responder.Work.Custody do
   end
 
   @doc """
+  Releases the fence of a create that provably never reached Coop.
+
+  A create is fenced on its turn before it is attempted, so a response the host
+  never saw can never become a blind second remote session. `operation_by_key`
+  answering `:not_found` is the proof there is nothing to be blind about: no
+  operation exists under the key, so nothing crossed the boundary and no session
+  was made. The generation is not spent, because nothing spent it — the key is
+  free to be attempted again. An unresolved or uncertain outcome never reaches
+  here and keeps the fence.
+  """
+  @spec release_session_create(Ecto.UUID.t(), String.t(), String.t(), String.t()) ::
+          {:ok, Turn.t()} | {:error, term()}
+  def release_session_create(episode_id, turn_ref, lease_ref, operation_key) do
+    with {:ok, episode_id} <- uuid(episode_id, :episode_id),
+         :ok <- reference(turn_ref, :turn_ref),
+         :ok <- reference(lease_ref, :lease_ref),
+         :ok <- reference(operation_key, :operation_key) do
+      Repo.transaction(fn ->
+        {_session, turn} = leased!(episode_id, turn_ref, lease_ref)
+        clear_remote_operation!(turn, "create_session", operation_key)
+      end)
+      |> transaction_result()
+    end
+  end
+
+  @doc """
   Moves an unsubmitted logical turn to the next immutable Coop session generation.
 
   The caller must first prove the currently bound remote session is exhausted or

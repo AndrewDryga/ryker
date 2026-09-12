@@ -2635,6 +2635,178 @@ defmodule Responder.Work.ExecutorTest do
     refute stale_binding.token == expected_binding.token
   end
 
+  # Found live 2026-09-12 — an operator retry of a failed create blocked instantly on
+  # work_remote_operation_in_flight and every further retry repeated it; the documented
+  # recovery path had no exit. The fleet fails an unbound session whose placement is gone
+  # closed forever (coop_fleet/control_plane_test, "a bound session reacquires its worker"),
+  # so the create never reaches a worker and no durable command is ever enqueued. The host
+  # had still written the fence before the call, so the session replacement the lost
+  # placement forces was refused as "an operation is in flight" on every later attempt.
+  test "a create the fleet never enqueued does not fence its session replacement" do
+    claim = claim_episode!("retry-fence-unenqueued-create")
+    {:ok, fake} = fake_for(claim, [reply("The replacement session completed the work.")])
+
+    placement_lost =
+      {:error, {:coop_session_replacement_required, claim.session.id, claim.session.generation}}
+
+    {:ok, attempts} = Agent.start_link(fn -> 0 end)
+
+    refuse_first_create = fn fallback ->
+      case Agent.get_and_update(attempts, &{&1, &1 + 1}) do
+        0 -> placement_lost
+        _later -> fallback.()
+      end
+    end
+
+    assert {:ok, %{status: :accepted}} =
+             Executor.run(claim, protocol_options(fake, %{create_session: refuse_first_create}))
+
+    sessions = episode_sessions(claim)
+    assert Enum.map(sessions, & &1.generation) == [1, 2]
+
+    [original, replacement] = sessions
+
+    # Nothing was spent on a key Coop never saw, and exactly one create reached a worker.
+    assert original.create_generation == 1
+    assert replacement.create_generation == 1
+    assert FakeAPI.state(fake).create_keys == ["responder:work:create:#{replacement.id}:g1"]
+  end
+
+  # The other half of the same fence, and the reason it exists: while the outcome of a
+  # create is genuinely unknown the host must never replace the session, because the
+  # replacement's create would be a second remote session for the same work. Uncertain,
+  # unfinished, and unreachable are all unknown.
+  test "a create whose outcome is unknown never gets a second remote create" do
+    uncertain = claim_episode!("retry-fence-uncertain-create")
+    {:ok, uncertain_fake} = fake_for(uncertain, [reply("unused")])
+    {:ok, uncertain_reads} = Agent.start_link(fn -> 0 end)
+
+    assert {:error,
+            {:work_execution_blocked,
+             {:coop_operation_uncertain, "operation_uncertain", _uncertain_detail}}} =
+             Executor.run(
+               uncertain,
+               protocol_options(uncertain_fake, %{
+                 create_session: fn _fallback -> placement_lost(uncertain) end,
+                 operation_by_key:
+                   first_not_found_then(
+                     uncertain_reads,
+                     uncertain_operation("operation_uncertain", "CreateRemoteSession")
+                   )
+               })
+             )
+
+    assert FakeAPI.state(uncertain_fake).create_count == 0
+    assert Enum.map(episode_sessions(uncertain), & &1.generation) == [1]
+
+    running = claim_episode!("retry-fence-running-create")
+    {:ok, running_fake} = fake_for(running, [reply("unused")])
+    {:ok, running_reads} = Agent.start_link(fn -> 0 end)
+
+    assert Executor.run(
+             running,
+             running_fake
+             |> protocol_options(%{
+               create_session: fn _fallback -> placement_lost(running) end,
+               operation_by_key:
+                 first_not_found_then(running_reads, running_operation("CreateRemoteSession"))
+             })
+             |> Keyword.put(:max_polls, 1)
+           ) == {:error, {:work_poll_window_elapsed, :operation}}
+
+    assert FakeAPI.state(running_fake).create_count == 0
+    assert Enum.map(episode_sessions(running), & &1.generation) == [1]
+
+    unreachable = claim_episode!("retry-fence-unreachable-create")
+    {:ok, unreachable_fake} = fake_for(unreachable, [reply("unused")])
+    {:ok, unreachable_reads} = Agent.start_link(fn -> 0 end)
+
+    lose_reconciliation = fn _fallback ->
+      Agent.get_and_update(unreachable_reads, fn
+        0 -> {:not_found, 1}
+        count -> {placement_lost(unreachable), count + 1}
+      end)
+    end
+
+    assert Executor.run(
+             unreachable,
+             protocol_options(unreachable_fake, %{
+               create_session: fn _fallback -> placement_lost(unreachable) end,
+               operation_by_key: lose_reconciliation
+             })
+           ) == {:error, :work_remote_operation_in_flight}
+
+    assert FakeAPI.state(unreachable_fake).create_count == 0
+    assert Enum.map(episode_sessions(unreachable), & &1.generation) == [1]
+  end
+
+  test "a reconciled create leaves nothing behind that blocks the next attempt" do
+    claim = claim_episode!("retry-fence-reconciled-create")
+    {:ok, reconciled_fake} = fake_for(claim, [reply("unused")])
+
+    FakeAPI.seed_operation(
+      reconciled_fake,
+      create_key(claim),
+      failed_operation("invalid_request", "CreateRemoteSession")
+    )
+
+    assert {:error,
+            {:work_generation_spent, :session_create,
+             {:coop_operation_failed, "invalid_request", _detail}}} =
+             Executor.run(claim, options(reconciled_fake))
+
+    next = reloaded(claim)
+    assert next.session.create_generation == 2
+
+    # The resolved create holds nothing shut: the next attempt loses its placement
+    # before it can create anything, and the session replacement proceeds.
+    {:ok, fake} = fake_for(next, [reply("The replacement session completed the work.")])
+    {:ok, reads} = Agent.start_link(fn -> 0 end)
+
+    lose_first_read = fn fallback ->
+      case Agent.get_and_update(reads, &{&1, &1 + 1}) do
+        0 -> placement_lost(next)
+        _later -> fallback.()
+      end
+    end
+
+    assert {:ok, %{status: :accepted}} =
+             Executor.run(next, protocol_options(fake, %{operation_by_key: lose_first_read}))
+
+    assert [spent, replacement] = episode_sessions(claim)
+    assert spent.create_generation == 2
+    assert FakeAPI.state(fake).create_keys == ["responder:work:create:#{replacement.id}:g1"]
+  end
+
+  test "one attempt spends one create generation and an accepted create is never replayed" do
+    claim = claim_episode!("retry-fence-generation-ledger")
+    {:ok, failed_fake} = fake_for(claim, [reply("unused")])
+
+    FakeAPI.seed_operation(
+      failed_fake,
+      create_key(claim),
+      failed_operation("invalid_request", "CreateRemoteSession")
+    )
+
+    assert {:error, {:work_generation_spent, :session_create, _reason}} =
+             Executor.run(claim, options(failed_fake))
+
+    spent = reloaded(claim)
+    assert spent.session.create_generation == 2
+    assert FakeAPI.state(failed_fake).create_count == 0
+
+    {:ok, accepted_fake} = fake_for(spent, [reply("The second generation completed the work.")])
+    assert {:ok, %{status: :accepted}} = Executor.run(spent, options(accepted_fake))
+
+    bound = Repo.get!(Session, claim.session.id)
+    assert bound.coop_session_id != nil
+    assert bound.create_generation == 2
+
+    assert FakeAPI.state(accepted_fake).create_keys == [
+             "responder:work:create:#{bound.id}:g2"
+           ]
+  end
+
   test "a bound turn remains pollable after its immutable session becomes exhausted" do
     claim = bound_turn!("bound-turn-exhausted-session")
     {:ok, fake} = fake_for(claim, [])
@@ -4510,6 +4682,26 @@ defmodule Responder.Work.ExecutorTest do
       "resource_type" => type,
       "state" => "succeeded"
     }
+  end
+
+  defp placement_lost(claim),
+    do: {:error, {:coop_session_replacement_required, claim.session.id, claim.session.generation}}
+
+  defp reloaded(claim) do
+    %{
+      claim
+      | session: Repo.get!(Session, claim.session.id),
+        turn: Repo.get!(Responder.Work.Turn, claim.turn.id)
+    }
+  end
+
+  defp episode_sessions(claim) do
+    Repo.all(
+      from(session in Session,
+        where: session.episode_id == ^claim.episode.id,
+        order_by: [asc: session.generation]
+      )
+    )
   end
 
   defp create_key(claim),

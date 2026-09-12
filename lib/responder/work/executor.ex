@@ -807,9 +807,35 @@ defmodule Responder.Work.Executor do
         reconcile_create_response(claim, key, :create_session_response, settings)
 
       {:error, _reason} = error ->
-        reconcile_after_transport(error, key, settings, fn operation ->
-          bind_session_from_operation(claim, operation, key, settings)
-        end)
+        reconcile_unreached_create(claim, key, settings, error)
+    end
+  end
+
+  # Found live 2026-09-12 — the fleet fails an unbound session whose placement is
+  # gone closed before it enqueues anything, so a create was fenced on the turn and
+  # then never reached Coop. Nothing resolved the fence, and the session replacement
+  # the lost placement forces refused itself with work_remote_operation_in_flight on
+  # every operator retry. `:not_found` is the host's proof that no operation exists
+  # under this key: the create never crossed the boundary, so the fence must not
+  # outlive the attempt. An operation the host cannot resolve keeps it.
+  defp reconcile_unreached_create(claim, key, settings, error) do
+    case operation_by_key(settings, key) do
+      {:ok, operation} ->
+        bind_session_from_operation(claim, operation, key, settings)
+
+      :not_found ->
+        case Custody.release_session_create(
+               claim.episode.id,
+               claim.turn.turn_ref,
+               claim.lease_ref,
+               key
+             ) do
+          {:ok, _turn} -> error
+          {:error, _reason} = release_error -> release_error
+        end
+
+      {:error, _unresolved} ->
+        error
     end
   end
 

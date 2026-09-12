@@ -839,6 +839,73 @@ defmodule Responder.Work.CustodyTest do
            ) == {:error, :work_lease_lost}
   end
 
+  # Found live 2026-09-12 — an operator retry of a failed create blocked instantly on
+  # work_remote_operation_in_flight and every further retry repeated it; the documented
+  # recovery path had no exit. Releasing a create that never reached Coop is the missing
+  # third outcome, not an override: it clears one exact key, under the turn's own lease,
+  # and spends nothing.
+  test "releasing a create fence needs the exact key it was frozen with" do
+    create_episode!("release-create-fence")
+    assert {:ok, claim} = Custody.claim_next("worker:release-create-fence", 60)
+
+    create = %{
+      kind: :create_session,
+      lease_seconds: 60,
+      maximum_block_ms: 1_000,
+      operation_key: "operation:create:release-create-fence",
+      operation_revision: nil
+    }
+
+    assert Custody.with_mutation_fence(
+             claim.episode.id,
+             claim.turn.turn_ref,
+             claim.lease_ref,
+             create,
+             fn -> :sent end
+           ) == :sent
+
+    assert Custody.release_session_create(
+             claim.episode.id,
+             claim.turn.turn_ref,
+             claim.lease_ref,
+             "operation:create:another"
+           ) ==
+             {:error,
+              {:work_remote_operation_conflict,
+               {"create_session", "operation:create:release-create-fence"}}}
+
+    assert Custody.release_session_create(
+             claim.episode.id,
+             claim.turn.turn_ref,
+             "work-lease:stale",
+             create.operation_key
+           ) == {:error, :work_lease_lost}
+
+    assert {:ok, released} =
+             Custody.release_session_create(
+               claim.episode.id,
+               claim.turn.turn_ref,
+               claim.lease_ref,
+               create.operation_key
+             )
+
+    assert released.remote_operation_kind == nil
+    assert released.remote_operation_key == nil
+
+    # The key was never used, so it is not spent: the next attempt reuses it and the
+    # session stays on the same create generation.
+    assert Custody.with_mutation_fence(
+             claim.episode.id,
+             claim.turn.turn_ref,
+             claim.lease_ref,
+             create,
+             fn -> :retried end
+           ) == :retried
+
+    assert Repo.get!(Responder.Work.Session, claim.session.id).create_generation ==
+             claim.session.create_generation
+  end
+
   test "state tools bind the exact turn after its remote session exists" do
     create_episode!("state-binding-order")
     assert {:ok, claim} = Custody.claim_next("worker:state-binding-order", 60)

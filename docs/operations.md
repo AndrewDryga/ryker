@@ -481,6 +481,15 @@ If shutdown happens during a remote mutation or visible delivery, let the
 typed reconciliation path determine whether the operation committed. Never
 retry a post or validation manually from copied bytes.
 
+A session create is fenced on its turn before it is attempted, so a response the
+host never saw can never become a second remote session. The fence is released
+only once the host knows the outcome: the key resolved to a created session, to a
+confirmed failure, or to nothing at all. An unbound session whose placement is
+gone fails closed before any worker command is enqueued, so no operation exists
+under its key and the session replacement that placement loss forces proceeds. An
+uncertain or unfinished operation keeps the fence, and its session is not replaced
+until that operation resolves.
+
 A review can finish after a worker request times out. Responder reconciles its
 original operation on the original placement and reads the saved review result;
 the timeout receipt is retained and the gate is not rerun. This requires the Coop
