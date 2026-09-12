@@ -2197,11 +2197,17 @@ defmodule Responder.ControlPlane.CardLab do
         "episode_state" => incident_episode_state(status),
         "goals" => [
           %{
+            "detail" => "Checkout is the affected service.",
             "id" => "confirm-scope",
             "outcome" => "Confirm which service is affected",
             "state" => "completed"
           },
-          %{"id" => "find-cause", "outcome" => "Establish the cause", "state" => "working"}
+          %{
+            "detail" => nil,
+            "id" => "find-cause",
+            "outcome" => "Establish the cause",
+            "state" => "working"
+          }
         ],
         "opened_at" => "2026-09-04T11:45:00.000000Z",
         "opened_by" => "slack:user:U123",

@@ -1035,6 +1035,7 @@ defmodule Responder.Slack.IncidentRoomsTest do
 
     assert card["goals"] == [
              %{
+               "detail" => "Checkout is the affected service.",
                "id" => "confirm-scope",
                "outcome" => "Confirm which service is affected",
                "state" => "completed"
