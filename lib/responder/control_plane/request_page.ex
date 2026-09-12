@@ -162,9 +162,12 @@ defmodule Responder.ControlPlane.RequestPage do
         @section.id == "request" && "final-prompt"
       ]}
       id={"#{@prefix}-#{@section.id}"}
-      open={assigns[:expanded_source] || @section.id == "validation"}
+      open={assigns[:expanded_source] || @section.id in ["request", "validation"]}
     >
-      <summary class="document-heading">
+      <summary
+        class={["document-heading", @section.id == "request" && "document-heading-fixed"]}
+        tabindex={if @section.id == "request", do: "-1"}
+      >
         <h4>{@heading}</h4><span>{artifact_label(@section.artifact)}{if @section.artifact.truncated,
           do: " · truncated display"}</span>
       </summary>

@@ -1915,7 +1915,6 @@ defmodule Responder.ControlPlane.EpisodeTrace do
         actor: "Coop",
         details: safe_payload_details(event.payload),
         stage: "Provider",
-        state: "backing off",
         summary: provider_backoff_summary(event.payload),
         title: "Provider rate limit",
         tone: :warn
@@ -1932,7 +1931,6 @@ defmodule Responder.ControlPlane.EpisodeTrace do
         actor: "Coop",
         details: safe_payload_details(event.payload),
         stage: "Provider",
-        state: "alive",
         summary: provider_alive_summary(event.payload),
         title: "Provider is still responding",
         tone: nil
@@ -2131,18 +2129,30 @@ defmodule Responder.ControlPlane.EpisodeTrace do
     end
   end
 
+  # The step used to say only which provider was limited, over a badge that
+  # repeated the title. What a reader needs is where the work goes instead.
   defp provider_backoff_summary(payload) do
     target = payload["target"] || payload["provider"]
-    reset = payload["reset_at"] || payload["retry_after"]
+    next_target = payload["next_target"]
+    reset = payload["reset_at"] || payload["retry_after"] || retry_in(payload)
 
-    [target && "#{target} is rate limited", reset && "retry #{reset}"]
-    |> Enum.reject(&is_nil/1)
-    |> Enum.join(" · ")
+    [
+      target && "#{target} is rate limited",
+      next_target && "#{next_target} will be used instead",
+      is_nil(next_target) && reset && "retrying #{reset}"
+    ]
+    |> Enum.filter(&is_binary/1)
+    |> Enum.join(", ")
     |> case do
       "" -> "Coop paused this turn at the provider's rate limit."
-      summary -> summary
+      summary -> summary <> "."
     end
   end
+
+  defp retry_in(%{"retry_after_seconds" => seconds}) when is_integer(seconds),
+    do: "in #{seconds}s"
+
+  defp retry_in(_payload), do: nil
 
   defp provider_alive_summary(payload) do
     frames = payload["frames"]
@@ -2950,7 +2960,9 @@ defmodule Responder.ControlPlane.EpisodeTrace do
       href: Map.get(attributes, :href),
       id: id,
       stage: human(Map.fetch!(attributes, :stage)),
-      state: human(Map.fetch!(attributes, :state)),
+      # A step whose badge would only restate its own title carries no state at
+      # all, rather than a word the reader has already read.
+      state: attributes |> Map.get(:state) |> optional_human(),
       summary: present(Map.fetch!(attributes, :summary)),
       title: present(Map.fetch!(attributes, :title)),
       tone: Map.get(attributes, :tone)
@@ -3539,6 +3551,9 @@ defmodule Responder.ControlPlane.EpisodeTrace do
   defp plural(value, noun), do: "#{value} #{noun}s"
   defp plural(1, noun, _plural), do: "1 #{noun}"
   defp plural(value, _noun, plural), do: "#{value} #{plural}"
+
+  defp optional_human(nil), do: nil
+  defp optional_human(value), do: human(value)
 
   defp human(nil), do: "unrecorded"
   defp human(value) when is_atom(value), do: value |> Atom.to_string() |> human()
