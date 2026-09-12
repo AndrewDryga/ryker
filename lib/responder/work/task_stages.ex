@@ -211,38 +211,52 @@ defmodule Responder.Work.TaskStages do
   defp ci(%{publication: %Publication{status: status}} = facts, stale?)
        when status in @published_statuses do
     checks = checks_detail(facts.followup)
+    # "CI · 6/6" is a row a person wants to open, and the followup has stored
+    # the run's own URL since it first polled GitHub.
+    url = facts.followup && facts.followup.checks_url
 
     cond do
       stale? ->
-        row("ci", "stale", detail: [checks, "on the published revision"] |> compact_join())
+        row("ci", "stale",
+          detail: [checks, "on the published revision"] |> compact_join(),
+          url: url
+        )
 
       is_nil(facts.followup) or facts.followup.checks_state == "unknown" ->
         row("ci", "waiting", detail: "waiting for GitHub")
 
       facts.followup.pr_state == "merged" ->
-        row("ci", "completed", detail: checks)
+        row("ci", "completed", detail: checks, url: url)
 
       facts.followup.checks_state == "none" ->
         row("ci", "skipped", detail: "no checks configured")
 
       facts.followup.checks_state == "failing" ->
-        row("ci", "failed", detail: checks)
+        row("ci", "failed", detail: checks, url: url)
 
       facts.followup.checks_state == "passing" ->
-        row("ci", "completed", detail: checks)
+        row("ci", "completed", detail: checks, url: url)
 
       true ->
-        row("ci", "running", detail: checks)
+        row("ci", "running", detail: checks, url: url)
     end
   end
 
   defp ci(_facts, _stale?), do: row("ci", "pending")
 
-  defp review_and_merge(%{followup: %Followup{pr_state: "merged"}}, _ci, _stale?),
-    do: row("review_and_merge", "completed", detail: "merged")
+  defp review_and_merge(%{followup: %Followup{pr_state: "merged"}} = facts, _ci, _stale?),
+    do:
+      row("review_and_merge", "completed",
+        detail: "merged",
+        url: publication_url(facts[:publication])
+      )
 
-  defp review_and_merge(%{followup: %Followup{pr_state: "closed"}}, _ci, _stale?),
-    do: row("review_and_merge", "stopped", detail: "closed without merging")
+  defp review_and_merge(%{followup: %Followup{pr_state: "closed"}} = facts, _ci, _stale?),
+    do:
+      row("review_and_merge", "stopped",
+        detail: "closed without merging",
+        url: publication_url(facts[:publication])
+      )
 
   defp review_and_merge(%{publication: %Publication{status: status} = publication}, ci, stale?)
        when status in @published_statuses do
@@ -253,11 +267,14 @@ defmodule Responder.Work.TaskStages do
     # turn", which reads as work that stood through its checks.
     if not stale? and ci["state"] in ~w(completed skipped) and
          is_nil(incomplete_check(publication.review_document)),
-       do: row("review_and_merge", "waiting", your_turn: true),
-       else: row("review_and_merge", "pending")
+       do: row("review_and_merge", "waiting", your_turn: true, url: publication.pull_request_url),
+       else: row("review_and_merge", "pending", url: publication.pull_request_url)
   end
 
   defp review_and_merge(_facts, _ci, _stale?), do: row("review_and_merge", "pending")
+
+  defp publication_url(%Publication{pull_request_url: url}), do: url
+  defp publication_url(_publication), do: nil
 
   defp unassigned(facts) do
     bucket = bucket(facts, "unassigned")

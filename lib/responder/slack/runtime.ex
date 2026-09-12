@@ -383,6 +383,7 @@ defmodule Responder.Slack.Runtime do
         request_publication_review: &Custody.request_review/1,
         repositories: repositories,
         show_work_record: &WorkControls.show_record(&1, work_record_options),
+        resume_work: &WorkControls.resume/1,
         stop_work: &WorkControls.stop/1
       },
       standing_matcher: &Behaviors.standing_match?/1,

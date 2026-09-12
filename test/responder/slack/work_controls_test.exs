@@ -11,7 +11,7 @@ defmodule Responder.Slack.WorkControlsTest do
 
   alias Responder.Slack.{TaskCardChangeset, WorkControls, WorkRecord, WorkTarget}
   alias Responder.State.Records
-  alias Responder.Work.Custody
+  alias Responder.Work.{Cancellation, Custody, Submission}
 
   @now ~U[2026-08-28 12:00:00.000000Z]
 
@@ -64,6 +64,55 @@ defmodule Responder.Slack.WorkControlsTest do
     episode = Repo.get!(Responder.Episodes.Episode, fixture.episode.id)
     assert episode.state == :working
     assert episode.owner_ref == fixture.claim.turn.turn_ref
+  end
+
+  test "a stopped task resumes from Slack, and a stale card cannot" do
+    # Stopping a run from Slack left no way back inside Slack: resuming lived
+    # only on the control-plane recovery page, so the card that offered Stop
+    # was a dead end for whoever pressed it.
+    fixture = task_fixture!("resume")
+    attributes = attributes(fixture.card.ref)
+    bound = bind_remote!(fixture)
+
+    assert {:ok, _stopping} = WorkControls.stop(attributes)
+    assert {:ok, claim} = Custody.claim_next("worker:resume-settle", 60, :work)
+
+    assert {:ok, receipt} =
+             Cancellation.terminal_receipt(
+               bound.session.coop_session_id,
+               bound.turn.coop_turn_id,
+               "cancelled",
+               Cancellation.operation_key(bound.turn.id, 1),
+               "closed",
+               "responder:work:cancel-close:#{bound.turn.id}:g1"
+             )
+
+    assert {:ok, settled} =
+             Custody.settle_cancellation(
+               fixture.episode.id,
+               fixture.episode.key,
+               fixture.claim.turn.turn_ref,
+               claim.lease_ref,
+               receipt
+             )
+
+    assert settled.turn.status == :blocked
+    fingerprint = Custody.recovery_fingerprint(settled.turn)
+
+    # A card rendered against a different turn state is refused outright.
+    stale = Map.put(attributes, :expected_recovery, String.duplicate("a", 64))
+    assert WorkControls.resume(stale) == {:error, :work_recovery_changed}
+
+    assert {:ok, resumed} =
+             WorkControls.resume(Map.put(attributes, :expected_recovery, fingerprint))
+
+    assert resumed.outcome == :resumed
+    assert resumed.work_ref == fixture.card.ref
+    assert resumed.episode.owner_ref =~ "turn:resume-blocked:"
+
+    # The work is claimable again, which is the whole point of the button.
+    assert {:ok, continued} = Custody.claim_next("worker:resume-continue", 60, :work)
+    assert continued.turn.turn_ref == resumed.episode.owner_ref
   end
 
   test "work records are evidence-backed and say when material conclusions are unknown" do
@@ -383,6 +432,48 @@ defmodule Responder.Slack.WorkControlsTest do
              {:error, :work_control_not_found}
 
     assert WorkTarget.resolve_thread("unknown", exact) == {:error, :work_control_not_found}
+  end
+
+  defp bind_remote!(fixture) do
+    claim = fixture.claim
+
+    assert {:ok, submission} =
+             Submission.new(
+               %{"request" => "resume"},
+               "Handle the request.",
+               %{"type" => "object"},
+               "work-final-v1"
+             )
+
+    assert {:ok, _frozen} =
+             Custody.freeze_submission(
+               fixture.episode.id,
+               claim.turn.turn_ref,
+               claim.lease_ref,
+               submission
+             )
+
+    assert {:ok, session} =
+             Custody.bind_session(
+               fixture.episode.id,
+               claim.turn.turn_ref,
+               claim.lease_ref,
+               claim.session.generation,
+               claim.session.create_generation,
+               "coop-session:#{fixture.episode.id}"
+             )
+
+    assert {:ok, turn} =
+             Custody.bind_turn(
+               fixture.episode.id,
+               claim.turn.turn_ref,
+               claim.lease_ref,
+               session.generation,
+               claim.turn.submit_generation,
+               "coop-turn:#{fixture.episode.id}"
+             )
+
+    %{session: session, turn: turn}
   end
 
   defp task_fixture!(suffix, options \\ []) do

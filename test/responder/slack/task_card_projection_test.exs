@@ -243,6 +243,50 @@ defmodule Responder.Slack.TaskCardProjectionTest do
     assert projection.document["task_card"]["publication"]["branch"] == publication.branch_ref
   end
 
+  test "a stopped task offers a resume bound to the turn it was rendered against" do
+    # The card that offers Stop has to offer the way back, or stopping from
+    # Slack means finishing from the control plane.
+    %{episode: episode} = PublicationFixture.review_requested!("stopped-task")
+
+    card_record = %Record{
+      kind: "task_offer",
+      status: :confirmed,
+      confirmed_episode_id: episode.id,
+      confirmed_at: DateTime.utc_now(),
+      confirmed_by_actor_ref: "slack:user:U1",
+      ref: "task-card:stopped-task",
+      payload: %{
+        "title" => "Fix parser retries",
+        "repository" => "responder",
+        "prompt" => "Make the parser retry safely."
+      }
+    }
+
+    {1, _rows} =
+      Repo.update_all(
+        from(turn in Turn, where: turn.episode_id == ^episode.id),
+        set: [
+          cancellation_intent: %{"action" => "block", "reason" => "operator stopped the run"},
+          status: :blocked
+        ]
+      )
+
+    assert {:ok, %{document: %{"task_card" => card}}} = TaskCardProjection.build(card_record)
+    assert "resume" in card["controls"]
+
+    turn = Repo.one!(from(turn in Turn, where: turn.episode_id == ^episode.id))
+
+    assert card["resume_ref"] ==
+             "#{card_record.ref}|#{Responder.Work.Custody.recovery_fingerprint(turn)}"
+
+    assert {:ok, rendered} = Renderer.render(%{"task_card" => card})
+
+    assert Enum.any?(
+             Enum.flat_map(rendered["blocks"], &Map.get(&1, "elements", [])),
+             &(&1["action_id"] == "responder_resume_work" and &1["value"] == card["resume_ref"])
+           )
+  end
+
   test "draft, CI and merge facts come from publication custody and its follow-up" do
     # The follow-up row already retained checks and merge receipts, but the
     # Slack card never read it: a merged task still said "Draft pull request
@@ -314,7 +358,8 @@ defmodule Responder.Slack.TaskCardProjectionTest do
     assert {:ok, rendered} = Renderer.render(merged.document)
     json = Jason.encode!(rendered)
     assert json =~ "✓ CI · 8/8"
-    assert json =~ "✓ Review and merge · merged"
+    # The row links to the pull request it merged.
+    assert json =~ "✓ <https://github.com/acme/responder/pull/91|Review and merge · merged>"
     assert json =~ "<https://github.com/acme/responder|responder>"
   end
 

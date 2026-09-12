@@ -266,6 +266,23 @@ defmodule Responder.Slack.InteractionHandler do
     end
   end
 
+  # Stopping a run left no way back inside Slack: the only resume lived on the
+  # control-plane recovery page. The button carries the fingerprint of the turn
+  # its card was rendered against, so a stale card cannot restart moved-on work.
+  defp dispatch_action(
+         %Interaction{action_id: "responder_resume_work"} = interaction,
+         work_ref,
+         %{expected_recovery: fingerprint},
+         options
+       ) do
+    with :ok <- configured_operator(interaction, options) do
+      interaction
+      |> work_attributes(work_ref)
+      |> Map.put(:expected_recovery, fingerprint)
+      |> options.resume_work.()
+    end
+  end
+
   defp dispatch_action(
          %Interaction{action_id: "responder_stop_work"} = interaction,
          work_ref,
@@ -740,6 +757,16 @@ defmodule Responder.Slack.InteractionHandler do
           _invalid ->
             {:error, :slack_action_mismatch}
         end
+
+      _invalid ->
+        {:error, :slack_action_mismatch}
+    end
+  end
+
+  defp selection(%Interaction{action_id: "responder_resume_work", action_value: action_value}) do
+    case String.split(action_value, "|", parts: 2) do
+      ["task-card:" <> _rest = work_ref, fingerprint] ->
+        {:ok, work_ref, %{expected_recovery: fingerprint}}
 
       _invalid ->
         {:error, :slack_action_mismatch}
