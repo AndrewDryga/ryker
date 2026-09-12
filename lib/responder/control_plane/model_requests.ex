@@ -302,6 +302,18 @@ defmodule Responder.ControlPlane.ModelRequests do
          pages: 1,
          total: 1,
          items: [%{id: id, status: entry.status, at: entry.inserted_at}],
+         # A message waiting on routing is an episode that has not started, so
+         # the page it gets is the episode page's own heading rather than a
+         # second design for the same thing.
+         heading: %{
+           title: EpisodeTrace.unrouted_title(entry),
+           received_at: entry.occurred_at || entry.inserted_at,
+           conversation_href:
+             Responder.ControlPlane.Activity.conversation_path(
+               entry.destination_transport,
+               entry.destination_conversation_ref
+             )
+         },
          preparation: EpisodeTrace.input_preparation(entry),
          selected: inspect_row(entry, params, secrets: Redactor.configured_secrets())
        }}

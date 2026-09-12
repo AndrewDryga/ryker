@@ -678,6 +678,25 @@ defmodule Responder.ControlPlane.EpisodeTrace do
   @spec input_preparation(Entry.t()) :: [map()]
   def input_preparation(%Entry{} = input), do: preparation_steps([input])
 
+  @doc """
+  The heading a message carries before it becomes an episode.
+
+  The same sentence the episode page shows for a case file: the request itself,
+  shortened, and redacted the way every other retained text is.
+  """
+  @spec unrouted_title(Entry.t()) :: String.t()
+  def unrouted_title(%Entry{operational_pruned_at: nil, content: content}) do
+    case SourceText.from_content(content) do
+      text when is_binary(text) and text != "" ->
+        InspectionRedactor.artifact(text, max_bytes: 160).text
+
+      _absent ->
+        "Message waiting on routing"
+    end
+  end
+
+  def unrouted_title(%Entry{}), do: "Message waiting on routing"
+
   # One Standing rules card per input, always present. The card carries the
   # complete inventory recorded when that input processed, or says plainly
   # that none was recorded. It never reads today's rules: a rule edited since
