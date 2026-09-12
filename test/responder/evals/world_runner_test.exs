@@ -400,7 +400,8 @@ defmodule Responder.Evals.WorldRunnerTest do
             "required" => false
           })
 
-        assert {:ok, _} = Tools.call("plan_goal", goal, binding_options(claim))
+        assert {:ok, %{"record_ref" => goal_ref}} =
+                 Tools.call("plan_goal", goal, binding_options(claim))
 
         assert {:ok, _} =
                  Tools.call(
@@ -409,8 +410,30 @@ defmodule Responder.Evals.WorldRunnerTest do
                    binding_options(claim)
                  )
 
-        {ref, state, message} = record_state_tool!("request_input", claim)
-        candidate = final_candidate(state, message, [ref])
+        # This world is woken by an alert app, and the host now refuses a
+        # question where no person has ever spoken, so the record the eval used
+        # to flag as unauthorized never reaches the ledger at all. What is left
+        # to flag is the effectful goal pair, which the tool still accepts and
+        # the authority table still refuses.
+        assert {:error, "no_addressee" <> _} =
+                 Tools.call(
+                   "request_input",
+                   %{
+                     "context" => "The steady-state budget is fixed.",
+                     "questions" => [
+                       %{
+                         "choices" => ["Allow temporary surge", "Keep exactly two VMs"],
+                         "text" => "May the rollout temporarily exceed two VMs?"
+                       }
+                     ]
+                   },
+                   binding_options(claim)
+                 )
+
+        candidate =
+          final_candidate("complete", "The rollout capacity question stays unresolved.", [
+            goal_ref
+          ])
 
         assert {:ok, %{"accepted" => true}} =
                  Tools.call(
@@ -437,8 +460,7 @@ defmodule Responder.Evals.WorldRunnerTest do
 
       assert Enum.sort(Enum.map(report.failures, & &1["record_kind"])) == [
                "goal",
-               "goal_state",
-               "input_request"
+               "goal_state"
              ]
     end
   end
