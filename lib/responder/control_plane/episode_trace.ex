@@ -446,6 +446,7 @@ defmodule Responder.ControlPlane.EpisodeTrace do
     %{
       metadata: input_metadata(input),
       raw: %{
+        absent: raw_absent(input),
         artifact_id: raw_id,
         artifact: raw_envelope(input, expired, MapSet.member?(disclosed, raw_id), options)
       },
@@ -480,6 +481,17 @@ defmodule Responder.ControlPlane.EpisodeTrace do
       {"Execution mode", input.execution_mode}
     ])
   end
+
+  # A control-plane input is typed into Responder itself, so no adapter stands
+  # between the person and the record. Reporting that one failed to hand over a
+  # payload blamed a hand-over that never happens for this source.
+  defp raw_absent(%{source_kind: "control_plane"}),
+    do: "This input was submitted directly in the control plane, so no adapter payload exists."
+
+  defp raw_absent(_input),
+    do:
+      "The adapter did not hand over its source payload for this input, so there is no raw " <>
+        "record; the normalized input below is not a substitute."
 
   defp raw_envelope(_input, true, _disclosed?, _options),
     do: %{state: :expired, text: nil, sha256: nil, bytes: nil, redacted: false, truncated: false}

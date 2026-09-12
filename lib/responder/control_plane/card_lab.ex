@@ -15,6 +15,12 @@ defmodule Responder.ControlPlane.CardLab do
   @external_resource @legacy_path
   @legacy Jason.decode!(File.read!(@legacy_path))
 
+  # Mention refs render as a name only when the workspace reviewing the preview
+  # actually has that member. "U123" reads as a broken mention to the person
+  # judging whether a card is legible, which is the whole point of a preview.
+  @operator_ref "U0BHTNFCW6S"
+  @invitee_ref "U0BHSPJRBSR"
+
   @task_statuses ~w(queued working waiting_for_input waiting_for_event action_required stopping reviewing ready_to_publish published completed cancelled)
   @incident_statuses ~w(provisioning investigating action_required waiting_for_input waiting_for_event stopping resolved cancelled paused)
   @spec catalog() :: [map()]
@@ -526,7 +532,7 @@ defmodule Responder.ControlPlane.CardLab do
       welcome_state(
         "proactive",
         "Proactive",
-        settings_document(participation: "proactive", customized_by: "U123", revision: 2),
+        settings_document(participation: "proactive", customized_by: @operator_ref, revision: 2),
         "Update: proactive mode is on."
       ),
       welcome_state(
@@ -534,13 +540,13 @@ defmodule Responder.ControlPlane.CardLab do
         "After Q&A",
         settings_document(
           alert_policy: "offer",
-          customized_by: "U123",
+          customized_by: @operator_ref,
           default_repository: "emisar",
-          invite_user_refs: ["U456"],
+          invite_user_refs: [@invitee_ref],
           participation: "proactive",
           revision: 3
         ),
-        %{"actor_ref" => "U123", "at" => "2026-09-12T19:56:00.000000Z"}
+        %{"actor_ref" => @operator_ref, "at" => "2026-09-12T19:56:00.000000Z"}
       ),
       welcome_state(
         "shadow",
@@ -587,7 +593,7 @@ defmodule Responder.ControlPlane.CardLab do
     states =
       Enum.map(["thread", "private"], fn audience ->
         settings =
-          settings_document(participation: "proactive", customized_by: "U123", revision: 2)
+          settings_document(participation: "proactive", customized_by: @operator_ref, revision: 2)
 
         state(
           audience,
@@ -1215,7 +1221,7 @@ defmodule Responder.ControlPlane.CardLab do
       "destination_ref" => "slack-source:v1:T123:C789:thread:1787832888.000300",
       "instruction_ref" => "slack-source:v1:T123:C456:message:1787832000.000100",
       "message" => "The deployment is healthy.",
-      "requested_by_actor_ref" => "slack:user:U123",
+      "requested_by_actor_ref" => "slack:user:#{@operator_ref}",
       "thread_ref" => "1787832888.000300",
       "transport" => "slack"
     }
@@ -1515,13 +1521,14 @@ defmodule Responder.ControlPlane.CardLab do
         "Typed mentions",
         "Only host-authorized typed mentions become Slack controls.",
         %{
-          "message" => "Thanks [@Bruno](slack-user:U123). Raw <!everyone> stays inert.",
+          "message" =>
+            "Thanks [@operator](slack-user:#{@operator_ref}). Raw <!everyone> stays inert.",
           "records" => [],
           "slack_mentions" => %{
             "broadcasts" => [],
             "channels" => [],
             "user_groups" => [],
-            "users" => ["slack-user:U123"],
+            "users" => ["slack-user:#{@operator_ref}"],
             "workspace_ref" => "T123"
           }
         },
@@ -1872,7 +1879,7 @@ defmodule Responder.ControlPlane.CardLab do
       "resumable" => false,
       "revision" => revision,
       "saved_at" => "2099-09-04T12:00:00.000000Z",
-      "saved_by" => "slack:user:U123",
+      "saved_by" => "slack:user:#{@operator_ref}",
       "status" => "active",
       "title" => title
     }
@@ -1979,7 +1986,7 @@ defmodule Responder.ControlPlane.CardLab do
       "task_card" => %{
         "action_needed" => action_needed,
         "confirmed_at" => "2026-09-04T12:00:00.000000Z",
-        "confirmed_by" => "slack:user:U123",
+        "confirmed_by" => "slack:user:#{@operator_ref}",
         "controls" => controls,
         "episode_state" => task_episode_state(status),
         "publication" => publication,
@@ -2221,7 +2228,7 @@ defmodule Responder.ControlPlane.CardLab do
           }
         ],
         "opened_at" => "2026-09-04T11:45:00.000000Z",
-        "opened_by" => "slack:user:U123",
+        "opened_by" => "slack:user:#{@operator_ref}",
         "repository" => "responder",
         "room_ref" => "incident-room:82208f8f-2ef4-4f1b-a011-626aabdc9342",
         "session_generation" => 2,
@@ -2278,7 +2285,7 @@ defmodule Responder.ControlPlane.CardLab do
       "alert_policy" => "offer",
       "default_repository" => "responder",
       "invite_user_group_refs" => [],
-      "invite_user_refs" => ["U123"],
+      "invite_user_refs" => [@invitee_ref],
       "participation" => "proactive",
       "repository_options" => [
         "responder",
