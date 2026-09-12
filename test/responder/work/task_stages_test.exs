@@ -462,6 +462,53 @@ defmodule Responder.Work.TaskStagesTest do
     assert row(TaskStages.build(passed), "review_and_merge")["your_turn"]
   end
 
+  test "a gate that ran and failed fails the check stage instead of completing it" do
+    # A ✓ on the stage whose whole job is to say whether the change was checked.
+    # A failed gate is a result, not a missing check, so it never entered
+    # incomplete_checks; the ledger asked only that list, found it empty and
+    # turned the row green over a review that had already said "The trusted gate
+    # failed." on the same card.
+    failed =
+      facts(
+        episode: %Episode{state: :complete, owner_kind: :turn},
+        turn: %Turn{status: :settled, coop_turn_id: "turn-1"},
+        publication: %Publication{
+          status: :reviewed,
+          review_document: %{
+            "gate" => "failed",
+            "gate_error" => "2 tests failed in test/responder/work/executor_test.exs",
+            "patch_artifact_id" => "review-patch:1",
+            "patch_bytes" => 64,
+            "patch_digest" => String.duplicate("a", 64),
+            "patch_truncated" => false,
+            "policy_findings" => [],
+            "publishable" => false,
+            "rebase" => "clean"
+          }
+        },
+        plan: plan([goal("drain", "implementation", "completed")])
+      )
+
+    rows = TaskStages.build(failed)
+
+    # The stages that genuinely happened keep their dispositions.
+    assert Enum.map(rows, & &1["state"]) ==
+             ~w(completed completed completed failed waiting pending pending)
+
+    assert row(rows, "self_review")["detail"] ==
+             "2 tests failed in test/responder/work/executor_test.exs"
+
+    # A gate that failed without naming the failure still fails its own stage.
+    unnamed = pop_in(failed.publication.review_document["gate_error"]) |> elem(1)
+    assert row(TaskStages.build(unnamed), "self_review")["state"] == "failed"
+    assert row(TaskStages.build(unnamed), "self_review")["detail"] == "The trusted gate failed."
+
+    # The same ledger with a gate that passed still completes the stage.
+    passed = put_in(failed.publication.review_document["gate"], "passed")
+    assert row(TaskStages.build(passed), "self_review")["state"] == "completed"
+    assert row(TaskStages.build(passed), "self_review")["detail"] == nil
+  end
+
   test "historical goals without a stage are listed as unassigned, never backfilled" do
     rows =
       TaskStages.build(

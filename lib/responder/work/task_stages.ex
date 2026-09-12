@@ -128,10 +128,11 @@ defmodule Responder.Work.TaskStages do
        do: row("self_review", "running", subtasks(bucket))
 
   # A draft a person opened because the gate could not run is not a checked
-  # change. Marking this stage complete for it said the opposite on the one card
-  # whose whole job is to say which checks are missing.
+  # change, and neither is one whose gate ran and failed. Marking this stage
+  # complete for either said the opposite on the one card whose whole job is to
+  # say whether the change was checked.
   defp review_row(%{publication: %Publication{review_document: review}}, bucket) do
-    case incomplete_check(review) do
+    case Review.gate_failure(review) || incomplete_check(review) do
       nil -> row("self_review", "completed", subtasks(bucket))
       reason -> row("self_review", "failed", [detail: reason] ++ subtasks(bucket))
     end

@@ -55,6 +55,20 @@ defmodule Responder.Publication.ReviewTest do
     failed = unpublishable(%{"gate" => "failed", "gate_error" => "2 tests failed"})
     refute Review.draft_shareable?(failed)
     assert Review.draft_verdict(failed)["reasons"] == ["The trusted gate failed."]
+
+    # A gate that ran and failed has a result, so it is never a missing check —
+    # and the stage ledger that asked only for missing checks put a ✓ on the one
+    # stage whose whole job is to say whether the change was checked.
+    assert Review.draft_verdict(failed)["incomplete_checks"] == []
+    assert Review.gate_failure(failed) == "2 tests failed"
+    assert Review.gate_failure(Map.delete(failed, "gate_error")) == "The trusted gate failed."
+    assert Review.gate_failure(%{failed | "gate_error" => "  "}) == "The trusted gate failed."
+
+    for gate <- ~w(passed startup_error not_run none) do
+      assert Review.gate_failure(unpublishable(%{"gate" => gate})) == nil
+    end
+
+    assert Review.gate_failure(nil) == nil
   end
 
   test "a finding, a conflict or an inexact snapshot can never be shared as a draft" do

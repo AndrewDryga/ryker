@@ -522,8 +522,10 @@ against the published revision rather than a green check for work that was never
 Self-review and checks is never complete while a required check has no result. A candidate whose
 trusted gate could not start, did not run or is not configured shows `!` with that missing check
 named — `! Self-review and checks · docker: command not found` — and it keeps showing it after an
-operator opens the draft. CI on the exact published head is a separate row and may well be green;
-it is not the trusted gate, so Review and merge stays `○` instead of becoming `← 🙋 your turn`.
+operator opens the draft. A gate that ran and failed is a result rather than a missing check, and
+it fails the same stage with its own failure named — `! Self-review and checks · 2 tests failed`.
+CI on the exact published head is a separate row and may well be green; it is not the trusted
+gate, so Review and merge stays `○` instead of becoming `← 🙋 your turn`.
 
 When the host is still holding a finished worker's working copy or its reply, Workspace setup
 carries the cause — `! Workspace setup · no saved snapshot · session closed` — and the stages the
