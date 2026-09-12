@@ -670,14 +670,14 @@ defmodule Responder.ControlPlane.CardLab do
       state(
         "alerts",
         "3 · Alerts",
-        "Investigate in the thread, offer a choice, or create a room automatically.",
+        "Whether an alert gets its own incident room, and who decides.",
         setup_document("asking", "alerts"),
         %{setup_state: "alerts", setup_status: "asking", setup_step: "alerts"}
       ),
       state(
         "audience",
         "4 · Invitations",
-        "Who is invited when an incident room is created.",
+        "Who the channel names for its incident rooms, in its own words.",
         setup_document("asking", "audience"),
         %{setup_state: "audience", setup_status: "asking", setup_step: "audience"}
       ),
