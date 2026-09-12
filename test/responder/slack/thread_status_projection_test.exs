@@ -4,8 +4,11 @@ defmodule Responder.Slack.ThreadStatusProjectionTest do
   alias Responder.Episodes.Episode
   alias Responder.Ingress.Inbox
   alias Responder.Ingress.Inbox.Entry
+  alias Responder.Repo
   alias Responder.Slack.Input, as: SlackInput
   alias Responder.Slack.ThreadStatusProjection
+  alias Responder.Work.Session
+  alias Responder.Work.Turn
 
   test "snapshot reconstructs a queued Slack status from durable Inbox state" do
     assert {:ok, input} =
@@ -41,6 +44,7 @@ defmodule Responder.Slack.ThreadStatusProjectionTest do
           entry(key, :pending, lease_ref: "lease:admission")
         ],
         [episode(key, :working, :turn)],
+        MapSet.new(),
         "TF2975945C602"
       )
 
@@ -52,6 +56,7 @@ defmodule Responder.Slack.ThreadStatusProjectionTest do
              ThreadStatusProjection.targets(
                [],
                [episode(key, :waiting_for_event, :event)],
+               MapSet.new(),
                "TF2975945C602"
              )
 
@@ -61,16 +66,52 @@ defmodule Responder.Slack.ThreadStatusProjectionTest do
     assert waiting.status == ""
 
     assert [complete] =
-             ThreadStatusProjection.targets([], [episode(key, :complete, nil)], "TF2975945C602")
+             ThreadStatusProjection.targets(
+               [],
+               [episode(key, :complete, nil)],
+               MapSet.new(),
+               "TF2975945C602"
+             )
 
     assert complete.phase == :clear
     assert complete.status == ""
 
     assert [blocked] =
-             ThreadStatusProjection.targets([entry(key, :blocked)], [], "TF2975945C602")
+             ThreadStatusProjection.targets(
+               [entry(key, :blocked)],
+               [],
+               MapSet.new(),
+               "TF2975945C602"
+             )
 
     assert blocked.phase == :blocked
     assert blocked.status == ""
+  end
+
+  # `blocked-task-recovery.md`: "Update the same message, clear native working
+  # status while parked". Blocking a turn deliberately leaves its episode in
+  # `:working` — `Work.Cancellation.command/3` returns nil for a block, so no
+  # episode transition is applied, and `Slack.WorkControlsTest`'s "a copied
+  # control cannot stop work…" asserts exactly that. The thread therefore kept
+  # refreshing "is working..." every 90 seconds for a task whose worker had
+  # stopped and whose card already said an operator had to recover it. It is the
+  # same defect as the day-long Terraform wait above, one state over, and it is
+  # worse: a wait ends by itself, a parked task never does.
+  test "a parked task stops telling its thread that work is still running" do
+    episode = parked_episode!()
+
+    assert {:ok, [parked]} = ThreadStatusProjection.snapshot("TF2975945C602")
+    assert parked.phase == :blocked
+    assert parked.status == ""
+    assert parked.origin_kind == "episode"
+    assert parked.origin_id == episode.id
+
+    # The turn is what makes it parked, so an episode whose owner is working
+    # still reports work, and a parked task never outranks a new message.
+    Repo.update_all(Turn, set: [status: :pending])
+    assert {:ok, [working]} = ThreadStatusProjection.snapshot("TF2975945C602")
+    assert working.phase == :working
+    assert working.status == "is working..."
   end
 
   test "foreign workspaces shadow work and malformed destinations never spend Slack writes" do
@@ -90,6 +131,7 @@ defmodule Responder.Slack.ThreadStatusProjectionTest do
                episode(local, :working, :turn, execution_mode: :shadow),
                episode(local, :unknown, nil)
              ],
+             MapSet.new(),
              "TF2975945C602"
            ) == []
   end
@@ -109,8 +151,42 @@ defmodule Responder.Slack.ThreadStatusProjectionTest do
 
     Enum.each(cases, fn {entries, episodes, {phase, status}} ->
       assert [%{phase: ^phase, status: ^status}] =
-               ThreadStatusProjection.targets(entries, episodes, "TF2975945C602")
+               ThreadStatusProjection.targets(entries, episodes, MapSet.new(), "TF2975945C602")
     end)
+  end
+
+  defp parked_episode! do
+    episode =
+      Repo.insert!(%Episode{
+        destination_conversation_ref: "slack:TF2975945C602:C456",
+        destination_thread_ref: "1787832000.000100",
+        destination_transport: "slack",
+        execution_mode: :live,
+        id: Ecto.UUID.generate(),
+        key: "thread-status:parked",
+        owner_kind: :turn,
+        owner_ref: "turn:thread-status:parked",
+        state: :working
+      })
+
+    session =
+      Repo.insert!(%Session{
+        episode_id: episode.id,
+        external_ref: "session:thread-status:parked",
+        id: Ecto.UUID.generate(),
+        policy: "responder-work",
+        policy_digest: String.duplicate("a", 64)
+      })
+
+    Repo.insert!(%Turn{
+      episode_id: episode.id,
+      id: Ecto.UUID.generate(),
+      session_id: session.id,
+      status: :blocked,
+      turn_ref: episode.owner_ref
+    })
+
+    episode
   end
 
   defp entry(destination, status, attributes \\ []) do

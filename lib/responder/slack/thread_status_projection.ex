@@ -11,6 +11,7 @@ defmodule Responder.Slack.ThreadStatusProjection do
   alias Responder.Episodes.Episode
   alias Responder.Ingress.Inbox.Entry
   alias Responder.Repo
+  alias Responder.Work.Turn
 
   @recent_terminal_seconds 24 * 60 * 60
   @maximum_rows 1_000
@@ -33,11 +34,13 @@ defmodule Responder.Slack.ThreadStatusProjection do
   @spec snapshot(String.t()) :: {:ok, [map()]} | {:error, term()}
   def snapshot(workspace_ref) when is_binary(workspace_ref) and workspace_ref != "" do
     cutoff = DateTime.add(DateTime.utc_now(), -@recent_terminal_seconds, :second)
+    episodes = recent_episodes(workspace_ref, cutoff)
 
     {:ok,
      targets(
        recent_entries(workspace_ref, cutoff),
-       recent_episodes(workspace_ref, cutoff),
+       episodes,
+       parked_owners(episodes),
        workspace_ref
      )}
   rescue
@@ -80,12 +83,37 @@ defmodule Responder.Slack.ThreadStatusProjection do
     )
   end
 
+  # Blocking a turn does not transition its episode, so a parked task is still a
+  # `:working` row owned by a turn that stopped. Without this the thread keeps
+  # refreshing "is working..." every 90 seconds for work nobody is doing.
+  defp parked_owners(episodes) do
+    owners =
+      for %Episode{id: id, owner_kind: :turn, owner_ref: ref} <- episodes,
+          is_binary(ref),
+          do: {id, ref}
+
+    if owners == [] do
+      MapSet.new()
+    else
+      {episode_ids, turn_refs} = Enum.unzip(owners)
+
+      from(turn in Turn,
+        where:
+          turn.episode_id in ^episode_ids and turn.turn_ref in ^turn_refs and
+            turn.status == :blocked,
+        select: {turn.episode_id, turn.turn_ref}
+      )
+      |> Repo.all()
+      |> MapSet.new()
+    end
+  end
+
   @doc false
-  @spec targets([Entry.t()], [Episode.t()], String.t()) :: [map()]
-  def targets(entries, episodes, workspace_ref)
+  @spec targets([Entry.t()], [Episode.t()], MapSet.t(), String.t()) :: [map()]
+  def targets(entries, episodes, parked, workspace_ref)
       when is_list(entries) and is_list(episodes) and is_binary(workspace_ref) do
     (Enum.flat_map(entries, &entry_candidate(&1, workspace_ref)) ++
-       Enum.flat_map(episodes, &episode_candidate(&1, workspace_ref)))
+       Enum.flat_map(episodes, &episode_candidate(&1, parked, workspace_ref)))
     |> Enum.group_by(& &1.key)
     |> Enum.map(fn {_key, candidates} -> Enum.max_by(candidates, & &1.priority) end)
     |> Enum.map(&Map.drop(&1, [:key, :priority]))
@@ -108,9 +136,9 @@ defmodule Responder.Slack.ThreadStatusProjection do
 
   defp entry_candidate(_entry, _workspace_ref), do: []
 
-  defp episode_candidate(%Episode{execution_mode: :live} = episode, workspace_ref) do
+  defp episode_candidate(%Episode{execution_mode: :live} = episode, parked, workspace_ref) do
     with {:ok, key} <- destination(episode, workspace_ref),
-         {:ok, phase, status, priority} <- episode_status(episode) do
+         {:ok, phase, status, priority} <- episode_status(episode, parked) do
       [
         Map.merge(candidate(key, phase, status, priority), %{
           origin_kind: "episode",
@@ -122,7 +150,7 @@ defmodule Responder.Slack.ThreadStatusProjection do
     end
   end
 
-  defp episode_candidate(_episode, _workspace_ref), do: []
+  defp episode_candidate(_episode, _parked, _workspace_ref), do: []
 
   defp entry_status(%Entry{status: :blocked}),
     do: {:ok, :blocked, "", 110}
@@ -141,22 +169,30 @@ defmodule Responder.Slack.ThreadStatusProjection do
 
   defp entry_status(_entry), do: :ignore
 
-  defp episode_status(%Episode{state: :working, owner_kind: :delivery}),
+  defp episode_status(%Episode{state: :working, owner_kind: :delivery}, _parked),
     do: {:ok, :delivery, "is preparing the response...", 75}
 
-  defp episode_status(%Episode{state: :working}),
+  # Below every entry phase, so a new message on the same thread still reports
+  # itself rather than being silenced by the parked task it arrived beside.
+  defp episode_status(%Episode{state: :working, owner_kind: :turn} = episode, parked) do
+    if MapSet.member?(parked, {episode.id, episode.owner_ref}),
+      do: {:ok, :blocked, "", 65},
+      else: {:ok, :working, "is working...", 70}
+  end
+
+  defp episode_status(%Episode{state: :working}, _parked),
     do: {:ok, :working, "is working...", 70}
 
-  defp episode_status(%Episode{state: :waiting_for_input}),
+  defp episode_status(%Episode{state: :waiting_for_input}, _parked),
     do: {:ok, :waiting_for_input, "", 60}
 
-  defp episode_status(%Episode{state: :waiting_for_event}),
+  defp episode_status(%Episode{state: :waiting_for_event}, _parked),
     do: {:ok, :waiting_for_event, "", 60}
 
-  defp episode_status(%Episode{state: state}) when state in [:complete, :cancelled],
+  defp episode_status(%Episode{state: state}, _parked) when state in [:complete, :cancelled],
     do: {:ok, :clear, "", 20}
 
-  defp episode_status(_episode), do: :ignore
+  defp episode_status(_episode, _parked), do: :ignore
 
   defp destination(
          %{
