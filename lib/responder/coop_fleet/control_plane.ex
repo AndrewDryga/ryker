@@ -169,16 +169,7 @@ defmodule Responder.CoopFleet.ControlPlane do
           %{byte_size: pos_integer(), checkpoint_ref: String.t(), repository_ref: String.t()}
           | nil
   def portable_workspace(%Session{} = session, requirements) do
-    with true <- worker_available?(session, requirements),
-         %WorkspaceCheckpointTransfer{} = transfer <- portable_checkpoint(session) do
-      %{
-        byte_size: transfer.bundle_byte_size,
-        checkpoint_ref: transfer.checkpoint_ref,
-        repository_ref: transfer.repository_ref
-      }
-    else
-      _unavailable -> nil
-    end
+    if worker_available?(session, requirements), do: portable_checkpoint(session)
   end
 
   def portable_workspace(_session, _requirements), do: nil
@@ -187,6 +178,8 @@ defmodule Responder.CoopFleet.ControlPlane do
   # same episode and repository, taken by this generation or one before it, and
   # pinned to the same repository source. Client.restore_checkpoint/1 selects by
   # the same rule, so the offer and the restore cannot disagree.
+  # A checkpoint bundle is up to 64 MiB of ciphertext, and none of it belongs on
+  # a recovery page, so this reads identity only.
   defp portable_checkpoint(%Session{} = session) do
     from(transfer in WorkspaceCheckpointTransfer,
       join: command in Command,
@@ -198,11 +191,18 @@ defmodule Responder.CoopFleet.ControlPlane do
           source.generation <= ^session.generation and
           source.repository_ref == ^session.repository_ref and command.status == :succeeded,
       order_by: [desc: transfer.inserted_at, desc: transfer.id],
-      select: {transfer, source}
+      select: {
+        %{
+          byte_size: transfer.bundle_byte_size,
+          checkpoint_ref: transfer.checkpoint_ref,
+          repository_ref: transfer.repository_ref
+        },
+        source.repository_source
+      }
     )
     |> Repo.all()
-    |> Enum.find_value(fn {transfer, source} ->
-      RepositorySource.same?(source.repository_source, session.repository_source) and transfer
+    |> Enum.find_value(fn {checkpoint, source} ->
+      RepositorySource.same?(source, session.repository_source) and checkpoint
     end)
   end
 
