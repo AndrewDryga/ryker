@@ -177,11 +177,12 @@ defmodule Responder.ControlPlane.SlackNames do
   defp valid_ref?(ref), do: byte_size(ref) <= 64 and Regex.match?(~r/\A[TCGDUWA][A-Z0-9]+\z/, ref)
   defp display(ref, nil), do: fallback(ref)
   defp display(<<prefix, _::binary>>, label) when prefix in [?C, ?G], do: "#" <> label
+  defp display(<<prefix, _::binary>>, label) when prefix in [?U, ?W], do: "@" <> label
   defp display(_, label), do: label
   defp fallback(<<prefix, _::binary>>) when prefix in [?C, ?G], do: "Slack channel"
   defp fallback("D" <> _), do: "Direct message"
   defp fallback("T" <> _), do: "Slack workspace"
-  defp fallback(<<prefix, _::binary>>) when prefix in [?U, ?W], do: "Slack member"
+  defp fallback(<<prefix, _::binary>>) when prefix in [?U, ?W], do: "Slack user"
   defp fallback("A" <> _), do: "Slack app"
   defp fallback(_), do: "Slack reference"
   defp now, do: System.monotonic_time(:millisecond)

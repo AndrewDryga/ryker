@@ -308,7 +308,7 @@ defmodule Responder.ControlPlane.RequestContextHTML do
       {"Responder instructions", "policy", "Host-authored instructions",
        if(artifact.truncated,
          do: "Partial display of the retained instruction field.",
-         else: "The instruction field saved with this request."
+         else: nil
        )},
       ["<pre class=\"model-document-text\">", escape(text), "</pre>"],
       prefix,
@@ -524,18 +524,23 @@ defmodule Responder.ControlPlane.RequestContextHTML do
       "<span class=\"prompt-source-state\">",
       source_state(value, state, state_override),
       "</span>",
-      source_count(count),
+      # The reader wants the name of the thing first, then how much of it there
+      # is, then where it came from. Leading with a bare count read as
+      # "1 includedMessages supplied to this request".
       "<span class=\"prompt-source-title\">",
       escape(title),
       "</span>",
+      source_count(count),
       "<span class=\"prompt-source-location\">",
       escape(owner),
-      " <code>· ",
+      "</span></summary>",
+      "<div class=\"prompt-source-body\">",
+      if(description, do: ["<p>", escape(description), "</p>"], else: []),
+      # The JSON path belongs to whoever is reading the retained bytes, not to
+      # the heading a person scans.
+      "<p class=\"prompt-source-path\"><code>",
       escape(path),
-      "</code></span></summary>",
-      "<div class=\"prompt-source-body\"><p>",
-      escape(description),
-      "</p>",
+      "</code></p>",
       body,
       "</div></details>"
     ]
