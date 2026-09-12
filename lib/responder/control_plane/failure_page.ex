@@ -137,6 +137,16 @@ defmodule Responder.ControlPlane.FailurePage do
   def cause(%{diagnosis: %{code: "session_cleanup_error"}}),
     do: "Coop encountered an error while cleaning up the worker session."
 
+  # Publishing has its own two long-running failures, and both were reading as
+  # "no recognized explanation" while the host held the exact code.
+  def cause(%{kind: "publication", summary: "publication_coop_protocol_error"}),
+    do:
+      "The worker session it was reviewing is no longer in a state that allows it. A review needs that exact session, so retrying alone cannot clear this; queue a fresh review from the task card."
+
+  def cause(%{kind: "publication", summary: "publication_repository_not_configured"}),
+    do:
+      "The repository has no connected GitHub App for Responder to publish through. The change is saved and waits for that connection."
+
   def cause(%{summary: code}) when code in ~w(coop_unavailable coop_transport_error),
     do: "Responder could not reach the worker to finish this operation."
 

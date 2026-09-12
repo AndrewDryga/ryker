@@ -2144,6 +2144,7 @@ defmodule Responder.ControlPlane.HTML do
   defp failure_kind("slack_incident"), do: "Incident room setup stopped"
   defp failure_kind("slack_interaction"), do: "Slack message update stopped"
   defp failure_kind("emisar"), do: "Approval check stopped"
+  defp failure_kind("publication"), do: "Publishing stopped"
   defp failure_kind(value), do: String.capitalize(String.replace(value, "_", " "))
 
   defp failure_cause("coop_error"),

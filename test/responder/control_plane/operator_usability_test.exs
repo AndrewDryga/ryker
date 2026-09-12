@@ -143,6 +143,45 @@ defmodule Responder.ControlPlane.OperatorUsabilityTest do
     assert html =~ "Inspect cause"
   end
 
+  test "a stuck publication says why it is stuck" do
+    # The first screenshot of the new Publishing rows showed three of them
+    # reading "No recognized error explanation is available in the saved
+    # record." while the host held the exact code for each. That is the same
+    # defect as a card telling an operator no cause exists over a refusal it is
+    # storing, one surface over.
+    rows = [
+      %{
+        kind: "publication",
+        ref: "publication:one",
+        episode_ref: "episode:one",
+        action: nil,
+        attempt_count: 3_127,
+        source: "responder",
+        status: :review_pending,
+        summary: "publication_coop_protocol_error",
+        updated_at: nil
+      },
+      %{
+        kind: "publication",
+        ref: "publication:two",
+        episode_ref: "episode:two",
+        action: nil,
+        attempt_count: 1_330,
+        source: "responder",
+        status: :publish_pending,
+        summary: "publication_repository_not_configured",
+        updated_at: nil
+      }
+    ]
+
+    html = rows |> HTML.failures() |> IO.iodata_to_binary()
+
+    assert html =~ "Publishing stopped"
+    assert html =~ "worker session it was reviewing is no longer in a state that allows it"
+    assert html =~ "no connected GitHub App"
+    refute html =~ "No recognized error explanation"
+  end
+
   test "failure summary counts listed operations and distinct requests without nesting the cards" do
     # Two cleanup failures in one request were buried in a second large panel;
     # missing zero counts left it unclear whether other failure types were healthy.
