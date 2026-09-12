@@ -155,6 +155,38 @@ defmodule Responder.Evals.WorldCase do
     end)
   end
 
+  @doc """
+  Authorizes a durable answer save for exactly the operators this scenario declares.
+
+  The scenario is the whole world, so an actor it declares with operator authority is
+  the operator and nobody else is. Without this the evaluation runs a host that denies
+  every save, which is not the host production runs: a scenario whose point is that an
+  answer is remembered can then never pass, however well the model behaves.
+  """
+  @spec answer_authorizer(t()) :: (map() -> boolean())
+  def answer_authorizer(%__MODULE__{actors: actors}) do
+    operators =
+      actors
+      |> Enum.filter(&(&1["authority"] == "operator"))
+      |> MapSet.new(&operator_identity/1)
+
+    fn entry -> MapSet.member?(operators, entry_identity(entry)) end
+  end
+
+  defp operator_identity(%{"input_profile" => %{"actor" => actor, "source" => source}}),
+    do: {source["kind"], source["ref"], actor["kind"], actor["ref"]}
+
+  defp entry_identity(%{
+         source_kind: source_kind,
+         source_ref: source_ref,
+         actor_kind: actor_kind,
+         actor_ref: actor_ref
+       })
+       when is_binary(source_kind) and is_binary(source_ref) and is_binary(actor_ref),
+       do: {source_kind, source_ref, to_string(actor_kind), actor_ref}
+
+  defp entry_identity(_other), do: nil
+
   @spec fabricated_tools(t()) :: [map()]
   def fabricated_tools(%__MODULE__{tool_catalog: %{"servers" => servers}}) do
     Enum.find_value(servers, [], fn
