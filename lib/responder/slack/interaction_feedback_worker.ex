@@ -79,8 +79,10 @@ defmodule Responder.Slack.InteractionFeedbackWorker do
 
   defp retry_or_block(audit, reason, options) do
     if audit.attempt_count >= options.max_attempts do
-      with {:ok, blocked} <- InteractionAudits.block(audit.id, audit.lease_ref, reason),
-           do: {:ok, {:blocked, blocked.event_ref}}
+      with {:ok, blocked} <- InteractionAudits.block(audit.id, audit.lease_ref, reason) do
+        tell_the_presser(blocked, options)
+        {:ok, {:blocked, blocked.event_ref}}
+      end
     else
       retry_seconds = retry_delay(audit.attempt_count, options.retry_base_seconds)
 
@@ -88,6 +90,29 @@ defmodule Responder.Slack.InteractionFeedbackWorker do
              InteractionAudits.defer(audit.id, audit.lease_ref, retry_seconds, reason),
            do: {:ok, {:deferred, deferred.event_ref}}
     end
+  end
+
+  # The acknowledgement a click gets is optimistic: it is sent before the repaint
+  # is attempted. When the repaint is given up on, the person is left holding an
+  # accepted press and a card that never changed, which is indistinguishable
+  # from the host having ignored them. The press really was recorded, so that is
+  # what this says; the failure reason is host diagnostics and stays out of it.
+  defp tell_the_presser(audit, options) do
+    if function_exported?(options.api, :post_ephemeral, 5) do
+      options.api.post_ephemeral(
+        options.client,
+        audit.channel_ref,
+        audit.actor_ref,
+        audit.thread_ref,
+        "Your press was recorded. I couldn't update the message to show it, so what you see may be out of date."
+      )
+    end
+
+    :ok
+  rescue
+    _error -> :ok
+  catch
+    _kind, _reason -> :ok
   end
 
   defp retry_delay(attempt_count, base) do
