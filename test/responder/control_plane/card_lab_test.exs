@@ -163,7 +163,7 @@ defmodule Responder.ControlPlane.CardLabTest do
     contract = Renderer.presentation_contract()
 
     assert coverage.task_statuses ==
-             ~w(working waiting_for_input waiting_for_event action_required stopping reviewing ready_to_publish published completed cancelled)
+             ~w(queued working waiting_for_input waiting_for_event action_required stopping reviewing ready_to_publish published completed cancelled)
 
     assert coverage.incident_statuses ==
              ~w(provisioning investigating action_required waiting_for_input waiting_for_event stopping resolved cancelled paused)

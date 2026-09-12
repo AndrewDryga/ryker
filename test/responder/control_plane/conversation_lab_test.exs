@@ -279,7 +279,8 @@ defmodule Responder.ControlPlane.ConversationLabTest do
     [incident_card] = after_confirmation.messages |> List.last() |> Map.fetch!(:cards)
     assert incident_card.label == "Local incident"
     assert incident_card.kind == "task"
-    assert incident_card.status == "working"
+    # Same: the linked incident episode has no turn yet at this point.
+    assert incident_card.status == "queued"
     assert :view_postmortem in incident_card.actions
 
     assert {:ok, postmortem} =
@@ -1043,7 +1044,9 @@ defmodule Responder.ControlPlane.ConversationLabTest do
              updated_responder.cards
 
     assert task_status.kind == "task"
-    assert task_status.status == "working"
+    # A confirmed task with no turn yet is queued; it was reported as working
+    # until 2026-09-12.
+    assert task_status.status == "queued"
     assert task_status.title == "Finish Lab parity"
     assert task_status.summary =~ "Conversation Lab parity"
     assert {"Repository", "responder"} in task_status.details

@@ -23,7 +23,7 @@ defmodule Responder.Slack.Renderer do
   @reference ~r/\A(?:record|publication):[A-Za-z0-9_.:-]{1,240}\z/
   @investigation_kinds ~w(evidence coverage finding progress goal goal_state alert_assessment)
   @incident_statuses ~w(provisioning investigating action_required waiting_for_input waiting_for_event stopping resolved cancelled paused)
-  @task_statuses ~w(working waiting_for_input waiting_for_event action_required stopping reviewing ready_to_publish published completed cancelled)
+  @task_statuses ~w(queued working waiting_for_input waiting_for_event action_required stopping reviewing ready_to_publish published completed cancelled)
   @task_fields ~w(action_needed confirmed_at confirmed_by controls episode_state publication repository session_generation stages status summary task_ref title ui_revision updated_at work_state)
   # The work document is shared with the control-plane card, which owns diff
   # reading. `view_diff` stays a valid document control there and never becomes
@@ -544,6 +544,7 @@ defmodule Responder.Slack.Renderer do
     %{"text" => plain_text(label), "value" => "#{work_ref}|#{kind}"}
   end
 
+  defp task_status_label("queued"), do: "Queued"
   defp task_status_label("working"), do: "Working"
   defp task_status_label("waiting_for_input"), do: "Waiting for input"
   defp task_status_label("waiting_for_event"), do: "Waiting for verification"

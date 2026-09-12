@@ -15,7 +15,7 @@ defmodule Responder.ControlPlane.CardLab do
   @external_resource @legacy_path
   @legacy Jason.decode!(File.read!(@legacy_path))
 
-  @task_statuses ~w(working waiting_for_input waiting_for_event action_required stopping reviewing ready_to_publish published completed cancelled)
+  @task_statuses ~w(queued working waiting_for_input waiting_for_event action_required stopping reviewing ready_to_publish published completed cancelled)
   @incident_statuses ~w(provisioning investigating action_required waiting_for_input waiting_for_event stopping resolved cancelled paused)
   @spec catalog() :: [map()]
   def catalog do
@@ -2039,6 +2039,11 @@ defmodule Responder.ControlPlane.CardLab do
   defp task_stage_states("action_required", %{"status" => "blocked"}),
     do: ~w(completed completed completed completed failed pending pending)
 
+  # Nothing has run yet: the workspace is still waiting for a worker, so no
+  # stage may claim completion.
+  defp task_stage_states("queued", _publication),
+    do: ~w(waiting pending pending pending pending pending pending)
+
   defp task_stage_states("working", _publication),
     do: ~w(completed completed running pending pending pending pending)
 
@@ -2139,6 +2144,9 @@ defmodule Responder.ControlPlane.CardLab do
 
   defp task_work_state("action_required"), do: "blocked"
   defp task_work_state(_status), do: "pending"
+
+  defp task_description("queued"),
+    do: "The task is confirmed and waiting for a worker; nothing is running yet."
 
   defp task_description("working"), do: "The parser fix is running focused validation."
 

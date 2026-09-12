@@ -362,7 +362,7 @@ defmodule Responder.ControlPlane.LiveTest do
     assert has_element?(view, "#card-state-picker a[aria-current=page]", "Provisioning")
 
     view |> form("#card-family-form", %{card: "task-card"}) |> render_change()
-    assert_patch(view, "/card-lab/task-card/working?width=compact")
+    assert_patch(view, "/card-lab/task-card/queued?width=compact")
     assert has_element?(view, ".specimen-catalog a[aria-current=page]", "Task card")
     render_change(view, "card-family", %{"card" => "https://attacker.example"})
     refute_patched(view)
