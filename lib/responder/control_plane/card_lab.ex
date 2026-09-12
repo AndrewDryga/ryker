@@ -540,7 +540,7 @@ defmodule Responder.ControlPlane.CardLab do
           participation: "proactive",
           revision: 3
         ),
-        "Settings updated."
+        %{"actor_ref" => "U123", "at" => "2026-09-12T19:56:00.000000Z"}
       ),
       welcome_state(
         "shadow",
