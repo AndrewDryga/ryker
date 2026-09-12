@@ -13,9 +13,10 @@ defmodule Responder.Slack.ReplyRecords do
 
   import Ecto.Query
 
+  alias Responder.Delivery.PlatformAction
   alias Responder.Repo
-  alias Responder.Slack.{IncidentRoom, SavedEntity}
-  alias Responder.State.{Behavior, EventWaitTiming, MemoryEntry, Schedule}
+  alias Responder.Slack.{IncidentRoom, Permalink, SavedEntity}
+  alias Responder.State.{Behavior, EventWaitTiming, MemoryEntry, Schedule, SlackPostOffers}
   alias Responder.Work.{ActivityEvent, ActivityRetention}
 
   @saved_offer_kinds ~w(guidance_offer memory_offer preference_offer schedule_offer standing_assignment_offer)
@@ -35,9 +36,44 @@ defmodule Responder.Slack.ReplyRecords do
       documents
       |> enrich(receipts(episode_id, Enum.uniq(sources)), times)
       |> Enum.zip_with(records, &present_saved_entity/2)
+      |> Enum.zip_with(records, &present_sent_post/2)
     else
       documents
     end
+  end
+
+  # A confirmed post said the delivery worker was "sending or reconciling" it
+  # forever, because the card was built from the offer and the offer cannot know
+  # where the message went. The host does: the action this record produced keeps
+  # the receipt. Without a workspace origin there is no link, and the card says
+  # what it always said.
+  defp present_sent_post(document, %{status: :confirmed, kind: "slack_post_offer"} = record) do
+    with %PlatformAction{status: :delivered, conversation_ref: conversation} = action <-
+           sent_action(record),
+         %{"message_ref" => message} <- action.external_receipt,
+         url when is_binary(url) <- Permalink.message_url(workspace_url(), conversation, message) do
+      Map.put(document, "message_url", url)
+    else
+      _unsent -> document
+    end
+  end
+
+  defp present_sent_post(document, _record), do: document
+
+  defp sent_action(record) do
+    Repo.get_by(PlatformAction,
+      turn_id: record.turn_id,
+      host_slot: SlackPostOffers.host_slot(record)
+    )
+  end
+
+  defp workspace_url do
+    case Responder.Settings.fetch() do
+      {:ok, %{slack: %{workspace_url: url}}} -> url
+      _unavailable -> nil
+    end
+  rescue
+    _error -> nil
   end
 
   # A confirmed offer is shown as the entity it saved, with the entity's current

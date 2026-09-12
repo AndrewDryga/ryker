@@ -95,7 +95,14 @@ defmodule Responder.State.SlackPostOffers do
     }
   end
 
-  defp host_slot(record), do: "confirmed-post:#{record.id}"
+  @doc """
+  The durable slot a confirmed post's platform action occupies.
+
+  Public so a card can find the delivery its own record produced, which is the
+  only way it can show where the message went.
+  """
+  @spec host_slot(Record.t()) :: String.t()
+  def host_slot(record), do: "confirmed-post:#{record.id}"
 
   defp lock_offer(record_ref) do
     query =

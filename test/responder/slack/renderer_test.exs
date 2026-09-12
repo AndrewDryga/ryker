@@ -1302,6 +1302,45 @@ defmodule Responder.Slack.RendererTest do
     refute inspect(rendered) =~ "event_matcher"
   end
 
+  test "a post that has landed says so and links to it" do
+    # The 2026-09-12 coverage measurement: a confirmed post card said the
+    # delivery worker was "sending or reconciling this exact message" forever,
+    # long after it had landed, because the card was built from the offer and
+    # the offer cannot know where the message went.
+    payload = %{
+      "conversation_ref" => "slack:T123:C789",
+      "destination_ref" => "slack-source:v1:T123:C789:thread:1787832888.000300",
+      "instruction_ref" => "slack-source:v1:T123:C456:message:1787832000.000100",
+      "message" => "The deployment is healthy.",
+      "requested_by_actor_ref" => "slack:user:U123",
+      "thread_ref" => "1787832888.000300",
+      "transport" => "slack"
+    }
+
+    sent = %{
+      "kind" => "slack_post_offer",
+      "message_url" => "https://emisar.slack.com/archives/C789/p1787832888000300",
+      "payload" => payload,
+      "ref" => "record:slack_post_offer:sent1",
+      "status" => "confirmed"
+    }
+
+    assert {:ok, rendered} = Renderer.render(%{"message" => "Posted.", "records" => [sent]})
+    text = Jason.encode!(rendered)
+    assert text =~ "Additional Slack post sent"
+    assert text =~ "Open message"
+    refute text =~ "sending or reconciling"
+
+    unsent = Map.delete(sent, "message_url")
+    assert {:ok, pending} = Renderer.render(%{"message" => "Posted.", "records" => [unsent]})
+    assert Jason.encode!(pending) =~ "sending or reconciling"
+
+    forged = Map.put(sent, "message_url", "http://evil.example/steal")
+
+    assert Renderer.render(%{"message" => "Posted.", "records" => [forged]}) ==
+             {:error, {:invalid_slack_render, :record}}
+  end
+
   test "renders an additional Slack post as an exact requester-owned confirmation" do
     destination_ref = "slack-source:v1:T123:C789:thread:1787832888.000300"
 
