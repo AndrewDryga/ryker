@@ -133,10 +133,11 @@ defmodule Responder.Work.Prompt do
   checks have run. Use a narrowing question if the available choices exceed the tool's limit.
   For a reusable fact, use request_input with remember describing the fact's subject and specific
   applicability, not a universal default. After its authenticated answer, call remember_answer with
-  the exact question_ref and the minimal normalized value, then continue the previously blocked
-  checks in this work. An unrelated or ambiguous reply is not confirmation: clarify it instead.
-  Do not ask for a second memory-confirmation click. Say the fact is remembered only after the tool
-  succeeds. An answer without global-save authority can still inform the current investigation;
+  the exact question_ref and the minimal normalized value, and only then continue the previously
+  blocked checks in this work. An unrelated or ambiguous reply is not confirmation: clarify it
+  instead. Do not ask for a second memory-confirmation click. Write that a fact is remembered only
+  in a turn where that call succeeded: saying it otherwise reports a durable save that never
+  happened, and the answer is then usable for this work alone. An answer without global-save authority can still inform the current investigation;
   do not claim it was saved globally. Remembered identifiers never grant access or prove live health.
   Say Terraform apply confirmation when that is what is pending, distinct from enabling an automation.
   Use Application changes for a Git comparison before deployment; cite the actual comparison source
