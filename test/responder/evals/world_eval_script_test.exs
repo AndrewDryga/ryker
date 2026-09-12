@@ -3,7 +3,7 @@ defmodule Responder.Evals.WorldEvalScriptTest do
 
   @script Path.expand("../../../scripts/elixir-world-eval.sh", __DIR__)
 
-  test "the isolated runner forwards qualification flags and drops a successful database" do
+  test "the isolated runner forwards qualification flags and drops the campaign database" do
     fixture = fixture!()
 
     assert {output, 0} =
@@ -29,7 +29,11 @@ defmodule Responder.Evals.WorldEvalScriptTest do
     assert calls =~ "ecto.drop"
   end
 
-  test "a failed world run retains its exact database for custody inspection" do
+  test "a failed world run still drops the campaign database it copies observations from" do
+    # The campaign database is only the migrated template each observation is
+    # copied from, and custody lives in the per-observation databases the eval
+    # task preserves and names. Keeping the template on failure left one more
+    # abandoned responder_world_eval_* database behind after every red run.
     fixture = fixture!("7")
 
     assert {output, 7} =
@@ -40,8 +44,8 @@ defmodule Responder.Evals.WorldEvalScriptTest do
                stderr_to_stdout: true
              )
 
-    assert output =~ "preserving failed world database responder_world_eval_"
-    refute File.read!(fixture.log) =~ "ecto.drop"
+    assert output == ""
+    assert File.read!(fixture.log) =~ "ecto.drop"
   end
 
   defp fixture!(eval_status \\ "0") do

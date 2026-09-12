@@ -24,6 +24,7 @@ defmodule Mix.Tasks.Responder.Eval do
 
   import Ecto.Query
 
+  alias Ecto.Adapters.Postgres
   alias Responder.Coop.Client
   alias Responder.CoopFleet.Server, as: FleetServer
 
@@ -129,10 +130,12 @@ defmodule Mix.Tasks.Responder.Eval do
          {:ok, eval_client} <- eval_client(finch),
          {:ok, cases} <- WorldCase.all(),
          {:ok, plan} <- WorldSuite.plan(cases, plan_options(world)),
+         :ok <- stop_repo(),
          reports <- run_world_plan(plan, runtime, eval_policies, eval_client),
          {:ok, summary} <- WorldSuite.summarize(reports, summary_options(world)),
          :ok <- WorldReport.write(results_path, reports, summary: summary) do
       Enum.each(reports, &info(Jason.encode!(printable_world_report(&1))))
+      announce_preserved_databases(reports)
       info(Jason.encode!(%{"world_summary" => summary}))
       info("world evals: #{summary.candidate.passed}/#{summary.candidate.total} passed")
 
@@ -144,9 +147,11 @@ defmodule Mix.Tasks.Responder.Eval do
   end
 
   defp run_world_plan(plan, runtime, eval_policies, eval_client) do
+    template = Repo.config()[:database]
+
     run_world_plan(
       plan,
-      &run_world_observation(&1, runtime, eval_policies, eval_client),
+      &run_isolated_observation(&1, template, runtime, eval_policies, eval_client),
       fn observation, stopped ->
         unrun_report(
           observation,
@@ -160,17 +165,92 @@ defmodule Mix.Tasks.Responder.Eval do
 
   @doc false
   def run_world_plan(plan, run_observation, skip_observation) do
+    # Only a harness fault stops the campaign. `:unrun` is the host saying the
+    # observation never reached a model — an unconfigured environment, a
+    # database that would not come up, a gateway that would not start — and
+    # every later observation would fault the same way. A `:failed` observation
+    # is the model result the thresholds exist to weigh, so it is collected and
+    # the plan continues.
     {reports, _stopped} =
       Enum.map_reduce(plan, nil, fn
         observation, nil ->
           report = run_observation.(observation)
-          {report, if(report.status == :passed, do: nil, else: report)}
+          {report, if(report.status == :unrun, do: report, else: nil)}
 
         observation, stopped ->
           {skip_observation.(observation, stopped), stopped}
       end)
 
     reports
+  end
+
+  defp run_isolated_observation(observation, template, runtime, eval_policies, eval_client) do
+    observe = &run_world_observation_in_repo(&1, observation, runtime, eval_policies, eval_client)
+
+    case run_world_observation_database(template, observe) do
+      {:ok, report} ->
+        report
+
+      {:error, reason} ->
+        unrun_report(observation, observation_policy(eval_policies, observation.lane), reason)
+    end
+  end
+
+  @doc false
+  def run_world_observation_database(template, observe) do
+    # Every observation used to share the campaign's database, so a failure had
+    # to stop the run to keep the next model off the failed case's surviving
+    # custody. Each observation now gets its own copy of the migrated campaign
+    # database: a pass drops it, and a failure keeps exactly its own rows under
+    # the name the report carries.
+    database = "#{template}_o#{System.unique_integer([:positive, :monotonic])}"
+
+    case Postgres.storage_up(storage_config(database, template)) do
+      :ok -> {:ok, preserved_or_dropped(observe.(database), database)}
+      {:error, reason} -> {:error, {:world_eval_database_not_created, database, reason}}
+    end
+  end
+
+  # `report.database` names the database that still holds this observation's
+  # custody, and is nil once a passed observation's database has been dropped.
+  defp preserved_or_dropped(%{status: :passed} = report, database) do
+    case Postgres.storage_down(storage_config(database, nil)) do
+      :ok -> Map.put(report, :database, nil)
+      {:error, _reason} -> Map.put(report, :database, database)
+    end
+  end
+
+  defp preserved_or_dropped(report, database), do: Map.put(report, :database, database)
+
+  defp storage_config(database, template) do
+    Keyword.merge(Repo.config(), database: database, template: template)
+  end
+
+  defp run_world_observation_in_repo(database, observation, runtime, eval_policies, eval_client) do
+    case start_repo(database) do
+      :ok ->
+        try do
+          run_world_observation(observation, runtime, eval_policies, eval_client)
+        after
+          stop_repo()
+        end
+
+      {:error, reason} ->
+        unrun_report(observation, observation_policy(eval_policies, observation.lane), reason)
+    end
+  end
+
+  defp announce_preserved_databases(reports) do
+    reports
+    |> Enum.filter(&Map.get(&1, :database))
+    |> Enum.each(fn report ->
+      info(
+        "preserving failed world database #{report.database} for custody inspection" <>
+          " (#{report.scenario_id} #{report.lane} repeat #{report.repeat_index})"
+      )
+
+      info("drop after inspection with: PGDATABASE=#{report.database} MIX_ENV=test mix ecto.drop")
+    end)
   end
 
   defp run_world_observation(observation, runtime, eval_policies, eval_client) do
@@ -243,6 +323,7 @@ defmodule Mix.Tasks.Responder.Eval do
 
   defp unrun_report(observation, policy, reason) do
     %{
+      database: nil,
       deliveries: [],
       episode_id: nil,
       failures: [],
@@ -326,6 +407,20 @@ defmodule Mix.Tasks.Responder.Eval do
   end
 
   defp start_repo_after_apps({:error, _reason} = error), do: error
+
+  defp start_repo(database) do
+    case Repo.start_link(database: database) do
+      {:ok, _pid} -> :ok
+      {:error, reason} -> {:error, {:world_eval_repo_not_started, database, reason}}
+    end
+  end
+
+  defp stop_repo do
+    case Process.whereis(Repo) do
+      nil -> :ok
+      pid -> Supervisor.stop(pid)
+    end
+  end
 
   defp printable_world_report(report) do
     {:ok, result} = WorldReport.result(report)

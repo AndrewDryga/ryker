@@ -9,6 +9,10 @@ fi
 
 eval_results=$1
 shift 1
+# The campaign database is the migrated template every observation database is
+# copied from; it holds no custody of its own. Custody belongs to the
+# per-observation databases, which `mix responder.eval world` preserves and
+# names when their observation did not pass, so this one is always dropped.
 eval_database="responder_world_eval_$(date +%s)_$$_${RANDOM}"
 created=0
 
@@ -16,11 +20,8 @@ cleanup() {
   status=$?
   trap - EXIT
 
-  if [[ $created -eq 1 && $status -eq 0 ]]; then
+  if [[ $created -eq 1 ]]; then
     PGDATABASE="$eval_database" MIX_ENV=test mix ecto.drop >/dev/null 2>&1 || true
-  elif [[ $created -eq 1 ]]; then
-    echo "preserving failed world database $eval_database for custody inspection" >&2
-    echo "drop after inspection with: PGDATABASE=$eval_database MIX_ENV=test mix ecto.drop" >&2
   fi
 
   exit "$status"
