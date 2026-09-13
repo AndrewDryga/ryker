@@ -267,6 +267,12 @@ defmodule Ryker.ControlPlane.EpisodePage do
       aria-label="Complete execution timeline"
     >
       <h2 class="sr-only">Execution timeline</h2>
+      <p :if={@snapshot.trace.history[:pruned_at]} class="timeline-bound history-pruned">
+        Execution history was removed by retention on <time datetime={
+          DateTime.to_iso8601(@snapshot.trace.history.pruned_at)
+        }>{timestamp(@snapshot.trace.history.pruned_at)}</time>. What remains is when the request
+        ran and finished, not a request that did nothing.
+      </p>
       <p :if={@snapshot.trace.history.truncated || @timeline.truncated} class="timeline-bound">
         <span :for={window <- Map.get(@snapshot.trace.history, :windows, [])} :if={window.truncated}>
           Showing {window.shown} of {window.total} retained {window.label}.

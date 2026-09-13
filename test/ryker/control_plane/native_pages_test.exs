@@ -188,6 +188,33 @@ defmodule Ryker.ControlPlane.NativePagesTest do
     assert episode_html(following) =~ "Follow-up in progress"
   end
 
+  # Episode-history retention deletes the kernel events, origins and closed
+  # records and stamps the episode. The projection has carried that stamp
+  # since 2026-09-13, and without reading it the page showed the pruned
+  # episode as an empty timeline: indistinguishable from one that never ran.
+  test "pruned episode history reads as retention, not as an empty timeline" do
+    {:ok, %{episode: episode}} = Episodes.apply(EpisodeFixtures.admit_input())
+    {:ok, snapshot} = Projection.episode(episode.key)
+
+    refute episode_html(snapshot) =~ "history-pruned"
+
+    pruned =
+      snapshot
+      |> put_in([:episode, :history_pruned_at], @now)
+      |> put_in([:trace, :history, :pruned_at], @now)
+
+    document = pruned |> episode_html() |> LazyHTML.from_document()
+    notice = LazyHTML.query(document, "#execution-timeline .history-pruned")
+
+    assert LazyHTML.text(notice) =~
+             "Execution history was removed by retention on 05 Sep, 12:00 UTC"
+
+    assert LazyHTML.text(notice) =~ "not a request that did nothing"
+
+    assert LazyHTML.query(notice, "time[datetime='2026-09-05T12:00:00.000000Z']") |> Enum.count() ==
+             1
+  end
+
   test "elapsed labels remain meaningful across missing, naive, future, and long-lived timestamps" do
     assert Components.age(nil, @now) == "—"
     assert Components.age(DateTime.add(@now, 60), @now) == "0s"
