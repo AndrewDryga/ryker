@@ -45,8 +45,7 @@ defmodule Ryker.Runtime.OwnerTest do
     # identity and re-key every lease owner the existing deployment recorded.
     owner = start_owner(context)
     {:ok, saved} = initialize()
-    assert Owner.reconcile(owner) == {:ok, :applied}
-    assert Owner.applied_revision(owner) == saved.installation.revision
+    assert applied(owner, saved)
 
     Repo.query!("ALTER TABLE installation_settings RENAME TO unavailable_installation_settings")
 
@@ -62,7 +61,7 @@ defmodule Ryker.Runtime.OwnerTest do
     owner = start_owner(context)
     {:ok, saved} = initialize()
 
-    assert Owner.reconcile(owner) == {:ok, :applied}
+    assert applied(owner, saved)
     assert {:ok, applied} = Settings.fetch()
     assert Settings.application_status(applied) == :applied
     assert applied.installation.applied_revision == saved.installation.revision
@@ -77,19 +76,69 @@ defmodule Ryker.Runtime.OwnerTest do
         @actor
       )
 
-    assert Settings.application_status(edited) == :pending
-
-    assert Owner.reconcile(owner) == {:ok, :applied}
+    assert applied(owner, edited)
     assert {:ok, reapplied} = Settings.fetch()
     assert Settings.application_status(reapplied) == :applied
     assert Application.get_env(:ryker, :retention).audit_data_seconds == 60 * 86_400
+  end
+
+  # Nothing told the owner about a save. It reconciled once at boot and again
+  # only while the database was unreachable, so every save sat "pending" until
+  # the next deploy restarted the release; the settings page and docs promised
+  # the opposite. Every save so far happened to be followed by a deploy, which
+  # is the only reason the live revision was ever applied.
+  test "a saved revision is applied by the running owner without anyone asking", context do
+    owner = start_owner(context)
+    assert Owner.reconcile(owner) == {:ok, :not_initialized}
+
+    {:ok, created} = initialize()
+    assert eventually(fn -> Owner.applied_revision(owner) == created.installation.revision end)
+
+    {:ok, edited} =
+      Settings.save_retention(
+        %{audit_data_seconds: 60 * 86_400},
+        created.installation.revision,
+        @actor
+      )
+
+    assert eventually(fn -> Owner.applied_revision(owner) == edited.installation.revision end)
+    assert {:ok, applied} = Settings.fetch()
+    assert Settings.application_status(applied) == :applied
+    assert Application.get_env(:ryker, :retention).audit_data_seconds == 60 * 86_400
+  end
+
+  # A console port held by another process made the owner log one warning,
+  # record the revision as applied and never try again: the settings page said
+  # "the running configuration matches" against a console nobody could open,
+  # and a later reconcile answered :unchanged.
+  test "a runtime that fails to start leaves its revision unapplied until it starts", context do
+    {:ok, _saved} = initialize()
+    port = context.bootstrap.control_plane.port
+    {:ok, blocker} = :gen_tcp.listen(port, [:binary, ip: {127, 0, 0, 1}, reuseaddr: true])
+
+    owner = start_owner(context)
+
+    assert {:error, {:runtime_start_failed, :control_plane, _reason}} = Owner.reconcile(owner)
+    assert Owner.applied_revision(owner) == nil
+    assert {:ok, failed} = Settings.fetch()
+    assert Settings.application_status(failed) == {:failed, :runtime_start_failed}
+    refute :control_plane in Owner.running_keys(owner)
+    assert :state_tools in Owner.running_keys(owner)
+
+    :ok = :gen_tcp.close(blocker)
+
+    assert Owner.reconcile(owner) == {:ok, :applied}
+    assert Owner.applied_revision(owner) == failed.installation.revision
+    assert {:ok, applied} = Settings.fetch()
+    assert Settings.application_status(applied) == :applied
+    assert :control_plane in Owner.running_keys(owner)
   end
 
   test "a revision that cannot be assembled is recorded failed and keeps the running one",
        context do
     owner = start_owner(context)
     {:ok, saved} = initialize()
-    assert Owner.reconcile(owner) == {:ok, :applied}
+    assert applied(owner, saved)
 
     # A webhook source naming a credential the deployment never registered
     # cannot be assembled; the saved revision must stay visibly unapplied.
@@ -140,7 +189,7 @@ defmodule Ryker.Runtime.OwnerTest do
         @actor
       )
 
-    {:ok, _} =
+    {:ok, connected} =
       Settings.save_slack(
         %{
           bot_ref: "A0123456789",
@@ -154,7 +203,7 @@ defmodule Ryker.Runtime.OwnerTest do
         @actor
       )
 
-    assert Owner.reconcile(owner) == {:ok, :applied}
+    assert applied(owner, connected)
     assert is_map(Application.get_env(:ryker, :slack))
     assert is_pid(Process.whereis(Ryker.ControlPlane.SlackNames))
   end
@@ -165,9 +214,8 @@ defmodule Ryker.Runtime.OwnerTest do
   # no way for an operator to see what it was draining.
   test "the retired Card Lab worker does not start beside the control plane", context do
     owner = start_owner(context)
-    {:ok, _saved} = initialize()
-
-    assert Owner.reconcile(owner) == {:ok, :applied}
+    {:ok, saved} = initialize()
+    assert applied(owner, saved)
 
     companions =
       DynamicSupervisor.which_children(context.supervisor)
@@ -198,6 +246,22 @@ defmodule Ryker.Runtime.OwnerTest do
       Assembly.managed_keys(),
       &Application.delete_env(:ryker, &1, persistent: true)
     )
+  end
+
+  # The owner applies a save it hears about on its own; an explicit reconcile
+  # after that answers :unchanged. Either way the revision must end up running.
+  defp applied(owner, snapshot) do
+    revision = snapshot.installation.revision
+    assert Owner.reconcile(owner) in [{:ok, :applied}, {:ok, :unchanged}]
+    Owner.applied_revision(owner) == revision
+  end
+
+  defp eventually(check, attempts \\ 50) do
+    cond do
+      check.() -> true
+      attempts == 0 -> false
+      true -> Process.sleep(20) && eventually(check, attempts - 1)
+    end
   end
 
   defp console_running?(context) do

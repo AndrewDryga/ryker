@@ -78,6 +78,8 @@ defmodule Ryker.Runtime.Owner do
 
   @impl true
   def init(options) do
+    Settings.subscribe()
+
     state = %{
       bootstrap: Keyword.get_lazy(options, :bootstrap, &bootstrap/0),
       csrf_secret: :crypto.strong_rand_bytes(32),
@@ -112,8 +114,10 @@ defmodule Ryker.Runtime.Owner do
     {:reply, keys, state}
   end
 
+  # A save the owner hears about and a retry it scheduled itself are the same
+  # request: apply whatever is saved now.
   @impl true
-  def handle_info(:retry, state) do
+  def handle_info(message, state) when message == :retry or elem(message, 0) == :settings_saved do
     {_result, state} = apply_latest(state)
     {:noreply, state}
   end
@@ -131,35 +135,50 @@ defmodule Ryker.Runtime.Owner do
   # Setup must be reachable before any product configuration exists, so the
   # console runs from bootstrap alone and nothing else starts.
   defp apply_fresh_setup(state) do
-    state = reconcile_children(state, %{control_plane: console(state, nil, %{})})
-    {{:ok, :not_initialized}, %{state | revision: nil}}
+    case reconcile_children(state, %{control_plane: console(state, nil, %{})}) do
+      {state, []} -> {{:ok, :not_initialized}, %{state | revision: nil}}
+      {state, [failure | _rest]} -> {{:error, failure}, %{state | revision: nil}}
+    end
   end
+
+  defp apply_settings(%{revision: revision} = state, %{installation: %{revision: revision}}),
+    do: {{:ok, :unchanged}, state}
 
   defp apply_settings(state, settings) do
     revision = settings.installation.revision
 
-    if revision == state.revision do
-      {{:ok, :unchanged}, state}
-    else
-      case Assembly.build(state.bootstrap, settings) do
-        {:ok, configuration} ->
-          # Publish before starting anything. A child that reads another
-          # runtime's published configuration in `init` — the Slack name cache
-          # does — otherwise starts against the previous value and declines with
-          # `:ignore`, which is permanent: nothing restarts a runtime whose own
-          # configuration never changed again.
-          Assembly.publish(configuration)
-          state = reconcile_children(state, applied_children(state, configuration))
-          record(revision, :ok)
-          {{:ok, :applied}, %{state | revision: revision}}
+    case Assembly.build(state.bootstrap, settings) do
+      {:ok, configuration} ->
+        # Publish before starting anything. A child that reads another
+        # runtime's published configuration in `init` — the Slack name cache
+        # does — otherwise starts against the previous value and declines with
+        # `:ignore`, which is permanent: nothing restarts a runtime whose own
+        # configuration never changed again.
+        Assembly.publish(configuration)
+        start_children(state, revision, applied_children(state, configuration))
 
-        {:error, reason} ->
-          # The saved revision stays saved and visibly unapplied; the running
-          # children keep the last configuration that actually assembled.
-          Logger.warning("settings revision #{revision} could not be applied: #{inspect(reason)}")
-          record(revision, {:error, :assembly_failed})
-          {{:error, reason}, state}
-      end
+      {:error, reason} ->
+        # The saved revision stays saved and visibly unapplied; the running
+        # children keep the last configuration that actually assembled.
+        Logger.warning("settings revision #{revision} could not be applied: #{inspect(reason)}")
+        record(revision, {:error, :assembly_failed})
+        {{:error, reason}, state}
+    end
+  end
+
+  defp start_children(state, revision, desired) do
+    case reconcile_children(state, desired) do
+      {state, []} ->
+        record(revision, :ok)
+        {{:ok, :applied}, %{state | revision: revision}}
+
+      {state, [failure | _rest]} ->
+        # The children that did start keep the new configuration; the revision
+        # stays unapplied so the next reconcile, a save or an operator asking,
+        # starts the missing ones again instead of answering :unchanged for a
+        # runtime that is not running.
+        record(revision, {:error, :runtime_start_failed})
+        {{:error, failure}, state}
     end
   end
 
@@ -195,33 +214,41 @@ defmodule Ryker.Runtime.Owner do
     |> Map.put(:slack, configuration[:slack])
   end
 
+  # Starts, replaces and stops children in dependency order and reports every
+  # child that would not start as `{:runtime_start_failed, key, reason}`.
   defp reconcile_children(state, desired) do
-    running =
-      Enum.reduce(@children, state.running, fn {key, module}, running ->
-        reconcile_child(state, running, key, module, Map.get(desired, key))
+    {running, failures} =
+      Enum.reduce(@children, {state.running, []}, fn {key, module}, {running, failures} ->
+        case reconcile_child(state, running, key, module, Map.get(desired, key)) do
+          {:ok, running} ->
+            {running, failures}
+
+          {:error, running, reason} ->
+            {running, [{:runtime_start_failed, key, reason} | failures]}
+        end
       end)
 
-    %{state | running: running}
+    {%{state | running: running}, Enum.reverse(failures)}
   end
 
   defp reconcile_child(_state, running, key, _module, nil) when not is_map_key(running, key),
-    do: running
+    do: {:ok, running}
 
-  defp reconcile_child(state, running, key, module, nil) do
-    stop_child(state, running, key, module)
-    Map.delete(running, key)
+  defp reconcile_child(state, running, key, _module, nil) do
+    stop_child(state, running, key)
+    {:ok, Map.delete(running, key)}
   end
 
   defp reconcile_child(state, running, key, module, configuration) do
     case Map.get(running, key) do
       %{configuration: ^configuration} ->
-        running
+        {:ok, running}
 
       nil ->
         start_child(state, running, key, module, configuration)
 
       _changed ->
-        stop_child(state, running, key, module)
+        stop_child(state, running, key)
         start_child(state, Map.delete(running, key), key, module, configuration)
     end
   end
@@ -245,14 +272,14 @@ defmodule Ryker.Runtime.Owner do
       {:error, reason, started} ->
         Enum.each(started, &DynamicSupervisor.terminate_child(state.supervisor, &1))
         Logger.warning("runtime #{key} did not start: #{inspect(reason)}")
-        running
+        {:error, running, reason}
 
       pids ->
-        Map.put(running, key, %{configuration: configuration, pids: Enum.reverse(pids)})
+        {:ok, Map.put(running, key, %{configuration: configuration, pids: Enum.reverse(pids)})}
     end
   end
 
-  defp stop_child(state, running, key, _module) do
+  defp stop_child(state, running, key) do
     case Map.get(running, key) do
       %{pids: pids} ->
         pids

@@ -38,6 +38,8 @@ defmodule Ryker.Settings do
 
   @actor "control-plane:local"
   @lock_tag "ryker-settings"
+  @pubsub Ryker.ControlPlane.PubSub
+  @topic "settings"
   @day 86_400
   @retention_defaults %{
     operational_data_seconds: 30 * @day,
@@ -47,14 +49,7 @@ defmodule Ryker.Settings do
     audit_data_seconds: 30 * @day
   }
   @retention_fields Map.keys(@retention_defaults)
-  @application_failures [
-    :assembly_failed,
-    :invalid_credentials,
-    :missing_credentials,
-    :runtime_start_failed,
-    :secret_unavailable,
-    :worker_gateway_unavailable
-  ]
+  @application_failures [:assembly_failed, :runtime_start_failed]
   @type snapshot :: %{
           installation: Installation.t(),
           retention: Retention.t(),
@@ -74,8 +69,17 @@ defmodule Ryker.Settings do
         }
 
   def actor, do: @actor
-  def application_failures, do: @application_failures
   def retention_defaults, do: @retention_defaults
+
+  @doc """
+  Delivers `{:settings_saved, revision}` to the caller after every committed write.
+
+  The runtime owner applies a revision when it hears of one. Without this a
+  save reached the database and nothing else: it sat pending until the next
+  restart, while the settings page said the runtime would pick it up.
+  """
+  @spec subscribe() :: :ok | {:error, term()}
+  def subscribe, do: Phoenix.PubSub.subscribe(@pubsub, @topic)
 
   @doc "The current consistent snapshot, or an explicit not-initialized error."
   @spec fetch() :: {:ok, snapshot()} | {:error, :settings_not_initialized}
@@ -526,10 +530,20 @@ defmodule Ryker.Settings do
     Repo.query!("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [@lock_tag])
   end
 
+  # A committed write is announced after the transaction, so a subscriber
+  # that reads the revision it heard about finds it. A no-op save announces
+  # the revision it left in place; the owner answers that with :unchanged.
   defp transaction(operation) do
     case Repo.transaction(operation) do
-      {:ok, result} -> {:ok, result}
-      {:error, reason} -> {:error, reason}
+      {:ok, %{installation: %Installation{revision: revision}} = snapshot} ->
+        Phoenix.PubSub.broadcast(@pubsub, @topic, {:settings_saved, revision})
+        {:ok, snapshot}
+
+      {:ok, result} ->
+        {:ok, result}
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
