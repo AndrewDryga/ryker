@@ -350,7 +350,9 @@ defmodule Responder.ControlPlane.RequestContextHTML do
   # which repository the model could see or whether it could write to it.
   defp workspace(value) do
     primary = value["primary"] || %{}
-    source = primary["source"] || %{}
+    # `source` is a sibling of `primary`, not its child — the alphabetised dump
+    # made that unreadable, which is why it was unreadable.
+    source = value["source"] || %{}
     companions = value["companions"] || []
 
     rows =
@@ -389,6 +391,12 @@ defmodule Responder.ControlPlane.RequestContextHTML do
 
   defp workspace_revision(%{"selected_commit" => commit}) when is_binary(commit),
     do: String.slice(commit, 0, 8)
+
+  # The default selection carries the default ref and commit under their own
+  # names; a "default" kind with nothing selected still checked something out.
+  defp workspace_revision(%{"default_ref" => ref, "default_commit" => commit})
+       when is_binary(ref) and is_binary(commit),
+       do: "#{ref} · #{String.slice(commit, 0, 8)} (default)"
 
   defp workspace_revision(_source), do: nil
 

@@ -76,6 +76,72 @@ defmodule Responder.ControlPlane.RequestContextHTMLTest do
     refute html =~ "<strong>Slack reference</strong>"
   end
 
+  # Andrew's screenshot of this block, 2026-09-13: thirteen alphabetised labels
+  # — Companions, Freshness, Owner, Repositories, Fetched at, Name, Remote
+  # identity, Requested revision, Resolved revision, Stale base revision, Stale
+  # base status, Version, Workspace base revision — before the reader learned
+  # which repository the model could see. The shape below is the real one from
+  # a production submission; `source` is a sibling of `primary`, not its child.
+  test "the workspace block names the repository, access and checkout, not every field" do
+    artifact =
+      InspectionRedactor.artifact(%{
+        "workspace" => %{
+          "companions" => [],
+          "freshness" => %{
+            "owner" => "coop",
+            "repositories" => [
+              %{
+                "fetched_at" => "2026-09-13T09:48:09.420651Z",
+                "name" => "primary",
+                "remote_identity" => "origin",
+                "requested_revision" => "refs/heads/main",
+                "resolved_revision" => "92c952f7d4f04fd058c4bb3ae7746d9118129ba1",
+                "stale_base_revision" => "92c952f7d4f04fd058c4bb3ae7746d9118129ba1",
+                "stale_base_status" => "current",
+                "version" => 2
+              }
+            ]
+          },
+          "primary" => %{
+            "base_commit" => "92c952f7d4f04fd058c4bb3ae7746d9118129ba1",
+            "name" => "emisar",
+            "path" => ".",
+            "read_only" => true
+          },
+          "source" => %{
+            "admitted_tree" => "0143954589d4aa290fbb4c6e7cf9ae385ca0c8e0",
+            "base_commit" => "92c952f7d4f04fd058c4bb3ae7746d9118129ba1",
+            "default_commit" => "92c952f7d4f04fd058c4bb3ae7746d9118129ba1",
+            "default_ref" => "refs/heads/main",
+            "kind" => "default",
+            "remote_identity" => "origin",
+            "requested" => %{"kind" => "default"},
+            "resolved_at" => "2026-09-13T09:48:09.420710Z",
+            "selected_commit" => "92c952f7d4f04fd058c4bb3ae7746d9118129ba1",
+            "selected_ref" => "refs/heads/main",
+            "version" => 1
+          }
+        }
+      })
+
+    html = artifact |> RequestContextHTML.render("$.work", "work") |> IO.iodata_to_binary()
+
+    for row <- [
+          "<dt>Repository</dt><dd>emisar</dd>",
+          "<dt>Access</dt><dd>read-only</dd>",
+          "<dt>Checked out</dt><dd>refs/heads/main · 92c952f7</dd>",
+          "<dt>Freshness</dt><dd>current · fetched 2026-09-13 09:48 UTC</dd>",
+          "<dt>Companions</dt><dd>none</dd>"
+        ] do
+      assert html =~ row
+    end
+
+    # None of the dumped labels survive as headings.
+    for gone <- ["Stale base revision", "Workspace base revision", "Remote identity", "Version"] do
+      refute html =~ "<h4>#{gone}</h4>"
+    end
+  end
+
   test "message roles and context omissions are readable without making source HTML executable" do
     artifact =
       InspectionRedactor.artifact(%{
