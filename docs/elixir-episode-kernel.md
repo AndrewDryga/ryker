@@ -1,11 +1,11 @@
 # Elixir episode kernel
 
-This is Responder's lifecycle core. It remains independent from Slack, GitHub, and Coop, and is
+This is Ryker's lifecycle core. It remains independent from Slack, GitHub, and Coop, and is
 composed by the generic ingress, admission, Work, Delivery, and state-tool modules.
 
 ## Boundary
 
-The caller is a trusted ingress adapter inside Responder. It must resolve platform and source-system
+The caller is a trusted ingress adapter inside Ryker. It must resolve platform and source-system
 events into stable episode keys, native input IDs, revisions, destinations, logical turn references,
 and host-owned transition references. User and app text is data inside the bounded payload; it cannot
 choose an episode ID, destination, owner, or authority.
@@ -41,7 +41,7 @@ ranking clue and never an exclusive claim, because two genuine incidents can sha
 
 ## Correcting a routing mistake
 
-Correlation is a judgement, so it can be wrong in both directions. `Responder.Episodes.Corrections`
+Correlation is a judgement, so it can be wrong in both directions. `Ryker.Episodes.Corrections`
 repairs it through the governed operator action boundary, which makes each correction idempotent by
 its action reference and records who confirmed it:
 

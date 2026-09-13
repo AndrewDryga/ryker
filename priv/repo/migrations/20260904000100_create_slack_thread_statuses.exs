@@ -1,4 +1,4 @@
-defmodule Responder.Repo.Migrations.CreateSlackThreadStatuses do
+defmodule Ryker.Repo.Migrations.CreateSlackThreadStatuses do
   use Ecto.Migration
 
   def change do

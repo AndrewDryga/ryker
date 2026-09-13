@@ -5,7 +5,7 @@ description: Walk every queue in this repo that needs judgment — pending corre
 
 # Self-improve: the deliberate pass over everything awaiting judgment
 
-You are running the periodic self-improvement session for Responder. The instruments
+You are running the periodic self-improvement session for Ryker. The instruments
 already collect; your job is to DECIDE and to FIX. Work the sections in order — each
 ends with a concrete action, never just a summary. Respect CLAUDE.md throughout
 (test-first with a red run, fixtures harvested never invented, dev-check before
@@ -14,8 +14,8 @@ commits, finish by deploying, say plainly what is running).
 Ground rules for the whole pass:
 
 - Live DBs are read-only from the shell: `sqlite3 "file:<db>?mode=ro&immutable=1"`.
-  Paths: blitz `~/Projects/blitz/.responder/state/responder.db`, emisar
-  `~/Projects/os/emisar/.responder/state/responder.db`. Timestamps are UTC.
+  Paths: blitz `~/Projects/blitz/.ryker/state/responder.db`, emisar
+  `~/Projects/os/emisar/.ryker/state/responder.db`. Timestamps are UTC.
   `immutable=1` snapshots the file and never sees the live WAL, so a read taken
   right after one of your own POSTs can show the old state — verify writes and
   build act-on-id lists with plain `mode=ro` (still read-only), and keep
@@ -24,10 +24,10 @@ Ground rules for the whole pass:
   the whole batch.
 - Every WRITE goes through a sanctioned path: the control plane's POST actions on
   loopback (they call the same service handlers as the Slack buttons and write their
-  own audit rows), the `responder` CLI, or code changes through the normal gate.
+  own audit rows), the `ryker` CLI, or code changes through the normal gate.
   Never write to the DBs directly.
 - The control plane is at the deployment's `listen:` address (see each
-  responder.yaml). `curl` GETs freely; POSTs are the two-step confirm forms — read
+  ryker.yaml). `curl` GETs freely; POSTs are the two-step confirm forms — read
   the page's form fields first.
 - A decision you cannot make from the evidence is written down as a decision card
   (a `50_blocked/` task with decision.md), not guessed.
@@ -35,7 +35,7 @@ Ground rules for the whole pass:
 ## 1. Response corrections — inspect the episode and preserve the regression
 
 Use the episode timeline and its model request inspector to read retained response
-checks: what the model saw, what Responder refused, and what happened next. The
+checks: what the model saw, what Ryker refused, and what happened next. The
 current Elixir control plane has no fixture-candidate keep/discard queue. Do not
 invent a Decisions page or send its obsolete actions.
 
@@ -50,7 +50,7 @@ invent a Decisions page or send its obsolete actions.
 ## 2. Memory review — keep, merge, forget
 
 - The stale/duplicate review queue: control plane Memory page (keep and dismiss are
-  wired), or `/responder memory review` in Slack.
+  wired), or `/ryker memory review` in Slack.
 - Also read the current memory_entries and conversation rollups with fresh eyes:
   `SELECT subject_key, predicate, substr(value_json,1,80), scope_kind, expires_at,
   recall_count FROM memory_entries ORDER BY recall_count DESC`. Entries recalled
@@ -75,11 +75,11 @@ invent a Decisions page or send its obsolete actions.
 
 ## 4. Eval and cost health — is it getting better?
 
-- `responder audition --config <deployment yaml>` — corrections-per-attempt and
+- `ryker audition --config <deployment yaml>` — corrections-per-attempt and
   cost per lane per model. A lane whose rate jumped is a regression to diagnose
   (host-vs-prompt split again); a lane whose cost dwarfs its quality difference is
   a routing decision to propose.
-- `responder correction-rate --days 7` on both DBs; compare against the last pass.
+- `ryker correction-rate --days 7` on both DBs; compare against the last pass.
 - `make eval-trend` for the recorded corpus history; if a case flaps run-to-run,
   either fix the prompt ambiguity it exposes or mark the flake with evidence —
   never let a flaky case train everyone to ignore the gate.

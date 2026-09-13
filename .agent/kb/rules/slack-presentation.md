@@ -60,7 +60,7 @@ welcome from the saved configuration. Retire the wizard; do not create a second 
 leave contradictory old policy text. Failed saves must not change the displayed effective state.
 Changing participation must preserve unrelated repository/alert/audience settings.
 
-Later natural-language questions about settings and `/responder status` use the same structured
+Later natural-language questions about settings and `/ryker status` use the same structured
 effective-settings view, with Configure channel and relevant list controls. Preserve their
 different delivery audiences (conversation reply vs private command response). Reading settings
 must never silently mutate them; all configuration controls recheck actor, channel and revision.

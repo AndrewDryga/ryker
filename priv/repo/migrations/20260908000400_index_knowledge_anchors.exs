@@ -1,4 +1,4 @@
-defmodule Responder.Repo.Migrations.IndexKnowledgeAnchors do
+defmodule Ryker.Repo.Migrations.IndexKnowledgeAnchors do
   use Ecto.Migration
 
   def change do

@@ -1,36 +1,37 @@
 _metadata:
   major_version: 1
 display_information:
-  name: Emisar
-  description: AI SRE first responder for evidence-backed investigation and governed operations
+  name: Ryker
+  description: A proactive AI teammate in Slack and GitHub that shows its work and keeps you in control
   long_description: >-
-    Emisar is an AI SRE first responder for on-call and infrastructure teams. Ask it an
-    operational question, mention it on an alert, or invite it to a configured operations
-    channel. It reconciles infrastructure and application topology declared in your repositories
-    with fresh evidence from Emisar and other authorized observability tools, then reports what is
-    healthy, degraded, and still unverified.
-    Emisar is not given a generic production shell. It discovers typed infrastructure actions from
-    a trusted catalog. Policy decides what runs, what waits for a person, and what is denied; an
-    outbound-only runner validates the action, arguments, limits, and trusted pack hash again on
-    the target host before execution. Pending approvals remain owned and audited by Emisar.
+    Ryker is a proactive AI teammate for on-call and infrastructure teams. Ask it an operational
+    question, mention it on an alert, or invite it to a channel it should follow. It takes on
+    engineering work, follows through on tasks, picks up alerts, and carries out requested fixes
+    through Emisar, its governed connection to your infrastructure and tools. It reconciles the
+    topology declared in your repositories with fresh evidence and reports what is healthy,
+    degraded, and still unverified.
+    Ryker is not given a generic production shell. It discovers typed infrastructure actions from
+    a trusted Emisar catalog. Policy decides what runs, what waits for a person, and what is
+    denied; an outbound-only runner validates the action, arguments, limits, and trusted pack hash
+    again on the target host before execution. Pending approvals stay owned and audited by Emisar.
     Normal Slack questions are answered in their existing threads. Credible monitoring alerts can
-    start a dedicated incident room, while explicit engineering requests can start an isolated
-    writable Coop task in the same thread. Operators can inspect evidence and changes, request
+    start a dedicated incident room, and explicit engineering requests can start an isolated,
+    writable co:op task in the same thread. Operators can inspect evidence and changes, request
     review, publish a verified tree as a draft pull request, prepare a shift handoff, or close the
-    work. Emisar cannot merge, deploy, sign commits, or bypass infrastructure policy and approval.
-    Typed preferences and standing read-only rules require operator confirmation and show their
-    exact scope, expiry, and safety boundary before they are saved.
-    Invite Emisar to a channel and it asks a short series of questions, then shows the normalized
-    listening, repository, alert, and incident-audience settings before an operator confirms them.
-    Operators can also ask for status, incidents, evidence, preferences, rules, and listening
-    changes conversationally. The /responder command remains a compatibility and recovery surface.
+    work. Ryker cannot merge, deploy, sign commits, or bypass infrastructure policy and approval.
+    Preferences and standing read-only rules need operator confirmation and show their exact scope,
+    expiry, and safety boundary before they are saved.
+    Invite Ryker to a channel and it asks a short series of questions, then shows the listening,
+    repository, alert, and incident-audience settings before an operator confirms them. Operators
+    can also ask for status, incidents, evidence, preferences, rules, and listening changes in
+    conversation. The /ryker command remains a recovery surface for operators.
     AI-generated investigation results can be incomplete or inaccurate and should be reviewed by
     an operator before action.
-  background_color: "#0A0B0D"
+  background_color: "#111315"
 features:
   agent_view:
     agent_description: >-
-      AI SRE first responder that reconciles repository topology with fresh live
+      A proactive AI teammate that reconciles repository topology with fresh live
       evidence and uses only policy-controlled, host-validated infrastructure actions.
     suggested_prompts:
       - title: Production health
@@ -51,17 +52,17 @@ features:
     messages_tab_enabled: true
     messages_tab_read_only_enabled: false
   bot_user:
-    display_name: Emisar
+    display_name: Ryker
     always_online: false
   slash_commands:
-    - command: /responder
-      description: Investigate with Emisar and control operational work
+    - command: /ryker
+      description: Check Ryker's status and control how it takes part in this channel
       usage_hint: status | proactive | shadow | help
       should_escape: false
   shortcuts:
     - name: Investigate message
       type: message
-      callback_id: responder_investigate_message
+      callback_id: ryker_investigate_message
       description: Run a read-only, evidence-backed investigation of this message
 oauth_config:
   scopes:

@@ -5,21 +5,21 @@
 # about 93 seconds each. One VM ran them one after another — the Repo is a
 # singleton and the worker gateway binds one port — so the matrix took 4.8
 # hours, and nothing is allowed to take longer than 30 minutes. Each shard is
-# its own `mix responder.eval world --shard I/N` VM on its own campaign
+# its own `mix ryker.eval world --shard I/N` VM on its own campaign
 # database and its own listener ports; every shard deals itself the same
 # slice of the same ordered plan, writes results without a verdict, and
 # `world-merge` joins them into the one report the thresholds and the trend
 # tooling read. The observations, the judge and the scenarios are unchanged.
 #
-# RESPONDER_WORLD_EVAL_SHARDS (default 4) is how many shards may run. The plan
+# RYKER_WORLD_EVAL_SHARDS (default 4) is how many shards may run. The plan
 # preview decides how many actually start: `--repeat 1 --case X` is one pair,
 # so it runs one shard, never an empty VM.
 set -euo pipefail
 
 if [[ $# -lt 1 || -z "$1" ]]; then
   echo "usage: scripts/elixir-world-eval.sh /absolute/results.json [world options]" >&2
-  echo "the dedicated evaluation policies come from RESPONDER_EVAL_* in the environment" >&2
-  echo "RESPONDER_WORLD_EVAL_SHARDS (default 4) runs that many observation shards at once" >&2
+  echo "the dedicated evaluation policies come from RYKER_EVAL_* in the environment" >&2
+  echo "RYKER_WORLD_EVAL_SHARDS (default 4) runs that many observation shards at once" >&2
   exit 2
 fi
 
@@ -31,9 +31,9 @@ if [[ $eval_results != /* ]]; then
   exit 2
 fi
 
-shards=${RESPONDER_WORLD_EVAL_SHARDS:-4}
+shards=${RYKER_WORLD_EVAL_SHARDS:-4}
 if [[ ! $shards =~ ^[0-9]+$ ]] || ((shards < 1 || shards > 64)); then
-  echo "RESPONDER_WORLD_EVAL_SHARDS must be between 1 and 64" >&2
+  echo "RYKER_WORLD_EVAL_SHARDS must be between 1 and 64" >&2
   exit 2
 fi
 
@@ -80,10 +80,10 @@ done
 # environment. The layout is checked for the configured count before any
 # database exists, because a shard that cannot bind is a shard that ran
 # nothing.
-worker_base=${RESPONDER_WORKER_PORT:-4322}
-state_base=${RESPONDER_STATE_TOOLS_PORT:-4318}
+worker_base=${RYKER_WORKER_PORT:-4322}
+state_base=${RYKER_STATE_TOOLS_PORT:-4318}
 if [[ ! $worker_base =~ ^[0-9]+$ || ! $state_base =~ ^[0-9]+$ ]]; then
-  echo "RESPONDER_WORKER_PORT and RESPONDER_STATE_TOOLS_PORT must be port numbers" >&2
+  echo "RYKER_WORKER_PORT and RYKER_STATE_TOOLS_PORT must be port numbers" >&2
   exit 2
 fi
 
@@ -92,20 +92,20 @@ for ((index = 1; index <= shards; index++)); do
   ports+=("$((worker_base + 2 * (index - 1)))" "$((state_base + 2 * (index - 1)))")
 done
 if ((ports[${#ports[@]} - 1] > 65535 || ports[${#ports[@]} - 2] > 65535)); then
-  echo "shard ports exceed 65535; lower RESPONDER_WORLD_EVAL_SHARDS or the base ports" >&2
+  echo "shard ports exceed 65535; lower RYKER_WORLD_EVAL_SHARDS or the base ports" >&2
   exit 2
 fi
 if [[ -n $(printf '%s\n' "${ports[@]}" | sort -n | uniq -d) ]]; then
   echo "shard ports overlap: with $shards shards the worker ports from $worker_base and the" \
-    "state-tools ports from $state_base collide; set RESPONDER_STATE_TOOLS_PORT an odd" \
-    "distance from RESPONDER_WORKER_PORT (adjacent works) or at least $((2 * shards)) away" >&2
+    "state-tools ports from $state_base collide; set RYKER_STATE_TOOLS_PORT an odd" \
+    "distance from RYKER_WORKER_PORT (adjacent works) or at least $((2 * shards)) away" >&2
   exit 2
 fi
 
 # The public URL is the worker gateway's own origin; only its port changes.
-public_url=${RESPONDER_WORKER_PUBLIC_URL:-}
+public_url=${RYKER_WORKER_PUBLIC_URL:-}
 if [[ -z $public_url ]]; then
-  echo "RESPONDER_WORKER_PUBLIC_URL must name the worker gateway origin" >&2
+  echo "RYKER_WORKER_PUBLIC_URL must name the worker gateway origin" >&2
   exit 2
 fi
 public_url=${public_url%/}
@@ -117,10 +117,10 @@ fi
 
 # A campaign database is the migrated template each observation database is
 # copied from; it holds no custody of its own. Custody belongs to the
-# per-observation databases, which `mix responder.eval world` preserves and
+# per-observation databases, which `mix ryker.eval world` preserves and
 # names when their observation did not pass, so every campaign database is
 # always dropped, on any exit, after the merge that may still name them.
-campaign="responder_world_eval_$(date +%s)_$$_${RANDOM}"
+campaign="ryker_world_eval_$(date +%s)_$$_${RANDOM}"
 databases=()
 pids=()
 
@@ -144,11 +144,11 @@ cleanup() {
 
 trap cleanup EXIT
 
-export RESPONDER_WORLD_EVAL=1
+export RYKER_WORLD_EVAL=1
 
 # One line per shard the plan fills, so a plan smaller than the shard count
 # starts only as many VMs as have something to observe.
-preview=$(env MIX_ENV=test mix responder.eval world-shards --shards "$shards" \
+preview=$(env MIX_ENV=test mix ryker.eval world-shards --shards "$shards" \
   ${plan_args[@]+"${plan_args[@]}"})
 launched=$(printf '%s\n' "$preview" | grep -c '"shard"') || true
 if ((launched < 1)); then
@@ -181,10 +181,10 @@ for ((index = 1; index <= launched; index++)); do
 
   PGDATABASE="${databases[index - 1]}" \
     MIX_ENV=test \
-    RESPONDER_WORKER_PORT="$worker_port" \
-    RESPONDER_STATE_TOOLS_PORT="$state_port" \
-    RESPONDER_WORKER_PUBLIC_URL="$public_origin:$worker_port" \
-    mix responder.eval world --results "$partial" --shard "$index/$launched" \
+    RYKER_WORKER_PORT="$worker_port" \
+    RYKER_STATE_TOOLS_PORT="$state_port" \
+    RYKER_WORKER_PUBLIC_URL="$public_origin:$worker_port" \
+    mix ryker.eval world --results "$partial" --shard "$index/$launched" \
     ${world_args[@]+"${world_args[@]}"} >"$log" 2>&1 &
   pids+=("$!")
 done
@@ -209,5 +209,5 @@ if ((failed)); then
   exit 1
 fi
 
-env MIX_ENV=test mix responder.eval world-merge --results "$eval_results" \
+env MIX_ENV=test mix ryker.eval world-merge --results "$eval_results" \
   ${merge_args[@]+"${merge_args[@]}"} "${partials[@]}"

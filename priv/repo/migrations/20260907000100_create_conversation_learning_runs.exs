@@ -1,4 +1,4 @@
-defmodule Responder.Repo.Migrations.CreateConversationLearningRuns do
+defmodule Ryker.Repo.Migrations.CreateConversationLearningRuns do
   use Ecto.Migration
 
   def up do

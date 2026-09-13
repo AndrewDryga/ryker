@@ -1,11 +1,11 @@
-defmodule Responder.Fixtures.Publication do
+defmodule Ryker.Fixtures.Publication do
   @moduledoc false
 
-  alias Responder.Episodes
-  alias Responder.Fixtures.Episodes, as: EpisodeFixtures
-  alias Responder.Publication.Custody, as: PublicationCustody
-  alias Responder.State.Records
-  alias Responder.Work.{Custody, DeliveryReceipt, Result, Submission}
+  alias Ryker.Episodes
+  alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
+  alias Ryker.Publication.Custody, as: PublicationCustody
+  alias Ryker.State.Records
+  alias Ryker.Work.{Custody, DeliveryReceipt, Result, Submission}
 
   @now ~U[2026-08-28 12:00:00.000000Z]
 
@@ -16,7 +16,7 @@ defmodule Responder.Fixtures.Publication do
   which is what production had for two days in September 2026.
   """
   def review_requested!(suffix, options \\ []) do
-    repository = Keyword.get(options, :repository, "responder")
+    repository = Keyword.get(options, :repository, "ryker")
     thread_ref = Keyword.get(options, :thread_ref, "thread:#{suffix}")
     # Sandbox transactions hold conversation advisory locks until the test exits.
     # Shared fixture destinations stalled four unrelated suites for 15 seconds;
@@ -144,7 +144,7 @@ defmodule Responder.Fixtures.Publication do
     %{claim: claim, publication: publication, repository: repository} =
       review_requested!(suffix, options)
 
-    github_repository = Keyword.get(options, :github_repository, "acme/responder")
+    github_repository = Keyword.get(options, :github_repository, "acme/ryker")
     pull_request_number = Keyword.get(options, :pull_request_number, 91)
 
     {:ok, review_claim} = PublicationCustody.claim_next("publication:review:#{suffix}", 60)
@@ -203,7 +203,7 @@ defmodule Responder.Fixtures.Publication do
     {:ok, publish_claim} = PublicationCustody.claim_next("publication:publish:#{suffix}", 60)
 
     receipt = %{
-      "branch_ref" => "refs/heads/responder/#{publication.id}",
+      "branch_ref" => "refs/heads/ryker/#{publication.id}",
       "candidate_tree" => review["candidate_tree"],
       "commit_sha" => String.duplicate("9", 40),
       "pull_request_number" => pull_request_number,

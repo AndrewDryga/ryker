@@ -1,4 +1,4 @@
-defmodule Responder.Repo.Migrations.InheritChannelParticipation do
+defmodule Ryker.Repo.Migrations.InheritChannelParticipation do
   use Ecto.Migration
 
   # One effective channel participation replaces the competing override store.

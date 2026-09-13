@@ -1,4 +1,4 @@
-/* Responder — product site.
+/* Ryker — product site.
    One hand-written stylesheet. No framework, no CDN, no runtime request: the
    site must render with the network off, from file:// or any static host.
 
@@ -141,7 +141,7 @@
   --t-h2: clamp(1.625rem, 1.29rem + 1.5vw, 2.25rem);      /* 26 → 36           */
   --t-h1: clamp(2rem, 1.6rem + 1.8vw, 2.75rem);           /* 32 → 44  doc h1   */
   /* 34 → 64. The old floor of 42px set the hero headline to break "The first
-     / responder that / shows its work." on every phone — the noun split from
+     / ryker that / shows its work." on every phone — the noun split from
      its own relative clause, three lines deep. Two lines and a smaller size
      read better than three lines and a bigger one, and above 1200 the
      side-by-side hero sets its own size against its own column. */
@@ -581,7 +581,7 @@ time, .num, .mono, .tag, table td.num, table th.num { font-variant-numeric: tabu
 
    And 416 is the number the headline needs. At 52px "that shows its work."
    measures 436 and could not fit any column this layout can give it, so the
-   line broke as "The first / responder that / shows its work." — the noun
+   line broke as "The first / ryker that / shows its work." — the noun
    split from its own relative clause, in the one sentence on the page that
    has to read in one go. At 48px the two lines measure 382 and 400, both
    inside 416, and `balance` has exactly one legal two-line split to find. */

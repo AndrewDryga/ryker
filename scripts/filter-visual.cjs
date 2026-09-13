@@ -1,7 +1,7 @@
 // Read-only filter acceptance against the local control plane. No model or effect calls.
 const assert = require('node:assert/strict');
 const path = require('node:path');
-const {chromium} = require(process.env.RESPONDER_PLAYWRIGHT_MODULE || 'playwright');
+const {chromium} = require(process.env.RYKER_PLAYWRIGHT_MODULE || 'playwright');
 const {createCaptureDirectory} = require('./visual-artifacts.cjs');
 
 async function contrast(locator) {
@@ -21,7 +21,7 @@ async function contrast(locator) {
 (async () => {
   const origin = process.argv[2] || 'http://127.0.0.1:4321';
   assert(['127.0.0.1', 'localhost'].includes(new URL(origin).hostname));
-  const output = await createCaptureDirectory(process.argv[3] || '/tmp/responder-filters', path.resolve(__dirname, '..'));
+  const output = await createCaptureDirectory(process.argv[3] || '/tmp/ryker-filters', path.resolve(__dirname, '..'));
   console.log(`Screenshots: ${output}`);
   const browser = await chromium.launch({headless: true});
   try {
@@ -55,8 +55,8 @@ async function contrast(locator) {
       await page.locator('#request-criteria button[type=submit]').click();
       await page.waitForURL(url => url.searchParams.get('state') === 'complete');
       assert.equal(new URL(page.url()).searchParams.get('usage_profile'), 'emisar');
-      const updated = await page.locator('#responder-shell').getAttribute('data-updated-at');
-      await page.waitForFunction(previous => document.querySelector('#responder-shell').dataset.updatedAt !== previous, updated, {timeout: 12000});
+      const updated = await page.locator('#ryker-shell').getAttribute('data-updated-at');
+      await page.waitForFunction(previous => document.querySelector('#ryker-shell').dataset.updatedAt !== previous, updated, {timeout: 12000});
       assert.equal(await page.locator('[name="criteria[state][value]"]').inputValue(), 'complete');
       await page.screenshot({path: path.join(output, `requests-${width}.png`)});
       await page.getByRole('link', {name: 'Clear usage filters', exact: true}).click();

@@ -1,4 +1,4 @@
-defmodule Responder.Repo.Migrations.CreateSlackInbox do
+defmodule Ryker.Repo.Migrations.CreateSlackInbox do
   use Ecto.Migration
 
   def change do

@@ -1,6 +1,6 @@
 # Elixir ingress and admission
 
-This is the admission boundary of the replacement Responder. It accepts a bounded event from a
+This is the admission boundary of the replacement Ryker. It accepts a bounded event from a
 trusted adapter, stores it before reasoning, asks Coop for one generic model decision, validates that
 decision, and commits it with the episode transition in PostgreSQL.
 
@@ -14,7 +14,7 @@ acceptance remain separate evidence from implementation.
 
 ## Trusted envelope
 
-Every adapter produces `Responder.Ingress.Input` with:
+Every adapter produces `Ryker.Ingress.Input` with:
 
 - source and event identity;
 - actor identity and source capabilities;
@@ -38,11 +38,11 @@ The optional listener exposes:
 ```text
 POST /v1/hooks/<configured-route>
 Content-Type: application/json or application/*+json
-X-Responder-Event-ID: <required unique occurrence ID>
-X-Responder-Item-ID: <optional stable item ID shared by revisions; defaults to event ID>
-X-Responder-Event-Type: <optional hint>
-X-Responder-Occurred-At: <optional UTC ISO-8601 timestamp>
-X-Responder-Revision: <optional positive integer, default 1>
+X-Ryker-Event-ID: <required unique occurrence ID>
+X-Ryker-Item-ID: <optional stable item ID shared by revisions; defaults to event ID>
+X-Ryker-Event-Type: <optional hint>
+X-Ryker-Occurred-At: <optional UTC ISO-8601 timestamp>
+X-Ryker-Revision: <optional positive integer, default 1>
 ```
 
 The body may be any JSON value: object, array, string, number, boolean, or null. A `202` response means
@@ -52,7 +52,7 @@ returns the original receipt. Reusing the event identity with different data ret
 `adapter.kind: universal` uses that header contract unchanged. `adapter.kind: grafana` accepts an
 authenticated batch of 1–500 Grafana alerts and derives stable alert-cycle and occurrence identities.
 `adapter.kind: mapped_json` selects only configured bounded object paths and derives one alert. The
-specialized transforms do not require Responder metadata headers because their authenticated bodies
+specialized transforms do not require Ryker metadata headers because their authenticated bodies
 own source identity; an HMAC request signs those absent header values as empty strings. A Grafana
 batch is recorded atomically. The complete configuration and mapping contract is documented in
 [`webhooks.md`](webhooks.md).
@@ -72,17 +72,17 @@ The settings owner publishes the assembled runtime under these application keys;
 same shape directly:
 
 ```elixir
-config :responder, :admission,
+config :ryker, :admission,
   policy: "admission-read-only",
   socket: "/var/run/coop/control.sock",
-  worker_ref: "responder:admission:local"
+  worker_ref: "ryker:admission:local"
 
-config :responder, :webhooks,
+config :ryker, :webhooks,
   ip: {127, 0, 0, 1},
   port: 4080,
   routes: %{
     "universal" => %{
-      auth: {:hmac_sha256, System.fetch_env!("RESPONDER_WEBHOOK_SECRET")},
+      auth: {:hmac_sha256, System.fetch_env!("RYKER_WEBHOOK_SECRET")},
       destination: %{
         transport: "slack",
         conversation_ref: "slack:T0123456789:C0123456789",
@@ -96,8 +96,8 @@ Internet exposure belongs behind the normal authenticated ingress proxy; the lis
 public interface.
 
 Bearer routes send one `Authorization: Bearer <secret>` header. HMAC routes send
-`X-Responder-Timestamp: <Unix seconds>` and
-`X-Responder-Signature: v1=<hex HMAC-SHA256>`. The signed bytes are these newline-separated values in
+`X-Ryker-Timestamp: <Unix seconds>` and
+`X-Ryker-Signature: v1=<hex HMAC-SHA256>`. The signed bytes are these newline-separated values in
 order:
 
 ```text
@@ -161,7 +161,7 @@ X-Hub-Signature-256: sha256=<HMAC-SHA256 of the raw request body>
 ```
 
 The host binding fixes the GitHub App installation, repository numeric ID, repository full name,
-webhook secret, Responder bot identity, authorized sender IDs, and body limit. Signed payload fields
+webhook secret, Ryker bot identity, authorized sender IDs, and body limit. Signed payload fields
 can select only an item inside that repository; they cannot redirect the resulting episode or later
 delivery to another repository. Self-authored events and unlisted actors are authenticated and
 acknowledged as ignored before they can spend model or Work authority.
@@ -174,7 +174,7 @@ Deleted comments and top-level review submissions do not advertise a reaction op
 
 Supported issue and pull-request lifecycle actions normalize as generic `event` inputs with stable
 issue or pull identities across revisions. A lifecycle event for a pull request already published by
-Responder remains publication-owned; an unmatched pull request and every issue lifecycle event use
+Ryker remains publication-owned; an unmatched pull request and every issue lifecycle event use
 ordinary generic admission.
 
 GitHub conversation turns can read one of six bounded context sections and search issues/PRs inside
@@ -182,7 +182,7 @@ only the configured repository. Repository identity, subject number, review-thre
 and destination are derived from the active episode. The model chooses only the section, bounded page
 cursor, result limit, search text, kind, and state.
 
-An open confirmable offer is rendered with `/responder confirm <record-ref>`. The Router recognizes
+An open confirmable offer is rendered with `/ryker confirm <record-ref>`. The Router recognizes
 that exact syntax only on a newly created, authenticated issue comment and consumes it before model
 admission. It rechecks the configured actor, exact current discussion, original settled delivery
 receipt, offer kind, and repository contributor policy, then calls the same durable confirmation
@@ -199,7 +199,7 @@ This is durable settings, edited under **Settings**, not a configuration file:
   schedule) to a reviewed worker policy for that repository or context. The digest and authority
   digest are copied from the authenticated worker advertisement; nothing types one.
 - **GitHub** holds the App identity, and **GitHub repository bindings** holds one verified
-  binding per repository: installation ID, repository ID, the Responder actor ID and the exact
+  binding per repository: installation ID, repository ID, the Ryker actor ID and the exact
   authorized actor IDs.
 - `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY` and `GITHUB_WEBHOOK_SECRET` come from the deployment
   environment under those fixed names. Credentials being present does not enable GitHub; the saved
@@ -221,7 +221,7 @@ creating work. An ignored self/unlisted-actor event returns `200` and creates no
 
 ## Durable queue
 
-`Responder.Ingress.Inbox` is the natural slot for one source occurrence. PostgreSQL stores the exact
+`Ryker.Ingress.Inbox` is the natural slot for one source occurrence. PostgreSQL stores the exact
 normalized input before any model call. Workers claim the oldest eligible row with `FOR UPDATE SKIP
 LOCKED`; an opaque expiring lease fences the eventual decision and retry update.
 
@@ -317,7 +317,7 @@ repository is rejected before an episode exists (`admission_rejected:
 repository_source_not_available`). A malformed selector is refused, never repaired. The host
 supplies `default` for a new repository-backed episode when the model chose nothing, and the chosen
 selector is frozen in the same transaction that pins the Work policy. See
-[elixir-work-runtime.md](elixir-work-runtime.md) for how Coop resolves and Responder verifies it.
+[elixir-work-runtime.md](elixir-work-runtime.md) for how Coop resolves and Ryker verifies it.
 
 The model never returns a provider, model, effort, policy name, repository, credential, or write
 authority. Those remain trusted configuration. The three class policies for one route must carry
@@ -352,9 +352,9 @@ keys, so a lost HTTP response reconciles the existing operation instead of start
 turn.
 
 Coop validates the JSON Schema. It then holds the exact bytes unpublished for host semantic review.
-Responder checks the action against the frozen candidate set and source capabilities. If that check
+Ryker checks the action against the frozen candidate set and source capabilities. If that check
 fails, the complete useful error goes back to the same Coop turn and the model repairs its answer.
-Responder accepts only a completed turn whose message digest matches Coop's durable semantic-validation
+Ryker accepts only a completed turn whose message digest matches Coop's durable semantic-validation
 receipt. Candidate identity includes Coop's positive attempt as well as the digest: every reject or
 accept key names that attempt, so two byte-identical repair attempts cannot replay one another's
 validation result.
@@ -365,7 +365,7 @@ dispatcher back to durable Inbox retry/backoff rather than occupying the admissi
 the frozen input, context, execution generation, and Coop operation keys remain available for exact
 reconciliation on the next attempt.
 
-After a decision, Coop has already parked and cleaned the provider runtime. Responder also asks Coop to
+After a decision, Coop has already parked and cleaned the provider runtime. Ryker also asks Coop to
 close the isolated admission session. Episode Work sessions are separately owned by the retention
 runtime: it closes the exact recorded Coop session, observes a grace period, reviews Coop's exact
 discard plan, refuses dirty or unpublished work, and discards only a clean or already-published
@@ -380,7 +380,7 @@ the model-admission worker.
 
 The local backdrop is captured before that transaction opens, behind a cutoff at this input's own
 occurrence, so a message that arrives while the decision is being made — including one already queued
-for Responder — can never enter an earlier context, and no authorized provider read runs while a
+for Ryker — can never enter an earlier context, and no authorized provider read runs while a
 database snapshot is held.
 
 The host snapshots candidates, the conversation's episode count, and the complete active episode ID set

@@ -1,10 +1,10 @@
-defmodule Responder.TestSupport.WorldHostReplay do
+defmodule Ryker.TestSupport.WorldHostReplay do
   @moduledoc false
 
-  alias Responder.Evals.{WorldCase, WorldCassette}
-  alias Responder.State.Records
-  alias Responder.StateTools.Tools
-  alias Responder.TestSupport.FakeWorkCoopAPI
+  alias Ryker.Evals.{WorldCase, WorldCassette}
+  alias Ryker.State.Records
+  alias Ryker.StateTools.Tools
+  alias Ryker.TestSupport.FakeWorkCoopAPI
 
   @placeholder ~r/\A\$call:(\d+):([A-Za-z0-9_.:-]{1,256})\z/
 

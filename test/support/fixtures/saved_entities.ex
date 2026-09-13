@@ -1,4 +1,4 @@
-defmodule Responder.Fixtures.SavedEntities do
+defmodule Ryker.Fixtures.SavedEntities do
   @moduledoc """
   Confirmed schedules, standing rules, preferences, guidance and memories with
   their real offer provenance.
@@ -8,10 +8,10 @@ defmodule Responder.Fixtures.SavedEntities do
   differently shaped hand-written sets.
   """
 
-  alias Responder.{Episodes, Repo}
-  alias Responder.Fixtures.Episodes, as: EpisodeFixtures
-  alias Responder.State.{Behavior, MemoryEntry, Records, Schedule}
-  alias Responder.Work.Custody
+  alias Ryker.{Episodes, Repo}
+  alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
+  alias Ryker.State.{Behavior, MemoryEntry, Records, Schedule}
+  alias Ryker.Work.Custody
 
   @now ~U[2026-08-28 12:00:00.000000Z]
 
@@ -150,7 +150,7 @@ defmodule Responder.Fixtures.SavedEntities do
       visibility: :workspace,
       subject: subject,
       payload: payload,
-      payload_fingerprint: Responder.CanonicalJSON.digest(payload),
+      payload_fingerprint: Ryker.CanonicalJSON.digest(payload),
       confirmed_by_actor_ref: "slack:user:U123",
       confirmation_ref: "interaction:#{id}",
       confirmed_at: @now,

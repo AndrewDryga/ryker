@@ -1,4 +1,4 @@
-defmodule Responder.Repo.Migrations.RetainSourceEnvelopes do
+defmodule Ryker.Repo.Migrations.RetainSourceEnvelopes do
   use Ecto.Migration
 
   def change do

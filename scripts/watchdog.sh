@@ -1,9 +1,9 @@
 #!/bin/bash
-# Notices that Responder has stopped doing work, and says so where a person
+# Notices that Ryker has stopped doing work, and says so where a person
 # will see it.
 #
 # On 2026-08-13 the Docker daemon stopped. Coop's control API kept answering,
-# so /readyz reported ready and every health signal Responder had said it was
+# so /readyz reported ready and every health signal Ryker had said it was
 # fine — while every turn died inside execution on a box image that could not
 # be built. Alerts arrived and went unanswered for twenty minutes, and the way
 # the operator found out was by watching Slack stay quiet.
@@ -14,7 +14,7 @@
 # wedged worker. /readyz is checked too, because it catches things a drained
 # queue cannot — a disconnected socket on an idle afternoon.
 #
-# This must not depend on Responder to raise the alarm, since Responder is what
+# This must not depend on Ryker to raise the alarm, since Ryker is what
 # it is watching. It uses a macOS notification and a log file.
 set -uo pipefail
 
@@ -22,7 +22,7 @@ set -uo pipefail
 # deployment. A watchdog that has never been seen to fire is indistinguishable
 # from one that cannot.
 agents="${WATCHDOG_AGENTS:-$HOME/Library/LaunchAgents}"
-state_dir="${WATCHDOG_STATE:-$HOME/.local/state/responder-watchdog}"
+state_dir="${WATCHDOG_STATE:-$HOME/.local/state/ryker-watchdog}"
 log="$state_dir/watchdog.log"
 
 # Ten minutes of queued-and-not-moving. A healthy deployment reads zero: a turn
@@ -56,7 +56,7 @@ note() {
 # eleven hours and 654 strikes while the alarm fired as a macOS notification —
 # transient, easy to miss, gone if the operator was not at this machine. The
 # bot token is the right transport for the same reason the queue is the right
-# signal: it works when the Responder process is dead, because the Slack app
+# signal: it works when the Ryker process is dead, because the Slack app
 # outlives the process that uses it. Credentials come from the deployment's own
 # local.env and config, read at alarm time and never logged; a deployment
 # without them just keeps the toast. The API base is overridable so the test
@@ -272,32 +272,32 @@ ready_reason() {
 }
 
 checked=0
-for plist in "$agents"/ai.emisar.responder.*.plist; do
+for plist in "$agents"/ai.emisar.ryker.*.plist; do
   [[ -e $plist ]] || continue
   case $plist in
     *.staged-*) continue ;;
   esac
   name=$(basename "$plist" .plist)
-  name=${name#ai.emisar.responder.}
+  name=${name#ai.emisar.ryker.}
 
   # Both derived from the plist rather than configured here, so a deployment
   # added tomorrow is watched without editing this file.
   stderr_path=$(/usr/bin/plutil -extract StandardErrorPath raw -o - "$plist" 2>/dev/null) || continue
-  responder_dir=$(dirname "$(dirname "$stderr_path")")
-  # A deployment is a thing with a responder.yaml. Everything else sharing the
-  # ai.emisar.responder.* prefix — the quality watcher, this watchdog itself —
+  ryker_dir=$(dirname "$(dirname "$stderr_path")")
+  # A deployment is a thing with a ryker.yaml. Everything else sharing the
+  # ai.emisar.ryker.* prefix — the quality watcher, this watchdog itself —
   # is skipped by that fact rather than by name, so nothing added later has to
   # remember to exclude itself. A blocklist got this wrong on its first run:
   # the watchdog found its own launch agent and reported it as a deployment
   # with no database.
-  config="$responder_dir/responder.yaml"
+  config="$ryker_dir/ryker.yaml"
   [[ -f $config ]] || continue
   # Remembered for the alarm path: a per-deployment alarm DMs that
   # deployment's operator with that deployment's token. The nothing-to-watch
   # alarm at the bottom has neither and stays a toast.
   current_config="$config"
-  current_env="$responder_dir/local.env"
-  db="$responder_dir/state/responder.db"
+  current_env="$ryker_dir/local.env"
+  db="$ryker_dir/state/responder.db"
   listen=$(/usr/bin/awk -F'[[:space:]]+' '/^listen:/ {print $2; exit}' "$config" 2>/dev/null)
 
   checked=$((checked + 1))
@@ -365,7 +365,7 @@ for plist in "$agents"/ai.emisar.responder.*.plist; do
           progress="Activity resumed, but $cohort_blocked $label $noun $verb blocked."
           note "$name: $progress"
           if [[ -f $alerted_file && ! -f $partial_file ]]; then
-            alarm "Responder $name activity resumed" "$progress"
+            alarm "Ryker $name activity resumed" "$progress"
             printf '%s\n' "$movement" > "$partial_file"
           fi
           # A later unrelated completion is not fresh recovery evidence for
@@ -400,7 +400,7 @@ for plist in "$agents"/ai.emisar.responder.*.plist; do
       fi
     fi
     if [[ $strikes -ge $strikes_required && -f $alerted_file ]]; then
-      alarm "Responder $name recovered" "Queue is moving again and the deployment reports ready."
+      alarm "Ryker $name recovered" "Queue is moving again and the deployment reports ready."
     fi
     rm -f "$strike_file" "$alerted_file" "$partial_file" "$stalled_at_file"
     continue
@@ -420,12 +420,12 @@ for plist in "$agents"/ai.emisar.responder.*.plist; do
   last=$(cat "$alerted_file" 2>/dev/null || echo 0)
   if [[ $((now - last)) -ge $((renotify_minutes * 60)) ]]; then
     echo "$now" > "$alerted_file"
-    alarm "Responder $name is not working" "$trouble"
+    alarm "Ryker $name is not working" "$trouble"
   fi
 done
 
 if [[ $checked -eq 0 ]]; then
-  alarm "Responder watchdog found nothing to watch" \
+  alarm "Ryker watchdog found nothing to watch" \
     "No deployment launch agent matched in $agents."
   exit 1
 fi

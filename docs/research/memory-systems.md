@@ -1,6 +1,6 @@
-# Memory systems: research and pragmatic Responder design
+# Memory systems: research and pragmatic Ryker design
 
-Research date: **2026-09-08**. Responder source inspected: **f664a3e10c8eec85cbbfea9feba5bc94ad0bcd62**.
+Research date: **2026-09-08**. Ryker source inspected: **f664a3e10c8eec85cbbfea9feba5bc94ad0bcd62**.
 
 Status: research baseline and design rationale. The approved build, subsequent Fable reviews,
 implementation progress and qualification boundaries are tracked in the
@@ -54,7 +54,7 @@ source-code defects; the disposition is recorded in section 9.
 - [Evidence and limits](#2-evidence-and-limits)
 - [Systems worth learning from](#3-systems-worth-learning-from)
 - [Failures and things to avoid](#4-failures-and-things-to-avoid)
-- [Current Responder baseline](#5-current-responder-baseline)
+- [Current Ryker baseline](#5-current-ryker-baseline)
 - [Proposed product behavior](#6-proposed-product-behavior)
 - [Storage and authorization](#7-storage-and-authorization)
 - [Evaluation and implementation order](#8-evaluation-and-implementation-order)
@@ -71,7 +71,7 @@ Labels in this document:
   here; not a universal ranking or proof of unattended production safety.
 - **Issue report:** a first-hand public report with a version/reproduction. Not independently
   reproduced here, and not a claim that every version or hosted product has that defect.
-- **Local evidence:** inspected Responder code or the retained September 7 replay audit. The audit
+- **Local evidence:** inspected Ryker code or the retained September 7 replay audit. The audit
   is historical evidence, not a fresh production database measurement.
 - **Proposal/inference:** our engineering judgment, requiring the tests below.
 
@@ -86,7 +86,7 @@ Research covered Letta, Claude Code, local Codex memory, GitHub Copilot Memory, 
 LangGraph/LangMem concepts, Mem0, Zep/Graphiti, Hindsight, Cleric, incident.io, and relevant
 evaluation/security papers.
 It is a targeted architecture comparison, not an exhaustive vendor audit. No competitor was
-installed into Responder, and no cross-vendor benchmark was run.
+installed into Ryker, and no cross-vendor benchmark was run.
 
 Public OpenAI documentation establishes background extraction/consolidation for **local Codex**,
 and explicitly distinguishes that store from ChatGPT web memory. It does **not** establish a
@@ -113,7 +113,7 @@ review is **not human approval**. [L4](https://github.com/letta-ai/letta-code/bl
 **Adopt:** progressive disclosure; find-then-expand; corrections as learning triggers;
 update-before-create; no-op as success. **Do not copy:** Git as runtime memory custody, worktree
 orchestration, automatic executable skill edits, or a globally exposed memory tree. Those do not
-fit Responder's transactional ownership and Slack/GitHub disclosure boundaries.
+fit Ryker's transactional ownership and Slack/GitHub disclosure boundaries.
 
 The 2025 sleep-time article explicitly identifies latency and multitasking problems when one agent
 handles conversation and memory housekeeping together. Its reported experiments and old two-agent
@@ -132,7 +132,7 @@ conflicting instructions, and lack of hard enforcement by remembered prose.
 **Adopt:** remember rationale, corrections, intended operating state, and where to find evidence.
 A note that says “check this deployment configuration before treating zero replicas as failure”
 can be more useful than another stale inventory dump. **Avoid:** copying single-developer
-filesystem trust into multi-person channels. For Responder, source deletion and audience access
+filesystem trust into multi-person channels. For Ryker, source deletion and audience access
 must propagate to derived material; a Markdown file's existence is not an authorization check.
 
 Anthropic's context-engineering guidance supports concise, sufficient context and non-overlapping
@@ -149,7 +149,7 @@ checked-in guidance rather than only generated memory. [O1](https://learn.chatgp
 
 **Adopt:** debouncing, separate read/write controls, resource-aware scheduling, and distinguishing
 generated recall from required policy. **Avoid:** assuming “background” means immediate visibility
-or free computation. Responder needs observable learning progress and recent-source fallback
+or free computation. Ryker needs observable learning progress and recent-source fallback
 while consolidation is behind; a new model-visible watermark is not required initially.
 
 ### GitHub Copilot Memory: validate remembered code facts against today's code
@@ -184,7 +184,7 @@ freshness and trigger-design problems. [LG1](https://docs.langchain.com/oss/pyth
 
 **Adopt:** compact per-subject records between one giant profile and one note per message;
 explicit tradeoff between prompt freshness and background cost. **Avoid:** another framework or
-state store. Responder already owns resumable work and durable memory. A namespace is useful
+state store. Ryker already owns resumable work and durable memory. A namespace is useful
 organization, but is not by itself a complete authorization model.
 
 ### Mem0: compare candidates before choosing add, update, or no-op
@@ -249,7 +249,7 @@ reuse dangerous. This is a vendor-described product model, not an independent qu
 
 **Adopt:** retain what was checked, what it ruled out, and what a human corrected. A prior failed
 check can save time only when its conditions still apply. **Avoid:** “same alert, same cause” and
-creating a second incident database. Responder's episode/outcome evidence should remain the owner.
+creating a second incident database. Ryker's episode/outcome evidence should remain the owner.
 
 **Documented:** incident.io provides compact investigation/postmortem retrieval and a deeper export
 of checks, findings, conversation, and evidence, alongside current telemetry access.
@@ -307,7 +307,7 @@ apparently corroborated operational fact. [H3](https://hindsight.vectorize.io/bl
 
 ## 4. Failures and things to avoid
 
-The remedies below are Responder proposals inferred from the evidence above and local failures.
+The remedies below are Ryker proposals inferred from the evidence above and local failures.
 
 | Temptation or failure | Why it fails | Smallest useful response |
 |---|---|---|
@@ -332,27 +332,27 @@ The remedies below are Responder proposals inferred from the evidence above and 
 Public issue reports are test ideas, not proof that installing another vendor would fail.
 Likewise, a vendor benchmark win does not establish source revocation, tenant isolation,
 duplicate-free updates, crash recovery, or safe Slack/infra behavior. None of the cited papers
-qualifies Responder to act unattended.
+qualifies Ryker to act unattended.
 
-## 5. Current Responder baseline
+## 5. Current Ryker baseline
 
 Verified in the source revision above; local links identify owners, not future APIs:
 
 | Area | What exists / what needs changing |
 |---|---|
-| Listening | [Admission](../../lib/responder/admission.ex) can apply observations and knowledge with its decision; do not repeat the outdated claim that ignore always prevents learning |
-| Separate learning | [Learning](../../lib/responder/state/learning.ex) persists frozen learning-only judgments; its retry bound currently covers only one error class per exact batch; [Application](../../lib/responder/application.ex) does not wire a learning runtime |
-| Search | [FixedTools](../../lib/responder/state_tools/fixed_tools.ex) already exposes `search_memory`; fact → guidance → continuity category order spends the limit; dispatch returns a nil cursor |
-| Selection | [Knowledge](../../lib/responder/state/knowledge.ex) has ranked full-text related selection, but fills remaining slots from recent unrelated heads; explicit search is substring matching, not that full-text path |
-| Prompt fit | [SubmissionBuilder](../../lib/responder/work/submission_builder.ex) drops optional observations/knowledge to fit the budget without equivalent retrieval hints |
-| Topic history | [KnowledgeRevision](../../lib/responder/state/knowledge_revision.ex) and [ConversationMemory](../../lib/responder/control_plane/conversation_memory.ex) already exist; do not rebuild history |
-| Source accounting | [LearningSources](../../lib/responder/state/learning_sources.ex) merges flattened receipts under 128-source/65,536-byte caps; [KnowledgeSnapshot](../../lib/responder/state/knowledge_snapshot.ex) tracks session disclosures and reauthorization |
-| Summary capacity | `KnowledgeSnapshot.session_sources` reads at most 129 exposures then merges; [Continuity](../../lib/responder/state/continuity.ex) can skip a summary when it lacks a valid merged source set |
-| Expansion | [Slack capability tools](../../lib/responder/slack/capability_tools.ex) already provide search and source/thread reads; bridge to these rather than add another Slack history service |
-| Confirmed knowledge | [Memories](../../lib/responder/state/memories.ex) and [Behaviors](../../lib/responder/state/behaviors.ex) own confirmation and scope; learning must not bypass them |
+| Listening | [Admission](../../lib/ryker/admission.ex) can apply observations and knowledge with its decision; do not repeat the outdated claim that ignore always prevents learning |
+| Separate learning | [Learning](../../lib/ryker/state/learning.ex) persists frozen learning-only judgments; its retry bound currently covers only one error class per exact batch; [Application](../../lib/ryker/application.ex) does not wire a learning runtime |
+| Search | [FixedTools](../../lib/ryker/state_tools/fixed_tools.ex) already exposes `search_memory`; fact → guidance → continuity category order spends the limit; dispatch returns a nil cursor |
+| Selection | [Knowledge](../../lib/ryker/state/knowledge.ex) has ranked full-text related selection, but fills remaining slots from recent unrelated heads; explicit search is substring matching, not that full-text path |
+| Prompt fit | [SubmissionBuilder](../../lib/ryker/work/submission_builder.ex) drops optional observations/knowledge to fit the budget without equivalent retrieval hints |
+| Topic history | [KnowledgeRevision](../../lib/ryker/state/knowledge_revision.ex) and [ConversationMemory](../../lib/ryker/control_plane/conversation_memory.ex) already exist; do not rebuild history |
+| Source accounting | [LearningSources](../../lib/ryker/state/learning_sources.ex) merges flattened receipts under 128-source/65,536-byte caps; [KnowledgeSnapshot](../../lib/ryker/state/knowledge_snapshot.ex) tracks session disclosures and reauthorization |
+| Summary capacity | `KnowledgeSnapshot.session_sources` reads at most 129 exposures then merges; [Continuity](../../lib/ryker/state/continuity.ex) can skip a summary when it lacks a valid merged source set |
+| Expansion | [Slack capability tools](../../lib/ryker/slack/capability_tools.ex) already provide search and source/thread reads; bridge to these rather than add another Slack history service |
+| Confirmed knowledge | [Memories](../../lib/ryker/state/memories.ex) and [Behaviors](../../lib/ryker/state/behaviors.ex) own confirmation and scope; learning must not bypass them |
 | Execution | [Work contract](../elixir-work-runtime.md): episodes can contain multiple inputs/turns; shared knowledge does not require sharing an execution session or guarantee provider cache reuse |
-| Cross-transport knowledge | `Knowledge.visible_query` requires equal `workspace_ref`; [Continuity](../../lib/responder/state/continuity.ex) assigns different Slack/GitHub workspace namespaces. This topic-recall path does not currently bridge the two transports |
-| Exact topic anchors | [KnowledgeUpdate](../../lib/responder/state/knowledge_update.ex) has a topic key and prose but no indexed external-identity field; source URLs in text are not an existing exact-match topic index |
+| Cross-transport knowledge | `Knowledge.visible_query` requires equal `workspace_ref`; [Continuity](../../lib/ryker/state/continuity.ex) assigns different Slack/GitHub workspace namespaces. This topic-recall path does not currently bridge the two transports |
+| Exact topic anchors | [KnowledgeUpdate](../../lib/ryker/state/knowledge_update.ex) has a topic key and prose but no indexed external-identity field; source URLs in text are not an existing exact-match topic index |
 
 ### Local failures this design must actually fix
 
@@ -373,7 +373,7 @@ two concrete failures:
   prefix. Its absence was not deleted raw data and was not a successful consolidation test.
 
 Private evidence: `knowledge-370-sources-ERzPNI/REVIEW.md` and `offline-checks.json` under
-`/private/tmp/responder-adversarial-Vylg4X`. Do not publish raw customer transcripts or IDs in
+`/private/tmp/ryker-adversarial-Vylg4X`. Do not publish raw customer transcripts or IDs in
 this research document. Preserve the private evidence before those temporary artifacts vanish.
 The descriptions above preserve the failure mechanisms without making the document depend on
 temporary files for its architectural conclusions.
@@ -384,12 +384,12 @@ These are source-path findings, not newly reproduced production incidents:
 
 | Finding | Mechanism and consequence | Owning source |
 |---|---|---|
-| Disclosure amplification | Learning inherits every offered topic's roots into every proposed update. Unrelated fallback makes topic dependencies converge toward unrelated channel history. Per-item validation locks and checks those roots; relational storage alone does not bound that work | [Learning](../../lib/responder/state/learning.ex), [Knowledge](../../lib/responder/state/knowledge.ex), [LearningSources](../../lib/responder/state/learning_sources.ex) |
-| Silent capacity loss | `save_update` returns success when the merged receipts do not fit; capacity omissions can authorize a new generation without prior understanding. Summary persistence also returns success on an unsourced result | [Knowledge](../../lib/responder/state/knowledge.ex), [Continuity](../../lib/responder/state/continuity.ex) |
-| Observation loss/amplification | Admission observation notes inherit its whole disclosed context, including older notes. If required context still cannot fit after optional items are removed, dependencies become nil and `write_source` drops the proposed note while retaining the source row. A source row is not proof that observation prose survived | [LearningSources.freeze/fit](../../lib/responder/state/learning_sources.ex), [Observations.write_source](../../lib/responder/state/observations.ex) |
-| Compaction starvation risk | An over-capacity group returns `:skipped` without removing its summaries. Such groups can repeatedly occupy the oldest-100 window and prevent later eligible work; this needs a deterministic regression, not a claim that every skip starves all work | [Continuity.compact_locked/complete_compaction](../../lib/responder/state/continuity.ex) |
-| Late-event loss | An update whose source `occurred_at` precedes the head's `latest_source_at` returns success without writing. Transport edit-time semantics still need a harvested test | [Knowledge.apply_update](../../lib/responder/state/knowledge.ex) |
-| Retry-budget holes | Only `output_contract_failed` contributes to the failure count; host-rejected duplicate topic keys use another code. Changing one input changes the exact batch key and starts a different counter | [Learning.new_attempt/parse_updates/mark_failed](../../lib/responder/state/learning.ex) |
+| Disclosure amplification | Learning inherits every offered topic's roots into every proposed update. Unrelated fallback makes topic dependencies converge toward unrelated channel history. Per-item validation locks and checks those roots; relational storage alone does not bound that work | [Learning](../../lib/ryker/state/learning.ex), [Knowledge](../../lib/ryker/state/knowledge.ex), [LearningSources](../../lib/ryker/state/learning_sources.ex) |
+| Silent capacity loss | `save_update` returns success when the merged receipts do not fit; capacity omissions can authorize a new generation without prior understanding. Summary persistence also returns success on an unsourced result | [Knowledge](../../lib/ryker/state/knowledge.ex), [Continuity](../../lib/ryker/state/continuity.ex) |
+| Observation loss/amplification | Admission observation notes inherit its whole disclosed context, including older notes. If required context still cannot fit after optional items are removed, dependencies become nil and `write_source` drops the proposed note while retaining the source row. A source row is not proof that observation prose survived | [LearningSources.freeze/fit](../../lib/ryker/state/learning_sources.ex), [Observations.write_source](../../lib/ryker/state/observations.ex) |
+| Compaction starvation risk | An over-capacity group returns `:skipped` without removing its summaries. Such groups can repeatedly occupy the oldest-100 window and prevent later eligible work; this needs a deterministic regression, not a claim that every skip starves all work | [Continuity.compact_locked/complete_compaction](../../lib/ryker/state/continuity.ex) |
+| Late-event loss | An update whose source `occurred_at` precedes the head's `latest_source_at` returns success without writing. Transport edit-time semantics still need a harvested test | [Knowledge.apply_update](../../lib/ryker/state/knowledge.ex) |
+| Retry-budget holes | Only `output_contract_failed` contributes to the failure count; host-rejected duplicate topic keys use another code. Changing one input changes the exact batch key and starts a different counter | [Learning.new_attempt/parse_updates/mark_failed](../../lib/ryker/state/learning.ex) |
 
 No implementation or execution test was performed for these findings in this research task.
 
@@ -463,7 +463,7 @@ then, use only independently authorized source-reading capabilities; do not clai
 
 There is a narrower existing bridge: episode-routed GitHub review feedback is retained as a
 private source under its destination conversation, which may be Slack, without an Inbox entry
-([Observations.record_publication_feedback_in_transaction](../../lib/responder/state/observations.ex)).
+([Observations.record_publication_feedback_in_transaction](../../lib/ryker/state/observations.ex)).
 That grants access to the routed conversation, not general Slack/workspace recall. Do not broaden
 it during deduplication. The initial Inbox-driven learner does not consume these separate lifecycle
 events; including them needs an explicit adapter with the same source/privacy contract.
@@ -498,7 +498,7 @@ briefing remains useful independently of whether the model gets such an index.
 
 ### 6.5 Dreaming as ordinary bounded maintenance
 
-Use one durable work lane owned by Responder, backed by existing learning runs/custody patterns.
+Use one durable work lane owned by Ryker, backed by existing learning runs/custody patterns.
 Do not assume a module named Learning proves that automatic scheduling exists.
 
 **One topic writer:** remove admission's topic proposal from its prompt/schema and its topic write

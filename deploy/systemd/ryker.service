@@ -1,0 +1,37 @@
+[Unit]
+Description=Ryker, the proactive AI teammate
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ryker
+Group=ryker
+UMask=0077
+StateDirectory=ryker
+StateDirectoryMode=0700
+EnvironmentFile=/etc/ryker/ryker.env
+Environment=RELEASE_DISTRIBUTION=none
+Environment=RELEASE_TMP=/var/lib/ryker/tmp
+WorkingDirectory=/var/lib/ryker
+ExecStartPre=/usr/local/lib/ryker/current/bin/ryker eval Ryker.Release.migrate()
+ExecStart=/usr/local/lib/ryker/current/bin/ryker start
+KillSignal=SIGTERM
+Restart=on-failure
+RestartSec=5s
+TimeoutStartSec=180s
+TimeoutStopSec=60s
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/ryker
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target

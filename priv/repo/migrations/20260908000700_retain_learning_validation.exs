@@ -1,4 +1,4 @@
-defmodule Responder.Repo.Migrations.RetainLearningValidation do
+defmodule Ryker.Repo.Migrations.RetainLearningValidation do
   use Ecto.Migration
 
   def change do

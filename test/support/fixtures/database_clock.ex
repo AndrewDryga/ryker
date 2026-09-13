@@ -1,6 +1,6 @@
-defmodule Responder.Fixtures.DatabaseClock do
+defmodule Ryker.Fixtures.DatabaseClock do
   @moduledoc false
-  alias Responder.Repo
+  alias Ryker.Repo
 
   # Transaction-local fault injection: PostgreSQL owns persistence/cursor time,
   # while Ecto's default timestamp generator still sees the real host clock.

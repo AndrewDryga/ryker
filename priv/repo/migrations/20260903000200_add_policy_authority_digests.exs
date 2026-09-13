@@ -1,4 +1,4 @@
-defmodule Responder.Repo.Migrations.AddPolicyAuthorityDigests do
+defmodule Ryker.Repo.Migrations.AddPolicyAuthorityDigests do
   use Ecto.Migration
 
   def up do

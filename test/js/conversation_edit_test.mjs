@@ -66,7 +66,7 @@ test("Edit opens the stored body in place with the caret at the end; Cancel rest
   assert.equal(m.toggle.getAttribute("aria-expanded"), "true")
   assert.equal(m.textarea.focused, 1)
   assert.deepEqual(m.textarea.selection, ["Stored body".length, "Stored body".length])
-  assert.equal(f.store.get("responder:editing:/conversations/c"), uuid)
+  assert.equal(f.store.get("ryker:editing:/conversations/c"), uuid)
   assert.equal(f.fetches.length, 0)
 
   m.textarea.value = "Stored body, changed"
@@ -190,24 +190,36 @@ test("a live patch keeps the open editor and its unsaved text, and a deleted tar
   assert.equal(f.notices.children.length, 1)
   assert.match(f.notices.children[0].textContent, /no longer/)
   assert.match(f.notices.children[0].textContent, /Body, half typed/)
-  assert.equal(f.store.has("responder:editing:/conversations/c"), false)
+  assert.equal(f.store.has("ryker:editing:/conversations/c"), false)
   assert.equal(f.controls.editing, null)
 })
 
 test("an editor reopens with its draft after a reconnect, without stealing focus", () => {
   const m = editableMessage(uuid, "Body")
   const f = page([m])
-  f.store.set("responder:editing:/conversations/c", uuid)
-  f.store.set(`responder:draft:/conversations/c:/conversations/c/messages/${uuid}/edit:message`, "Body, from before the reconnect")
+  f.store.set("ryker:editing:/conversations/c", uuid)
+  f.store.set(`ryker:draft:/conversations/c:/conversations/c/messages/${uuid}/edit:message`, "Body, from before the reconnect")
   f.controls.restore()
   assert.equal(m.form.hidden, false)
   assert.equal(m.textarea.value, "Body, from before the reconnect")
   assert.equal(m.textarea.focused, 0)
 })
 
+test("an editor opened and a draft typed before the rename come back after the deploy's reconnect", () => {
+  const m = editableMessage(uuid, "Body")
+  const f = page([m])
+  f.store.set("responder:editing:/conversations/c", uuid)
+  f.store.set(`responder:draft:/conversations/c:/conversations/c/messages/${uuid}/edit:message`, "Typed before the rename")
+  f.controls.restore()
+  assert.equal(m.form.hidden, false)
+  assert.equal(m.textarea.value, "Typed before the rename")
+  assert.equal(f.store.has("responder:editing:/conversations/c"), false)
+  assert.equal(f.store.has(`responder:draft:/conversations/c:/conversations/c/messages/${uuid}/edit:message`), false)
+})
+
 test("edit drafts are keyed by message and never share the composer's key", () => {
   const m = editableMessage(uuid, "Body")
-  assert.equal(draftKey(m.textarea, "/conversations/c"), `responder:draft:/conversations/c:/conversations/c/messages/${uuid}/edit:message`)
+  assert.equal(draftKey(m.textarea, "/conversations/c"), `ryker:draft:/conversations/c:/conversations/c/messages/${uuid}/edit:message`)
   const other = editableMessage("11111111-2222-4333-8444-555555555555", "Other")
   assert.notEqual(draftKey(other.textarea, "/conversations/c"), draftKey(m.textarea, "/conversations/c"))
   const composer = {name: "message", tagName: "TEXTAREA", form: {getAttribute: () => "/conversations/c/messages", matches: s => s === ".composer", dataset: {}}}

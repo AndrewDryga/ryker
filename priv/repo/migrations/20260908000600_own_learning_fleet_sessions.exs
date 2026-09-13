@@ -1,4 +1,4 @@
-defmodule Responder.Repo.Migrations.OwnLearningFleetSessions do
+defmodule Ryker.Repo.Migrations.OwnLearningFleetSessions do
   use Ecto.Migration
 
   def up do

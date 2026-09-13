@@ -1,4 +1,4 @@
-# Responder Development
+# Ryker Development
 
 ## Ryker identity and rename
 
@@ -27,7 +27,7 @@ Preserve user data; removing an old interface does not authorize deleting histor
 Use the narrowest validation that proves the current edit while iterating:
 
 1. Run the owning test after each code change, for example
-   `scripts/elixir-test.sh test/responder/work/executor_test.exs:120`. It runs against the
+   `scripts/elixir-test.sh test/ryker/work/executor_test.exs:120`. It runs against the
    shared test database and finishes in about a second.
 2. Run `make dev-check` once before committing. It is the deterministic repository gate:
    formatting, warnings-as-errors, Credo, the whole ExUnit suite in a fresh database,
@@ -109,7 +109,7 @@ remote-worker state after the normal one-writer restart; there is no canary/prom
 state. A deploy without new migrations takes about two minutes end to end.
 
 Production Coop workers are enrolled and upgraded independently through the outbound fleet
-protocol. Do not make the Responder deployment restart or install Coop. A deliberately configured
+protocol. Do not make the Ryker deployment restart or install Coop. A deliberately configured
 single local Coop worker remains a development/test topology, not a second production path.
 
 Say plainly what is running. "The gate is green" and "the fix is live" are different claims, and

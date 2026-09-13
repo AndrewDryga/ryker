@@ -1,4 +1,4 @@
-defmodule Responder.Repo.Migrations.RetainWorkCompletionReceipts do
+defmodule Ryker.Repo.Migrations.RetainWorkCompletionReceipts do
   use Ecto.Migration
 
   def change do

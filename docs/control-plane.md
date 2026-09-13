@@ -1,6 +1,6 @@
-# Responder control plane
+# Ryker control plane
 
-A local web dashboard for the operator who runs Responder, and for whoever has
+A local web dashboard for the operator who runs Ryker, and for whoever has
 to work out why it did something.
 
 The current implementation plan is [Control-plane redesign](control-plane-redesign.md).
@@ -104,7 +104,7 @@ completed, which is a bound remote turn; a live Work lease without a bound
 session is "Preparing" at the one step the rows record; a turn blocked before
 it started says what its recorded error code means; and a session row alone is
 "Setup selected". Individual preparation checks were never recorded and are
-labelled that way. Setup details keep repository access, the bound Responder
+labelled that way. Setup details keep repository access, the bound Ryker
 tools, the bound task and technical identifiers; the repo@sha chips and the
 tool catalog stay on the briefing.
 
@@ -120,7 +120,7 @@ rather than borrowing a later revision.
 
 Each received input's **Input details** open on extracted metadata (source,
 event, identifiers, revision, the source event time with its provenance and
-the time Responder recorded it), followed by three independently collapsed
+the time Ryker recorded it), followed by three independently collapsed
 bodies in this order: Raw input, Normalized input, Original message. Raw input
 is the adapter's own event payload, stored beside the normalized content in
 `ingress_inbox_entries.source_envelope` minus transport credentials, bounded
@@ -228,14 +228,14 @@ The App Home stays as it is. Nothing here replaces it.
 
 ## Audience
 
-One person, running one or two Responder deployments, on their own machine.
+One person, running one or two Ryker deployments, on their own machine.
 Not multi-tenant, not a product surface, not for the wider team. That decision
 sets everything else: no accounts, no roles, no invitations.
 
 ## Reach and trust
 
-**Bound to `127.0.0.1` only**, on the port Responder already serves
-(`RESPONDER_CONTROL_IP` and `RESPONDER_CONTROL_PORT`). Reached in a browser on the same machine, or
+**Bound to `127.0.0.1` only**, on the port Ryker already serves
+(`RYKER_CONTROL_IP` and `RYKER_CONTROL_PORT`). Reached in a browser on the same machine, or
 through an SSH tunnel. No authentication, because the loopback interface is the
 authentication.
 
@@ -457,7 +457,7 @@ Tokens, over a selectable window (24h, 7d, 30d, everything), broken down by:
   chooses between), and Learning (the background memory learner). Follow-on
   Work turns carry no admission decision, so they are typed by their turn
   family instead: continuation, resumed work, task, event wait, scheduled run,
-  publication follow-up and approval. Every Coop turn Responder submits is one
+  publication follow-up and approval. Every Coop turn Ryker submits is one
   ledger row whose counters are Coop's cumulative figures for that turn,
   including schema and semantic repairs.
 - Cache hit rate: cached input over all input read
@@ -538,7 +538,7 @@ reference at freeze time.
 ### Cost — reported first, estimated only as a fallback
 
 Coop normalizes ACP's cumulative USD counter into a durable per-turn delta, and
-Responder totals those reported amounts without re-pricing them. This is the
+Ryker totals those reported amounts without re-pricing them. This is the
 authoritative money figure when the adapter supplies one.
 
 For adapters that report tokens but not money, `pricing` in the configuration
@@ -562,7 +562,7 @@ independently and are fixed differently:
 - **Queued** — Coop holding the turn before a provider picked it up: a busy
   session, or an exhausted ladder.
 - **Provider** — the provider working.
-- **Host** — Responder not yet having noticed the turn finished. It polls, so
+- **Host** — Ryker not yet having noticed the turn finished. It polls, so
   that gap is real, is nobody else's, and is the one span this repository can fix
   on its own.
 
@@ -751,7 +751,7 @@ the [redesign plan](control-plane-redesign.md#1-liveview-throughout-the-control-
   fragment; it neither stores messages nor calls an external origin. Charts
   remain inline SVG with geometry computed server-side.
 
-The test is that the whole dashboard works offline, from the Responder runtime,
+The test is that the whole dashboard works offline, from the Ryker runtime,
 with no assets fetched at runtime.
 
 ## Non-goals

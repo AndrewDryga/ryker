@@ -1,4 +1,4 @@
-defmodule Responder.Repo.Migrations.RemoveAdmissionWrittenNotes do
+defmodule Ryker.Repo.Migrations.RemoveAdmissionWrittenNotes do
   use Ecto.Migration
 
   def up do

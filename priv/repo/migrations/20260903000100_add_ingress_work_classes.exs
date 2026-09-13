@@ -1,4 +1,4 @@
-defmodule Responder.Repo.Migrations.AddIngressWorkClasses do
+defmodule Ryker.Repo.Migrations.AddIngressWorkClasses do
   use Ecto.Migration
 
   def up do

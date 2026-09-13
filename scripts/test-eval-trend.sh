@@ -9,9 +9,9 @@
 # plausibly render as a blank line and read like "no regression".
 set -euo pipefail
 
-repository=${RESPONDER_QUALITY_REPOSITORY:-$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)}
+repository=${RYKER_QUALITY_REPOSITORY:-$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)}
 trend="$repository/scripts/eval-trend.sh"
-work=$(mktemp -d "${TMPDIR:-/tmp}/responder-eval-trend-test.XXXXXX")
+work=$(mktemp -d "${TMPDIR:-/tmp}/ryker-eval-trend-test.XXXXXX")
 trap 'rm -rf "$work"' EXIT
 
 fail() {

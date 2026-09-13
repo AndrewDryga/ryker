@@ -1,4 +1,4 @@
-defmodule Responder.Repo.Migrations.CreateOperatorActions do
+defmodule Ryker.Repo.Migrations.CreateOperatorActions do
   use Ecto.Migration
 
   def change do

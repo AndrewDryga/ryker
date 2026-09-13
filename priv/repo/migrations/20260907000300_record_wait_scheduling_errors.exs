@@ -1,4 +1,4 @@
-defmodule Responder.Repo.Migrations.RecordWaitSchedulingErrors do
+defmodule Ryker.Repo.Migrations.RecordWaitSchedulingErrors do
   use Ecto.Migration
 
   def up do

@@ -32,7 +32,7 @@ else
 	(cd "$dist" && shasum -a 256 --check checksums.txt)
 fi
 
-set -- "$dist"/responder_*_elixir_linux_amd64.tar.gz
+set -- "$dist"/ryker_*_elixir_linux_amd64.tar.gz
 if [ "$#" -ne 1 ] || [ ! -f "$1" ]; then
 	echo "expected exactly one Linux amd64 Elixir archive in $dist" >&2
 	exit 1
@@ -40,7 +40,7 @@ fi
 
 archive=$1
 archive_name=${archive##*/}
-version=${archive_name#responder_}
+version=${archive_name#ryker_}
 version=${version%_elixir_linux_amd64.tar.gz}
 archive_sha256=$(awk -v file="$archive_name" '$2 == file { print $1 }' "$checksums")
 

@@ -1,4 +1,4 @@
-defmodule Responder.Repo.Migrations.RetainCasesAndLessons do
+defmodule Ryker.Repo.Migrations.RetainCasesAndLessons do
   use Ecto.Migration
 
   # Everything Responder learned from an incident used to expire with the raw

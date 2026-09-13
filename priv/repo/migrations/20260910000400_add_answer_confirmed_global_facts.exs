@@ -1,4 +1,4 @@
-defmodule Responder.Repo.Migrations.AddAnswerConfirmedGlobalFacts do
+defmodule Ryker.Repo.Migrations.AddAnswerConfirmedGlobalFacts do
   use Ecto.Migration
 
   # An authorized answer to a reusable question becomes one installation-global

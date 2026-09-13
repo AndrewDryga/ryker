@@ -1,9 +1,9 @@
 import Config
 
 if config_env() == :prod do
-  bootstrap = Responder.Bootstrap.load!()
+  bootstrap = Ryker.Bootstrap.load!()
 
-  config :responder, Responder.Repo, bootstrap.repo
-  config :responder, :bootstrap, bootstrap
+  config :ryker, Ryker.Repo, bootstrap.repo
+  config :ryker, :bootstrap, bootstrap
   config :logger, level: bootstrap.log_level
 end

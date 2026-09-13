@@ -22,19 +22,19 @@ usage() { echo "usage: projection-diff.sh <deployment-dir> <previous-binary> <ca
 deployment=$1; previous=$2; candidate=$3
 [[ -d $deployment && -x $previous && -x $candidate ]] || usage
 
-config="$deployment/.responder/responder.yaml"
+config="$deployment/.ryker/ryker.yaml"
 [[ -f $config ]] || { echo "projection-diff: no config at $config" >&2; exit 2; }
 state=$(sed -n 's/^state_dir: *//p' "$config" | head -1)
 [[ -d $state ]] || { echo "projection-diff: no state dir at $state" >&2; exit 2; }
 
-work=$(mktemp -d -t responder-projection-diff)
+work=$(mktemp -d -t ryker-projection-diff)
 trap 'rm -rf "$work"' EXIT
 mkdir -p "$work/before/state" "$work/after"
 
 # A config per side, identical to the deployment's except for where it reads.
 side_config() { # dir statedir
-  sed "s#^state_dir: .*#state_dir: $2#" "$config" > "$1/responder.yaml"
-  echo "$1/responder.yaml"
+  sed "s#^state_dir: .*#state_dir: $2#" "$config" > "$1/ryker.yaml"
+  echo "$1/ryker.yaml"
 }
 
 cp "$state/responder.db" "$work/before/state/responder.db"

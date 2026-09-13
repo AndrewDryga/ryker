@@ -1,3 +1,5 @@
+import {transferLegacyDraft, adoptRetiredKey} from "./drafts.mjs"
+
 // Conversation page controls that live in the browser: the narrow-screen
 // directory drawer, the Examples fill-in, following the first send of an
 // index draft to the conversation it created, and the inline message editor.
@@ -101,7 +103,13 @@ export const createConversationControls = (root, options = {}) => {
   let saving = false
 
   const store = {
-    get(key) { try { return storage().getItem(key) } catch (_) { return null } },
+    // A key written before the 2026-09-13 rename is carried over on first read.
+    get(key) {
+      try {
+        if (key.startsWith("ryker:draft:")) transferLegacyDraft(key, storage()); else adoptRetiredKey(key, storage())
+        return storage().getItem(key)
+      } catch (_) { return null }
+    },
     set(key, value) { try { storage().setItem(key, value) } catch (_) { /* A storage failure loses nothing typed. */ } },
     remove(key) { try { storage().removeItem(key) } catch (_) {} }
   }
@@ -136,8 +144,8 @@ export const createConversationControls = (root, options = {}) => {
   // Inline editing. The editor is the hidden form the server renders under
   // each editable message; its open state and unsaved text live here and in
   // session storage, so a live patch or a reconnect puts them back.
-  const editingKey = () => `responder:editing:${path()}`
-  const editDraftKey = id => `responder:draft:${path()}:${path()}/messages/${id}/edit:message`
+  const editingKey = () => `ryker:editing:${path()}`
+  const editDraftKey = id => `ryker:draft:${path()}:${path()}/messages/${id}/edit:message`
   const editorFor = id => (doc && id) ? doc.getElementById(`lab-edit-${id}`) : null
   const fieldOf = form => form.querySelector("textarea[name=message]")
   const toggleFor = form => form.closest("article")?.querySelector(".lab-edit-toggle") || null

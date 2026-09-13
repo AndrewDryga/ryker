@@ -495,11 +495,11 @@ func TestShippedManifestDescribesSupportedSlackApp(t *testing.T) {
 	if manifest.Metadata.MajorVersion != 1 {
 		t.Fatalf("manifest major version = %d, want 1", manifest.Metadata.MajorVersion)
 	}
-	if display.Name != "Emisar" || len(display.Name) > 35 {
+	if display.Name != "Ryker" || len(display.Name) > 35 {
 		t.Fatalf("manifest name = %q", display.Name)
 	}
 	if display.Description !=
-		"AI SRE first responder for evidence-backed investigation and governed operations" ||
+		"A proactive AI teammate in Slack and GitHub that shows its work and keeps you in control" ||
 		len(display.Description) > 140 {
 		t.Fatalf("manifest description = %q", display.Description)
 	}
@@ -517,10 +517,10 @@ func TestShippedManifestDescribesSupportedSlackApp(t *testing.T) {
 			t.Fatalf("manifest long description is missing %q", required)
 		}
 	}
-	if display.BackgroundColor != "#0A0B0D" {
+	if display.BackgroundColor != "#111315" {
 		t.Fatalf("manifest background color = %q", display.BackgroundColor)
 	}
-	if manifest.Features.BotUser.DisplayName != "Emisar" ||
+	if manifest.Features.BotUser.DisplayName != "Ryker" ||
 		manifest.Features.BotUser.AlwaysOnline == nil ||
 		*manifest.Features.BotUser.AlwaysOnline {
 		t.Fatalf("manifest bot user = %+v", manifest.Features.BotUser)
@@ -529,7 +529,7 @@ func TestShippedManifestDescribesSupportedSlackApp(t *testing.T) {
 		t.Fatalf("manifest slash commands = %+v", manifest.Features.SlashCommands)
 	}
 	command := manifest.Features.SlashCommands[0]
-	if command.Command != "/responder" || command.Description == "" ||
+	if command.Command != "/ryker" || command.Description == "" ||
 		command.UsageHint == "" || command.ShouldEscape == nil || *command.ShouldEscape {
 		t.Fatalf("manifest slash command = %+v", command)
 	}
@@ -568,7 +568,7 @@ func TestShippedManifestDescribesSupportedSlackApp(t *testing.T) {
 		}
 	}
 	if len(manifest.Features.Shortcuts) != 1 ||
-		manifest.Features.Shortcuts[0].CallbackID != "responder_investigate_message" ||
+		manifest.Features.Shortcuts[0].CallbackID != "ryker_investigate_message" ||
 		manifest.Features.Shortcuts[0].Name != "Investigate message" ||
 		len(manifest.Features.Shortcuts[0].Name) >= 25 {
 		t.Fatalf("manifest message shortcut = %+v", manifest.Features.Shortcuts)

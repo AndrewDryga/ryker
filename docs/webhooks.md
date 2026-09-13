@@ -1,6 +1,6 @@
 # Webhooks
 
-Responder exposes one authenticated, source-neutral webhook edge with tagged transforms for
+Ryker exposes one authenticated, source-neutral webhook edge with tagged transforms for
 provider payloads. Every accepted event becomes the same durable `Ingress.Input` used by Slack and
 GitHub. Route configuration—not request content—owns the destination, Work profile, credentials,
 payload limit, and transform.
@@ -46,7 +46,7 @@ configuration file. One saved source carries:
 | Source name | The path segment: `/v1/hooks/<name>`. Stable; it is the route's identity. |
 | Payload shape | `universal`, `grafana` or a custom mapping. A preset also fills in the authentication a provider supports and its grouping labels. |
 | Authentication | Bearer token or HMAC-SHA256. There is no unauthenticated shape and no weaker fallback when verification fails. |
-| Credential | The name of one deployment credential, chosen from `RESPONDER_WEBHOOK_SECRET_NAMES`. The value stays in the environment; the console never displays it and a source can only reference a registered name. |
+| Credential | The name of one deployment credential, chosen from `RYKER_WEBHOOK_SECRET_NAMES`. The value stays in the environment; the console never displays it and a source can only reference a registered name. |
 | Destination | Transport plus conversation and thread reference. Validated against the configured outbound adapters when the runtime assembles. |
 | Repository context | The context whose reviewed policies this source's work runs under. The payload can never select it. |
 | Correlate by labels | Label values that make events the same ongoing situation. |
@@ -77,8 +77,8 @@ Authorization: Bearer <secret>
 HMAC-SHA256 routes accept exactly one timestamp and signature:
 
 ```text
-X-Responder-Timestamp: <Unix seconds>
-X-Responder-Signature: v1=<hex HMAC-SHA256>
+X-Ryker-Timestamp: <Unix seconds>
+X-Ryker-Signature: v1=<hex HMAC-SHA256>
 ```
 
 The signed bytes are these newline-separated values, including empty lines:
@@ -94,8 +94,8 @@ revision value
 raw request body
 ```
 
-The metadata values are the exact `X-Responder-Event-ID`, `X-Responder-Item-ID`,
-`X-Responder-Event-Type`, `X-Responder-Occurred-At`, and `X-Responder-Revision` request headers.
+The metadata values are the exact `X-Ryker-Event-ID`, `X-Ryker-Item-ID`,
+`X-Ryker-Event-Type`, `X-Ryker-Occurred-At`, and `X-Ryker-Revision` request headers.
 The timestamp must be within the route's configured clock-skew window. Universal routes require an
 event ID. Grafana and mapped-JSON routes derive identity from the authenticated body, so those five
 headers may be absent and are signed as empty strings. Changing either body or headers invalidates
@@ -106,14 +106,14 @@ Webhook secrets must contain at least 16 bytes for bearer authentication and 32 
 ## Universal JSON
 
 `adapter.kind: universal` accepts any JSON value, including arrays and scalars, without interpreting
-provider fields. The sender must supply a stable `X-Responder-Event-ID` for each occurrence.
+provider fields. The sender must supply a stable `X-Ryker-Event-ID` for each occurrence.
 
 ```text
-X-Responder-Event-ID: <required unique occurrence ID>
-X-Responder-Item-ID: <optional stable item shared by revisions; defaults to event ID>
-X-Responder-Event-Type: <optional bounded hint>
-X-Responder-Occurred-At: <optional UTC ISO-8601 timestamp>
-X-Responder-Revision: <optional positive integer; defaults to 1>
+X-Ryker-Event-ID: <required unique occurrence ID>
+X-Ryker-Item-ID: <optional stable item shared by revisions; defaults to event ID>
+X-Ryker-Event-Type: <optional bounded hint>
+X-Ryker-Occurred-At: <optional UTC ISO-8601 timestamp>
+X-Ryker-Revision: <optional positive integer; defaults to 1>
 ```
 
 Universal input has reply capability only. Payload fields cannot grant reactions or choose a
@@ -121,7 +121,7 @@ platform target.
 
 ## Grafana alerts
 
-`adapter.kind: grafana` accepts Grafana alert webhook JSON without Responder metadata headers. Each
+`adapter.kind: grafana` accepts Grafana alert webhook JSON without Ryker metadata headers. Each
 entry in `alerts` becomes one normalized input; a delivery must contain between 1 and 500 alerts.
 
 | Normalized field | Grafana source |
@@ -203,26 +203,26 @@ Save a dedicated source for it: payload shape `universal`, HMAC authentication, 
 credential (not the one an alerting source uses), the destination channel, the repository context
 whose policies it runs under, and a deployment lifecycle filter naming the environments, kinds,
 repositories and targets it may report — for example environments `production`, kinds `deployment`
-and `terraform`, repositories and targets `responder`.
+and `terraform`, repositories and targets `ryker`.
 
 The route is projected as a system actor. Its environment, kind, repository, and target lists are
 an allowlist, not hints. Only such a route may wake merged publication follow-up. Send the version
-in the `X-Responder-Event-Type: responder.publication_lifecycle.v1` header and use this exact JSON
+in the `X-Ryker-Event-Type: responder.publication_lifecycle.v1` header and use this exact JSON
 request body:
 
 ```json
 {
   "environment": "production",
   "kind": "deployment",
-  "repository": "responder",
+  "repository": "ryker",
   "references": [
-    "https://github.com/acme/responder/pull/91",
-    "refs/heads/responder/fix-91",
+    "https://github.com/acme/ryker/pull/91",
+    "refs/heads/ryker/fix-91",
     "0123456789abcdef0123456789abcdef01234567"
   ],
   "run_ref": "deploy:production:1842",
   "state": "succeeded",
-  "target": "responder"
+  "target": "ryker"
 }
 ```
 

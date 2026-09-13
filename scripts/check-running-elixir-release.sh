@@ -31,7 +31,7 @@ headers=$(
 
 versions=$(
   printf '%s\n' "$headers" | awk '
-    tolower($1) == "x-responder-version:" {
+    tolower($1) == "x-ryker-version:" {
       value = $0
       sub(/^[^:]*:[[:space:]]*/, "", value)
       sub(/\r$/, "", value)
@@ -53,4 +53,4 @@ if [[ $running_version != "$expected_version" ]]; then
   exit 1
 fi
 
-echo "running responder release: $running_version"
+echo "running ryker release: $running_version"

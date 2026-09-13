@@ -22,8 +22,8 @@ fi
 # Hex 2.5.1's published archive does not load completely on the pinned OTP 28 toolchain.
 hex_version=2.4.1
 
-export HEX_HOME=${RESPONDER_HEX_HOME:-$root/.elixir/hex}
-export MIX_HOME=${RESPONDER_MIX_HOME:-$root/.elixir/mix-$hex_version}
+export HEX_HOME=${RYKER_HEX_HOME:-$root/.elixir/hex}
+export MIX_HOME=${RYKER_MIX_HOME:-$root/.elixir/mix-$hex_version}
 
 if [[ ! -d "$MIX_HOME/archives/hex-$hex_version" ]]; then
   mix local.hex "$hex_version" --force >/dev/null

@@ -1,7 +1,7 @@
-defmodule Responder.Fixtures.WorkspaceCheckpoint do
+defmodule Ryker.Fixtures.WorkspaceCheckpoint do
   @moduledoc false
 
-  alias Responder.CoopFleet.WorkspaceCheckpoint
+  alias Ryker.CoopFleet.WorkspaceCheckpoint
 
   def build(attributes \\ %{}) do
     patch = Map.get(attributes, :patch, <<>>)
@@ -11,7 +11,7 @@ defmodule Responder.Fixtures.WorkspaceCheckpoint do
       Map.get(attributes, :checkpoint_ref, "checkpoint:" <> String.duplicate("4", 32))
 
     session_ref = Map.fetch!(attributes, :session_ref)
-    repository_ref = Map.get(attributes, :repository_ref, "responder")
+    repository_ref = Map.get(attributes, :repository_ref, "ryker")
     base_revision = String.duplicate("1", 40)
     committed_revision = String.duplicate("2", 40)
     candidate_tree = digest("candidate")

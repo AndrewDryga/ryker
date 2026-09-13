@@ -1,6 +1,6 @@
 import {test} from "node:test"
 import assert from "node:assert/strict"
-import {draftKey, captureDrafts, acceptDrafts, sendDraft, legacyDraftKey, transferLegacyDraft} from "../../priv/static/drafts.mjs"
+import {draftKey, captureDrafts, acceptDrafts, sendDraft, legacyDraftKeys, transferLegacyDraft, adoptRetiredKey} from "../../priv/static/drafts.mjs"
 import * as draftsModule from "../../priv/static/drafts.mjs"
 
 const fixture = () => {
@@ -79,19 +79,22 @@ test("definite HTTP validation rejections are distinguishable from uncertain tra
   await assert.rejects(sendDraft("/conversations/test/messages", "body", async () => ({status: 422})), {message: "rejected:422"})
 })
 
-// The surface moved from /lab/<id> to /conversations/<id> on 2026-09-13. Drafts are
-// keyed by pathname and form action, so a message typed and not sent before the
-// rename sat under a key no page would read again. These tests hold the one-time
-// transfer to the canonical key: nothing is auto-sent, both texts survive a
-// collision, a storage failure loses nothing, and the old key is read at most once.
-// Each case owns one conversation identity: a key is settled once per session,
-// exactly as it is in the browser, so cases must not share one.
+// Two renames on 2026-09-13 left unsent drafts under keys no page reads again:
+// the surface moved from /lab/<id> to /conversations/<id>, and the product was
+// renamed from Responder to Ryker, so every sessionStorage key changed prefix.
+// Drafts are keyed by pathname and form action, so a message typed and not sent
+// before either rename sat under a retired key. These tests hold the one-time
+// transfer to the canonical key: nothing is auto-sent, every text survives a
+// collision, a storage failure loses nothing, and a retired key is read at most
+// once. Each case owns one conversation identity: a key is settled once per
+// session, exactly as it is in the browser, so cases must not share one.
 const identity = suffix => {
   const conversation = `018f3ef7-1f62-7ee0-a83c-0c12f21d83${suffix}`
   return {
     conversation,
-    canonical: `responder:draft:/conversations/${conversation}:/conversations/${conversation}/messages:message`,
-    retired: `responder:draft:/lab/${conversation}:/lab/${conversation}/messages:message`
+    canonical: `ryker:draft:/conversations/${conversation}:/conversations/${conversation}/messages:message`,
+    retired: `responder:draft:/conversations/${conversation}:/conversations/${conversation}/messages:message`,
+    oldest: `responder:draft:/lab/${conversation}:/lab/${conversation}/messages:message`
   }
 }
 
@@ -106,17 +109,18 @@ const memoryStorage = (entries = {}) => {
   }
 }
 
-test("the canonical draft key follows the renamed route and maps back to exactly one retired key", () => {
-  const {conversation, canonical, retired} = identity("a1")
+test("the canonical draft key carries the product prefix and maps back to its retired keys, newest first", () => {
+  const {conversation, canonical, retired, oldest} = identity("a1")
   const form = {getAttribute: () => `/conversations/${conversation}/messages`, matches: selector => selector === ".composer"}
   const element = {name: "message", tagName: "TEXTAREA", form, value: "", isConnected: true}
   assert.equal(draftKey(element, `/conversations/${conversation}`), canonical)
-  assert.equal(legacyDraftKey(canonical), retired)
-  assert.equal(legacyDraftKey(retired), null)
-  assert.equal(legacyDraftKey("responder:draft:/instructions:/instructions:body"), null)
+  assert.deepEqual(legacyDraftKeys(canonical), [retired, oldest])
+  assert.deepEqual(legacyDraftKeys("ryker:draft:/conversations:new:message"), ["responder:draft:/conversations:new:message"])
+  assert.deepEqual(legacyDraftKeys(retired), [])
+  assert.deepEqual(legacyDraftKeys(oldest), [])
 })
 
-test("a draft left under the retired /lab key is carried once to its canonical key without sending", () => {
+test("a draft left under the retired product prefix is carried once to its canonical key without sending", () => {
   const {canonical, retired} = identity("a2")
   const storage = memoryStorage({[retired]: "Unsent investigation"})
   const originalFetch = globalThis.fetch
@@ -132,21 +136,31 @@ test("a draft left under the retired /lab key is carried once to its canonical k
   assert.equal(sends, 0)
 })
 
-test("a draft under both identities keeps both texts, oldest first, and never drops either", () => {
-  const {canonical, retired} = identity("a3")
-  const storage = memoryStorage({[retired]: "Typed before the rename", [canonical]: "Typed after the rename"})
-  const merged = transferLegacyDraft(canonical, storage)
-  assert.equal(merged, "Typed before the rename\n\nTyped after the rename")
-  assert.equal(storage.values.get(canonical), merged)
-  assert.equal(storage.values.has(retired), false)
+test("a draft that survived both renames under the retired /lab key is carried too", () => {
+  const {canonical, oldest} = identity("a7")
+  const storage = memoryStorage({[oldest]: "Typed before both renames"})
+  assert.equal(transferLegacyDraft(canonical, storage), "Typed before both renames")
+  assert.equal(storage.values.get(canonical), "Typed before both renames")
+  assert.equal(storage.values.has(oldest), false)
 })
 
-test("an identical draft under both identities is kept once", () => {
-  const {canonical, retired} = identity("a4")
-  const storage = memoryStorage({[retired]: "Same words", [canonical]: "Same words"})
+test("a draft under every identity keeps each text, oldest first, and never drops one", () => {
+  const {canonical, retired, oldest} = identity("a3")
+  const storage = memoryStorage({[oldest]: "Typed under /lab", [retired]: "Typed before the rename", [canonical]: "Typed after the rename"})
+  const merged = transferLegacyDraft(canonical, storage)
+  assert.equal(merged, "Typed under /lab\n\nTyped before the rename\n\nTyped after the rename")
+  assert.equal(storage.values.get(canonical), merged)
+  assert.equal(storage.values.has(retired), false)
+  assert.equal(storage.values.has(oldest), false)
+})
+
+test("an identical draft under several identities is kept once", () => {
+  const {canonical, retired, oldest} = identity("a4")
+  const storage = memoryStorage({[oldest]: "Same words", [retired]: "Same words", [canonical]: "Same words"})
   assert.equal(transferLegacyDraft(canonical, storage), "Same words")
   assert.equal(storage.values.get(canonical), "Same words")
   assert.equal(storage.values.has(retired), false)
+  assert.equal(storage.values.has(oldest), false)
 })
 
 test("a browser-storage failure during the transfer discards nothing", () => {
@@ -166,19 +180,45 @@ test("a browser-storage failure during the transfer discards nothing", () => {
   assert.equal(recovered.values.has(retired), false)
 })
 
-test("after the transfer the retired key is not consulted again", () => {
-  const {canonical, retired} = identity("a6")
+test("after the transfer no retired key is consulted again", () => {
+  const {canonical, retired, oldest} = identity("a6")
   const storage = memoryStorage({[retired]: "Unsent investigation"})
   transferLegacyDraft(canonical, storage)
   storage.reads.length = 0
   storage.values.set(retired, "A key that reappeared later")
+  storage.values.set(oldest, "Another that reappeared later")
   assert.equal(transferLegacyDraft(canonical, storage), null)
   assert.deepEqual(storage.reads, [])
   assert.equal(storage.values.get(canonical), "Unsent investigation")
 })
 
-test("keys outside the renamed conversation route are never transferred", () => {
+test("keys outside the current product prefix are never transferred", () => {
   const storage = memoryStorage({"responder:draft:/lab/other:/lab/other/messages:message": "Elsewhere"})
-  assert.equal(transferLegacyDraft("responder:draft:/instructions:/instructions:body", storage), null)
+  assert.equal(transferLegacyDraft("responder:draft:/lab/other:/lab/other/messages:message", storage), null)
+  assert.equal(transferLegacyDraft("other:draft:/conversations:new:message", storage), null)
   assert.deepEqual(storage.reads, [])
+})
+
+// Keys that hold state rather than text (which editor is open, an instruction
+// draft with its revision, a relearn selection) are adopted whole: the retired
+// value moves under the current key once, and only when nothing newer is there.
+test("a value under the retired prefix is adopted once under the current key and never overwrites a newer one", () => {
+  const storage = memoryStorage({"responder:editing:/conversations/x1": "018f-old"})
+  adoptRetiredKey("ryker:editing:/conversations/x1", storage)
+  assert.equal(storage.values.get("ryker:editing:/conversations/x1"), "018f-old")
+  assert.equal(storage.values.has("responder:editing:/conversations/x1"), false)
+
+  const newer = memoryStorage({"responder:editing:/conversations/x2": "018f-old", "ryker:editing:/conversations/x2": "018f-new"})
+  adoptRetiredKey("ryker:editing:/conversations/x2", newer)
+  assert.equal(newer.values.get("ryker:editing:/conversations/x2"), "018f-new")
+  assert.equal(newer.values.has("responder:editing:/conversations/x2"), false)
+
+  storage.reads.length = 0
+  storage.values.set("responder:editing:/conversations/x1", "reappeared")
+  adoptRetiredKey("ryker:editing:/conversations/x1", storage)
+  assert.deepEqual(storage.reads, [])
+
+  const foreign = memoryStorage({"responder:editing:/conversations/x3": "018f-old"})
+  adoptRetiredKey("responder:editing:/conversations/x3", foreign)
+  assert.deepEqual(foreign.reads, [])
 })

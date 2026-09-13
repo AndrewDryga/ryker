@@ -1,4 +1,4 @@
-defmodule Responder.Repo.Migrations.MeterLearningExecutions do
+defmodule Ryker.Repo.Migrations.MeterLearningExecutions do
   use Ecto.Migration
 
   # Learning turns spend tokens exactly like admission and Work turns do; the

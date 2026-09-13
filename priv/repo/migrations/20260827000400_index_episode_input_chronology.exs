@@ -1,4 +1,4 @@
-defmodule Responder.Repo.Migrations.IndexEpisodeInputChronology do
+defmodule Ryker.Repo.Migrations.IndexEpisodeInputChronology do
   use Ecto.Migration
 
   def change do

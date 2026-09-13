@@ -1,4 +1,4 @@
-defmodule Responder.Repo.Migrations.RecordSelectedWorkInputs do
+defmodule Ryker.Repo.Migrations.RecordSelectedWorkInputs do
   use Ecto.Migration
 
   def change do

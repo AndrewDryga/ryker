@@ -1,4 +1,4 @@
-defmodule Responder.Repo.Migrations.CreateGenericIngress do
+defmodule Ryker.Repo.Migrations.CreateGenericIngress do
   use Ecto.Migration
 
   def up do

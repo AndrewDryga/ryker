@@ -1,4 +1,4 @@
-defmodule Responder.Repo.Migrations.CreateConversationContinuity do
+defmodule Ryker.Repo.Migrations.CreateConversationContinuity do
   use Ecto.Migration
 
   def change do

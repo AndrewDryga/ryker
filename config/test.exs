@@ -1,6 +1,6 @@
 import Config
 
-world_eval? = System.get_env("RESPONDER_WORLD_EVAL") == "1"
+world_eval? = System.get_env("RYKER_WORLD_EVAL") == "1"
 
 repo_pool = if world_eval?, do: DBConnection.ConnectionPool, else: Ecto.Adapters.SQL.Sandbox
 
@@ -16,8 +16,8 @@ repo_pool = if world_eval?, do: DBConnection.ConnectionPool, else: Ecto.Adapters
 # beside the 19 the production instance and its workers already hold.
 repo_pool_size = if world_eval?, do: 10, else: 24
 
-config :responder, Responder.Repo,
-  database: System.get_env("PGDATABASE", "responder_test"),
+config :ryker, Ryker.Repo,
+  database: System.get_env("PGDATABASE", "ryker_test"),
   hostname: System.get_env("PGHOST", "127.0.0.1"),
   password: System.get_env("PGPASSWORD", "postgres"),
   pool: repo_pool,
@@ -30,8 +30,8 @@ config :responder, Responder.Repo,
 config :logger, level: :warning
 
 # Isolated development/test topology; never the production fleet.
-config :responder, :execution, :direct
+config :ryker, :execution, :direct
 
 # The durable-settings owner is driven explicitly here, never from whatever
 # happens to be in the local database at boot.
-config :responder, :runtime_owner, false
+config :ryker, :runtime_owner, false

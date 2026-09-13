@@ -1,4 +1,4 @@
-defmodule Responder.Repo.Migrations.RetainEmisarReviewDigests do
+defmodule Ryker.Repo.Migrations.RetainEmisarReviewDigests do
   use Ecto.Migration
 
   # The monitor repaints one Slack message on a real change. Until now a change

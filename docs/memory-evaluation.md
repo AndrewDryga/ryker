@@ -18,14 +18,14 @@ Fresh memory qualification on `8d5d6a6` passed: an ordinary request produced no 
 messages maintained the same draft-retention topic; auth resolution and later recurrence stayed
 distinct and were correctly recalled by a fresh Work question; a source-only rebuild updated the
 same topic with a new source generation. Nine model turns completed, one native attempt each.
-Reports are under `/private/tmp/responder-memory-qualification-final.8d5d6a6/`.
+Reports are under `/private/tmp/ryker-memory-qualification-final.8d5d6a6/`.
 
 All nine Work smoke scenarios now have passing observations: seven on `e2cadb0`, then the
 concurrent-feedback case repeated and the remaining Rivals/VA1 cases completed on `6a28038`.
 The final three-case campaign ran once: seven Work turns plus three judge turns, one native
 attempt each. Every session was discarded. Reports and public activity receipts remain under
-`/private/tmp/responder-memory-qualification-final.e2cadb0/` and
-`/private/tmp/responder-memory-qualification-final.6a28038/`.
+`/private/tmp/ryker-memory-qualification-final.e2cadb0/` and
+`/private/tmp/ryker-memory-qualification-final.6a28038/`.
 
 Root inspected actual responses, tool results, and the generated PNG, not only judge scores.
 Important qualifications:
@@ -51,7 +51,7 @@ Final deterministic qualification passed 2,810 Elixir tests with 90.41% coverage
 release-isolation tests. The initial full gate found two test-clock assumptions. A test-only repair preserved source times/content, and
 the final full Elixir phase passed. The original failed gate remains failed evidence. The exact
 committed release also passed archive, backup/restore, restart, and readiness qualification.
-Deployment and gate receipts: `/private/tmp/responder-activity-lock-deploy.XQ4UXU/STATUS.md`.
+Deployment and gate receipts: `/private/tmp/ryker-activity-lock-deploy.XQ4UXU/STATUS.md`.
 
 Older checkpoints below preserve their original failures and unrun observations; they are not
 retroactively relabelled passes. This checkpoint supersedes their pending deployment/qualification
@@ -108,8 +108,8 @@ rebases execution time to keep a wait or retention horizon valid, record that se
 Use an isolated PostgreSQL test database for owning memory tests:
 
 ```console
-RESPONDER_TEST_ISOLATED=1 scripts/elixir-test.sh test/responder/learning test/responder/state/learning_test.exs test/responder/state/learning_failure_test.exs test/responder/state/knowledge_concurrency_test.exs test/responder/state/knowledge_sources_test.exs test/responder/state/learning_work_boundary_test.exs test/responder/state/knowledge_snapshot_capacity_test.exs test/responder/state_tools/memory_search_test.exs
-RESPONDER_TEST_ISOLATED=1 scripts/elixir-test.sh test/responder/evals test/responder/capability_contract_test.exs
+RYKER_TEST_ISOLATED=1 scripts/elixir-test.sh test/ryker/learning test/ryker/state/learning_test.exs test/ryker/state/learning_failure_test.exs test/ryker/state/knowledge_concurrency_test.exs test/ryker/state/knowledge_sources_test.exs test/ryker/state/learning_work_boundary_test.exs test/ryker/state/knowledge_snapshot_capacity_test.exs test/ryker/state_tools/memory_search_test.exs
+RYKER_TEST_ISOLATED=1 scripts/elixir-test.sh test/ryker/evals test/ryker/capability_contract_test.exs
 ```
 
 These prove durable ownership, exact versions, bounded starts, source revocation and capacity,
@@ -145,12 +145,12 @@ answer, a tool result or a Slack receipt. The world runner joins the channels a 
 inputs arrive in as ordinary non-private, non-shared channels; correlation reaches nothing the
 scenario did not declare.
 
-The world scenarios pin the production Responder tool schemas separately from their recorded
+The world scenarios pin the production Ryker tool schemas separately from their recorded
 external tool world. When a host tool schema changes, refresh only that generated portion:
 
 ```console
 MIX_ENV=test scripts/elixir-mix.sh run --no-start scripts/refresh-world-tool-catalogs.exs
-RESPONDER_TEST_ISOLATED=1 scripts/elixir-test.sh test/responder/evals/world_case_test.exs test/responder/evals/world_tools_test.exs
+RYKER_TEST_ISOLATED=1 scripts/elixir-test.sh test/ryker/evals/world_case_test.exs test/ryker/evals/world_tools_test.exs
 ```
 
 The script calls the actual registered `StateTools.Tools.list` with the world lane's capabilities.
@@ -162,9 +162,9 @@ qualified the exact new tool contract.
 Admission and Work pack commands rebuild prompts from current code without calling a model:
 
 ```console
-MIX_ENV=test scripts/elixir-mix.sh responder.eval admission-pack
-MIX_ENV=test scripts/elixir-mix.sh responder.eval work-pack
-MIX_ENV=test scripts/elixir-mix.sh responder.eval world-pack
+MIX_ENV=test scripts/elixir-mix.sh ryker.eval admission-pack
+MIX_ENV=test scripts/elixir-mix.sh ryker.eval work-pack
+MIX_ENV=test scripts/elixir-mix.sh ryker.eval world-pack
 ```
 
 Admission fixtures already use the six routing fields; the pack uses the current strict schema.
@@ -179,18 +179,18 @@ Evaluation authority is supplied explicitly through the evaluation environment a
 if it matches a reviewed production policy binding:
 
 ```bash
-export RESPONDER_EVAL_SOCKET=/absolute/evaluation-coop/control.sock
-export RESPONDER_EVAL_NO_TOOLS_POLICY=responder-eval-no-tools-v1
-export RESPONDER_EVAL_NO_TOOLS_POLICY_DIGEST=SHA256
-export RESPONDER_EVAL_WORLD_POLICY=responder-eval-world-v1
-export RESPONDER_EVAL_WORLD_POLICY_DIGEST=SHA256
-export RESPONDER_EVAL_WORLD_BASELINE_POLICY=responder-eval-world-baseline-v1
-export RESPONDER_EVAL_WORLD_BASELINE_POLICY_DIGEST=SHA256
+export RYKER_EVAL_SOCKET=/absolute/evaluation-coop/control.sock
+export RYKER_EVAL_NO_TOOLS_POLICY=ryker-eval-no-tools-v1
+export RYKER_EVAL_NO_TOOLS_POLICY_DIGEST=SHA256
+export RYKER_EVAL_WORLD_POLICY=ryker-eval-world-v1
+export RYKER_EVAL_WORLD_POLICY_DIGEST=SHA256
+export RYKER_EVAL_WORLD_BASELINE_POLICY=ryker-eval-world-baseline-v1
+export RYKER_EVAL_WORLD_BASELINE_POLICY_DIGEST=SHA256
 ```
 
 ```console
-MIX_ENV=test scripts/elixir-mix.sh responder.eval admission
-MIX_ENV=test scripts/elixir-mix.sh responder.eval work
+MIX_ENV=test scripts/elixir-mix.sh ryker.eval admission
+MIX_ENV=test scripts/elixir-mix.sh ryker.eval work
 make eval-world-smoke
 make eval-world
 ```
@@ -205,17 +205,17 @@ longitudinal background learning. The dedicated lane drives the actual durable d
 prompt/schema, source validation, topic application, and proof-bearing cleanup:
 
 ```console
-MIX_ENV=test PGDATABASE=responder_learning_eval_haproxy scripts/elixir-mix.sh responder.learning_eval --database responder_learning_eval_haproxy --socket /absolute/evaluation-coop.sock --scratch /absolute/canonical-empty-git-repository --policy learning-eval-only --policy-digest POLICY_SHA256 --results /absolute/new-learning-report.json --scenario haproxy
+MIX_ENV=test PGDATABASE=ryker_learning_eval_haproxy scripts/elixir-mix.sh ryker.learning_eval --database ryker_learning_eval_haproxy --socket /absolute/evaluation-coop.sock --scratch /absolute/canonical-empty-git-repository --policy learning-eval-only --policy-digest POLICY_SHA256 --results /absolute/new-learning-report.json --scenario haproxy
 ```
 
 Create and migrate the named disposable database first; configure its PostgreSQL connection with
-the normal `PGHOST`, `PGPORT`, `PGUSER`, and `PGPASSWORD` variables. Do not start the Responder application. The task starts only Repo and Finch,
+the normal `PGHOST`, `PGPORT`, `PGUSER`, and `PGPASSWORD` variables. Do not start the Ryker application. The task starts only Repo and Finch,
 and refuses a nonempty database, a configured background runtime, or an existing report file.
 The scratch repository must have an empty committed tree and no other files; its canonical path
 and exact HEAD are checked. The public Coop session must report that HEAD as `base_commit`, the
 configured policy digest, read-only repository access, no project environment/MCP, and no companions.
 Policy names are not evidence of those properties: qualify the actual policy separately.
-Also require an absent Responder binding digest. These checks prove the restricted project
+Also require an absent Ryker binding digest. These checks prove the restricted project
 integration boundary, not disabled provider-native tools, writable scratch/output, or network
 egress. The learner's no-action instruction is not an enforced no-tools sandbox; do not report
 the evaluation as proof of that stronger boundary.
@@ -454,18 +454,18 @@ cause is unknown. This is a failed availability observation, **not** a model-qua
 successful topic rebuild. No second model submission was made.
 
 The original failed report is retained at
-`/private/tmp/responder-memory-rebuild.G1t34N/observation-1788898377381.json`. Separate cleanup
+`/private/tmp/ryker-memory-rebuild.G1t34N/observation-1788898377381.json`. Separate cleanup
 succeeded: the host recorded the actual failed-turn receipt, normal retention discarded the
 session, and the task-owned temporary Coop process stopped. No create, submit, or validation call
 was repeated; the frozen prompt and one-of-three start budget were preserved. To avoid waiting
 an hour, only this disposable batch's reconciliation due time was explicitly moved forward.
 That structural adjustment qualifies cleanup, not the one-hour timer or successful learning.
 The separate receipt is
-`/private/tmp/responder-memory-rebuild.G1t34N/cleanup-recovery-1788898879194.json`; it cannot turn
+`/private/tmp/ryker-memory-rebuild.G1t34N/cleanup-recovery-1788898879194.json`; it cannot turn
 the failed observation into a pass. Main and replay processes and data were untouched.
 Application to the same topic/new generation is proven by deterministic host tests only until an
 available provider completes this contract. The final frozen Work smoke preflight and unrun list
-are retained under `/private/tmp/responder-memory-final-smoke.EuTVdw/`.
+are retained under `/private/tmp/ryker-memory-final-smoke.EuTVdw/`.
 
 Embeddings, a graph database, a model-visible omission index, automatic procedure promotion, and
 new cross-transport sharing authorization are explicitly outside this implementation spec. They
@@ -491,7 +491,7 @@ output or a host application failure. The exact source, submitted prompt and unw
 are retained in `testdata/learning/retained-one-off-acceptance-request.json`, with the stored
 prompt/result digests and originating run ID.
 
-`mix responder.learning_eval --scenario one-off-request` runs only that harvested input through
+`mix ryker.learning_eval --scenario one-off-request` runs only that harvested input through
 the current learner and requires no topic update. The captured answer is used solely to prove
 that the offline evaluator rejects the old behavior; it is never supplied to the live learner.
 This scenario has no recall probe because a successful run intentionally learns nothing.

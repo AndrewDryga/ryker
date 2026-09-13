@@ -5,15 +5,15 @@ archive=${1:-}
 expected_version=${2:-}
 expected_sha256=${3:-}
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
-compose=(docker compose --project-name responder-kernel --file "$root/compose.test.yml")
+compose=(docker compose --project-name ryker-kernel --file "$root/compose.test.yml")
 
 if [[ -z $archive || -z $expected_version || -z $expected_sha256 || ! -f $archive ]]; then
   echo "usage: scripts/check-elixir-candidate.sh ARCHIVE VERSION SHA256" >&2
   exit 2
 fi
 
-scratch=$(mktemp -d "${TMPDIR:-/tmp}/responder-elixir-candidate.XXXXXX")
-database_name="responder_candidate_${$}_${RANDOM}"
+scratch=$(mktemp -d "${TMPDIR:-/tmp}/ryker-elixir-candidate.XXXXXX")
+database_name="ryker_candidate_${$}_${RANDOM}"
 restore_database_name="${database_name}_restore"
 candidate_pid=
 database_created=0
@@ -55,7 +55,7 @@ export PGDATABASE=postgres
 createdb "$database_name"
 database_created=1
 
-candidate_port=${RESPONDER_CANDIDATE_PORT:-$((44000 + $$ % 10000))}
+candidate_port=${RYKER_CANDIDATE_PORT:-$((44000 + $$ % 10000))}
 
 if curl --silent --fail --max-time 1 "http://127.0.0.1:$candidate_port/healthz" >/dev/null 2>&1; then
   echo "candidate control-plane port $candidate_port is already in use" >&2
@@ -67,7 +67,7 @@ install_prefix="$scratch/install"
   "$archive" "$expected_version" "$expected_sha256" "$install_prefix" \
   --local-build >/dev/null
 
-binary="$install_prefix/current/bin/responder"
+binary="$install_prefix/current/bin/ryker"
 release_tmp="$scratch/release-tmp"
 mkdir -p "$release_tmp"
 
@@ -85,11 +85,11 @@ run_candidate() {
     "POOL_SIZE=4"
     "RELEASE_DISTRIBUTION=none"
     "RELEASE_TMP=$release_tmp"
-    "RESPONDER_CONTROL_PORT=$candidate_port"
-    "RESPONDER_STATE_DIR=$scratch/state"
+    "RYKER_CONTROL_PORT=$candidate_port"
+    "RYKER_STATE_DIR=$scratch/state"
   )
 
-  env "${runtime_env[@]}" "$binary" eval 'Responder.Release.migrate()' >/dev/null
+  env "${runtime_env[@]}" "$binary" eval 'Ryker.Release.migrate()' >/dev/null
 
   current_migration_count=$(PGDATABASE="$target_database" psql --no-psqlrc --tuples-only --no-align \
     --command 'SELECT count(*) FROM schema_migrations')
@@ -127,7 +127,7 @@ run_candidate() {
   fi
 
   curl --silent --fail --max-time 2 "http://127.0.0.1:$candidate_port/metrics" |
-    grep -q '^responder_queue_claimable'
+    grep -q '^ryker_queue_claimable'
 
   kill -TERM "$candidate_pid"
   wait "$candidate_pid"
@@ -138,11 +138,11 @@ run_candidate first "$database_name"
 run_candidate restart "$database_name"
 
 backup_marker=durable-state-survives-backup
-backup_archive="$scratch/responder.dump"
+backup_archive="$scratch/ryker.dump"
 
 PGDATABASE="$database_name" psql --no-psqlrc --set ON_ERROR_STOP=1 --quiet \
-  --command 'CREATE TABLE responder_candidate_backup_proof (value text PRIMARY KEY)' \
-  --command "INSERT INTO responder_candidate_backup_proof (value) VALUES ('$backup_marker')"
+  --command 'CREATE TABLE ryker_candidate_backup_proof (value text PRIMARY KEY)' \
+  --command "INSERT INTO ryker_candidate_backup_proof (value) VALUES ('$backup_marker')"
 
 pg_dump --format=custom --file="$backup_archive" "$database_name"
 pg_restore --list "$backup_archive" >/dev/null
@@ -153,7 +153,7 @@ pg_restore --exit-on-error --no-owner --no-privileges \
   --dbname="$restore_database_name" "$backup_archive"
 
 restored_marker=$(PGDATABASE="$restore_database_name" psql --no-psqlrc --tuples-only --no-align \
-  --command 'SELECT value FROM responder_candidate_backup_proof')
+  --command 'SELECT value FROM ryker_candidate_backup_proof')
 
 if [[ $restored_marker != "$backup_marker" ]]; then
   echo "restored database did not preserve the durable backup marker" >&2

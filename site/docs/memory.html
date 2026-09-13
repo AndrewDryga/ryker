@@ -3,17 +3,17 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Memory and recall — Responder docs</title>
+<title>Memory and recall — Ryker docs</title>
 <meta name="description" content="Conversation memory, recalled episodes, the change ledger, contradiction handling, preferences, standing rules, and the memory review queue.">
 <!-- Unfurl metadata. og:image is root-relative; most unfurlers need absolute
      URLs, so point og:image (and add og:url + rel=canonical) at the real domain
      when the site gets one — a one-line substitution at publish time. -->
 <meta property="og:type" content="website">
-<meta property="og:title" content="Memory and recall — Responder docs">
+<meta property="og:title" content="Memory and recall — Ryker docs">
 <meta property="og:description" content="Conversation memory, recalled episodes, the change ledger, contradiction handling, preferences, standing rules, and the memory review queue.">
 <meta property="og:image" content="../assets/og.png">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="Memory and recall — Responder docs">
+<meta name="twitter:title" content="Memory and recall — Ryker docs">
 <meta name="twitter:description" content="Conversation memory, recalled episodes, the change ledger, contradiction handling, preferences, standing rules, and the memory review queue.">
 
 <meta name="color-scheme" content="dark">
@@ -29,7 +29,7 @@
   <div class="wrap nav-in">
     <a class="wordmark" href="../index.html">
       <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true" focusable="false"><rect width="14" height="14" rx="4" fill="#36e6a5"></rect></svg>
-      Responder
+      Ryker
     </a>
     <nav class="nav-links" aria-label="Main">
       <a href="../index.html#how">How it works</a>
@@ -59,7 +59,7 @@
         <nav aria-label="Documentation">
           <p class="grp">Start</p>
           <ul>
-            <li><a href="index.html">What Responder is</a></li>
+            <li><a href="index.html">What Ryker is</a></li>
             <li><a href="getting-started.html">Run it</a></li>
           </ul>
           <p class="grp">Using it</p>
@@ -79,7 +79,7 @@
   </aside>
 
   <main class="doc" id="main">
-    <p class="crumb"><a href="../index.html">Responder</a> <span>/</span> <a href="index.html">Docs</a> <span>/</span> <span>Memory and recall</span></p>
+    <p class="crumb"><a href="../index.html">Ryker</a> <span>/</span> <a href="index.html">Docs</a> <span>/</span> <span>Memory and recall</span></p>
 
     <details class="doc-toc">
       <summary>On this page</summary>
@@ -99,7 +99,7 @@
 
     <h1>Memory and recall</h1>
 
-    <p class="lede">Responder remembers a lot: what a channel is for, how a similar incident ended, what shipped an hour ago, and what your team told it to do. None of it is ever treated as proof of what is true right now. This page is about that distinction, because it is the one that keeps memory useful instead of dangerous.</p>
+    <p class="lede">Ryker remembers a lot: what a channel is for, how a similar incident ended, what shipped an hour ago, and what your team told it to do. None of it is ever treated as proof of what is true right now. This page is about that distinction, because it is the one that keeps memory useful instead of dangerous.</p>
 
     <h2 id="precedence">The precedence ladder</h2>
 
@@ -108,7 +108,7 @@
     <ol>
       <li>Fresh, authoritative live evidence.</li>
       <li>Current repository content.</li>
-      <li>Current Responder configuration.</li>
+      <li>Current Ryker configuration.</li>
       <li>An operator-confirmed memory hint.</li>
       <li>Older source-attributed evidence.</li>
     </ol>
@@ -176,13 +176,13 @@
 
     <h2 id="changes">The change ledger</h2>
 
-    <p>“What changed?” is the first question anybody asks, so Responder keeps the answer as a durable ledger rather than reconstructing it under pressure.</p>
+    <p>“What changed?” is the first question anybody asks, so Ryker keeps the answer as a durable ledger rather than reconstructing it under pressure.</p>
 
     <p>Five kinds of change are recorded: <code>deploy</code>, <code>merge</code>, <code>infra_apply</code>, <code>flag</code>, and <code>config</code>. Three things write them:</p>
 
     <ul>
       <li>An authenticated webhook route of kind <code>change</code> — your CI, your deploy tool, your Terraform pipeline.</li>
-      <li>The publication follower, when a Responder-created pull request merges.</li>
+      <li>The publication follower, when a Ryker-created pull request merges.</li>
       <li>The approval watcher, when a governed Emisar run succeeds. That one is recorded as a configuration change, deliberately not as a deploy.</li>
     </ul>
 
@@ -197,7 +197,7 @@
 
     <h2 id="contradictions">Contradictions and supersession</h2>
 
-    <p>Evidence can support a claim or contradict it. When both exist, the claim is <code>mixed</code>, and Responder does not pick a side quietly. It quotes both, and each quoted line carries its evidence ID, its source name, and its observation time.</p>
+    <p>Evidence can support a claim or contradict it. When both exist, the claim is <code>mixed</code>, and Ryker does not pick a side quietly. It quotes both, and each quoted line carries its evidence ID, its source name, and its observation time.</p>
 
     <p>There are exactly three ways to resolve one, and they are stated to the model as such:</p>
 
@@ -246,7 +246,7 @@
 
     <h2 id="confirmed">Confirmed memory</h2>
 
-    <p>You can ask Responder to remember an alias, a channel-to-repository binding, an evidence route, an entity relationship correction, or open-ended guidance such as “when explaining a fix to me, start with a simple summary.”</p>
+    <p>You can ask Ryker to remember an alias, a channel-to-repository binding, an evidence route, an entity relationship correction, or open-ended guidance such as “when explaining a fix to me, start with a simple summary.”</p>
 
     <p>Nothing is saved until a configured operator confirms a card showing the normalized value, its scope, and its expiry. <strong>The model cannot write memory.</strong> It can only propose an inert offer that the host validates and a person clicks. Entries are bounded, deduplicated by logical key, expire automatically, and can be forgotten from App Home.</p>
 
@@ -304,7 +304,7 @@
 
 <footer class="foot">
   <div class="wrap foot-in">
-    <span class="state"><span class="dot good"></span>Responder</span>
+    <span class="state"><span class="dot good"></span>Ryker</span>
     <span class="sep">·</span>
     <span>design-partner preview</span>
     <nav aria-label="Footer">

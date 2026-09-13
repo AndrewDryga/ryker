@@ -1,4 +1,4 @@
-defmodule Responder.Repo.Migrations.AddEpisodeAssociationCorrections do
+defmodule Ryker.Repo.Migrations.AddEpisodeAssociationCorrections do
   use Ecto.Migration
 
   # Routing can be wrong, and the fix cannot be a rewrite: an operator-confirmed

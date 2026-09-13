@@ -1,4 +1,4 @@
-defmodule Responder.Repo.Migrations.RecordWorkSelectionLedger do
+defmodule Ryker.Repo.Migrations.RecordWorkSelectionLedger do
   use Ecto.Migration
 
   # What the builder actually selected for this turn, recorded beside the frozen

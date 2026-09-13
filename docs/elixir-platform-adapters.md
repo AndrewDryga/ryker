@@ -1,6 +1,6 @@
 # Elixir platform adapters and delivery
 
-Slack is not a special Responder input. It is one authenticated adapter over the same bounded ingress,
+Slack is not a special Ryker input. It is one authenticated adapter over the same bounded ingress,
 episode, Work, and Delivery contracts used by GitHub and the universal webhook.
 
 ```text
@@ -19,7 +19,7 @@ Coop policy, and available operations.
 
 ## Inbound adapters
 
-Every adapter returns `Responder.Ingress.Input` with the same source identity, actor, event identity,
+Every adapter returns `Ryker.Ingress.Input` with the same source identity, actor, event identity,
 stable item identity and revision, arbitrary bounded JSON content, source capabilities, and host-owned
 destination.
 
@@ -41,7 +41,7 @@ revision, threading, or capabilities.
 
 GitHub App webhook signatures cover the raw body at one App webhook URL. Only after signature
 verification does the host select a binding from the signed installation ID plus repository ID, then
-checks the configured repository name, explicit authorized sender IDs, and Responder bot sender ID.
+checks the configured repository name, explicit authorized sender IDs, and Ryker bot sender ID.
 Self-authored and unlisted-actor events are acknowledged without entering the queue. Other configured
 bot actors remain valid inputs. Slack authentication remains at the owning Slack gateway; its adapter
 receives only the already-authenticated event.
@@ -54,7 +54,7 @@ identity across opened, edited, synchronized, closed, and other supported revisi
 requests continue through publication-owned lifecycle handling; unmatched lifecycle events use the
 ordinary generic adapter path.
 
-Feedback on a pull request published by Responder is a host-owned continuation, not a fresh generic
+Feedback on a pull request published by Ryker is a host-owned continuation, not a fresh generic
 conversation. After authentication and normalization, the adapter matches the exact configured
 repository plus recorded pull-request number in `episode_publications`. Issue comments on that PR,
 submitted reviews, and inline review comments enter the publication lifecycle ledger and resume the
@@ -101,9 +101,9 @@ even when an upstream proxy returns a non-JSON error body.
 Blocked custody is inspected and rearmed only by its opaque delivery reference:
 
 ```console
-mix responder.delivery list
-mix responder.delivery show DELIVERY_REF
-mix responder.delivery rearm DELIVERY_REF
+mix ryker.delivery list
+mix ryker.delivery show DELIVERY_REF
+mix ryker.delivery rearm DELIVERY_REF
 ```
 
 `list` and `show` expose bounded routing identifiers, retry state, and error detail, never credentials
@@ -113,7 +113,7 @@ only after the operator has corrected the reported provider/configuration fault.
 only the repository and its database dependencies; they do not start webhook listeners, admission,
 Work, or Delivery workers in the operator shell.
 
-`Responder.Delivery.Adapters` is an explicit trusted registry keyed by durable transport name. It never
+`Ryker.Delivery.Adapters` is an explicit trusted registry keyed by durable transport name. It never
 turns request content into a module name or credential lookup. A publisher receives only:
 
 - the durable delivery reference;
@@ -128,7 +128,7 @@ episode transition atomically. Crossed receipts are rejected.
 ## Slack translation
 
 Messages use `chat.postMessage` with the bound channel, optional `thread_ts`, and opaque
-`responder_delivery` metadata containing the durable delivery reference. Before every post, including
+`ryker_delivery` metadata containing the durable delivery reference. Before every post, including
 the first attempt, the client searches the exact channel or thread with
 `include_all_metadata=true` for that metadata. A lost HTTP response therefore reconciles the
 already-visible message rather than creating another one.
@@ -158,7 +158,7 @@ after restart. Slack writes are paced at three seconds per thread and call the v
 Issue conversation replies use the issue-comments API. A pull-request-root result creates a native
 pull-request review summary. Inline review-thread replies use the pull-request review-comment reply
 API and retain the exact root comment. GitHub comment and review creation have no request idempotency
-key, so Responder includes an opaque marker derived from the delivery reference and searches every
+key, so Ryker includes an opaque marker derived from the delivery reference and searches every
 bounded page before creating. If it cannot prove absence within the safety bound, it retries later
 instead of risking a duplicate.
 
@@ -170,7 +170,7 @@ GitHub reactions use the distinct issue-comment and pull-request review-comment 
 The supported model choices are exactly `+1`, `-1`, `laugh`, `confused`, `heart`, `hooray`, `rocket`,
 and `eyes`.
 
-An engineering `request_task` proposal requires a non-null configured Responder repository
+An engineering `request_task` proposal requires a non-null configured Ryker repository
 reference; an incident proposal may use null. The task interface accepts 1–256 letters, digits,
 underscores, dots, colons, or hyphens. A GitHub `owner/repo` name or local checkout path does not
 automatically provide that reference or authorize a writable task. Missing and incompatible
@@ -180,7 +180,7 @@ do not guess a mapping. Proposals remain inert until their existing confirmation
 checks succeed.
 
 Open engineering-task, schedule, automation, memory, preference, guidance, and standing-assignment
-offers include an exact command such as `/responder confirm record:task_offer:...`. Only a configured
+offers include an exact command such as `/ryker confirm record:task_offer:...`. Only a configured
 GitHub actor may submit it, and the host consumes it before generic model admission. Confirmation
 reloads the referenced record, its settled delivery receipt, and its source episode; the current
 repository discussion must match that original conversation and thread. The webhook body identity is
@@ -194,23 +194,23 @@ validation boundary.
 ## Trusted runtime configuration
 
 Credentials remain behind zero-argument host callbacks and are fetched for every HTTP request.
-Responder signs a short-lived RS256 App JWT from the host-owned private key, mints a token scoped to
+Ryker signs a short-lived RS256 App JWT from the host-owned private key, mints a token scoped to
 the exact configured installation and repository, caches it only until the refresh window, and rotates
 it before expiry. No installation token is stored in an ingress, delivery, publication, or Work row.
 `github.private_key_env` accepts either the complete PEM or its single-line standard-base64 encoding;
 the shipped systemd environment file uses base64 because it cannot safely carry a multiline PEM.
 
 ```elixir
-alias Responder.Delivery.JSONClient
-alias Responder.GitHub.Client, as: GitHubClient
-alias Responder.GitHub.Publisher, as: GitHubPublisher
-alias Responder.Slack.Client, as: SlackClient
-alias Responder.Slack.Publisher, as: SlackPublisher
+alias Ryker.Delivery.JSONClient
+alias Ryker.GitHub.Client, as: GitHubClient
+alias Ryker.GitHub.Publisher, as: GitHubPublisher
+alias Ryker.Slack.Client, as: SlackClient
+alias Ryker.Slack.Publisher, as: SlackPublisher
 
 {:ok, slack_http} =
   JSONClient.new(
     base_url: "https://slack.com/api",
-    finch: Responder.CoopFinch,
+    finch: Ryker.CoopFinch,
     receive_timeout: 30_000,
     token_provider: fn -> {:ok, System.fetch_env!("SLACK_BOT_TOKEN")} end
   )
@@ -221,8 +221,8 @@ github_http = configured_repository_scoped_github_app_client
 
 {:ok, github_client} = GitHubClient.new(http: github_http, requester: JSONClient)
 
-config :responder, :delivery,
-  worker_ref: "responder-delivery:host-a",
+config :ryker, :delivery,
+  worker_ref: "ryker-delivery:host-a",
   max_attempts: 8,
   message_concurrency: 2,
   reaction_concurrency: 1,

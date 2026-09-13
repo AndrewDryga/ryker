@@ -1,4 +1,4 @@
-defmodule Responder.Repo.Migrations.AddDefaultChannelConfigurations do
+defmodule Ryker.Repo.Migrations.AddDefaultChannelConfigurations do
   use Ecto.Migration
 
   # A joined channel is configured with defaults the moment Responder is added,

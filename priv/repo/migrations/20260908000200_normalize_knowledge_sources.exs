@@ -1,4 +1,4 @@
-defmodule Responder.Repo.Migrations.NormalizeKnowledgeSources do
+defmodule Ryker.Repo.Migrations.NormalizeKnowledgeSources do
   use Ecto.Migration
 
   def up do

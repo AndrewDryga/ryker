@@ -3,17 +3,17 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Running it — Responder docs</title>
+<title>Running it — Ryker docs</title>
 <meta name="description" content="Deploys and restarts, retention, backups, webhooks, repository mirrors, routing profiles, offline evals, and the watchdog.">
 <!-- Unfurl metadata. og:image is root-relative; most unfurlers need absolute
      URLs, so point og:image (and add og:url + rel=canonical) at the real domain
      when the site gets one — a one-line substitution at publish time. -->
 <meta property="og:type" content="website">
-<meta property="og:title" content="Operating it — Responder docs">
+<meta property="og:title" content="Operating it — Ryker docs">
 <meta property="og:description" content="Deploys and restarts, retention, backups, webhooks, repository mirrors, routing profiles, offline evals, and the watchdog.">
 <meta property="og:image" content="../assets/og.png">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="Operating it — Responder docs">
+<meta name="twitter:title" content="Operating it — Ryker docs">
 <meta name="twitter:description" content="Deploys and restarts, retention, backups, webhooks, repository mirrors, routing profiles, offline evals, and the watchdog.">
 
 <meta name="color-scheme" content="dark">
@@ -29,7 +29,7 @@
   <div class="wrap nav-in">
     <a class="wordmark" href="../index.html">
       <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true" focusable="false"><rect width="14" height="14" rx="4" fill="#36e6a5"></rect></svg>
-      Responder
+      Ryker
     </a>
     <nav class="nav-links" aria-label="Main">
       <a href="../index.html#how">How it works</a>
@@ -59,7 +59,7 @@
         <nav aria-label="Documentation">
           <p class="grp">Start</p>
           <ul>
-            <li><a href="index.html">What Responder is</a></li>
+            <li><a href="index.html">What Ryker is</a></li>
             <li><a href="getting-started.html">Run it</a></li>
           </ul>
           <p class="grp">Using it</p>
@@ -79,7 +79,7 @@
   </aside>
 
   <main class="doc" id="main">
-    <p class="crumb"><a href="../index.html">Responder</a> <span>/</span> <a href="index.html">Docs</a> <span>/</span> <span>Running it</span></p>
+    <p class="crumb"><a href="../index.html">Ryker</a> <span>/</span> <a href="index.html">Docs</a> <span>/</span> <span>Running it</span></p>
 
     <details class="doc-toc">
       <summary>On this page</summary>
@@ -99,11 +99,11 @@
 
     <h1>Running it</h1>
 
-    <p class="lede">Responder is meant to be boring to operate: one process, one file, one lock. This page covers the parts you will actually touch — restarts, backups, retention, and the two mechanisms that tell you when something is wrong.</p>
+    <p class="lede">Ryker is meant to be boring to operate: one process, one file, one lock. This page covers the parts you will actually touch — restarts, backups, retention, and the two mechanisms that tell you when something is wrong.</p>
 
     <h2 id="restarts">Deploys and restarts</h2>
 
-    <p>Responder parks between turns. A restart converts interrupted leases back into their correct recoverable states, rehydrates approval monitors from the database, and resumes the same agent conversations. Scheduler leases carry random owner tokens, so an expired lease can be reclaimed while the process is running and the stale owner can no longer complete or retry the work that replaced it.</p>
+    <p>Ryker parks between turns. A restart converts interrupted leases back into their correct recoverable states, rehydrates approval monitors from the database, and resumes the same agent conversations. Scheduler leases carry random owner tokens, so an expired lease can be reclaimed while the process is running and the stale owner can no longer complete or retry the work that replaced it.</p>
 
     <p>Waiting costs nothing. An episode waiting on an Emisar approval occupies no Slack conversation lane and no model turn.</p>
 
@@ -112,7 +112,7 @@
       <p>Startup holds the process lock, creates and verifies a pre-migration snapshot, and only then migrates. Two processes racing that would be bad, so a second one exits instead of competing — but stop the running service first anyway.</p>
     </div>
 
-    <p>With the split systemd units, <code>responder.service</code> requires the Coop unit and starts it first. Only the Coop unit holds the <code>docker</code> group; the Responder process never does. The unit runs <code>doctor</code> as a pre-start check, so a broken configuration fails to start rather than starting and failing quietly.</p>
+    <p>With the split systemd units, <code>ryker.service</code> requires the Coop unit and starts it first. Only the Coop unit holds the <code>docker</code> group; the Ryker process never does. The unit runs <code>doctor</code> as a pre-start check, so a broken configuration fails to start rather than starting and failing quietly.</p>
 
     <p><code>scripts/deploy.sh</code> builds and qualifies the exact immutable release, installs it, performs one normal service restart, and waits for health and readiness. A proof is content-bound; it can never be reused for a different commit or a different archive.</p>
 
@@ -150,7 +150,7 @@
 
     <p>Routes accept POSTs of JSON under a size cap, on loopback, published through your proxy. Two auth modes: a bearer token, or an HMAC signature over the timestamp, the event ID, and the raw body within a five-minute window. Every secret is at least 16 bytes.</p>
 
-    <p>Delivery identity is the <code>X-Responder-Event-ID</code> header when you send one, and a digest of the body when you do not. The body digest is stored either way. Reusing an event ID with <em>different</em> content returns <code>409</code> rather than silently accepting one of the two.</p>
+    <p>Delivery identity is the <code>X-Ryker-Event-ID</code> header when you send one, and a digest of the body when you do not. The body digest is stored either way. Reusing an event ID with <em>different</em> content returns <code>409</code> rather than silently accepting one of the two.</p>
 
     <p>That identity is derived before normalization on purpose. It is the identity the signature binds, and a change route takes its ledger identity from it — so a redelivery records one change, and a replay under a new event ID fails the signature.</p>
 
@@ -160,7 +160,7 @@
 
     <h2 id="mirrors">Repository mirrors</h2>
 
-    <p>Declare a repository by slug and Responder owns the clone. It lives under your state directory, keyed by owner and name, and there is exactly one place in the product that constructs that path.</p>
+    <p>Declare a repository by slug and Ryker owns the clone. It lives under your state directory, keyed by owner and name, and there is exactly one place in the product that constructs that path.</p>
 
     <p>The maintenance lane fetches and fast-forwards every managed clone on an interval that defaults to fifteen minutes. It <strong>never modifies the work tree</strong>. A turn whose clone has lapsed pays for a bounded fetch before its session forks.</p>
 
@@ -168,20 +168,20 @@
 
     <h2 id="routing">Routing profiles</h2>
 
-    <p>A Coop session policy names one target, or an ordered ladder of up to four that may cross providers. When a session is rate-limited, Coop rotates to the next rung that is not cooling and re-delivers the same turn itself, so Responder sees an ordinary completion on a different model. A rate limit is not a failure and never spends an attempt.</p>
+    <p>A Coop session policy names one target, or an ordered ladder of up to four that may cross providers. When a session is rate-limited, Coop rotates to the next rung that is not cooling and re-delivers the same turn itself, so Ryker sees an ordinary completion on a different model. A rate limit is not a failure and never spends an attempt.</p>
 
-    <p>Crossing providers drops the model’s own in-session history. That costs its prior reasoning and nothing the run depends on, because Responder restates durable context in every prompt. Only when every rung is cooling does the turn fail as rate-limited, and it then waits on the reported reset instant, re-checking at least every half hour.</p>
+    <p>Crossing providers drops the model’s own in-session history. That costs its prior reasoning and nothing the run depends on, because Ryker restates durable context in every prompt. Only when every rung is cooling does the turn fail as rate-limited, and it then waits on the reported reset instant, re-checking at least every half hour.</p>
 
     <p>Four execution profiles let one repository route its lanes at different policies:</p>
 
     <dl>
-      <div><dt><code>chat</code></dt><dd>Conversation and small focused checks addressed to Responder.</dd></div>
+      <div><dt><code>chat</code></dt><dd>Conversation and small focused checks addressed to Ryker.</dd></div>
       <div><dt><code>investigate</code></dt><dd>Deep read-only operational work with tools.</dd></div>
       <div><dt><code>engineer</code></dt><dd>Writable repository work in an isolated fork.</dd></div>
-      <div><dt><code>watch</code></dt><dd>The attention decision on a message nobody addressed to Responder.</dd></div>
+      <div><dt><code>watch</code></dt><dd>The attention decision on a message nobody addressed to Ryker.</dd></div>
     </dl>
 
-    <p>Responder decides which profile a turn asks for <em>before</em> any model runs, and records it on the manifest beside the model that actually answered. A profile names a policy and nothing else — the ladder, the reasoning effort and the budget stay in the owner-private policy file, and a profile can never widen authority. Omitting the block entirely behaves exactly like a deployment from before profiles existed. Move one lane at a time and check the split on the Usage page before moving the next.</p>
+    <p>Ryker decides which profile a turn asks for <em>before</em> any model runs, and records it on the manifest beside the model that actually answered. A profile names a policy and nothing else — the ladder, the reasoning effort and the budget stay in the owner-private policy file, and a profile can never widen authority. Omitting the block entirely behaves exactly like a deployment from before profiles existed. Move one lane at a time and check the split on the Usage page before moving the next.</p>
 
     <p>There is deliberately no Slack command that changes a provider account or a model policy.</p>
 
@@ -227,17 +227,17 @@
 
     <p class="code-label">shell</p>
     <pre><code><span class="tok-c"># counters, and the bounded incident directory</span>
-<span class="tok-x">responder</span> <span class="tok-v">status</span> <span class="tok-k">--config</span> <span class="tok-v">/etc/responder/responder.yaml</span> <span class="tok-k">--json</span>
+<span class="tok-x">ryker</span> <span class="tok-v">status</span> <span class="tok-k">--config</span> <span class="tok-v">/etc/ryker/ryker.yaml</span> <span class="tok-k">--json</span>
 
 <span class="tok-c"># what failed, and whether it can be retried</span>
-<span class="tok-x">responder</span> <span class="tok-v">failures</span> <span class="tok-k">--config</span> <span class="tok-v">/etc/responder/responder.yaml</span>
+<span class="tok-x">ryker</span> <span class="tok-v">failures</span> <span class="tok-k">--config</span> <span class="tok-v">/etc/ryker/ryker.yaml</span>
 
 <span class="tok-c"># put exactly one item back on the queue</span>
-<span class="tok-x">responder</span> <span class="tok-v">retry</span> <span class="tok-k">--config</span> <span class="tok-v">/etc/responder/responder.yaml</span> <span class="tok-p">\</span>
+<span class="tok-x">ryker</span> <span class="tok-v">retry</span> <span class="tok-k">--config</span> <span class="tok-v">/etc/ryker/ryker.yaml</span> <span class="tok-p">\</span>
   <span class="tok-y">delivery delivery_9b2e4c71</span>
 
 <span class="tok-c"># re-run a saved Slack message, privately</span>
-<span class="tok-x">responder</span> <span class="tok-v">replay slack</span> <span class="tok-k">--url</span> <span class="tok-y">&lt;slack-permalink&gt;</span>
+<span class="tok-x">ryker</span> <span class="tok-v">replay slack</span> <span class="tok-k">--url</span> <span class="tok-y">&lt;slack-permalink&gt;</span>
 
 <span class="tok-c"># the process can use its database</span>
 <span class="tok-x">curl</span> <span class="tok-k">-f</span> <span class="tok-v">http://127.0.0.1:8080/healthz</span>
@@ -247,7 +247,7 @@
 
     <p><code>status</code> and <code>failures</code> open the current schema <em>without migrating it</em> and need neither Slack nor Coop, so they work when the service does not.</p>
 
-    <p><code>retry</code> takes exactly one item, preserves its original payload, frozen revision and idempotency key, resets the failure budget, and appends an audit event. It refuses to run while Responder owns the state directory. There is deliberately no bulk retry.</p>
+    <p><code>retry</code> takes exactly one item, preserves its original payload, frozen revision and idempotency key, resets the failure budget, and appends an audit event. It refuses to run while Ryker owns the state directory. There is deliberately no bulk retry.</p>
 
     <p><code>replay slack</code> is the post-fix verification tool. It clones the saved text, attachments, actor, channel, thread and timestamp behind a permalink, gives the clone a fresh identity, and queues it through the running service. Replays are <strong>private by default</strong>: the real model and tool path runs, but Slack status, reactions, messages, offers, schedules, tasks and incidents are all suppressed. Add <code>--publish</code> only when another real response in that conversation is intentional. If the command hits its timeout it cancels the durable run and interrupts the exact Coop turn — and if it cannot confirm that immediately, it says so rather than reporting a clean stop.</p>
 
@@ -258,7 +258,7 @@
     <dl>
       <div><dt>Incidents</dt><dd>One limit bounds concurrently active incidents (and therefore open Coop sessions); another bounds all non-closed incidents and is enforced transactionally before a channel is created. Set the second above the first.</dd></div>
       <div><dt>Member tasks</dt><dd>Per-member open-task caps, a creation cooldown, and a reserved pool of slots so contributor work cannot crowd out incidents and operator work.</dd></div>
-      <div><dt>Turn ceiling</dt><dd>A lifetime safety ceiling measured in accepted requests, not tool calls, defaulting to 1000. Responder allocates capacity automatically as authorized requests arrive; operators never estimate how many turns an investigation needs. At the ceiling the pending request, session and fork are preserved and deferred, not failed.</dd></div>
+      <div><dt>Turn ceiling</dt><dd>A lifetime safety ceiling measured in accepted requests, not tool calls, defaulting to 1000. Ryker allocates capacity automatically as authorized requests arrive; operators never estimate how many turns an investigation needs. At the ceiling the pending request, session and fork are preserved and deferred, not failed.</dd></div>
       <div><dt>Retry budgets</dt><dd>Four independent ones — webhooks, Slack inputs, deliveries, agent runs. Scheduling deferrals and progress polls do not consume them.</dd></div>
       <div><dt>Worker lanes</dt><dd>Control, background, and maintenance, sized separately. Slack controls stay on the control lane while long turns stay on background, so an approval or a stop is never blocked behind an investigation.</dd></div>
     </dl>
@@ -292,7 +292,7 @@
 
 <footer class="foot">
   <div class="wrap foot-in">
-    <span class="state"><span class="dot good"></span>Responder</span>
+    <span class="state"><span class="dot good"></span>Ryker</span>
     <span class="sep">·</span>
     <span>design-partner preview</span>
     <nav aria-label="Footer">

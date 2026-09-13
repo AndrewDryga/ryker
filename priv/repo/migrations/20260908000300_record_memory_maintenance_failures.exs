@@ -1,4 +1,4 @@
-defmodule Responder.Repo.Migrations.RecordMemoryMaintenanceFailures do
+defmodule Ryker.Repo.Migrations.RecordMemoryMaintenanceFailures do
   use Ecto.Migration
 
   def change do

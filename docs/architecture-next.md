@@ -1,10 +1,10 @@
-# Responder Target Architecture and Verification Plan
+# Ryker Target Architecture and Verification Plan
 
 Status: target design; the Elixir/PostgreSQL implementation is canonical
 Last updated: 2026-09-05
-Audience: Responder maintainers, operators, and contributors
+Audience: Ryker maintainers, operators, and contributors
 
-This document defines the architecture Responder should evolve toward.
+This document defines the architecture Ryker should evolve toward.
 
 The [control-plane redesign plan](control-plane-redesign.md) specifies the next
 operator-facing slices: LiveView, faster admission with unchanged host authority,
@@ -28,7 +28,7 @@ not current implementation status.
 
 ## 1. Product objective
 
-Responder should behave like a persistent operational teammate:
+Ryker should behave like a persistent operational teammate:
 
 > It notices important things, decides when it can help, works until it has a decision-ready result,
 > communicates naturally while working, remembers commitments and organizational context, and never
@@ -45,7 +45,7 @@ around a model. It is a durable operational work system with:
 - repositories and infrastructure definitions as authoritative implementation context;
 - a transactional local database as the durable episode, inbox, outbox, and continuity store.
 
-Success means Responder can:
+Success means Ryker can:
 
 - understand a conversation without assuming every nearby message addresses it;
 - decide whether to remain silent, react, answer, investigate, prepare work, or request approval;
@@ -79,7 +79,7 @@ generic copy of every SQL mutation.
 
 ### 2.3 Models propose; the host decides
 
-The model may propose typed operations. Responder validates state, authority, visibility, evidence,
+The model may propose typed operations. Ryker validates state, authority, visibility, evidence,
 freshness, destination, size, and idempotency before accepting them. External side effects are
 performed only from the transactional outbox.
 
@@ -351,9 +351,9 @@ message and episode references before a model is asked to interpret them.
 
 | Policy | Question | Owner |
 | --- | --- | --- |
-| Engagement | Should Responder speak, react, or start work? | Host policy plus bounded classification |
+| Engagement | Should Ryker speak, react, or start work? | Host policy plus bounded classification |
 | Effort | What coverage is required before finishing? | Typed effort contract and goals |
-| Authority | What may be read, changed, published, or executed? | Responder, Coop, and Emisar policy |
+| Authority | What may be read, changed, published, or executed? | Ryker, Coop, and Emisar policy |
 | Communication | Where, when, and how should the result appear? | Bound destination and communication policy |
 
 Humor cannot affect authority. Proactivity cannot imply permission. Urgency cannot relax evidence
@@ -533,7 +533,7 @@ later transport can stream the same protocol without changing episode semantics:
 - `record_alert_assessment`
 - `complete_episode`
 
-Responder validates each operation immediately. Invalid operations receive a structured correction
+Ryker validates each operation immediately. Invalid operations receive a structured correction
 within the same attempt. Accepted operations become events; they do not fold back into a parallel
 legacy result object.
 
@@ -645,7 +645,7 @@ StandingAssignment {
 
 Every matched event creates a new episode or attaches to an explicitly correlated active episode.
 Trigger deduplication and correlation are deterministic. The assignment grants initiative within
-its scope, never permission beyond the current Responder, Coop, and Emisar policies.
+its scope, never permission beyond the current Ryker, Coop, and Emisar policies.
 
 Conversational setup proposes the typed assignment and renders a confirmation card showing trigger,
 scope, output, expiry, budget, and authority boundary. App Home and the web control plane provide a
@@ -654,15 +654,15 @@ configuration model.
 
 ### 13.4 Approval behavior
 
-Responder may request a governed Emisar action in the current thread. If Emisar returns
-`pending_approval`, Responder records a wakeup, renders a concise approval card with the authoritative
+Ryker may request a governed Emisar action in the current thread. If Emisar returns
+`pending_approval`, Ryker records a wakeup, renders a concise approval card with the authoritative
 Emisar URL, releases all execution leases, and continues processing unrelated work. Approval or
 denial resumes the same episode for verification.
 
 That card reports the review, not the run. Emisar publishes a trusted `review` receipt on every run
 summary — the masked dispatch rationale its approvers were shown, the runner's own recorded command,
 each vote with its actor and note, the distinct-approver tally against the snapshotted requirement,
-and an override only from its own audit event. Responder validates that receipt against an exact
+and an override only from its own audit event. Ryker validates that receipt against an exact
 key-set allowlist, renders it once (Reason, Evidence, Expected outcome, the command in a native code
 block, the runner, then current status followed by the decisions oldest first), and repaints the
 message only when the receipt, the run URL or the poll error changes. A released run's own march
@@ -704,7 +704,7 @@ out-of-order lifecycle events.
 
 ## 15. Coop execution
 
-Coop remains the only model runtime so Responder preserves authenticated subscriptions, BYOC,
+Coop remains the only model runtime so Ryker preserves authenticated subscriptions, BYOC,
 provider isolation, repository policy, and writable forks.
 
 Start with three execution profiles:
@@ -732,16 +732,16 @@ Coop should provide fast paths internally by:
 - classifying errors into retryable, capacity, authentication, policy, malformed result, and
   terminal provider failures.
 
-Responder never parses provider error prose to decide authority or success.
+Ryker never parses provider error prose to decide authority or success.
 
 ## 16. Governed tools and authority
 
 | Concern | Authority owner |
 | --- | --- |
-| Slack membership, operator role, and visibility | Responder |
+| Slack membership, operator role, and visibility | Ryker |
 | Repository allowlist, fork, box, and writable policy | Coop |
 | Infrastructure identity, pack trust, action policy, approval, redaction, audit | Emisar |
-| Branch publication and lease protection | Responder plus Coop review evidence |
+| Branch publication and lease protection | Ryker plus Coop review evidence |
 | Merge and deployment | Explicit external policy; not inferred from chat |
 
 The authority snapshot used by an attempt is recorded in its context manifest. A model suggestion,
@@ -764,7 +764,7 @@ Cross-repository work uses a parent episode with child goals. Each writable chil
 independent Coop fork. The parent coordinates compatibility evidence, publication ordering, and
 communication.
 
-Publication dependencies such as `must_merge_after` are typed and host-enforced. Responder refuses
+Publication dependencies such as `must_merge_after` are typed and host-enforced. Ryker refuses
 to publish a dependent change before its prerequisite reaches the required state.
 
 Do not mount an arbitrary parent directory and treat nested repositories as one writable tree. A
@@ -773,7 +773,7 @@ ownership.
 
 ## 18. Memory and committed knowledge
 
-Responder does not have one undifferentiated memory system.
+Ryker does not have one undifferentiated memory system.
 
 ### 18.1 Committed knowledge
 
@@ -784,11 +784,11 @@ Stable repository and organizational knowledge belongs in version-controlled Mar
 - runbooks and repository documentation for maintained procedures and architecture;
 - an optional dedicated organizational knowledge repository for cross-repository material.
 
-Knowledge cards include sources, subsystem, updated date, and changelog. Responder indexes cards by
+Knowledge cards include sources, subsystem, updated date, and changelog. Ryker indexes cards by
 repository, path, visibility, and commit SHA, but reads the original Markdown when relevant. The
 index is disposable and rebuildable; Git remains authoritative.
 
-Ordinary conversation never silently edits committed knowledge. Responder may propose an update.
+Ordinary conversation never silently edits committed knowledge. Ryker may propose an update.
 During an authorized engineering task, Coop may update a relevant card in the same reviewed commit
 that established the knowledge.
 
@@ -1508,9 +1508,9 @@ The architecture is complete when:
 - historical failures replay deterministically with zero hard-invariant violations;
 - real-model evaluations and live canaries demonstrate natural, proactive, decision-ready behavior;
 - legacy ownership paths, process-local lifecycle state, and indefinite dual writes are deleted;
-- operators can inspect why Responder acted, which context it used, what it still owes, and exactly
+- operators can inspect why Ryker acted, which context it used, what it still owes, and exactly
   what would happen next.
 
-The intended result is not merely cleaner code. It is a Responder that can be trusted as a durable,
+The intended result is not merely cleaner code. It is a Ryker that can be trusted as a durable,
 proactive teammate because its initiative, evidence, communication, memory, and authority have clear
 owners and independently testable contracts.

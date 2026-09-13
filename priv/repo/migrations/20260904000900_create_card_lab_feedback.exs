@@ -1,4 +1,4 @@
-defmodule Responder.Repo.Migrations.CreateCardLabFeedback do
+defmodule Ryker.Repo.Migrations.CreateCardLabFeedback do
   use Ecto.Migration
 
   def change do

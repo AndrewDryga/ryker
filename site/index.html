@@ -3,18 +3,18 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Responder — the first responder that shows its work</title>
-<meta name="description" content="Responder is an AI teammate for on-call and infrastructure teams. It lives in Slack, watches your alerts, and investigates with real evidence. Every claim names its source. Every risky action asks a person first.">
+<title>Ryker — the first responder that shows its work</title>
+<meta name="description" content="Ryker is an AI teammate for on-call and infrastructure teams. It lives in Slack, watches your alerts, and investigates with real evidence. Every claim names its source. Every risky action asks a person first.">
 <!-- Unfurl metadata. og:image is root-relative; most unfurlers need absolute
      URLs, so point og:image (and add og:url + rel=canonical) at the real domain
      when the site gets one — a one-line substitution at publish time. -->
 <meta property="og:type" content="website">
-<meta property="og:title" content="Responder — the first responder that shows its work">
-<meta property="og:description" content="Responder is an AI teammate for on-call and infrastructure teams. It lives in Slack, watches your alerts, and investigates with real evidence. Every claim names its source. Every risky action asks a person first.">
+<meta property="og:title" content="Ryker — the first responder that shows its work">
+<meta property="og:description" content="Ryker is an AI teammate for on-call and infrastructure teams. It lives in Slack, watches your alerts, and investigates with real evidence. Every claim names its source. Every risky action asks a person first.">
 <meta property="og:image" content="assets/og.png">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="Responder — the first responder that shows its work">
-<meta name="twitter:description" content="Responder is an AI teammate for on-call and infrastructure teams. It lives in Slack, watches your alerts, and investigates with real evidence. Every claim names its source. Every risky action asks a person first.">
+<meta name="twitter:title" content="Ryker — the first responder that shows its work">
+<meta name="twitter:description" content="Ryker is an AI teammate for on-call and infrastructure teams. It lives in Slack, watches your alerts, and investigates with real evidence. Every claim names its source. Every risky action asks a person first.">
 
 <meta name="color-scheme" content="dark">
 <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
@@ -33,7 +33,7 @@
       <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true" focusable="false">
         <rect width="14" height="14" rx="4" fill="#36e6a5"></rect>
       </svg>
-      Responder
+      Ryker
     </a>
 
     <nav class="nav-links" aria-label="Main">
@@ -66,11 +66,11 @@
 
       <div class="hero-frame solo">
         <div class="hero-aside">
-          <p class="hero-sub">Responder is an AI teammate for on-call and infrastructure teams. It runs autonomously and can ship fixes proactively. It gives evidence for each of its claims. <strong>And every risky action asks a person first.</strong></p>
+          <p class="hero-sub">Ryker is an AI teammate for on-call and infrastructure teams. It runs autonomously and can ship fixes proactively. It gives evidence for each of its claims. <strong>And every risky action asks a person first.</strong></p>
 
           <div class="btn-row">
             <a class="btn go" href="docs/index.html">Read the docs</a>
-            <a class="btn line" href="mailto:andrew@dryga.com?subject=Responder%20design%20partner">Become a design partner</a>
+            <a class="btn line" href="mailto:andrew@dryga.com?subject=Ryker%20design%20partner">Become a design partner</a>
             <a class="btn-quiet" href="https://github.com/AndrewDryga/responder">View on GitHub</a>
           </div>
         </div>
@@ -80,14 +80,14 @@
 
 
 
-  <!-- Responder during a real incident ------------------------------------
+  <!-- Ryker during a real incident ------------------------------------
        Seven steps, one real thread, everything from the record. The windows
        are the argument; the text just walks you between them. -->
   <div class="record">
   <section class="band beat" id="how" aria-labelledby="how-h">
     <div class="wrap">
       <div class="section-head">
-        <h2 id="how-h">Responder, during a real incident.</h2>
+        <h2 id="how-h">Ryker, during a real incident.</h2>
         <p>What follows really happened, on a customer&rsquo;s infrastructure. Names, times, commits, and every message are from the record.</p>
       </div>
 
@@ -99,7 +99,7 @@
           <div class="step-text">
             <p class="step-num">01<span class="tmin"> · 12:14 PM</span></p>
             <h3>It all starts with an alert</h3>
-            <p>Terraform posted a run notification. Nobody asked Responder anything &mdash; it reads app alerts in your channels the way an engineer on the team does, and reacts on its own.</p>
+            <p>Terraform posted a run notification. Nobody asked Ryker anything &mdash; it reads app alerts in your channels the way an engineer on the team does, and reacts on its own.</p>
           </div>
           <figure class="mock-slack" aria-labelledby="s-alert-cap">
             <figcaption id="s-alert-cap" class="vh">The original alert: Terraform, marked as an app, posts a run-applied notification for SME-Blitz blitz-infra at 12:14 PM &mdash; an apply of commit 314b9c40 via HCP Terraform.</figcaption>
@@ -129,12 +129,12 @@
             <p>Through Emisar &mdash; governed, read-only &mdash; it pulled the Nomad events and had the failure story before anyone asked: what rolled back, why retrying was unsafe, and why there were no logs at all.</p>
           </div>
           <figure class="mock-slack" aria-labelledby="s-triage-cap">
-            <figcaption id="s-triage-cap" class="vh">Responder&rsquo;s triage. At 12:16 PM: production pyke-server applied, but VA1 pyke did not deploy &mdash; its rollout missed the progress deadline and automatically rolled back to job version 5. Keep that rollback in place and avoid retrying until the failed allocation or health check is identified. Customer impact is unverified. Later, on the logs question: image tag 5a56520 does not exist in the registry; all three replacement allocations failed with manifest unknown and never started, so there are no app logs &mdash; the Nomad driver events are the failure record.</figcaption>
+            <figcaption id="s-triage-cap" class="vh">Ryker&rsquo;s triage. At 12:16 PM: production pyke-server applied, but VA1 pyke did not deploy &mdash; its rollout missed the progress deadline and automatically rolled back to job version 5. Keep that rollback in place and avoid retrying until the failed allocation or health check is identified. Customer impact is unverified. Later, on the logs question: image tag 5a56520 does not exist in the registry; all three replacement allocations failed with manifest unknown and never started, so there are no app logs &mdash; the Nomad driver events are the failure record.</figcaption>
             <div class="slack-frame" aria-hidden="true">
               <div class="slack-msg">
                 <span class="slack-av av-app">R</span>
                 <div class="slack-said">
-                  <p class="slack-meta"><span class="slack-who">Responder</span> <span class="slack-app">app</span> <span class="slack-ts">12:16 PM</span></p>
+                  <p class="slack-meta"><span class="slack-who">Ryker</span> <span class="slack-app">app</span> <span class="slack-ts">12:16 PM</span></p>
                   <p class="slack-text">Production pyke-server applied, but <strong>VA1 pyke did not deploy</strong>: its rollout missed the progress deadline and automatically rolled back to job version 5. Keep that rollback in place and avoid retrying until the failed allocation or health check is identified.</p>
                   <p class="slack-text slack-dim">Customer impact is unverified.</p>
                 </div>
@@ -142,7 +142,7 @@
               <div class="slack-msg">
                 <span class="slack-av av-app">R</span>
                 <div class="slack-said">
-                  <p class="slack-meta"><span class="slack-who">Responder</span> <span class="slack-app">app</span> <span class="slack-ts">1:02 PM</span></p>
+                  <p class="slack-meta"><span class="slack-who">Ryker</span> <span class="slack-app">app</span> <span class="slack-ts">1:02 PM</span></p>
                   <p class="slack-text">It happened because image tag <strong>5a56520&hellip; doesn&rsquo;t exist in the registry.</strong> All three replacement allocations failed with &ldquo;manifest unknown&rdquo;, exhausted their retries, and never started &mdash; so there are no app logs; the Nomad driver events are the failure record.</p>
                 </div>
               </div>
@@ -160,7 +160,7 @@
             <p>No dashboard to open, no bot syntax to remember. Think out loud at it, push back at it &mdash; it answers in the thread, and it disagrees with receipts.</p>
           </div>
           <figure class="mock-slack" aria-labelledby="s-team-cap">
-            <figcaption id="s-team-cap" class="vh">The conversation. Trevin, 1:03 PM: weird &mdash; the CI build and push completed, though static analysis failed in a different job, which shouldn&rsquo;t have retroactively deleted the pushed container? Responder, 1:39 PM: the build-and-push job really did succeed; the separate static-analysis failure isn&rsquo;t what caused the rollback. But the exact full-SHA image Nomad requested still returns 404 from registry mirrors on two nodes, so CI success and runtime availability don&rsquo;t match. Andrew, 1:40 PM: run a deep investigation into this and find the root cause.</figcaption>
+            <figcaption id="s-team-cap" class="vh">The conversation. Trevin, 1:03 PM: weird &mdash; the CI build and push completed, though static analysis failed in a different job, which shouldn&rsquo;t have retroactively deleted the pushed container? Ryker, 1:39 PM: the build-and-push job really did succeed; the separate static-analysis failure isn&rsquo;t what caused the rollback. But the exact full-SHA image Nomad requested still returns 404 from registry mirrors on two nodes, so CI success and runtime availability don&rsquo;t match. Andrew, 1:40 PM: run a deep investigation into this and find the root cause.</figcaption>
             <div class="slack-frame" aria-hidden="true">
               <div class="slack-msg">
                 <span class="slack-av av-tm">TM</span>
@@ -172,7 +172,7 @@
               <div class="slack-msg">
                 <span class="slack-av av-app">R</span>
                 <div class="slack-said">
-                  <p class="slack-meta"><span class="slack-who">Responder</span> <span class="slack-app">app</span> <span class="slack-ts">1:39 PM</span></p>
+                  <p class="slack-meta"><span class="slack-who">Ryker</span> <span class="slack-app">app</span> <span class="slack-ts">1:39 PM</span></p>
                   <p class="slack-text">The build/push job really did succeed; the static-analysis failure isn&rsquo;t what caused the rollback. But the exact full-SHA image Nomad requested <strong>still returns 404 from registry mirrors on two nodes</strong> &mdash; CI success and runtime availability don&rsquo;t match.</p>
                   <p class="slack-text slack-dim">A retry is safe only after that exact manifest resolves through the Nomad mirror.</p>
                 </div>
@@ -198,12 +198,12 @@
             <p>Source code, metrics, logs, registries &mdash; whatever your team trusts it with, through governed read-only actions. Four minutes into the deep dive it caught the registry lying: a fake 404 hiding an auth failure.</p>
           </div>
           <figure class="mock-slack" aria-labelledby="s-root-cap">
-            <figcaption id="s-root-cap" class="vh">The root-cause verdict. Responder, 1:44 PM: root cause &mdash; broken Zot authentication to Artifact Registry, not the CI build, not static analysis. Zot failed upstream with unauthorized access, check credentials, and returned the misleading manifest-unknown 404. Older cached tags explain why another deployment could still succeed. The evidence cannot distinguish a deleted service-account key from a removed IAM grant &mdash; rotate va1-zot-ar-reader either way.</figcaption>
+            <figcaption id="s-root-cap" class="vh">The root-cause verdict. Ryker, 1:44 PM: root cause &mdash; broken Zot authentication to Artifact Registry, not the CI build, not static analysis. Zot failed upstream with unauthorized access, check credentials, and returned the misleading manifest-unknown 404. Older cached tags explain why another deployment could still succeed. The evidence cannot distinguish a deleted service-account key from a removed IAM grant &mdash; rotate va1-zot-ar-reader either way.</figcaption>
             <div class="slack-frame" aria-hidden="true">
               <div class="slack-msg">
                 <span class="slack-av av-app">R</span>
                 <div class="slack-said">
-                  <p class="slack-meta"><span class="slack-who">Responder</span> <span class="slack-app">app</span> <span class="slack-ts">1:44 PM</span></p>
+                  <p class="slack-meta"><span class="slack-who">Ryker</span> <span class="slack-app">app</span> <span class="slack-ts">1:44 PM</span></p>
                   <p class="slack-text"><strong>Root cause: broken Zot authentication to Artifact Registry</strong> &mdash; not the CI build, not static analysis. Zot failed upstream with &ldquo;unauthorized access. check credentials&rdquo; and returned the misleading &ldquo;manifest unknown&rdquo; 404. Older cached tags explain why another deployment could still succeed.</p>
                   <p class="slack-text slack-dim">The evidence can&rsquo;t distinguish a deleted service-account key from a removed IAM grant &mdash; rotate <span class="slack-code">va1-zot-ar-reader</span> either way.</p>
                 </div>
@@ -222,19 +222,19 @@
             <p>&ldquo;Prepare PR to fix it&rdquo; &mdash; five words. The change happened in an isolated fork: it makes every credential rotation roll every node, and alerts on the exact auth error that a healthy-looking readiness check had hidden. It cannot merge and cannot deploy. A person does that.</p>
           </div>
           <figure class="mock-slack" aria-labelledby="mock-pr-cap">
-            <figcaption id="mock-pr-cap" class="vh">The pull-request card Responder posted. At 1:50 PM: completed and committed &mdash; Zot: roll credentials and alert on auth failures. Then: draft PR ready, with a button to open draft PR 526. The branch contains the exact tree approved by the latest readiness review; publication used lease protection. Draft only &mdash; Responder did not merge, deploy, sign, or change infrastructure.</figcaption>
+            <figcaption id="mock-pr-cap" class="vh">The pull-request card Ryker posted. At 1:50 PM: completed and committed &mdash; Zot: roll credentials and alert on auth failures. Then: draft PR ready, with a button to open draft PR 526. The branch contains the exact tree approved by the latest readiness review; publication used lease protection. Draft only &mdash; Ryker did not merge, deploy, sign, or change infrastructure.</figcaption>
             <div class="slack-frame" aria-hidden="true">
               <div class="slack-msg">
                 <span class="slack-av av-app">R</span>
                 <div class="slack-said">
-                  <p class="slack-meta"><span class="slack-who">Responder</span> <span class="slack-app">app</span> <span class="slack-ts">1:50 PM</span></p>
+                  <p class="slack-meta"><span class="slack-who">Ryker</span> <span class="slack-app">app</span> <span class="slack-ts">1:50 PM</span></p>
                   <p class="slack-text">Completed and committed &mdash; <strong>Zot: roll credentials and alert on auth failures.</strong> Credential rotations now roll every Zot allocation, and Grafana alerts on the exact auth error even while <span class="slack-code">/v2/</span> stays ready.</p>
                   <div class="slack-attach ok">
                     <p class="slack-text"><strong>Draft PR ready</strong></p>
                     <p class="slack-sub">The branch contains the exact tree approved by the readiness review. Publication used lease protection.</p>
                     <p class="slack-btnrow"><span class="slack-btn">Open draft PR #526</span></p>
                   </div>
-                  <p class="slack-text slack-dim">Draft only. Responder did not merge, deploy, sign, or change infrastructure.</p>
+                  <p class="slack-text slack-dim">Draft only. Ryker did not merge, deploy, sign, or change infrastructure.</p>
                 </div>
               </div>
             </div>
@@ -251,19 +251,19 @@
             <p>Checks passed, 5 of 5. When you asked &ldquo;can you explain how your fix works?&rdquo; &mdash; it could, mechanism and all. After the merge it kept the thread linked to deployment and Terraform updates, and watched the fix roll out the next evening.</p>
           </div>
           <figure class="mock-slack" aria-labelledby="s-watch-cap">
-            <figcaption id="s-watch-cap" class="vh">The follow-through. Responder, 1:53 PM: checks passed &mdash; GitHub checks passed for PR 526, five of five; it is ready for review or merge. At 1:59 PM: PR 526 was merged; I&rsquo;ll keep this thread linked to matching deployment and Terraform updates for 14 days. Then a delivery update: the va1-observability workspace applied the merge revision from PR 526.</figcaption>
+            <figcaption id="s-watch-cap" class="vh">The follow-through. Ryker, 1:53 PM: checks passed &mdash; GitHub checks passed for PR 526, five of five; it is ready for review or merge. At 1:59 PM: PR 526 was merged; I&rsquo;ll keep this thread linked to matching deployment and Terraform updates for 14 days. Then a delivery update: the va1-observability workspace applied the merge revision from PR 526.</figcaption>
             <div class="slack-frame" aria-hidden="true">
               <div class="slack-msg">
                 <span class="slack-av av-app">R</span>
                 <div class="slack-said">
-                  <p class="slack-meta"><span class="slack-who">Responder</span> <span class="slack-app">app</span> <span class="slack-ts">1:53 PM</span></p>
+                  <p class="slack-meta"><span class="slack-who">Ryker</span> <span class="slack-app">app</span> <span class="slack-ts">1:53 PM</span></p>
                   <p class="slack-text"><strong>Checks passed.</strong> GitHub checks passed for PR #526 (5 of 5). It is ready for review or merge.</p>
                 </div>
               </div>
               <div class="slack-msg">
                 <span class="slack-av av-app">R</span>
                 <div class="slack-said">
-                  <p class="slack-meta"><span class="slack-who">Responder</span> <span class="slack-app">app</span> <span class="slack-ts">1:59 PM</span></p>
+                  <p class="slack-meta"><span class="slack-who">Ryker</span> <span class="slack-app">app</span> <span class="slack-ts">1:59 PM</span></p>
                   <p class="slack-text"><strong>PR merged.</strong> I&rsquo;ll keep this thread linked to matching deployment and Terraform updates for 14 days.</p>
                   <p class="slack-text slack-dim">Terraform update: the va1-observability workspace applied the merge revision from PR #526.</p>
                 </div>
@@ -282,13 +282,13 @@
             <p>Asked to make sure the issue stayed gone, it scheduled follow-up checks for the next day and four days out &mdash; each proposed and confirmed separately, nothing scheduled until a person says so. The last one ran on August 15 and closed the story.</p>
           </div>
           <figure class="mock-slack" aria-labelledby="s-verify-cap">
-            <figcaption id="s-verify-cap" class="vh">The final report. Responder, August 15, 1:55 PM: Zot&rsquo;s Artifact Registry authentication issue is not recurring. The last 24 hours contain no matching auth or upstream-sync failures, and all five node-local Zot instances performed an on-demand upstream sync of the exact pinned manifest and returned the same OCI manifest successfully. Nomad also shows five healthy Zot allocations, one per VA1 node.</figcaption>
+            <figcaption id="s-verify-cap" class="vh">The final report. Ryker, August 15, 1:55 PM: Zot&rsquo;s Artifact Registry authentication issue is not recurring. The last 24 hours contain no matching auth or upstream-sync failures, and all five node-local Zot instances performed an on-demand upstream sync of the exact pinned manifest and returned the same OCI manifest successfully. Nomad also shows five healthy Zot allocations, one per VA1 node.</figcaption>
             <div class="slack-frame" aria-hidden="true">
               <div class="slack-day"><span>Aug 15</span></div>
               <div class="slack-msg">
                 <span class="slack-av av-app">R</span>
                 <div class="slack-said">
-                  <p class="slack-meta"><span class="slack-who">Responder</span> <span class="slack-app">app</span> <span class="slack-ts">1:55 PM</span></p>
+                  <p class="slack-meta"><span class="slack-who">Ryker</span> <span class="slack-app">app</span> <span class="slack-ts">1:55 PM</span></p>
                   <p class="slack-text"><strong>Not recurring.</strong> The last 24 hours contain no matching auth or upstream-sync failures. All five node-local Zot instances synced the exact pinned manifest on demand and returned the same OCI manifest. Nomad shows five healthy allocations, one per VA1 node.</p>
                   <p class="slack-text slack-dim">That was the last of the scheduled checks. Closing this out.</p>
                 </div>
@@ -341,7 +341,7 @@
       <div class="und-grid">
         <div class="und-text">
           <h3>Tell it how you want things</h3>
-          <p>&ldquo;Keep replies short in this channel.&rdquo; &ldquo;Always verify before claiming recovery.&rdquo; Say it in words &mdash; Responder turns it into a typed preference or rule with an exact scope and expiry, shows it to you, and applies it only after you confirm. Nothing edits confirmed memory silently.</p>
+          <p>&ldquo;Keep replies short in this channel.&rdquo; &ldquo;Always verify before claiming recovery.&rdquo; Say it in words &mdash; Ryker turns it into a typed preference or rule with an exact scope and expiry, shows it to you, and applies it only after you confirm. Nothing edits confirmed memory silently.</p>
         </div>
         <div class="und-text">
           <h3>It listens to feedback</h3>
@@ -355,7 +355,7 @@
   <section class="band beat" id="capabilities" aria-labelledby="cap-h">
     <div class="wrap">
       <div class="section-head">
-        <h2 id="cap-h">Everything Responder does</h2>
+        <h2 id="cap-h">Everything Ryker does</h2>
         <p>One line per feature. Everything listed here works today.</p>
       </div>
 
@@ -380,7 +380,7 @@
               <li><span><b>Guided channel setup.</b> One-click safe defaults, or four questions covering listening, repository, alerts, and audience.</span></li>
               <li><span><b>App Home and the agent view.</b> Open work, incidents, memory, and suggested prompts, without typing a command.</span></li>
               <li><span><b>A message shortcut.</b> “Investigate message” runs a read-only investigation even where listening is off.</span></li>
-              <li><span><b>The <code>/responder</code> recovery command.</b> Status, proactive, shadow, assignments, help — what has to work when nothing else does.</span></li>
+              <li><span><b>The <code>/ryker</code> recovery command.</b> Status, proactive, shadow, assignments, help — what has to work when nothing else does.</span></li>
               <li><span><b>Reactions as acknowledgement.</b> One emoji when a reply would be noise but silence would be rude.</span></li>
               <li><span><b>Charts and visuals on request.</b> Bounded, evidence-backed images returned into the same conversation.</span></li>
               <li><span><b>Feedback capture.</b> React to a reply, or just say what was wrong. It is stored for review and never fed back into a prompt.</span></li>
@@ -427,7 +427,7 @@
               <li><span><b>Schedules.</b> Recurring and one-time checks that produce full episodes, in your timezone, never overlapping.</span></li>
               <li><span><b>Waits on external events.</b> CI checks, deployments, Terraform runs, and approvals, with durable wakeups.</span></li>
               <li><span><b>Draft-PR publication.</b> The pushed tree must match the reviewed tree exactly, or it is not published.</span></li>
-              <li><span><b>Verified discard plans.</b> Cleanup touches only sessions Responder recorded, and never dirty or unpublished work.</span></li>
+              <li><span><b>Verified discard plans.</b> Cleanup touches only sessions Ryker recorded, and never dirty or unpublished work.</span></li>
             </ul>
           </div>
         </details>
@@ -465,7 +465,7 @@
     <div class="wrap">
       <div class="section-head">
         <h2 id="trust-h">Built to be doubted</h2>
-        <p>Responder assumes you will check its work — and makes checking easy.</p>
+        <p>Ryker assumes you will check its work — and makes checking easy.</p>
       </div>
 
       <div class="trust-grid">
@@ -482,7 +482,7 @@
                entitled to see spelled out, so it is spelled out here. -->
           <div class="data-where">
             <h3>Where your data goes</h3>
-            <p>Your prompts go to one place: the model provider you configure, reached through Coop. There is no second model runtime and no direct provider client in Responder. Slack messages, evidence, episodes, and traces live in PostgreSQL on your host.</p>
+            <p>Your prompts go to one place: the model provider you configure, reached through Coop. There is no second model runtime and no direct provider client in Ryker. Slack messages, evidence, episodes, and traces live in PostgreSQL on your host.</p>
             <p class="data-more"><a href="docs/operations.html#state">Where the state lives <span class="arr" aria-hidden="true">→</span></a></p>
           </div>
         </div>
@@ -508,7 +508,7 @@
       <div>
         <h2>Run it on one host.<br>Point it at one channel.<br><span>Doubt everything it says — it can take it.</span></h2>
         <div class="btn-row">
-          <a class="btn go" href="mailto:andrew@dryga.com?subject=Responder%20design%20partner">Become a design partner</a>
+          <a class="btn go" href="mailto:andrew@dryga.com?subject=Ryker%20design%20partner">Become a design partner</a>
           <a class="btn line" href="docs/index.html">Read the docs</a>
         </div>
       </div>
@@ -518,9 +518,9 @@
            which is the only reason it is safe to show them here. -->
       <div class="install">
         <p class="code-label">install</p>
-        <pre><code><span class="tok-x">git</span> <span class="tok-v">clone https://github.com/AndrewDryga/responder</span>
-<span class="tok-x">cd</span> <span class="tok-v">responder</span> <span class="tok-p">&amp;&amp;</span> <span class="tok-x">make</span> <span class="tok-v">elixir-install</span></code></pre>
-        <p class="install-note">One immutable release under <code>~/.local/libexec/responder</code>.</p>
+        <pre><code><span class="tok-x">git</span> <span class="tok-v">clone https://github.com/AndrewDryga/responder ryker</span>
+<span class="tok-x">cd</span> <span class="tok-v">ryker</span> <span class="tok-p">&amp;&amp;</span> <span class="tok-x">make</span> <span class="tok-v">elixir-install</span></code></pre>
+        <p class="install-note">One immutable release under <code>~/.local/lib/ryker-elixir</code>.</p>
         <p class="install-more"><a href="docs/getting-started.html#install">Run it yourself <span class="arr" aria-hidden="true">→</span></a></p>
       </div>
     </div>
@@ -533,7 +533,7 @@
 
 <footer class="foot">
   <div class="wrap colophon">
-    <p><span class="dot-ok" aria-hidden="true"></span>Responder</p>
+    <p><span class="dot-ok" aria-hidden="true"></span>Ryker</p>
     <p>
       <a href="docs/index.html">Docs</a><span class="sep">·</span><a href="https://github.com/AndrewDryga/responder">GitHub</a><span class="sep">·</span><a href="https://github.com/AndrewDryga/responder/blob/main/SECURITY.md">Security</a><span class="sep">·</span><a href="https://github.com/AndrewDryga/responder/blob/main/LICENSE">MIT license</a><span class="sep">·</span><a href="https://github.com/AndrewDryga/responder/releases">Releases</a>
     </p>

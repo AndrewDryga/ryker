@@ -1,4 +1,4 @@
-defmodule Responder.Repo.Migrations.IndexMemorySearchContentOrder do
+defmodule Ryker.Repo.Migrations.IndexMemorySearchContentOrder do
   use Ecto.Migration
 
   def change do

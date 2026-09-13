@@ -1,4 +1,4 @@
-defmodule Responder.Repo.Migrations.BoundCompactSourceRevisionLookups do
+defmodule Ryker.Repo.Migrations.BoundCompactSourceRevisionLookups do
   use Ecto.Migration
 
   def up do

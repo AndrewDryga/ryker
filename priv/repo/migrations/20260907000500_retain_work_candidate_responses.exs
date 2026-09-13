@@ -1,4 +1,4 @@
-defmodule Responder.Repo.Migrations.RetainWorkCandidateResponses do
+defmodule Ryker.Repo.Migrations.RetainWorkCandidateResponses do
   use Ecto.Migration
 
   def up do

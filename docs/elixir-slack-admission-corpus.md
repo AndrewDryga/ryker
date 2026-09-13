@@ -1,6 +1,6 @@
 # Slack admission corpus review
 
-This review was taken read-only from the stopped Blitz and Emisar Responder databases on
+This review was taken read-only from the stopped Blitz and Emisar Ryker databases on
 2026-08-27. It exists to turn legacy behavior into replacement tests without copying the legacy
 architecture.
 
@@ -54,7 +54,7 @@ same boundary.
 5. **Queue context; do not suppress it.** A newer input is admitted behind active work. It does not cancel
    an attempted turn or an undelivered answer. Later runtime and delivery modules must preserve this.
 6. **Make silence explicit.** `ignore` is a durable model decision with a factual reason, not an implicit
-   host filter. Explicit requests directed at Responder are forbidden from being ignored by the prompt.
+   host filter. Explicit requests directed at Ryker are forbidden from being ignored by the prompt.
 7. **Keep model and host tests separate.** Deterministic tests prove that a chosen decision is stored and
    applied safely. Model evaluations prove that models choose the right decision from arbitrary content.
 
@@ -80,7 +80,7 @@ These cases should reuse recorded context and expected decisions without adding 
 - equivalent lifecycle updates whose wording, counts, or transient dashboard links change;
 - distinct runs from one app/repository arriving close together;
 - a genuine new cycle after a recovered/expired episode;
-- an explicit request versus nearby human conversation that needs no Responder action;
+- an explicit request versus nearby human conversation that needs no Ryker action;
 - a material scope, deployment SHA, impact, or recommended-action change that must not be ignored;
 - aggregate alerts whose displayed member changes while the underlying work remains the same; and
 - unknown future app/block payloads that still produce a useful decision.

@@ -1,4 +1,4 @@
-defmodule Responder.Repo.Migrations.AddRepositoryContexts do
+defmodule Ryker.Repo.Migrations.AddRepositoryContexts do
   use Ecto.Migration
 
   def up do

@@ -1,4 +1,4 @@
-defmodule Responder.Repo.Migrations.PinWorkRepositorySource do
+defmodule Ryker.Repo.Migrations.PinWorkRepositorySource do
   use Ecto.Migration
 
   # Null means the session was already bound before source selection existed, or

@@ -1,4 +1,4 @@
-defmodule Responder.Repo.Migrations.CreateEpisodeKernel do
+defmodule Ryker.Repo.Migrations.CreateEpisodeKernel do
   use Ecto.Migration
 
   def change do

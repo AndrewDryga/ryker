@@ -52,7 +52,7 @@ elif [[ -n $third && -n $fourth && -n $fifth && -n $sixth ]]; then
     --certificate-oidc-issuer https://token.actions.githubusercontent.com >/dev/null
 
   archive_name=${archive##*/}
-  expected_name="responder_${expected_version}_elixir_linux_amd64.tar.gz"
+  expected_name="ryker_${expected_version}_elixir_linux_amd64.tar.gz"
   [[ $archive_name == "$expected_name" ]] || {
     echo "production Elixir archive must be named $expected_name" >&2
     exit 1
@@ -114,11 +114,11 @@ mkdir -p "$releases"
 
 verify_installed_release() {
   local candidate=$1
-  local binary="$candidate/bin/responder"
-  local digest_file="$candidate/.responder-archive.sha256"
+  local binary="$candidate/bin/ryker"
+  local digest_file="$candidate/.ryker-archive.sha256"
 
   [[ -d $candidate && -x $binary && -f $digest_file ]] || return 1
-  [[ $($binary version) == "responder $expected_version" ]] || return 1
+  [[ $($binary version) == "ryker $expected_version" ]] || return 1
   [[ $(tr -d '[:space:]' <"$digest_file") == "$expected_archive_sha256" ]]
 }
 
@@ -128,8 +128,8 @@ if [[ -e $target || -L $target ]]; then
     exit 1
   fi
 else
-  staging=$(mktemp -d "$releases/.responder-$expected_version.XXXXXX")
-  verified_archive="$staging/.responder-source.tar.gz"
+  staging=$(mktemp -d "$releases/.ryker-$expected_version.XXXXXX")
+  verified_archive="$staging/.ryker-source.tar.gz"
   install -m 0600 "$archive" "$verified_archive"
 
   [[ $(archive_sha256 "$verified_archive") == "$expected_archive_sha256" ]] || {
@@ -144,7 +144,7 @@ else
   tar -xzf "$verified_archive" -C "$staging"
   rm -- "$verified_archive"
 
-  printf '%s\n' "$expected_archive_sha256" >"$staging/.responder-archive.sha256"
+  printf '%s\n' "$expected_archive_sha256" >"$staging/.ryker-archive.sha256"
 
   if ! verify_installed_release "$staging"; then
     echo "staged release is incomplete or has the wrong version" >&2
@@ -157,5 +157,5 @@ fi
 
 "$script_dir/activate-elixir-release.sh" "$prefix" "$expected_version" >/dev/null
 
-echo "installed responder $expected_version in $target"
-echo "current responder release: $prefix/current -> releases/$expected_version"
+echo "installed ryker $expected_version in $target"
+echo "current ryker release: $prefix/current -> releases/$expected_version"

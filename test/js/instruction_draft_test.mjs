@@ -45,6 +45,21 @@ test("unsaved navigation and unload are guarded until a save or cancel is acknow
   assert.equal(f.handlers.size, 0)
 })
 
+// The product was renamed on 2026-09-13; an instruction draft typed before the
+// rename sits under the retired key and must come back exactly once, with its
+// original revision, so the server's CAS still applies to it.
+test("an instruction draft saved before the rename is restored once under the current key", () => {
+  const store = new Map([["responder:instruction-draft:global", JSON.stringify({text: "Typed before the rename", revision: "1"})]])
+  const f = fixture(store, "global", "A newer saved version", "2")
+  assert.deepEqual(f.recovered, [{text: "Typed before the rename", revision: "1"}])
+  assert.equal(f.input.value, "Typed before the rename")
+  assert.equal(store.has("responder:instruction-draft:global"), false)
+  assert.equal(store.has("ryker:instruction-draft:global"), true)
+  f.input.value = "A newer saved version"
+  f.guard.sync()
+  assert.equal(store.size, 0)
+})
+
 test("returning after back navigation or reconnect restores the draft with its original revision", () => {
   const f = fixture()
   f.type("My original draft")
