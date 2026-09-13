@@ -75,6 +75,8 @@ defmodule Ryker.ControlPlane.Projection do
   end
 
   defdelegate admission(ref), to: FailureProjection
+  defdelegate behavior(ref), to: BehaviorLibrary, as: :fetch
+  defdelegate behaviors(kind, params), to: BehaviorLibrary, as: :list
   defdelegate channel(workspace_ref, channel_ref, params), to: ChannelDetail, as: :fetch
   defdelegate channels(params), to: ChannelDirectory, as: :list
   defdelegate delivery(ref), to: FailureProjection

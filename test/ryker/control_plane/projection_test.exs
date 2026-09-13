@@ -2682,7 +2682,10 @@ defmodule Ryker.ControlPlane.ProjectionTest do
   test "detail lookups and usage windows fail closed without leaking arbitrary references" do
     for callback <- [
           &Projection.admission/1,
+          &Projection.behavior/1,
           &Projection.delivery/1,
+          &Projection.incident/1,
+          &Projection.schedule/1,
           &Projection.emisar/1,
           &Projection.slack_incident/1,
           &Projection.slack_interaction/1,
