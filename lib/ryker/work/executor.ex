@@ -267,9 +267,9 @@ defmodule Ryker.Work.Executor do
   end
 
   # The binding must answer the exact request this session persisted, and the
-  # workspace must actually start at the commit that binding pinned. A session
-  # bound before this contract has no persisted request, so its binding is only
-  # checked for internal consistency; it is never re-resolved.
+  # workspace must actually start at the commit that binding pinned. A
+  # workspace-free session has no persisted request, so a binding it reports is
+  # only checked for internal consistency; it is never re-resolved.
   #
   # An intentionally local policy has no remote identity to bind: Coop refuses
   # every selector but its own default there and returns no binding, and the
@@ -668,16 +668,10 @@ defmodule Ryker.Work.Executor do
        when is_binary(id),
        do: {:ok, claim}
 
-  defp use_or_rotate_session(claim, %{"state" => "open"} = remote, settings) do
-    if legacy_repository_freshness?(remote) do
-      with :ok <- repository_freshness_v2_capability(claim, settings) do
-        rotate_session(claim, settings)
-      end
-    else
-      case KnowledgeSnapshot.authorize_session(claim.episode, claim.session) do
-        :ok -> {:ok, claim}
-        {:error, :work_knowledge_context_stale} -> rotate_session(claim, settings)
-      end
+  defp use_or_rotate_session(claim, %{"state" => "open"}, settings) do
+    case KnowledgeSnapshot.authorize_session(claim.episode, claim.session) do
+      :ok -> {:ok, claim}
+      {:error, :work_knowledge_context_stale} -> rotate_session(claim, settings)
     end
   end
 
@@ -706,21 +700,10 @@ defmodule Ryker.Work.Executor do
     end
   end
 
-  defp legacy_repository_freshness?(%{"repository_freshness_status" => "unavailable"}),
-    do: true
-
-  defp legacy_repository_freshness?(%{
-         "repository_freshness_status" => "recorded",
-         "repository_freshness" => receipts
-       })
-       when is_list(receipts),
-       do: Enum.any?(receipts, &(is_map(&1) and Map.get(&1, "version") == 1))
-
-  defp legacy_repository_freshness?(_remote), do: false
-
   # Selector-bound work is never dispatched to a worker that cannot resolve a
-  # selector. There is no legacy fallback: an old or partially upgraded worker is
-  # ineligible before any session is created.
+  # selector, and no session is created on a worker without version-2 freshness
+  # receipts: an old or partially upgraded worker is ineligible before any
+  # session exists, so every bound session already carries version-2 receipts.
   defp repository_capabilities(claim, settings) do
     with {:ok, capability_call} <- repository_freshness_capability_call(claim, settings),
          capabilities <- api_call(settings, capability_call),
@@ -741,14 +724,6 @@ defmodule Ryker.Work.Executor do
 
   defp validate_repository_source_capability(_capabilities, _source),
     do: {:error, {:coop_upgrade_required, :repository_source_selector_v1}}
-
-  defp repository_freshness_v2_capability(claim, settings) do
-    with {:ok, capability_call} <- repository_freshness_capability_call(claim, settings) do
-      settings
-      |> api_call(capability_call)
-      |> validate_repository_freshness_capability()
-    end
-  end
 
   defp repository_freshness_capability_call(claim, settings) do
     cond do

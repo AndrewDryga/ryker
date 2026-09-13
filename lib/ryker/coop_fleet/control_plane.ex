@@ -35,6 +35,11 @@ defmodule Ryker.CoopFleet.ControlPlane do
   @heartbeat_stale_seconds 60
   @maximum_clock_skew_seconds 30
 
+  # Registers a worker under a certificate digest the operator vouches for
+  # directly, without an enrollment token. No operator surface calls this;
+  # production workers enroll through `Ryker.CoopFleet.Enrollment`, and the
+  # fleet tests use this to bind a worker to a digest they mint themselves.
+  @doc false
   @spec authorize_worker(String.t(), String.t(), String.t()) ::
           {:ok, Worker.t()} | {:error, term()}
   def authorize_worker(worker_id, workspace_ref, certificate_sha256) do
@@ -1690,7 +1695,7 @@ defmodule Ryker.CoopFleet.ControlPlane do
     |> cast(
       %{
         expires_at: DateTime.add(now, 10 * 365 * 24 * 60 * 60, :second),
-        issued_by: "legacy-bootstrap",
+        issued_by: "manual-authorization",
         not_before: now,
         serial_number: "manual-#{String.slice(certificate_sha256, 0, 16)}",
         sha256: certificate_sha256,

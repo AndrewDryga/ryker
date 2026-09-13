@@ -36,9 +36,8 @@ defmodule Ryker.Work.SubmissionTest do
 
     assert with_artifact["input_artifact_refs"] == [artifact_ref]
 
-    legacy = Map.delete(prepared, "input_artifact_refs")
-    assert {:ok, upgraded} = Submission.prepare(legacy)
-    assert upgraded["input_artifact_refs"] == []
+    assert Submission.prepare(Map.delete(prepared, "input_artifact_refs")) ==
+             {:error, {:invalid_work_submission, :fields}}
 
     assert Submission.new(
              valid["context"],

@@ -31,6 +31,8 @@ defmodule Ryker.Work.RepositorySource do
     base_commit default_commit default_ref kind remote_identity
     requested resolved_at selected_commit selected_ref version
   )
+  # Checked under their own names after the field set: `admitted_tree` must be
+  # present, the pull-request fields only when the request is a pull request.
   @binding_optional_fields ~w(admitted_tree pull_request_expected_head pull_request_number)
   @object_id_regex ~r/\A(?:[0-9a-f]{40}|[0-9a-f]{64})\z/
   @branch_charset_regex ~r/\A[\x21-\x7E]+\z/
@@ -100,16 +102,11 @@ defmodule Ryker.Work.RepositorySource do
   admitted tree, the remote identity, and the resolution time. A trusted
   expected pull-request head that disagrees with the resolved head fails closed.
 
-  `admitted_tree` is required for every binding Coop resolves under this
-  contract. Only a binding Coop migrated from a pre-selector pull-request
-  session may omit it, and such a session never carries a persisted request.
+  `admitted_tree` is required: every binding Coop resolves under this contract
+  records the tree it admitted.
   """
   @spec parse_binding(term()) :: {:ok, binding()} | {:error, term()}
-  def parse_binding(value), do: parse_binding(value, :admitted_tree_required)
-
-  @spec parse_binding(term(), :admitted_tree_required | :admitted_tree_optional) ::
-          {:ok, binding()} | {:error, term()}
-  def parse_binding(%{} = value, admitted_tree) do
+  def parse_binding(%{} = value) do
     with :ok <- exact_binding_fields(value),
          :ok <- binding_version(value["version"]),
          {:ok, requested, expected_head} <- binding_requested(value["requested"]),
@@ -124,7 +121,7 @@ defmodule Ryker.Work.RepositorySource do
          :ok <- binding_object_id(value["default_commit"], :default_commit),
          :ok <- binding_object_id(value["selected_commit"], :selected_commit),
          :ok <- binding_object_id(value["base_commit"], :base_commit),
-         :ok <- binding_admitted_tree(value, admitted_tree),
+         :ok <- binding_object_id(value["admitted_tree"], :admitted_tree),
          {:ok, resolved_at} <- binding_timestamp(value["resolved_at"]),
          :ok <- binding_selection(requested, value),
          :ok <- binding_expected_head(requested, value, expected_head) do
@@ -132,23 +129,22 @@ defmodule Ryker.Work.RepositorySource do
     end
   end
 
-  def parse_binding(_value, _admitted_tree), do: invalid_binding(:fields)
+  def parse_binding(_value), do: invalid_binding(:fields)
 
   @doc """
   Validates a binding and proves it answers the exact persisted request.
 
-  A session with no persisted request is either workspace-free or one of the
-  historical already-bound sessions that predate this contract; those are never
-  re-resolved, so the binding is checked for internal consistency alone.
+  A workspace-free session persists no request and is never re-resolved, so a
+  binding it reports is checked for internal consistency alone.
   """
   @spec reconcile(term(), request() | nil) :: {:ok, binding() | nil} | {:error, term()}
   def reconcile(nil, nil), do: {:ok, nil}
   def reconcile(nil, _requested), do: invalid_binding(:fields)
 
-  def reconcile(value, nil), do: parse_binding(value, :admitted_tree_optional)
+  def reconcile(value, nil), do: parse_binding(value)
 
   def reconcile(value, requested) do
-    with {:ok, binding} <- parse_binding(value, :admitted_tree_required) do
+    with {:ok, binding} <- parse_binding(value) do
       if same?(binding["requested"], requested),
         do: {:ok, binding},
         else: invalid_binding(:requested)
@@ -301,12 +297,6 @@ defmodule Ryker.Work.RepositorySource do
       {:error, _reason} -> invalid_binding(:requested)
     end
   end
-
-  defp binding_admitted_tree(%{"admitted_tree" => tree}, _admitted_tree),
-    do: binding_object_id(tree, :admitted_tree)
-
-  defp binding_admitted_tree(_value, :admitted_tree_optional), do: :ok
-  defp binding_admitted_tree(_value, :admitted_tree_required), do: invalid_binding(:admitted_tree)
 
   defp binding_kind(kind, %{"kind" => kind}), do: :ok
   defp binding_kind(_kind, _requested), do: invalid_binding(:kind)
