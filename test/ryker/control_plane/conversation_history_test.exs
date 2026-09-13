@@ -220,6 +220,20 @@ defmodule Ryker.ControlPlane.ConversationHistoryTest do
 
     assert Projection.lab_history(@conversation_id, forged, 50) == {:error, :invalid_cursor}
 
+    # A well-formed cursor whose microsecond no calendar can hold is refused
+    # too. Decoding accepted any integer and the page then raised turning it
+    # into a timestamp, so one crafted cursor answered 500 instead of 400.
+    for micros <- [99_999_999_999_999_999_999, -99_999_999_999_999_999_999] do
+      out_of_range =
+        Base.url_encode64(
+          ~s({"v":1,"c":"#{@conversation_id}","t":#{micros},"k":0,"i":"input:x"}),
+          padding: false
+        )
+
+      assert Projection.lab_history(@conversation_id, out_of_range, 50) ==
+               {:error, :invalid_cursor}
+    end
+
     assert Projection.lab_history("not-a-uuid", nil, 50) == :not_found
     assert Projection.lab_history(Ecto.UUID.generate(), nil, 50) == :not_found
 

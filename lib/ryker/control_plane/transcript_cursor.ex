@@ -45,7 +45,10 @@ defmodule Ryker.ControlPlane.TranscriptCursor do
     with {:ok, json} <- Base.url_decode64(cursor, padding: false),
          {:ok, %{"v" => @version, "c" => ^conversation_id, "t" => micros, "k" => rank, "i" => id}}
          when is_integer(micros) and rank in 0..3 and is_binary(id) and byte_size(id) in 1..512 <-
-           Jason.decode(json) do
+           Jason.decode(json),
+         # The position must be a moment a calendar can hold, or the page
+         # cannot compare anything with it.
+         {:ok, _position} <- DateTime.from_unix(micros, :microsecond) do
       {:ok, {micros, rank, id}}
     else
       _invalid -> :error

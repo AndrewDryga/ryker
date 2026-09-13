@@ -120,7 +120,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace do
       causality: causality,
       chapters: chapters(steps, received_at, causality),
       follow_through: Outcome.follow_through(platform_actions, publications, source),
-      history: history(totals, activity_page),
+      history: history(episode, totals, activity_page),
       metrics: metrics(episode, received_at, activity_page, totals, steps),
       next_action: next_action(episode, current_turn),
       received_at: received_at,
@@ -247,7 +247,9 @@ defmodule Ryker.ControlPlane.EpisodeTrace do
     })
   end
 
-  defp history(totals, activity_page) do
+  # What the timeline could not show: rows past its window, and history that
+  # retention removed, which is not the same as history that was never written.
+  defp history(episode, totals, activity_page) do
     windows = [
       history_window("kernel events", totals.events_shown, totals.events),
       history_window("records", totals.records_shown, totals.records),
@@ -256,7 +258,11 @@ defmodule Ryker.ControlPlane.EpisodeTrace do
       history_window("activity events", activity_page.shown, activity_page.total)
     ]
 
-    %{truncated: Enum.any?(windows, & &1.truncated), windows: windows}
+    %{
+      pruned_at: episode.history_pruned_at,
+      truncated: Enum.any?(windows, & &1.truncated),
+      windows: windows
+    }
   end
 
   defp history_window(label, shown, total),
