@@ -31,9 +31,9 @@ defmodule Ryker.ControlPlane.HTML do
   end
 
   # The one body a missing page, record or action renders under the shell's
-  # "Not found" title, on the live shell and the static one alike. Before
-  # 2026-09-13 an unknown URL said "No durable records in this view" under a
-  # heading that was just the word "Page".
+  # "Not found" title, on the live shell and the static one alike: it says the
+  # thing is missing and offers a way back, never an empty list that would read
+  # as the record's state.
   @spec not_found(String.t()) :: iodata()
   def not_found(subject) do
     [
