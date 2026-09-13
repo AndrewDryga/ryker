@@ -1923,14 +1923,46 @@ defmodule Responder.ControlPlane.RouterTest do
                  items: [
                    %{
                      ref: "summary:one",
+                     title: "database",
+                     text: "Replication is stalled",
+                     groups: [{"Decisions", ["Fail over"]}],
                      repository_ref: "responder",
                      thread_ref: "1787832000.001000",
-                     updated_at: ~U[2026-08-28 12:00:00Z]
+                     updated_at: ~U[2026-08-28 12:00:00Z],
+                     source_at: nil,
+                     expires_at: nil,
+                     recall_warning: nil,
+                     maintenance_error: nil,
+                     maintenance_retry_at: nil,
+                     recall_count: 0,
+                     last_recalled_at: nil,
+                     request_path: "/timeline/episode%3Aone",
+                     source: nil
                    }
                  ],
                  total: 1,
                  page: 1,
                  pages: 1
+               },
+               continuity: %{drafts: 0, handover_failures: 0},
+               rollups: %{key: "rollup_page", items: [], total: 0, page: 1, pages: 1},
+               knowledge: %{key: "knowledge_page", items: [], total: 0, page: 1, pages: 1},
+               learning: %{
+                 key: "learning_page",
+                 items: [],
+                 total: 0,
+                 page: 1,
+                 pages: 1,
+                 counts: %{
+                   queued: 0,
+                   running: 0,
+                   applied: 0,
+                   no_change: 0,
+                   deferred: 0,
+                   superseded: 0
+                 },
+                 waiting_inputs: 0,
+                 enabled: true
                }
              }}
 

@@ -10,18 +10,18 @@ defmodule Responder.ControlPlane.ChannelDetail do
 
   import Ecto.Query
 
-  alias Responder.ControlPlane.{ChannelScope, PagedRelation}
+  alias Responder.ControlPlane.{ChannelContext, ChannelScope, PagedRelation}
   alias Responder.Episodes.Episode
   alias Responder.Repo
   alias Responder.Slack.{ChannelConfiguration, ChannelMembership, ChannelSettings, IncidentRoom}
-  alias Responder.State.{ConversationSummary, Schedule}
+  alias Responder.State.Schedule
 
   @type collection :: PagedRelation.t()
 
   # Every repeating relation owns one namespaced page parameter, so paging one
   # section can never reset another. Anything else in the query string is
   # dropped before it reaches a query.
-  @page_keys ~w(episode_page schedule_page summary_page)
+  @page_keys ~w(episode_page schedule_page summary_page rollup_page knowledge_page learning_page)
 
   @doc "The query parameters the channel route accepts."
   @spec query_keys() :: [String.t()]
@@ -58,12 +58,19 @@ defmodule Responder.ControlPlane.ChannelDetail do
          episodes.total == 0 do
       :not_found
     else
-      relations = [episodes, schedules(scope, params), summaries(scope, params)]
+      relations = %{
+        episodes: episodes,
+        schedules: schedules(scope, params),
+        summaries: ChannelContext.summaries(scope, params),
+        rollups: ChannelContext.rollups(scope, params),
+        knowledge: ChannelContext.knowledge(scope, params),
+        learning: ChannelContext.learning(scope, params)
+      }
 
       {:ok,
-       %{
+       Map.merge(relations, %{
          scope: scope,
-         params: link_params(relations),
+         params: link_params(Map.values(relations)),
          channel: %{
            kind: kind(scope, incident_room),
            membership: membership,
@@ -72,10 +79,8 @@ defmodule Responder.ControlPlane.ChannelDetail do
            repository: repository
          },
          participation: participation(scope, configuration),
-         episodes: episodes,
-         schedules: Enum.at(relations, 1),
-         summaries: Enum.at(relations, 2)
-       }}
+         continuity: ChannelContext.continuity(scope)
+       })}
     end
   end
 
@@ -228,22 +233,6 @@ defmodule Responder.ControlPlane.ChannelDetail do
       }
     )
     |> read("schedule_page", [asc_nulls_last: :next_occurrence_at, desc: :id], params)
-  end
-
-  defp summaries(scope, params) do
-    from(summary in ConversationSummary,
-      where:
-        summary.transport == "slack" and
-          summary.workspace_ref == ^scope.canonical_workspace_ref and
-          summary.conversation_ref == ^scope.conversation_ref,
-      select: %{
-        ref: summary.ref,
-        repository_ref: summary.repository_ref,
-        thread_ref: summary.thread_ref,
-        updated_at: summary.updated_at
-      }
-    )
-    |> read("summary_page", [desc: :updated_at, desc: :id], params)
   end
 
   defp read(query, key, order, params),
