@@ -106,6 +106,57 @@ defmodule Ryker.ControlPlane.PagesTest do
     end
   end
 
+  # Incident rooms and the record views were the last pages built before the
+  # shared vocabulary: a framed table with a tinted header row, "ready" in
+  # lower case where Schedules showed a dot and a word, and raw ISO stamps
+  # where every other page said "28 Aug, 12:00 UTC". Two lists that disagree
+  # about how a status and a time look are two designs, not one.
+  test "incident rooms count, mark status and tell time the way every other list does" do
+    document = body("/incident-rooms")
+
+    assert LazyHTML.query(document, ".result-count") |> LazyHTML.text() == "1 incident room"
+    assert LazyHTML.query(document, "table.data-table") |> LazyHTML.to_tree() != []
+    assert LazyHTML.query(document, ".table-wrap") |> LazyHTML.to_tree() == []
+
+    statuses = LazyHTML.query(document, ".ui-status") |> LazyHTML.text()
+    assert statuses =~ "Ready"
+    refute page("/incident-rooms").body =~ ">ready<"
+
+    assert LazyHTML.query(document, "time[datetime='2026-08-28T12:00:00Z']") |> LazyHTML.text() =~
+             "28 Aug, 12:00 UTC"
+
+    refute LazyHTML.text(document) =~ "2026-08-28T12:00:00Z"
+
+    # An empty page first says which it is: nothing matches, or nothing exists.
+    none = put_in(options(), [:projection, :incidents], fn _params -> [] end)
+
+    assert page("/incident-rooms", %{}, none).body =~ "No incident rooms yet"
+
+    assert page("/incident-rooms", %{"status" => "closed"}, none).body =~
+             "No incident rooms match these filters."
+  end
+
+  test "record views use the same unframed tables, statuses and times as the lists" do
+    for path <- ["/incident-rooms/incident%3Aone", "/schedules/schedule%3Aone"] do
+      document = body(path)
+      assert LazyHTML.query(document, ".table-wrap") |> LazyHTML.to_tree() == [], path
+      assert LazyHTML.query(document, "table.data-table") |> LazyHTML.to_tree() != [], path
+      assert LazyHTML.query(document, "dl .ui-status") |> LazyHTML.to_tree() != [], path
+      refute LazyHTML.text(document) =~ ~r/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z/, path
+      assert LazyHTML.query(document, "time[datetime]") |> LazyHTML.to_tree() != [], path
+    end
+
+    incident = body("/incident-rooms/incident%3Aone")
+    assert LazyHTML.query(incident, "dl .ui-status") |> LazyHTML.text() =~ "Ready"
+    assert LazyHTML.query(incident, "dl .ui-status") |> LazyHTML.text() =~ "Needs attention"
+
+    assert LazyHTML.query(incident, ".empty-state") |> LazyHTML.text() =~
+             "No evidence-backed records"
+
+    memory = body("/memory")
+    assert LazyHTML.query(memory, "table .ui-status") |> LazyHTML.text() =~ "Active"
+  end
+
   test "channel detail pagers reach the projection through the page's own query, bounded" do
     # The channel route never fetched its query string, so a `?summary_page=2`
     # link could only ever render page one.

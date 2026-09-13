@@ -2,6 +2,7 @@ defmodule Ryker.ControlPlane.SubscriptionsPage do
   @moduledoc false
   use Phoenix.Component
 
+  import Ryker.ControlPlane.Components, only: [status: 1, timestamp: 1]
   alias Ryker.ControlPlane.SubscriptionPresentation, as: Presentation
 
   # The rows only; the window and search semantics live in the page help, and
@@ -43,7 +44,7 @@ defmodule Ryker.ControlPlane.SubscriptionsPage do
           </div>
           <div class="subscription-timing">
             <% {label, tone} = Presentation.status(item) %>
-            <span class={"ui-status status-#{tone}"}><i aria-hidden="true"></i>{label}</span>
+            <.status label={label} tone={tone} />
             <dl>
               <div :for={{label, text, at} <- Presentation.timing(item, @now)}>
                 <dt>{label}</dt>
@@ -53,7 +54,7 @@ defmodule Ryker.ControlPlane.SubscriptionsPage do
                     id={"wait-time-#{item.ref}-#{URI.encode_www_form(label)}"}
                     datetime={exact(at)}
                     title={exact(at)}
-                    aria-label={"#{text} · #{Calendar.strftime(at, "%d %b %Y, %H:%M UTC")}"}
+                    aria-label={"#{text} · #{timestamp(at)}"}
                     tabindex="0"
                   >{text}</time>
                   <span :if={!at}>{text}</span>

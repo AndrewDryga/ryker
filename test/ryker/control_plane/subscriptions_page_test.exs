@@ -64,7 +64,7 @@ defmodule Ryker.ControlPlane.SubscriptionsPageTest do
 
     assert LazyHTML.query(
              due,
-             "time[aria-label='due now · 10 Sep 2026, 10:00 UTC'][title='2026-09-10T10:00:00Z']"
+             "time[aria-label='due now · 10 Sep, 10:00 UTC'][title='2026-09-10T10:00:00Z']"
            )
            |> Enum.count() == 1
 

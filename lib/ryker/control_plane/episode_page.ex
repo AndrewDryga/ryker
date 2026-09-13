@@ -652,9 +652,10 @@ defmodule Ryker.ControlPlane.EpisodePage do
         >
           <div class="standing-rule-heading">
             <strong>{rule.title}</strong>
-            <span class={"ui-status status-#{if rule.verdict == "matched", do: "done", else: "quiet"}"}>
-              <i aria-hidden="true"></i>{verdict_label(rule.verdict)}
-            </span>
+            <.status
+              label={verdict_label(rule.verdict)}
+              tone={if rule.verdict == "matched", do: "done", else: "quiet"}
+            />
           </div>
           <p>{rule.reason}</p>
           <details :if={rule.ref} class="standing-rule-definition" id={"rule-#{@step.id}-#{rule.ref}"}>

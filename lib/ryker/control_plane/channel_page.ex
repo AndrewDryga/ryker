@@ -10,7 +10,7 @@ defmodule Ryker.ControlPlane.ChannelPage do
   use Phoenix.Component
 
   import Ryker.ControlPlane.Components,
-    only: [label: 1, page_help: 1, result_count: 1, timestamp: 1]
+    only: [label: 1, page_help: 1, pager: 1, result_count: 1, status: 1, table: 1, timestamp: 1]
 
   alias Ryker.ControlPlane.{Activity, ChannelScope, SlackNames}
 
@@ -123,24 +123,13 @@ defmodule Ryker.ControlPlane.ChannelPage do
         <p :if={is_nil(@view.participation)} class="channel-unavailable">
           The effective participation could not be resolved for this conversation.
         </p>
-        <div :if={@view.participation} class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Setting</th><th>Value</th><th>Decided by</th><th>Revision</th><th>Updated</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr :for={item <- @view.participation}>
-                <td>{label(item.setting)}</td>
-                <td>{if item.value, do: "On", else: "Off"}</td>
-                <td>{decided_by(item.scope)}</td>
-                <td>{item.revision || "—"}</td>
-                <td>{timestamp(item.updated_at)}</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
+        <.table :if={@view.participation} rows={@view.participation}>
+          <:col :let={item} label="Setting">{label(item.setting)}</:col>
+          <:col :let={item} label="Value">{if item.value, do: "On", else: "Off"}</:col>
+          <:col :let={item} label="Decided by">{decided_by(item.scope)}</:col>
+          <:col :let={item} label="Revision">{item.revision || "—"}</:col>
+          <:col :let={item} label="Updated">{timestamp(item.updated_at)}</:col>
+        </.table>
       </section>
       <.relation
         id="schedules"
@@ -152,22 +141,13 @@ defmodule Ryker.ControlPlane.ChannelPage do
         many="schedules"
         empty="No schedules target this channel."
       >
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Schedule</th><th>Status</th><th>Next run</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr :for={item <- @view.schedules.items}>
-                <td><a href={"/schedules/" <> encode(item.ref)}>{item.title}</a></td>
-                <td>{label(item.status)}</td>
-                <td>{timestamp(item.next_occurrence_at)}</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
+        <.table rows={@view.schedules.items}>
+          <:col :let={item} label="Schedule">
+            <a href={"/schedules/" <> encode(item.ref)}>{item.title}</a>
+          </:col>
+          <:col :let={item} label="Status"><.status lifecycle={item.status} /></:col>
+          <:col :let={item} label="Next run">{timestamp(item.next_occurrence_at)}</:col>
+        </.table>
       </.relation>
       <.relation
         id="episodes"
@@ -179,27 +159,16 @@ defmodule Ryker.ControlPlane.ChannelPage do
         many="episodes"
         empty="No episodes were delivered to this channel."
       >
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Episode</th><th>State</th><th>Mode</th><th>Thread</th><th>Updated</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr :for={item <- @view.episodes.items}>
-                <td>
-                  <a href={"/timeline/" <> encode(item.ref)}>{item.title || item.ref}</a>
-                  <code :if={item.title}>{item.ref}</code>
-                </td>
-                <td>{label(item.state)}</td>
-                <td>{label(item.execution_mode)}</td>
-                <td>{item.thread_ref || "Channel root"}</td>
-                <td>{timestamp(item.updated_at)}</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
+        <.table rows={@view.episodes.items}>
+          <:col :let={item} label="Episode">
+            <a href={"/timeline/" <> encode(item.ref)}>{item.title || item.ref}</a>
+            <code :if={item.title}>{item.ref}</code>
+          </:col>
+          <:col :let={item} label="State"><.status state={item.state} /></:col>
+          <:col :let={item} label="Mode">{label(item.execution_mode)}</:col>
+          <:col :let={item} label="Thread">{item.thread_ref || "Channel root"}</:col>
+          <:col :let={item} label="Updated">{timestamp(item.updated_at)}</:col>
+        </.table>
       </.relation>
       <.relation
         id="summaries"
@@ -373,9 +342,7 @@ defmodule Ryker.ControlPlane.ChannelPage do
         <article :for={item <- @view.rules.items} class="channel-entry" id={"rule-" <> item.ref}>
           <header>
             <h3>{item.title}</h3>
-            <span class={"ui-status status-#{if item.status == "active", do: "done", else: "quiet"}"}>
-              {if item.status == "active", do: "Active", else: "Paused"}
-            </span>
+            <.status lifecycle={item.status} />
           </header>
           <p class="channel-entry-meta">
             <span>When: {label(item.trigger || "Source event")}</span>
@@ -590,21 +557,12 @@ defmodule Ryker.ControlPlane.ChannelPage do
       {render_slot(@health)}
       <p :if={@relation.total == 0} class="empty-state">{@empty}</p>
       <div :if={@relation.items != []} class="channel-relation">{render_slot(@inner_block)}</div>
-      <nav :if={@relation.pages > 1} class="pagination" aria-label={"#{@title} pages"}>
-        <a
-          :if={@relation.page > 1}
-          href={page_path(@base, @params, @relation, @relation.page - 1, @id)}
-        >
-          ← Previous
-        </a>
-        <span>Page {@relation.page} of {@relation.pages}</span>
-        <a
-          :if={@relation.page < @relation.pages}
-          href={page_path(@base, @params, @relation, @relation.page + 1, @id)}
-        >
-          Next →
-        </a>
-      </nav>
+      <.pager
+        page={@relation.page}
+        pages={@relation.pages}
+        path={&page_path(@base, @params, @relation, &1, @id)}
+        label={"#{@title} pages"}
+      />
     </section>
     """
   end
