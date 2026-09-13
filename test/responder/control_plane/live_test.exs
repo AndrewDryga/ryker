@@ -885,6 +885,60 @@ defmodule Responder.ControlPlane.LiveTest do
     assert find_all(view, ".lab-message-progress") == []
   end
 
+  test "a message whose model work stopped says so beside the message, with the retry" do
+    # On 2026-09-13 a Conversations message sent during a database outage had
+    # its work turn blocked ("Model work stopped" on /failures) and the
+    # conversation showed nothing at all beside it: no state, no failure, no
+    # way back. A material failure lives beside the message that caused it.
+    {:ok, profile} =
+      WorkProfile.new(%{
+        policy: "lab-live-test",
+        policy_digest: String.duplicate("a", 64),
+        repository_ref: nil
+      })
+
+    id = Ecto.UUID.generate()
+    {:ok, %{entry: first}} = ConversationLab.send_message(id, "Stopped question", profile)
+    {episode, turn} = claimed_turn!(id, first, profile)
+
+    # A blocked turn holds no lease and no retry time; this is the row
+    # shape block_completion/6 leaves behind.
+    Repo.get!(Responder.Work.Turn, turn.id)
+    |> Ecto.Changeset.change(
+      status: :blocked,
+      lease_ref: nil,
+      lease_owner: nil,
+      lease_expires_at: nil,
+      next_attempt_at: nil
+    )
+    |> Repo.update!()
+
+    conn = build_conn() |> Map.put(:host, "localhost")
+    {:ok, view, _} = live(conn, "/conversations/#{id}")
+
+    assert has_element?(view, "#lab-messages .lab-message-state", "Needs attention")
+    assert has_element?(view, "#lab-messages .lab-message-failure", "Model work stopped")
+
+    retry = "/actions/work/#{URI.encode_www_form(episode.key)}/retry"
+    assert has_element?(view, "#lab-messages .lab-message-failure a[href='#{retry}']", "Retry")
+    assert length(find_all(view, ".lab-message-failure")) == 1
+
+    # Once the turn is working again the failure line is gone and the message
+    # says it is working, once.
+    Repo.get!(Responder.Work.Turn, turn.id)
+    |> Ecto.Changeset.change(
+      status: :pending,
+      lease_ref: "lease:retry",
+      lease_owner: "live-test",
+      lease_expires_at: DateTime.add(DateTime.utc_now(), 60, :second)
+    )
+    |> Repo.update!()
+
+    render_hook(view, "refresh", %{})
+    refute has_element?(view, "#lab-messages .lab-message-failure")
+    assert has_element?(view, "#lab-messages .lab-message-state", "Working")
+  end
+
   test "a conversation keeps its identity, history and links across the URL rename" do
     # Stored conversations are keyed by control-plane:lab:<uuid>; the rename
     # changes only the URL. Every retained message must open at
@@ -1583,6 +1637,74 @@ defmodule Responder.ControlPlane.LiveTest do
 
   # An admitted conversation input, its episode, and one accepted, delivered
   # reply turn, through the same custody path the runtime uses.
+  # An admitted input with its episode claimed and its turn bound to a Coop
+  # turn, stopped short of any result: the state a turn is in when work stops.
+  defp claimed_turn!(conversation_id, %Responder.Ingress.Inbox.Entry{} = entry, profile) do
+    alias Responder.Work.{Custody, SubmissionBuilder}
+    conversation_ref = "control-plane:lab:#{conversation_id}"
+    episode_id = Ecto.UUID.generate()
+    turn_ref = "turn:conversation-lab:#{episode_id}"
+
+    {:ok, transition} =
+      Responder.Episodes.apply(
+        Responder.Fixtures.Episodes.admit_input(%{
+          destination: %{
+            conversation_ref: conversation_ref,
+            thread_ref: conversation_ref,
+            transport: "control_plane"
+          },
+          episode_id: episode_id,
+          episode_key: "conversation-lab:#{episode_id}",
+          native_input_id: entry.native_input_id,
+          occurred_at: entry.occurred_at,
+          payload: %{"text" => entry.content["text"]},
+          turn_ref: turn_ref
+        })
+      )
+
+    episode = transition.episode
+
+    entry
+    |> Ecto.Changeset.change(
+      episode_id: episode.id,
+      status: :decided,
+      decision_action: :start_episode,
+      decision_ref: "decision:#{episode_id}",
+      decision_fingerprint: String.duplicate("a", 64),
+      decision_document: %{"action" => "start_episode", "episode_ref" => episode.key}
+    )
+    |> Repo.update!()
+
+    {:ok, _session} = Custody.pin_episode(episode.id, profile.policy, profile.policy_digest)
+    {:ok, claim} = Custody.claim_next("live-test:#{episode_id}", 60, :work)
+    {:ok, submission} = SubmissionBuilder.build(claim)
+
+    {:ok, _turn} =
+      Custody.freeze_submission(episode.id, claim.turn.turn_ref, claim.lease_ref, submission)
+
+    {:ok, session} =
+      Custody.bind_session(
+        episode.id,
+        claim.turn.turn_ref,
+        claim.lease_ref,
+        claim.session.generation,
+        claim.session.create_generation,
+        "coop-session:#{episode_id}"
+      )
+
+    {:ok, turn} =
+      Custody.bind_turn(
+        episode.id,
+        claim.turn.turn_ref,
+        claim.lease_ref,
+        session.generation,
+        claim.turn.submit_generation,
+        "coop-turn:#{episode_id}"
+      )
+
+    {episode, turn}
+  end
+
   defp accepted_reply!(conversation_id, %Responder.Ingress.Inbox.Entry{} = entry, text, profile) do
     alias Responder.Work.{Custody, DeliveryReceipt, Result, SubmissionBuilder}
     conversation_ref = "control-plane:lab:#{conversation_id}"

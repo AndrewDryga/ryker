@@ -765,6 +765,9 @@ details.measurement-notes > summary { cursor:pointer; font-weight:600; color:var
 .lab-notice pre { white-space:pre-wrap; overflow-wrap:anywhere; margin:8px 0; font:inherit; font-size:16px; line-height:24px; color:var(--ink); }
 .responder-app .lab-notice-dismiss { background:#fff; border:1px solid #d8b7af; border-radius:4px; min-height:36px; padding:6px 10px; font-size:13px; color:#5b3a33; }
 .lab-message-progress { display:flex; flex-wrap:wrap; align-items:baseline; gap:4px 8px; margin:8px 0 0; font-size:13px; line-height:18px; color:#5b6a54; }
+/* Stopped model work is a fact about this message: same line rhythm as progress, warning tone, the retry beside it. */
+.lab-message-failure { display:flex; flex-wrap:wrap; align-items:baseline; gap:4px 12px; margin:8px 0 0; font-size:13px; line-height:18px; color:#8a4b3d; }
+.lab-message-failure a { font-weight:600; }
 .lab-message-progress .lab-progress-elapsed { color:var(--secondary); font-variant-numeric:tabular-nums; }
 .lab-chat-message .document-provenance { margin-top:8px; font-size:13px; line-height:18px; color:var(--secondary); }
 .lab-chat-message .document-provenance summary { cursor:pointer; }

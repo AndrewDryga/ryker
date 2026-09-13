@@ -620,12 +620,61 @@ defmodule Responder.ControlPlane.Projection do
       ) ++ lab_publication_messages(publications)
 
     messages
+    |> attach_lab_execution()
     |> Enum.map(&put_lab_cursor(&1, conversation_id))
     |> sort_lab_messages()
   end
 
   defp put_lab_cursor(%{sort_key: key} = message, conversation_id),
     do: Map.put(message, :cursor, LabCursor.encode(conversation_id, key))
+
+  # The execution an operator message started, as it stands now: the episode's
+  # state, or "blocked" when its owning turn is, so a message whose model work
+  # stopped says so beside the message and offers the same retry /failures
+  # does. Complete work carries nothing; the reply already sits below it.
+  defp attach_lab_execution(messages) do
+    episode_ids =
+      messages
+      |> Enum.filter(&(&1.actor == :operator and is_binary(&1[:episode_id])))
+      |> Enum.map(& &1.episode_id)
+      |> Enum.uniq()
+
+    executions =
+      if episode_ids == [] do
+        %{}
+      else
+        Repo.all(
+          from(episode in Episode,
+            left_join: turn in Turn,
+            on:
+              turn.episode_id == episode.id and turn.turn_ref == episode.owner_ref and
+                episode.owner_kind == :turn,
+            where: episode.id in ^episode_ids,
+            select: %{
+              id: episode.id,
+              key: episode.key,
+              state:
+                fragment(
+                  "CASE WHEN ? = 'blocked' THEN 'blocked' ELSE ?::text END",
+                  turn.status,
+                  episode.state
+                )
+            }
+          )
+        )
+        |> Map.new(fn row -> {row.id, %{key: row.key, state: row.state}} end)
+      end
+
+    Enum.map(messages, fn message ->
+      case message do
+        %{actor: :operator, episode_id: id} when is_binary(id) ->
+          Map.put(message, :execution, Map.get(executions, id))
+
+        _other ->
+          message
+      end
+    end)
+  end
 
   # Keyset conditions per source. `own` is the rank of the source being read;
   # rows sharing the boundary's microsecond fall before it exactly when their
