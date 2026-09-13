@@ -496,7 +496,8 @@ defmodule Ryker.Observability do
       }
       when is_list(options) ->
         %{
-          capabilities: Keyword.get(options, :capability_names, ["responder-state"]),
+          capabilities:
+            Keyword.get(options, :capability_names, Defaults.fetch!(:work).capability_names),
           required: true,
           workspace_ref: Keyword.get(options, :workspace_ref)
         }

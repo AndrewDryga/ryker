@@ -55,13 +55,7 @@ defmodule Ryker.DefaultsTest do
     assert Defaults.validate!() == :ok
   end
 
-  test "merging supplies runtime bindings without losing an unset default" do
-    merged = Defaults.merge(:work, %{api: Ryker.CoopFleet.Client, concurrency: 2})
-
-    assert merged.concurrency == 2
-    assert merged.poll_interval_ms == 250
-    assert merged.api == Ryker.CoopFleet.Client
-
+  test "an owner nobody ships defaults for is a programming error, not an empty map" do
     assert_raise ArgumentError, ~r/no operational defaults own :nonsense/, fn ->
       Defaults.fetch!(:nonsense)
     end

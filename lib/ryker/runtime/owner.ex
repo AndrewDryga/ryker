@@ -23,25 +23,8 @@ defmodule Ryker.Runtime.Owner do
   alias Ryker.Slack.Client
 
   @retry_ms 5_000
-  # Started and replaced by this owner, in dependency order.
-  @children [
-    {:coop_worker_gateway, Ryker.CoopFleet.Server},
-    {:state_tools, Ryker.StateTools.Server},
-    {:admission, Ryker.Admission.Runtime},
-    {:work, Ryker.Work.Runtime},
-    {:learning, Ryker.Learning.Runtime},
-    {:retention, Ryker.Retention.Runtime},
-    {:github, Ryker.GitHub.Runtime},
-    {:publication, Ryker.Publication.Runtime},
-    {:delivery, Ryker.Delivery.Runtime},
-    {:emisar, Ryker.Emisar.ApprovalRuntime},
-    {:event_waits, Ryker.State.EventWaitWorker},
-    {:schedules, Ryker.State.ScheduleRuntime},
-    {:slack, Ryker.Slack.Runtime},
-    {:webhooks, Ryker.Webhooks.Server},
-    {:control_plane, Ryker.ControlPlane.Server}
-  ]
-  @control_plane_companions [Ryker.ControlPlane.Updates, SlackNames]
+  # Started and replaced by this owner, in the dependency order assembly keeps.
+  @children Assembly.runtimes()
 
   @spec child_spec(keyword()) :: Supervisor.child_spec()
   def child_spec(options) do
@@ -291,23 +274,14 @@ defmodule Ryker.Runtime.Owner do
     end
   end
 
-  # The name cache is handed the Slack runtime rather than reading it back out of
-  # the application environment in `init`. A child that reads global state at
-  # start is a child whose start depends on who ran before it: this one declined
-  # with `:ignore` for weeks in production, and nothing retries an `:ignore`.
+  # The console's companions start before it, and the name cache is handed the
+  # Slack runtime rather than reading it back out of the application
+  # environment in `init`. A child that reads global state at start is a child
+  # whose start depends on who ran before it: this one declined with `:ignore`
+  # for weeks in production, and nothing retries an `:ignore`.
   defp child_specs(:control_plane, module, configuration) do
     {slack, console} = Map.pop(configuration, :slack)
-
-    companions =
-      Enum.map(@control_plane_companions, fn
-        Ryker.ControlPlane.SlackNames ->
-          {Ryker.ControlPlane.SlackNames, name_cache(slack)}
-
-        companion ->
-          {companion, []}
-      end)
-
-    companions ++ [{module, console}]
+    [{Ryker.ControlPlane.Updates, []}, {SlackNames, name_cache(slack)}, {module, console}]
   end
 
   defp child_specs(_key, module, configuration), do: [{module, configuration}]

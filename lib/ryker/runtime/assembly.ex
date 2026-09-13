@@ -35,25 +35,32 @@ defmodule Ryker.Runtime.Assembly do
   alias Ryker.Slack.Client, as: SlackClient
   alias Ryker.Slack.Target, as: SlackTarget
 
-  @managed_keys [
-    :admission,
-    :control_plane,
-    :coop_worker_gateway,
-    :delivery,
-    :emisar,
-    :event_waits,
-    :execution_mode,
-    :fleet_profiles,
-    :github,
-    :learning,
-    :publication,
-    :retention,
-    :schedules,
-    :slack,
-    :state_tools,
-    :webhooks,
-    :work
+  # Every runtime the owner starts, in dependency order, with the module that
+  # validates its configuration here and runs it there. One list, so a runtime
+  # cannot be assembled without being started or started without being checked.
+  @runtimes [
+    {:coop_worker_gateway, Ryker.CoopFleet.Server},
+    {:state_tools, Ryker.StateTools.Server},
+    {:admission, Ryker.Admission.Runtime},
+    {:work, Ryker.Work.Runtime},
+    {:learning, Ryker.Learning.Runtime},
+    {:retention, Ryker.Retention.Runtime},
+    {:github, Ryker.GitHub.Runtime},
+    {:publication, Ryker.Publication.Runtime},
+    {:delivery, Ryker.Delivery.Runtime},
+    {:emisar, Ryker.Emisar.ApprovalRuntime},
+    {:event_waits, Ryker.State.EventWaitWorker},
+    {:schedules, Ryker.State.ScheduleRuntime},
+    {:slack, Ryker.Slack.Runtime},
+    {:webhooks, Ryker.Webhooks.Server},
+    {:control_plane, Ryker.ControlPlane.Server}
   ]
+  # Published beside the runtimes: read by whoever asks, started by nobody.
+  @published_facts [:execution_mode, :fleet_profiles]
+  @managed_keys Enum.sort(Keyword.keys(@runtimes) ++ @published_facts)
+
+  @spec runtimes() :: [{atom(), module()}]
+  def runtimes, do: @runtimes
 
   @spec managed_keys() :: [atom()]
   def managed_keys, do: @managed_keys
@@ -144,7 +151,7 @@ defmodule Ryker.Runtime.Assembly do
     Map.new(bindings, fn binding ->
       {{binding.purpose, binding.scope_kind, binding.scope_ref},
        %{name: binding.policy_name, digest: binding.policy_digest}
-       |> maybe_put(:authority_digest, binding.authority_digest)}
+       |> put_optional(:authority_digest, binding.authority_digest)}
     end)
   end
 
@@ -300,12 +307,12 @@ defmodule Ryker.Runtime.Assembly do
   # A reviewed binding names the policy; a Work profile pins it per work class.
   defp class_policy(policy) do
     %{policy: policy.name, policy_digest: policy.digest}
-    |> maybe_put(:authority_digest, Map.get(policy, :authority_digest))
+    |> put_optional(:authority_digest, Map.get(policy, :authority_digest))
   end
 
   defp profile_entry(policy, ref) do
     %{policy: policy.name, policy_digest: policy.digest, repository_ref: ref}
-    |> maybe_put(:authority_digest, Map.get(policy, :authority_digest))
+    |> put_optional(:authority_digest, Map.get(policy, :authority_digest))
   end
 
   # Execution lanes ------------------------------------------------------------
@@ -1084,29 +1091,17 @@ defmodule Ryker.Runtime.Assembly do
   # Validation and helpers ------------------------------------------------------
 
   defp validate_runtimes!(configuration) do
-    owners = [
-      {:admission, Ryker.Admission.Runtime},
-      {:learning, Ryker.Learning.Runtime},
-      {:work, Ryker.Work.Runtime},
-      {:slack, Ryker.Slack.Runtime},
-      {:github, Ryker.GitHub.Runtime},
-      {:delivery, Ryker.Delivery.Runtime},
-      {:publication, Ryker.Publication.Runtime},
-      {:retention, Ryker.Retention.Runtime},
-      {:emisar, Ryker.Emisar.ApprovalRuntime},
-      {:state_tools, Ryker.StateTools.Server},
-      {:schedules, Ryker.State.ScheduleRuntime},
-      {:webhooks, Ryker.Webhooks.Server},
-      {:control_plane, Ryker.ControlPlane.Server},
-      {:coop_worker_gateway, Ryker.CoopFleet.Server}
-    ]
-
-    Enum.each(owners, fn {key, module} ->
-      if configuration[key], do: module.options!(configuration[key])
+    Enum.each(@runtimes, fn {key, module} ->
+      if configuration[key], do: validate_runtime!(module, configuration[key])
     end)
 
     configuration
   end
+
+  # The event-wait worker takes one interval and checks it in start_link; it
+  # has no options!/1 to ask.
+  defp validate_runtime!(Ryker.State.EventWaitWorker, _configuration), do: :ok
+  defp validate_runtime!(module, configuration), do: module.options!(configuration)
 
   defp work_profile!(attributes) do
     case WorkProfile.new(attributes) do
@@ -1169,7 +1164,4 @@ defmodule Ryker.Runtime.Assembly do
 
   defp put_optional(map, _key, nil), do: map
   defp put_optional(map, key, value), do: Map.put(map, key, value)
-
-  defp maybe_put(map, _key, nil), do: map
-  defp maybe_put(map, key, value), do: Map.put(map, key, value)
 end
