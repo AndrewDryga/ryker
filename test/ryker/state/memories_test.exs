@@ -553,6 +553,38 @@ defmodule Ryker.State.MemoriesTest do
              )
   end
 
+  test "confirming a replacement closes the review its superseded fact was waiting on" do
+    # forget/1 and channel deletion dismiss the reviews of the entries they
+    # redact; confirm/1 superseded the old fact and left its pending review
+    # behind. App Home kept counting and listing a review of a redacted row, and
+    # keeping it failed as stale instead of resolving.
+    fixture = delivered_offers!("supersede-review")
+
+    assert {:ok, first} =
+             Memories.confirm(confirmation(fixture, fixture.first, "supersede-first"))
+
+    Repo.update_all(MemoryEntry,
+      set: [
+        last_recalled_at: nil,
+        last_reviewed_at: nil,
+        updated_at: DateTime.add(DateTime.utc_now(), -3_600, :second)
+      ]
+    )
+
+    assert {:ok, %{created: 1}} = Memories.refresh_reviews("slack:T123", 60)
+
+    assert [%{"kind" => "stale", "review_ref" => review_ref}] =
+             Memories.list_reviews("slack:T123")
+
+    assert {:ok, %{status: :confirmed}} =
+             Memories.confirm(confirmation(fixture, fixture.replacement, "supersede-replacement"))
+
+    assert Repo.get!(MemoryEntry, first.memory.id).status == :superseded
+    assert Repo.get_by!(MemoryReviewItem, ref: review_ref).status == :dismissed
+    assert Memories.list_reviews("slack:T123") == []
+    assert Memories.home_reviews("slack:T123", "slack:user:U123") == %{items: [], total: 0}
+  end
+
   test "a changed review source rejects the stale confirmation" do
     fixture = delivered_offers!("stale-review")
     assert {:ok, confirmed} = Memories.confirm(confirmation(fixture, fixture.first, "stale"))
