@@ -12,6 +12,7 @@ defmodule Ryker.Retention.DataTest do
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.Learning, as: LearningFixtures
   alias Ryker.Ingress.{Inbox, Input}
+  alias Ryker.Learning.Batches
   alias Ryker.Learning.FleetSession, as: LearningFleetSession
   alias Ryker.Operator.Actions
   alias Ryker.Repo
@@ -541,6 +542,64 @@ defmodule Ryker.Retention.DataTest do
     assert Repo.get(Ryker.State.StandingAssignmentRun, run.id) == nil
     assert Repo.get(StandingRuleInventory, inventory.id) == nil
     assert Repo.get(Ryker.Slack.ThreadStatusReceipts, receipt.id) == nil
+  end
+
+  test "an input a learning run is still judging keeps its body past the operational horizon" do
+    # The operational prune checked reactions and Work sessions and never the
+    # learning batch. Learning requires the exact input bodies at every step, so
+    # pruning under an outstanding run turned the in-flight judgment into
+    # learning_source_stale: the Coop turn was fenced, the spent start wasted,
+    # and a finished result discarded. A worker outage longer than the
+    # operational horizon with one run outstanding was enough.
+    entries = LearningFixtures.inputs!() |> LearningFixtures.normalize_queue_timestamps!()
+
+    settings = %{
+      policy: "recorded-read-only-policy",
+      policy_digest: String.duplicate("a", 64),
+      quiet_seconds: 0,
+      maximum_delay_seconds: 60,
+      lease_seconds: 300,
+      batch_size: 16
+    }
+
+    assert {:ok, claim} = Batches.claim("worker-retention", settings)
+    assert {:ok, run} = Learning.prepare(Enum.map(claim.inputs, & &1.id), settings)
+    assert {:ok, _started} = Batches.begin_execution(claim, run.id)
+
+    Repo.update_all(from(entry in Inbox.Entry, where: entry.id in ^Enum.map(entries, & &1.id)),
+      set: [updated_at: @old]
+    )
+
+    assert {:ok, result} = Data.prune(settings(operational_data_seconds: 60))
+    assert result.operational_inputs == 0
+    assert {:ok, _authorized} = Learning.authorize(run.id, claim)
+
+    # Once the run has stopped and the batch is released, the bodies expire.
+    assert {:ok, _session} = LearningFleetSession.ensure(run)
+    assert {:ok, _session} = LearningFleetSession.bind(run, "retention-session:#{run.id}")
+
+    assert {:ok, _run} =
+             Learning.bind_turn(
+               run.id,
+               "retention-session:#{run.id}",
+               "retention-turn:#{run.id}",
+               claim
+             )
+
+    assert {:ok, _} =
+             Learning.record_stop(
+               run.id,
+               %{
+                 "id" => "retention-turn:#{run.id}",
+                 "session_id" => "retention-session:#{run.id}",
+                 "state" => "failed"
+               },
+               claim
+             )
+
+    assert {:ok, _batch} = Batches.finish(claim, :no_change)
+    assert {:ok, result} = Data.prune(settings(operational_data_seconds: 60))
+    assert result.operational_inputs == length(entries)
   end
 
   test "episode history is indivisible, pinned while live work depends on it, and audit survives longer" do
