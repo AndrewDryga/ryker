@@ -88,7 +88,14 @@ defmodule Responder.Emisar.ApprovalStatus do
 
   @spec label(String.t()) :: String.t()
   def label("pending_approval"), do: "Approval required"
-  def label(status) when status in ~w(pending sent running cancelling), do: "In progress"
+  # These four were one label, so the card rendered identically whether the
+  # action was still queued here, handed over, executing on the runner, or being
+  # cancelled — and an operator watching a production restart could not see that
+  # their cancellation was in flight. Each says where the action actually is.
+  def label("pending"), do: "Queued, not sent yet"
+  def label("sent"), do: "Sent to the runner"
+  def label("running"), do: "Running on the runner"
+  def label("cancelling"), do: "Cancelling"
   def label("success"), do: "Succeeded"
   def label("denied"), do: "Denied in Emisar"
   def label("refused"), do: "Refused by policy"
