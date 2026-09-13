@@ -68,7 +68,7 @@ defmodule Ryker.ControlPlane.Activity do
 
     query =
       filter(query, params["filter"])
-      |> legacy_filters(params)
+      |> criteria_filters(params)
       |> conversation_filters(params)
       |> UsageProjection.filter_activity(params)
       |> search(params["q"])
@@ -258,24 +258,24 @@ defmodule Ryker.ControlPlane.Activity do
     )
   end
 
-  defp legacy_filters(query, params) do
+  defp criteria_filters(query, params) do
     Enum.reduce(~w(state target repository), query, fn key, query ->
       case params[key] do
-        value when is_binary(value) and value != "" -> legacy_filter(query, key, value)
+        value when is_binary(value) and value != "" -> criteria_filter(query, key, value)
         _ -> query
       end
     end)
   end
 
-  defp legacy_filter(query, "state", value),
+  defp criteria_filter(query, "state", value),
     do: from(row in query, where: row.episode_state == ^value)
 
-  defp legacy_filter(query, "target", value) do
+  defp criteria_filter(query, "target", value) do
     ids = from(turn in Turn, where: turn.execution_target == ^value, select: turn.episode_id)
     from(row in query, where: row.kind == "episode" and row.id in subquery(ids))
   end
 
-  defp legacy_filter(query, "repository", value) do
+  defp criteria_filter(query, "repository", value) do
     ids =
       from(session in Ryker.Work.Session,
         where: session.repository_ref == ^value,

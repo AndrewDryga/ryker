@@ -59,7 +59,6 @@ defmodule Ryker.ControlPlane.Projection do
       channel: &ChannelDetail.fetch/3,
       channels: &channels/1,
       instructions: &InstructionSettings.fetch/1,
-      configuration: &configuration/0,
       settings: &SettingsView.fetch/0,
       delivery: &delivery/1,
       emisar: &emisar/1,
@@ -1477,16 +1476,6 @@ defmodule Ryker.ControlPlane.Projection do
           )
         )
     }
-  end
-
-  def configuration do
-    ~w(admission work control_plane coop_worker_gateway delivery publication retention state_tools event_waits schedules emisar slack github webhooks)a
-    |> Enum.map(fn key ->
-      %{
-        key: Atom.to_string(key),
-        value: if(Application.get_env(:ryker, key), do: "enabled", else: "disabled")
-      }
-    end)
   end
 
   def usage(params) when is_map(params) do

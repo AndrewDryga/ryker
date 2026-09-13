@@ -3,11 +3,6 @@ defmodule Ryker.ControlPlane.WorkRecovery do
   alias Ryker.ControlPlane.{CodeEditingSetup, InspectionRedactor}
   alias Ryker.Work.{Custody, FailureCause, Turn}
 
-  @checkpoint_api_errors [
-    "invalid_work_executor: {:invalid_work_executor, :workspace_checkpoint_api}",
-    "{:invalid_work_executor, :workspace_checkpoint_api}"
-  ]
-
   @doc """
   The brief for a live turn, with the host facts every surface must share.
 
@@ -37,7 +32,7 @@ defmodule Ryker.ControlPlane.WorkRecovery do
       ) do
     saved = saved_output(turn)
     closed = get_in(turn.cancellation_receipt, ["session_state"]) in ["closed", "discarded"]
-    unsupported = turn.last_error_detail in @checkpoint_api_errors
+    unsupported = FailureCause.checkpoint_unsupported?(turn.last_error_detail)
 
     finalizing = completion_pending?(turn)
 
@@ -91,7 +86,7 @@ defmodule Ryker.ControlPlane.WorkRecovery do
     cond do
       not_started?(turn) -> nil
       completion_pending?(turn) -> hold(turn, :reply)
-      turn.last_error_detail in @checkpoint_api_errors -> hold(turn, :workspace)
+      FailureCause.checkpoint_unsupported?(turn.last_error_detail) -> hold(turn, :workspace)
       true -> nil
     end
   end
@@ -152,8 +147,8 @@ defmodule Ryker.ControlPlane.WorkRecovery do
 
   defp startup_explanation(brief, _checkpoint_supported?), do: brief
 
-  def not_started?(%Turn{status: :blocked, last_error_detail: error} = turn)
-      when error in @checkpoint_api_errors, do: retained_absent_submission?(turn)
+  def not_started?(%Turn{status: :blocked, last_error_detail: error} = turn),
+    do: FailureCause.checkpoint_unsupported?(error) and retained_absent_submission?(turn)
 
   def not_started?(_), do: false
 
@@ -202,7 +197,7 @@ defmodule Ryker.ControlPlane.WorkRecovery do
   end
 
   defp explanation(turn, false, true, _closed, _saved) do
-    {cause, step} = completion_failure(turn.last_error_detail || "")
+    {cause, step} = completion_failure(turn.last_error_code)
 
     {"The worker finished, but saving its result stopped", cause,
      step <> " Then resume saving this result; do not rerun the completed task."}
@@ -235,25 +230,27 @@ defmodule Ryker.ControlPlane.WorkRecovery do
     end
   end
 
-  defp completion_failure(detail) do
-    cond do
-      String.starts_with?(detail, ["{:coop_unavailable,", "{:coop_transport_error,"]) ->
-        {"The worker connection failed while Ryker was saving the completed result.",
-         "Restore the worker connection and confirm the same completed session is accessible."}
+  # The dispatcher records the reason a completion stopped as the turn's error
+  # code, so the explanation reads that code and never the inspected detail.
+  defp completion_failure(code) when code in ~w(coop_unavailable coop_transport_error),
+    do:
+      {"The worker connection failed while Ryker was saving the completed result.",
+       "Restore the worker connection and confirm the same completed session is accessible."}
 
-      String.starts_with?(detail, "{:coop_session_replacement_required,") ->
-        {"The completed worker session is no longer available on its recorded worker.",
-         "Recover the original session and workspace; replacing it would lose the completed task's identity."}
+  defp completion_failure("coop_session_replacement_required"),
+    do:
+      {"The completed worker session is no longer available on its recorded worker.",
+       "Recover the original session and workspace; replacing it would lose the completed task's identity."}
 
-      String.starts_with?(detail, "{:coop_protocol_error,") ->
-        {"The worker response did not match the completed turn's recorded state or receipt.",
-         "Inspect the same worker turn and reconcile the state mismatch before continuing."}
+  defp completion_failure("coop_protocol_error"),
+    do:
+      {"The worker response did not match the completed turn's recorded state or receipt.",
+       "Inspect the same worker turn and reconcile the state mismatch before continuing."}
 
-      true ->
-        {"A host finalization step failed before the completed reply could be released. The recorded error does not establish a more specific cause.",
-         "Inspect the failed finalization step and correct its underlying cause."}
-    end
-  end
+  defp completion_failure(_code),
+    do:
+      {"A host finalization step failed before the completed reply could be released. The recorded error does not establish a more specific cause.",
+       "Inspect the failed finalization step and correct its underlying cause."}
 
   defp stranded_recovery,
     do:

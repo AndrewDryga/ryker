@@ -7,7 +7,7 @@ defmodule Ryker.ControlPlane.EpisodeTraceTest do
   import Ecto.Query
   import Phoenix.LiveViewTest
 
-  alias Ryker.ControlPlane.EpisodePage
+  alias Ryker.ControlPlane.{EpisodePage, SlackNames}
   alias Ryker.Work.Custody
   alias Ryker.Work.Turn
 

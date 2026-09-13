@@ -58,6 +58,23 @@ defmodule Ryker.Work.FailureCause do
 
   def explain(_detail), do: nil
 
+  # The checkpoint guard's refusal, as the dispatcher records it: a blocked turn
+  # carries the code before the term, a deferred one the term alone.
+  @checkpoint_unsupported [
+    "invalid_work_executor: {:invalid_work_executor, :workspace_checkpoint_api}",
+    "{:invalid_work_executor, :workspace_checkpoint_api}"
+  ]
+
+  @doc """
+  Whether the saved error is the executor refusing repository work on a worker
+  connection that cannot save a workspace checkpoint.
+
+  That refusal is a host configuration problem, not a failed task, and every
+  surface that says so reads it from here.
+  """
+  @spec checkpoint_unsupported?(String.t() | nil) :: boolean()
+  def checkpoint_unsupported?(detail), do: detail in @checkpoint_unsupported
+
   # The refusal is a provider's own sentence inside an inspected tuple, so it is
   # unescaped back out of that literal, then redacted and bounded like any other
   # untrusted text an operator surface displays.
