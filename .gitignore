@@ -1,7 +1,6 @@
 /bin/
 /dist/
 /dist-input/
-/ryker
 /_build/
 /deps/
 /deps
@@ -11,7 +10,6 @@
 /crash.dump
 /.elixir/
 /.elixir
-/.ryker/
 *.db
 *.db-shm
 *.db-wal
