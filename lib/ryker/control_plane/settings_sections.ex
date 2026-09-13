@@ -274,7 +274,7 @@ defmodule Ryker.ControlPlane.SettingsSections do
         %{name: :repository_ref, kind: :select, label: "Repository", options: :repositories},
         %{name: :installation_id, kind: :integer, label: "Installation ID"},
         %{name: :repository_id, kind: :integer, label: "Repository ID"},
-        %{name: :responder_actor_id, kind: :integer, label: "Ryker actor ID"},
+        %{name: :ryker_actor_id, kind: :integer, label: "Ryker actor ID"},
         %{
           name: :authorized_actor_ids,
           kind: :list,

@@ -270,7 +270,7 @@ defmodule Ryker.GitHub.Input do
 
   defp actor(
          %{"sender" => %{"id" => id, "type" => type}},
-         %Binding{responder_actor_id: id}
+         %Binding{ryker_actor_id: id}
        )
        when is_integer(id) and id > 0 and is_binary(type),
        do: {:error, {:github_input_ignored, :self_authored}}

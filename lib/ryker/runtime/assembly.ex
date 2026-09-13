@@ -568,7 +568,7 @@ defmodule Ryker.Runtime.Assembly do
         name: binding.name,
         repository_full_name: repository.github_repository,
         repository_id: binding.repository_id,
-        responder_actor_id: binding.responder_actor_id,
+        ryker_actor_id: binding.ryker_actor_id,
         secret: Bootstrap.secret!(:github_webhook),
         work_profile: context.work_profile
       })
@@ -756,7 +756,7 @@ defmodule Ryker.Runtime.Assembly do
                Map.put(common, :token_provider, binding.repository_write_token_provider),
              github_repository: repository.github_repository,
              path: repository.path,
-             responder_actor_id: binding.trusted_binding.responder_actor_id
+             ryker_actor_id: binding.trusted_binding.ryker_actor_id
            }}
         ]
       else

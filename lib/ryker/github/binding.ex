@@ -17,7 +17,7 @@ defmodule Ryker.GitHub.Binding do
     :name,
     :repository_full_name,
     :repository_id,
-    :responder_actor_id,
+    :ryker_actor_id,
     :secret,
     :work_profile
   ]
@@ -36,7 +36,7 @@ defmodule Ryker.GitHub.Binding do
           name: String.t(),
           repository_full_name: String.t(),
           repository_id: pos_integer(),
-          responder_actor_id: pos_integer(),
+          ryker_actor_id: pos_integer(),
           secret: binary(),
           work_profile: WorkProfile.t() | nil
         }
@@ -118,8 +118,8 @@ defmodule Ryker.GitHub.Binding do
       {is_binary(binding.repository_full_name) and
          Regex.match?(@repository_regex, binding.repository_full_name), :repository_full_name},
       {positive_id?(binding.repository_id), :repository_id},
-      {positive_id?(binding.responder_actor_id) and
-         binding.responder_actor_id not in binding.authorized_actor_ids, :responder_actor_id},
+      {positive_id?(binding.ryker_actor_id) and
+         binding.ryker_actor_id not in binding.authorized_actor_ids, :ryker_actor_id},
       {is_binary(binding.secret) and byte_size(binding.secret) >= 32 and
          byte_size(binding.secret) <= 1_024, :secret}
     ]

@@ -93,7 +93,7 @@ defmodule Ryker.State.KnowledgeRetention do
   defp expired_sources(binding) do
     """
     EXISTS (
-      SELECT 1 FROM responder_learning_roots(#{binding}.source_dependencies) receipt
+      SELECT 1 FROM ryker_learning_roots(#{binding}.source_dependencies) receipt
       WHERE CASE WHEN receipt->>'retained_at' ~ $2
         AND pg_input_is_valid(replace(receipt->>'retained_at', ',', '.'), 'timestamptz') THEN
         replace(receipt->>'retained_at', ',', '.')::timestamptz < clock_timestamp() - ($1 * interval '1 second')

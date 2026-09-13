@@ -12,7 +12,7 @@ defmodule Ryker.GitHub.ServerTest do
             installation_id: 41,
             repository_full_name: "octo/example",
             repository_id: 99,
-            responder_actor_id: 99,
+            ryker_actor_id: 99,
             secret: String.duplicate("s", 32)
           }
         },
@@ -128,7 +128,7 @@ defmodule Ryker.GitHub.ServerTest do
                name: "configured",
                repository_full_name: "octo/example",
                repository_id: 99,
-               responder_actor_id: 99,
+               ryker_actor_id: 99,
                secret: String.duplicate("s", 32)
              })
 
@@ -149,7 +149,7 @@ defmodule Ryker.GitHub.ServerTest do
                name: "github-main",
                repository_full_name: "octo/example",
                repository_id: 99,
-               responder_actor_id: 99,
+               ryker_actor_id: 99,
                secret: String.duplicate("s", 32)
              })
 

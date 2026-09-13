@@ -1157,7 +1157,7 @@ defmodule Ryker.State.Learning do
       WITH candidates AS (
         SELECT l.id FROM conversation_learning_runs l
         WHERE l.pruned_at IS NULL AND (EXISTS (
-          SELECT 1 FROM responder_learning_roots(l.source_dependencies) receipt
+          SELECT 1 FROM ryker_learning_roots(l.source_dependencies) receipt
           WHERE CASE WHEN receipt->>'retained_at' ~ $2
             AND pg_input_is_valid(replace(receipt->>'retained_at', ',', '.'), 'timestamptz') THEN
             replace(receipt->>'retained_at', ',', '.')::timestamptz < clock_timestamp() - ($1 * interval '1 second')

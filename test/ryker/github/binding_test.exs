@@ -9,7 +9,7 @@ defmodule Ryker.GitHub.BindingTest do
     name: "github-main",
     repository_full_name: "octo/example",
     repository_id: 99,
-    responder_actor_id: 99,
+    ryker_actor_id: 99,
     secret: String.duplicate("s", 32),
     work_profile: %{
       policy: "github-read-only",
@@ -40,7 +40,7 @@ defmodule Ryker.GitHub.BindingTest do
           name: "Not Valid",
           repository_full_name: "missing-owner",
           repository_id: 0,
-          responder_actor_id: 0,
+          ryker_actor_id: 0,
           secret: "short"
         ] do
       attributes = @valid |> Map.new() |> Map.put(field, value)
@@ -52,10 +52,10 @@ defmodule Ryker.GitHub.BindingTest do
     assert Binding.new(Keyword.drop(@valid, [:authorized_actor_ids])) ==
              {:error, {:invalid_github_binding, :fields}}
 
-    assert Binding.new(Keyword.drop(@valid, [:responder_actor_id])) ==
+    assert Binding.new(Keyword.drop(@valid, [:ryker_actor_id])) ==
              {:error, {:invalid_github_binding, :fields}}
 
-    assert Binding.new(Keyword.put(@valid, :responder_actor_id, 7)) ==
-             {:error, {:invalid_github_binding, :responder_actor_id}}
+    assert Binding.new(Keyword.put(@valid, :ryker_actor_id, 7)) ==
+             {:error, {:invalid_github_binding, :ryker_actor_id}}
   end
 end

@@ -1165,7 +1165,7 @@ defmodule Ryker.Retention.DataTest do
   defp backdate_rows! do
     Repo.query!("UPDATE ingress_inbox_entries SET updated_at = $1", [@old])
     Repo.query!("UPDATE delivery_reactions SET updated_at = $1", [@old])
-    Repo.query!("UPDATE responder_operator_actions SET inserted_at = $1, updated_at = $1", [@old])
+    Repo.query!("UPDATE ryker_operator_actions SET inserted_at = $1, updated_at = $1", [@old])
   end
 
   defp rule_inventory!(suffix, recorded_at) do

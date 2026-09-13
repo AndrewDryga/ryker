@@ -53,7 +53,7 @@ defmodule Ryker.State.MemorySourceLink do
       WHERE (i.id IS NULL OR i.event_kind != 'delete') AND o.id IN (
         SELECT CASE WHEN pg_input_is_valid(root->>'observation_id', 'uuid')
           THEN (root->>'observation_id')::uuid ELSE NULL END
-        FROM responder_learning_roots($1) root
+        FROM ryker_learning_roots($1) root
       )
       ORDER BY o.occurred_at DESC, o.id DESC
       LIMIT 3

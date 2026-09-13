@@ -32,6 +32,14 @@ defmodule Ryker.RenameAuditTest do
      "the one-time on-host cutover moves the old layout by name: labels, database, role, state root, runtime.env keys"}
   ]
 
+  # One document section that must name the pre-rename layout in full: the
+  # cutover runbook. It runs from its heading to the next heading of the same
+  # level; nothing outside it in that file is exempt.
+  @immutable_sections [
+    {"docs/operations.md", "## One-time rename cutover on this macOS host",
+     "the runbook of the one-time host cutover names every old label, database, role, path and residual contract it moves or leaves"}
+  ]
+
   # Tokens allowed everywhere else. `path` narrows an entry to the files where
   # the token is a deliberate reference; `~r//` on `path` means any file.
   @allowed_tokens [
@@ -86,11 +94,9 @@ defmodule Ryker.RenameAuditTest do
      "asserts the manifest copy no longer names the old product"},
     {~r{^test/ryker/ingress/migration_upgrade_test\.exs$}, ~r/[Rr]esponder/,
      "the migration ladder test drives historical schema states by their names, including the rename migration's own up and down"},
-    # --- database objects renamed by the 2026-09-13 data migration; this entry
-    # leaves with the code that switches to the new names
-    {~r//,
-     ~r/responder_(actor_id|operator_actions?(_valid)?|cutover_(runs|items)|runtime_progress|control_plane(_notify|_changed)?|learning_roots)(?![A-Za-z0-9_])/,
-     "table, column, constraint, function, trigger and NOTIFY channel names that migration 20260913000100 renames; the schema modules and queries switch with it"},
+    {~r{^lib/ryker/settings/import(/document)?\.ex$|^test/ryker/settings/import_test\.exs$},
+     ~r/responder_actor_id/,
+     "key of the retired configuration document, which the importer reads by its own names and maps to ryker_actor_id"},
     # --- the English word
     {~r//,
      ~r/\b(first|on-call|configured|coordinate|invited) responders?\b|\ba responder to read\b|\bresponders\b/i,
@@ -108,11 +114,15 @@ defmodule Ryker.RenameAuditTest do
         stderr_to_stdout: true
       )
 
+    sections = section_ranges(root)
+
     violations =
       output
       |> String.split("\n", trim: true)
       |> Enum.map(&split_line/1)
-      |> Enum.reject(fn {path, _line, _text} -> immutable?(path) end)
+      |> Enum.reject(fn {path, line, _text} ->
+        immutable?(path) or in_section?(sections, path, line)
+      end)
       |> Enum.flat_map(fn {path, line, text} ->
         text
         |> strip_allowed(path)
@@ -143,16 +153,25 @@ defmodule Ryker.RenameAuditTest do
 
     assert stale_paths == [], "immutable path patterns without a match: #{inspect(stale_paths)}"
 
+    stale_sections =
+      Enum.reject(section_ranges(root), fn {_path, first.._last//_step} -> first > 0 end)
+
+    assert stale_sections == [], "runbook sections without a heading: #{inspect(stale_sections)}"
+
     {lines, 0} =
       System.cmd("git", ["grep", "-I", "-i", "-n", "--untracked", "-e", "responder", "--", "."],
         cd: root
       )
 
+    sections = section_ranges(root)
+
     scanned =
       lines
       |> String.split("\n", trim: true)
       |> Enum.map(&split_line/1)
-      |> Enum.reject(fn {path, _line, _text} -> immutable?(path) end)
+      |> Enum.reject(fn {path, line, _text} ->
+        immutable?(path) or in_section?(sections, path, line)
+      end)
 
     stale_tokens =
       Enum.reject(@allowed_tokens, fn {path_pattern, token, _reason} ->
@@ -171,6 +190,34 @@ defmodule Ryker.RenameAuditTest do
 
   defp immutable?(path),
     do: Enum.any?(@immutable_paths, fn {pattern, _reason} -> path =~ pattern end)
+
+  # {path, first_line..last_line} of each immutable section; 0..0 when the
+  # heading is missing, which the stale-entry test reports.
+  defp section_ranges(root) do
+    Enum.map(@immutable_sections, fn {path, heading, _reason} ->
+      lines = root |> Path.join(path) |> File.read!() |> String.split("\n")
+      {path, section_range(lines, heading, Enum.find_index(lines, &(&1 == heading)))}
+    end)
+  end
+
+  defp section_range(_lines, _heading, nil), do: 0..0//1
+
+  defp section_range(lines, heading, index) do
+    level = heading |> String.split(" ") |> hd()
+    rest = Enum.drop(lines, index + 1)
+
+    last =
+      case Enum.find_index(rest, &String.starts_with?(&1, level <> " ")) do
+        nil -> length(lines)
+        offset -> index + 1 + offset
+      end
+
+    (index + 1)..last//1
+  end
+
+  defp in_section?(sections, path, line),
+    do:
+      Enum.any?(sections, fn {section_path, range} -> section_path == path and line in range end)
 
   defp strip_allowed(text, path) do
     Enum.reduce(@allowed_tokens, text, fn {path_pattern, token, _reason}, rest ->

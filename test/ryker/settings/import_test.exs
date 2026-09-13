@@ -510,7 +510,7 @@ defmodule Ryker.Settings.ImportTest do
     assert binding.repository_ref == "example"
     assert binding.installation_id == 1001
     assert binding.repository_id == 2001
-    assert binding.responder_actor_id == 3001
+    assert binding.ryker_actor_id == 3001
     assert binding.authorized_actor_ids == [4001]
 
     assert saved.publication.enabled

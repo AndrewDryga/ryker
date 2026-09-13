@@ -82,7 +82,7 @@ defmodule Ryker.State.LearningSources do
           Repo.query!(
             """
             SELECT DISTINCT ON (CASE WHEN jsonb_typeof(r) = 'object' THEN r - 'retained_at' ELSE r END) r
-            FROM responder_learning_roots($1) r
+            FROM ryker_learning_roots($1) r
             ORDER BY CASE WHEN jsonb_typeof(r) = 'object' THEN r - 'retained_at' ELSE r END,
               CASE WHEN pg_input_is_valid(r->>'retained_at', 'timestamptz')
                 THEN (r->>'retained_at')::timestamptz ELSE '-infinity'::timestamptz END
@@ -211,7 +211,7 @@ defmodule Ryker.State.LearningSources do
         fragment(
           """
           NOT EXISTS (
-            SELECT 1 FROM responder_learning_roots(?) r
+            SELECT 1 FROM ryker_learning_roots(?) r
             LEFT JOIN LATERAL (
               SELECT o.* FROM conversation_observations o
               WHERE o.id = CASE WHEN pg_input_is_valid(r->>'observation_id', 'uuid')
@@ -264,7 +264,7 @@ defmodule Ryker.State.LearningSources do
         fragment(
           """
           NOT EXISTS (
-            SELECT 1 FROM responder_learning_roots(?) root
+            SELECT 1 FROM ryker_learning_roots(?) root
             JOIN ingress_inbox_entries i ON i.id = CASE
               WHEN pg_input_is_valid(root->>'source_input_id', 'uuid')
               THEN (root->>'source_input_id')::uuid ELSE NULL END

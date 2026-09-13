@@ -54,12 +54,12 @@ defmodule Ryker.Observability.Progress do
   @spec record(atom(), atom()) :: :ok | {:error, term()}
   def record(lane, outcome) when lane in @lanes and outcome in @outcomes do
     sql = """
-    INSERT INTO responder_runtime_progress
+    INSERT INTO ryker_runtime_progress
       (lane, outcome, cycle_count, observed_at, inserted_at, updated_at)
     VALUES ($1, $2, 1, clock_timestamp(), clock_timestamp(), clock_timestamp())
     ON CONFLICT (lane) DO UPDATE
     SET outcome = EXCLUDED.outcome,
-        cycle_count = responder_runtime_progress.cycle_count + 1,
+        cycle_count = ryker_runtime_progress.cycle_count + 1,
         observed_at = clock_timestamp(),
         updated_at = clock_timestamp()
     """

@@ -209,7 +209,7 @@ defmodule Ryker.Publication.GitHubPublisher do
       pull["head_ref"] == branch,
       pull["head_sha"] == commit_sha,
       pull["base_ref"] == repository.base_branch,
-      pull["author_id"] == repository.responder_actor_id,
+      pull["author_id"] == repository.ryker_actor_id,
       pull["author_type"] == "Bot",
       pull["url"] ==
         "https://github.com/#{repository.github_repository}/pull/#{pull["number"]}",
@@ -229,7 +229,7 @@ defmodule Ryker.Publication.GitHubPublisher do
       not pull["merged"],
       pull["head_ref"] == branch,
       pull["base_ref"] == repository.base_branch,
-      pull["author_id"] == repository.responder_actor_id,
+      pull["author_id"] == repository.ryker_actor_id,
       pull["author_type"] == "Bot",
       is_nil(expected["url"]) or pull["url"] == expected["url"],
       pull["url"] ==
@@ -244,7 +244,7 @@ defmodule Ryker.Publication.GitHubPublisher do
   defp exact_conflict_pull(pull, branch, observed_head, repository) do
     if pull["state"] == "open" and not pull["merged"] and pull["head_ref"] == branch and
          pull["head_sha"] == observed_head and pull["base_ref"] == repository.base_branch and
-         pull["author_id"] == repository.responder_actor_id and pull["author_type"] == "Bot" and
+         pull["author_id"] == repository.ryker_actor_id and pull["author_type"] == "Bot" and
          pull["url"] ==
            "https://github.com/#{repository.github_repository}/pull/#{pull["number"]}",
        do: :ok,
@@ -328,14 +328,14 @@ defmodule Ryker.Publication.GitHubPublisher do
             git_binding: git_binding,
             base_branch: base_branch,
             github_repository: github_repository,
-            responder_actor_id: responder_actor_id
+            ryker_actor_id: ryker_actor_id
           } = repository} <- Map.fetch(repositories, repository_alias),
          [owner, _name] <- String.split(github_repository || "", "/", parts: 2),
          true <- module_callback?(api, :find_open_pull_request, 4),
          true <- module_callback?(api, :create_draft_pull_request, 6),
          true <- module_callback?(api, :get_pull_request, 3),
          true <- module_callback?(git, :publish_candidate, 3),
-         true <- is_integer(responder_actor_id) and responder_actor_id > 0,
+         true <- is_integer(ryker_actor_id) and ryker_actor_id > 0,
          {:ok, _branch} <- branch(base_branch) do
       {:ok, %{api: api, client: client, git: git, git_binding: git_binding},
        Map.merge(repository, %{owner: owner})}

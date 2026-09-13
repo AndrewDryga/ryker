@@ -5,13 +5,13 @@ defmodule Ryker.Settings.GitHubBinding do
   alias Ryker.Settings.Validation
 
   @primary_key {:name, :string, autogenerate: false}
-  @fields ~w(name repository_ref installation_id repository_id responder_actor_id authorized_actor_ids repository_context_ref)a
+  @fields ~w(name repository_ref installation_id repository_id ryker_actor_id authorized_actor_ids repository_context_ref)a
 
   schema "github_binding_settings" do
     field(:repository_ref, :string)
     field(:installation_id, :integer)
     field(:repository_id, :integer)
-    field(:responder_actor_id, :integer)
+    field(:ryker_actor_id, :integer)
     field(:authorized_actor_ids, {:array, :integer})
     field(:repository_context_ref, :string)
     timestamps(type: :utc_datetime_usec)
@@ -32,14 +32,14 @@ defmodule Ryker.Settings.GitHubBinding do
         :repository_ref,
         :installation_id,
         :repository_id,
-        :responder_actor_id,
+        :ryker_actor_id,
         :authorized_actor_ids
       ])
       |> validate_format(:name, Validation.adapter_name_pattern())
       |> Validation.validate_known(:repository_ref, repositories, :unknown_repository)
       |> validate_number(:installation_id, greater_than: 0)
       |> validate_number(:repository_id, greater_than: 0)
-      |> validate_number(:responder_actor_id, greater_than: 0)
+      |> validate_number(:ryker_actor_id, greater_than: 0)
       |> Validation.validate_unique_list(:authorized_actor_ids, &(is_integer(&1) and &1 > 0))
       |> validate_length(:authorized_actor_ids, min: 1, max: 256)
       |> unique_constraint(:repository_ref, name: :github_binding_settings_repository_ref_index)
