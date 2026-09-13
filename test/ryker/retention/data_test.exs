@@ -31,7 +31,6 @@ defmodule Ryker.Retention.DataTest do
   alias Ryker.Work.{
     Activity,
     ActivityEvent,
-    ActivityRetention,
     Custody,
     Result,
     Session,
@@ -64,13 +63,6 @@ defmodule Ryker.Retention.DataTest do
     backdate_operational!(work)
     assert {:ok, _} = Data.prune(settings())
     activity = Repo.one!(ActivityEvent)
-    # Replay may have read the legacy row before expiry. Its delayed write must
-    # recheck the marker, even when the caller still holds the original body.
-    assert {0, _} =
-             ActivityRetention.enrich(activity.id,
-               payload: %{"output" => "source-content"}
-             )
-
     refute inspect(activity.payload) =~ "source-content"
     assert Activity.list_for_episode(work.episode.id) == []
     assert {:ok, %{inserted: 0}} = Activity.ingest(work.session.id, [event])

@@ -141,7 +141,7 @@ defmodule Ryker.Work.Activity do
         do: Repo.rollback({:coop_activity_session_conflict, remote_id})
 
       with {:ok, prepared} <- prepare_page(events, session),
-           {:ok, result} <- apply_page(session, prepared, cursor, false) do
+           {:ok, result} <- apply_placement_page(session, prepared, cursor) do
         result
       else
         {:error, reason} -> Repo.rollback(reason)
@@ -204,11 +204,7 @@ defmodule Ryker.Work.Activity do
       Repo.one!(
         from(event in query,
           select: %{
-            tool_calls:
-              type(
-                fragment("COUNT(*) FILTER (WHERE ? = 'tool.started')::bigint", event.kind),
-                :integer
-              ),
+            tool_calls: filter(count(event.id), event.kind == "tool.started"),
             total: count(event.id)
           }
         )
@@ -339,18 +335,27 @@ defmodule Ryker.Work.Activity do
     end
   end
 
+  # The direct sync owns the session's `activity_cursor` and moves it with
+  # every page it stores.
   defp apply_page(session, events) do
-    apply_page(session, events, session.activity_cursor, true)
+    cursor = session.activity_cursor
+
+    with {:ok, result} <- apply_placement_page(session, events, cursor),
+         :ok <- persist_cursor(session, cursor, result.cursor) do
+      {:ok, result}
+    end
   end
 
-  defp apply_page(session, events, cursor, advance_direct?) do
+  # A fleet placement keeps its own cursor on the placement row; this stores
+  # the page and reports where that cursor now stands without touching the
+  # session's.
+  defp apply_placement_page(session, events, cursor) do
     fresh = Enum.drop_while(events, &(&1.sequence <= cursor))
 
     with :ok <- verify_replay(session, events -- fresh),
          :ok <- exact_next(cursor, fresh),
-         {:ok, inserted} <- insert_fresh(session, fresh),
-         {:ok, next_cursor} <- advance_cursor(session, fresh, cursor, advance_direct?) do
-      {:ok, %{cursor: next_cursor, inserted: inserted}}
+         {:ok, inserted} <- insert_fresh(session, fresh) do
+      {:ok, %{cursor: next_cursor(fresh, cursor), inserted: inserted}}
     end
   end
 
@@ -454,15 +459,14 @@ defmodule Ryker.Work.Activity do
     end)
   end
 
-  defp advance_cursor(_session, [], cursor, _advance_direct?), do: {:ok, cursor}
+  defp next_cursor([], cursor), do: cursor
+  defp next_cursor(events, _cursor), do: List.last(events).sequence
 
-  defp advance_cursor(_session, events, _cursor, false), do: {:ok, List.last(events).sequence}
+  defp persist_cursor(_session, cursor, cursor), do: :ok
 
-  defp advance_cursor(session, events, _cursor, true) do
-    cursor = List.last(events).sequence
-
+  defp persist_cursor(session, _previous, cursor) do
     case session |> Changeset.change(activity_cursor: cursor) |> Repo.update() do
-      {:ok, _session} -> {:ok, cursor}
+      {:ok, _session} -> :ok
       {:error, changeset} -> {:error, {:coop_activity_cursor, changeset.errors}}
     end
   end

@@ -305,29 +305,7 @@ defmodule Ryker.TestSupport.FakeWorkCoopAPI do
 
   @impl true
   def submit_turn(agent, session_id, key, expected_revision, prompt, schema) do
-    submit_turn_with_artifacts(agent, session_id, key, expected_revision, prompt, schema, [])
-  end
-
-  @impl true
-  def submit_turn_with_artifacts(
-        agent,
-        session_id,
-        key,
-        expected_revision,
-        prompt,
-        schema,
-        artifacts
-      ) do
-    submit_with_binding(
-      agent,
-      session_id,
-      key,
-      expected_revision,
-      prompt,
-      schema,
-      nil,
-      artifacts
-    )
+    submit_with_binding(agent, session_id, key, expected_revision, prompt, schema, nil, [])
   end
 
   @impl true
@@ -469,21 +447,8 @@ defmodule Ryker.TestSupport.FakeWorkCoopAPI do
     end
   end
 
-  @impl true
+  # Not part of `Ryker.Coop.API`; tests fence a prompt-shaped turn directly.
   def fence_submit_turn(agent, _session_id, key, _expected_revision, _prompt, _schema) do
-    fence_operation(agent, key, "SubmitTurn", :fence_submit_keys)
-  end
-
-  @impl true
-  def fence_submit_turn_with_artifacts(
-        agent,
-        _session_id,
-        key,
-        _expected_revision,
-        _prompt,
-        _schema,
-        _artifacts
-      ) do
     fence_operation(agent, key, "SubmitTurn", :fence_submit_keys)
   end
 

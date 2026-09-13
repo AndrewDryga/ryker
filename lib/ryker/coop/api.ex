@@ -1,9 +1,12 @@
 defmodule Ryker.Coop.API do
   @moduledoc """
-  Small Coop session API used by admission execution.
+  The Coop session API admission, Work, learning and cleanup execute through.
 
-  The behavior keeps deterministic orchestration tests independent of sockets;
-  `Ryker.Coop.Client` is the production Unix-socket implementation.
+  The behaviour keeps deterministic orchestration tests independent of
+  transports. `Ryker.Coop.Client` speaks it over the owner-only Unix socket of
+  a local daemon; `Ryker.CoopFleet.Client` speaks it through durable commands
+  to enrolled remote workers. Callbacks a transport may lack are optional, and
+  every caller checks `function_exported?/3` before relying on one.
   """
 
   @callback operation_by_key(client :: term(), key :: String.t()) ::
@@ -32,14 +35,6 @@ defmodule Ryker.Coop.API do
               task :: String.t(),
               repository_source :: repository_source()
             ) :: {:ok, map()} | {:error, term()}
-  @callback create_bound_session(
-              client :: term(),
-              key :: String.t(),
-              policy :: String.t(),
-              task :: String.t(),
-              responder_binding :: map(),
-              repository_source :: repository_source()
-            ) :: {:ok, map()} | {:error, term()}
   @callback fence_create_session(
               client :: term(),
               key :: String.t(),
@@ -47,19 +42,8 @@ defmodule Ryker.Coop.API do
               task :: String.t(),
               repository_source :: repository_source()
             ) :: {:ok, map()} | {:error, term()}
-  @callback fence_bound_session(
-              client :: term(),
-              key :: String.t(),
-              policy :: String.t(),
-              task :: String.t(),
-              responder_binding :: map(),
-              repository_source :: repository_source()
-            ) :: {:ok, map()} | {:error, term()}
 
-  @optional_callbacks create_bound_session: 6,
-                      fence_bound_session: 6,
-                      capabilities: 1,
-                      capabilities: 2
+  @optional_callbacks capabilities: 1, capabilities: 2
   @callback get_session(client :: term(), session_id :: String.t()) ::
               {:ok, map()} | {:error, term()}
   # Optional: a worker whose daemon predates the inspection export does not serve
@@ -128,32 +112,6 @@ defmodule Ryker.Coop.API do
               prompt :: String.t(),
               schema :: map()
             ) :: {:ok, map()} | {:error, term()}
-  @callback fence_submit_turn(
-              client :: term(),
-              session_id :: String.t(),
-              key :: String.t(),
-              expected_revision :: integer(),
-              prompt :: String.t(),
-              schema :: map()
-            ) :: {:ok, map()} | {:error, term()}
-  @callback submit_turn_with_artifacts(
-              client :: term(),
-              session_id :: String.t(),
-              key :: String.t(),
-              expected_revision :: integer(),
-              prompt :: String.t(),
-              schema :: map(),
-              artifacts :: [map()]
-            ) :: {:ok, map()} | {:error, term()}
-  @callback fence_submit_turn_with_artifacts(
-              client :: term(),
-              session_id :: String.t(),
-              key :: String.t(),
-              expected_revision :: integer(),
-              prompt :: String.t(),
-              schema :: map(),
-              artifacts :: [map()]
-            ) :: {:ok, map()} | {:error, term()}
   @callback get_turn(client :: term(), session_id :: String.t(), turn_id :: String.t()) ::
               {:ok, map()} | {:error, term()}
   @callback get_output_artifact(
@@ -215,9 +173,7 @@ defmodule Ryker.Coop.API do
               verdict :: :accept | {:reject, [String.t()]}
             ) :: {:ok, map()} | {:error, term()}
 
-  @optional_callbacks submit_turn_with_artifacts: 7,
-                      fence_submit_turn_with_artifacts: 7,
-                      list_events: 4,
+  @optional_callbacks list_events: 4,
                       get_changes: 2,
                       get_changes_page: 4,
                       get_session_review_patch: 5,
