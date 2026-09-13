@@ -11,6 +11,7 @@ defmodule Ryker.Retention.Operator do
   import Ecto.Query
 
   alias Ryker.CanonicalJSON
+  alias Ryker.Reference
   alias Ryker.Repo
   alias Ryker.Retention.OperatorAction
   alias Ryker.Work.Session
@@ -274,10 +275,7 @@ defmodule Ryker.Retention.Operator do
   end
 
   defp reference(value, _field) when is_binary(value) do
-    if String.valid?(value) and :binary.match(value, <<0>>) == :nomatch and
-         String.trim(value) != "" and byte_size(value) <= 1_024,
-       do: :ok,
-       else: {:error, {:invalid_retention_operator, :reference}}
+    if Reference.valid?(value), do: :ok, else: {:error, {:invalid_retention_operator, :reference}}
   end
 
   defp reference(_value, field), do: {:error, {:invalid_retention_operator, field}}

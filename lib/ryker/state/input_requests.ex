@@ -14,6 +14,7 @@ defmodule Ryker.State.InputRequests do
   alias Ryker.Episodes.Episode
   alias Ryker.Ingress.{Inbox, Input}
   alias Ryker.Ingress.Inbox.Entry
+  alias Ryker.Reference
   alias Ryker.Repo
   alias Ryker.Slack.Input, as: SlackInput
   alias Ryker.Slack.InteractionAudits
@@ -26,6 +27,7 @@ defmodule Ryker.State.InputRequests do
     ResponseChangeset
   }
 
+  alias Ryker.UTCDateTime
   alias Ryker.Work.Turn
 
   @fields [
@@ -344,20 +346,13 @@ defmodule Ryker.State.InputRequests do
   defp choice_index(_value), do: {:error, {:invalid_input_request_answer, :choice_index}}
 
   defp reference(value, field) do
-    if is_binary(value) and String.valid?(value) and :binary.match(value, <<0>>) == :nomatch and
-         String.trim(value) != "" and byte_size(value) <= 1_024,
-       do: :ok,
-       else: {:error, {:invalid_input_request_answer, field}}
+    if Reference.valid?(value), do: :ok, else: {:error, {:invalid_input_request_answer, field}}
   end
 
-  defp utc_datetime(%DateTime{} = value) do
-    if value.time_zone == "Etc/UTC" and value.utc_offset == 0 and value.std_offset == 0 do
-      {microsecond, _precision} = value.microsecond
-      {:ok, %{value | microsecond: {microsecond, 6}}}
-    else
-      {:error, {:invalid_input_request_answer, :occurred_at}}
+  defp utc_datetime(value) do
+    case UTCDateTime.exact(value) do
+      {:ok, exact} -> {:ok, exact}
+      :error -> {:error, {:invalid_input_request_answer, :occurred_at}}
     end
   end
-
-  defp utc_datetime(_value), do: {:error, {:invalid_input_request_answer, :occurred_at}}
 end

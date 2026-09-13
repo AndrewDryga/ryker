@@ -8,6 +8,7 @@ defmodule Ryker.Evals.WorldSuite do
   """
 
   alias Ryker.Evals.WorldCase
+  alias Ryker.Reference
 
   @maximum_repeats 10
   @lanes [:baseline, :candidate]
@@ -368,11 +369,7 @@ defmodule Ryker.Evals.WorldSuite do
     if reference?(value), do: :ok, else: invalid(field)
   end
 
-  defp reference?(value) when is_binary(value) and byte_size(value) in 1..256 do
-    String.valid?(value) and String.trim(value) != "" and :binary.match(value, <<0>>) == :nomatch
-  end
-
-  defp reference?(_value), do: false
+  defp reference?(value), do: Reference.valid?(value, 256)
 
   defp rate(value, _field) when is_number(value) and value >= 0 and value <= 1, do: :ok
   defp rate(_value, field), do: invalid(field)

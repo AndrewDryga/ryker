@@ -3,6 +3,7 @@ defmodule Ryker.Retention.Runtime do
 
   use Supervisor
 
+  alias Ryker.Reference
   alias Ryker.Retention.{Data, Worker}
 
   @required [
@@ -148,7 +149,7 @@ defmodule Ryker.Retention.Runtime do
         retry_bounds_valid?(settings) and
         retention_horizons_valid?(settings) and
         storage_budgets_valid?(settings) and
-        reference?(settings.worker_ref)
+        Reference.valid?(settings.worker_ref)
 
     unless valid, do: raise(ArgumentError, "retention configuration is outside its safe bounds")
   end
@@ -182,10 +183,5 @@ defmodule Ryker.Retention.Runtime do
       settings.closed_work_seconds <= settings.episode_history_seconds and
       settings.episode_history_seconds <= settings.audit_data_seconds and
       settings.operational_data_seconds <= settings.conversation_memory_seconds
-  end
-
-  defp reference?(value) do
-    is_binary(value) and String.valid?(value) and :binary.match(value, <<0>>) == :nomatch and
-      String.trim(value) != "" and byte_size(value) <= 1_024
   end
 end

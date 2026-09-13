@@ -7,6 +7,7 @@ defmodule Ryker.Retention.Executor do
   an unsafe discard plan fails closed without touching another workspace.
   """
 
+  alias Ryker.Reference
   alias Ryker.Retention.{Custody, Plan}
   alias Ryker.Work.Session
 
@@ -373,10 +374,7 @@ defmodule Ryker.Retention.Executor do
   defp settings(_options), do: {:error, {:invalid_retention_executor, :options}}
 
   defp reference(value, _field) when is_binary(value) do
-    if String.valid?(value) and :binary.match(value, <<0>>) == :nomatch and
-         String.trim(value) != "" and byte_size(value) <= 1_024,
-       do: :ok,
-       else: {:error, {:coop_protocol_error, :reference}}
+    if Reference.valid?(value), do: :ok, else: {:error, {:coop_protocol_error, :reference}}
   end
 
   defp reference(_value, field), do: {:error, {:coop_protocol_error, field}}

@@ -12,6 +12,7 @@ defmodule Ryker.State.Automations do
   alias Ryker.Episodes.Episode
   alias Ryker.Ingress.Adapters
   alias Ryker.Operator.FailureDetail
+  alias Ryker.Reference
   alias Ryker.Repo
 
   alias Ryker.State.{
@@ -28,6 +29,7 @@ defmodule Ryker.State.Automations do
     StandingAssignmentRun
   }
 
+  alias Ryker.UTCDateTime
   alias Ryker.Work.Turn
 
   @actions ~w(update pause resume delete)
@@ -769,22 +771,18 @@ defmodule Ryker.State.Automations do
   defp target(_target), do: {:error, {:invalid_automation_confirmation, :target}}
 
   defp utc_datetime(%DateTime{} = value, _field) do
-    if value.time_zone == "Etc/UTC" and value.utc_offset == 0 and value.std_offset == 0 do
-      {microsecond, _precision} = value.microsecond
-      {:ok, %{value | microsecond: {microsecond, 6}}}
-    else
-      {:error, {:invalid_automation_confirmation, :datetime}}
+    case UTCDateTime.exact(value) do
+      {:ok, exact} -> {:ok, exact}
+      :error -> {:error, {:invalid_automation_confirmation, :datetime}}
     end
   end
 
-  defp utc_datetime(value, field) when is_binary(value) do
-    case DateTime.from_iso8601(value) do
-      {:ok, datetime, 0} -> {:ok, datetime}
-      _invalid -> {:error, {:invalid_automation_confirmation, field}}
+  defp utc_datetime(value, field) do
+    case UTCDateTime.parse(value) do
+      {:ok, datetime} -> {:ok, datetime}
+      :error -> {:error, {:invalid_automation_confirmation, field}}
     end
   end
-
-  defp utc_datetime(_value, field), do: {:error, {:invalid_automation_confirmation, field}}
 
   defp optional_datetime(nil), do: {:ok, nil}
   defp optional_datetime(value), do: utc_datetime(value, :expires_at)
@@ -793,10 +791,7 @@ defmodule Ryker.State.Automations do
   defp optional_reference(value), do: reference(value, :reference)
 
   defp reference(value, field) do
-    if is_binary(value) and String.valid?(value) and byte_size(value) in 1..1_024 and
-         :binary.match(value, <<0>>) == :nomatch and String.trim(value) != "",
-       do: :ok,
-       else: {:error, {:invalid_automation_confirmation, field}}
+    if Reference.valid?(value), do: :ok, else: {:error, {:invalid_automation_confirmation, field}}
   end
 
   defp text(value, maximum, field) do

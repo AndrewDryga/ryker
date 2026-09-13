@@ -437,7 +437,7 @@ defmodule Ryker.Learning.Executor do
     expired
   end
 
-  def submission(run),
+  defp submission(run),
     do: %{
       "contract_version" => "conversation-learning-v2",
       "context" => %{},

@@ -2618,7 +2618,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
                })
              )
 
-    assert {:ok, claim} = RetentionCustody.claim_next("cleanup:projection", 60, 0)
+    assert {:ok, claim} = RetentionCustody.claim_next("cleanup:projection", 60)
     assert claim.session.id == session.id
 
     assert {:ok, _blocked} =

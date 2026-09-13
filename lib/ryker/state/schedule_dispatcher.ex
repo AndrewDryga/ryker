@@ -1,6 +1,7 @@
 defmodule Ryker.State.ScheduleDispatcher do
   @moduledoc false
 
+  alias Ryker.Reference
   alias Ryker.State.Schedules
 
   def run_once(options) do
@@ -67,7 +68,7 @@ defmodule Ryker.State.ScheduleDispatcher do
            true <- non_negative?(values.misfire_grace_seconds),
            true <- positive?(values.retry_base_seconds),
            true <- values.retry_max_seconds >= values.retry_base_seconds,
-           true <- reference?(values.worker_ref) do
+           true <- Reference.valid?(values.worker_ref) do
         {:ok, values}
       else
         false -> {:error, {:invalid_schedule_dispatcher, :settings}}
@@ -93,9 +94,4 @@ defmodule Ryker.State.ScheduleDispatcher do
 
   defp positive?(value), do: is_integer(value) and value > 0
   defp non_negative?(value), do: is_integer(value) and value >= 0
-
-  defp reference?(value) do
-    is_binary(value) and String.valid?(value) and byte_size(value) in 1..1_024 and
-      :binary.match(value, <<0>>) == :nomatch and String.trim(value) != ""
-  end
 end

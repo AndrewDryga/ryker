@@ -96,7 +96,7 @@ defmodule Ryker.State.RecordPayload do
     end
   end
 
-  defp task_offer_authority(_legacy), do: :ok
+  defp task_offer_authority(_without_authority), do: :ok
 
   defp publication_offer(%{} = payload) do
     with :ok <- exact_fields(payload, ~w(body title)),

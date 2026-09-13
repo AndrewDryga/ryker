@@ -229,9 +229,9 @@ defmodule Ryker.State.DerivedContext do
     end
   end
 
-  def compact(nil, _maximum), do: nil
+  defp compact(nil, _maximum), do: nil
 
-  def compact(value, maximum) do
+  defp compact(value, maximum) do
     encoded = CanonicalJSON.encode!(value)
 
     if byte_size(encoded) <= maximum do

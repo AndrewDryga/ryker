@@ -431,7 +431,7 @@ defmodule Ryker.Retention.DataTest do
     )
     |> Repo.update!()
 
-    assert {:ok, claim} = RetentionCustody.claim_next("cleanup", 60, 0)
+    assert {:ok, claim} = RetentionCustody.claim_next("cleanup", 60)
     assert claim.session.id == session.id
 
     assert {:ok, _blocked} =
@@ -445,7 +445,7 @@ defmodule Ryker.Retention.DataTest do
     assert {:ok, %{outcome: :rearmed}} =
              Operator.rearm(session.external_ref, "slack:user:operator", "retention-action:rearm")
 
-    assert {:ok, claim} = RetentionCustody.claim_next("cleanup", 60, 0)
+    assert {:ok, claim} = RetentionCustody.claim_next("cleanup", 60)
 
     assert {:ok, _discarded} =
              RetentionCustody.settle_remote_discarded(

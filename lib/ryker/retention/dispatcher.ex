@@ -8,6 +8,7 @@ defmodule Ryker.Retention.Dispatcher do
   consume the budget that the healthy ones need.
   """
 
+  alias Ryker.Reference
   alias Ryker.Retention.{Custody, Executor}
 
   @maximum_error_detail_bytes 4_096
@@ -50,12 +51,7 @@ defmodule Ryker.Retention.Dispatcher do
           | {:error, term()}
   def run_once(options) do
     with {:ok, settings} <- settings(options),
-         {:ok, claim} <-
-           Custody.claim_next(
-             settings.worker_ref,
-             settings.lease_seconds,
-             settings.closed_session_grace_seconds
-           ) do
+         {:ok, claim} <- Custody.claim_next(settings.worker_ref, settings.lease_seconds) do
       execute(claim, settings)
     end
   end
@@ -77,7 +73,6 @@ defmodule Ryker.Retention.Dispatcher do
     case Custody.claim_next(
            settings.worker_ref,
            settings.lease_seconds,
-           settings.closed_session_grace_seconds,
            session_ids: state.excluded_session_ids,
            worker_ids: state.excluded_worker_ids
          ) do
@@ -198,18 +193,15 @@ defmodule Ryker.Retention.Dispatcher do
   defp transient?({:coop_mutation_response_unresolved, _phase, _reason}), do: true
   defp transient?(reason), do: outage?(reason)
 
-  @doc false
-  @spec outage?(term()) :: boolean()
-  def outage?({:coop_unavailable, _reason}), do: true
-  def outage?({:coop_transport_error, _reason}), do: true
-  def outage?({:coop_worker_capacity_unavailable, _session_id}), do: true
-  def outage?({:coop_error, 429, _code, _detail}), do: true
-  def outage?({:coop_error, status, _code, _detail}) when status >= 500, do: true
-  def outage?(_reason), do: false
+  defp outage?({:coop_unavailable, _reason}), do: true
+  defp outage?({:coop_transport_error, _reason}), do: true
+  defp outage?({:coop_worker_capacity_unavailable, _session_id}), do: true
+  defp outage?({:coop_error, 429, _code, _detail}), do: true
+  defp outage?({:coop_error, status, _code, _detail}) when status >= 500, do: true
+  defp outage?(_reason), do: false
 
-  @doc "The durable error codes an outage leaves behind, for reconnect recovery."
-  @spec outage_error_codes() :: [String.t()]
-  def outage_error_codes,
+  # The durable error codes an outage leaves behind, for reconnect recovery.
+  defp outage_error_codes,
     do: ~w(coop_unavailable coop_transport_error coop_worker_capacity_unavailable coop_error)
 
   defp retry_delay(attempt, settings) do
@@ -277,7 +269,7 @@ defmodule Ryker.Retention.Dispatcher do
 
     if known_options?(options, allowed) and dispatcher_dependencies_valid?(settings) and
          retry_settings_valid?(settings) and budget_settings_valid?(settings) and
-         reference?(settings.worker_ref) do
+         Reference.valid?(settings.worker_ref) do
       {:ok, settings}
     else
       {:error, {:invalid_retention_dispatcher, :options}}
@@ -307,9 +299,4 @@ defmodule Ryker.Retention.Dispatcher do
 
   defp positive?(value), do: is_integer(value) and value > 0
   defp nonnegative?(value), do: is_integer(value) and value >= 0
-
-  defp reference?(value) do
-    is_binary(value) and String.valid?(value) and :binary.match(value, <<0>>) == :nomatch and
-      String.trim(value) != "" and byte_size(value) <= 1_024
-  end
 end
