@@ -1,6 +1,4 @@
-/bin/
 /dist/
-/dist-input/
 /_build/
 /deps/
 /deps
@@ -10,10 +8,6 @@
 /crash.dump
 /.elixir/
 /.elixir
-*.db
-*.db-shm
-*.db-wal
-coverage.out
 .DS_Store
 
 # Scratch git worktrees for parallel agents. They are checkouts of this same
