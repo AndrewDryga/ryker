@@ -116,10 +116,6 @@ defmodule Ryker.Acceptance.Live do
     end
   end
 
-  defp run_with_finch(_repo, configuration, channel_ref, timeout_ms) do
-    with_finch(fn -> run(configuration, channel_ref, timeout_ms: timeout_ms) end)
-  end
-
   defp with_finch(function) do
     case Finch.start_link(name: Ryker.CoopFinch) do
       {:ok, pid} ->
@@ -147,16 +143,15 @@ defmodule Ryker.Acceptance.Live do
          :ok <- reference(run_id, :run_id),
          timeout_ms <- options[:timeout_ms] || @default_timeout_ms,
          true <- is_integer(timeout_ms) and timeout_ms in 1..@maximum_timeout_ms,
-         runtime_mode <- Map.get(configuration, :runtime_mode, :component),
-         :ok <- runtime_mode(runtime_mode) do
+         {:ok, execution_mode} <- execution_mode(configuration) do
       {:ok,
        %{
          bot_user_ref: slack.identity.bot_user_ref,
          channel_ref: channel_ref,
+         execution_mode: execution_mode,
          operations: operations,
          operator_ref: operator_ref,
          repository_ref: slack.default_repository,
-         runtime_mode: runtime_mode,
          run_id: run_id,
          timeout_ms: timeout_ms,
          workspace_ref: slack.identity.workspace_ref
@@ -237,13 +232,10 @@ defmodule Ryker.Acceptance.Live do
   defp operations(_configuration, _slack, _operations),
     do: {:error, {:invalid_live_acceptance, :operations}}
 
-  defp operation_arity(name) when name in [:conversation_info, :now, :monotonic_ms, :ready],
-    do: if(name in [:now, :monotonic_ms, :ready], do: 0, else: 1)
-
-  defp operation_arity(:admit), do: 1
+  defp operation_arity(name) when name in [:monotonic_ms, :now, :ready], do: 0
+  defp operation_arity(name) when name in [:admit, :conversation_info, :sleep], do: 1
   defp operation_arity(:observe), do: 2
   defp operation_arity(:post_message), do: 4
-  defp operation_arity(:sleep), do: 1
 
   defp safe_channel(
          %{
@@ -268,7 +260,7 @@ defmodule Ryker.Acceptance.Live do
   defp post_root(settings) do
     document = %{
       "message" =>
-        "Automated Elixir product acceptance #{settings.run_id}. " <>
+        "Automated Ryker product acceptance #{settings.run_id}. " <>
           "This thread uses synthetic operator inputs and real Admission, Work, Coop, and Delivery custody."
     }
 
@@ -301,7 +293,7 @@ defmodule Ryker.Acceptance.Live do
   end
 
   defp prompt(:first, repository_ref) do
-    "Reply in one concise sentence. State that this Elixir live acceptance run is active, " <>
+    "Reply in one concise sentence. State that this live acceptance run is active, " <>
       "identify the configured repository #{repository_ref}, and create no incident, task, " <>
       "memory, schedule, publication, or governed action."
   end
@@ -497,16 +489,19 @@ defmodule Ryker.Acceptance.Live do
     end
   end
 
-  defp same_execution_boundary(%{runtime_mode: :product}, first, followup) do
+  # A fleet build runs every turn on an enrolled worker, so a settled turn
+  # without a placement means the harness watched something other than the
+  # product topology. An isolated build has no placement to prove.
+  defp same_execution_boundary(%{execution_mode: :fleet}, first, followup) do
     if is_nil(first.worker_placement) or is_nil(followup.worker_placement),
       do: {:error, :live_acceptance_remote_placement_missing},
       else: :ok
   end
 
-  defp same_execution_boundary(%{runtime_mode: :component}, _first, _followup), do: :ok
+  defp same_execution_boundary(%{execution_mode: :direct}, _first, _followup), do: :ok
 
-  defp runtime_mode(mode) when mode in [:component, :product], do: :ok
-  defp runtime_mode(_mode), do: {:error, {:invalid_live_acceptance, :runtime_mode}}
+  defp execution_mode(%{execution_mode: mode}) when mode in [:direct, :fleet], do: {:ok, mode}
+  defp execution_mode(_configuration), do: {:error, {:invalid_live_acceptance, :execution_mode}}
 
   defp worker_placement(session_id) do
     case Repo.one(
@@ -567,7 +562,7 @@ defmodule Ryker.Acceptance.Live do
   end
 
   defp generated_run_id do
-    "live-elixir-#{System.system_time(:second)}-#{System.unique_integer([:positive])}"
+    "live-#{System.system_time(:second)}-#{System.unique_integer([:positive])}"
   end
 
   defp release_version do
