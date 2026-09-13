@@ -39,15 +39,15 @@ defmodule Ryker.Settings.RepositoryContext do
       |> validate_length(:read_only_repository_refs, max: 32)
       |> validate_inclusion(:parallel_goal_limit, 1..3)
 
-    if get_field(changeset, :primary_repository_ref) in (get_field(
-                                                           changeset,
-                                                           :read_only_repository_refs
-                                                         ) || []),
-       do:
-         add_error(changeset, :read_only_repository_refs, "must exclude the primary",
-           validation: :primary_companion
-         ),
-       else: changeset
+    primary = get_field(changeset, :primary_repository_ref)
+    companions = get_field(changeset, :read_only_repository_refs) || []
+
+    if primary in companions,
+      do:
+        add_error(changeset, :read_only_repository_refs, "must exclude the primary",
+          validation: :primary_companion
+        ),
+      else: changeset
   end
 
   def deletable(context, snapshot) do

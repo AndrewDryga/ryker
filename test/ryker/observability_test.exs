@@ -3,7 +3,6 @@ defmodule Ryker.ObservabilityTest do
 
   import Ecto.Query
 
-  alias Ryker.Bootstrap
   alias Ryker.CoopFleet.{Client, ControlPlane, Worker}
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
