@@ -58,10 +58,7 @@ defmodule Ryker.Work.StateBinding do
 
     case placement do
       %Placement{state: :active} = current ->
-        %{rows: [[active]]} =
-          Repo.query!("SELECT $1::timestamp > clock_timestamp()", [current.lease_expires_at])
-
-        if active,
+        if DateTime.compare(current.lease_expires_at, Repo.now!()) == :gt,
           do: {:ok, placement_scope(current)},
           else: {:error, {:work_state_tools_placement_not_current, session_id}}
 
