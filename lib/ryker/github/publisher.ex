@@ -134,12 +134,26 @@ defmodule Ryker.GitHub.Publisher do
           api.create_review_reply(client, repository, number, root_id, body)
       end
 
-    case result do
+    case settle(result) do
       {:ok, message_id} -> {:ok, message_ref(thread, message_id)}
-      {:error, {:delivery_rate_limited, _delay, _error} = reason} -> {:error, reason}
-      {:error, reason} -> {:error, {:delivery_uncertain, reason}}
+      {:error, _reason} = error -> error
     end
   end
+
+  # GitHub answering below 500 is definite: nothing was created, and the
+  # dispatcher classifies the status itself. A request the client refused to
+  # send never reached GitHub. Only a call GitHub did not answer (a lost
+  # socket, an unreadable reply, a 5xx) may have landed, and only the marker
+  # search on the next attempt can say.
+  defp settle({:ok, message_id}), do: {:ok, message_id}
+  defp settle({:error, {:delivery_rate_limited, _delay, _error}} = error), do: error
+  defp settle({:error, {:invalid_github_api_request, _field}} = error), do: error
+
+  defp settle({:error, {:github_api_error, status, _body}} = error)
+       when is_integer(status) and status < 500,
+       do: error
+
+  defp settle({:error, reason}), do: {:error, {:delivery_uncertain, reason}}
 
   defp message_ref(%{kind: "review_thread"}, id),
     do: "github:pull_request_review_comment:#{id}"

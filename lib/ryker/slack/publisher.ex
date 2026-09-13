@@ -63,20 +63,8 @@ defmodule Ryker.Slack.Publisher do
   def update_message(%Request{kind: :message} = request, message_ref, document, binding) do
     with {:ok, target} <- Target.parse(request),
          :ok <- destination_allowed(binding, target),
-         {:ok, api, client} <- client(binding, target.workspace_ref),
-         true <- function_exported?(api, :update_message, 5),
-         :ok <-
-           api.update_message(
-             client,
-             target.channel_ref,
-             message_ref,
-             document,
-             request.ref
-           ) do
-      :ok
-    else
-      false -> {:error, {:slack_message_update_not_supported, :adapter}}
-      {:error, _reason} = error -> error
+         {:ok, api, client} <- client(binding, target.workspace_ref) do
+      api.update_message(client, target.channel_ref, message_ref, document, request.ref)
     end
   end
 
@@ -156,18 +144,15 @@ defmodule Ryker.Slack.Publisher do
   end
 
   defp upload_files(api, client, request, target, files) do
-    case api.upload_files(
-           client,
-           target.channel_ref,
-           target.thread_ref,
-           request.document,
-           request.ref,
-           files
-         ) do
-      {:ok, message_ref} -> {:ok, message_ref}
-      {:error, {:delivery_rate_limited, _delay, _error} = reason} -> {:error, reason}
-      {:error, reason} -> {:error, {:delivery_uncertain, reason}}
-    end
+    client
+    |> api.upload_files(
+      target.channel_ref,
+      target.thread_ref,
+      request.document,
+      request.ref,
+      files
+    )
+    |> settle()
   end
 
   defp prepare_files(request) do
@@ -214,18 +199,26 @@ defmodule Ryker.Slack.Publisher do
     do: value |> then(&:crypto.hash(:sha256, &1)) |> Base.encode16(case: :lower)
 
   defp post_message(api, client, request, target) do
-    case api.post_message(
-           client,
-           target.channel_ref,
-           target.thread_ref,
-           request.document,
-           request.ref
-         ) do
-      {:ok, message_ref} -> {:ok, message_ref}
-      {:error, {:delivery_rate_limited, _delay, _error} = reason} -> {:error, reason}
-      {:error, reason} -> {:error, {:delivery_uncertain, reason}}
-    end
+    client
+    |> api.post_message(target.channel_ref, target.thread_ref, request.document, request.ref)
+    |> settle()
   end
+
+  # Slack answering is definite: an API error or a 4xx means nothing was
+  # posted, and a request the client refused to send never reached Slack. Only
+  # a call Slack did not answer (a lost socket, an unreadable reply, a 5xx) may
+  # have landed, and only the metadata walk on the next attempt can say.
+  defp settle({:ok, message_ref}), do: {:ok, message_ref}
+  defp settle({:error, {:delivery_rate_limited, _delay, _error}} = error), do: error
+  defp settle({:error, {:slack_api_error, _error}} = error), do: error
+  defp settle({:error, {:invalid_slack_api_request, _field}} = error), do: error
+  defp settle({:error, {:slack_upload_unavailable, _reason}} = error), do: error
+
+  defp settle({:error, {:slack_http_error, status, _error}} = error)
+       when is_integer(status) and status < 500,
+       do: error
+
+  defp settle({:error, reason}), do: {:error, {:delivery_uncertain, reason}}
 
   defp client(%{workspaces: workspaces}, workspace_ref) when is_map(workspaces) do
     with {:ok, %{api: api, client: client}} <- Map.fetch(workspaces, workspace_ref),

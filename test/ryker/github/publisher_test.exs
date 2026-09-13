@@ -85,9 +85,16 @@ defmodule Ryker.GitHub.PublisherTest do
         messages = Map.put(state.messages, key, id)
         state = %{state | creates: [{base_key, body} | state.creates], messages: messages}
 
-        if state.lose_create_response,
-          do: {{:error, :socket_closed}, %{state | lose_create_response: false}},
-          else: {{:ok, id}, state}
+        cond do
+          state.lose_create_response ->
+            {{:error, :socket_closed}, %{state | lose_create_response: false}}
+
+          state.refuse_create ->
+            {{:error, {:github_api_error, 422, state.refuse_create}}, state}
+
+          true ->
+            {{:ok, id}, state}
+        end
       end)
     end
 
@@ -106,11 +113,23 @@ defmodule Ryker.GitHub.PublisherTest do
         creates: [],
         finds: 0,
         lose_create_response: false,
+        refuse_create: nil,
         messages: %{},
         reactions: MapSet.new(),
         updates: []
       }
     end
+  end
+
+  test "a GitHub refusal of the comment is a definite failure, not an uncertain delivery" do
+    # A 422 is GitHub saying no, with nothing created; wrapped as
+    # delivery_uncertain it retried for every attempt the delivery had, and the
+    # dispatcher's status-based classification never saw the status.
+    {:ok, api} = FakeAPI.start(%{refuse_create: %{"message" => "Validation Failed"}})
+    request = message_request("github:github-main:issue:7", "Done.")
+
+    assert Publisher.publish_message(request, publisher_binding(api)) ==
+             {:error, {:github_api_error, 422, %{"message" => "Validation Failed"}}}
   end
 
   test "a lost native pull review response reconciles its opaque marker exactly once" do

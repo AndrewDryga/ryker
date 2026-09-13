@@ -34,9 +34,16 @@ defmodule Ryker.Slack.PublisherTest do
         messages = Map.put(state.messages, key, message_ref)
         state = %{state | messages: messages, posts: [{channel, thread, body, delivery_ref}]}
 
-        if state.lose_post_response,
-          do: {{:error, :socket_closed}, %{state | lose_post_response: false}},
-          else: {{:ok, message_ref}, state}
+        cond do
+          state.lose_post_response ->
+            {{:error, :socket_closed}, %{state | lose_post_response: false}}
+
+          state.refuse_post ->
+            {{:error, {:slack_api_error, state.refuse_post}}, state}
+
+          true ->
+            {{:ok, message_ref}, state}
+        end
       end)
     end
 
@@ -97,6 +104,7 @@ defmodule Ryker.Slack.PublisherTest do
         finds: 0,
         lose_post_response: false,
         lose_upload_response: false,
+        refuse_post: nil,
         messages: %{},
         posts: [],
         reactions: MapSet.new(),
@@ -121,6 +129,19 @@ defmodule Ryker.Slack.PublisherTest do
     state = FakeAPI.state(api)
     assert length(state.posts) == 1
     assert state.finds == 2
+  end
+
+  test "a Slack refusal of the post is a definite failure, not an uncertain delivery" do
+    # Slack answering ok:false means nothing was posted, yet the publisher
+    # wrapped every non-rate-limit error as delivery_uncertain, which the
+    # dispatcher always retries: an invalid_blocks or missing_scope reply
+    # spent all eight attempts, each walking up to a hundred history pages
+    # for a message that was never there, before the delivery blocked.
+    {:ok, api} = FakeAPI.start(%{refuse_post: "invalid_blocks"})
+    request = message_request()
+
+    assert Publisher.publish_message(request, publisher_binding(api)) ==
+             {:error, {:slack_api_error, "invalid_blocks"}}
   end
 
   test "passes only the host-materialized document to Slack rendering" do
