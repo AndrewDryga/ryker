@@ -99,15 +99,6 @@ defmodule Ryker.Settings.Validation do
   def revision(value) when is_integer(value) and value >= 0, do: :ok
   def revision(_value), do: {:error, {:invalid_settings, [{:revision, :integer}]}}
 
-  def host_ref(value) when is_binary(value) do
-    if String.valid?(value) and byte_size(value) in 1..128 and String.trim(value) == value and
-         value != "" and not String.contains?(value, [<<0>>, "\n", "\r"]),
-       do: :ok,
-       else: {:error, {:invalid_settings, [{:host_ref, :format}]}}
-  end
-
-  def host_ref(_value), do: {:error, {:invalid_settings, [{:host_ref, :format}]}}
-
   @doc "Field/reason pairs only; messages carry no submitted values."
   def errors(changeset) do
     changeset.errors

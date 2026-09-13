@@ -115,16 +115,18 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
              "Settings could not be read"
   end
 
-  test "an installation that already holds product history is told to import, not re-keyed" do
-    # Creating a second identity here would re-key worker, delivery and
-    # publication custody that the existing history belongs to.
+  test "instructions typed before setup do not stop the console from creating settings" do
+    # The instructions page is reachable before setup. Until the YAML importer
+    # was retired, a sentence saved there made this button refuse and point at
+    # an import that had nothing to import.
     assert {:ok, _} = Ryker.Instructions.save(:global, "Existing guidance", 0, @actor)
 
     {:ok, view, _html} = open()
     view |> element("button[phx-click=initialize-settings]") |> render_click()
 
-    assert has_element?(view, "[role=alert]", "already holds product history")
-    assert Repo.aggregate(Installation, :count) == 0
+    refute has_element?(view, "[role=alert]")
+    assert Repo.aggregate(Installation, :count) == 1
+    assert Ryker.Instructions.get(:global).text == "Existing guidance"
   end
 
   test "a refused save keeps every typed value and names the field that refused it" do

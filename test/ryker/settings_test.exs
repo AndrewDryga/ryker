@@ -47,15 +47,17 @@ defmodule Ryker.SettingsTest do
     assert Repo.aggregate(Edit, :count) == 0
   end
 
-  test "existing retained settings require import rather than a new installation identity" do
-    # An unimported deployment must not look fresh merely because its new root
-    # row is missing: defaulting here would re-key worker and publication custody.
+  test "a fresh install may write instructions before it creates its settings" do
+    # Until the YAML importer was retired, product rows written before the
+    # first save made a fresh database refuse to initialize and point the
+    # operator at an import that had nothing to import. The instructions page
+    # is reachable before setup, so this was a dead end one typed sentence away.
     assert {:ok, _} =
              Ryker.Instructions.save(:global, "Existing operator guidance", 0, @actor)
 
-    assert Settings.initialize(@actor) == {:error, :settings_import_required}
-    assert Repo.aggregate(Installation, :count) == 0
-    assert Repo.aggregate(Edit, :count) == 0
+    assert {:ok, saved} = Settings.initialize(@actor)
+    assert saved.installation.revision == 1
+    assert Repo.aggregate(Installation, :count) == 1
     assert Ryker.Instructions.get(:global).text == "Existing operator guidance"
   end
 

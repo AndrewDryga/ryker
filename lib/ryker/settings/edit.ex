@@ -2,6 +2,9 @@ defmodule Ryker.Settings.Edit do
   @moduledoc false
   use Ecto.Schema
 
+  # `:import` is the domain the retired one-time configuration importer wrote
+  # its installation receipt under on 2026-09-11; nothing records it anymore,
+  # but the live edit history still holds that row.
   @domains [
     :installation,
     :retention,

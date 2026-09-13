@@ -497,11 +497,6 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
     _error in [DBConnection.ConnectionError, Postgrex.Error] -> {:error, :settings_unavailable}
   end
 
-  defp initialize_error(:settings_import_required),
-    do:
-      "This database already holds product history. Import the existing configuration instead: " <>
-        "a new identity would re-key the worker, delivery and publication custody it belongs to."
-
   defp initialize_error(:settings_forbidden),
     do: "This console is not allowed to create settings."
 
