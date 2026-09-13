@@ -27,7 +27,7 @@ defmodule Responder.ControlPlane.ActivityPage do
           <div>
             <h1>Activity</h1><p>Inspect incoming messages, running work, and delivered answers.</p>
           </div>
-          <a :if={@activity.total > 0} class="ui-button secondary" href="/conversations/new"><.icon name={
+          <a :if={@activity.total > 0} class="ui-button secondary" href="/conversations"><.icon name={
             :plus
           } />New conversation</a>
         </div>
@@ -109,7 +109,7 @@ defmodule Responder.ControlPlane.ActivityPage do
                   "Messages from connected platforms and direct conversations appear here with their execution history."}
             </p>
             <.link :if={filtered?(@params)} class="ui-button secondary" patch={@path}>Clear filters</.link>
-            <a :if={!filtered?(@params)} class="ui-button primary" href="/conversations/new">New conversation
+            <a :if={!filtered?(@params)} class="ui-button primary" href="/conversations">New conversation
             <.icon name={:arrow} /></a>
           </div>
           <div id="activity-stream" phx-update="stream" class="activity-list">

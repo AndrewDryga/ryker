@@ -2,6 +2,7 @@ import {Socket} from "/assets/phoenix.mjs"
 import {LiveSocket} from "/assets/phoenix_live_view.esm.js"
 import {draftKey as keyFor, captureDrafts, acceptDrafts, sendDraft, validateDraft, transferLegacyDraft} from "/assets/drafts.mjs"
 import {createRelearnPicker} from "/assets/relearn-selection.mjs"
+import {createConversationControls, followSentDraft} from "/assets/conversation.mjs"
 import {createInstructionDraft} from "/assets/instruction-draft.mjs"
 import {createSettingsGuard} from "/assets/settings-draft.mjs"
 import {applyFilterChange} from "/assets/filter-toolbar.mjs"
@@ -17,6 +18,7 @@ const PreserveReadingState = {
     this.active = true
     this.restoreDrafts()
     this.relearnPicker = createRelearnPicker(this.el, () => sessionStorage)
+    this.conversation = createConversationControls(this.el)
     this.onInput = event => {
       this.relearnPicker.change(event)
       if (event.target.form?.matches(".composer")) event.target.form.querySelector("textarea")?.setCustomValidity("")
@@ -54,6 +56,7 @@ const PreserveReadingState = {
         if (files) files.value = ""
         status.textContent = "Message saved. Admission progress appears above."
         this.pushEvent("refresh", {})
+        followSentDraft(form, (name, params) => this.pushEvent(name, params))
       } catch (error) {
         if (!this.active || !form.isConnected) return
         status.textContent = error.message.startsWith("rejected:")
@@ -69,9 +72,10 @@ const PreserveReadingState = {
     this.el.addEventListener("input", this.onInput)
     this.el.addEventListener("change", this.onInput)
     this.el.addEventListener("submit", this.onSubmit)
-    this.onClick = event => this.relearnPicker.click(event)
+    this.onClick = event => { this.relearnPicker.click(event); this.conversation.click(event) }
     this.el.addEventListener("click", this.onClick)
     this.onKeydown = event => {
+      if (this.conversation.keydown(event)) return
       if (event.key === "Enter" && (event.metaKey || event.ctrlKey) && event.target.matches(".composer textarea")) {
         event.preventDefault()
         event.target.closest("form").requestSubmit()
@@ -117,6 +121,7 @@ const PreserveReadingState = {
     })
     this.restoreDrafts()
     this.relearnPicker.refresh()
+    this.conversation.refresh()
     // LiveView restores input focus, but a replaced response body is not an
     // input. Restore only a focus the patch dropped, never a newer selection.
     if (this.readingURL === location.href && this.focusedID && document.activeElement === document.body) {
@@ -160,6 +165,7 @@ const PreserveReadingState = {
   },
   destroyed() {
     this.active = false
+    this.conversation.destroy()
     this.el.removeEventListener("input", this.onInput)
     this.el.removeEventListener("change", this.onInput)
     this.el.removeEventListener("submit", this.onSubmit)

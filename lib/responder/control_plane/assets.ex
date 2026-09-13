@@ -7,6 +7,7 @@ defmodule Responder.ControlPlane.Assets do
     "phoenix_live_view.esm.js" =>
       {:phoenix_live_view, "priv/static/phoenix_live_view.esm.js", "text/javascript"},
     "control-plane.js" => {:responder, "priv/static/control-plane.js", "text/javascript"},
+    "conversation.mjs" => {:responder, "priv/static/conversation.mjs", "text/javascript"},
     "drafts.mjs" => {:responder, "priv/static/drafts.mjs", "text/javascript"},
     "filter-toolbar.mjs" => {:responder, "priv/static/filter-toolbar.mjs", "text/javascript"},
     "history.mjs" => {:responder, "priv/static/history.mjs", "text/javascript"},

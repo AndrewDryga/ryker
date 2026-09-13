@@ -99,8 +99,7 @@ defmodule Responder.ControlPlane.HTML do
     [
       "<section class=\"lab-hero\"><div><p class=\"eyebrow\">Real runtime · local surface</p>",
       "<h2>Talk to Responder without posting to Slack</h2>",
-      "<p>Messages enter the ordinary ingress, admission, episode, Work, state-tool, and delivery pipeline. Restart recovery and policy boundaries are identical to platform traffic.</p></div>",
-      "<a class=\"button\" href=\"/conversations/new\">Start conversation</a></section>",
+      "<p>Messages enter the ordinary ingress, admission, episode, Work, state-tool, and delivery pipeline. Restart recovery and policy boundaries are identical to platform traffic.</p></div></section>",
       "<section><h2>Recent conversations</h2>",
       table(["Conversation", "Conversation inputs", "Updated"], rows),
       "</section>"

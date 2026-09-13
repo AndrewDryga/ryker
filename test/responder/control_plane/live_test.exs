@@ -527,12 +527,9 @@ defmodule Responder.ControlPlane.LiveTest do
   test "native directory entry points and missing records remain usable across live navigation" do
     conn = build_conn() |> Map.put(:host, "localhost")
     {:ok, view, _} = live(conn, "/conversations")
-    assert has_element?(view, ".lab-start", "Start a conversation")
-    assert has_element?(view, ".lab-start-notes", "Real tools, local replies")
-    assert has_element?(view, ".lab-start-notes", "Repository and Emisar actions")
-    assert has_element?(view, ".lab-start-notes a[href='/configuration']")
-    assert has_element?(view, ".lab-start a[href='/conversations/new']")
-    refute has_element?(view, ".lab-directory a[href='/conversations/new']")
+    assert has_element?(view, ".lab-authority-note", "Local replies · real tools")
+    assert has_element?(view, ".lab-authority-note", "repository and Emisar actions")
+    assert has_element?(view, ".lab-authority-note a[href='/configuration']")
 
     for path <- [
           "/timeline/missing",
@@ -599,7 +596,7 @@ defmodule Responder.ControlPlane.LiveTest do
     refute html =~ "test message"
 
     {:ok, home_view, home_html} = live(conn, "/")
-    assert has_element?(home_view, "a[href='/conversations/new']", "New conversation")
+    assert has_element?(home_view, "a[href='/conversations']", "New conversation")
     refute home_html =~ "Test a message"
 
     id = Ecto.UUID.generate()
@@ -607,9 +604,284 @@ defmodule Responder.ControlPlane.LiveTest do
     assert page_title(open) == "Conversations · Responder"
     assert has_element?(open, ".app-sidebar a[href='/conversations'][aria-current=page]")
     assert has_element?(open, "form[action='/conversations/#{id}/messages']")
-    assert has_element?(open, ".lab-directory a[href='/conversations/new']", "New conversation")
+    assert has_element?(open, ".lab-directory-heading a[href='/conversations']", "New")
     refute open_html =~ ~r/\bLab\b/
     refute open_html =~ "test message"
+  end
+
+  test "the index is an empty draft that writes nothing until the first send, then follows it" do
+    # The welcome page led to a second empty page before anyone could type.
+    # /conversations now is the draft: a composer bound to a fresh identity,
+    # no record behind it, and once the first message is durable the view moves
+    # to that conversation instead of quietly posting the next message into it
+    # from a page whose directory still says nothing is selected.
+    conn = build_conn() |> Map.put(:host, "localhost")
+    {:ok, view, html} = live(conn, "/conversations")
+    draft_id = composer_conversation(render(view))
+    assert {:ok, ^draft_id} = Ecto.UUID.cast(draft_id)
+    assert Projection.lab_conversation(draft_id) == :not_found
+    assert Repo.aggregate(Responder.Ingress.Inbox.Entry, :count) == 0
+
+    # Nothing of the rejected chrome, and no replacement hero.
+    for rejected <- [
+          "Start a conversation",
+          "Ready for your message",
+          "Send a message",
+          "Ask a question, investigate an issue",
+          "CONVERSATION",
+          "Behind this conversation",
+          "All requests in this conversation",
+          "Conversation identity",
+          "No request yet",
+          "RECENT CONVERSATIONS",
+          "inputs ·"
+        ] do
+      refute html =~ rejected, "the index still renders #{inspect(rejected)}"
+    end
+
+    refute has_element?(view, ".lab-start")
+    refute has_element?(view, ".lab-runtime")
+    refute has_element?(view, ".lab-chat-header")
+    assert has_element?(view, "label.sr-only[for=lab-message]", "Message Responder")
+    assert has_element?(view, "#lab-messages[phx-update=stream]")
+    assert has_element?(view, ".lab-directory-heading h1", "Conversations")
+    assert has_element?(view, ".lab-directory-heading a[href='/conversations']", "New")
+    refute has_element?(view, ".lab-directory-heading form, .lab-directory-heading [phx-click]")
+
+    {:ok, profile} =
+      WorkProfile.new(%{
+        policy: "lab-live-test",
+        policy_digest: String.duplicate("a", 64),
+        repository_ref: nil
+      })
+
+    # The browser keeps the composer it first rendered (phx-update=ignore), so
+    # the identity it posts to is the form's, not whatever the server assigned
+    # on reconnect. After the 202 receipt the client asks to open exactly that
+    # conversation; the server validates the identity and navigates.
+    assert {:ok, _receipt} = ConversationLab.send_message(draft_id, "First message", profile)
+    render_hook(view, "open-conversation", %{"id" => draft_id})
+    assert_patch(view, "/conversations/#{draft_id}")
+    assert has_element?(view, "#lab-messages .chat-message-text", "First message")
+
+    assert has_element?(
+             view,
+             ".lab-directory-list a[href='/conversations/#{draft_id}'][aria-current=page]"
+           )
+
+    assert has_element?(
+             view,
+             "form.lab-native-composer[action='/conversations/#{draft_id}/messages']"
+           )
+
+    # A malformed identity is not navigation.
+    render_hook(view, "open-conversation", %{"id" => "../etc"})
+    refute_receive {_, {:patch, _, _}}, 50
+
+    # Coming back to the index is a new draft, not the conversation just sent.
+    {:ok, again, _} = live(conn, "/conversations")
+    assert composer_conversation(render(again)) != draft_id
+    refute has_element?(again, ".lab-directory-list a[aria-current=page]")
+
+    assert has_element?(
+             again,
+             ".lab-directory-list a[href='/conversations/#{draft_id}']",
+             "First message"
+           )
+  end
+
+  test "the composer placeholder is one of ten authored examples and holds still through patches" do
+    # A placeholder that re-rolled on every refresh flickered under the
+    # operator's eyes every five seconds. It is chosen once per opened view,
+    # is never the field's value, and the Examples list and New action are
+    # buttons and navigation that cannot submit anything.
+    conn = build_conn() |> Map.put(:host, "localhost")
+    {:ok, view, _} = live(conn, "/conversations")
+    placeholder = composer_placeholder(render(view))
+    assert placeholder in LabPage.examples()
+    assert composer_value(render(view)) == ""
+
+    render_hook(view, "refresh", %{})
+    assert composer_placeholder(render(view)) == placeholder
+
+    Phoenix.PubSub.broadcast(
+      Responder.ControlPlane.PubSub,
+      "control-plane",
+      :control_plane_changed
+    )
+
+    assert_receive {:lab_projected, _}, 2_000
+    assert composer_placeholder(render(view)) == placeholder
+
+    id = Ecto.UUID.generate()
+    {:ok, open, open_html} = live(conn, "/conversations/#{id}")
+    opened = composer_placeholder(open_html)
+    assert opened in LabPage.examples()
+    assert composer_placeholder(render(open)) == opened
+    render_hook(open, "refresh", %{})
+    assert composer_placeholder(render(open)) == opened
+
+    examples =
+      render(open)
+      |> LazyHTML.from_document()
+      |> LazyHTML.query("#lab-examples button[type=button][data-example]")
+
+    assert LazyHTML.attribute(examples, "data-example") == LabPage.examples()
+    refute has_element?(open, "#lab-examples form, #lab-examples button[type=submit]")
+    refute has_element?(open, "#lab-examples a")
+    assert has_element?(open, ".lab-chat-toolbar a[href='/configuration']", "Settings")
+  end
+
+  test "the directory reads as grouped two-line titles and says when it is empty" do
+    conn = build_conn() |> Map.put(:host, "localhost")
+    {:ok, empty, _} = live(conn, "/conversations")
+    assert has_element?(empty, ".lab-directory-empty")
+    refute has_element?(empty, ".lab-directory-group")
+
+    {:ok, profile} =
+      WorkProfile.new(%{
+        policy: "lab-live-test",
+        policy_digest: String.duplicate("a", 64),
+        repository_ref: nil
+      })
+
+    long =
+      "Check why the deployment that started after the incident review keeps restarting " <>
+        "its workers even though the queue has been idle since this morning"
+
+    earlier = Ecto.UUID.generate()
+    today = Ecto.UUID.generate()
+    repeated = Ecto.UUID.generate()
+
+    # Acceptance uses the database clock, so an older conversation is one whose
+    # retained entry was accepted eight days ago.
+    {:ok, %{entry: old_entry}} = ConversationLab.send_message(earlier, long, profile)
+
+    old_entry
+    |> Ecto.Changeset.change(inserted_at: DateTime.add(DateTime.utc_now(), -8, :day))
+    |> Repo.update!()
+
+    {:ok, _} = ConversationLab.send_message(today, "Read the automations", profile)
+    {:ok, _} = ConversationLab.send_message(repeated, "Read the automations", profile)
+
+    {:ok, view, html} = live(conn, "/conversations/#{today}")
+    document = LazyHTML.from_document(html)
+    assert LazyHTML.query(document, ".lab-directory-group h2") |> LazyHTML.text() =~ "Today"
+    assert LazyHTML.query(document, ".lab-directory-group h2") |> LazyHTML.text() =~ "Earlier"
+    refute has_element?(view, ".lab-directory-empty")
+
+    # Two conversations opened with the same first message are two rows with
+    # the same title; nothing invents a summary to tell them apart.
+    titles =
+      LazyHTML.query(document, ".lab-directory-list .lab-directory-title") |> LazyHTML.text()
+
+    assert length(Regex.scan(~r/Read the automations/, titles)) == 2
+
+    assert has_element?(
+             view,
+             ".lab-directory-list a[href='/conversations/#{today}'][aria-current=page]"
+           )
+
+    # A long title stays fully available to assistive technology and hover.
+    [title] =
+      LazyHTML.query(document, ".lab-directory-list a[href='/conversations/#{earlier}']")
+      |> LazyHTML.attribute("title")
+
+    assert title == long
+    assert has_element?(view, ".lab-directory-list a[href='/conversations/#{earlier}']", long)
+
+    times = LazyHTML.query(document, ".lab-directory-list time") |> LazyHTML.text()
+    assert times =~ "UTC"
+    refute html =~ "inputs ·"
+    refute html =~ "RECENT CONVERSATIONS"
+  end
+
+  test "each message links its own retained execution and shows progress once beside it" do
+    # The rail linked "All requests" and the newest episode. A message that
+    # was routed into an earlier episode, or is still waiting on admission,
+    # pointed nowhere it could be inspected. Links now carry the message's exact
+    # input id or producing turn, and the progress an operator is waiting on sits
+    # beside the message that caused it instead of in a column that is gone.
+    {:ok, profile} =
+      WorkProfile.new(%{
+        policy: "lab-live-test",
+        policy_digest: String.duplicate("a", 64),
+        repository_ref: nil
+      })
+
+    id = Ecto.UUID.generate()
+    {:ok, %{entry: first}} = ConversationLab.send_message(id, "First question", profile)
+    conn = build_conn() |> Map.put(:host, "localhost")
+    {:ok, view, _} = live(conn, "/conversations/#{id}")
+
+    assert has_element?(
+             view,
+             "#lab-messages a.lab-message-inspect[href='/timeline/ingress-input%3A#{first.id}']",
+             "View request"
+           )
+
+    assert has_element?(view, "#lab-messages .lab-message-progress", "Queued")
+    assert length(find_all(view, ".lab-message-progress")) == 1
+    refute has_element?(view, ".lab-runtime")
+    refute has_element?(view, "a", "All requests in this conversation")
+
+    {episode, turn} = accepted_reply!(id, first, "The first answer.", profile)
+
+    {:ok, %{entry: second}} = ConversationLab.send_message(id, "Second question", profile)
+    render_hook(view, "refresh", %{})
+
+    # The admitted message still links its own input, which now resolves to
+    # its own admission request on its episode.
+    input_href = "/timeline/ingress-input%3A#{first.id}"
+    assert has_element?(view, "#lab-messages a.lab-message-inspect[href='#{input_href}']")
+
+    # The reply links the work request of the turn that produced it.
+    reply_href =
+      "/timeline/#{URI.encode_www_form(episode.key)}/model-calls?attempt=#{turn.id}&section=delivery"
+
+    assert has_element?(
+             view,
+             "#lab-messages a.lab-message-inspect[href='#{reply_href}']",
+             "View request"
+           )
+
+    # The second, still-pending message links only itself and owns the only progress row.
+    assert has_element?(
+             view,
+             "#lab-messages a.lab-message-inspect[href='/timeline/ingress-input%3A#{second.id}']"
+           )
+
+    assert length(find_all(view, ".lab-message-progress")) == 1
+    refute has_element?(view, "#lab-messages .lab-message-progress", "First question")
+
+    # Both targets open the exact retained request they name.
+    {:ok, admission, _} = live(conn, input_href)
+    assert has_element?(admission, ".request-reader[data-request-id='#{first.id}']")
+    assert has_element?(admission, ".request-reader-heading", "Admission")
+    {:ok, work, _} = live(conn, reply_href)
+    assert has_element?(work, ".request-reader[data-request-id='#{turn.id}']")
+
+    # An ignored input has a recorded decision and no episode; it must not borrow one.
+    Repo.get!(Responder.Ingress.Inbox.Entry, second.id)
+    |> Ecto.Changeset.change(
+      status: :decided,
+      decision_action: :ignore,
+      decision_ref: "decision:ignored",
+      decision_fingerprint: String.duplicate("b", 64),
+      decision_document: %{"action" => "ignore"}
+    )
+    |> Repo.update!()
+
+    render_hook(view, "refresh", %{})
+
+    assert has_element?(
+             view,
+             "#lab-messages a.lab-message-inspect[href='/timeline/ingress-input%3A#{second.id}']",
+             "View decision"
+           )
+
+    refute has_element?(view, "#lab-messages a[href*='#{episode.key}'][href*='#{second.id}']")
+    assert find_all(view, ".lab-message-progress") == []
   end
 
   test "a conversation keeps its identity, history and links across the URL rename" do
@@ -757,12 +1029,11 @@ defmodule Responder.ControlPlane.LiveTest do
   test "the native Lab never claims admission before a message exists and streams committed messages" do
     id = Ecto.UUID.generate()
     conn = build_conn() |> Map.put(:host, "localhost")
-    {:ok, view, _html} = live(conn, "/conversations/#{id}")
-    assert has_element?(view, ".lab-chat", "Ready for your message")
-    assert has_element?(view, ".lab-runtime", "No request yet")
+    {:ok, view, html} = live(conn, "/conversations/#{id}")
+    refute html =~ "Ready for your message"
+    refute html =~ "Awaiting admission"
+    refute has_element?(view, ".lab-message-progress")
     assert has_element?(view, ".lab-native-composer[phx-update=ignore]")
-
-    refute has_element?(view, ".lab-runtime", "Awaiting admission")
 
     {:ok, profile} =
       WorkProfile.new(%{
@@ -793,7 +1064,7 @@ defmodule Responder.ControlPlane.LiveTest do
              "Inspect the request behind this answer"
            )
 
-    assert has_element?(view, ".native-admission-progress", "Queued")
+    assert has_element?(view, ".lab-message-progress", "Queued")
     assert has_element?(view, ".lab-directory-list a", "Inspect the request behind this answer")
     assert has_element?(view, ".lab-message-controls", "Edit")
     assert has_element?(view, ".lab-native-composer[phx-update=ignore]")
@@ -804,13 +1075,9 @@ defmodule Responder.ControlPlane.LiveTest do
     render_hook(view, "refresh", %{})
     assert has_element?(view, ".chat-message-text strong", "Evidence")
     assert has_element?(view, ".chat-message-text a[href='https://example.invalid/run']", "Run")
-    refute has_element?(view, ".story-byline", "Decided")
-
-    assert has_element?(
-             view,
-             "a[href*='conversation=control-plane%3Alab%3A#{id}']",
-             "All requests"
-           )
+    refute has_element?(view, ".lab-message-byline", "Decided")
+    refute has_element?(view, ".lab-message-byline", "Sent")
+    refute has_element?(view, "a", "All requests")
   end
 
   test "presentation always follows durable updates and remounts with current data", %{
@@ -1066,6 +1333,173 @@ defmodule Responder.ControlPlane.LiveTest do
         overrides
       )
     )
+  end
+
+  defp composer_conversation(html) do
+    [action] =
+      html
+      |> LazyHTML.from_document()
+      |> LazyHTML.query("form.lab-native-composer")
+      |> LazyHTML.attribute("action")
+
+    "/conversations/" <> rest = action
+    String.replace_suffix(rest, "/messages", "")
+  end
+
+  defp composer_placeholder(html) do
+    [placeholder] =
+      html
+      |> LazyHTML.from_document()
+      |> LazyHTML.query("form.lab-native-composer textarea#lab-message")
+      |> LazyHTML.attribute("placeholder")
+
+    placeholder
+  end
+
+  defp composer_value(html) do
+    html
+    |> LazyHTML.from_document()
+    |> LazyHTML.query("form.lab-native-composer textarea#lab-message")
+    |> LazyHTML.text()
+  end
+
+  defp find_all(view, selector) do
+    render(view)
+    |> LazyHTML.from_document()
+    |> LazyHTML.query(selector)
+    |> LazyHTML.to_tree()
+  end
+
+  # An admitted conversation input, its episode, and one accepted, delivered
+  # reply turn, through the same custody path the runtime uses.
+  defp accepted_reply!(conversation_id, %Responder.Ingress.Inbox.Entry{} = entry, text, profile) do
+    alias Responder.Work.{Custody, DeliveryReceipt, Result, SubmissionBuilder}
+    conversation_ref = "control-plane:lab:#{conversation_id}"
+    episode_id = Ecto.UUID.generate()
+    turn_ref = "turn:conversation-lab:#{episode_id}"
+
+    {:ok, transition} =
+      Responder.Episodes.apply(
+        Responder.Fixtures.Episodes.admit_input(%{
+          destination: %{
+            conversation_ref: conversation_ref,
+            thread_ref: conversation_ref,
+            transport: "control_plane"
+          },
+          episode_id: episode_id,
+          episode_key: "conversation-lab:#{episode_id}",
+          native_input_id: entry.native_input_id,
+          occurred_at: entry.occurred_at,
+          payload: %{"text" => entry.content["text"]},
+          turn_ref: turn_ref
+        })
+      )
+
+    episode = transition.episode
+
+    entry
+    |> Ecto.Changeset.change(
+      episode_id: episode.id,
+      status: :decided,
+      decision_action: :start_episode,
+      decision_ref: "decision:#{episode_id}",
+      decision_fingerprint: String.duplicate("a", 64),
+      decision_document: %{"action" => "start_episode", "episode_ref" => episode.key}
+    )
+    |> Repo.update!()
+
+    {:ok, _session} = Custody.pin_episode(episode.id, profile.policy, profile.policy_digest)
+    {:ok, claim} = Custody.claim_next("live-test:#{episode_id}", 60, :work)
+    {:ok, submission} = SubmissionBuilder.build(claim)
+
+    {:ok, _turn} =
+      Custody.freeze_submission(episode.id, claim.turn.turn_ref, claim.lease_ref, submission)
+
+    {:ok, session} =
+      Custody.bind_session(
+        episode.id,
+        claim.turn.turn_ref,
+        claim.lease_ref,
+        claim.session.generation,
+        claim.session.create_generation,
+        "coop-session:#{episode_id}"
+      )
+
+    {:ok, _turn} =
+      Custody.bind_turn(
+        episode.id,
+        claim.turn.turn_ref,
+        claim.lease_ref,
+        session.generation,
+        claim.turn.submit_generation,
+        "coop-turn:#{episode_id}"
+      )
+
+    document = %{
+      "message" => text,
+      "outcome" => %{"artifact_refs" => [], "record_refs" => [], "state" => "complete"}
+    }
+
+    candidate = Jason.encode!(document)
+    sha256 = :crypto.hash(:sha256, candidate) |> Base.encode16(case: :lower)
+
+    {:ok, _turn} =
+      Custody.stage_candidate(
+        episode.id,
+        claim.turn.turn_ref,
+        claim.lease_ref,
+        nil,
+        nil,
+        candidate,
+        sha256,
+        1
+      )
+
+    {:ok, result} = Result.new(:reply, document)
+
+    {:ok, _turn} =
+      Custody.prepare_validation(
+        episode.id,
+        claim.turn.turn_ref,
+        claim.lease_ref,
+        sha256,
+        1,
+        :accept,
+        result
+      )
+
+    {:ok, accepted} =
+      Custody.accept_result(
+        episode.id,
+        episode.key,
+        claim.turn.turn_ref,
+        claim.lease_ref,
+        sha256,
+        1,
+        "validation-receipt:#{episode_id}"
+      )
+
+    {:ok, delivery} = Custody.claim_next("live-test-delivery:#{episode_id}", 60, :delivery)
+
+    {:ok, receipt} =
+      DeliveryReceipt.new(
+        accepted.turn.delivery_ref,
+        "control_plane",
+        conversation_ref,
+        conversation_ref,
+        "control-plane-message:#{episode_id}"
+      )
+
+    {:ok, _settled} =
+      Custody.confirm_delivery(
+        episode.id,
+        episode.key,
+        claim.turn.turn_ref,
+        delivery.lease_ref,
+        receipt
+      )
+
+    {episode, accepted.turn}
   end
 
   # "tag.first-class" for each matched element, in document order.

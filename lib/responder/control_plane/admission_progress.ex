@@ -35,6 +35,7 @@ defmodule Responder.ControlPlane.AdmissionProgress do
         limit: 20,
         select: %{
           id: entry.id,
+          native_input_id: entry.native_input_id,
           status: entry.status,
           received_at: entry.inserted_at,
           retry_at: entry.next_attempt_at,
@@ -57,6 +58,9 @@ defmodule Responder.ControlPlane.AdmissionProgress do
     |> Enum.map(fn row ->
       %{
         id: row.id,
+        # Lets a conversation page place this progress beside the message that
+        # caused it, whichever revision of that message is currently shown.
+        native_input_id: row.native_input_id,
         title: InspectionRedactor.artifact(row.text || "Incoming event", max_bytes: 180).text,
         phase: phase(row, now),
         elapsed_ms: max(DateTime.diff(now, row.received_at, :millisecond), 0),

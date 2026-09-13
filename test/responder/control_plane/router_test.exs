@@ -138,16 +138,17 @@ defmodule Responder.ControlPlane.RouterTest do
   end
 
   test "a new conversation is an unsaved identity until its first message" do
-    # /conversations/new hands out a fresh UUID and redirects; nothing is
-    # written until the operator sends. Opening the page twice must not create
-    # two empty records, and an invalid identity is a 404, not a fresh chat.
-    fresh = request(:get, "/conversations/new")
-    assert fresh.status == 303
-    [location] = get_resp_header(fresh, "location")
-    assert "/conversations/" <> generated_id = location
-    assert {:ok, _uuid} = Ecto.UUID.cast(generated_id)
+    # The index at /conversations is the new-conversation draft, so the old
+    # /conversations/new redirect is gone as a clean cut: it answers like any
+    # unknown conversation, without a location header. A fresh identity page
+    # still writes nothing until the operator sends, and an invalid identity
+    # is a 404, not a fresh chat.
+    retired = request(:get, "/conversations/new")
+    assert retired.status == 404
+    assert get_resp_header(retired, "location") == []
     refute_received {:lab_message, _conversation, _message}
 
+    location = "/conversations/#{Ecto.UUID.generate()}"
     empty = request(:get, location)
     assert empty.status == 200
     assert empty.resp_body =~ "Send the first message to begin this durable conversation."
@@ -156,6 +157,7 @@ defmodule Responder.ControlPlane.RouterTest do
 
     assert request(:get, "/conversations/not-a-uuid").status == 404
     assert request(:get, "/conversations/new/extra").status == 404
+    refute request(:get, "/conversations").resp_body =~ "/conversations/new"
   end
 
   test "renders an offline overview with hard browser boundaries" do
@@ -184,12 +186,6 @@ defmodule Responder.ControlPlane.RouterTest do
     refute index.resp_body =~ ~r/\bLab\b/
     assert index.resp_body =~ "Conversation inputs"
     assert index.resp_body =~ "/conversations/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6"
-
-    fresh = request(:get, "/conversations/new")
-    assert fresh.status == 303
-    [location] = get_resp_header(fresh, "location")
-    assert "/conversations/" <> generated_id = location
-    assert {:ok, _uuid} = Ecto.UUID.cast(generated_id)
 
     conversation = request(:get, "/conversations/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6")
     assert conversation.status == 200

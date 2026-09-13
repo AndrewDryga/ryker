@@ -1,7 +1,11 @@
+// The index composer posts to a fresh identity on every visit; keying its
+// draft by that action would strand the text on the next visit. A form may
+// name a stable draft scope instead (data-draft-action="new").
 export const draftKey = (element, path) => {
   if (!element.name || !element.form?.matches(".composer")) return null
   if (element.tagName !== "TEXTAREA" && !["text", "search"].includes(element.type)) return null
-  return `responder:draft:${path}:${element.form.getAttribute("action")}:${element.name}`
+  const action = element.form.dataset?.draftAction || element.form.getAttribute("action")
+  return `responder:draft:${path}:${action}:${element.name}`
 }
 
 // Drafts typed before 2026-09-13 were keyed by the retired /lab URLs. A draft

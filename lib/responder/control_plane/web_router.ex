@@ -14,7 +14,6 @@ defmodule Responder.ControlPlane.WebRouter do
   end
 
   forward("/assets", Responder.ControlPlane.Assets)
-  get("/conversations/new", Responder.ControlPlane.LegacyPlug, :new)
 
   scope "/" do
     pipe_through(:browser)

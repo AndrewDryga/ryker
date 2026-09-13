@@ -1469,6 +1469,8 @@ defmodule Responder.ControlPlane.Projection do
         ],
         select: %{
           content: entry.content,
+          decision_action: entry.decision_action,
+          episode_id: entry.episode_id,
           event_kind: entry.event_kind,
           id: entry.id,
           inserted_at: entry.inserted_at,
@@ -1499,10 +1501,17 @@ defmodule Responder.ControlPlane.Projection do
         where: ^filter,
         order_by: [desc: first.position, desc: fragment("? COLLATE \"C\"", entry.native_input_id)],
         limit: ^limit,
+        # The current revision's own row identity, episode link and decision
+        # travel with the message: an inspection link built from them opens
+        # exactly this revision's admission, never the original's or the
+        # newest episode's.
         select: %{
           content: entry.content,
+          decision_action: entry.decision_action,
           edited_at: entry.inserted_at,
+          episode_id: entry.episode_id,
           event_kind: entry.event_kind,
+          id: entry.id,
           native_input_id: entry.native_input_id,
           position: first.position,
           pruned_at: entry.pruned_at,
@@ -1711,6 +1720,7 @@ defmodule Responder.ControlPlane.Projection do
         select: %{
           document: turn.delivery_document,
           episode_id: turn.episode_id,
+          episode_ref: episode.key,
           external_receipt: turn.external_receipt,
           occurred_at: turn.accepted_at,
           pruned_at: turn.operational_pruned_at,
@@ -1812,6 +1822,7 @@ defmodule Responder.ControlPlane.Projection do
           action_ref: action.action_ref,
           delivered_at: action.delivered_at,
           document: action.document,
+          episode_ref: episode.key,
           id: action.id,
           kind: action.kind,
           status: action.status,
@@ -1977,10 +1988,18 @@ defmodule Responder.ControlPlane.Projection do
 
   # Position, identity and sort key of one logical input: where its first
   # revision entered the conversation, named by the durable input id.
+  # The exact provenance rides along: the current revision's own row id, its
+  # episode link and decision, so the page can link this message's own
+  # admission or recorded decision, and the native input id so admission
+  # progress can sit beside the message that caused it.
   defp lab_input_identity(input, message) do
     Map.merge(message, %{
+      decision_action: input.decision_action,
       edited_at: if(input.revision > 1, do: input.edited_at),
+      episode_id: input.episode_id,
       identity: "input:" <> input.native_input_id,
+      input_id: input.id,
+      native_input_id: input.native_input_id,
       occurred_at: input.position,
       sort_key: LabCursor.key(input.position, :input, "input:" <> input.native_input_id)
     })
@@ -2070,6 +2089,7 @@ defmodule Responder.ControlPlane.Projection do
         artifact_refs: [],
         attachments: [],
         cards: [],
+        episode_ref: action.episode_ref,
         identity: "action:" <> action.id,
         occurred_at: delivered_at,
         reactions: [],
@@ -2171,6 +2191,7 @@ defmodule Responder.ControlPlane.Projection do
         artifact_refs: [],
         attachments: [],
         cards: [],
+        episode_ref: reply.episode_ref,
         feedback_reactions: [],
         generated_files: [],
         identity: "reply:" <> reply.turn_id,
@@ -2182,7 +2203,8 @@ defmodule Responder.ControlPlane.Projection do
         sort_key: LabCursor.key(reply.occurred_at, :reply, "reply:" <> reply.turn_id),
         state: nil,
         status: reply.status,
-        text: "This reply expired under retention."
+        text: "This reply expired under retention.",
+        turn_id: reply.turn_id
       }
     ]
   end
@@ -2226,6 +2248,7 @@ defmodule Responder.ControlPlane.Projection do
               _missing -> []
             end
           end),
+        episode_ref: reply.episode_ref,
         feedback_reactions: Map.get(feedback_reactions, reply.ref, []),
         message_ref: lab_reply_message_ref(reply),
         occurred_at: reply.occurred_at,
@@ -2233,7 +2256,8 @@ defmodule Responder.ControlPlane.Projection do
         ref: reply.ref,
         state: outcome["state"],
         status: reply.status,
-        text: text
+        text: text,
+        turn_id: reply.turn_id
       }
     ]
   end
