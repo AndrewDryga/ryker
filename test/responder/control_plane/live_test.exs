@@ -3,7 +3,7 @@ defmodule Responder.ControlPlane.LiveTest do
 
   import Phoenix.ConnTest
   import Phoenix.LiveViewTest
-  alias Responder.ControlPlane.{ConversationLab, LiveSocket, Projection}
+  alias Responder.ControlPlane.{BehaviorLibrary, ConversationLab, LiveSocket, Projection}
   alias Responder.ControlPlane.LabPage
   alias Responder.ControlPlane.WorkbenchLive
   alias Responder.Fixtures.SavedEntities
@@ -43,7 +43,12 @@ defmodule Responder.ControlPlane.LiveTest do
               do: {:error, :database_unavailable},
               else: Projection.episode(ref, params)
           end,
-          schedules: fn _params -> [] end
+          schedules: fn _params -> [] end,
+          behaviors: fn kind, params ->
+            if Agent.get(counters, & &1[:behaviors_fail]),
+              do: raise("sensitive provider exception body"),
+              else: BehaviorLibrary.list(kind, params)
+          end
         })
     }
 
@@ -172,6 +177,218 @@ defmodule Responder.ControlPlane.LiveTest do
     send(view.pid, :reconcile)
     assert has_element?(view, "main header.page-header h1", "Standing rules")
     assert has_element?(view, "main details.page-help summary", "How to add and manage rules")
+  end
+
+  test "filters live in the URL, so a shared or back-navigated address reproduces the list and changes nothing" do
+    # The toolbar is a GET form: the address is the only filter state, so the
+    # browser's Back button, a pasted link and a reconcile all show the same
+    # rows. Changing a filter, opening the action menu and opening the Delete
+    # confirmation are reads; the row they describe must be byte-for-byte the
+    # row that was there before.
+    source = SavedEntities.source!("slack:T123:C456")
+    active = rule!(source, "Watch Terraform applies and report readiness.")
+    archived = rule!(source, "Retired: page the old rota.", status: :deleted)
+    before = Repo.get!(Responder.State.Behavior, active.id)
+
+    conn = build_conn() |> Map.put(:host, "localhost")
+    {:ok, view, _} = live(conn, "/rules?status=archived")
+    assert has_element?(view, "select[name=status] option[value=archived][selected]")
+    assert has_element?(view, "main .behavior-entry", "Retired: page the old rota.")
+    refute has_element?(view, "main .behavior-entry", "Watch Terraform applies")
+    assert has_element?(view, "main p.result-count", "1 rule")
+    assert has_element?(view, "form.filter-toolbar a.filter-clear[href='/rules']")
+
+    # Back: the previous address, nothing else, brings the previous list back.
+    render_patch(view, "/rules")
+    assert has_element?(view, "select[name=status] option[value=current][selected]")
+    assert has_element?(view, "main .behavior-entry", "Watch Terraform applies")
+    refute has_element?(view, "main .behavior-entry", "Retired: page the old rota.")
+    refute has_element?(view, "form.filter-toolbar a.filter-clear")
+    refute has_element?(view, "form.filter-toolbar input[name=page]")
+
+    render_patch(view, "/rules?q=Terraform&status=all&scope=conversation&page=7")
+    assert has_element?(view, "input[name=q][value=Terraform]")
+    assert has_element?(view, "select[name=scope] option[value=conversation][selected]")
+    assert has_element?(view, "main p.result-count", "1 rule")
+    send(view.pid, :reconcile)
+    assert has_element?(view, "main .behavior-entry", "Watch Terraform applies")
+
+    # Opening the menu is a disclosure; opening Delete is its confirmation page.
+    assert has_element?(view, "main .behavior-entry details.behavior-menu:not([open])")
+    ref = URI.encode_www_form(active.ref)
+    confirmation = get(conn, "/actions/behavior/#{ref}/deleted")
+    assert confirmation.status == 200
+    assert confirmation.resp_body =~ "Delete"
+    assert Repo.get!(Responder.State.Behavior, active.id) == before
+    assert Repo.get!(Responder.State.Behavior, archived.id).status == :deleted
+  end
+
+  test "current, all and archived statuses select the rows they name and count only what they show" do
+    # BehaviorLibrary computes per-status counts before search and scope
+    # filtering. The old page printed those as Active/Paused/Expired numbers
+    # above a list they did not describe; the count under the toolbar must be
+    # the size of the list under it for every status choice.
+    source = SavedEntities.source!("slack:T123:C456")
+    rule!(source, "Active rule one.")
+    rule!(source, "Active rule two.")
+    rule!(source, "Paused rule.", status: :disabled)
+    rule!(source, "Deleted rule.", status: :deleted)
+    rule!(source, "Superseded rule.", status: :superseded)
+    rule!(source, "Expired rule.", expires_at: DateTime.add(DateTime.utc_now(), -60, :second))
+    conn = build_conn() |> Map.put(:host, "localhost")
+
+    for {query, count, statuses} <- [
+          {"", "3 rules", ["Active", "Active", "Paused"]},
+          {"?status=current", "3 rules", ["Active", "Active", "Paused"]},
+          {"?status=active", "2 rules", ["Active", "Active"]},
+          {"?status=disabled", "1 rule", ["Paused"]},
+          {"?status=expired", "1 rule", ["Expired"]},
+          {"?status=archived", "2 rules", ["Deleted", "Superseded"]},
+          {"?status=all", "6 rules",
+           ["Active", "Active", "Paused", "Deleted", "Superseded", "Expired"]}
+        ] do
+      {:ok, _view, html} = live(conn, "/rules" <> query)
+      document = LazyHTML.from_document(html)
+      assert LazyHTML.query(document, "main p.result-count") |> LazyHTML.text() == count, query
+
+      assert LazyHTML.query(document, "main .behavior-entry .behavior-heading .ui-status")
+             |> LazyHTML.text()
+             |> String.split(~r/(?<=[a-z])(?=[A-Z])/)
+             |> Enum.sort() == Enum.sort(statuses),
+             query
+
+      assert Enum.count(LazyHTML.query(document, "main article.behavior-entry")) ==
+               length(statuses),
+             query
+    end
+
+    {:ok, _view, html} = live(conn, "/rules?status=all&q=Paused")
+    document = LazyHTML.from_document(html)
+    assert LazyHTML.query(document, "main p.result-count") |> LazyHTML.text() == "1 rule"
+    assert Enum.count(LazyHTML.query(document, "main article.behavior-entry")) == 1
+  end
+
+  test "an empty filtered library is not a failed one, and a failed one is not empty", %{
+    counters: counters
+  } do
+    # "No matching entries" invites the reader to change the filters; a
+    # projection that could not run must not be presented as that, or the
+    # reader concludes the rule they are looking for does not exist.
+    source = SavedEntities.source!("slack:T123:C456")
+    rule!(source, "Watch Terraform applies and report readiness.")
+    conn = build_conn() |> Map.put(:host, "localhost")
+
+    {:ok, empty, _} = live(conn, "/rules?q=nothing-here")
+    assert has_element?(empty, "main .behavior-empty", "No matching entries")
+    assert has_element?(empty, "main .behavior-empty", "Change the filters")
+    assert has_element?(empty, "form.filter-toolbar a.filter-clear[href='/rules']")
+    refute has_element?(empty, "main p.result-count")
+    refute has_element?(empty, ".document-unavailable")
+    refute has_element?(empty, ".app-warning", "could not refresh")
+
+    Agent.update(counters, &Map.put(&1, :behaviors_fail, true))
+
+    log =
+      ExUnit.CaptureLog.capture_log(fn ->
+        {:ok, failed, _} = live(conn, "/rules?q=nothing-here")
+        assert has_element?(failed, ".document-unavailable", "temporarily unavailable")
+        assert has_element?(failed, ".app-warning", "could not refresh")
+        refute has_element?(failed, ".behavior-empty")
+        refute has_element?(failed, "main", "No matching entries")
+        refute has_element?(failed, "main", "No standing rules yet")
+      end)
+
+    assert log =~ "category=RuntimeError"
+    refute log =~ "sensitive provider exception body"
+  end
+
+  test "the twenty-sixth entry starts a second page and the count stays the filtered total" do
+    # Twenty-five rows per page is the projection's contract. The page has
+    # to show all twenty-five, say how many there are in total, and reach the
+    # twenty-sixth through a link that keeps the current filters.
+    source = SavedEntities.source!("slack:T123:C456")
+
+    for index <- 1..26 do
+      SavedEntities.behavior!(
+        source,
+        :guidance,
+        %{
+          "expires_in" => "30d",
+          "repository" => nil,
+          "scope" => "conversation",
+          "subject" => "Guidance #{index}",
+          "summary" => "Entry #{index}.",
+          "text" => "Entry #{index}: lead with availability risk.",
+          "visibility" => "conversation"
+        },
+        scope_ref: "slack:T123:C456",
+        expires_at: nil
+      )
+    end
+
+    conn = build_conn() |> Map.put(:host, "localhost")
+    {:ok, view, html} = live(conn, "/guidance?status=current")
+    document = LazyHTML.from_document(html)
+    assert Enum.count(LazyHTML.query(document, "main article.behavior-entry")) == 25
+    assert has_element?(view, "main p.result-count", "26 guidance entries")
+    assert has_element?(view, "main nav.behavior-pagination", "Page 1 of 2")
+
+    assert LazyHTML.query(document, "main nav.behavior-pagination a")
+           |> LazyHTML.attribute("href") ==
+             ["/guidance?page=2&q=&scope=&status=current"]
+
+    render_patch(view, "/guidance?status=current&page=2")
+    document = LazyHTML.from_document(render(view))
+    assert Enum.count(LazyHTML.query(document, "main article.behavior-entry")) == 1
+    assert has_element?(view, "main p.result-count", "26 guidance entries")
+    assert has_element?(view, "main nav.behavior-pagination", "Page 2 of 2")
+    assert has_element?(view, "main nav.behavior-pagination a[href*='page=1']", "Previous")
+
+    render_patch(view, "/guidance?page=99")
+    assert has_element?(view, "main nav.behavior-pagination", "Page 2 of 2")
+    render_patch(view, "/guidance?page=abc")
+    assert has_element?(view, "main nav.behavior-pagination", "Page 1 of 2")
+  end
+
+  test "a two-thousand-character rule reaches the page whole, and its open disclosures keep their ids across a refresh" do
+    # The rule is the stored task. Between the row and the screen sit the
+    # projection's sanitizer and the preview; neither may cut the text, and
+    # the disclosure that holds it must keep the id PreserveReadingState uses
+    # to reopen it after a reconcile, or every refresh folds the reader's
+    # place shut.
+    long =
+      1..40
+      |> Enum.map_join(
+        "\n",
+        &"Step #{&1}: compare the posted plan against the last apply and say so."
+      )
+      |> String.slice(0, 2_000)
+      |> String.pad_trailing(2_000, "x")
+
+    source = SavedEntities.source!("slack:T123:C456")
+    rule = rule!(source, long)
+    conn = build_conn() |> Map.put(:host, "localhost")
+    {:ok, view, html} = live(conn, "/rules")
+    document = LazyHTML.from_document(html)
+
+    full = LazyHTML.query(document, "main details.behavior-full")
+    assert LazyHTML.attribute(full, "id") == ["behavior-#{rule.ref}-full"]
+    assert LazyHTML.query(full, "p.behavior-instruction") |> LazyHTML.text() == long
+    assert LazyHTML.query(document, "main p.behavior-preview") |> LazyHTML.text() =~ "Step 1:"
+
+    send(view.pid, :reconcile)
+    document = LazyHTML.from_document(render(view))
+
+    assert LazyHTML.query(document, "main details.behavior-full") |> LazyHTML.attribute("id") == [
+             "behavior-#{rule.ref}-full"
+           ]
+
+    assert LazyHTML.query(document, "main details.behavior-menu") |> LazyHTML.attribute("id") == [
+             "behavior-#{rule.ref}-menu"
+           ]
+
+    assert LazyHTML.query(document, "main details.behavior-full p.behavior-instruction")
+           |> LazyHTML.text() == long
   end
 
   test "malformed usage filters cannot crash navigation or search links" do
@@ -827,6 +1044,28 @@ defmodule Responder.ControlPlane.LiveTest do
     id = Ecto.UUID.generate()
     {:ok, %{entry: entry}} = ConversationLab.send_message(id, "Investigate admission", profile)
     {entry, id}
+  end
+
+  # A confirmed trigger rule in #C456 with the given task and lifecycle
+  # status. It never expires, so "current" keeps meaning what it says here
+  # after the fixture's fixed clock has passed.
+  defp rule!(source, task, overrides \\ []) do
+    SavedEntities.behavior!(
+      source,
+      :standing_assignment,
+      %{
+        "action" => "triage_alert",
+        "expires_in" => "30d",
+        "repository" => nil,
+        "source_filter" => "human",
+        "task" => task,
+        "trigger" => "operational_alert"
+      },
+      Keyword.merge(
+        [scope_ref: "slack:T123:C456", expires_at: nil, identity_key: String.slice(task, 0, 120)],
+        overrides
+      )
+    )
   end
 
   # "tag.first-class" for each matched element, in document order.

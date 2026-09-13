@@ -105,59 +105,56 @@ defmodule Responder.ControlPlane.BehaviorPage do
       </div>
       <div class="behavior-entries">
         <article :for={item <- @view.items} id={"behavior-#{item.ref}"} class="behavior-entry">
-          <header>
-            <h2>{subject(item)}</h2><span class={"ui-status status-#{if item.status == "active", do: "done", else: "quiet"}"}>{status(
+          <div class="behavior-heading">
+            <h2>{subject(item)}</h2><span class={"ui-status status-#{status_tone(item.status)}"}>{status(
               item.status
             )}</span>
-          </header>
-          <p class="behavior-instruction">{instruction(item)}</p>
-          <dl class="behavior-meta">
-            <div>
-              <dt>Applies to</dt><dd title={item.scope_ref}>{scope(item)}</dd>
-            </div>
-            <div :if={item.kind == :standing_assignment}>
-              <dt>When</dt><dd>{trigger(item.payload)}</dd>
-            </div>
-            <div :if={item.kind == :standing_assignment && item.payload["source_filter"]}>
-              <dt>From</dt><dd>{sender(item.payload["source_filter"])}</dd>
-            </div>
-            <div :if={item.payload["repository"]}>
-              <dt>Repository</dt><dd>{item.payload["repository"]}</dd>
-            </div>
-            <div>
-              <dt>Expires</dt><dd>
-                {if item.expires_at, do: timestamp(item.expires_at), else: "No expiry"}
-              </dd>
-            </div>
-            <div>
-              <dt>Used</dt><dd>
-                {item.use_count} times<span :if={item.last_used_at}> · {timestamp(item.last_used_at)}</span>
-              </dd>
-            </div>
-          </dl>
+          </div>
+          <p class="behavior-scope">
+            <span title={item.scope_ref}>{scope(item)}</span><span :for={fact <- facts(item)}> · {fact}</span>
+          </p>
+          <%= if long?(instruction(item)) do %>
+            <%!-- pre-wrap text: whitespace inside these paragraphs is content. --%>
+            <p class="behavior-instruction behavior-preview" phx-no-format><span class="behavior-preview-label">Preview</span> {preview(instruction(item))}</p>
+            <details class="behavior-full" id={"behavior-#{item.ref}-full"}>
+              <summary>{full_label(item.kind)}</summary>
+              <p class="behavior-instruction">{instruction(item)}</p>
+            </details>
+          <% else %>
+            <p class="behavior-instruction">{instruction(item)}</p>
+          <% end %>
           <details
-            :if={item.kind == :guidance || item.payload["filter"]}
-            id={"behavior-#{item.ref}-details"}
+            :if={item.payload["filter"]}
+            class="behavior-conditions"
+            id={"behavior-#{item.ref}-conditions"}
           >
-            <summary>
-              {if item.kind == :guidance, do: "Full guidance", else: "Event conditions"}
-            </summary>
-            <p :if={item.kind == :guidance} class="behavior-instruction">{item.payload["text"]}</p>
+            <summary>Event conditions</summary>
             <pre :if={is_map(item.payload["filter"])}>{Jason.encode!(item.payload["filter"], pretty: true)}</pre>
             <p :if={is_binary(item.payload["filter"])}>{item.payload["filter"]}</p>
           </details>
-          <footer>
+          <p class="behavior-usage">
+            {usage(item)} · <span title={item.ref}>Confirmed {timestamp(item.confirmed_at)}</span>
+          </p>
+          <footer
+            :if={source_url(item) || item.status in ["active", "disabled"]}
+            class="behavior-footer"
+          >
             <div class="behavior-links">
-              <a :if={source_url(item)} href={source_url(item)} rel="noopener noreferrer">Original conversation →</a><span title={
-                item.ref
-              }>Confirmed {timestamp(item.confirmed_at)}</span>
+              <a :if={source_url(item)} href={source_url(item)} rel="noopener noreferrer">
+                Original conversation ↗
+              </a>
             </div>
-            <div :if={item.status in ["active", "disabled"]} class="action-controls">
+            <div :if={item.status in ["active", "disabled"]} class="action-controls behavior-actions">
               <.action_button
                 path={action(item, if(item.status == "active", do: "disabled", else: "active"))}
                 label={if item.status == "active", do: "Pause", else: "Resume"}
               />
-              <.action_button path={action(item, "deleted")} label="Delete" tone={:danger} />
+              <details class="behavior-menu" id={"behavior-#{item.ref}-menu"}>
+                <summary class="ui-button secondary" phx-no-format><span aria-hidden="true">⋯</span><span class="sr-only">More actions for {subject(item)}</span></summary>
+                <div class="behavior-menu-items">
+                  <.action_button path={action(item, "deleted")} label="Delete" tone={:danger} />
+                </div>
+              </details>
             </div>
           </footer>
         </article>
@@ -197,15 +194,74 @@ defmodule Responder.ControlPlane.BehaviorPage do
     do:
       item.payload["title"] || item.payload["subject"] || item.payload["task"] || title(item.kind)
 
+  # The stored text is the instruction. A preference value is one label; a
+  # guidance entry's effective text is what recall supplies, not its summary.
   defp instruction(%{kind: :preference, payload: payload}),
     do: label(payload["value"] || "Not recorded")
 
   defp instruction(%{kind: :guidance, payload: payload}),
-    do: payload["summary"] || payload["text"]
+    do: payload["text"] || payload["summary"] || "Not recorded"
 
-  defp instruction(item), do: item.payload["task"]
+  defp instruction(item), do: item.payload["task"] || "Not recorded"
+
+  # A long instruction opens from a labelled preview of its own first lines.
+  # Nothing is summarised: the disclosure holds the stored text verbatim, and
+  # a short entry gets no empty control.
+  @preview_limit 280
+  @preview_lines 4
+
+  defp long?(text),
+    do: String.length(text) > @preview_limit or length(String.split(text, "\n")) > @preview_lines
+
+  defp preview(text) do
+    head = text |> String.split("\n") |> Enum.take(@preview_lines) |> Enum.join("\n")
+
+    cut =
+      if String.length(head) > @preview_limit,
+        do: head |> String.slice(0, @preview_limit) |> String.replace(~r/\s+\S*\z/u, ""),
+        else: head
+
+    String.trim_trailing(cut) <> "…"
+  end
+
+  defp full_label(:guidance), do: "Show full guidance"
+  defp full_label(_kind), do: "Show full instruction"
+
   defp status("disabled"), do: "Paused"
   defp status(other), do: label(other)
+  defp status_tone("active"), do: "done"
+  defp status_tone(_other), do: "quiet"
+
+  # The 13px line under the title: trigger, sender and repository where they
+  # exist, then expiry. A typed rule without a title already names its
+  # trigger in the heading, so the line does not repeat it.
+  defp facts(item) do
+    payload = item.payload
+
+    [
+      if(item.kind == :standing_assignment && payload["title"], do: trigger(payload)),
+      if(item.kind == :standing_assignment && payload["source_filter"],
+        do: sender(payload["source_filter"])
+      ),
+      payload["repository"],
+      expiry(item)
+    ]
+    |> Enum.reject(&is_nil/1)
+  end
+
+  defp expiry(%{expires_at: nil}), do: "No expiry"
+  defp expiry(%{status: "expired", expires_at: at}), do: "Expired " <> timestamp(at)
+  defp expiry(%{expires_at: at}), do: "Expires " <> timestamp(at)
+
+  defp usage(%{use_count: 0}), do: "Not used yet"
+
+  defp usage(%{use_count: count} = item) do
+    times = if count == 1, do: "Used once", else: "Used #{count} times"
+
+    if item.last_used_at,
+      do: times <> " · Last used " <> timestamp(item.last_used_at),
+      else: times
+  end
 
   defp filtered?(view),
     do: view.params["q"] != "" || view.params["scope"] != "" || view.params["status"] != "current"
@@ -237,7 +293,9 @@ defmodule Responder.ControlPlane.BehaviorPage do
   defp outcome(%{action: :reply}), do: "Reply selected"
   defp outcome(%{action: :react}), do: "Reaction selected"
   defp outcome(_), do: "Routed"
-  defp trigger(%{"source_kind" => kind}), do: label(kind)
+  defp trigger(%{"source_kind" => "github"}), do: "GitHub events"
+  defp trigger(%{"source_kind" => "slack"}), do: "Slack events"
+  defp trigger(%{"source_kind" => kind}), do: label(kind) <> " events"
   defp trigger(%{"trigger" => trigger}), do: label(trigger)
   defp trigger(_), do: "Source event"
   defp sender("human"), do: "People only"
@@ -256,6 +314,7 @@ defmodule Responder.ControlPlane.BehaviorPage do
        do: SlackNames.name(workspace, person)
 
   defp scope(%{scope_kind: :operator}), do: "One person"
+  defp scope(%{scope_kind: :repository, scope_ref: repository}), do: "Repository " <> repository
   defp scope(item), do: item.scope_ref
 
   defp source_url(%{source_conversation_ref: "control-plane:lab:" <> id}) do

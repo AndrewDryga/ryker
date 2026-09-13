@@ -1,7 +1,8 @@
 defmodule Responder.ControlPlane.OperatorUsabilityTest do
   alias Responder.ControlPlane.UsageChart
   use ExUnit.Case, async: true
-  alias Responder.ControlPlane.HTML
+  import Phoenix.LiveViewTest, only: [render_component: 2]
+  alias Responder.ControlPlane.{BehaviorPage, HTML}
 
   test "timer subscriptions show their scheduled wake without pretending to watch any source" do
     html =
@@ -39,6 +40,72 @@ defmodule Responder.ControlPlane.OperatorUsabilityTest do
     assert html =~ "Resume work at the scheduled time"
     refute html =~ ">any<"
     refute html =~ "External event subscriptions"
+  end
+
+  test "an entry's overflow control says which entry it acts on and never hides the ordinary action" do
+    # A "⋯" glyph is not a name. A screen reader user tabbing through twenty
+    # rules hears "More actions for Triage deployment alerts", not "button"
+    # twenty times, and the ordinary Pause or Resume stays visible beside it
+    # rather than folded into the same menu as Delete. Entries that can no
+    # longer change carry their state in words, not only in a colour.
+    entry = fn status ->
+      render_component(&BehaviorPage.render/1,
+        view: %{
+          kind: :standing_assignment,
+          items: [
+            %{
+              kind: :standing_assignment,
+              ref: "behavior:one",
+              payload: %{"title" => "Triage deployment alerts", "task" => "Triage the alert."},
+              status: status,
+              scope_kind: :workspace,
+              scope_ref: "slack:T123",
+              workspace_ref: "slack:T123",
+              confirmed_at: ~U[2026-09-06 12:00:00Z],
+              use_count: 0,
+              last_used_at: nil,
+              expires_at: nil,
+              source_conversation_ref: "slack:T123:C456",
+              source_message_ref: "1787832000.000100"
+            }
+          ],
+          counts: %{},
+          total: 1,
+          page: 1,
+          pages: 1,
+          runs: [],
+          params: %{"q" => "", "scope" => "", "status" => "current"}
+        }
+      )
+      |> LazyHTML.from_fragment()
+    end
+
+    for {status, ordinary} <- [{"active", "Pause"}, {"disabled", "Resume"}] do
+      document = entry.(status)
+      actions = LazyHTML.query(document, ".behavior-footer .behavior-actions")
+
+      assert LazyHTML.query(document, ".behavior-actions > form.action-control button")
+             |> LazyHTML.text() == ordinary
+
+      summary = LazyHTML.query(actions, "details.behavior-menu > summary")
+      assert LazyHTML.text(summary) =~ "More actions for Triage deployment alerts"
+      assert LazyHTML.query(summary, ".sr-only") |> LazyHTML.text() =~ "More actions"
+
+      delete = LazyHTML.query(actions, "details.behavior-menu button")
+      assert LazyHTML.text(delete) == "Delete"
+      assert LazyHTML.attribute(delete, "class") == ["ui-button danger"]
+      assert LazyHTML.text(LazyHTML.query(document, ".behavior-usage")) =~ "Not used yet"
+    end
+
+    for {status, word} <- [
+          {"expired", "Expired"},
+          {"deleted", "Deleted"},
+          {"superseded", "Superseded"}
+        ] do
+      document = entry.(status)
+      assert Enum.empty?(LazyHTML.query(document, ".behavior-actions, form.action-control"))
+      assert LazyHTML.query(document, ".behavior-heading .ui-status") |> LazyHTML.text() == word
+    end
   end
 
   test "findings explain their scope and supported creation workflow" do

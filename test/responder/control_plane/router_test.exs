@@ -1308,6 +1308,80 @@ defmodule Responder.ControlPlane.RouterTest do
     assert request(:get, "/actions/unknown/ref/delete").status == 404
   end
 
+  test "a lifecycle action against a stale, foreign or unknown target is refused before it runs" do
+    # Delete moved behind an overflow control on 2026-09-13. A control that
+    # is harder to see is easier to leave open across a refresh, so the
+    # confirmation it opens must still be bound to the exact row and state:
+    # a rule deleted meanwhile answers 404 to its own confirmation and 409 to
+    # a stale POST, a token minted for another row or another action is 403,
+    # and none of these reach set_behavior_status.
+    options = options()
+
+    options = %{
+      options
+      | projection:
+          Map.put(options.projection, :behavior, fn
+            "behavior:one" ->
+              {:ok,
+               %{
+                 kind: :standing_assignment,
+                 ref: "behavior:one",
+                 status: "active",
+                 payload: %{"title" => "Triage deployment alerts"}
+               }}
+
+            "behavior:gone" ->
+              {:ok,
+               %{
+                 kind: :standing_assignment,
+                 ref: "behavior:gone",
+                 status: "deleted",
+                 payload: %{"title" => "Retired rule"}
+               }}
+
+            _ ->
+              :not_found
+          end)
+    }
+
+    live = "/actions/behavior/behavior%3Aone/disabled"
+    confirmation = request_with_options(:get, live, nil, options)
+    assert confirmation.status == 200
+    [_, token] = Regex.run(~r/name="_token" value="([^"]+)"/, confirmation.resp_body)
+
+    # The row was deleted after the menu was opened: no confirmation, no action.
+    for action <- ["active", "disabled", "deleted"] do
+      stale = "/actions/behavior/behavior%3Agone/#{action}"
+      assert request_with_options(:get, stale, nil, options).status == 404
+
+      rejected =
+        request_with_options(:post, stale, URI.encode_query(%{"_token" => token}), options)
+
+      assert rejected.status == 409
+    end
+
+    # A token for Pause cannot delete, and a token for one row cannot touch another.
+    crossed = "/actions/behavior/behavior%3Aone/deleted"
+
+    assert request_with_options(:post, crossed, URI.encode_query(%{"_token" => token}), options).status ==
+             403
+
+    foreign =
+      CSRF.token(@secret, "behavior:disabled", "behavior:two")
+
+    assert request_with_options(:post, live, URI.encode_query(%{"_token" => foreign}), options).status ==
+             403
+
+    assert request_with_options(:get, "/actions/behavior/behavior%3Aone/expired", nil, options).status ==
+             404
+
+    refute_received {{:behavior_status, _}, _}
+
+    accepted = request_with_options(:post, live, URI.encode_query(%{"_token" => token}), options)
+    assert accepted.status == 303
+    assert_received {{:behavior_status, :disabled}, "behavior:one"}
+  end
+
   test "schedule lifecycle controls stay discoverable after leaving Memory" do
     # Moving schedules to their own page must not remove the only pause,
     # resume and delete controls from the console.

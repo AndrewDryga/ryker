@@ -257,6 +257,202 @@ defmodule Responder.ControlPlane.BehaviorPageTest do
     refute html =~ "No guidance yet"
   end
 
+  test "an entry reads title, scope and status first, then the instruction, usage and quiet actions" do
+    # The 2026-09-09 Standing rules screenshot showed each rule as a card with
+    # a 20px heading, a six-cell definition list (Applies to / When / From /
+    # Repository / Expires / Used) and a footer that put Delete beside Pause.
+    # Andrew approved one scannable shape: the title with its status, one
+    # 13px line of scope, trigger and expiry, the instruction, one usage line,
+    # then the source link with Pause visible and Delete behind an overflow
+    # control. The definition list is gone rather than kept beside it.
+    item = item(:standing_assignment)
+
+    document =
+      render_component(&BehaviorPage.render/1, view: view(:standing_assignment, [item]))
+      |> LazyHTML.from_fragment()
+
+    assert outline(document, "article.behavior-entry > *") == [
+             "div.behavior-heading",
+             "p.behavior-scope",
+             "p.behavior-instruction",
+             "details.behavior-conditions",
+             "p.behavior-usage",
+             "footer.behavior-footer"
+           ]
+
+    heading = LazyHTML.query(document, "article.behavior-entry > .behavior-heading")
+    assert LazyHTML.query(heading, "h2") |> LazyHTML.text() == "<unsafe>"
+    assert LazyHTML.query(heading, "h2 + .ui-status") |> LazyHTML.text() == "Active"
+
+    scope = LazyHTML.query(document, "article.behavior-entry > p.behavior-scope")
+    assert LazyHTML.text(scope) =~ "Slack channel C456"
+    assert LazyHTML.text(scope) =~ "GitHub events"
+    assert LazyHTML.text(scope) =~ "emisar"
+    assert LazyHTML.text(scope) =~ "No expiry"
+
+    assert LazyHTML.query(document, "article.behavior-entry > p.behavior-usage")
+           |> LazyHTML.text() =~ "Used 3 times"
+
+    footer = LazyHTML.query(document, "article.behavior-entry > footer.behavior-footer")
+
+    assert LazyHTML.query(footer, "a[href^='https://slack.com/']") |> LazyHTML.text() =~
+             "Original"
+
+    visible = LazyHTML.query(footer, ".behavior-actions > form.action-control button")
+    assert LazyHTML.text(visible) == "Pause"
+
+    menu = LazyHTML.query(footer, ".behavior-actions > details.behavior-menu")
+    assert Enum.count(menu) == 1
+    assert LazyHTML.attribute(menu, "open") == []
+    assert LazyHTML.query(menu, "summary") |> LazyHTML.text() =~ "More actions"
+    assert LazyHTML.query(menu, "form.action-control button") |> LazyHTML.text() == "Delete"
+
+    assert LazyHTML.query(menu, "form.action-control") |> LazyHTML.attribute("action") == [
+             "/actions/behavior/behavior%3Aone/deleted"
+           ]
+
+    assert Enum.empty?(LazyHTML.query(document, "dl.behavior-meta, .behavior-entry header"))
+  end
+
+  test "a two-thousand-character instruction is reachable whole, and a short one is not padded with an empty control" do
+    # The stored task is the rule. A preview that cannot be expanded is a
+    # truncation with no way to read the rest, and an empty "Show more" on a
+    # one-line preference is noise. The full stored text must be present
+    # verbatim inside a disclosure whose id survives a live refresh, and the
+    # preview must be labelled as one, never presented as the instruction.
+    long =
+      1..40
+      |> Enum.map_join(
+        "\n",
+        &"Step #{&1}: compare the posted plan against the last apply and say so."
+      )
+      |> String.slice(0, 2_000)
+      |> String.pad_trailing(2_000, "x")
+
+    assert String.length(long) == 2_000
+    rule = %{item(:standing_assignment) | payload: %{"title" => "Long rule", "task" => long}}
+
+    document =
+      render_component(&BehaviorPage.render/1, view: view(:standing_assignment, [rule]))
+      |> LazyHTML.from_fragment()
+
+    full = LazyHTML.query(document, "article.behavior-entry > details.behavior-full")
+    assert Enum.count(full) == 1
+    assert LazyHTML.attribute(full, "id") == ["behavior-behavior:one-full"]
+    assert LazyHTML.attribute(full, "open") == []
+    assert LazyHTML.query(full, "summary") |> LazyHTML.text() == "Show full instruction"
+    assert LazyHTML.query(full, "p.behavior-instruction") |> LazyHTML.text() == long
+
+    preview = LazyHTML.query(document, "article.behavior-entry > p.behavior-preview")
+    assert Enum.count(preview) == 1
+    assert LazyHTML.query(preview, ".behavior-preview-label") |> LazyHTML.text() =~ "Preview"
+    preview_text = LazyHTML.text(preview)
+    assert String.length(preview_text) < 400
+    assert preview_text =~ "Step 1: compare the posted plan"
+    assert String.ends_with?(preview_text, "…")
+
+    short = %{item(:standing_assignment) | payload: %{"title" => "Short", "task" => "Say hi."}}
+
+    document =
+      render_component(&BehaviorPage.render/1, view: view(:standing_assignment, [short]))
+      |> LazyHTML.from_fragment()
+
+    assert Enum.empty?(LazyHTML.query(document, "details.behavior-full, p.behavior-preview"))
+
+    assert LazyHTML.query(document, "article > p.behavior-instruction") |> LazyHTML.text() ==
+             "Say hi."
+
+    guidance = %{
+      item(:guidance)
+      | payload: %{"subject" => "Review style", "summary" => "Risk first", "text" => long}
+    }
+
+    document =
+      render_component(&BehaviorPage.render/1, view: view(:guidance, [guidance]))
+      |> LazyHTML.from_fragment()
+
+    assert LazyHTML.query(document, "details.behavior-full > summary") |> LazyHTML.text() ==
+             "Show full guidance"
+
+    assert LazyHTML.query(document, "details.behavior-full p.behavior-instruction")
+           |> LazyHTML.text() == long
+  end
+
+  test "every disclosure in an entry carries a stable id so an open one survives a live refresh" do
+    # PreserveReadingState keys a <details> by its id and falls back to its
+    # position plus summary text. Two rules with the same "Show full
+    # instruction" summary would swap open states whenever the list reorders
+    # after a reconcile, so each disclosure is named by the entry it belongs to.
+    long = String.duplicate("Watch the queue and say what changed. ", 20)
+
+    rules = [
+      %{
+        item(:standing_assignment)
+        | ref: "behavior:a",
+          payload: %{"title" => "A", "task" => long}
+      },
+      %{
+        item(:standing_assignment)
+        | ref: "behavior:b",
+          payload: %{"title" => "B", "task" => long, "filter" => %{"branch" => "main"}}
+      }
+    ]
+
+    document =
+      render_component(&BehaviorPage.render/1, view: view(:standing_assignment, rules))
+      |> LazyHTML.from_fragment()
+
+    ids = LazyHTML.query(document, ".behavior-entries details") |> LazyHTML.attribute("id")
+
+    assert ids == [
+             "behavior-behavior:a-full",
+             "behavior-behavior:a-menu",
+             "behavior-behavior:b-full",
+             "behavior-behavior:b-conditions",
+             "behavior-behavior:b-menu"
+           ]
+
+    assert Enum.uniq(ids) == ids
+  end
+
+  test "opening the action menu or a disclosure performs nothing: every control is a GET to its confirmation" do
+    # Moving Delete behind an overflow control is not permission to skip its
+    # confirmation page. Nothing inside an entry may POST, carry a phx-click,
+    # or point anywhere but the existing /actions/behavior confirmation, so
+    # opening the menu, or a disclosure, cannot change a row.
+    for status <- ["active", "disabled"] do
+      document =
+        render_component(&BehaviorPage.render/1,
+          view: view(:standing_assignment, [%{item(:standing_assignment) | status: status}])
+        )
+        |> LazyHTML.from_fragment()
+
+      forms = LazyHTML.query(document, "article.behavior-entry form")
+      assert Enum.count(forms) == 2
+      assert LazyHTML.attribute(forms, "method") |> Enum.uniq() == ["get"]
+
+      for action <- LazyHTML.attribute(forms, "action") do
+        assert String.starts_with?(action, "/actions/behavior/behavior%3Aone/"), action
+      end
+
+      # Delete is reachable only through the closed menu, and the menu itself
+      # is a disclosure, not a form: opening it submits nothing.
+      assert Enum.count(
+               LazyHTML.query(
+                 document,
+                 "details.behavior-menu:not([open]) > :not(summary) form[action$='/deleted']"
+               )
+             ) == 1
+
+      assert Enum.empty?(LazyHTML.query(document, "details.behavior-menu > summary form"))
+      assert Enum.empty?(LazyHTML.query(document, "[phx-click], [phx-submit], form[method=post]"))
+
+      assert Enum.empty?(
+               LazyHTML.query(document, "article.behavior-entry button:not(form button)")
+             )
+    end
+  end
+
   defp count_text(html),
     do: html |> LazyHTML.from_fragment() |> LazyHTML.query("p.result-count") |> LazyHTML.text()
 
