@@ -590,15 +590,20 @@ defmodule Responder.State.TaskOffersTest do
     assert String.length(stage(flooded_task, "workspace_setup")["detail"]) == 200
     assert {:ok, _bounded} = Renderer.render(flooded.document)
 
-    # An error the host genuinely cannot characterise keeps the generic notice —
-    # and still never prints the term it could not read.
+    # An error the host genuinely cannot characterise still never prints the term
+    # it could not read — but it names the host's *own* error code, which is ours
+    # and not the worker's. The notice used to end "Open the episode for details",
+    # pointing a Slack reader at a page bound to loopback that their client cannot
+    # reach, so the card said nothing anyone could act on.
     saved!(fixture, "work_execution_failed: {:work_execution_failed, :unknown}")
 
     assert {:ok, unreadable} = TaskCardProjection.build(fixture.card)
     unreadable_task = unreadable.document["task_card"]
 
     assert unreadable_task["action_needed"] ==
-             "Task work is blocked and needs operator attention. Open the episode for details."
+             "Task work is blocked and needs operator attention: `work_execution_blocked`."
+
+    refute unreadable_task["action_needed"] =~ "Open the episode for details"
 
     assert stage(unreadable_task, "workspace_setup")["detail"] == "work never started"
 
@@ -793,7 +798,11 @@ defmodule Responder.State.TaskOffersTest do
     assert {:ok, projection} = TaskCardProjection.build(blocked.card)
     task = projection.document["task_card"]
     assert task["status"] == "action_required"
-    assert task["action_needed"] =~ "operator attention"
+
+    # A blocked publication with no recorded cause says exactly that, rather
+    # than sending the reader to a page their Slack client cannot open.
+    assert task["action_needed"] == "Draft pull-request work is blocked; no cause was recorded."
+    refute task["action_needed"] =~ "Open the episode for details"
     refute task["action_needed"] =~ "branch protection"
     assert task["publication"]["controls"] == ["update", "discard"]
   end

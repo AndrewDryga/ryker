@@ -262,11 +262,11 @@ defmodule Responder.Slack.TaskCardProjection do
   # episode for details" is what hid the runner's actual question for two days.
   defp public_error(_publication, _turn, hold) when is_map(hold), do: nil
 
-  defp public_error(%Publication{status: :blocked}, _turn, _hold),
-    do: "Draft pull-request work needs operator attention. Open the episode for details."
+  defp public_error(%Publication{status: :blocked} = publication, _turn, _hold),
+    do: attention("Draft pull-request work is blocked", publication.last_error_code)
 
   defp public_error(%Publication{last_error_code: code}, _turn, _hold) when is_binary(code),
-    do: "Draft pull-request work needs operator attention. Open the episode for details."
+    do: attention("Draft pull-request work needs operator attention", code)
 
   # The generic notice keeps untrusted error text out of Slack, and for a task
   # that never started it was also everything the card ever said — above a
@@ -278,11 +278,20 @@ defmodule Responder.Slack.TaskCardProjection do
   defp public_error(_publication, %Turn{status: :blocked} = turn, _hold) do
     case FailureCause.explain(turn.last_error_detail) do
       %{cause: cause, next_step: next_step} -> compact(cause <> "\n" <> next_step, 2_000)
-      nil -> "Task work is blocked and needs operator attention. Open the episode for details."
+      nil -> attention("Task work is blocked and needs operator attention", turn.last_error_code)
     end
   end
 
   defp public_error(_publication, _turn, _hold), do: nil
+
+  # "Open the episode for details" pointed a Slack reader at a page bound to
+  # loopback, which their client cannot reach; it is the dead end that hid a
+  # runner's question for two days. The worker's own sentence may be untrusted
+  # here, but the error *code* is ours, so it is the one fact that can travel.
+  defp attention(statement, code) when is_binary(code) and code != "",
+    do: "#{statement}: `#{code}`."
+
+  defp attention(statement, _code), do: "#{statement}; no cause was recorded."
 
   defp neutral(projection) do
     task = projection.document["task_card"]
