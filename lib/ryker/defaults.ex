@@ -120,10 +120,6 @@ defmodule Ryker.Defaults do
     end
   end
 
-  @doc "Merges caller-supplied runtime bindings over the defaults for one owner."
-  @spec merge(atom(), map()) :: map()
-  def merge(owner, bindings) when is_map(bindings), do: Map.merge(fetch!(owner), bindings)
-
   @doc """
   The execution topology chosen by the build, not by an operator.
 
