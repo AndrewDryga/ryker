@@ -987,8 +987,13 @@ details.measurement-notes > summary { cursor:pointer; font-weight:600; color:var
 .markdown-preview li { margin:4px 0; }
 .markdown-preview a { text-decoration:underline; text-underline-offset:3px; color:#365a42; }
 .final-prompt { border-top:1px solid var(--stroke); margin-top:12px; padding-top:10px; }
-.final-prompt > summary { cursor:pointer; font-size:14px; font-weight:600; }
-.final-prompt > summary span { font-size:12px; font-weight:400; margin-left:10px; }
+/* .prompt-assembly closes with its own border-block line. Adding one here drew
+   two rules a few pixels apart, which is what "there are two horizontal
+   dividers but should be just one" was about. */
+.prompt-assembly + .final-prompt { border-top:0; margin-top:0; }
+.final-prompt > header { margin:0 0 8px; }
+.final-prompt > header h4 { margin:0; font-size:14px; }
+.final-prompt > header p { margin:3px 0 0; font-size:13px; color:var(--secondary); }
 .prompt-legend { font-size:12px; color:#53604f; margin:12px 0; }
 .submitted-prompt { background:#fafbf8; color:#27352b; padding:16px; border:1px solid var(--stroke); white-space:pre-wrap; overflow-wrap:anywhere; max-height:70vh; overflow:auto; font:13px/1.8 ui-monospace, SFMono-Regular, Menlo, monospace; }
 .submitted-prompt code { font:inherit; color:inherit; background:transparent; padding:0; }

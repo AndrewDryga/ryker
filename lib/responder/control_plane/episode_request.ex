@@ -101,29 +101,25 @@ defmodule Responder.ControlPlane.EpisodeRequest do
           </details>
         <% end %>
       </div>
-      <details
-        :if={@prompt_section}
-        class="final-prompt"
-        id={"#{@request.id}-final-prompt"}
-        data-artifact={@prompt_section[:artifact_id]}
-        data-revoked={if revoked?(@prompt_section.artifact), do: "true"}
-      >
-        <summary>
-          Full submitted request
-          <span :if={@prompt_section.artifact.state == :collapsed}>{bytes(
-            @prompt_section.artifact.bytes
-          )}</span>
-          <span :if={@prompt_section.artifact.redacted}>Secrets redacted</span><span :if={
-            @prompt_section.artifact.truncated
-          }>Partial display</span>
-        </summary>
-        <p :if={@prompt_section.artifact.state == :collapsed} class="artifact-loading" role="status">
-          Loading the submitted prompt…
-        </p>
+      <section :if={@prompt_section} class="final-prompt" id={"#{@request.id}-final-prompt"}>
+        <header>
+          <h4>Full submitted request</h4>
+          <p>
+            Responder's retained submission. Each component below opens on its own.<span :if={
+              @prompt_section.artifact.redacted
+            }> Secrets redacted.</span><span :if={@prompt_section.artifact.truncated}>
+              Partial display.
+            </span>
+          </p>
+        </header>
         {Phoenix.HTML.raw(
-          RequestContextHTML.submitted(@request.sections, @request.id <> "-submitted")
+          RequestContextHTML.submitted(
+            @request.sections,
+            @request.id <> "-submitted",
+            @prompt_section[:artifact_id]
+          )
         )}
-      </details>
+      </section>
       <section :if={is_map(@response)} class="response-review">
         <div :if={is_binary(@response["message"])} class="markdown-preview">
           {Phoenix.HTML.raw(Responder.ControlPlane.SlackMarkdown.preview(@response["message"]))}
@@ -176,15 +172,51 @@ defmodule Responder.ControlPlane.EpisodeRequest do
   # toggle meant opening all of it to read any of it, and the titles that say
   # which is which were only visible after that.
   defp artifact_disclosure(assigns) do
+    assigns = assign(assigns, :rows, decided_rows(assigns.section))
+
     ~H"""
     <details class={"timeline-artifact artifact-#{@section.id}"} id={@id}>
       <summary>
         {@section.title}<span :if={availability(@section.artifact)}>{availability(@section.artifact)}</span>
       </summary>
+      <dl :if={@rows != []} class="context-rows">
+        <div :for={{label, value} <- @rows}>
+          <dt>{label}</dt><dd>{value}</dd>
+        </div>
+      </dl>
       <pre :if={@section.artifact.state == :retained}>{@section.artifact.text}</pre>
     </details>
     """
   end
+
+  # "What can we extract from routing records to make this informative?" — the
+  # committed decision is the record a reader opens this section for, and it was
+  # a JSON blob. Its own fields answer the question directly: what the host
+  # decided, how it related this to existing work, and why.
+  @decision_rows [
+    {"action", "Decision"},
+    {"work_class", "Work class"},
+    {"relation", "Relation to existing work"},
+    {"episode_ref", "Related episode"},
+    {"reaction", "Reaction"},
+    {"reason", "Reason"}
+  ]
+
+  defp decided_rows(%{id: "candidate", artifact: %{state: :retained, text: text}})
+       when is_binary(text) do
+    case Jason.decode(text) do
+      {:ok, decision} when is_map(decision) ->
+        for {key, label} <- @decision_rows,
+            value = decision[key],
+            is_binary(value) and value != "",
+            do: {label, value}
+
+      _other ->
+        []
+    end
+  end
+
+  defp decided_rows(_section), do: []
 
   # Identity and artifact-level inspection remain on the linked full request
   # record; this is the body inside a disclosure that already named the record.
@@ -417,12 +449,6 @@ defmodule Responder.ControlPlane.EpisodeRequest do
 
   # Retention, redaction and a withdrawn authorization all remove the body. The
   # reader's open disclosure must not be restored around content that is gone.
-  defp revoked?(%{state: state}), do: state in [:expired, :not_recorded]
-
-  defp bytes(nil), do: "Size not recorded"
-  defp bytes(count) when count < 1_024, do: "#{count} bytes"
-  defp bytes(count) when count < 1_024 * 1_024, do: "#{div(count, 1_024)} KiB"
-  defp bytes(count), do: "#{Float.round(count / (1_024 * 1_024), 1)} MiB"
 
   defp availability(%{state: :collapsed}), do: nil
   defp availability(%{state: :expired}), do: "Expired"

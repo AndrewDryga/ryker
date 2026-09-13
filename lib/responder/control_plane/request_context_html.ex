@@ -102,7 +102,7 @@ defmodule Responder.ControlPlane.RequestContextHTML do
   end
 
   @doc "The retained prompt and separately supplied output format, without rebuilding either."
-  def submitted(sections, prefix) do
+  def submitted(sections, prefix, artifact_id \\ nil) do
     [
       "<p class=\"prompt-legend\">Responder's retained submission; provider-owned instructions and wrappers are not recorded here. Point to or focus a highlight to identify its component.</p>",
       Enum.map(
@@ -122,7 +122,7 @@ defmodule Responder.ControlPlane.RequestContextHTML do
               group(
                 title,
                 description,
-                submitted_source(section.artifact, id, component, path, prefix)
+                submitted_source(section.artifact, id, component, path, prefix, artifact_id)
               )
           end
         end
@@ -130,7 +130,7 @@ defmodule Responder.ControlPlane.RequestContextHTML do
     ]
   end
 
-  defp submitted_source(artifact, id, title, path, prefix) do
+  defp submitted_source(artifact, id, title, path, prefix, artifact_id) do
     state = artifact_availability(artifact)
 
     source(
@@ -144,7 +144,9 @@ defmodule Responder.ControlPlane.RequestContextHTML do
         _absent -> ["<p>", state, ". No reconstructed substitute is shown.</p>"]
       end,
       prefix,
-      state: state
+      state: state,
+      artifact: if(artifact.state == :collapsed, do: artifact_id),
+      revoked: artifact.state in [:expired, :not_recorded]
     )
   end
 
@@ -340,6 +342,97 @@ defmodule Responder.ControlPlane.RequestContextHTML do
 
   defp context_row(label, value),
     do: ["<div><dt>", escape(label), "</dt><dd>", escape(to_string(value)), "</dd></div>"]
+
+  # The generic field dumper turned this into an alphabetised tree — Companions,
+  # Freshness, Owner, Repositories, Fetched at, Name, Remote identity, Requested
+  # revision, Resolved revision, Stale base revision, Stale base status,
+  # Version, Workspace base revision — thirteen labels before the reader learns
+  # which repository the model could see or whether it could write to it.
+  defp workspace(value) do
+    primary = value["primary"] || %{}
+    source = primary["source"] || %{}
+    companions = value["companions"] || []
+
+    rows =
+      Enum.reject(
+        [
+          context_row("Repository", workspace_repository(primary)),
+          context_row("Access", workspace_access(primary)),
+          context_row("Checked out", workspace_revision(source)),
+          context_row("Freshness", workspace_freshness(value)),
+          context_row("Companions", workspace_companions(companions)),
+          context_row("Status", value["status"])
+        ],
+        &(&1 == [])
+      )
+
+    ["<dl class=\"context-rows\">", rows, "</dl>"]
+  end
+
+  defp workspace_repository(%{"name" => name, "path" => path})
+       when is_binary(name) and is_binary(path) and path != "." do
+    "#{name} at #{path}"
+  end
+
+  defp workspace_repository(%{"name" => name}) when is_binary(name), do: name
+  defp workspace_repository(_primary), do: nil
+
+  defp workspace_access(%{"read_only" => true}), do: "read-only"
+  defp workspace_access(%{"read_only" => false}), do: "writable"
+  defp workspace_access(_primary), do: nil
+
+  # A forty-character object id twice over says less than the ref plus a short
+  # id, and the reader is checking "which commit", not reading the hash.
+  defp workspace_revision(%{"selected_ref" => ref, "selected_commit" => commit})
+       when is_binary(ref) and is_binary(commit),
+       do: "#{ref} · #{String.slice(commit, 0, 8)}"
+
+  defp workspace_revision(%{"selected_commit" => commit}) when is_binary(commit),
+    do: String.slice(commit, 0, 8)
+
+  defp workspace_revision(_source), do: nil
+
+  defp workspace_freshness(value) do
+    stale = get_in(value, ["freshness", "repositories"]) || []
+
+    status =
+      Enum.find_value(stale, fn entry ->
+        if is_map(entry), do: entry["stale_base_status"]
+      end)
+
+    fetched =
+      Enum.find_value(stale, fn entry ->
+        if is_map(entry), do: entry["fetched_at"]
+      end)
+
+    [status, fetched && "fetched #{compact_time(fetched)}"]
+    |> Enum.filter(&is_binary/1)
+    |> Enum.join(" · ")
+    |> case do
+      "" -> nil
+      text -> text
+    end
+  end
+
+  defp workspace_companions([]), do: "none"
+
+  defp workspace_companions(companions) when is_list(companions) do
+    Enum.map_join(companions, ", ", fn
+      %{"name" => name} -> name
+      other -> to_string(other)
+    end)
+  end
+
+  defp workspace_companions(_companions), do: nil
+
+  defp compact_time(value) when is_binary(value) do
+    case String.split(value, "T") do
+      [date, rest] -> "#{date} #{String.slice(rest, 0, 5)} UTC"
+      _other -> value
+    end
+  end
+
+  defp compact_time(value), do: value
 
   defp where_rows(values) do
     Enum.reject(
@@ -598,6 +691,9 @@ defmodule Responder.ControlPlane.RequestContextHTML do
   defp body("candidates", value, _path, _prefix) when is_list(value) and value != [],
     do: candidates(value)
 
+  defp body("workspace", value, _path, _prefix) when is_map(value) and map_size(value) > 0,
+    do: workspace(value)
+
   defp body(key, value, path, _prefix)
        when key in ~w(global channel) and is_map(value) do
     if String.contains?(path, ".custom_instructions."),
@@ -682,6 +778,8 @@ defmodule Responder.ControlPlane.RequestContextHTML do
     open = Keyword.get(options, :open, false)
     state_override = Keyword.get(options, :state)
     count = Keyword.get(options, :count)
+    artifact = Keyword.get(options, :artifact)
+    revoked = Keyword.get(options, :revoked, false)
 
     state =
       state_override ||
@@ -697,6 +795,12 @@ defmodule Responder.ControlPlane.RequestContextHTML do
       "\" data-origin=\"",
       origin,
       "\"",
+      # The component carries its own lazy load. The outer disclosure used to,
+      # which is why it had to stay a disclosure at all.
+      if(artifact, do: [" data-artifact=\"", escape(artifact), "\""], else: ""),
+      # An expired body must never be fetched back, and the reader's open copy
+      # goes with it: privacy and retention win over preserving their place.
+      if(revoked, do: " data-revoked=\"true\"", else: ""),
       if(open, do: " open", else: ""),
       "><summary>",
       "<span class=\"prompt-source-state\">",
