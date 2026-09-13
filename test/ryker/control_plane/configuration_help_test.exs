@@ -3,8 +3,8 @@ defmodule Ryker.ControlPlane.ConfigurationHelpTest do
 
   alias Ryker.ControlPlane.CodeEditingSetup
   alias Ryker.ControlPlane.ConfigurationHelp
+  alias Ryker.ControlPlane.ConfigurationProjection
   alias Ryker.ControlPlane.HTML
-  alias Ryker.ControlPlane.OperatorProjection
 
   @settings ~w(admission work control_plane coop_worker_gateway delivery publication retention state_tools event_waits schedules emisar slack github webhooks runtime.mode admission.policy admission.decision_timeout_ms work.concurrency work.poll_interval_ms retention.operational_data_seconds retention.closed_work_seconds retention.episode_history_seconds retention.audit_data_seconds retention.disposable_bytes_limit retention.reclaim_target_seconds retention.storage_high_watermark_bytes retention.storage_low_watermark_bytes retention.storage_reserve_bytes)
 
@@ -165,7 +165,7 @@ defmodule Ryker.ControlPlane.ConfigurationHelpTest do
     end)
 
     Enum.each(configured, fn {key, value} -> Application.put_env(:ryker, key, value) end)
-    snapshot = OperatorProjection.operator_configuration()
+    snapshot = ConfigurationProjection.fetch()
     assert Enum.sort(Enum.map(snapshot.rows, & &1.key)) == Enum.sort(@settings)
     assert Enum.all?(snapshot.rows, &ConfigurationHelp.setting(&1.key).documented)
   end
