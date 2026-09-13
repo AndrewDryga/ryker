@@ -65,7 +65,6 @@ defmodule Ryker.MixProject do
       {:mint_web_socket, "~> 1.0"},
       {:postgrex, ">= 0.0.0"},
       {:jason, "~> 1.4"},
-      {:yaml_elixir, "~> 2.12"},
       {:jsv, "~> 0.22", only: :test},
       {:lazy_html, "~> 0.1.12", only: :test},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false}
