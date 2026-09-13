@@ -24,6 +24,7 @@ defmodule Responder.TestSupport.FakeCoopAPI do
         create_sources: [],
         exhaust_after_validation: Keyword.get(options, :exhaust_after_validation, false),
         fail_create: Keyword.get(options, :fail_create, false),
+        first_create_error: Keyword.get(options, :first_create_error),
         fail_first_close: Keyword.get(options, :fail_first_close, false),
         failed_close_key: nil,
         fail_first_operation: Keyword.get(options, :fail_first_operation, false),
@@ -101,6 +102,9 @@ defmodule Responder.TestSupport.FakeCoopAPI do
           state.fail_create ->
             {:error, {:coop_unavailable, :simulated}}
 
+          state.first_create_error != nil ->
+            {:error, state.first_create_error}
+
           state.async_create ->
             {:ok,
              %{
@@ -115,7 +119,7 @@ defmodule Responder.TestSupport.FakeCoopAPI do
         end
 
       operations =
-        if state.fail_create,
+        if state.fail_create or state.first_create_error != nil,
           do: state.known_operations,
           else:
             Map.put(
@@ -129,6 +133,7 @@ defmodule Responder.TestSupport.FakeCoopAPI do
          state
          | create_keys: state.create_keys ++ [key],
            create_sources: state.create_sources ++ [source],
+           first_create_error: nil,
            known_operations: operations,
            session: session
        }}
