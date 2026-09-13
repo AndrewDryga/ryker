@@ -24,16 +24,16 @@ The next task-card increment adds bounded chronological progress and current
 subtasks to the shared Slack renderer. Durable subtask changes refresh the same
 message during a pending turn, with no duplicate post or unchanged-state write.
 Product feedback is excluded from public progress and does not refresh the card.
-Card Lab includes three retained progress checkpoints from the old Emisar runner
-task and a separately labelled layout study using three real portal goals.
-Simulated task states are explicitly labelled, not presented as historical Slack
-payloads. Other card families still need real examples, and public streaming
-model output still requires Coop capture; private thoughts are not a substitute.
+The harvested task-card records (three retained progress checkpoints from the
+old Emisar runner task) remain the shared test fixture in
+`testdata/slack/legacy_task_records.json`; the runtime Card Lab that displayed
+them was retired on 2026-09-13. Other card families still need real examples,
+and public streaming model output still requires Coop capture; private thoughts
+are not a substitute.
 
-The Playwright increment replaces Card Lab's second catalog sidebar and state
-button wall with compact family/state selectors. It exposes provenance on demand,
+The Playwright increment exposes provenance on demand,
 labels the usage chart with dates, counters and measurement coverage, and fixes
-the mobile journey overflow and composer overlapping the conversation. Browser
+the mobile overflow and composer overlapping the conversation. Browser
 interaction tests also exposed malformed pause-state ARIA and raw UUID bytes in
 the usage ledger; the latter prevented the populated Usage LiveView from connecting.
 Both have failing-before regression tests. The screenshot harness is documented
@@ -59,7 +59,7 @@ does not mark the broader typed timeline item complete.
   races, and persistent pending/progress indication in Slack and the Lab.
 - [ ] Scoped GCP project discovery and useful Emisar organization context;
   resolve goal authorization and citation interoperability defects.
-- [ ] Rich real-data Slack task cards and Card Lab examples for every family/state;
+- [ ] Rich real-data Slack task cards for every family/state;
   public progress, subtasks, native confirmations and live in-place transitions.
 - [ ] Complete GitHub App integration and native GitHub replay/live workbench.
 - [ ] Finish native LiveView operational pages and Conversation Lab parity.
@@ -83,7 +83,6 @@ the unchecked product items below remain open.
 - [ ] Requests and filters
 - [ ] Episode and retained request detail
 - [ ] Conversation Lab and all card actions
-- [ ] Slack Card Lab: every family/state, especially working tasks
 - [ ] Incident rooms and room detail
 - [ ] Failures and confirmed recovery
 - [ ] Usage and cost, including drill-downs
@@ -97,7 +96,6 @@ the unchecked product items below remain open.
 - [ ] Channels and channel detail
 - [ ] Repositories
 - [ ] Workspaces
-- [ ] Test journeys
 - [ ] GitHub workbench when implemented
 
 The standalone Audit page was removed at operator request. Durable audit records

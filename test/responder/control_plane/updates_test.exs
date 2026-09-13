@@ -3,24 +3,26 @@ defmodule Responder.ControlPlane.UpdatesTest do
 
   alias Ecto.Adapters.SQL.Sandbox
 
-  alias Responder.ControlPlane.CardLabFeedback
-
   alias Responder.ControlPlane.Updates
   alias Responder.Repo
 
   test "rolled-back writes are invisible and committed changes invalidate live projections" do
     start_supervised!({Updates, []})
-    Phoenix.PubSub.subscribe(Responder.ControlPlane.PubSub, "control-plane:card-lab")
+    Phoenix.PubSub.subscribe(Responder.ControlPlane.PubSub, "control-plane:usage")
 
     task =
       unboxed_task(fn ->
         Repo.transaction(fn ->
-          CardLabFeedback.record(
-            "incident-room",
-            "provisioning",
-            "good",
-            "Notification rollback check"
-          )
+          Repo.insert!(%Responder.Accounting.Execution{
+            kind: "admission",
+            source_id: Ecto.UUID.generate(),
+            generation: "1",
+            execution_mode: "live",
+            transport: "control_plane",
+            conversation_ref: "control-plane:lab:#{Ecto.UUID.generate()}",
+            status: "completed",
+            recorded_at: DateTime.utc_now()
+          })
 
           Repo.rollback(:test_rollback)
         end)
@@ -32,7 +34,7 @@ defmodule Responder.ControlPlane.UpdatesTest do
     # NOTIFY commits independently without leaving a fixture in shared tables.
     task =
       unboxed_task(fn ->
-        Repo.query!("SELECT pg_notify('responder_control_plane', 'card_lab_posts')")
+        Repo.query!("SELECT pg_notify('responder_control_plane', 'execution_usage')")
       end)
 
     Task.await(task)
@@ -71,7 +73,12 @@ defmodule Responder.ControlPlane.UpdatesTest do
       "platform_actions" => "timeline",
       "delivery_reactions" => "lab",
       "responder_operator_actions" => "failures",
-      "future_table" => "configuration"
+      "future_table" => "configuration",
+      # Retained Card Lab history has no page left to refresh; a late write to
+      # it (there is no writer) falls into the generic readers like any
+      # unknown table, never into a "card-lab" domain nobody subscribes to.
+      "card_lab_posts" => "configuration",
+      "card_lab_feedback" => "configuration"
     }
 
     Enum.each(Enum.uniq(Map.values(tables)), fn domain ->

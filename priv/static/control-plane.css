@@ -37,20 +37,10 @@
 .workspace-content main { margin: 0; max-width: 1680px; padding: 26px 32px; }
 .workspace-footer { border-top: 0; color: #7d8e94; font-size: 10px; margin: 0; max-width: none; padding: 8px 32px 28px; }
 .workspace-warning { background: #322719; border-bottom: 1px solid #76633b; color: #efcd8b; font-size: 12px; margin: 0; padding: 10px 32px; }
-.workspace-content .card-lab-hero { background: #1a2225; border-color: #35444a; border-radius: 8px; padding: 20px 24px; }
-.workspace-content .card-lab-hero:after { display: none; }
-.workspace-content .card-lab-hero h2 { font-size: 22px; }
-.workspace-content .card-lab-shell { border-radius: 8px; grid-template-columns: 185px minmax(0, 1fr) 285px; }
-.workspace-content .card-lab-stage { padding: 20px; }
 .workspace-content table { background: transparent; }
 .workspace-content th { font-size: 10px; letter-spacing: .05em; }
 .workspace-content td { font-size: 12px; }
 .workspace-content :focus-visible { outline: 2px solid var(--cyan); outline-offset: 3px; }
-@media (max-width: 1280px) {
-  .workspace-content .card-lab-shell { grid-template-columns: 170px minmax(0, 1fr); }
-  .workspace-content .card-lab-inspector { border-left: 0; border-top: 1px solid var(--line); grid-column: 1 / -1; display: grid; gap: 24px; grid-template-columns: repeat(3, 1fr); }
-  .workspace-content .card-lab-inspector > section + section { border: 0; border-left: 1px solid var(--line); margin: 0; padding: 0 0 0 24px; }
-}
 @media (max-width: 900px) {
   .workspace-navigation { position: static; width: 100%; padding: 16px; border-right: 0; border-bottom: 1px solid var(--line); }
   .workspace-navigation nav { display: flex; gap: 20px; margin-top: 18px; overflow-x: auto; }
@@ -64,9 +54,6 @@
 @media (max-width: 640px) {
   .workspace-toolbar { align-items: flex-start; flex-direction: column; gap: 10px; }
   .workspace-content main { padding: 14px; }
-  .workspace-content .card-lab-shell, .workspace-content .card-lab-inspector { display: block; }
-  .workspace-content .card-lab-inspector > section + section { border: 0; border-top: 1px solid var(--line); margin-top: 20px; padding: 20px 0 0; }
-  .workspace-content .card-lab-stage { padding: 14px; }
 }
 @media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; } }
 :root { --inspection-muted: #99a5ad; --inspection-line: #344049; }

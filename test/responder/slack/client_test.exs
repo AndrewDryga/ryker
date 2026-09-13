@@ -1,8 +1,6 @@
 defmodule Responder.Slack.ClientTest do
   use ExUnit.Case, async: true
 
-  alias Responder.ControlPlane.CardLab
-
   alias __MODULE__.FakeRequester
   alias Responder.Slack.Client
 
@@ -32,56 +30,41 @@ defmodule Responder.Slack.ClientTest do
     assert [{:post, "/auth.test", %{}, []}] = FakeRequester.requests(requester)
   end
 
-  test "Card Lab reconciliation excludes channel history predating the durable post request" do
+  test "the client keeps no specimen send path after the Card Lab retirement" do
+    # Retired 2026-09-13. post_card_specimen/update_card_specimen accepted
+    # frozen "Card Lab · …" payloads with card_lab_preview_ control ids, and
+    # find_card_specimen searched channel history for their marker. Production
+    # delivery renders through Renderer.render/1 and must be the only way a
+    # message leaves this client; a leftover specimen path would let any
+    # caller post unrendered Block Kit that bypasses that boundary.
+    Code.ensure_loaded!(Client)
+    refute function_exported?(Client, :post_card_specimen, 5)
+    refute function_exported?(Client, :update_card_specimen, 5)
+    refute function_exported?(Client, :find_card_specimen, 4)
+
+    {:ok, requester} = FakeRequester.start([slack(%{"ts" => "1787832001.000200"})])
+
+    frozen = %{
+      "text" => "Card Lab · Incident room · Provisioning · Test controls only",
+      "blocks" => [%{"type" => "section", "text" => %{"type" => "mrkdwn", "text" => "hi"}}]
+    }
+
+    assert {:error, {:invalid_slack_render, :document}} =
+             Client.post_message(client(requester), "C123", nil, frozen, "card-lab:post-1")
+
+    assert FakeRequester.requests(requester) == []
+  end
+
+  test "message reconciliation reads the whole channel history without a specimen window" do
+    # find_card_specimen bounded its search with `oldest`; ordinary delivery
+    # reconciliation never did, and losing that parameter must not narrow it.
     {:ok, requester} = FakeRequester.start([slack(%{"messages" => []})])
-    since = ~U[2026-09-05 01:00:00Z]
-
-    assert Client.find_card_specimen(client(requester), "C123", "card-lab:post-1", since) ==
-             :not_found
-
+    assert Client.find_message(client(requester), "C123", nil, "delivery:one") == :not_found
     [{:get, path, nil, []}] = FakeRequester.requests(requester)
     params = path |> URI.parse() |> Map.fetch!(:query) |> URI.decode_query()
-    assert params["oldest"] == "#{DateTime.to_unix(since) - 300}.000000"
+    refute Map.has_key?(params, "oldest")
+    refute Map.has_key?(params, "inclusive")
     assert params["include_all_metadata"] == "true"
-  end
-
-  test "a native Card Lab post preserves its frozen Block Kit and reconciliation marker" do
-    {:ok, requester} = FakeRequester.start([slack(%{"ts" => "1787832001.000200"})])
-    {:ok, payload} = CardLab.slack_message("incident-room", "provisioning")
-
-    assert Client.post_card_specimen(
-             client(requester),
-             "C123",
-             nil,
-             payload,
-             "card-lab:post-1"
-           ) == {:ok, "1787832001.000200"}
-
-    [{:post, "/chat.postMessage", posted, []}] = FakeRequester.requests(requester)
-    assert posted["blocks"] == payload["blocks"]
-    assert posted["text"] == payload["text"]
-    assert posted["metadata"]["event_payload"]["id"] == "card-lab:post-1"
-    assert posted["unfurl_links"] == false
-    refute Map.has_key?(posted, "thread_ts")
-  end
-
-  test "native Card Lab updates target the existing posted message" do
-    {:ok, requester} =
-      FakeRequester.start([slack(%{"channel" => "C123", "ts" => "1787832001.000200"})])
-
-    {:ok, payload} = CardLab.slack_message("incident-room", "resolved")
-
-    assert Client.update_card_specimen(
-             client(requester),
-             "C123",
-             "1787832001.000200",
-             payload,
-             "card-lab:post-1"
-           ) == :ok
-
-    [{:post, "/chat.update", posted, []}] = FakeRequester.requests(requester)
-    assert posted["blocks"] == payload["blocks"]
-    assert posted["ts"] == "1787832001.000200"
   end
 
   defmodule FakeRequester do

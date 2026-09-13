@@ -5,14 +5,10 @@ defmodule Responder.ControlPlane.Navigation do
 
   @primary [
     {:activity, "Activity", "/"},
+    {:chat, "Conversation Lab", "/lab"},
     {:incident, "Incident rooms", "/incident-rooms"},
     {:incident, "Failures", "/failures"},
     {:usage, "Usage & cost", "/usage"}
-  ]
-  @testing [
-    {:chat, "Conversation Lab", "/lab"},
-    {:cards, "Slack Card Lab", "/card-lab"},
-    {:book, "Test journeys", "/manual-tests"}
   ]
   @secondary [
     {:clock, "Automation",
@@ -39,11 +35,7 @@ defmodule Responder.ControlPlane.Navigation do
   ]
 
   def sidebar(assigns) do
-    assigns =
-      assign(assigns,
-        groups: [{"Execution", @primary}, {"Testing", @testing}],
-        secondary: @secondary
-      )
+    assigns = assign(assigns, groups: [{"Execution", @primary}], secondary: @secondary)
 
     ~H"""
     <aside class="app-sidebar">
@@ -53,11 +45,7 @@ defmodule Responder.ControlPlane.Navigation do
         class="app-brand"
         aria-label="Responder control plane"
       >Responder</.link>
-      <nav
-        :for={{group, links} <- @groups}
-        class={"app-nav #{if group == "Testing", do: "testing-nav"}"}
-        aria-label={if group == "Execution", do: "Main navigation", else: group}
-      >
+      <nav :for={{group, links} <- @groups} class="app-nav" aria-label="Main navigation">
         <p class="nav-caption">{group}</p>
         <.link
           :for={{icon, label, href} <- links}
@@ -87,10 +75,11 @@ defmodule Responder.ControlPlane.Navigation do
 
   def mobile(assigns) do
     assigns =
-      assign(assigns, :groups, [
-        {"Testing", Enum.map(@testing, fn {_icon, label, href} -> {label, href} end)}
-        | Enum.map(@secondary, fn {_icon, label, links} -> {label, links} end)
-      ])
+      assign(
+        assigns,
+        :groups,
+        Enum.map(@secondary, fn {_icon, label, links} -> {label, links} end)
+      )
 
     ~H"""
     <details class="mobile-manage" id="mobile-manage">

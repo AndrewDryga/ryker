@@ -54,174 +54,43 @@ defmodule Responder.ControlPlane.RouterTest do
     assert LazyHTML.query(failures, "a[href^='/failures/']") |> LazyHTML.text() =~ "Inspect cause"
   end
 
-  test "retry confirmation names the frozen specimen rather than the currently browsed state" do
-    id = Ecto.UUID.generate()
-    options = options()
+  test "retired Card Lab and Test journeys routes answer like any other unknown page" do
+    # The runtime Slack Card Lab and the static Test journeys checklist were
+    # retired on 2026-09-13 as a clean cut. A stale bookmark or an old link in a
+    # Slack thread must get the ordinary unknown-page answer: no redirect, no
+    # compatibility alias, and no path left that could queue a specimen post or
+    # record feedback on a catalog that no longer exists.
+    unknown_page = request(:get, "/never-a-page")
+    assert unknown_page.status == 404
 
-    options = %{
-      options
-      | projection:
-          Map.put(options.projection, :card_lab_post, fn ^id ->
-            {:ok,
-             %{
-               id: id,
-               card_id: "incident-room",
-               state_id: "provisioning",
-               revision: 1,
-               workspace_ref: "T123",
-               channel_ref: "C123"
-             }}
-          end),
-        actions:
-          Map.put(options.actions, :describe_card_slack_target, fn "T123", "C123" ->
-            {:ok, %{workspace_ref: "T123", channel_ref: "C123", channel_name: "test"}}
-          end)
-    }
+    for path <- [
+          "/card-lab",
+          "/card-lab/task-card/working",
+          "/card-lab/behavior-offer/preference",
+          "/card-lab/incident-room/provisioning/slack/#{Ecto.UUID.generate()}/retry",
+          "/manual-tests"
+        ] do
+      removed = request(:get, path)
+      assert removed.status == unknown_page.status, path
+      assert get_resp_header(removed, "location") == []
+      refute removed.resp_body =~ "specimen"
+      refute removed.resp_body =~ "journey"
+      assert Router.snapshot(path, "", options()).status == 404
+    end
 
-    page =
-      request_with_options(
-        :get,
-        "/card-lab/incident-room/resolved/slack/#{id}/retry",
-        nil,
-        options
-      )
+    unknown_post = request(:post, "/never-a-page", "_token=stale")
 
-    assert page.status == 200
-    assert page.resp_body =~ "Provisioning"
-    refute page.resp_body =~ "· Resolved"
-  end
-
-  test "Card Lab requires destination review and a bound confirmation before posting to Slack" do
-    parent = self()
-    options = options()
-
-    options = %{
-      options
-      | actions:
-          Map.merge(options.actions, %{
-            describe_card_slack_target: fn "T123", "C123" ->
-              {:ok,
-               %{workspace_ref: "T123", channel_ref: "C123", channel_name: "responder-testing"}}
-            end,
-            post_card_to_slack: fn card, state, workspace, channel, id ->
-              send(parent, {:native_card_post, card, state, workspace, channel, id})
-              {:ok, %{id: id}}
-            end
-          }),
-        projection:
-          Map.put(options.projection, :card_lab_slack, fn _card ->
-            %{available: true, workspace_ref: "T123", channels: ["C123"], posts: []}
-          end)
-    }
-
-    path = "/card-lab/incident-room/provisioning"
-    page = request_with_options(:get, path, nil, options)
-    assert page.status == 200
-    assert page.resp_body =~ "Post to Slack"
-    assert page.resp_body =~ "Browser approximation"
-    refute_received {:native_card_post, _, _, _, _, _}
-
-    token = CSRF.token(@secret, "card_lab:prepare_slack", "incident-room:provisioning")
-
-    review =
-      request_with_options(
-        :post,
-        path <> "/slack/preview",
-        URI.encode_query(%{
-          "_token" => token,
-          "workspace_ref" => "T123",
-          "channel_ref" => "C123"
-        }),
-        options
-      )
-
-    assert review.status == 200
-    assert review.resp_body =~ "responder-testing"
-    assert review.resp_body =~ "Post test message"
-    refute_received {:native_card_post, _, _, _, _, _}
-
-    fields =
-      Regex.scan(~r/<input type="hidden" name="([^"]+)" value="([^"]*)"/, review.resp_body)
-      |> Map.new(fn [_, key, value] -> {key, value} end)
-
-    denied =
-      request_with_options(
-        :post,
-        path <> "/slack/post",
-        URI.encode_query(Map.put(fields, "channel_ref", "C999")),
-        options
-      )
-
-    assert denied.status == 403
-    refute_received {:native_card_post, _, _, _, _, _}
-
-    posted = request_with_options(:post, path <> "/slack/post", URI.encode_query(fields), options)
-    assert posted.status == 303
-    assert_received {:native_card_post, "incident-room", "provisioning", "T123", "C123", _id}
-  end
-
-  test "the Slack Card Lab previews and transitions exact specimens with durable feedback" do
-    index = request(:get, "/card-lab")
-
-    assert index.status == 200
-    assert index.resp_body =~ "Slack Card Lab"
-    assert index.resp_body =~ "Every production Slack surface"
-    assert index.resp_body =~ "Task card"
-    assert index.resp_body =~ "Production renderer"
-    assert index.resp_body =~ "Raw Block Kit JSON"
-
-    state = request(:get, "/card-lab/task-card/working")
-    assert state.status == 200
-    assert state.resp_body =~ "Bump the pinned admin runner release to 0.20.0"
-    assert state.resp_body =~ "Stop current run"
-    assert state.resp_body =~ "Transition without Slack"
-
-    transition_resource = "task-card:working:wait-input"
-    transition_token = CSRF.token(@secret, "card_lab:transition", transition_resource)
-
-    transitioned =
-      request(
-        :post,
-        "/card-lab/task-card/working/transitions/wait-input",
-        URI.encode_query(%{"_token" => transition_token})
-      )
-
-    assert transitioned.status == 303
-
-    assert get_resp_header(transitioned, "location") == [
-             "/card-lab/task-card/waiting-for-input"
-           ]
-
-    rejected =
-      request(
-        :post,
-        "/card-lab/task-card/working/transitions/wait-input",
-        URI.encode_query(%{"_token" => "wrong"})
-      )
-
-    assert rejected.status == 403
-
-    feedback_resource = "task-card:working"
-    feedback_token = CSRF.token(@secret, "card_lab:feedback", feedback_resource)
-
-    feedback =
-      request(
-        :post,
-        "/card-lab/task-card/working/feedback",
-        URI.encode_query(%{
-          "_token" => feedback_token,
-          "note" => "Make the progress line more prominent.",
-          "verdict" => "needs_work"
-        })
-      )
-
-    assert feedback.status == 303
-    assert get_resp_header(feedback, "location") == ["/card-lab/task-card/working#feedback"]
-
-    assert_received {:card_lab_feedback, "task-card", "working", "needs_work",
-                     "Make the progress line more prominent."}
-
-    assert request(:get, "/card-lab/missing/state").status == 404
+    for path <- [
+          "/card-lab/task-card/working/transitions/wait-input",
+          "/card-lab/task-card/working/feedback",
+          "/card-lab/incident-room/provisioning/slack/preview",
+          "/card-lab/incident-room/provisioning/slack/post",
+          "/card-lab/incident-room/provisioning/slack/#{Ecto.UUID.generate()}/update"
+        ] do
+      removed = request(:post, path, "_token=stale&verdict=good&note=late")
+      assert removed.status == unknown_post.status, path
+      assert get_resp_header(removed, "location") == []
+    end
   end
 
   test "renders an offline overview with hard browser boundaries" do
@@ -855,24 +724,6 @@ defmodule Responder.ControlPlane.RouterTest do
 
     invalid = request(:post, "/lab/#{conversation_id}/records/record:one/unknown", "")
     assert invalid.status == 404
-  end
-
-  test "the built-in journey guide reflects configured product owners" do
-    guide = request(:get, "/manual-tests")
-    assert guide.status == 200
-    assert guide.resp_body =~ "Slack threads, cards, and emoji"
-    assert guide.resp_body =~ "across completed episode boundaries"
-    assert guide.resp_body =~ "generated image"
-    assert guide.resp_body =~ "GitHub comments, reviews, and reactions"
-    assert guide.resp_body =~ "Local operator workbench"
-    assert guide.resp_body =~ "Universal signed webhook"
-    assert guide.resp_body =~ "X-Responder-Signature"
-    assert guide.resp_body =~ "X-Responder-Item-ID"
-    assert guide.resp_body =~ "RESPONDER_WEBHOOK_SECRET"
-    assert guide.resp_body =~ "Report the exact observed fields without inferring vendor meaning"
-    assert guide.resp_body =~ "curl --fail-with-body"
-    assert guide.resp_body =~ "Recovery and retention"
-    refute guide.resp_body =~ "token="
   end
 
   test "the native episode renders recovery and confirmed action controls without exposing extra fields" do
@@ -1637,10 +1488,6 @@ defmodule Responder.ControlPlane.RouterTest do
 
     %{
       actions: %{
-        record_card_feedback: fn card_id, state_id, verdict, note ->
-          send(parent, {:card_lab_feedback, card_id, state_id, verdict, note})
-          {:ok, %{id: Ecto.UUID.generate()}}
-        end,
         delete_lab_message: fn conversation_id, item_id ->
           send(parent, {:lab_message_delete, conversation_id, item_id})
           {:ok, %{status: :recorded}}
@@ -1772,20 +1619,6 @@ defmodule Responder.ControlPlane.RouterTest do
         ready: fn -> {:ok, %{stalled_queues: []}} end
       },
       projection: %{
-        card_lab_feedback: fn
-          "task-card", "working" ->
-            [
-              %{
-                actor_ref: "control-plane:local",
-                inserted_at: ~U[2026-09-04 12:00:00Z],
-                note: "Existing review note",
-                verdict: "good"
-              }
-            ]
-
-          _card_id, _state_id ->
-            []
-        end,
         admission: fn
           "ingress-input:one" ->
             {:ok,

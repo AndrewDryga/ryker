@@ -11,7 +11,7 @@ defmodule Responder.Slack.TaskCardProjectionTest do
   alias Responder.State.{Record, Records}
   alias Responder.Work.{Custody, Turn}
 
-  @records Jason.decode!(File.read!("priv/card_lab/legacy_task_records.json"))
+  @records Jason.decode!(File.read!("testdata/slack/legacy_task_records.json"))
 
   test "a waiting task links the question when the host knows its workspace" do
     # The 2026-09-12 coverage measurement: a card that says an operator response

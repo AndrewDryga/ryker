@@ -21,12 +21,11 @@ defmodule Responder.ControlPlane.WebRouter do
     live("/", Responder.ControlPlane.WorkbenchLive)
 
     for path <-
-          ~w(lab card-lab activity incident-rooms schedules subscriptions channels repositories failures workspaces findings memory rules preferences guidance instructions usage configuration manual-tests) do
+          ~w(lab activity incident-rooms schedules subscriptions channels repositories failures workspaces findings memory rules preferences guidance instructions usage configuration) do
       live("/#{path}", Responder.ControlPlane.WorkbenchLive)
     end
 
     live("/lab/:id", Responder.ControlPlane.WorkbenchLive)
-    live("/card-lab/:card/:state", Responder.ControlPlane.WorkbenchLive)
     live("/timeline/:ref", Responder.ControlPlane.WorkbenchLive)
     live("/timeline/:ref/model-calls", Responder.ControlPlane.WorkbenchLive)
     live("/incident-rooms/:ref", Responder.ControlPlane.WorkbenchLive)

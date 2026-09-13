@@ -162,6 +162,56 @@ cannot impersonate a human. It does not start a second Slack socket or product r
 requires two settled turns in one episode, one Coop session, the exact root thread, nonempty rendered
 replies, and typed external receipts.
 
-This automatic lane does not confirm offers or exercise mutating authority. Use the manual matrix at
-`http://127.0.0.1:4321/manual-tests` for broader product qualification, and keep deployment and live
-proof distinct in the handoff.
+This automatic lane does not confirm offers or exercise mutating authority. Use the manual
+qualification journeys below for broader product qualification, and keep deployment and live proof
+distinct in the handoff.
+
+## Manual qualification
+
+These are the user-boundary journeys that no automatic lane covers. Run them after the
+deterministic gates, with disposable channels, repositories and records. A journey is complete only
+when both the visible platform effect and its durable Episode/Work/Delivery record agree; the
+control plane's request timeline is the record to check after every visible effect. Skip the
+journeys whose integration is not configured in this installation.
+
+- **Direct conversation** (`/lab`): ask for a concise answer, then a follow-up that depends on it and
+  confirm one conversation with continued episode lineage. Answer a material question and confirm
+  the same task session resumes. Upload a bounded text file and an image, then ask for one generated
+  image. React locally and confirm one additional post without Slack traffic. Confirm a harmless
+  task, inspect its diff/timeline/evidence/handoff, and exercise readiness, explicit draft
+  publication and the delivery check. Confirm a local incident and read its postmortem without a
+  Slack room. Restart Responder while work is pending and confirm custody resumes from PostgreSQL
+  without a duplicate reply.
+- **Slack threads, cards and emoji**: mention Responder in an approved test channel and confirm the
+  reply stays in the exact thread. Request a task and verify the host-owned offer card, its status
+  and progress repaints, Stop, and idempotent button retries. React with configured Unicode and
+  custom emoji and confirm one normalized reaction input with no bot-loop echo. Upload a bounded
+  attachment and create an incident room; verify authenticated fetch, audience, topic, bookmarks
+  and cleanup. Card design is reviewed offline through the Slack-card workflow in
+  `.agent/kb/rules/slack-card-design-workflow.md`, not through a runtime preview page.
+- **GitHub comments, reviews and reactions**: comment on a disposable issue and verify the reply
+  binds to that issue, installation and repository. Request a PR review and verify summaries and
+  inline review-thread replies use their exact targets. Add all eight native reactions and confirm
+  normalized semantics with idempotent delivery. Edit and delete source comments and verify stable
+  item revisions cannot move work to another episode.
+- **Universal signed webhook**: send an authenticated JSON object with a unique occurrence ID and a
+  stable item ID, using the signing recipe in `docs/elixir-ingress-admission.md`. Confirm the model
+  reports observed fields without inventing vendor meaning. Replay the exact request, then a changed
+  body under the same ID, and expect duplicate then conflict. Send revision 2 for the stable item and
+  verify ownership remains with its original episode.
+- **State tools and long-running work**: create evidence, progress, a required goal and a task offer,
+  and confirm each typed record is visible exactly once. Offer a memory and a schedule, confirm them
+  through their host pages, and verify recurrence and expiration. Exercise input and event waits;
+  confirm no worker lease is held while waiting and only the exact trigger resumes. Force one
+  semantic correction and one lost response; confirm same-turn repair and exactly-once delivery.
+- **Recovery and retention**: restart after a frozen submit, an accepted result and a delivery send,
+  and reconcile each exact operation without duplication. Stop running work and verify the exact
+  remote turn is fenced before local cancellation settles. Complete work with clean, dirty and
+  unmerged workspaces and verify close/discard/retain decisions and rearm controls. Restore a
+  database dump into a disposable database and boot the same release against it.
+- **Operator workbench**: verify an incident room links its source and investigation episodes,
+  lifecycle observations, evidence and sanitized publication state; that a schedule's recurrence,
+  authority, destination, next occurrence and dispatched/missed history agree with PostgreSQL; that
+  channels and repositories show configuration, membership, continuity and serving worker revisions
+  without fetching Git live; and that Configuration and Usage render only allowlisted values, grant
+  names, effective models, corrections, tokens, cost and timing.

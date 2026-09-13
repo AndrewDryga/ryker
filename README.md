@@ -138,10 +138,9 @@ curl -f http://127.0.0.1:4321/readyz
 ```
 
 Then open `http://127.0.0.1:4321/lab` to talk to the configured model through
-the real durable product pipeline without posting to Slack. Use
-`http://127.0.0.1:4321/manual-tests` for the guided Slack cards/reactions,
-GitHub comments/PR reviews/emoji, universal-webhook, model-behavior, and
-restart/restore qualification journeys.
+the real durable product pipeline without posting to Slack. The manual
+qualification journeys for Slack, GitHub, webhooks, state tools and recovery are
+in [`docs/testing.md`](docs/testing.md#manual-qualification).
 
 The unit runs PostgreSQL migrations before opening listeners. See
 [`docs/elixir-platform-adapters.md`](docs/elixir-platform-adapters.md) for Slack/GitHub/webhook

@@ -6,8 +6,6 @@ defmodule Responder.ControlPlane.WorkbenchLive do
   alias Responder.ControlPlane.{
     Activity,
     ActivityPage,
-    CardLab,
-    CardLabPage,
     Components,
     Endpoint,
     EpisodePage,
@@ -66,7 +64,6 @@ defmodule Responder.ControlPlane.WorkbenchLive do
        requests: nil,
        request_selection: %{},
        lab: nil,
-       card_lab: nil,
        lab_token: nil,
        lab_announcement: "",
        lab_items: [],
@@ -231,47 +228,6 @@ defmodule Responder.ControlPlane.WorkbenchLive do
     {:noreply, push_patch(socket, to: socket.assigns.path <> "?" <> query)}
   end
 
-  def handle_event(
-        "card-transition",
-        %{"id" => id},
-        %{assigns: %{card_lab: %{snapshot: snapshot}}} = socket
-      ) do
-    case CardLab.transition(snapshot.card.id, snapshot.state.id, id) do
-      {:ok, next} ->
-        {:noreply, push_patch(socket, to: "/card-lab/#{next.card.id}/#{next.state.id}")}
-
-      {:error, _} ->
-        {:noreply, socket}
-    end
-  end
-
-  def handle_event(
-        "card-family",
-        %{"card" => id},
-        %{assigns: %{card_lab: %{snapshot: snapshot}}} = socket
-      ) do
-    case Enum.find(snapshot.catalog, &(&1.id == id)) do
-      nil -> {:noreply, socket}
-      card -> select_card(socket, card.id, card.first_state_id)
-    end
-  end
-
-  def handle_event(
-        "card-state",
-        %{"state" => id},
-        %{assigns: %{card_lab: %{snapshot: snapshot}}} = socket
-      ) do
-    if Enum.any?(snapshot.card.states, &(&1.id == id)),
-      do: select_card(socket, snapshot.card.id, id),
-      else: {:noreply, socket}
-  end
-
-  defp select_card(socket, card, state) do
-    options = URI.encode_query(Map.take(socket.assigns.params, ~w(view width)))
-    path = "/card-lab/#{card}/#{state}" <> if(options == "", do: "", else: "?" <> options)
-    {:noreply, push_patch(socket, to: path)}
-  end
-
   defp refresh(socket, reset \\ false) do
     socket = assign(socket, :refresh_token, nil)
     options = Endpoint.config(:control_plane)
@@ -400,16 +356,6 @@ defmodule Responder.ControlPlane.WorkbenchLive do
       lab: nil,
       lab_items: options.projection.lab_index.()
     )
-  end
-
-  defp load_detail(socket, options, ["card-lab"]),
-    do: load_card(socket, options, CardLab.default())
-
-  defp load_detail(socket, options, ["card-lab", card, state]) do
-    case CardLab.fetch(card, state) do
-      {:ok, snapshot} -> load_card(socket, options, snapshot)
-      {:error, _} -> assign(socket, native: :not_found, page_title: "Not found")
-    end
   end
 
   defp load_detail(socket, options, ["lab", _id]) do
@@ -545,14 +491,6 @@ defmodule Responder.ControlPlane.WorkbenchLive do
       else: {:ok, nil}
   end
 
-  defp load_card(socket, options, snapshot),
-    do:
-      assign(socket,
-        native: :card_lab,
-        page_title: "Slack Card Lab",
-        card_lab: Router.card_lab_snapshot(snapshot, options)
-      )
-
   defp inspection_params(socket),
     do: Map.merge(socket.assigns.params, socket.assigns.request_selection)
 
@@ -675,7 +613,6 @@ defmodule Responder.ControlPlane.WorkbenchLive do
             messages={@streams.lab_messages}
             announcement={@lab_announcement}
           />
-          <CardLabPage.render :if={@native == :card_lab} view={@card_lab} params={@params} />
           <SettingsPage.render
             :if={@native == :settings}
             view={@settings}

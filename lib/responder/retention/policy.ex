@@ -175,13 +175,14 @@ defmodule Responder.Retention.Policy do
     %{
       table: "card_lab_feedback",
       class: :audit,
-      why: "append-only operator review of one exact production-rendered card state"
+      why:
+        "append-only operator review notes from the Card Lab retired on 2026-09-13; history with no surviving writer"
     },
     %{
       table: "card_lab_posts",
       class: :kept,
       why:
-        "frozen synthetic specimen and Slack receipt retained for idempotent retries and in-place updates"
+        "Slack receipts of specimens the retired Card Lab posted; kept so those messages stay attributable and nothing is resent or relabelled"
     },
     %{
       table: "conversation_rollups",

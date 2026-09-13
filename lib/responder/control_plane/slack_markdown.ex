@@ -1,6 +1,6 @@
 defmodule Responder.ControlPlane.SlackMarkdown do
   alias Responder.ControlPlane.SlackNames
-  @moduledoc "Small, HTML-inert renderer for the formatting used by Slack specimens."
+  @moduledoc "Small, HTML-inert renderer for the formatting used in Slack messages."
 
   @tokens ~r/(```[\s\S]*?```|`[^`\n]+`|\[[^\]\n]+\]\(https?:\/\/[^\s)]+\)|<!date\^[^>\n]+\|[^>\n]+>|<[@#][UWCGD][A-Z0-9]+(?:\|[^>\n]+)?>|<https?:\/\/[^>\n]+>|\*\*[^*\n]+\*\*|\*[^*\n]+\*|(?<![\p{L}\p{N}_])_[^_\n]+_(?![\p{L}\p{N}_])|~[^~\n]+~)/u
   @mentions ~r/(<[@#][UWCGD][A-Z0-9]+(?:\|[^>\n]+)?>)/u

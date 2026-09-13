@@ -70,10 +70,10 @@ tests, and 22 recorded contract replays. No credentialed model evaluation was ru
   Estimates also appear in request summaries and Model performance.
 - Model performance explains which accepted executions it covers and what the
   measurements mean; it does not claim to measure answer quality or all failures.
-- Card Lab has a labelled state picker, compact/wide previews, native-style
-  overflow menus, and no inline Slack confirmation objects. Task updates use
-  readable times and explain unpublished, blocked and published PR states. An
-  Open PR action requires an actual validated publication URL.
+- Task updates use readable times and explain unpublished, blocked and
+  published PR states. An Open PR action requires an actual validated
+  publication URL. (The Card Lab state picker and previews this pass also
+  delivered were retired with the page on 2026-09-13.)
 
 ## Accounting limits
 
@@ -143,5 +143,4 @@ failure; a manually started macOS daemon is not equivalent OS-level supervision.
 
 This pass does not claim historical provider request capture, a fully normalized
 per-call billing ledger, real data for states never retained by the old product,
-or production acceptance of unrelated GitHub/model/fleet boundaries. Card Lab
-labels harvested records separately from state simulations and layout studies.
+or production acceptance of unrelated GitHub/model/fleet boundaries.

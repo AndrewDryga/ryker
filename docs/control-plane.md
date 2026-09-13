@@ -632,7 +632,6 @@ replacement, not the older dashboard or the intended final design above.
 | Preferences and Guidance | Separate live libraries with visible scope, effective expiry, full guidance, provenance, history filters, and confirmed lifecycle controls |
 | Memory | Operational mappings and stale/duplicate reviews, with confirmed keep/merge/edit/forget; rules, guidance, preferences, and schedules have their own pages |
 | Settings | Live editors for every product decision, each with explicit Save/Cancel, preserved drafts, revision conflicts, and saved-versus-running state; below them an allowlist of effective runtime values, MCP/host/tool grant names, and repository-topology linkage. Secrets, endpoints, callbacks, and raw policy documents are omitted, and credentials appear only as configured, missing or unusable |
-| Test journeys | Live, configuration-aware manual qualification for the Lab, Slack, GitHub, webhooks, state tools, and recovery |
 
 Every administrative action is a POST behind a native two-step confirm and
 writes its store transition and audit row in the same act, attributed to
@@ -640,11 +639,7 @@ writes its store transition and audit row in the same act, attributed to
 single CSRF-protected POST: it is an ordinary user input, not an administrative
 state mutation or a shortcut to the model.
 
-Conversation Lab's **What you can do** guide links every card family to its
-workflow and owning controls: tasks/diffs/PRs, investigations, rules, schedules,
-preferences/guidance, memory and continuity, questions/event waits, governed
-operations, Slack setup/posts, and App Home. Preview links are read-only; new
-instructions still go through the existing conversation and confirmed-offer
+New instructions go through the existing conversation and confirmed-offer
 workflow. No legacy rules are implicitly imported or activated.
 
 Episode model inputs summarize standing rules, preferences, guidance, and
@@ -662,7 +657,7 @@ already been bitten by that twice today: a deploy that reported success while
 old code ran, and a quality watcher that logged "no defects" for a day while
 its assessor could not start.
 
-## Conversation Lab and manual product qualification
+## Conversation Lab
 
 `http://127.0.0.1:4321/lab` is a real local product surface for talking to the
 configured model without posting test traffic to Slack. A submitted message is
@@ -712,23 +707,10 @@ The adapter reports that it is emulated and has no external effects. Real Slack 
 workspace content, channel provisioning, membership, topic, pin, and archive effects remain on the
 disposable Slack qualification journey because the Lab never receives Slack credentials.
 
-`http://127.0.0.1:4321/manual-tests` is the companion operator checklist. It
-marks each product owner configured or absent and provides the user-boundary
-journeys for:
-
-- local conversation, follow-up, waits, and restart recovery;
-- Slack threads, task/progress cards, buttons, reactions/custom emoji,
-  attachments, and incident rooms;
-- GitHub issue comments, PR reviews, inline review threads, edits/deletes, and
-  all eight native GitHub reactions;
-- arbitrary signed webhook JSON and stable item revisions;
-- state records, memory, schedules, governed approval, semantic repair, and
-  lost-response reconciliation;
-- workspace cleanup, database backup/restore, and exactly-once delivery.
-
-The checklist is guidance, not a fake green badge. A journey is complete only
-when both the visible platform effect and its durable Episode/Work/Delivery
-record agree.
+The manual qualification journeys that used to live on a Test journeys page
+are in [`docs/testing.md`](testing.md#manual-qualification). A journey is
+complete only when both the visible platform effect and its durable
+Episode/Work/Delivery record agree.
 
 ## Technology
 
