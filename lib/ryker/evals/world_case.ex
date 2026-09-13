@@ -205,6 +205,23 @@ defmodule Ryker.Evals.WorldCase do
     end)
   end
 
+  # The vocabulary an actor's input profile may use. The runner reads the same
+  # profile back when it builds ingress inputs, so the two must never drift.
+  @doc false
+  @spec profile_atom(term(), :actor_kind | :event_kind | :occurred_at_source) ::
+          {:ok, atom()} | :error
+  def profile_atom("app", :actor_kind), do: {:ok, :app}
+  def profile_atom("bot", :actor_kind), do: {:ok, :bot}
+  def profile_atom("system", :actor_kind), do: {:ok, :system}
+  def profile_atom("user", :actor_kind), do: {:ok, :user}
+  def profile_atom("message", :event_kind), do: {:ok, :message}
+  def profile_atom("edit", :event_kind), do: {:ok, :edit}
+  def profile_atom("delete", :event_kind), do: {:ok, :delete}
+  def profile_atom("event", :event_kind), do: {:ok, :event}
+  def profile_atom("source", :occurred_at_source), do: {:ok, :source}
+  def profile_atom("ingress", :occurred_at_source), do: {:ok, :ingress}
+  def profile_atom(_value, _field), do: :error
+
   defp compile(scenario, catalog, directory) do
     with :ok <- exact_fields(scenario, @root_fields, :scenario),
          true <- scenario["version"] == 1 or {:error, :version},
@@ -465,7 +482,7 @@ defmodule Ryker.Evals.WorldCase do
          } = profile
        ) do
     with :ok <- exact_fields(profile, @input_profile_fields, :actors),
-         {:ok, actor_kind} <- profile_atom(actor_kind, :actor),
+         {:ok, actor_kind} <- profile_atom(actor_kind, :actor_kind),
          {:ok, event_kind} <- profile_atom(event_kind, :event_kind),
          {:ok, occurred_at_source} <- profile_atom(occurred_at_source, :occurred_at_source),
          {:ok, input} <-
@@ -511,18 +528,6 @@ defmodule Ryker.Evals.WorldCase do
 
   defp profile_source_item_ref(capabilities) when map_size(capabilities) == 0, do: nil
   defp profile_source_item_ref(_capabilities), do: "1788019200.000100"
-
-  defp profile_atom("app", :actor), do: {:ok, :app}
-  defp profile_atom("bot", :actor), do: {:ok, :bot}
-  defp profile_atom("system", :actor), do: {:ok, :system}
-  defp profile_atom("user", :actor), do: {:ok, :user}
-  defp profile_atom("message", :event_kind), do: {:ok, :message}
-  defp profile_atom("edit", :event_kind), do: {:ok, :edit}
-  defp profile_atom("delete", :event_kind), do: {:ok, :delete}
-  defp profile_atom("event", :event_kind), do: {:ok, :event}
-  defp profile_atom("source", :occurred_at_source), do: {:ok, :source}
-  defp profile_atom("ingress", :occurred_at_source), do: {:ok, :ingress}
-  defp profile_atom(_value, _field), do: {:error, :actors}
 
   defp world(value, directory) do
     with :ok <- exact_fields(value, @world_fields, :world),

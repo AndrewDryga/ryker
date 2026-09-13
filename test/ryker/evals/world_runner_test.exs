@@ -16,6 +16,7 @@ defmodule Ryker.Evals.WorldRunnerTest do
     WorldCase,
     WorldCassette,
     WorldCoverage,
+    WorldDatabase,
     WorldJudgeCase,
     WorldReport,
     WorldRunner
@@ -191,7 +192,7 @@ defmodule Ryker.Evals.WorldRunnerTest do
     cleanup = {:error, {:world_cleanup_blocked, :session_cleanup_error}}
 
     assert {:error, {:world_eval_assertions, report}} =
-             WorldRunner.finish_result(primary, cleanup)
+             WorldDatabase.finish_result(primary, cleanup)
 
     assert report.execution_error == primary_report.execution_error
     assert report.cleanup_error == {:world_cleanup_blocked, :session_cleanup_error}
@@ -234,7 +235,7 @@ defmodule Ryker.Evals.WorldRunnerTest do
   test "cleanup diagnostics do not change a successful cleanup result" do
     success = {:ok, %{status: :passed}}
 
-    assert success == WorldRunner.finish_result(success, :ok)
+    assert success == WorldDatabase.finish_result(success, :ok)
   end
 
   test "a failed world cannot attribute another episode's remote turn to its model" do
@@ -518,9 +519,9 @@ defmodule Ryker.Evals.WorldRunnerTest do
     assert [%{"ref" => ^wait_ref, "status" => "open"}] = Records.retained_records(episode.id)
 
     assert :ok =
-             WorldRunner.run_cleanup(
+             WorldDatabase.run_cleanup(
                {:error, {:world_eval_assertions, report}},
-               &WorldRunner.terminalize_waiting_episodes/0,
+               &WorldDatabase.terminalize_waiting_episodes/0,
                fn ->
                  Repo.delete_all(Turn)
                  :ok
@@ -1050,7 +1051,7 @@ defmodule Ryker.Evals.WorldRunnerTest do
     parent = self()
 
     assert {:error, {:world_cleanup_blocked, :session_cleanup_error}} =
-             WorldRunner.run_cleanup(
+             WorldDatabase.run_cleanup(
                {:ok, %{status: :passed}},
                fn -> {:error, {:world_cleanup_blocked, :session_cleanup_error}} end,
                fn ->
@@ -1064,7 +1065,7 @@ defmodule Ryker.Evals.WorldRunnerTest do
 
   test "successful remote cleanup still reports a local cleanup failure" do
     assert {:error, :local_cleanup_failed} =
-             WorldRunner.run_cleanup(
+             WorldDatabase.run_cleanup(
                {:ok, %{status: :passed}},
                fn -> :ok end,
                fn -> {:error, :local_cleanup_failed} end
@@ -1082,7 +1083,7 @@ defmodule Ryker.Evals.WorldRunnerTest do
           {:ok, %{status: :unrun}}
         ] do
       assert :ok =
-               WorldRunner.run_cleanup(
+               WorldDatabase.run_cleanup(
                  primary,
                  fn ->
                    send(parent, :remote_cleanup_ran)
@@ -1103,7 +1104,7 @@ defmodule Ryker.Evals.WorldRunnerTest do
     parent = self()
 
     assert :ok =
-             WorldRunner.run_cleanup({:ok, %{status: :passed}}, fn -> :ok end, fn ->
+             WorldDatabase.run_cleanup({:ok, %{status: :passed}}, fn -> :ok end, fn ->
                send(parent, :local_cleanup_ran)
                :ok
              end)
@@ -1119,7 +1120,7 @@ defmodule Ryker.Evals.WorldRunnerTest do
     }
 
     assert {:error, {:world_eval_assertions, report}} =
-             WorldRunner.finish_result({:ok, original}, {:error, :remote_cleanup_failed})
+             WorldDatabase.finish_result({:ok, original}, {:error, :remote_cleanup_failed})
 
     assert report.status == :failed
     assert report.runtime == original.runtime
@@ -1163,8 +1164,8 @@ defmodule Ryker.Evals.WorldRunnerTest do
     assert {:ok, waiting} = Episodes.fetch_by_key(episode_key)
     assert waiting.state == :waiting_for_event
 
-    assert :ok = WorldRunner.terminalize_waiting_episodes()
-    assert :ok = WorldRunner.terminalize_waiting_episodes()
+    assert :ok = WorldDatabase.terminalize_waiting_episodes()
+    assert :ok = WorldDatabase.terminalize_waiting_episodes()
 
     assert {:ok, cancelled} = Episodes.fetch_by_key(episode_key)
     assert cancelled.state == :cancelled
