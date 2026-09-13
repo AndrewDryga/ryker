@@ -1003,6 +1003,14 @@ defmodule Responder.StateTools.FixedTools do
     do:
       "invalid_repository_reference: use a configured repository reference supported by this task interface: 1-256 letters, digits, underscores, dots, colons, or hyphens. A GitHub slug or checkout path is not automatically a configured reference."
 
+  # Creation permitted what validation forbids: `waiting_for_input` requires
+  # exactly one open input wait, so a second open question leaves no valid
+  # final at all. Episode 0b0c3590 asked again on each rejected attempt until
+  # the answer an operator had typed could never be delivered.
+  defp error_code(:question_already_open),
+    do:
+      "question_already_open: this episode already has an unanswered question. Wait for that answer, or supersede the open request instead of opening a second one."
+
   defp error_code(:no_addressee),
     do:
       "no_addressee: nobody has spoken in this conversation, so a question would wait unanswered. Continue with the evidence you can gather, use wait_for when you are waiting on a system rather than a person, and say plainly in the reply what is unresolved and what would settle it."
@@ -1473,10 +1481,16 @@ defmodule Responder.StateTools.FixedTools do
   # person has ever spoken in cannot ask one: the wait would sit open until
   # somebody happened to read the channel. Production had three such questions,
   # every one still open, against seven answered where a person was present.
-  defp capability_available("request_input", _arguments, options) do
+  defp capability_available("request_input", arguments, options) do
     case tool_binding(options) do
-      {:ok, %{episode: %{id: episode_id}}} ->
-        if Origins.person_participated?(episode_id), do: :ok, else: {:error, :no_addressee}
+      {:ok, %{episode: %{id: episode_id}} = binding} ->
+        operation = operation_id(binding, "request_input", arguments)
+
+        cond do
+          not Origins.person_participated?(episode_id) -> {:error, :no_addressee}
+          Records.question_open?(episode_id, operation) -> {:error, :question_already_open}
+          true -> :ok
+        end
 
       _unbound ->
         :ok

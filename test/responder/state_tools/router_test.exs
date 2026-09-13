@@ -5,6 +5,7 @@ defmodule Responder.StateTools.RouterTest do
   # T123 with channel-configuration tests formed a membership -> conversation
   # -> configuration -> membership deadlock across five unrelated tests.
   # Keep this suite's authority fixtures in its own workspace, not a shared row.
+  import Ecto.Query
   import Plug.Conn
   import Plug.Test
 
@@ -1700,6 +1701,42 @@ defmodule Responder.StateTools.RouterTest do
 
     assert %{"result" => %{"structuredContent" => %{"kind" => "input_request"}}} =
              Jason.decode!(accepted.resp_body)
+  end
+
+  # Creation used to permit what validation forbids. `waiting_for_input` accepts
+  # exactly one open input wait, so a second open question leaves the turn no
+  # valid final: referencing both fails the count, dropping one abandons an open
+  # wait. On 2026-09-13 episode 0b0c3590 dug itself in exactly that way — each
+  # rejected attempt asked again, open questions went 1 -> 2 and waits 3 -> 5,
+  # and the answer an operator had already typed could never be delivered.
+  # Within one turn `operation_conflict` already refuses a second call; this is
+  # the across-turn path that had nothing.
+  test "a second unanswered question is refused while the first is still open" do
+    operator = claim!("question-open", %{actor_ref: "slack:user:U0BHTNFCW6S"})
+
+    assert %{"result" => %{"structuredContent" => %{"kind" => "input_request"}}} =
+             Jason.decode!(
+               rpc(
+                 "tools/call",
+                 %{"arguments" => question_arguments(), "name" => "request_input"},
+                 bound_options(operator)
+               ).resp_body
+             )
+
+    assert Records.question_open?(operator.episode.id)
+
+    # A different operation asking again — the shape a later attempt takes.
+    refute Records.question_open?(operator.episode.id, operator_question_operation(operator))
+    assert Records.question_open?(operator.episode.id, "operation:some-later-attempt")
+  end
+
+  defp operator_question_operation(binding) do
+    Repo.one!(
+      from(record in Record,
+        where: record.episode_id == ^binding.episode.id and record.kind == "input_request",
+        select: record.operation_id
+      )
+    )
   end
 
   defp question_arguments do

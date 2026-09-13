@@ -161,6 +161,37 @@ defmodule Responder.State.Records do
     |> Enum.map(& &1["document"])
   end
 
+  @doc """
+  Whether this episode already holds an unanswered question.
+
+  `waiting_for_input` accepts exactly one open input wait, so a second open
+  question leaves the turn no valid final: referencing both fails the count,
+  and dropping one abandons an open wait. Creation has to agree with that.
+  """
+  @spec question_open?(Ecto.UUID.t(), String.t() | nil) :: boolean()
+  def question_open?(episode_id, operation_id \\ nil)
+
+  def question_open?(episode_id, operation_id) when is_binary(episode_id) do
+    query =
+      from(record in Record,
+        where:
+          record.episode_id == ^episode_id and record.kind == "input_request" and
+            record.status == :open
+      )
+
+    # A retry of the same call is the same question, and `Records.create`
+    # already returns the record it made the first time. Only a *different*
+    # operation asking again is the one that strands the turn.
+    query =
+      if is_binary(operation_id),
+        do: from(record in query, where: record.operation_id != ^operation_id),
+        else: query
+
+    Repo.exists?(query)
+  end
+
+  def question_open?(_episode_id, _operation_id), do: false
+
   @spec open_required_goals(Ecto.UUID.t()) :: [map()]
   def open_required_goals(episode_id) when is_binary(episode_id) do
     Repo.all(
