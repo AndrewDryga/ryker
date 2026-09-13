@@ -20,6 +20,7 @@ defmodule Ryker.State.MemoriesTest do
     Behaviors,
     Memories,
     MemoryEntry,
+    MemoryEntryChangeset,
     MemoryReviewItem,
     MemorySearchPage,
     Record,
@@ -827,6 +828,52 @@ defmodule Ryker.State.MemoriesTest do
              {:error, :slack_channel_deleted}
   end
 
+  test "Slack channel deletion redacts the repository facts and guidance only that channel could see" do
+    # A repository-scoped, conversation-visible entry is recallable from one
+    # channel only. Deletion redacted conversation-scoped entries and left these
+    # active with their plaintext: no longer recallable, still listed with
+    # their values by the operator projection and still feeding stale reviews.
+    fixture = delivered_offers!("channel-deletion-repository")
+    fact = insert_repository_fact!(fixture.replacement, :conversation, "slack:T123:C456")
+    shared = insert_repository_fact!(fixture.workspace, :workspace, "slack:T123:C456")
+    guidance = insert_repository_guidance!(fixture.guidance, "conversation", "slack:T123:C456")
+
+    elsewhere =
+      insert_repository_guidance!(fixture.guidance_duplicate, "conversation", "slack:T123:C999")
+
+    Repo.delete_all(
+      from(membership in ChannelMembership,
+        where: membership.workspace_ref == "T123" and membership.channel_ref == "C456"
+      )
+    )
+
+    assert {:ok, _deleted} =
+             ChannelConfigurations.observe_membership(
+               %{
+                 actor_ref: nil,
+                 channel_ref: "C456",
+                 event_ref: "event:delete-repository-memory",
+                 kind: :deleted,
+                 occurred_at: DateTime.add(@now, 1, :second),
+                 workspace_ref: "T123"
+               },
+               %{default_repository: "ryker", repository_refs: ["ryker"]}
+             )
+
+    deleted_fact = Repo.get!(MemoryEntry, fact.id)
+    assert deleted_fact.status == :deleted
+    assert deleted_fact.payload == %{"channel_deleted_payload_sha256" => fact.payload_fingerprint}
+
+    deleted_guidance = Repo.get!(Behavior, guidance.id)
+    assert deleted_guidance.status == :deleted
+    assert Map.keys(deleted_guidance.payload) == ["channel_deleted_payload_sha256"]
+
+    # Workspace-visible entries outlive the channel they were confirmed in, and
+    # another channel's private entries are not this deletion's business.
+    assert Repo.get!(MemoryEntry, shared.id).status == :active
+    assert Repo.get!(Behavior, elsewhere.id).status == :active
+  end
+
   test "equal fact values under different subjects are not destructive duplicates" do
     fixture = delivered_offers!("distinct-facts")
     assert {:ok, _workspace} = Memories.confirm(confirmation(fixture, fixture.workspace, "one"))
@@ -1022,6 +1069,74 @@ defmodule Ryker.State.MemoriesTest do
       replacement: replacement,
       workspace: workspace
     })
+  end
+
+  # A repository-scoped fact confirmed in `source_conversation_ref`; visibility
+  # decides whether the channel it was confirmed in is the only surface it has.
+  defp insert_repository_fact!(offer, visibility, source_conversation_ref) do
+    id = Ecto.UUID.generate()
+    payload = %{"value" => "ryker-#{visibility}"}
+
+    %{
+      confirmation_ref: "confirmation:repository-#{id}",
+      confirmed_at: @now,
+      confirmed_by_actor_ref: "slack:user:U123",
+      expires_at: DateTime.add(DateTime.utc_now(), 86_400, :second),
+      id: id,
+      kind: :repository_binding,
+      offer_record_id: offer.id,
+      payload: payload,
+      payload_fingerprint: Ryker.CanonicalJSON.digest(payload),
+      ref: "memory:#{id}",
+      scope_kind: :repository,
+      scope_ref: "ryker",
+      source_conversation_ref: source_conversation_ref,
+      source_message_ref: "1787832001.000200",
+      source_thread_ref: "1787832000.000100",
+      source_transport: "slack",
+      status: :active,
+      subject: "primary_repository_#{visibility}",
+      visibility: visibility,
+      workspace_ref: "slack:T123"
+    }
+    |> MemoryEntryChangeset.insert()
+    |> Repo.insert!()
+  end
+
+  defp insert_repository_guidance!(offer, visibility, source_conversation_ref) do
+    id = Ecto.UUID.generate()
+
+    %{
+      confirmation_ref: "confirmation:repository-guidance-#{id}",
+      confirmed_at: @now,
+      confirmed_by_actor_ref: "slack:user:U123",
+      expires_at: DateTime.add(DateTime.utc_now(), 86_400, :second),
+      id: id,
+      identity_key: "repository-guidance-#{id}",
+      kind: :guidance,
+      offer_record_id: offer.id,
+      payload: %{
+        "expires_in" => "30d",
+        "repository" => "ryker",
+        "scope" => "repository",
+        "subject" => "repository-guidance-#{id}",
+        "summary" => "Repository guidance",
+        "text" => "Run the focused test before the gate.",
+        "visibility" => visibility
+      },
+      ref: "behavior:#{id}",
+      revision: 1,
+      scope_kind: :repository,
+      scope_ref: "ryker",
+      source_conversation_ref: source_conversation_ref,
+      source_message_ref: "1787832001.000200",
+      source_thread_ref: "1787832000.000100",
+      source_transport: "slack",
+      status: :active,
+      workspace_ref: "slack:T123"
+    }
+    |> BehaviorChangeset.insert()
+    |> Repo.insert!()
   end
 
   defp insert_conversation_behavior!(offer) do

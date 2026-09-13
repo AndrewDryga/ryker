@@ -585,12 +585,17 @@ defmodule Ryker.State.Memories do
 
       delete_channel_facts(scoped_workspace_ref, conversation_ref)
 
+      # Conversation-scoped guidance, and repository guidance the deleted
+      # channel alone could see: its only surface is gone with the channel.
       Repo.all(
         from(behavior in Behavior,
           where:
             behavior.workspace_ref == ^scoped_workspace_ref and
-              behavior.scope_kind == :conversation and behavior.scope_ref == ^conversation_ref and
-              behavior.status in [:active, :disabled],
+              behavior.status in [:active, :disabled] and
+              ((behavior.scope_kind == :conversation and
+                  behavior.scope_ref == ^conversation_ref) or
+                 (behavior.source_conversation_ref == ^conversation_ref and
+                    fragment("?::jsonb->>'visibility' = 'conversation'", behavior.payload))),
           order_by: [asc: behavior.ref],
           lock: "FOR UPDATE"
         )
@@ -614,6 +619,10 @@ defmodule Ryker.State.Memories do
   def delete_slack_channel_in_transaction(_workspace_ref, _channel_ref),
     do: {:error, {:invalid_memory_review, :conversation}}
 
+  # Facts the deleted channel alone could see (conversation-scoped, and
+  # repository-scoped with conversation visibility), and the global facts
+  # answered from a message in it. Workspace-visible facts outlive the channel
+  # they were confirmed in.
   defp delete_channel_facts(workspace_ref, conversation_ref) do
     Repo.all(
       from(entry in MemoryEntry,
@@ -621,6 +630,8 @@ defmodule Ryker.State.Memories do
           entry.status == :active and
             ((entry.workspace_ref == ^workspace_ref and entry.scope_kind == :conversation and
                 entry.scope_ref == ^conversation_ref) or
+               (entry.workspace_ref == ^workspace_ref and entry.visibility == :conversation and
+                  entry.source_conversation_ref == ^conversation_ref) or
                (entry.scope_kind == :global and entry.source_conversation_ref == ^conversation_ref)),
         order_by: [asc: entry.ref],
         lock: "FOR UPDATE"
