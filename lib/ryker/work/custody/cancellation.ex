@@ -24,13 +24,7 @@ defmodule Ryker.Work.Custody.Cancellation do
   alias Ryker.Work.Custody.{Sessions, Turns}
   alias Ryker.Work.{Session, Turn, TurnChangeset}
 
-  @doc """
-  Freezes a user cancellation before stopping a bound Coop turn.
-
-  When no remote turn exists, cancellation settles in the same transaction.
-  Otherwise the episode keeps its current owner until a leased worker proves the
-  exact remote turn is terminal.
-  """
+  @doc false
   @spec request_cancel(Ecto.UUID.t(), String.t(), String.t(), String.t(), String.t()) ::
           {:ok, map()} | {:error, term()}
   def request_cancel(episode_id, episode_key, turn_ref, cancel_ref, reason) do
@@ -42,9 +36,7 @@ defmodule Ryker.Work.Custody.Cancellation do
     end
   end
 
-  @doc """
-  Freezes an owner transfer before stopping the old bound Coop turn.
-  """
+  @doc false
   @spec request_transfer(Ecto.UUID.t(), String.t(), String.t(), String.t(), String.t()) ::
           {:ok, map()} | {:error, term()}
   def request_transfer(episode_id, episode_key, turn_ref, new_turn_ref, transfer_ref) do
@@ -56,14 +48,7 @@ defmodule Ryker.Work.Custody.Cancellation do
     end
   end
 
-  @doc """
-  Stops one exact active run while retaining the episode, session lineage, and
-  repository workspace for a later human correction.
-
-  This is an operator-authorized form of blocked custody. It still reconciles
-  the exact remote Coop turn before becoming non-claimable; it is not the
-  internal lease-authorized error path exposed by `request_block/5`.
-  """
+  @doc false
   @spec request_stop(Ecto.UUID.t(), String.t(), String.t(), String.t(), String.t()) ::
           {:ok, map()} | {:error, term()}
   def request_stop(episode_id, episode_key, turn_ref, stop_ref, reason) do
@@ -101,13 +86,7 @@ defmodule Ryker.Work.Custody.Cancellation do
     end
   end
 
-  @doc """
-  Retries one exact remotely settled blocked owner after operator inspection.
-
-  A confirmed completion resumes finalization on the same turn and session.
-  Otherwise the old Coop turn remains immutable: a proven stop and recoverable
-  workspace are required before transferring ownership to a new logical turn.
-  """
+  @doc false
   @spec retry_blocked(String.t(), String.t()) :: {:ok, Episode.t()} | {:error, term()}
   def retry_blocked(episode_key, expected_recovery) do
     with :ok <- reference(episode_key, :episode_key),
@@ -116,7 +95,7 @@ defmodule Ryker.Work.Custody.Cancellation do
     end
   end
 
-  @doc "Binds operator confirmation to the exact stopped turn and recovery mode."
+  @doc false
   def recovery_fingerprint(%Turn{} = turn) do
     turn
     |> Map.take([
@@ -139,12 +118,7 @@ defmodule Ryker.Work.Custody.Cancellation do
     |> CanonicalJSON.digest()
   end
 
-  @doc """
-  Spends one confirmed failed Coop cancellation mutation.
-
-  A lost or uncertain response must keep the same generation and reconcile the
-  original key instead.
-  """
+  @doc false
   @spec advance_cancellation(Ecto.UUID.t(), String.t(), String.t(), pos_integer()) ::
           {:ok, Turn.t()} | {:error, term()}
   def advance_cancellation(episode_id, turn_ref, lease_ref, expected_generation) do
@@ -206,9 +180,7 @@ defmodule Ryker.Work.Custody.Cancellation do
     end
   end
 
-  @doc """
-  Atomically records terminal Coop proof, then cancels or transfers the episode.
-  """
+  @doc false
   @spec settle_cancellation(Ecto.UUID.t(), String.t(), String.t(), String.t(), map()) ::
           {:ok, map()} | {:error, term()}
   def settle_cancellation(episode_id, episode_key, turn_ref, lease_ref, receipt) do
@@ -354,7 +326,7 @@ defmodule Ryker.Work.Custody.Cancellation do
     end
   end
 
-  @doc "Read-only recovery eligibility; retry rechecks this under custody locks."
+  @doc false
   def completed_workspace_recoverable(
         %Turn{cancellation_receipt: %{"remote_state" => "completed", "session_state" => state}} =
           turn
@@ -382,14 +354,7 @@ defmodule Ryker.Work.Custody.Cancellation do
 
   def completed_workspace_recoverable(_turn), do: :ok
 
-  @doc """
-  The snapshot a blocked turn could be resumed from on another worker.
-
-  `blocked-task-recovery.md` state 2 allows the offer only when a suitable
-  worker and a verified portable snapshot both exist, so the fleet answers both
-  halves at once. An uninitialized or non-fleet installation has nowhere to
-  resume, which is not a failure — the surfaces simply keep their plain retry.
-  """
+  @doc false
   @spec portable_workspace(Turn.t()) ::
           %{byte_size: pos_integer(), checkpoint_ref: String.t(), repository_ref: String.t()}
           | nil

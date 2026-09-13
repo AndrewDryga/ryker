@@ -100,7 +100,7 @@ defmodule Ryker.Work.Custody do
           String.t(),
           String.t(),
           String.t() | nil
-        ) :: {:ok, Turn.t()} | {:error, term()}
+        ) :: {:ok, Session.t()} | {:error, term()}
   defdelegate pin_episode_in_transaction(episode_id, policy, policy_digest, repository_ref),
     to: Sessions
 
@@ -271,7 +271,7 @@ defmodule Ryker.Work.Custody do
           String.t(),
           String.t(),
           String.t()
-        ) :: {:ok, Session.t()} | {:error, term()}
+        ) :: {:ok, Turn.t()} | {:error, term()}
   defdelegate bind_state_tools(episode_id, turn_ref, lease_ref, endpoint, token_sha256),
     to: Turns
 

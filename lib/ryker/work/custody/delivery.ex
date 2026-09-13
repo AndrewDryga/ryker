@@ -19,9 +19,7 @@ defmodule Ryker.Work.Custody.Delivery do
   alias Ryker.Work.Custody.{Cancellation, Sessions}
   alias Ryker.Work.{DeliveryReceipt, Turn, TurnChangeset}
 
-  @doc """
-  Atomically records one reconciled external delivery and advances the episode.
-  """
+  @doc false
   @spec confirm_delivery(
           Ecto.UUID.t(),
           String.t(),
@@ -50,14 +48,7 @@ defmodule Ryker.Work.Custody.Delivery do
     end
   end
 
-  @doc """
-  Pauses one episode because its host-owned delivery destination is inactive.
-
-  This is not an operator cancellation. A bound remote turn is stopped through
-  the normal cancellation reconciler, while an unsubmitted turn or an idle
-  delivery is blocked locally. The opaque pause reference is required again to
-  resume, so restoring one destination cannot rearm unrelated failed work.
-  """
+  @doc false
   @spec pause_destination(Ecto.UUID.t(), String.t(), String.t()) ::
           {:ok, map()} | {:error, term()}
   def pause_destination(episode_id, episode_key, pause_ref) do
@@ -73,13 +64,7 @@ defmodule Ryker.Work.Custody.Delivery do
     end
   end
 
-  @doc """
-  Resumes only the exact destination pause recorded by `pause_destination/3`.
-
-  Ordinary execution failures and operator cancellations are deliberately left
-  untouched. A stopped remote turn transfers to a fresh logical turn; a local
-  unsent delivery is rearmed with the exact accepted result and destination.
-  """
+  @doc false
   @spec resume_destination(Ecto.UUID.t(), String.t(), String.t()) ::
           {:ok, map()} | {:error, term()}
   def resume_destination(episode_id, episode_key, pause_ref) do
@@ -110,12 +95,7 @@ defmodule Ryker.Work.Custody.Delivery do
     end
   end
 
-  @doc """
-  Moves one permanently failing delivery out of automatic retries.
-
-  The accepted result and delivery owner remain durable so an operator can
-  correct platform configuration and rearm the exact same intent.
-  """
+  @doc false
   @spec block_delivery(
           Ecto.UUID.t(),
           String.t(),
@@ -135,9 +115,7 @@ defmodule Ryker.Work.Custody.Delivery do
     end
   end
 
-  @doc """
-  Rearms one operator-inspected blocked delivery without changing its result or destination.
-  """
+  @doc false
   @spec retry_delivery(Ecto.UUID.t(), String.t(), String.t()) ::
           {:ok, Turn.t()} | {:error, term()}
   def retry_delivery(episode_id, turn_ref, delivery_ref) do
@@ -538,14 +516,7 @@ defmodule Ryker.Work.Custody.Delivery do
        else: {:error, :work_delivery_destination_mismatch}
   end
 
-  @doc """
-  Where this turn's accepted answer belongs.
-
-  A reply answers the inputs that instructed it, so it returns to the newest
-  one's own origin — a question asked in a new thread is answered there even
-  when the episode's home is elsewhere. An accepted answer keeps the target it
-  was accepted with; later context can never move or erase it.
-  """
+  @doc false
   @spec delivery_target(Episode.t(), Turn.t()) :: map()
   def delivery_target(%Episode{} = episode, %Turn{delivery_target: %{} = target}) do
     Map.merge(home_target(episode), target)
@@ -561,12 +532,7 @@ defmodule Ryker.Work.Custody.Delivery do
     }
   end
 
-  @doc """
-  The origin a reply from this turn answers, or nil when there is nothing to answer.
-
-  This is computed once, when the result is accepted, and then frozen on the
-  turn. Later inputs cannot move an answer that has already been accepted.
-  """
+  @doc false
   @spec reply_target(Episode.t(), Turn.t()) :: map() | nil
   def reply_target(%Episode{} = episode, %Turn{} = turn) do
     episode
