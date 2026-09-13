@@ -29,6 +29,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.ToolActivity do
     |> Enum.reject(&(&1.kind == "model.thought"))
     |> Enum.reduce({[], %{}}, &fold_activity(&1, &2, disclosed))
     |> elem(0)
+    |> Enum.reverse()
     |> Enum.map(fn step ->
       step = %{step | owner: activity_step_owner(step.id, causality)}
       if MapSet.member?(routing_ids, step.id), do: %{step | band: :routing}, else: step
@@ -43,23 +44,22 @@ defmodule Ryker.ControlPlane.EpisodeTrace.ToolActivity do
 
   defp activity_step_owner(_id, _causality), do: :episode
 
+  # Steps accumulate newest first; `open` holds each started tool call's step
+  # until its completion arrives, so a tool-heavy run folds in one pass.
   defp fold_activity(%ActivityEvent{kind: "tool.started"} = event, {steps, open}, disclosed) do
-    key = activity_tool_key(event)
-    activity_step = tool_started_step(event, disclosed)
-    {steps ++ [activity_step], Map.put(open, key, length(steps))}
+    started = tool_started_step(event, disclosed)
+    {[started | steps], Map.put(open, activity_tool_key(event), started)}
   end
 
   defp fold_activity(%ActivityEvent{kind: "tool.completed"} = event, {steps, open}, disclosed) do
-    key = activity_tool_key(event)
-
-    case Map.pop(open, key) do
-      {nil, open} -> {steps ++ [tool_completed_step(event, disclosed)], open}
-      {index, open} -> {steps ++ [complete_tool(Enum.at(steps, index), event, disclosed)], open}
+    case Map.pop(open, activity_tool_key(event)) do
+      {nil, open} -> {[tool_completed_step(event, disclosed) | steps], open}
+      {started, open} -> {[complete_tool(started, event, disclosed) | steps], open}
     end
   end
 
   defp fold_activity(event, {steps, open}, disclosed),
-    do: {steps ++ [activity_step(event, disclosed)], open}
+    do: {[activity_step(event, disclosed) | steps], open}
 
   defp tool_started_step(event, disclosed) do
     input = event.payload["input"]

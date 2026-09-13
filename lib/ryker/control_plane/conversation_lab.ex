@@ -114,7 +114,7 @@ defmodule Ryker.ControlPlane.ConversationLab do
          :ok <- reference(message_ref, :message_ref),
          {:ok, event_id} <- generated_id(settings.id_generator),
          {:ok, occurred_at} <- occurred_at(settings.now) do
-      conversation_ref = "control-plane:lab:#{conversation_id}"
+      conversation_ref = ref(conversation_id)
 
       Reactions.record(%{
         action: action,
@@ -210,7 +210,7 @@ defmodule Ryker.ControlPlane.ConversationLab do
   end
 
   defp current_message_query(conversation_id, source_item_ref) do
-    conversation_ref = "control-plane:lab:#{conversation_id}"
+    conversation_ref = ref(conversation_id)
 
     from(entry in Entry,
       where:
@@ -279,7 +279,7 @@ defmodule Ryker.ControlPlane.ConversationLab do
   end
 
   defp lab_input(conversation_id, event_id, occurred_at, message, files) do
-    conversation_ref = "control-plane:lab:#{conversation_id}"
+    conversation_ref = ref(conversation_id)
 
     Input.new(%{
       actor: %{kind: :user, ref: "local-operator"},
@@ -304,15 +304,20 @@ defmodule Ryker.ControlPlane.ConversationLab do
     }
   end
 
+  @doc "The durable conversation reference for a validated conversation id."
   @spec conversation_ref(String.t()) :: {:ok, String.t()} | {:error, term()}
   def conversation_ref(conversation_id) do
     with {:ok, conversation_id} <- conversation_id(conversation_id) do
-      {:ok, "control-plane:lab:#{conversation_id}"}
+      {:ok, ref(conversation_id)}
     end
   end
 
+  # The one spelling of a direct conversation's reference; readers pattern-match
+  # the same prefix, so it never changes on its own.
+  defp ref(conversation_id), do: "control-plane:lab:" <> conversation_id
+
   defp destination(conversation_id) do
-    conversation_ref = "control-plane:lab:#{conversation_id}"
+    conversation_ref = ref(conversation_id)
 
     %{
       transport: "control_plane",

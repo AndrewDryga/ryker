@@ -1,4 +1,4 @@
-defmodule Ryker.ControlPlane.LabCursor do
+defmodule Ryker.ControlPlane.TranscriptCursor do
   @moduledoc """
   One deterministic total order over a conversation's merged transcript.
 

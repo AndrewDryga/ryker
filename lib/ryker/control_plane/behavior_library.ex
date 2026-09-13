@@ -1,7 +1,7 @@
 defmodule Ryker.ControlPlane.BehaviorLibrary do
   @moduledoc "Bounded operator views of confirmed rules, preferences, and guidance."
   import Ecto.Query
-  alias Ryker.ControlPlane.InspectionRedactor
+  alias Ryker.ControlPlane.{InspectionRedactor, PagedRelation, Search}
   alias Ryker.Episodes.Episode
   alias Ryker.Repo
   alias Ryker.State.{Behavior, StandingAssignmentRun}
@@ -77,24 +77,15 @@ defmodule Ryker.ControlPlane.BehaviorLibrary do
       |> filter_search(q)
       |> filter_scope(scope)
 
-    total = Repo.aggregate(filtered, :count)
-    pages = max(ceil(total / 25), 1)
-
     page =
-      case Integer.parse(scalar(params, "page")) do
-        {number, ""} -> min(max(number, 1), pages)
-        _ -> 1
-      end
-
-    items =
-      Repo.all(
-        from(b in filtered,
-          order_by: [desc: b.updated_at, desc: b.id],
-          limit: 25,
-          offset: ^((page - 1) * 25)
-        )
+      PagedRelation.read(
+        filtered,
+        [desc: :updated_at, desc: :id],
+        "page",
+        params
       )
 
+    items = page.items
     ids = Enum.map(items, & &1.id)
 
     runs =
@@ -125,9 +116,9 @@ defmodule Ryker.ControlPlane.BehaviorLibrary do
       kind: kind,
       items: Enum.map(items, &sanitize/1),
       counts: counts,
-      total: total,
-      page: page,
-      pages: pages,
+      total: page.total,
+      page: page.page,
+      pages: page.pages,
       runs: runs,
       params: %{"status" => status, "q" => q, "scope" => scope}
     }
@@ -158,7 +149,7 @@ defmodule Ryker.ControlPlane.BehaviorLibrary do
   defp filter_search(query, ""), do: query
 
   defp filter_search(query, value) do
-    pattern = "%" <> String.replace(value, ["\\", "%", "_"], &"\\#{&1}") <> "%"
+    pattern = Search.contains(value)
 
     from(b in query,
       where: ilike(fragment("?::text", b.payload), ^pattern) or ilike(b.scope_ref, ^pattern)

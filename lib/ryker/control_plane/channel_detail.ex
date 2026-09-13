@@ -313,5 +313,5 @@ defmodule Ryker.ControlPlane.ChannelDetail do
   end
 
   defp read(query, key, order, params),
-    do: PagedRelation.read(query, order, key, PagedRelation.requested(params, key))
+    do: PagedRelation.read(query, order, key, params)
 end

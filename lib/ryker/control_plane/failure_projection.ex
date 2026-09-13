@@ -20,6 +20,10 @@ defmodule Ryker.ControlPlane.FailureProjection do
   alias Ryker.Slack.{IncidentRoom, InteractionAudit}
   alias Ryker.Work.{Session, Turn}
 
+  @doc """
+  Every blocked item, newest first, bounded to a hundred; `{:error, :unavailable}`
+  when the database cannot answer, so a broken read never renders as nothing wrong.
+  """
   def list(_params) do
     work =
       Repo.all(
@@ -114,17 +118,14 @@ defmodule Ryker.ControlPlane.FailureProjection do
        |> Enum.take(100)}
     end
   rescue
-    _error -> {:error, :failure_projection_unavailable}
-  catch
-    _kind, _reason -> {:error, :failure_projection_unavailable}
+    _error in [DBConnection.ConnectionError, Postgrex.Error] -> {:error, :unavailable}
   end
 
+  @doc "One blocked item by kind and reference, or `:not_found` once it is no longer blocked."
   def fetch(kind, ref) do
     failure_exact(kind, ref)
   rescue
-    _error -> {:error, :failure_projection_unavailable}
-  catch
-    _kind, _reason -> {:error, :failure_projection_unavailable}
+    _error in [DBConnection.ConnectionError, Postgrex.Error] -> {:error, :unavailable}
   end
 
   defp failure_exact("admission", ref), do: admission(ref)

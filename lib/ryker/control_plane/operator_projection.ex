@@ -8,7 +8,7 @@ defmodule Ryker.ControlPlane.OperatorProjection do
 
   import Ecto.Query
 
-  alias Ryker.ControlPlane.{Activity, InspectionRedactor, SubscriptionPresentation}
+  alias Ryker.ControlPlane.{Activity, InspectionRedactor, Search, SubscriptionPresentation}
   alias Ryker.CoopFleet.Worker
   alias Ryker.Episodes.Episode
   alias Ryker.Operator.FailureDetail
@@ -478,7 +478,7 @@ defmodule Ryker.ControlPlane.OperatorProjection do
   defp incident_search(query, nil), do: query
 
   defp incident_search(query, search) do
-    pattern = "%#{escape_like(search)}%"
+    pattern = Search.contains(search)
 
     from([room, _, _] in query,
       where:
@@ -501,7 +501,7 @@ defmodule Ryker.ControlPlane.OperatorProjection do
   defp schedule_search(query, nil), do: query
 
   defp schedule_search(query, search) do
-    pattern = "%#{escape_like(search)}%"
+    pattern = Search.contains(search)
 
     from(schedule in query,
       where:
@@ -904,11 +904,4 @@ defmodule Ryker.ControlPlane.OperatorProjection do
   end
 
   defp search(_value), do: nil
-
-  defp escape_like(value) do
-    value
-    |> String.replace("\\", "\\\\")
-    |> String.replace("%", "\\%")
-    |> String.replace("_", "\\_")
-  end
 end

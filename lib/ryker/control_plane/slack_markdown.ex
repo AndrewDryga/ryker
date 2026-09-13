@@ -32,10 +32,11 @@ defmodule Ryker.ControlPlane.SlackMarkdown do
     end)
   end
 
-  defp mention_name("<" <> <<_prefix, rest::binary>>, workspace) do
-    ref = rest |> String.trim_trailing(">") |> String.split("|", parts: 2) |> hd()
-    SlackNames.name(workspace, ref)
-  end
+  defp mention_name(token, workspace), do: SlackNames.name(workspace, mention_ref(token))
+
+  # The reference inside `<@U…|label>` or `<#C…|name>`, without its label.
+  defp mention_ref("<" <> <<_prefix, rest::binary>>),
+    do: rest |> String.trim_trailing(">") |> String.split("|", parts: 2) |> hd()
 
   def render(text, workspace \\ SlackNames.workspace())
       when is_binary(text) do
@@ -88,8 +89,8 @@ defmodule Ryker.ControlPlane.SlackMarkdown do
     end
   end
 
-  defp token("<" <> <<prefix, rest::binary>>, workspace) when prefix in [?@, ?#] do
-    ref = rest |> String.trim_trailing(">") |> String.split("|", parts: 2) |> hd()
+  defp token("<" <> <<prefix, _rest::binary>> = mention, workspace) when prefix in [?@, ?#] do
+    ref = mention_ref(mention)
     name = SlackNames.name(workspace, ref)
 
     [

@@ -116,17 +116,14 @@ defmodule Ryker.ControlPlane.Actions do
     )
   end
 
-  defp resolve_episode(episode_key) do
-    episode_key
-    |> then(&Repo.get_by(Episode, key: &1))
-    |> resolve_episode_record()
-  end
+  defp resolve_episode(episode_key),
+    do: Episode |> Repo.get_by(key: episode_key) |> resolve_episode_record()
 
   defp resolve_episode_record(
          %Episode{state: :working, owner_kind: :turn, owner_ref: turn_ref} = episode
        ) do
-    episode.id
-    |> then(&Repo.get_by(Turn, episode_id: &1, turn_ref: turn_ref))
+    Turn
+    |> Repo.get_by(episode_id: episode.id, turn_ref: turn_ref)
     |> resolve_blocked_episode(episode, turn_ref)
   end
 

@@ -17,7 +17,7 @@ defmodule Ryker.ControlPlane.ConversationHistoryTest do
 
   alias Ryker.Admission
   alias Ryker.Admission.Decision
-  alias Ryker.ControlPlane.{ConversationLab, LabCursor, Projection}
+  alias Ryker.ControlPlane.{ConversationLab, Projection, TranscriptCursor}
   alias Ryker.Delivery.PlatformAction
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
@@ -224,11 +224,11 @@ defmodule Ryker.ControlPlane.ConversationHistoryTest do
     assert Projection.lab_history(Ecto.UUID.generate(), nil, 50) == :not_found
 
     # The boundary names the oldest row on the page, tie-breaker included.
-    assert {:ok, key} = LabCursor.decode(first.before, @conversation_id)
+    assert {:ok, key} = TranscriptCursor.decode(first.before, @conversation_id)
     assert key == hd(first.messages).sort_key
     assert {micros, 1, "reply:" <> _} = key
     assert is_integer(micros)
-    assert LabCursor.decode(first.before, @other_conversation_id) == :error
+    assert TranscriptCursor.decode(first.before, @other_conversation_id) == :error
   end
 
   test "rows changed since a moment are reported wherever they sit in history" do

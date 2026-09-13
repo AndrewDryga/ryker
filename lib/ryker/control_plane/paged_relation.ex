@@ -49,14 +49,20 @@ defmodule Ryker.ControlPlane.PagedRelation do
   def requested(_params, _key), do: 1
 
   @doc """
-  Reads the requested page of `query` in `order`.
+  Reads the page of `query` that `params` names under `key`, in `order`.
 
   `query` must be unordered and unlimited: the total is counted from it, and
   `order` must end in a unique column so timestamp ties never duplicate or
-  skip a row between pages.
+  skip a row between pages. A page number may be passed in place of `params`
+  when the caller has already normalized it.
   """
-  @spec read(Ecto.Query.t(), keyword(), String.t(), pos_integer(), keyword()) :: t()
-  def read(query, order, key, requested_page, options \\ []) do
+  @spec read(Ecto.Query.t(), keyword(), String.t(), map() | pos_integer(), keyword()) :: t()
+  def read(query, order, key, params_or_page, options \\ [])
+
+  def read(query, order, key, params, options) when is_map(params),
+    do: read(query, order, key, requested(params, key), options)
+
+  def read(query, order, key, requested_page, options) when is_integer(requested_page) do
     page_size = Keyword.get(options, :page_size, @page_size)
     total = Repo.aggregate(query, :count)
     pages = max(div(total + page_size - 1, page_size), 1)

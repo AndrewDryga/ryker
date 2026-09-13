@@ -3,6 +3,37 @@ defmodule Ryker.ControlPlane.CurrentInputs do
   import Ecto.Query
   alias Ryker.Ingress.Inbox.Entry
 
+  @doc """
+  The text a current revision shows, as SQL: nothing once retention pruned it,
+  a marker once the message was deleted, otherwise its bounded text.
+  """
+  defmacro visible_text(pruned_at, event_kind, content) do
+    quote do
+      fragment(
+        "CASE WHEN ? IS NOT NULL THEN NULL WHEN ? = 'delete' THEN 'Message deleted' ELSE left(?::jsonb->>'text', 12000) END",
+        unquote(pruned_at),
+        unquote(event_kind),
+        unquote(content)
+      )
+    end
+  end
+
+  @doc """
+  Like `visible_text/3`, but for a request title: a source with no text of its
+  own falls through to its comment or review body, its first attachment or
+  block, or its first file name.
+  """
+  defmacro visible_preview(pruned_at, event_kind, content) do
+    quote do
+      fragment(
+        "CASE WHEN ? IS NOT NULL THEN NULL WHEN ? = 'delete' THEN 'Message deleted' ELSE (SELECT left(COALESCE(NULLIF(source ->> 'text', ''), source #>> '{payload,comment,body}', source #>> '{payload,review,body}', source #>> '{attachments,0,title}', source #>> '{attachments,0,pretext}', source #>> '{attachments,0,text}', source #>> '{attachments,0,fallback}', source #>> '{blocks,0,text,text}', source #>> '{files,0,name}'), 12000) FROM (SELECT ?::jsonb AS source) AS payload) END",
+        unquote(pruned_at),
+        unquote(event_kind),
+        unquote(content)
+      )
+    end
+  end
+
   def latest do
     from(entry in Entry,
       distinct: [entry.execution_mode, entry.native_input_id],

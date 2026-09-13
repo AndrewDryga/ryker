@@ -1,7 +1,7 @@
 defmodule Ryker.ControlPlane.LearningActivity do
   @moduledoc "Read-only operator projection of passive learning and its frozen attempts."
   import Ecto.Query
-  alias Ryker.ControlPlane.{Activity, InspectionRedactor, SlackNames}
+  alias Ryker.ControlPlane.{Activity, InspectionRedactor, PagedRelation, SlackNames}
   alias Ryker.Episodes.Episode
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Learning.{Batch, InputMembership, Runtime}
@@ -17,20 +17,8 @@ defmodule Ryker.ControlPlane.LearningActivity do
     {waiting_count, waiting_at} = waiting_inputs()
     status = Enum.find(@states, &(Atom.to_string(&1) == params["learning_status"]))
     query = if status, do: from(b in Batch, where: b.status == ^status), else: Batch
-    total = if status, do: counts[status], else: Enum.sum(Map.values(counts))
-    pages = max(1, div(total + @page_size - 1, @page_size))
-    page = min(page(params["learning_page"]), pages)
-
-    batches =
-      Repo.all(
-        from(b in query,
-          order_by: [desc: b.inserted_at, desc: b.id],
-          limit: @page_size,
-          offset: ^((page - 1) * @page_size)
-        )
-      )
-
-    selected = selected_batch(params)
+    page = read(query, "learning_page", [desc: :inserted_at, desc: :id], params)
+    secrets = InspectionRedactor.configured_secrets()
 
     %{
       enabled: not is_nil(Application.get_env(:ryker, :learning)),
@@ -38,15 +26,18 @@ defmodule Ryker.ControlPlane.LearningActivity do
       counts: counts,
       waiting_inputs: waiting_count,
       oldest_waiting_at: waiting_at,
-      handover_failures: handover_failures(params["handover_page"]),
-      items: Enum.map(batches, &batch/1),
-      selected: selected,
-      page: page,
-      pages: pages,
-      total: total,
+      handover_failures: handover_failures(params),
+      items: Enum.map(page.items, &batch(&1, secrets)),
+      selected: selected_batch(params, secrets),
+      page: page.page,
+      pages: page.pages,
+      total: page.total,
       filter: if(status, do: Atom.to_string(status), else: "")
     }
   end
+
+  defp read(query, key, order, params),
+    do: PagedRelation.read(query, order, key, params, page_size: @page_size)
 
   defp batch_counts do
     Map.new(@states, &{&1, 0})
@@ -83,44 +74,34 @@ defmodule Ryker.ControlPlane.LearningActivity do
     {pending_count + assigned_count, oldest(pending_at, assigned_at)}
   end
 
-  defp selected_batch(params) do
-    with id when is_binary(id) <- uuid(params["batch"]),
+  defp selected_batch(params, secrets) do
+    with {:ok, id} <- Ecto.UUID.cast(params["batch"]),
          %Batch{} = batch <- Repo.get(Batch, id) do
-      selected(batch, params["attempt_page"])
+      selected(batch, params, secrets)
     else
       _ -> nil
     end
   end
 
-  defp handover_failures(requested_page) do
-    query =
+  defp handover_failures(params) do
+    page =
       from(t in Turn,
         join: e in Episode,
         on: e.id == t.episode_id,
-        where: not is_nil(t.summary_error_code)
+        where: not is_nil(t.summary_error_code),
+        select: %{
+          turn_id: t.id,
+          episode_key: e.key,
+          conversation: e.destination_conversation_ref,
+          accepted_at: t.accepted_at,
+          delivered_at: t.delivered_at,
+          error_code: t.summary_error_code
+        }
       )
-
-    total = Repo.aggregate(query, :count)
-    pages = max(1, div(total + @page_size - 1, @page_size))
-    page = min(page(requested_page), pages)
+      |> read("handover_page", [desc: :accepted_at, desc: :id], params)
 
     items =
-      Repo.all(
-        from([t, e] in query,
-          order_by: [desc: t.accepted_at, desc: t.id],
-          limit: @page_size,
-          offset: ^((page - 1) * @page_size),
-          select: %{
-            turn_id: t.id,
-            episode_key: e.key,
-            conversation: e.destination_conversation_ref,
-            accepted_at: t.accepted_at,
-            delivered_at: t.delivered_at,
-            error_code: t.summary_error_code
-          }
-        )
-      )
-      |> Enum.map(fn item ->
+      Enum.map(page.items, fn item ->
         %{
           turn_id: item.turn_id,
           conversation: SlackNames.destination(item.conversation),
@@ -135,7 +116,7 @@ defmodule Ryker.ControlPlane.LearningActivity do
         }
       end)
 
-    %{total: total, page: page, pages: pages, items: items}
+    %{total: page.total, page: page.page, pages: page.pages, items: items}
   end
 
   defp handover_error("source_capacity"),
@@ -148,7 +129,7 @@ defmodule Ryker.ControlPlane.LearningActivity do
     do:
       "The conversation handover could not be saved. Inspect the original work turn for its retained context."
 
-  defp selected(row, requested_page) do
+  defp selected(row, params, secrets) do
     # SELECTs only. The mutation owner rechecks source eligibility and both
     # scope-wide execution guards inside its locked, audited transaction.
     outstanding = outstanding_execution?(row)
@@ -160,8 +141,8 @@ defmodule Ryker.ControlPlane.LearningActivity do
         {:error, reason} -> {nil, error(reason)}
       end
 
-    batch(row)
-    |> Map.merge(attempts(row, requested_page))
+    batch(row, secrets)
+    |> Map.merge(attempts(row, params))
     |> Map.merge(%{
       retry_policy: policy,
       retry_available:
@@ -205,35 +186,31 @@ defmodule Ryker.ControlPlane.LearningActivity do
 
   defp retry_reason(:deferred, false, false), do: nil
 
-  defp attempts(row, requested_page) do
-    attempt_query = from(r in LearningRun, where: r.batch_id == ^row.id)
-    attempt_count = Repo.aggregate(attempt_query, :count)
-    attempt_pages = max(1, div(attempt_count + @page_size - 1, @page_size))
-    attempt_page = min(page(requested_page), attempt_pages)
-    offset = (attempt_page - 1) * @page_size
+  defp attempts(row, params) do
+    page =
+      from(r in LearningRun,
+        where: r.batch_id == ^row.id,
+        select: %{
+          id: r.id,
+          status: r.status,
+          at: r.inserted_at,
+          error_code: r.error_code,
+          pruned_at: r.pruned_at,
+          result: r.result
+        }
+      )
+      |> read("attempt_page", [desc: :inserted_at, desc: :id], params)
+
+    offset = (page.page - 1) * @page_size
 
     attempts =
-      Repo.all(
-        from(r in attempt_query,
-          order_by: [desc: r.inserted_at, desc: r.id],
-          limit: @page_size,
-          offset: ^offset,
-          select: %{
-            id: r.id,
-            status: r.status,
-            at: r.inserted_at,
-            error_code: r.error_code,
-            pruned_at: r.pruned_at,
-            result: r.result
-          }
-        )
-      )
+      page.items
       |> Enum.with_index()
       |> Enum.map(fn {attempt, index} ->
         attempt
         |> Map.delete(:result)
         |> Map.merge(%{
-          number: attempt_count - offset - index,
+          number: page.total - offset - index,
           error: error(attempt.error_code),
           label: attempt_label(attempt)
         })
@@ -241,8 +218,8 @@ defmodule Ryker.ControlPlane.LearningActivity do
 
     %{
       attempts: attempts,
-      attempt_page: attempt_page,
-      attempt_pages: attempt_pages
+      attempt_page: page.page,
+      attempt_pages: page.pages
     }
   end
 
@@ -279,8 +256,8 @@ defmodule Ryker.ControlPlane.LearningActivity do
     )
   end
 
-  @doc false
-  def batch(row),
+  @doc "One batch as the page lists it; a caller with the page's secrets passes them once."
+  def batch(row, secrets \\ InspectionRedactor.configured_secrets()),
     do: %{
       id: row.id,
       status: row.status,
@@ -297,7 +274,7 @@ defmodule Ryker.ControlPlane.LearningActivity do
       completed_at: row.completed_at,
       next_attempt_at: row.next_attempt_at,
       error: error(row.error_code),
-      error_code: safe_code(row.error_code),
+      error_code: safe_code(row.error_code, secrets),
       path: path(row.id)
     }
 
@@ -390,28 +367,10 @@ defmodule Ryker.ControlPlane.LearningActivity do
     do:
       "Learning could not finish. Inspect the frozen attempt and its diagnostic code before retrying."
 
-  defp safe_code(nil), do: nil
-
-  defp safe_code(value),
-    do: InspectionRedactor.artifact(value, secrets: InspectionRedactor.configured_secrets()).text
+  defp safe_code(nil, _secrets), do: nil
+  defp safe_code(value, secrets), do: InspectionRedactor.artifact(value, secrets: secrets).text
 
   defp oldest(nil, right), do: right
   defp oldest(left, nil), do: left
   defp oldest(left, right), do: if(DateTime.compare(left, right) == :lt, do: left, else: right)
-
-  defp uuid(value) do
-    case Ecto.UUID.cast(value) do
-      {:ok, id} -> id
-      _ -> nil
-    end
-  end
-
-  defp page(value) when is_binary(value) do
-    case Integer.parse(value) do
-      {number, ""} when number in 1..10_000 -> number
-      _ -> 1
-    end
-  end
-
-  defp page(_), do: 1
 end
