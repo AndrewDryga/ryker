@@ -373,6 +373,10 @@ defmodule Ryker.Retention.Data do
         [~w(saved cancelled expired), cutoff]
       )
 
+    # A learning batch that is leased, or whose run is still out at the model,
+    # needs the exact bodies it was given; pruning them fenced the turn as
+    # learning_source_stale and wasted the start. A queued batch retires a
+    # pruned input on its own and keeps the rest.
     operational_inputs =
       execute_count(
         """
@@ -393,6 +397,19 @@ defmodule Ryker.Retention.Data do
                 WHERE session.episode_id = input.episode_id
                   AND session.cleanup_status <> 'discarded'
               )
+            )
+            AND NOT EXISTS (
+              SELECT 1 FROM conversation_learning_inputs AS membership
+              JOIN conversation_learning_batches AS batch ON batch.id = membership.batch_id
+              WHERE membership.input_id = input.id
+                AND (
+                  batch.status = 'running'
+                  OR EXISTS (
+                    SELECT 1 FROM conversation_learning_runs AS run
+                    WHERE run.batch_id = batch.id
+                      AND run.started_at IS NOT NULL AND run.remote_stopped_at IS NULL
+                  )
+                )
             )
           ORDER BY input.updated_at, input.id
           LIMIT 100
