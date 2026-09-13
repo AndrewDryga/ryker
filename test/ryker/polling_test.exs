@@ -72,9 +72,8 @@ defmodule Ryker.PollingTest do
     refute_receive {:poll_attempt, ^worker, _time}, 100
     refute_receive {:maintenance_ran, ^worker}
 
-    assert Repo.query!(
-             "SELECT cycle_count FROM ryker_runtime_progress WHERE lane = 'retention'"
-           ).rows == []
+    assert Repo.query!("SELECT cycle_count FROM ryker_runtime_progress WHERE lane = 'retention'").rows ==
+             []
 
     assert {:error, {:database_unavailable, _reason}} =
              with_pool(pool, &Observability.health/0)

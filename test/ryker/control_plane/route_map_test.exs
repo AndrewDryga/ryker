@@ -128,8 +128,7 @@ defmodule Ryker.ControlPlane.RouteMapTest do
 
     {:noreply, pending} =
       Updates.handle_info(
-        {:notification, self(), state.reference, "ryker_control_plane",
-         "ingress_inbox_entries"},
+        {:notification, self(), state.reference, "ryker_control_plane", "ingress_inbox_entries"},
         state
       )
 

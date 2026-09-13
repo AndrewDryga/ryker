@@ -8,9 +8,24 @@ defmodule Ryker.ControlPlane.ReadabilityTest do
     # on a black banner. These actual shipped colors must not recur.
     css = Assets.call(Plug.Test.conn(:get, "/workspace.css"), []).resp_body
     [_, tokens] = Regex.run(~r/\.ryker-app \.legacy-surface \{([^}]+)\}/, css)
-    [_, muted] = Regex.run(~r/--muted:\s*(#[0-9a-f]{6})/, tokens)
+    [_, muted] = Regex.run(~r/--muted:\s*(var\(--ryker-[a-z-]+\))/, tokens)
 
-    for background <- ["#ffffff", "#f5f5f1"] do
+    # The surfaces are Ryker roles now (priv/static/ryker-tokens.css); resolve
+    # the secondary text and both light surfaces through the same file.
+    ryker = Assets.call(Plug.Test.conn(:get, "/ryker-tokens.css"), []).resp_body
+
+    resolve = fn "var(--" <> name ->
+      [_, value] =
+        Regex.run(~r/--#{String.trim_trailing(name, ")")}:\s*(#[0-9a-f]{6})/, ryker)
+
+      value
+    end
+
+    muted = resolve.(muted)
+
+    for background <- ["var(--ryker-surface-raised)", "var(--ryker-surface)"] do
+      background = resolve.(background)
+
       assert contrast(muted, background) >= 4.5,
              "Secondary text #{muted} is unreadable on #{background}"
     end

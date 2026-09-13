@@ -10,7 +10,7 @@ defmodule Ryker.ControlPlane.BrowserGuard do
       |> put_resp_header("cache-control", "no-store")
       |> put_resp_header(
         "content-security-policy",
-        "default-src 'none'; style-src 'self'; script-src 'self'; connect-src 'self'; img-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"
+        "default-src 'none'; style-src 'self'; script-src 'self'; connect-src 'self'; img-src 'self'; font-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"
       )
       |> put_resp_header("referrer-policy", "no-referrer")
       |> put_resp_header("x-content-type-options", "nosniff")

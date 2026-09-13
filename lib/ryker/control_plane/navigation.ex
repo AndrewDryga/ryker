@@ -43,8 +43,12 @@ defmodule Ryker.ControlPlane.Navigation do
         navigate={if @live, do: "/"}
         href={if !@live, do: "/"}
         class="app-brand"
-        aria-label="Ryker control plane"
-      >Ryker</.link>
+        aria-label="Ryker"
+      ><picture><source
+        media="(max-width:800px)"
+        type="image/svg+xml"
+        srcset="/assets/brand/mark-mint.svg"
+      /><img src="/assets/brand/lockup-color.svg" alt="Ryker" /></picture></.link>
       <nav :for={{group, links} <- @groups} class="app-nav" aria-label="Main navigation">
         <p class="nav-caption">{group}</p>
         <.link
