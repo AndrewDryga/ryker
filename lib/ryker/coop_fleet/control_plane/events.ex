@@ -14,7 +14,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Events do
 
   alias Ryker.CanonicalJSON
   alias Ryker.CoopFleet.{Command, Event, Placement}
-  alias Ryker.CoopFleet.ControlPlane.{Commands, Shared}
+  alias Ryker.CoopFleet.ControlPlane.{Placements, Shared}
   alias Ryker.Repo
   alias Ryker.Work.{Activity, Session}
 
@@ -95,7 +95,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Events do
 
   defp event_batch_disposition(placement, cursor, _last_sequence, events, cursor, now) do
     cond do
-      Commands.command_result_authorized?(placement, now) -> :fresh
+      Placements.current?(placement, now) -> :fresh
       prebinding_session_activity?(placement, events, cursor) -> :late_session_activity
       true -> :unauthorized
     end

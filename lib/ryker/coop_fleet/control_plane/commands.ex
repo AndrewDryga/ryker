@@ -13,7 +13,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Commands do
 
   alias Ryker.CanonicalJSON
   alias Ryker.CoopFleet.{Command, Placement, Protocol}
-  alias Ryker.CoopFleet.ControlPlane.Shared
+  alias Ryker.CoopFleet.ControlPlane.{Placements, Shared}
   alias Ryker.Repo
   alias Ryker.StateTools.Binding
   alias Ryker.Work.{Session, StateBinding, Turn}
@@ -67,10 +67,8 @@ defmodule Ryker.CoopFleet.ControlPlane.Commands do
             )
           ) || Shared.rollback({:coop_session_placement_not_found, placement_id})
 
-        if placement.state != :active or
-             DateTime.compare(placement.lease_expires_at, now) != :gt do
-          Shared.rollback({:coop_session_placement_not_current, placement_id})
-        end
+        unless Placements.current?(placement, now),
+          do: Shared.rollback({:coop_session_placement_not_current, placement_id})
 
         %Command{}
         |> cast(
@@ -206,7 +204,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Commands do
         command.idempotency_key != result["operation_key"] ->
           Shared.rollback({:coop_worker_operation_key_mismatch, command.id})
 
-        not command_result_authorized?(placement, now) ->
+        not Placements.current?(placement, now) ->
           command
           |> change(%{
             completed_at: now,
@@ -242,11 +240,6 @@ defmodule Ryker.CoopFleet.ControlPlane.Commands do
 
       command.id
     end)
-  end
-
-  @doc false
-  def command_result_authorized?(placement, now) do
-    placement.state == :active and DateTime.compare(placement.lease_expires_at, now) == :gt
   end
 
   @doc false

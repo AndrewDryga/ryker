@@ -136,12 +136,9 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
 
     case current_placement(session_id) do
       %Placement{} = placement ->
-        if placement.state == :active and
-             DateTime.compare(placement.lease_expires_at, now) == :gt do
-          placement
-        else
-          replacement_required(placement, now)
-        end
+        if current?(placement, now),
+          do: placement,
+          else: replacement_required(placement, now)
 
       nil ->
         place_unassigned_session(session, requirements, lease_seconds, now)
@@ -176,10 +173,20 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
     end
   end
 
+  @doc "Whether this placement is active and its lease has not run out."
+  @spec current?(Placement.t(), DateTime.t()) :: boolean()
+  def current?(%Placement{state: :active, lease_expires_at: %DateTime{} = expires_at}, now),
+    do: DateTime.compare(expires_at, now) == :gt
+
+  def current?(%Placement{}, _now), do: false
+
   defp bound_session?(%Session{coop_session_id: remote_id}) when is_binary(remote_id), do: true
   defp bound_session?(_session), do: false
 
-  defp recover_bound_placement(session, previous, requirements, lease_seconds, now) do
+  # A re-placement of a session the previous worker still holds goes back to
+  # that worker under the ordinary eligibility checks; the caller decides what
+  # an ineligible worker means for its session.
+  defp recover_placement_on_previous_worker(session, previous, requirements, lease_seconds, now) do
     worker = Shared.locked_worker(previous.worker_id)
 
     eligible =
@@ -189,8 +196,15 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
         worker_has_capacity?(worker)
 
     if eligible,
-      do: insert_placement_on_worker(session, worker, requirements, lease_seconds, now),
-      else: {:replacement_required, previous.generation}
+      do: {:ok, insert_placement_on_worker(session, worker, requirements, lease_seconds, now)},
+      else: :ineligible
+  end
+
+  defp recover_bound_placement(session, previous, requirements, lease_seconds, now) do
+    case recover_placement_on_previous_worker(session, previous, requirements, lease_seconds, now) do
+      {:ok, placement} -> placement
+      :ineligible -> {:replacement_required, previous.generation}
+    end
   end
 
   defp replacement_required(placement, now) do
@@ -285,24 +299,11 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
 
   defp cancelling_bound_session?(_session), do: false
 
-  defp recover_cancellation_placement(
-         session,
-         previous,
-         requirements,
-         lease_seconds,
-         now
-       ) do
-    worker = Shared.locked_worker(previous.worker_id)
-
-    eligible =
-      worker_current?(worker, requirements.workspace_ref, now) and
-        worker_eligible?(worker, session, requirements, now) and
-        placement_authority_current?(previous.requirements, worker) and
-        worker_has_capacity?(worker)
-
-    if eligible,
-      do: insert_placement_on_worker(session, worker, requirements, lease_seconds, now),
-      else: Shared.rollback({:coop_worker_capacity_unavailable, session.id})
+  defp recover_cancellation_placement(session, previous, requirements, lease_seconds, now) do
+    case recover_placement_on_previous_worker(session, previous, requirements, lease_seconds, now) do
+      {:ok, placement} -> placement
+      :ineligible -> Shared.rollback({:coop_worker_capacity_unavailable, session.id})
+    end
   end
 
   defp worker_current?(%Worker{} = worker, workspace_ref, now) do
