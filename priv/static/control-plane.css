@@ -1,12 +1,12 @@
 .control-room {
-  --bg: #101315;
-  --panel: #191e21;
-  --panel-raised: #20272c;
-  --line: #30383d;
-  --text: #e9eeeb;
-  --muted: #9aa8ab;
-  --accent: #afdcc0;
-  --cyan: #9bccdf;
+  --bg: var(--ryker-surface);
+  --panel: var(--ryker-surface-raised);
+  --panel-raised: var(--ryker-surface-sunken);
+  --line: var(--ryker-stroke);
+  --text: var(--ryker-text);
+  --muted: var(--ryker-text-secondary);
+  --accent: var(--ryker-accent-strong);
+  --cyan: var(--ryker-accent-strong);
   background: var(--bg);
 }
 .workspace-shell { min-height: 100vh; }
@@ -72,7 +72,7 @@
 .context-message-body { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14px; line-height: 1.7; margin: 10px 0; }
 .context-message details { margin-top: 12px; color: #9fada5; font-size: 11px; }
 .context-message details summary, .context-candidate summary { cursor: pointer; }
-.request-context-readable pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 320px; overflow: auto; font: 11px/1.7 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.request-context-readable pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 320px; overflow: auto; font: 11px/1.7 var(--ryker-font-mono); }
 .context-omission { padding: 10px 12px; background: #332d21; border-left: 2px solid #c4a76a; font-size: 12px; }
 .context-field { padding: 8px 0 8px 12px; border-left: 1px solid #344049; overflow-wrap: anywhere; }
 .context-field h4 { margin: 0 0 4px; font-size: 11px; color: #9eada5; font-weight: 500; }

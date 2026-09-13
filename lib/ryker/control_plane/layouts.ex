@@ -13,7 +13,11 @@ defmodule Ryker.ControlPlane.Layouts do
         <meta charset="utf-8" /><meta name="viewport" content="width=device-width,initial-scale=1" />
         <title>{@title} · Ryker</title><link rel="stylesheet" href="/static/app.css" /><link
           rel="stylesheet"
-          href="/assets/workspace.css"
+          href="/assets/ryker-tokens.css"
+        /><link rel="stylesheet" href="/assets/workspace.css" /><link
+          rel="icon"
+          type="image/svg+xml"
+          href="/assets/brand/avatar.svg"
         />
       </head><body class="control-room">
         <div class="ryker-app">
@@ -46,8 +50,10 @@ defmodule Ryker.ControlPlane.Layouts do
         <meta name="csrf-token" content={Plug.CSRFProtection.get_csrf_token()} />
         <title>{@page_title || "Ryker"} · Ryker</title>
         <link rel="stylesheet" href="/static/app.css" />
+        <link rel="stylesheet" href="/assets/ryker-tokens.css" />
         <link rel="stylesheet" href="/assets/control-plane.css" />
         <link rel="stylesheet" href="/assets/workspace.css" />
+        <link rel="icon" type="image/svg+xml" href="/assets/brand/avatar.svg" />
         <script type="module" src="/assets/control-plane.js">
         </script>
       </head>

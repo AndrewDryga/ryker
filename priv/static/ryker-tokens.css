@@ -1,0 +1,61 @@
+/* Ryker application tokens.
+   Identity source: brand/ryker/README.md (graphite #111315, mint #36E6A5, ivory #F2EEE5) and
+   .agent/kb/rules/ryker-brand.md. Loaded before control-plane.css and workspace.css, whose root
+   variables point at these roles. Mint lives on graphite only: the light surface is ivory-based
+   and every text or boundary on it uses graphite, its neutrals, or the deep accent derivative.
+   Fonts are the bundled, unmodified IBM Plex families (license: /assets/brand/fonts/LICENSE.txt);
+   the logo lettering is supplied outlines and is never typed in them.
+   test/ryker/control_plane/ryker_tokens_test.exs parses this file and proves the contrast pairs. */
+@font-face { font-family:"IBM Plex Sans"; font-style:normal; font-weight:400; font-display:swap; src:url("/assets/brand/fonts/IBMPlexSans-Regular.woff2") format("woff2"); }
+@font-face { font-family:"IBM Plex Sans"; font-style:normal; font-weight:600; font-display:swap; src:url("/assets/brand/fonts/IBMPlexSans-SemiBold.woff2") format("woff2"); }
+@font-face { font-family:"IBM Plex Mono"; font-style:normal; font-weight:400; font-display:swap; src:url("/assets/brand/fonts/IBMPlexMono-Regular.woff2") format("woff2"); }
+:root {
+  /* Supplied identity */
+  --ryker-graphite:#111315;
+  --ryker-mint:#36e6a5;
+  --ryker-ivory:#f2eee5;
+  /* Type: Plex for supporting text and technical identifiers, system fallbacks while it loads */
+  --ryker-font-sans:"IBM Plex Sans","Avenir Next",Avenir,"Segoe UI",sans-serif;
+  --ryker-font-mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+  /* Surfaces: the light application surface is ivory; graphite is the inverse block mint sits on */
+  --ryker-surface:#f2eee5;
+  --ryker-surface-raised:#ffffff;
+  --ryker-surface-sunken:#e8e3d8;
+  --ryker-surface-inverse:#111315;
+  /* Text */
+  --ryker-text:#111315;
+  --ryker-text-secondary:#555b57;
+  --ryker-text-inverse:#f2eee5;
+  --ryker-text-inverse-secondary:#aab2ad;
+  /* Lines: decorative rules may be quiet; control boundaries clear 3:1 on every light surface */
+  --ryker-stroke:#d3cdc0;
+  --ryker-stroke-strong:#767b77;
+  /* Accent: mint on graphite; the deep derivative carries links and accent text on light surfaces */
+  --ryker-accent:#36e6a5;
+  --ryker-accent-strong:#0b6b4a;
+  --ryker-accent-soft:#d5f3e6;
+  /* Controls */
+  --ryker-control-bg:#ffffff;
+  --ryker-control-border:#767b77;
+  --ryker-control-text:#111315;
+  --ryker-control-primary-bg:#111315;
+  --ryker-control-primary-text:#36e6a5;
+  --ryker-control-primary-hover-bg:#23272a;
+  /* States */
+  --ryker-hover-bg:#dcd6c9;
+  --ryker-selected-bg:#111315;
+  --ryker-selected-text:#f2eee5;
+  --ryker-selected-accent:#36e6a5;
+  --ryker-focus-ring:#111315;
+  --ryker-focus-inner:#36e6a5;
+  --ryker-disabled-bg:#e8e3d8;
+  --ryker-disabled-text:#7c817d;
+  --ryker-disabled-border:#c9c3b8;
+  /* Semantic: the word or icon beside the color carries the meaning; a brand color never does */
+  --ryker-success:#2e6b45;
+  --ryker-success-soft:#e2f0e5;
+  --ryker-warning:#805315;
+  --ryker-warning-soft:#fbefdc;
+  --ryker-error:#a32d30;
+  --ryker-error-soft:#fbe8e6;
+}

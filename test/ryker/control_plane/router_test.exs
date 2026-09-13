@@ -166,12 +166,15 @@ defmodule Ryker.ControlPlane.RouterTest do
     assert conn.status == 200
 
     assert get_resp_header(conn, "content-security-policy") == [
-             "default-src 'none'; style-src 'self'; script-src 'self'; connect-src 'self'; img-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"
+             "default-src 'none'; style-src 'self'; script-src 'self'; connect-src 'self'; img-src 'self'; font-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"
            ]
 
     assert get_resp_header(conn, "cache-control") == ["no-store"]
     assert get_resp_header(conn, "x-ryker-version") == ["0.1.0-dev"]
-    assert conn.resp_body =~ "Ryker control plane"
+
+    assert conn.resp_body =~
+             ~r/<a [^>]*class="app-brand"[^>]*aria-label="Ryker"|<a [^>]*aria-label="Ryker"[^>]*class="app-brand"/
+
     assert conn.resp_body =~ "What needs attention"
     assert conn.resp_body =~ "Blocked work"
     refute conn.resp_body =~ "https://"
