@@ -18,6 +18,7 @@ defmodule Ryker.ControlPlane.FindingsProjection do
   @timeline_record_limit 500
   @page_size 30
 
+  @doc "One page of findings, newest first, with the evidence each cites."
   def list(params) do
     page =
       PagedRelation.read(

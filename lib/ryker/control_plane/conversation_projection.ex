@@ -167,7 +167,7 @@ defmodule Ryker.ControlPlane.ConversationProjection do
 
   def history(_conversation_id, _cursor, _limit), do: {:error, :invalid_cursor}
 
-  @doc false
+  @doc "One generated file of an accepted reply, when the reply is retained and belongs to the conversation."
   def artifact(conversation_id, turn_id, artifact_ref)
       when is_binary(turn_id) and is_binary(artifact_ref) do
     with {:ok, conversation_id} <- Ecto.UUID.cast(conversation_id),

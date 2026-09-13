@@ -16,6 +16,7 @@ defmodule Ryker.ControlPlane.SubscriptionProjection do
   @list_limit 100
   @statuses ~w(active resolved timed_out cancelled)a
 
+  @doc "Every event wait the host holds, filtered by status and search."
   def list(params) when is_map(params) do
     query =
       from(subscription in EventSubscription,

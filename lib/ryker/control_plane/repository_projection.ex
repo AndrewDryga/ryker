@@ -18,6 +18,7 @@ defmodule Ryker.ControlPlane.RepositoryProjection do
 
   @list_limit 100
 
+  @doc "Every repository anything names, with its counts, policies, workers and freshness."
   def list(params) when is_map(params) do
     runtime = runtime_repositories()
     channels = grouped_count(ChannelConfiguration, :repository_ref)

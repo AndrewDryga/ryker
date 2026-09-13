@@ -23,6 +23,7 @@ defmodule Ryker.ControlPlane.EpisodeProjection do
     Repo.one(from(episode in Episode, where: episode.id == ^id, select: episode.key, limit: 1))
   end
 
+  @doc "One episode page: lifecycle metadata, bounded events and records, trace, accounting and links."
   def fetch(ref, params \\ %{})
 
   def fetch(ref, params) when is_binary(ref) and byte_size(ref) <= 1_024 and is_map(params) do

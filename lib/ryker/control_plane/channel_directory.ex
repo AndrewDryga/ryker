@@ -14,6 +14,7 @@ defmodule Ryker.ControlPlane.ChannelDirectory do
 
   @list_limit 100
 
+  @doc "Every channel a durable table mentions, most recently active first."
   def list(params) when is_map(params) do
     configurations =
       Repo.all(
