@@ -7,6 +7,8 @@ defmodule Ryker.Slack.TaskCardDetails do
   handoff is marked beside the item that needs the person.
   """
 
+  import Ryker.Slack.Renderer.Blocks, only: [escape: 1, section: 1, truncate: 2]
+
   alias Ryker.State.InvestigationPayload
   alias Ryker.Work.TaskStages
 
@@ -22,9 +24,6 @@ defmodule Ryker.Slack.TaskCardDetails do
   def blocks(task) do
     [request(task) | progress(task["stages"])] |> Enum.reject(&is_nil/1)
   end
-
-  def context(text),
-    do: %{"type" => "context", "elements" => [%{"type" => "mrkdwn", "text" => text}]}
 
   defp request(%{"request" => request, "title" => title})
        when is_binary(request) and request != title,
@@ -158,17 +157,7 @@ defmodule Ryker.Slack.TaskCardDetails do
       is_binary(text) and String.valid?(text) and String.length(text) in 1..maximum and
         :binary.match(text, <<0>>) == :nomatch and String.trim(text) != ""
 
-  defp section(text), do: %{"type" => "section", "text" => %{"type" => "mrkdwn", "text" => text}}
-
-  defp display(text, maximum) do
-    text =
-      text
-      |> String.replace("&", "&amp;")
-      |> String.replace("<", "&lt;")
-      |> String.replace(">", "&gt;")
-
-    if String.length(text) > maximum, do: String.slice(text, 0, maximum - 1) <> "…", else: text
-  end
+  defp display(text, maximum), do: text |> escape() |> truncate(maximum)
 
   defp label("workspace_setup"), do: "Workspace setup"
   defp label("planning"), do: "Planning"

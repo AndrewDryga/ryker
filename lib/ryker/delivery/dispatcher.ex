@@ -45,44 +45,93 @@ defmodule Ryker.Delivery.Dispatcher do
 
   defp execute(nil, _settings), do: {:ok, :idle}
 
-  defp execute(claim, %{kind: :message} = settings) do
-    with {:ok, request} <- message_request(claim),
-         {:ok, receipt} <- publish_with_lease(request, claim, settings),
-         {:ok, _settled} <-
-           Custody.confirm_delivery(
-             claim.episode.id,
-             claim.episode.key,
-             claim.turn.turn_ref,
-             claim.lease_ref,
-             receipt
-           ) do
-      {:ok, {:delivered, :message, request.ref}}
+  defp execute(claim, settings) do
+    custody = custody(claim, settings)
+
+    with {:ok, request} <- request(claim, settings.kind),
+         {:ok, receipt} <- publish_with_lease(request, custody, settings),
+         {:ok, _settled} <- confirm(claim, request, receipt, settings.kind) do
+      {:ok, {:delivered, custody.kind, request.ref}}
     else
-      {:error, reason} -> handle_message_error(claim, reason, settings)
+      {:error, reason} -> handle_error(custody, reason, settings)
     end
   end
 
-  defp execute(claim, %{kind: :reaction} = settings) do
-    with {:ok, request} <- ReactionCustody.request(claim.reaction),
-         {:ok, receipt} <- publish_with_lease(request, claim, settings),
-         {:ok, _settled} <-
-           ReactionCustody.confirm_delivery(request.ref, claim.lease_ref, receipt) do
-      {:ok, {:delivered, :reaction, request.ref}}
-    else
-      {:error, reason} -> handle_reaction_error(claim, reason, settings)
-    end
+  # The three custodies hold the same lease shape under different names; the
+  # dispatcher talks to them through this one, so the retry policy, the lease
+  # renewal cadence and the give-up rule exist once rather than three times.
+  defp custody(claim, %{kind: :message} = settings) do
+    %{episode: episode, turn: turn, lease_ref: lease_ref} = claim
+
+    %{
+      attempt_count: turn.delivery_attempt_count,
+      kind: :message,
+      ref: turn.delivery_ref,
+      renew: fn ->
+        Custody.renew(episode.id, turn.turn_ref, lease_ref, settings.lease_seconds)
+      end,
+      defer: fn retry_seconds, code, detail ->
+        Custody.defer(episode.id, turn.turn_ref, lease_ref, retry_seconds, code, detail)
+      end,
+      block: fn code, detail ->
+        Custody.block_delivery(episode.id, turn.turn_ref, lease_ref, code, detail)
+      end
+    }
   end
 
-  defp execute(claim, %{kind: :action} = settings) do
-    with {:ok, request} <- PlatformActionCustody.request(claim.action),
-         {:ok, receipt} <- publish_with_lease(request, claim, settings),
-         {:ok, _settled} <-
-           PlatformActionCustody.confirm_delivery(request.ref, claim.lease_ref, receipt) do
-      {:ok, {:delivered, :action, request.ref}}
-    else
-      {:error, reason} -> handle_action_error(claim, reason, settings)
-    end
+  defp custody(%{reaction: reaction, lease_ref: lease_ref}, %{kind: :reaction} = settings) do
+    %{
+      attempt_count: reaction.attempt_count,
+      kind: :reaction,
+      ref: reaction.delivery_ref,
+      renew: fn ->
+        ReactionCustody.renew(reaction.delivery_ref, lease_ref, settings.lease_seconds)
+      end,
+      defer: fn retry_seconds, code, detail ->
+        ReactionCustody.defer(reaction.delivery_ref, lease_ref, retry_seconds, code, detail)
+      end,
+      block: fn code, detail ->
+        ReactionCustody.block(reaction.delivery_ref, lease_ref, code, detail)
+      end
+    }
   end
+
+  defp custody(%{action: action, lease_ref: lease_ref}, %{kind: :action} = settings) do
+    %{
+      attempt_count: action.attempt_count,
+      kind: :action,
+      ref: action.action_ref,
+      renew: fn ->
+        PlatformActionCustody.renew(action.action_ref, lease_ref, settings.lease_seconds)
+      end,
+      defer: fn retry_seconds, code, detail ->
+        PlatformActionCustody.defer(action.action_ref, lease_ref, retry_seconds, code, detail)
+      end,
+      block: fn code, detail ->
+        PlatformActionCustody.block(action.action_ref, lease_ref, code, detail)
+      end
+    }
+  end
+
+  defp request(claim, :message), do: message_request(claim)
+  defp request(claim, :reaction), do: ReactionCustody.request(claim.reaction)
+  defp request(claim, :action), do: PlatformActionCustody.request(claim.action)
+
+  defp confirm(claim, _request, receipt, :message) do
+    Custody.confirm_delivery(
+      claim.episode.id,
+      claim.episode.key,
+      claim.turn.turn_ref,
+      claim.lease_ref,
+      receipt
+    )
+  end
+
+  defp confirm(claim, request, receipt, :reaction),
+    do: ReactionCustody.confirm_delivery(request.ref, claim.lease_ref, receipt)
+
+  defp confirm(claim, request, receipt, :action),
+    do: PlatformActionCustody.confirm_delivery(request.ref, claim.lease_ref, receipt)
 
   defp message_request(claim) do
     with {:ok, message, record_refs, artifact_refs} <-
@@ -160,7 +209,7 @@ defmodule Ryker.Delivery.Dispatcher do
     }
   end
 
-  defp publish_with_lease(request, claim, settings) do
+  defp publish_with_lease(request, custody, settings) do
     caller = self()
     result_ref = make_ref()
 
@@ -172,7 +221,7 @@ defmodule Ryker.Delivery.Dispatcher do
     cadence_ms = max(div(settings.lease_seconds * 1_000, 3), 1)
 
     try do
-      await_publish(result_ref, publisher, monitor, claim, settings, cadence_ms)
+      await_publish(result_ref, publisher, monitor, custody, cadence_ms)
     after
       stop_publish(result_ref, publisher, monitor)
     end
@@ -231,12 +280,12 @@ defmodule Ryker.Delivery.Dispatcher do
     end
   end
 
-  defp await_publish(result_ref, publisher, monitor, claim, settings, cadence_ms) do
+  defp await_publish(result_ref, publisher, monitor, custody, cadence_ms) do
     receive do
       {^result_ref, result} ->
         Process.demonitor(monitor, [:flush])
 
-        case renew_claim(claim, settings) do
+        case renew_claim(custody) do
           :ok -> result
           {:error, _reason} = error -> error
         end
@@ -245,177 +294,48 @@ defmodule Ryker.Delivery.Dispatcher do
         {:error, {:delivery_publisher_exit, reason}}
     after
       cadence_ms ->
-        case renew_claim(claim, settings) do
-          :ok ->
-            await_publish(result_ref, publisher, monitor, claim, settings, cadence_ms)
-
-          {:error, _reason} = error ->
-            error
+        case renew_claim(custody) do
+          :ok -> await_publish(result_ref, publisher, monitor, custody, cadence_ms)
+          {:error, _reason} = error -> error
         end
     end
   end
 
-  defp renew_claim(claim, %{kind: :message} = settings) do
-    case Custody.renew(
-           claim.episode.id,
-           claim.turn.turn_ref,
-           claim.lease_ref,
-           settings.lease_seconds
-         ) do
-      {:ok, _turn} -> :ok
+  defp renew_claim(custody) do
+    case custody.renew.() do
+      {:ok, _claimed} -> :ok
       {:error, _reason} = error -> error
     end
   end
 
-  defp renew_claim(claim, %{kind: :reaction} = settings) do
-    case ReactionCustody.renew(
-           claim.reaction.delivery_ref,
-           claim.lease_ref,
-           settings.lease_seconds
-         ) do
-      {:ok, _reaction} -> :ok
-      {:error, _reason} = error -> error
-    end
-  end
-
-  defp renew_claim(claim, %{kind: :action} = settings) do
-    case PlatformActionCustody.renew(
-           claim.action.action_ref,
-           claim.lease_ref,
-           settings.lease_seconds
-         ) do
-      {:ok, _action} -> :ok
-      {:error, _reason} = error -> error
-    end
-  end
-
-  defp defer_message(claim, reason, settings) do
-    retry_seconds = retry_delay(reason, claim.turn.delivery_attempt_count, settings)
-    {error_code, error_detail} = describe_error(reason)
-
-    case Custody.defer(
-           claim.episode.id,
-           claim.turn.turn_ref,
-           claim.lease_ref,
-           retry_seconds,
-           error_code,
-           error_detail
-         ) do
-      {:ok, _turn} -> {:ok, {:deferred, :message, claim.turn.delivery_ref, reason}}
-      {:error, defer_reason} -> delivery_error(reason, defer_reason)
-    end
-  end
-
-  defp handle_message_error(claim, reason, settings) do
+  defp handle_error(custody, reason, settings) do
     cond do
       lease_error?(reason) ->
         {:error, reason}
 
-      retryable_error?(reason) and claim.turn.delivery_attempt_count < settings.max_attempts ->
-        defer_message(claim, reason, settings)
+      retryable_error?(reason) and custody.attempt_count < settings.max_attempts ->
+        defer(custody, reason, settings)
 
       true ->
-        block_message(claim, reason)
+        block(custody, reason)
     end
   end
 
-  defp block_message(claim, reason) do
+  defp defer(custody, reason, settings) do
+    retry_seconds = retry_delay(reason, custody.attempt_count, settings)
     {error_code, error_detail} = describe_error(reason)
 
-    case Custody.block_delivery(
-           claim.episode.id,
-           claim.turn.turn_ref,
-           claim.lease_ref,
-           error_code,
-           error_detail
-         ) do
-      {:ok, _turn} -> {:ok, {:blocked, :message, claim.turn.delivery_ref, reason}}
-      {:error, block_reason} -> delivery_error(reason, block_reason)
-    end
-  end
-
-  defp defer_reaction(claim, reason, settings) do
-    retry_seconds = retry_delay(reason, claim.reaction.attempt_count, settings)
-    {error_code, error_detail} = describe_error(reason)
-
-    case ReactionCustody.defer(
-           claim.reaction.delivery_ref,
-           claim.lease_ref,
-           retry_seconds,
-           error_code,
-           error_detail
-         ) do
-      {:ok, _reaction} -> {:ok, {:deferred, :reaction, claim.reaction.delivery_ref, reason}}
+    case custody.defer.(retry_seconds, error_code, error_detail) do
+      {:ok, _deferred} -> {:ok, {:deferred, custody.kind, custody.ref, reason}}
       {:error, defer_reason} -> delivery_error(reason, defer_reason)
     end
   end
 
-  defp handle_reaction_error(claim, reason, settings) do
-    cond do
-      lease_error?(reason) ->
-        {:error, reason}
-
-      retryable_error?(reason) and claim.reaction.attempt_count < settings.max_attempts ->
-        defer_reaction(claim, reason, settings)
-
-      true ->
-        block_reaction(claim, reason)
-    end
-  end
-
-  defp block_reaction(claim, reason) do
+  defp block(custody, reason) do
     {error_code, error_detail} = describe_error(reason)
 
-    case ReactionCustody.block(
-           claim.reaction.delivery_ref,
-           claim.lease_ref,
-           error_code,
-           error_detail
-         ) do
-      {:ok, _reaction} -> {:ok, {:blocked, :reaction, claim.reaction.delivery_ref, reason}}
-      {:error, block_reason} -> delivery_error(reason, block_reason)
-    end
-  end
-
-  defp defer_action(claim, reason, settings) do
-    retry_seconds = retry_delay(reason, claim.action.attempt_count, settings)
-    {error_code, error_detail} = describe_error(reason)
-
-    case PlatformActionCustody.defer(
-           claim.action.action_ref,
-           claim.lease_ref,
-           retry_seconds,
-           error_code,
-           error_detail
-         ) do
-      {:ok, _action} -> {:ok, {:deferred, :action, claim.action.action_ref, reason}}
-      {:error, defer_reason} -> delivery_error(reason, defer_reason)
-    end
-  end
-
-  defp handle_action_error(claim, reason, settings) do
-    cond do
-      lease_error?(reason) ->
-        {:error, reason}
-
-      retryable_error?(reason) and claim.action.attempt_count < settings.max_attempts ->
-        defer_action(claim, reason, settings)
-
-      true ->
-        block_action(claim, reason)
-    end
-  end
-
-  defp block_action(claim, reason) do
-    {error_code, error_detail} = describe_error(reason)
-
-    case PlatformActionCustody.block(
-           claim.action.action_ref,
-           claim.lease_ref,
-           error_code,
-           error_detail
-         ) do
-      {:ok, _action} -> {:ok, {:blocked, :action, claim.action.action_ref, reason}}
+    case custody.block.(error_code, error_detail) do
+      {:ok, _blocked} -> {:ok, {:blocked, custody.kind, custody.ref, reason}}
       {:error, block_reason} -> delivery_error(reason, block_reason)
     end
   end

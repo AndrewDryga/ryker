@@ -8,10 +8,8 @@ defmodule Ryker.Webhooks.Router do
 
   @behaviour Plug
 
-  import Plug.Conn
-
   alias Ryker.Ingress.{Adapters, HTTP, Inbox}
-  alias Ryker.Webhooks.{Auth, Route, Transforms}
+  alias Ryker.Webhooks.{Auth, Headers, Route, Transforms}
 
   @impl Plug
   def init(options) do
@@ -115,9 +113,9 @@ defmodule Ryker.Webhooks.Router do
   end
 
   defp metadata(conn, now) do
-    with {:ok, event_id} <- optional_header(conn, "x-responder-event-id"),
+    with {:ok, event_id} <- Headers.optional(conn, "x-responder-event-id"),
          {:ok, item_id} <- item_id(conn, event_id),
-         {:ok, event_type} <- optional_header(conn, "x-responder-event-type"),
+         {:ok, event_type} <- Headers.optional(conn, "x-responder-event-type"),
          {:ok, occurred_at, occurred_at_source} <- occurred_at(conn, now),
          {:ok, revision} <- revision(conn) do
       {:ok,
@@ -134,27 +132,19 @@ defmodule Ryker.Webhooks.Router do
     end
   end
 
-  defp optional_header(conn, name) do
-    case get_req_header(conn, name) do
-      [] -> {:ok, nil}
-      [value] when value != "" -> {:ok, value}
-      _other -> {:error, name}
-    end
-  end
-
   defp item_id(conn, event_id) do
-    case optional_header(conn, "x-responder-item-id") do
+    case Headers.optional(conn, "x-responder-item-id") do
       {:ok, nil} -> {:ok, event_id}
       {:ok, item_id} -> {:ok, item_id}
-      {:error, _reason} -> {:error, :item_id}
+      {:error, :header} -> {:error, :item_id}
     end
   end
 
   defp occurred_at(conn, now) do
-    case get_req_header(conn, "x-responder-occurred-at") do
-      [] -> {:ok, now, :ingress}
-      [value] -> with {:ok, datetime} <- parse_datetime(value), do: {:ok, datetime, :source}
-      _other -> {:error, :occurred_at}
+    case Headers.optional(conn, "x-responder-occurred-at") do
+      {:ok, nil} -> {:ok, now, :ingress}
+      {:ok, value} -> with {:ok, datetime} <- parse_datetime(value), do: {:ok, datetime, :source}
+      {:error, :header} -> {:error, :occurred_at}
     end
   end
 
@@ -166,10 +156,10 @@ defmodule Ryker.Webhooks.Router do
   end
 
   defp revision(conn) do
-    case get_req_header(conn, "x-responder-revision") do
-      [] -> {:ok, 1}
-      [value] -> parse_positive_integer(value)
-      _other -> {:error, :revision}
+    case Headers.optional(conn, "x-responder-revision") do
+      {:ok, nil} -> {:ok, 1}
+      {:ok, value} -> parse_positive_integer(value)
+      {:error, :header} -> {:error, :revision}
     end
   end
 
