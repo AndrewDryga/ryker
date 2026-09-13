@@ -14,13 +14,13 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
     Endpoint,
     EpisodePage,
     HTML,
+    LabControls,
     LabPage,
     Navigation,
     Pages,
     Projection,
     RequestFilters,
     RequestPage,
-    Router,
     SettingsPage,
     SettingsView,
     SlackNames,
@@ -388,7 +388,10 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
     )
   end
 
-  defp load_detail(socket, options, ["channels", workspace, channel]) do
+  # The route's decoded params name the channel; the raw path segments would
+  # hand a percent-encoded link to the projection undecoded and find nothing.
+  defp load_detail(socket, options, ["channels", _workspace, _channel]) do
+    %{"workspace" => workspace, "channel" => channel} = socket.assigns.params
     params = Map.take(socket.assigns.params, ChannelDetail.query_keys())
 
     with {:ok, snapshot} <- options.projection.channel.(workspace, channel, params),
@@ -420,7 +423,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
   # carried, which the server cannot see again after a reconnect. Following the
   # first send is therefore the client's job ("open-conversation" below).
   defp load_detail(socket, options, ["conversations"]) do
-    case Router.lab_snapshot(socket.assigns.lab_draft_id, options) do
+    case LabControls.snapshot(socket.assigns.lab_draft_id, options) do
       {:ok, snapshot, token} ->
         socket
         |> load_conversation(Map.put(snapshot, :draft, true), token, options)
@@ -432,7 +435,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
   end
 
   defp load_detail(socket, options, ["conversations", _id]) do
-    case Router.lab_snapshot(socket.assigns.params["id"], options) do
+    case LabControls.snapshot(socket.assigns.params["id"], options) do
       {:ok, snapshot, token} ->
         load_conversation(socket, snapshot, token, options)
 
@@ -681,7 +684,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
       end
 
     socket =
-      case Router.lab_changes(window.conversation_id, since, window.page_size, options) do
+      case LabControls.changes(window.conversation_id, since, window.page_size, options) do
         {:ok, changed} -> merge_lab_rows(socket, changed, lab_window_floor(socket))
         {:error, _reason} -> throw({:projection_unavailable, :lab})
       end
@@ -725,7 +728,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
         {:adopt, messages, history}
 
       true ->
-        case Router.lab_history(
+        case LabControls.history(
                window.conversation_id,
                history.before,
                window.page_size,
@@ -803,7 +806,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
     window = socket.assigns.lab_window
     options = Endpoint.config(:control_plane)
 
-    case Router.lab_history(window.conversation_id, window.before, window.page_size, options) do
+    case LabControls.history(window.conversation_id, window.before, window.page_size, options) do
       {:ok, page} ->
         socket =
           socket

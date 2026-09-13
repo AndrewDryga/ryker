@@ -1318,6 +1318,22 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
       assert pages(first) == %{"episodes" => "Page 1 of 2", "summaries" => "Page 1 of 2"}
     end
 
+    test "a percent-encoded channel link opens the same native page as the plain one" do
+      # The native branch matched the raw path segments and handed them to the
+      # projection undecoded, so an encoded link found no channel there, fell
+      # back to the secondary page (which decodes) and rendered the channel
+      # without its instructions editor. The two spellings are one address.
+      membership!("T123", "C456", private: false, external_shared: false)
+      conn = build_conn() |> Map.put(:host, "localhost")
+
+      for path <- ["/channels/T123/C456", "/channels/T%31%32%33/C%34%35%36"] do
+        {:ok, view, html} = live(conn, path)
+        assert html =~ "<h1>Slack channel C456</h1>", path
+        assert has_element?(view, "section.instructions-editor"), path
+        assert has_element?(view, "main.native-page"), path
+      end
+    end
+
     defp pages(html) do
       document = LazyHTML.from_document(html)
 
