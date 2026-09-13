@@ -163,6 +163,18 @@ defmodule Responder.Admission.Executor do
       {:error, _reason} = error ->
         error
     end
+    |> case do
+      # The placement that addressed this generation's session expired before
+      # the worker ever created it, so the fleet fences every further command
+      # for that session. Work rotates to a new session; admission's session
+      # identity is its execution generation, so spend the generation and let
+      # the next attempt place a fresh one instead of retrying a dead identity.
+      {:error, {:coop_session_replacement_required, _session_id, _generation} = reason} ->
+        generation_spent(reason)
+
+      other ->
+        other
+    end
   end
 
   defp create_session(entry, key, settings) do

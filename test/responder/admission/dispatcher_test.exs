@@ -212,6 +212,37 @@ defmodule Responder.Admission.DispatcherTest do
     assert Enum.any?(Map.keys(state.operation_calls), &String.contains?(&1, ":g2"))
   end
 
+  test "a placement lost before the session existed is replaced on the next attempt" do
+    # A worker that stops polling lets the admission placement expire before its
+    # create_session command ever leaves the host. The fleet then answers every
+    # command for that session with coop_session_replacement_required, which Work
+    # rotates past but admission retried verbatim: on 2026-09-13 one Slack input
+    # burned all eight attempts against the same dead session and blocked, and
+    # only an operator rearm, which happens to move the generation, freed it.
+    entry = record_input!("Ev-dispatch-placement-lost")
+
+    {:ok, fake} =
+      FakeAPI.start_link([decision()],
+        first_create_error: {:coop_session_replacement_required, Ecto.UUID.generate(), 1}
+      )
+
+    assert {:ok, {:deferred, input_ref, {:coop_session_replacement_required, _session, 1}}} =
+             Dispatcher.run_once(real_options(fake, @now))
+
+    assert input_ref == Inbox.ref(entry)
+    assert {:ok, deferred} = Inbox.fetch(input_ref)
+    assert Map.fetch!(deferred, :execution_generation) == 2
+
+    assert {:ok, {:decided, execution}} =
+             Dispatcher.run_once(real_options(fake, DateTime.add(@now, 2, :second)))
+
+    assert execution.result.entry.status == :decided
+    assert execution.result.entry.execution_generation == 2
+    assert [first, second] = FakeAPI.state(fake).create_keys
+    assert first =~ ":g1"
+    assert second =~ ":g2"
+  end
+
   test "a terminal worker failure waits for operator recovery instead of launching another model" do
     entry = record_input!("Ev-dispatch-terminal-turn")
     {:ok, fake} = FakeAPI.start_link([decision()], fail_first_turn: true)
