@@ -71,7 +71,7 @@ defmodule Ryker.State.LearningSourcesTest do
   end
 
   def record_expansion(_event, _measurements, %{query: query}, {owner, reference}) do
-    if self() == owner and String.contains?(query, "FROM responder_learning_roots($1)"),
+    if self() == owner and String.contains?(query, "FROM ryker_learning_roots($1)"),
       do: send(owner, {reference, :expanded})
   end
 

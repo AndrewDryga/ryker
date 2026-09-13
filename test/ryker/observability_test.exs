@@ -153,7 +153,7 @@ defmodule Ryker.ObservabilityTest do
 
     assert {:ok, _result} =
              Repo.query(
-               "UPDATE responder_runtime_progress SET observed_at = $1 WHERE lane = 'work'",
+               "UPDATE ryker_runtime_progress SET observed_at = $1 WHERE lane = 'work'",
                [old]
              )
 

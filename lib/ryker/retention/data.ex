@@ -939,8 +939,8 @@ defmodule Ryker.Retention.Data do
         """
         WITH candidates AS (
           SELECT item.id
-          FROM responder_cutover_items AS item
-          JOIN responder_cutover_runs AS run ON run.id = item.run_id
+          FROM ryker_cutover_items AS item
+          JOIN ryker_cutover_runs AS run ON run.id = item.run_id
           WHERE item.status IN ('applied', 'skipped', 'rolled_back', 'failed')
             AND run.status IN ('applied', 'rolled_back', 'failed')
             AND item.data::jsonb <> '{"retention":"pruned"}'::jsonb
@@ -950,7 +950,7 @@ defmodule Ryker.Retention.Data do
           LIMIT 100
           FOR UPDATE OF item SKIP LOCKED
         )
-        UPDATE responder_cutover_items AS item
+        UPDATE ryker_cutover_items AS item
         SET data = '{"retention":"pruned"}',
             updated_at = clock_timestamp()
         FROM candidates
@@ -1056,11 +1056,11 @@ defmodule Ryker.Retention.Data do
         execute_count(
           """
           WITH candidates AS (
-            SELECT id FROM responder_operator_actions
+            SELECT id FROM ryker_operator_actions
             WHERE inserted_at < clock_timestamp() - ($1 * interval '1 second')
             ORDER BY inserted_at, id LIMIT 100 FOR UPDATE SKIP LOCKED
           )
-          DELETE FROM responder_operator_actions AS action
+          DELETE FROM ryker_operator_actions AS action
           USING candidates WHERE action.id = candidates.id
           """,
           [settings.audit_data_seconds]

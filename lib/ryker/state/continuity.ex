@@ -297,7 +297,7 @@ defmodule Ryker.State.Continuity do
       [item],
       type(
         fragment(
-          "(SELECT max(o.occurred_at) FROM responder_learning_roots(?) r JOIN conversation_observations o ON o.id = CASE WHEN pg_input_is_valid(r->>'observation_id', 'uuid') THEN (r->>'observation_id')::uuid ELSE NULL END)",
+          "(SELECT max(o.occurred_at) FROM ryker_learning_roots(?) r JOIN conversation_observations o ON o.id = CASE WHEN pg_input_is_valid(r->>'observation_id', 'uuid') THEN (r->>'observation_id')::uuid ELSE NULL END)",
           item.source_dependencies
         ),
         :utc_datetime_usec

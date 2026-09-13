@@ -313,7 +313,7 @@ defmodule Ryker.ControlPlane.ConversationMemory do
       from(o in ConversationObservation,
         where:
           fragment(
-            "EXISTS (SELECT 1 FROM responder_learning_roots(?::text) r WHERE r->>'observation_id' = ?::text AND r->>'revision' = ?::text AND r->>'fingerprint' = ?)",
+            "EXISTS (SELECT 1 FROM ryker_learning_roots(?::text) r WHERE r->>'observation_id' = ?::text AND r->>'revision' = ?::text AND r->>'fingerprint' = ?)",
             ^Ryker.CanonicalJSON.encode!(dependencies),
             o.id,
             o.revision,

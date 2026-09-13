@@ -6,7 +6,7 @@ defmodule Ryker.Cutover.Item do
   @primary_key {:id, :binary_id, autogenerate: false}
   @foreign_key_type :binary_id
 
-  schema "responder_cutover_items" do
+  schema "ryker_cutover_items" do
     belongs_to(:run, Ryker.Cutover.Run)
     field(:ref, :string)
     field(:kind, Ecto.Enum, values: [:memory, :behavior, :schedule, :episode, :wait])

@@ -253,6 +253,8 @@ defmodule Ryker.Settings.Import.Document do
         repository: :reference,
         installation_id: {:integer, @identifier},
         repository_id: {:integer, @identifier},
+        # The document predates the 2026-09-13 rename and is read by its own
+        # keys; this one becomes the ryker_actor_id setting.
         responder_actor_id: {:integer, @identifier},
         authorized_actor_ids: {:list, {:integer, @identifier}}
       ],

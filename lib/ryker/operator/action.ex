@@ -7,7 +7,7 @@ defmodule Ryker.Operator.Action do
 
   @primary_key {:id, :binary_id, autogenerate: true}
 
-  schema "responder_operator_actions" do
+  schema "ryker_operator_actions" do
     field(:action_ref, :string)
     field(:request_fingerprint, :string)
     field(:actor_ref, :string)

@@ -779,7 +779,7 @@ defmodule Ryker.Observability do
 
   defp progress_snapshot(now) do
     case Repo.query(
-           "SELECT lane, outcome, cycle_count, observed_at FROM responder_runtime_progress ORDER BY lane",
+           "SELECT lane, outcome, cycle_count, observed_at FROM ryker_runtime_progress ORDER BY lane",
            [],
            log: false
          ) do

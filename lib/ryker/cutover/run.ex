@@ -6,7 +6,7 @@ defmodule Ryker.Cutover.Run do
   @primary_key {:id, :binary_id, autogenerate: false}
   @foreign_key_type :binary_id
 
-  schema "responder_cutover_runs" do
+  schema "ryker_cutover_runs" do
     field(:version, :integer)
     field(:status, Ecto.Enum, values: [:prepared, :applying, :applied, :rolled_back, :failed])
     field(:manifest_sha256, :string)

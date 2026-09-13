@@ -386,7 +386,7 @@ defmodule Ryker.Runtime.AssemblyTest do
         repository_ref: "unreviewed",
         installation_id: 1002,
         repository_id: 2002,
-        responder_actor_id: 3002,
+        ryker_actor_id: 3002,
         authorized_actor_ids: [4002]
       },
       revision,
@@ -592,7 +592,7 @@ defmodule Ryker.Runtime.AssemblyTest do
           repository_context_ref: "platform",
           installation_id: 1001,
           repository_id: 2001,
-          responder_actor_id: 3001,
+          ryker_actor_id: 3001,
           authorized_actor_ids: [4001]
         },
         &1,

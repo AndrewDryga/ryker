@@ -73,7 +73,7 @@ defmodule Ryker.PollingTest do
     refute_receive {:maintenance_ran, ^worker}
 
     assert Repo.query!(
-             "SELECT cycle_count FROM responder_runtime_progress WHERE lane = 'retention'"
+             "SELECT cycle_count FROM ryker_runtime_progress WHERE lane = 'retention'"
            ).rows == []
 
     assert {:error, {:database_unavailable, _reason}} =
@@ -94,7 +94,7 @@ defmodule Ryker.PollingTest do
 
     assert [[count]] =
              Repo.query!(
-               "SELECT cycle_count FROM responder_runtime_progress WHERE lane = 'retention'"
+               "SELECT cycle_count FROM ryker_runtime_progress WHERE lane = 'retention'"
              ).rows
 
     assert count >= 1

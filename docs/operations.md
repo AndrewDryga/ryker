@@ -101,6 +101,154 @@ Then execute the authorized live journeys and the manual qualification
 journeys in `docs/testing.md`. Test results, installed version, running
 version, and live platform receipts are separate evidence.
 
+## One-time rename cutover on this macOS host
+
+The product was renamed from Responder to Ryker on 2026-09-13. The tree, the
+release, the configuration contract and the database object names moved in
+that change; the host still carries the old layout until one deploy moves it.
+`scripts/deploy.sh` performs that move itself, once, through
+`scripts/rename-cutover.sh`, and only while
+`~/.local/state/responder/emisar/runtime.env` exists and
+`~/.local/state/ryker/emisar/runtime.env` does not. Every later deploy is an
+ordinary restart.
+
+Preconditions to satisfy before running it:
+
+- The tree is clean and at the renamed release; the deploy refuses otherwise.
+- No Work turn or admission run that must survive is mid-flight. The per-turn
+  state-binding context changed with the rename, so a turn token the old
+  release minted is not honoured by the new one. Pending admissions, sessions,
+  deliveries, schedules, waits and receipts live in PostgreSQL and resume.
+- No workspace checkpoint has to be restored later: the checkpoint seal
+  context changed too, and the live database held none on 2026-09-13.
+- Nothing else is connected to `responder_emisar` (a psql shell, a replay, the
+  quality watcher). `ALTER DATABASE ... RENAME` refuses while a connection is
+  open, and so does the cutover.
+- `~/.local/state/ryker` does not exist yet. `make eval-world*` and
+  `scripts/eval-trend.sh` already default to `~/.local/state/ryker/eval-history`,
+  so an evaluation run before the cutover creates it; move it aside first (the
+  cutover moves the whole old root and never merges into an existing one).
+- The Slack manifest, avatar and slash command are registered by hand (see
+  "What remains" below). Until then the release answers a click on a
+  pre-rename card with a private notice and an audit row, acknowledges the old
+  shortcut callback and answers `/responder` by naming `/ryker`.
+
+Then run the normal deploy:
+
+```bash
+scripts/deploy.sh
+```
+
+On this host it does the following, in order; every cutover step is idempotent
+and logged with the prefix `deploy: cutover:`.
+
+1. Proves the archive as usual (`make elixir-candidate-check`) and rehearses
+   the pending migration `20260913000100` — the one that renames the
+   `responder_*` tables with their indexes and constraints, the
+   `responder_actor_id` column, the `responder_learning_roots` function and the
+   control-plane NOTIFY function, trigger and channel — on a restored copy of
+   the live database, reached through the old `runtime.env`. The backup lands
+   in `~/.local/state/responder/emisar/backups/` and moves with the root.
+2. Installs the release under the new prefix `~/.local/lib/ryker-elixir`. The
+   old prefix `~/.local/lib/responder-elixir` stays for a manual rollback.
+3. `scripts/rename-cutover.sh prepare`:
+   1. keeps a copy of `runtime.env` under `backups/`, saves the argument list of
+      the ad-hoc `responder-emisar-coop` job (it was `launchctl submit`ted
+      without a plist), then boots out `ai.emisar.responder`,
+      `ai.emisar.responder.emisar-coop-worker` and `responder-emisar-coop` and
+      waits for launchd to let go of all three;
+   2. waits for the old release's pool to drain, refuses if any connection to
+      `responder_emisar` remains, writes a custom-format `pg_dump` to
+      `backups/pre-rename-<stamp>.dump`, then
+      `ALTER DATABASE responder_emisar RENAME TO ryker_emisar` and
+      `ALTER ROLE responder_emisar RENAME TO ryker_emisar`. It verifies the
+      application credentials afterwards; if the rename dropped an MD5 password
+      it sets the same password again through psql's stdin. The password never
+      reaches a command line or a log;
+   3. `mv ~/.local/state/responder ~/.local/state/ryker` — the whole root, so
+      `emisar/`, `blitz/`, `coop/`, `eval-coop/`, `eval-history/` and
+      `candidate-proofs/` move together with their contents untouched;
+   4. rewrites `emisar/runtime.env` (`RESPONDER_*` keys become `RYKER_*`,
+      `DATABASE_URL` names `ryker_emisar`, `RELEASE_NODE=ryker-emisar`,
+      `RELEASE_TMP` and the worker certificate paths follow the root), replaces
+      the old root path in `coop-worker/worker.json`, `session-policies.yaml`
+      and `policy-digests.json`, re-submits the serve sidecar as
+      `ryker-emisar-coop` with the moved paths, and renders and loads
+      `ai.emisar.ryker.emisar-coop-worker.plist` from the old worker plist. The
+      `responder_url` worker key, the `responder-learning-personal-v1` and
+      `responder-learning-v2` policy names and the companion
+      `repository: /Users/andrewdryga/Projects/os/responder` entries are
+      contracts with co:op and the checkout and stay. The co:op binary stays
+      under `~/.local/lib/responder-coop`; co:op is installed and upgraded
+      outside this repository. `coop-worker/sandbox.json` keeps its old paths:
+      its SHA-256 is the worker's declared `sandbox_digest`, so it changes only
+      with a re-enrolment.
+4. Renders `ai.emisar.ryker.plist`, loads it, and waits for `/healthz`,
+   `/readyz` and the `x-ryker-version` header of the exact version.
+5. `scripts/rename-cutover.sh finish`: only now removes every
+   `~/Library/LaunchAgents/ai.emisar.responder*.plist` — the release, the
+   worker sidecar, the retired `.emisar` and `.blitz` Go-era jobs with their
+   `.staged-*` copies, the watchdog and the quality watcher — booting out any
+   that is still loaded.
+
+A failure before step 3 changes nothing on the host. A failure inside step 3
+leaves a resumable state: rerun `scripts/rename-cutover.sh prepare` (it skips
+what is done and refuses anything ambiguous, such as both roots existing), then
+`scripts/deploy.sh` again. The manual rollback is written at the top of
+`scripts/rename-cutover.sh`.
+
+Afterwards, prove the cutover rather than the health check alone:
+
+```bash
+launchctl print gui/$(id -u)/ai.emisar.ryker | grep 'state ='
+launchctl print gui/$(id -u)/ai.emisar.ryker.emisar-coop-worker | grep 'state ='
+launchctl print gui/$(id -u)/ryker-emisar-coop | grep 'state ='
+curl --silent --head http://127.0.0.1:4321/readyz | grep -i x-ryker-version
+PGPASSWORD=postgres psql -h 127.0.0.1 -U postgres -d ryker_emisar -Atc \
+  "select count(*) from ingress_inbox_entries; select count(*) from episode_work_sessions; select count(*) from slack_thread_status_receipts"
+```
+
+The three counts must equal the ones taken from `responder_emisar` before the
+deploy (6 inbox entries, 15 work sessions and 10,054 receipts on 2026-09-13;
+take fresh counts on the day), the worker must reconnect with its
+`coop_workers` row and policy digests unchanged, and a Slack thread must
+answer to `@Ryker`.
+
+### What remains after the cutover
+
+- GitHub repository: rename `AndrewDryga/responder` to `AndrewDryga/ryker`
+  under the same owner, then update `origin`, the README badges, the site's
+  clone links and the sigstore signer identity in
+  `scripts/install-elixir-release.sh`, `scripts/check-release.sh`,
+  `docs/releasing.md` and this file. The checkout path
+  `/Users/andrewdryga/Projects/os/responder` moves only together with the four
+  companion entries that name it in the live `session-policies.yaml`.
+- Slack app: apply `deploy/slack-app-manifest.yaml` (app and bot `Ryker`,
+  `/ryker`, shortcut `ryker_investigate_message`) and upload
+  `deploy/slack-app-icon.png`, the Ryker avatar, under Basic Information.
+- co:op wire names: `responder-state` and `responder-state:v1`,
+  `responder_binding`, `responder_state_tools`, `responder_binding_digest`, the
+  `responder_url` worker key and the `x-responder-artifact-*` and
+  `x-responder-checkpoint-*` gateway headers change only with a coordinated
+  co:op release and worker re-enrolment, as do the
+  `responder-learning-personal-v1` and `responder-learning-v2` policy names and
+  the worker's `sandbox_digest`.
+- Webhook senders: `x-responder-signature`, `x-responder-timestamp`, the
+  `x-responder-event-*` headers and the `responder.publication_lifecycle.v1`
+  event type are configured on the external senders; change them in lockstep
+  with those senders.
+- GitHub delivery marker `<!-- responder-delivery:… -->`: kept deliberately;
+  it is what makes already-posted comments idempotent.
+- Publication settings: the live row keeps `responder`, `Responder` and
+  `responder@localhost`; new installations default to `ryker`. Change the live
+  value in Settings → Publication when new branches should go under `ryker/`;
+  branches already pushed under `responder/` stay as they are.
+- Scratch databases and Go-era leftovers: the `responder_*_restore_*`,
+  `responder_world_eval_*` and `responder_cutover_*` databases, the
+  `responder_blitz` database, `~/.local/libexec/responder/*` and the root
+  `responder` binary are hygiene, not part of the cutover; drop them once
+  nothing replays against them.
+
 ## Health and readiness
 
 | Endpoint | Meaning |

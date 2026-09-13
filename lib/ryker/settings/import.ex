@@ -717,7 +717,9 @@ defmodule Ryker.Settings.Import do
       {"#{old}.repository", :repository_ref, binding.repository},
       {"#{old}.installation_id", :installation_id, binding.installation_id},
       {"#{old}.repository_id", :repository_id, binding.repository_id},
-      {"#{old}.responder_actor_id", :responder_actor_id, binding.responder_actor_id},
+      # The retired document names the app's own actor by the pre-rename key;
+      # the setting that now carries it is ryker_actor_id.
+      {"#{old}.responder_actor_id", :ryker_actor_id, binding.responder_actor_id},
       {"#{old}.authorized_actor_ids", :authorized_actor_ids, binding.authorized_actor_ids}
     ])
   end
@@ -1055,7 +1057,7 @@ defmodule Ryker.Settings.Import do
         repository_context_ref: Map.get(binding, :repository_context),
         repository_id: binding.repository_id,
         repository_ref: binding.repository,
-        responder_actor_id: binding.responder_actor_id
+        ryker_actor_id: binding.responder_actor_id
       }
       |> Settings.put_github_binding(revision, actor_ref)
       |> revision!()

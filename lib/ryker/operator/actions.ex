@@ -110,7 +110,7 @@ defmodule Ryker.Operator.Actions do
         |> Ecto.Changeset.validate_format(:request_fingerprint, ~r/\A[0-9a-f]{64}\z/)
         |> Ecto.Changeset.unique_constraint(:action_ref)
         |> Ecto.Changeset.check_constraint(:action_ref,
-          name: :responder_operator_action_valid
+          name: :ryker_operator_action_valid
         )
         |> Repo.insert!()
 

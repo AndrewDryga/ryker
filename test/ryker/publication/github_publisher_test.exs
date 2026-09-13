@@ -362,7 +362,7 @@ defmodule Ryker.Publication.GitHubPublisherTest do
       git_binding: agent,
       github_repository: github_repository,
       path: "/trusted/ryker",
-      responder_actor_id: 99
+      ryker_actor_id: 99
     }
   end
 
