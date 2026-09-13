@@ -107,6 +107,40 @@ defmodule Ryker.BootstrapTest do
     end
   end
 
+  test "a worker listener address alone cannot half-enable the gateway" do
+    # RYKER_WORKER_IP or RYKER_WORKER_PORT without the public URL and the four
+    # TLS files used to validate cleanly and then be dropped on the floor: the
+    # gateway simply did not start, and the only sign was Work reporting the
+    # gateway unavailable much later. A listener the operator addressed is a
+    # listener they meant to run.
+    for {name, value} <- [{"RYKER_WORKER_IP", "0.0.0.0"}, {"RYKER_WORKER_PORT", "4323"}] do
+      error = assert_raise ArgumentError, fn -> Bootstrap.load!(environment(%{name => value})) end
+      assert error.message =~ ~r/RYKER_WORKER_.* is required/
+    end
+  end
+
+  test "a credential copied with surrounding whitespace is refused, not passed along" do
+    # `echo` into an environment file leaves a trailing newline on the token.
+    # Slack then answers invalid_auth to every call while the settings page
+    # shows the credential as configured, because the bootstrap only refused a
+    # blank value.
+    for value <- ["xoxb-token-value\n", " xoxb-token-value", "xoxb-token-value \t"] do
+      provider = Bootstrap.token_provider(:slack_bot, fn _ -> {:ok, value} end)
+      assert provider.() == {:error, {:invalid_environment_secret, "SLACK_BOT_TOKEN"}}
+
+      status = Bootstrap.credential_status(environment(%{"SLACK_BOT_TOKEN" => value}))
+      assert %{status: :invalid} = Enum.find(status, &(&1.kind == :slack_bot))
+    end
+
+    # A PEM-armored key ends in a newline by construction and stays usable.
+    pem = "-----BEGIN RSA PRIVATE KEY-----\nMIIEexample\n-----END RSA PRIVATE KEY-----\n"
+    assert Bootstrap.secret!(:github_private_key, fn _ -> {:ok, pem} end) == pem
+
+    assert_raise ArgumentError, ~r/GITHUB_APP_PRIVATE_KEY/, fn ->
+      Bootstrap.secret!(:github_private_key, fn _ -> {:ok, " " <> pem} end)
+    end
+  end
+
   test "token providers read the exact fixed credential lazily and never enumerate the environment" do
     parent = self()
     settings = Bootstrap.load!(environment())
