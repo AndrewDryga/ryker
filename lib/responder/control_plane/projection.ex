@@ -52,7 +52,7 @@ defmodule Responder.ControlPlane.Projection do
       behavior: &BehaviorLibrary.fetch/1,
       behaviors: &BehaviorLibrary.list/2,
       admission: &admission/1,
-      channel: &ChannelDetail.fetch/2,
+      channel: &ChannelDetail.fetch/3,
       channels: &channels/1,
       instructions: &InstructionSettings.fetch/1,
       configuration: &configuration/0,
@@ -88,7 +88,7 @@ defmodule Responder.ControlPlane.Projection do
     }
   end
 
-  defdelegate channel(workspace_ref, channel_ref), to: ChannelDetail, as: :fetch
+  defdelegate channel(workspace_ref, channel_ref, params), to: ChannelDetail, as: :fetch
   defdelegate channels(params), to: Responder.ControlPlane.OperatorProjection
   defdelegate incident(ref), to: Responder.ControlPlane.OperatorProjection
   defdelegate incidents(params), to: Responder.ControlPlane.OperatorProjection

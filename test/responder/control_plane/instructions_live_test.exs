@@ -16,10 +16,10 @@ defmodule Responder.ControlPlane.InstructionsLiveTest do
 
     projection =
       Map.update!(Projection.callbacks(), :channel, fn read ->
-        fn workspace, channel ->
+        fn workspace, channel, params ->
           if Agent.get(projection_failure, & &1),
             do: {:error, :database_unavailable},
-            else: read.(workspace, channel)
+            else: read.(workspace, channel, params)
         end
       end)
 

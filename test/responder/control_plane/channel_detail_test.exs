@@ -11,14 +11,21 @@ defmodule Responder.ControlPlane.ChannelDetailTest do
   use Responder.DataCase, async: false
 
   import Ecto.Query
+  import Phoenix.ConnTest, only: [build_conn: 0, get: 2]
+  import Phoenix.LiveViewTest
   import Plug.Test
 
-  alias Responder.ControlPlane.{Projection, Router}
+  alias Responder.ControlPlane.{Actions, Activity, Endpoint, Projection, Router}
+  alias Responder.Episodes
+  alias Responder.Episodes.Episode
+  alias Responder.Fixtures.Episodes, as: EpisodeFixtures
   alias Responder.Fixtures.SavedEntities
   alias Responder.Slack.{ChannelConfigurationChangeset, IncidentRoomChangeset}
-  alias Responder.State.{ConversationSummary, Records}
+  alias Responder.State.{ConversationSummary, Records, Schedule}
 
+  @endpoint Endpoint
   @now ~U[2026-09-10 12:00:00.000000Z]
+  @page_size 25
 
   test "a canonical summary appears only on the channel page it belongs to" do
     # Production carried four durable summaries for one channel and the page
@@ -35,14 +42,14 @@ defmodule Responder.ControlPlane.ChannelDetailTest do
     refute page("/channels/T123/C999") =~ summary.ref
     refute page("/channels/T999/C456") =~ summary.ref
 
-    assert {:ok, view} = Projection.channel("T123", "C456")
+    assert {:ok, view} = Projection.channel("T123", "C456", %{})
     assert view.summaries.total == 1
     assert [%{ref: ref}] = view.summaries.items
     assert ref == summary.ref
 
-    assert {:ok, other_channel} = Projection.channel("T123", "C999")
+    assert {:ok, other_channel} = Projection.channel("T123", "C999", %{})
     assert other_channel.summaries.total == 0
-    assert {:ok, other_workspace} = Projection.channel("T999", "C456")
+    assert {:ok, other_workspace} = Projection.channel("T999", "C456", %{})
     assert other_workspace.summaries.total == 0
   end
 
@@ -64,15 +71,15 @@ defmodule Responder.ControlPlane.ChannelDetailTest do
       assert fact(html, "Externally shared") == shared, "#{channel} external sharing"
     end
 
-    assert {:ok, %{channel: %{membership: public}}} = Projection.channel("T123", "CPUBLIC")
+    assert {:ok, %{channel: %{membership: public}}} = Projection.channel("T123", "CPUBLIC", %{})
     assert public.private == false and public.external_shared == false
-    assert {:ok, %{channel: %{membership: unknown}}} = Projection.channel("T123", "CUNKNOWN")
+    assert {:ok, %{channel: %{membership: unknown}}} = Projection.channel("T123", "CUNKNOWN", %{})
     assert is_nil(unknown.private) and is_nil(unknown.external_shared)
   end
 
   test "the scope contract exposes raw and canonical refs side by side" do
     membership!("T123", "C456", private: false, external_shared: false)
-    assert {:ok, view} = Projection.channel("T123", "C456")
+    assert {:ok, view} = Projection.channel("T123", "C456", %{})
 
     assert %{
              workspace_ref: "T123",
@@ -109,7 +116,7 @@ defmodule Responder.ControlPlane.ChannelDetailTest do
       saved_at: @now
     )
 
-    assert {:ok, view} = Projection.channel("T123", "C456")
+    assert {:ok, view} = Projection.channel("T123", "C456", %{})
 
     assert %{
              status: :joined,
@@ -162,7 +169,7 @@ defmodule Responder.ControlPlane.ChannelDetailTest do
       left_at: DateTime.add(@now, 3_600, :second)
     )
 
-    assert {:ok, view} = Projection.channel("T123", "C456")
+    assert {:ok, view} = Projection.channel("T123", "C456", %{})
     assert is_nil(view.channel.configuration)
     assert is_nil(view.channel.incident_room)
     assert is_nil(view.channel.repository)
@@ -185,7 +192,7 @@ defmodule Responder.ControlPlane.ChannelDetailTest do
     room = incident_room!(source, "T123", "CINCIDENT")
     membership!("T123", "CINCIDENT", private: true, external_shared: false)
 
-    assert {:ok, view} = Projection.channel("T123", "CINCIDENT")
+    assert {:ok, view} = Projection.channel("T123", "CINCIDENT", %{})
     assert view.channel.kind == :incident_room
 
     assert %{
@@ -210,16 +217,16 @@ defmodule Responder.ControlPlane.ChannelDetailTest do
   end
 
   test "a channel nobody recorded is not found, and a broken read is unavailable rather than empty" do
-    assert Projection.channel("T123", "C456") == :not_found
-    assert Projection.channel(nil, nil) == :not_found
-    assert Projection.channel("T:123", "C456") == :not_found
-    assert Projection.channel("", "C456") == :not_found
+    assert Projection.channel("T123", "C456", %{}) == :not_found
+    assert Projection.channel(nil, nil, %{}) == :not_found
+    assert Projection.channel("T:123", "C456", %{}) == :not_found
+    assert Projection.channel("", "C456", %{}) == :not_found
     assert page_status("/channels/T123/C456") == 404
 
     membership!("T123", "C456", private: false, external_shared: false)
     # Transactional DDL: the sandbox rolls this back with the test.
     Repo.query!("DROP TABLE conversation_summaries CASCADE")
-    assert Projection.channel("T123", "C456") == {:error, :unavailable}
+    assert Projection.channel("T123", "C456", %{}) == {:error, :unavailable}
   end
 
   test "loading the page changes nothing and calls nobody" do
@@ -265,6 +272,202 @@ defmodule Responder.ControlPlane.ChannelDetailTest do
     end
   end
 
+  describe "episode metric and pagination" do
+    test "the episode count is an exact aggregate with a filtered link the reader can page through" do
+      # The old page showed nine rows from a hidden 200-row sample and no
+      # total, so a busy channel could not be told from a quiet one.
+      membership!("T123", "C456", private: false, external_shared: false)
+      membership!("T123", "C999", private: false, external_shared: false)
+      episodes!("slack:T123:C456", 201)
+      episodes!("slack:T123:C999", 2)
+
+      assert {:ok, view} = Projection.channel("T123", "C456", %{})
+      assert view.episodes.total == 201
+      assert view.episodes.pages == 9
+      assert length(view.episodes.items) == @page_size
+
+      html = page("/channels/T123/C456")
+      metric = html |> LazyHTML.from_document() |> LazyHTML.query(".channel-metrics a")
+      assert LazyHTML.text(metric) =~ "201 episodes"
+
+      [href] = LazyHTML.attribute(metric, "href")
+      assert href == Activity.conversation_path("slack", "slack:T123:C456")
+      %URI{path: "/activity", query: query} = URI.parse(href)
+      params = URI.decode_query(query)
+      assert params["conversation"] == "slack:T123:C456"
+      assert params["transport"] == "slack"
+
+      # The destination keeps the criterion and reaches every episode itself.
+      directory = Activity.list(params)
+      assert directory.total == 201
+      assert directory.pages == 7
+      last = Activity.list(Map.put(params, "page", "7"))
+      assert length(last.items) == 21
+      assert Enum.all?(directory.items, &(&1.conversation == "slack:T123:C456"))
+    end
+
+    test "every related collection pages exactly at 25 rows without losing a timestamp tie" do
+      membership!("T123", "C456", private: false, external_shared: false)
+      # The offers' source episode lives elsewhere so it is not a 27th episode.
+      source = SavedEntities.source!("slack:T123:CSOURCE")
+      episode_refs = episodes!("slack:T123:C456", 26, updated_at: @now)
+      schedule_refs = schedules!(source, "slack:T123:C456", 26)
+      summary_refs = for _ <- 1..26, do: summary!("slack:T123", "slack:T123:C456", []).ref
+
+      for {section, key, refs} <- [
+            {:episodes, "episode_page", episode_refs},
+            {:schedules, "schedule_page", schedule_refs},
+            {:summaries, "summary_page", summary_refs}
+          ] do
+        assert {:ok, first} = Projection.channel("T123", "C456", %{})
+        assert {:ok, second} = Projection.channel("T123", "C456", %{key => "2"})
+        first_page = Map.fetch!(first, section)
+        second_page = Map.fetch!(second, section)
+
+        assert %{total: 26, pages: 2, page: 1, key: ^key} = first_page, "#{section} first page"
+        assert %{total: 26, pages: 2, page: 2, key: ^key} = second_page, "#{section} second page"
+        assert length(first_page.items) == @page_size
+        assert length(second_page.items) == 1
+
+        seen = Enum.map(first_page.items ++ second_page.items, & &1.ref)
+        assert Enum.sort(seen) == Enum.sort(refs), "#{section} pages must partition the rows"
+
+        # Invalid and out-of-range pages resolve to a valid page, never to an
+        # empty section.
+        for value <- ["0", "-1", "two", "", "2.5", ["2"]] do
+          assert {:ok, view} = Projection.channel("T123", "C456", %{key => value})
+          assert Map.fetch!(view, section).page == 1, "#{section} with #{inspect(value)}"
+          assert length(Map.fetch!(view, section).items) == @page_size
+        end
+
+        assert {:ok, past_end} = Projection.channel("T123", "C456", %{key => "40"})
+        assert Map.fetch!(past_end, section).page == 2
+        assert length(Map.fetch!(past_end, section).items) == 1
+      end
+    end
+
+    test "paging one section preserves the others and lands on its own anchor" do
+      membership!("T123", "C456", private: false, external_shared: false)
+      episodes!("slack:T123:C456", 26, updated_at: @now)
+      for _ <- 1..26, do: summary!("slack:T123", "slack:T123:C456", [])
+
+      html = page("/channels/T123/C456?episode_page=2&summary_page=2&schedule_page=7&q=ignored")
+
+      assert {:ok, view} =
+               Projection.channel("T123", "C456", %{
+                 "episode_page" => "2",
+                 "summary_page" => "2"
+               })
+
+      assert view.episodes.page == 2 and view.summaries.page == 2 and view.schedules.page == 1
+
+      document = LazyHTML.from_document(html)
+
+      assert document |> LazyHTML.query("#episodes .pagination span") |> LazyHTML.text() =~
+               "Page 2 of 2"
+
+      assert document |> LazyHTML.query("#summaries .pagination span") |> LazyHTML.text() =~
+               "Page 2 of 2"
+
+      assert document |> LazyHTML.query("#schedules .pagination") |> LazyHTML.to_tree() == []
+
+      [previous_episodes] =
+        document |> LazyHTML.query("#episodes .pagination a") |> LazyHTML.attribute("href")
+
+      assert previous_episodes == "/channels/T123/C456?summary_page=2#episodes"
+
+      [previous_summaries] =
+        document |> LazyHTML.query("#summaries .pagination a") |> LazyHTML.attribute("href")
+
+      assert previous_summaries == "/channels/T123/C456?episode_page=2#summaries"
+
+      first = page("/channels/T123/C456") |> LazyHTML.from_document()
+
+      [next_episodes] =
+        first |> LazyHTML.query("#episodes .pagination a") |> LazyHTML.attribute("href")
+
+      assert next_episodes == "/channels/T123/C456?episode_page=2#episodes"
+      refute html =~ "ignored"
+    end
+
+    test "a row deleted between requests moves the reader to the last valid page, not to an empty one" do
+      membership!("T123", "C456", private: false, external_shared: false)
+      [first | _] = for _ <- 1..26, do: summary!("slack:T123", "slack:T123:C456", [])
+      assert {:ok, view} = Projection.channel("T123", "C456", %{"summary_page" => "2"})
+      assert view.summaries.page == 2
+
+      Repo.delete_all(from(summary in ConversationSummary, where: summary.id == ^first.id))
+      assert {:ok, view} = Projection.channel("T123", "C456", %{"summary_page" => "2"})
+      assert %{page: 1, pages: 1, total: 25} = view.summaries
+      assert length(view.summaries.items) == @page_size
+
+      html = page("/channels/T123/C456?summary_page=2")
+      refute html =~ "No conversation summaries are retained"
+    end
+
+    test "a channel with only paged-out rows never reads as empty" do
+      membership!("T123", "C456", private: false, external_shared: false)
+      summary!("slack:T123", "slack:T123:C456", [])
+      html = page("/channels/T123/C456?summary_page=9")
+      refute html =~ "No conversation summaries are retained"
+      assert html =~ "1 summary"
+    end
+  end
+
+  describe "live routing" do
+    setup do
+      start_supervised!(
+        {Endpoint,
+         [
+           server: false,
+           secret_key_base: String.duplicate("s", 64),
+           pubsub_server: Responder.ControlPlane.PubSub,
+           live_view: [signing_salt: "channel-test"],
+           check_origin: ["//localhost:4321"],
+           url: [host: "localhost", port: 4321],
+           control_plane: %{
+             actions: Actions.callbacks(),
+             csrf_secret: String.duplicate("s", 32),
+             observability: %{},
+             projection: Projection.callbacks()
+           }
+         ]}
+      )
+
+      :ok
+    end
+
+    test "a refresh on page two keeps every section where the reader left it" do
+      membership!("T123", "C456", private: false, external_shared: false)
+      episodes!("slack:T123:C456", 26, updated_at: @now)
+      for _ <- 1..26, do: summary!("slack:T123", "slack:T123:C456", [])
+
+      conn = build_conn() |> Map.put(:host, "localhost")
+      {:ok, view, html} = live(conn, "/channels/T123/C456?episode_page=2&summary_page=2")
+      assert pages(html) == %{"episodes" => "Page 2 of 2", "summaries" => "Page 2 of 2"}
+
+      send(view.pid, :reconcile)
+      assert pages(render(view)) == %{"episodes" => "Page 2 of 2", "summaries" => "Page 2 of 2"}
+      render_click(view, "refresh")
+      assert pages(render(view)) == %{"episodes" => "Page 2 of 2", "summaries" => "Page 2 of 2"}
+
+      {:ok, _view, first} = live(conn, "/channels/T123/C456")
+      assert pages(first) == %{"episodes" => "Page 1 of 2", "summaries" => "Page 1 of 2"}
+    end
+
+    defp pages(html) do
+      document = LazyHTML.from_document(html)
+
+      for section <- ~w(episodes summaries), into: %{} do
+        {section,
+         document
+         |> LazyHTML.query("##{section} .pagination span")
+         |> LazyHTML.text()
+         |> String.trim()}
+      end
+    end
+  end
+
   defp membership!(workspace, channel, attributes) do
     %{
       channel_ref: channel,
@@ -277,6 +480,52 @@ defmodule Responder.ControlPlane.ChannelDetailTest do
     |> Map.merge(Map.new(attributes))
     |> ChannelConfigurationChangeset.membership()
     |> Repo.insert!()
+  end
+
+  defp episodes!(conversation, count, options \\ []) do
+    refs =
+      for index <- 1..count do
+        id = Ecto.UUID.generate()
+
+        {:ok, _} =
+          Episodes.apply(
+            EpisodeFixtures.admit_input(%{
+              destination: %{
+                conversation_ref: conversation,
+                thread_ref: "1.#{index}",
+                transport: "slack"
+              },
+              episode_id: id,
+              episode_key: "channel:#{index}:#{id}",
+              native_input_id: "channel:#{index}:#{id}",
+              turn_ref: "turn:#{id}"
+            })
+          )
+
+        "channel:#{index}:#{id}"
+      end
+
+    if updated_at = options[:updated_at] do
+      Repo.update_all(from(episode in Episode, where: episode.key in ^refs),
+        set: [updated_at: updated_at]
+      )
+    end
+
+    refs
+  end
+
+  defp schedules!(source, destination, count) do
+    refs =
+      for index <- 1..count,
+          do:
+            SavedEntities.schedule!(source, "Schedule #{index}", index, destination: destination).ref
+
+    # One shared next run: the pager must fall back to the unique id.
+    Repo.update_all(from(schedule in Schedule, where: schedule.ref in ^refs),
+      set: [next_occurrence_at: @now]
+    )
+
+    refs
   end
 
   defp configuration!(workspace, channel, attributes) do

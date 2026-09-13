@@ -1649,7 +1649,7 @@ defmodule Responder.ControlPlane.ProjectionTest do
 
     assert Projection.incident("missing") == :not_found
     assert Projection.schedule("missing") == :not_found
-    assert Projection.channel("T123", "C456") == :not_found
+    assert Projection.channel("T123", "C456", %{}) == :not_found
 
     assert %{grants: grants, rows: rows, source: source} = Projection.operator_configuration()
     assert is_list(grants)
@@ -1664,7 +1664,7 @@ defmodule Responder.ControlPlane.ProjectionTest do
     assert Projection.usage(:invalid).performance == []
     assert Projection.incident(nil) == :not_found
     assert Projection.schedule(nil) == :not_found
-    assert Projection.channel(nil, nil) == :not_found
+    assert Projection.channel(nil, nil, %{}) == :not_found
   end
 
   test "operator workbench joins incidents schedules channels and repository freshness without payload leaks" do
@@ -2115,13 +2115,13 @@ defmodule Responder.ControlPlane.ProjectionTest do
     assert [%{membership: :joined, private: true, repository_ref: "responder"}] =
              Projection.channels(%{"q" => "C456"})
 
-    assert {:ok, channel} = Projection.channel("T123", "C456")
+    assert {:ok, channel} = Projection.channel("T123", "C456", %{})
     assert channel.channel.configuration.revision == configuration.revision
     assert channel.channel.membership.status == membership.status
     assert Enum.any?(channel.schedules.items, &(&1.ref == schedule.ref))
     assert Enum.any?(channel.episodes.items, &(&1.ref == source.episode.key))
 
-    assert {:ok, incident_channel} = Projection.channel("T123", "CINCIDENT")
+    assert {:ok, incident_channel} = Projection.channel("T123", "CINCIDENT", %{})
     assert incident_channel.channel.kind == :incident_room
     assert incident_channel.channel.incident_room.channel_state == :active
     assert incident_channel.channel.incident_room.private

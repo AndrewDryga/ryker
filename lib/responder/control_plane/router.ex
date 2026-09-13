@@ -11,6 +11,7 @@ defmodule Responder.ControlPlane.Router do
   alias Responder.ControlPlane.{
     BehaviorLibrary,
     BehaviorPage,
+    ChannelDetail,
     ChannelPage,
     CSRF,
     HTML,
@@ -441,7 +442,10 @@ defmodule Responder.ControlPlane.Router do
        ) do
     with {:ok, workspace_ref} <- path_ref(workspace_ref),
          {:ok, channel_ref} <- path_ref(channel_ref) do
-      case options.projection.channel.(workspace_ref, channel_ref) do
+      conn = fetch_query_params(conn)
+      params = Map.take(conn.query_params, ChannelDetail.query_keys())
+
+      case options.projection.channel.(workspace_ref, channel_ref, params) do
         {:ok, snapshot} ->
           html(
             conn,
