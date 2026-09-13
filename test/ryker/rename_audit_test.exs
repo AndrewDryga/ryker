@@ -15,8 +15,6 @@ defmodule Ryker.RenameAuditTest do
   # Whole paths that are immutable evidence or renamed elsewhere. A path matched
   # here is not scanned at all.
   @immutable_paths [
-    {~r{^internal/|^cmd/|^go\.(mod|sum)$},
-     "retained Go tree, renamed in 5512a532; the residuals it keeps (Go-era SQLite identity, recorded corpus field names, X-Responder webhook headers) are documented in that commit"},
     {~r{^testdata/},
      "harvested Slack and eval corpora, recorded tool catalogs and model results, frozen co:op protocol schemas, and the retired configuration document the importer reads by its old names"},
     {~r{^test/.*/fixtures/.*\.json$},
@@ -60,7 +58,7 @@ defmodule Ryker.RenameAuditTest do
      "GitHub repository identity (badges, clone URLs, sigstore signer identity) until the repository is renamed"},
     # --- evidence and history named outside the immutable paths
     {~r//, ~r/responder\.db/,
-     "Go-era SQLite state file, retained by internal/ as the identity of that state"},
+     "Go-era SQLite state file: the recorded episode fixtures name it as their harvest provenance (source.database), and the pre-rewrite watchdog still reads it"},
     {~r{^docs/control-plane\.md$}, ~r/responder_(state|preferences)(?![A-Za-z0-9_])/,
      "Go-era SQLite tables named as the data source of the retained design notes"},
     {~r{^test/ryker/retention/data_test\.exs$}, ~r/responder_sqlite/,
