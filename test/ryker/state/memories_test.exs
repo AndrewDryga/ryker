@@ -263,6 +263,26 @@ defmodule Ryker.State.MemoriesTest do
     assert {:error, _reason} = Memories.forget("")
   end
 
+  test "recall keeps an older shared fact when other conversations' private entries crowd the window" do
+    # Recall read the workspace's thousand most recently updated entries and
+    # only then dropped the ones this conversation may not see. A workspace
+    # with a thousand newer conversation-private entries elsewhere pushed an
+    # older workspace-visible fact — one this conversation is entitled to —
+    # out of the window before visibility was ever considered.
+    fixture = delivered_offers!("crowded-recall")
+    assert {:ok, shared} = Memories.confirm(confirmation(fixture, fixture.workspace, "crowded"))
+
+    Repo.update_all(from(entry in MemoryEntry, where: entry.id == ^shared.memory.id),
+      set: [updated_at: DateTime.add(DateTime.utc_now(), -86_400, :second)]
+    )
+
+    insert_private_entries!(fixture, "slack:T123:C999", 1_000)
+
+    context = %{conversation_ref: "slack:T123:C456", repository: nil, workspace_ref: "slack:T123"}
+    assert [recalled] = Recall.recall(context)
+    assert recalled["memory_ref"] == shared.memory.ref
+  end
+
   test "App Home memory count does not disclose conversation-private entries" do
     fixture = delivered_offers!("home-count-privacy")
     assert {:ok, private} = Memories.confirm(confirmation(fixture, fixture.first, "private"))
@@ -1081,6 +1101,76 @@ defmodule Ryker.State.MemoriesTest do
 
   # A repository-scoped fact confirmed in `source_conversation_ref`; visibility
   # decides whether the channel it was confirmed in is the only surface it has.
+  # `count` conversation-private facts confirmed in another channel, each
+  # newer than anything else in the workspace. Structural rows: each hangs off
+  # its own confirmed offer record in the fixture episode's turn, so the offer
+  # link and the provenance rule hold.
+  defp insert_private_entries!(fixture, conversation_ref, count) do
+    now = DateTime.utc_now()
+    turn = Repo.one!(from(turn in Turn, where: turn.episode_id == ^fixture.episode.id, limit: 1))
+
+    rows =
+      Enum.map(1..count, fn index ->
+        id = Ecto.UUID.generate()
+        offer_id = Ecto.UUID.generate()
+        payload = %{"value" => "private #{index}"}
+        confirmed_at = DateTime.add(now, index - count - 1, :second)
+
+        offer = %{
+          confirmation_ref: "confirmation:private:#{id}",
+          confirmed_at: confirmed_at,
+          confirmed_by_actor_ref: "slack:user:U999",
+          episode_id: fixture.episode.id,
+          id: offer_id,
+          inserted_at: confirmed_at,
+          kind: "memory_offer",
+          operation_id: "private-offer:#{index}",
+          payload: payload,
+          payload_fingerprint: Ryker.CanonicalJSON.digest(payload),
+          ref: "record:memory_offer:private:#{id}",
+          status: :confirmed,
+          turn_id: turn.id,
+          updated_at: confirmed_at
+        }
+
+        entry = %{
+          confirmation_ref: "confirmation:private:#{id}",
+          confirmed_at: confirmed_at,
+          confirmed_by_actor_ref: "slack:user:U999",
+          expires_at: DateTime.add(now, 86_400, :second),
+          id: id,
+          inserted_at: confirmed_at,
+          kind: :entity_relationship,
+          offer_record_id: offer_id,
+          payload: payload,
+          payload_fingerprint: Ryker.CanonicalJSON.digest(payload),
+          recall_count: 0,
+          ref: "memory:#{id}",
+          scope_kind: :conversation,
+          scope_ref: conversation_ref,
+          source_conversation_ref: conversation_ref,
+          source_message_ref:
+            "1787832001.#{String.pad_leading(Integer.to_string(index), 6, "0")}",
+          source_thread_ref: nil,
+          source_transport: "slack",
+          status: :active,
+          subject: "private_#{index}",
+          updated_at: DateTime.add(now, index, :second),
+          visibility: :conversation,
+          workspace_ref: "slack:T123"
+        }
+
+        {offer, entry}
+      end)
+
+    rows
+    |> Enum.chunk_every(200)
+    |> Enum.each(fn chunk ->
+      Repo.insert_all(Record, Enum.map(chunk, &elem(&1, 0)))
+      Repo.insert_all(MemoryEntry, Enum.map(chunk, &elem(&1, 1)))
+    end)
+  end
+
   defp insert_repository_fact!(offer, visibility, source_conversation_ref) do
     id = Ecto.UUID.generate()
     payload = %{"value" => "ryker-#{visibility}"}

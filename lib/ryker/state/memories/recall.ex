@@ -69,8 +69,8 @@ defmodule Ryker.State.Memories.Recall do
 
   defp recall_locked(context, limit) do
     entries =
-      candidate_entries(context)
-      |> Enum.filter(&visible?(&1, context))
+      context
+      |> visible_entries()
       |> Enum.sort_by(&rank/1)
       |> Enum.take(limit)
 
@@ -146,18 +146,55 @@ defmodule Ryker.State.Memories.Recall do
 
   defp account_search_result(:done), do: :done
 
-  defp candidate_entries(context) do
+  # The thousand most recently updated entries this conversation may see. The
+  # visibility rule is part of the query: with it applied afterwards, a
+  # workspace whose other conversations held a thousand newer private entries
+  # pushed an older shared fact out of the window before it was ever weighed.
+  defp visible_entries(context) do
     now = Repo.now!()
 
     Repo.all(
       from(entry in MemoryEntry,
-        where:
-          (entry.workspace_ref == ^context.workspace_ref or entry.scope_kind == :global) and
-            entry.status == :active and (is_nil(entry.expires_at) or entry.expires_at > ^now),
+        where: ^visible(context),
+        where: entry.status == :active and (is_nil(entry.expires_at) or entry.expires_at > ^now),
         order_by: [desc: entry.updated_at, desc: entry.id],
         limit: 1_000
       )
     )
+  end
+
+  defp visible(context) do
+    scoped = scoped(context)
+
+    dynamic(
+      [entry],
+      (entry.visibility == :conversation and
+         entry.source_conversation_ref == ^context.conversation_ref and ^scoped) or
+        (entry.visibility == :workspace and ^scoped) or
+        (entry.visibility == :global and entry.scope_kind == :global)
+    )
+  end
+
+  # An entry is in scope when it belongs to this workspace and its scope names
+  # this conversation, this workspace, or the repository this session runs in.
+  defp scoped(context) do
+    kinds =
+      dynamic(
+        [entry],
+        (entry.scope_kind == :conversation and entry.scope_ref == ^context.conversation_ref) or
+          (entry.scope_kind == :workspace and entry.scope_ref == ^context.workspace_ref)
+      )
+
+    kinds =
+      if is_binary(context.repository),
+        do:
+          dynamic(
+            [entry],
+            ^kinds or (entry.scope_kind == :repository and entry.scope_ref == ^context.repository)
+          ),
+        else: kinds
+
+    dynamic([entry], entry.workspace_ref == ^context.workspace_ref and ^kinds)
   end
 
   defp account_memory(entries) do
@@ -193,23 +230,6 @@ defmodule Ryker.State.Memories.Recall do
     retained = MapSet.new(ids)
     entries |> Enum.filter(&MapSet.member?(retained, &1.id)) |> Enum.map(&document/1)
   end
-
-  defp visible?(%MemoryEntry{visibility: :conversation} = entry, context),
-    do: entry.source_conversation_ref == context.conversation_ref and scoped?(entry, context)
-
-  defp visible?(%MemoryEntry{visibility: :workspace} = entry, context),
-    do: scoped?(entry, context)
-
-  defp visible?(%MemoryEntry{visibility: :global, scope_kind: :global}, _context), do: true
-
-  defp scoped?(%MemoryEntry{scope_kind: :conversation, scope_ref: ref}, context),
-    do: ref == context.conversation_ref
-
-  defp scoped?(%MemoryEntry{scope_kind: :repository, scope_ref: ref}, context),
-    do: ref == context.repository
-
-  defp scoped?(%MemoryEntry{scope_kind: :workspace, scope_ref: ref}, context),
-    do: ref == context.workspace_ref
 
   defp rank(entry) do
     scope_rank =
