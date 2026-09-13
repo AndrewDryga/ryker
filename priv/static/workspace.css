@@ -425,8 +425,8 @@ details.measurement-notes > summary { cursor:pointer; font-weight:600; color:var
 .runtime-link .ui-icon { height:11px; }
 .runtime-problem { font-size:14px; color:#8e6830; }
 /* Secondary routes retain their operation contracts while their bodies migrate. */
-.ryker-app .legacy-surface { --text:var(--ryker-text); --muted:var(--ryker-text-secondary); --line:var(--ryker-stroke); --accent:var(--ryker-accent-strong); --panel:var(--ryker-surface-raised); --panel-raised:var(--ryker-surface-sunken); --cyan:var(--ryker-accent-strong); --bg:var(--ryker-surface); padding:32px; color:var(--text); }
-.legacy-surface .secondary-page { max-width:1440px; margin:auto; }
+.ryker-app .page-surface { --text:var(--ryker-text); --muted:var(--ryker-text-secondary); --line:var(--ryker-stroke); --accent:var(--ryker-accent-strong); --panel:var(--ryker-surface-raised); --panel-raised:var(--ryker-surface-sunken); --cyan:var(--ryker-accent-strong); --bg:var(--ryker-surface); padding:32px; color:var(--text); }
+.page-surface .secondary-page { max-width:1440px; margin:auto; }
 /* The shared page shell (approved 2026-09-09): one 28px title, an optional real action opposite it, the description 8px under, then help, toolbar, count, content and history down one left edge with 24px between sections. 16px/24px body, 13px/18px metadata. The base stylesheet paints any bare <header> as a sticky dark bar; this one is a heading, not chrome. */
 .ryker-app .page-header { position:static; top:auto; z-index:auto; display:block; background:none; border:0; backdrop-filter:none; padding:0; margin:0 0 24px; }
 .page-heading { display:flex; align-items:flex-start; justify-content:space-between; flex-wrap:wrap; gap:12px 24px; }
@@ -434,7 +434,7 @@ details.measurement-notes > summary { cursor:pointer; font-weight:600; color:var
 .page-action { display:flex; align-items:center; flex-wrap:wrap; gap:12px; }
 .ryker-app .page-description { margin:8px 0 0; max-width:76ch; font-size:16px; line-height:1.5; color:var(--secondary); }
 .page-help { margin:0 0 24px; max-width:76ch; }
-.legacy-surface .page-help > summary { font-size:16px; line-height:1.5; font-weight:550; padding:10px 0; }
+.page-surface .page-help > summary { font-size:16px; line-height:1.5; font-weight:550; padding:10px 0; }
 .page-help-body { padding:4px 0 0; }
 .ryker-app .page-help-body p { margin:0 0 12px; max-width:70ch; line-height:1.5; }
 .ryker-app .page-help-body p:last-child { margin-bottom:0; }
@@ -444,35 +444,35 @@ details.measurement-notes > summary { cursor:pointer; font-weight:600; color:var
 .filter-toolbar .filter-clear { font-size:14px; padding:8px 0; }
 .filter-toolbar noscript button { height:40px; }
 .ryker-app .result-count { margin:0 0 12px; font-size:13px; line-height:18px; color:var(--secondary); font-variant-numeric:tabular-nums; }
-.legacy-surface a { color:#517545; }
-.legacy-surface th { font-size:14px; letter-spacing:0; text-transform:none; font-weight:600; color:#354439; background:#eef2ea; }
-.legacy-surface td { font-size:15px; line-height:1.5; font-variant-numeric:tabular-nums; }
-.legacy-surface button, .legacy-surface .button { background:#385f35; color:#fff; font-size:14px; font-weight:500; padding:8px 12px; border-radius:4px; }
-.legacy-surface input, .legacy-surface select, .legacy-surface textarea { background-color:#fff; color:#394e32; border:1px solid #cad7bf; border-radius:4px; padding:8px 10px; }
-.ryker-app .legacy-surface select { padding-right:36px; }
-.legacy-surface pre { background:#eef3e7; color:#4a6240; border:1px solid #d9e4ce; padding:16px; }
-.legacy-surface .secondary-page > section:not(.metrics) { background:var(--panel); border:1px solid var(--stroke); border-radius:6px; padding:20px; margin:20px 0; }
-.legacy-surface h2 { font-size:22px; line-height:1.3; margin:0 0 16px; }
-.legacy-surface h3 { font-size:18px; line-height:1.4; }
-.legacy-surface p, .legacy-surface li { line-height:1.6; }
-.legacy-surface .windows { gap:4px; margin:16px 0; padding:4px; width:fit-content; max-width:100%; border:1px solid var(--stroke); border-radius:6px; background:#fff; }
-.legacy-surface .windows a { padding:6px 12px; color:#405545; border-radius:3px; font-size:15px; }
-.legacy-surface .windows a[aria-current=page] { background:#e6eddf; color:#244431; font-weight:650; }
+.page-surface a { color:#517545; }
+.page-surface th { font-size:14px; letter-spacing:0; text-transform:none; font-weight:600; color:#354439; background:#eef2ea; }
+.page-surface td { font-size:15px; line-height:1.5; font-variant-numeric:tabular-nums; }
+.page-surface button, .page-surface .button { background:#385f35; color:#fff; font-size:14px; font-weight:500; padding:8px 12px; border-radius:4px; }
+.page-surface input, .page-surface select, .page-surface textarea { background-color:#fff; color:#394e32; border:1px solid #cad7bf; border-radius:4px; padding:8px 10px; }
+.ryker-app .page-surface select { padding-right:36px; }
+.page-surface pre { background:#eef3e7; color:#4a6240; border:1px solid #d9e4ce; padding:16px; }
+.page-surface .secondary-page > section:not(.metrics) { background:var(--panel); border:1px solid var(--stroke); border-radius:6px; padding:20px; margin:20px 0; }
+.page-surface h2 { font-size:22px; line-height:1.3; margin:0 0 16px; }
+.page-surface h3 { font-size:18px; line-height:1.4; }
+.page-surface p, .page-surface li { line-height:1.6; }
+.page-surface .windows { gap:4px; margin:16px 0; padding:4px; width:fit-content; max-width:100%; border:1px solid var(--stroke); border-radius:6px; background:#fff; }
+.page-surface .windows a { padding:6px 12px; color:#405545; border-radius:3px; font-size:15px; }
+.page-surface .windows a[aria-current=page] { background:#e6eddf; color:#244431; font-weight:650; }
 .usage-filters { display:flex; flex-wrap:wrap; align-items:center; gap:8px 16px; margin:16px 0; }
-.legacy-surface .usage-filters .windows { margin:0; align-items:center; }
+.page-surface .usage-filters .windows { margin:0; align-items:center; }
 .usage-filters .windows > span { color:#525d55; font-size:14px; padding:6px 8px; }
-.legacy-surface .metrics { gap:12px; margin:20px 0; }
-.legacy-surface .metric { border-radius:6px; padding:16px 20px; min-width:0; }
-.legacy-surface .metric strong { font-size:28px; line-height:1.3; overflow-wrap:anywhere; font-variant-numeric:tabular-nums; }
-.legacy-surface .metric span { display:block; margin-top:4px; font-size:15px; }
-.legacy-surface .table-wrap { max-width:100%; overflow:auto; border:1px solid var(--stroke); border-radius:6px; }
-.legacy-surface th, .legacy-surface td { padding:12px 14px; }
-.legacy-surface tbody tr:last-child td { border-bottom:0; }
-.legacy-surface tbody tr:hover { background:#f5f8f1; }
-.legacy-surface dl { grid-template-columns:minmax(160px,1fr) minmax(80px,1fr); gap:0; margin:16px 0 0; font-size:15px; }
-.legacy-surface dt, .legacy-surface dd { padding:8px 0; border-bottom:1px solid #edf0ea; }
-.legacy-surface dd { padding-left:16px; font-variant-numeric:tabular-nums; color:var(--ink); }
-.legacy-surface summary { cursor:pointer; color:#345c43; font-size:15px; padding:8px 0; }
+.page-surface .metrics { gap:12px; margin:20px 0; }
+.page-surface .metric { border-radius:6px; padding:16px 20px; min-width:0; }
+.page-surface .metric strong { font-size:28px; line-height:1.3; overflow-wrap:anywhere; font-variant-numeric:tabular-nums; }
+.page-surface .metric span { display:block; margin-top:4px; font-size:15px; }
+.page-surface .table-wrap { max-width:100%; overflow:auto; border:1px solid var(--stroke); border-radius:6px; }
+.page-surface th, .page-surface td { padding:12px 14px; }
+.page-surface tbody tr:last-child td { border-bottom:0; }
+.page-surface tbody tr:hover { background:#f5f8f1; }
+.page-surface dl { grid-template-columns:minmax(160px,1fr) minmax(80px,1fr); gap:0; margin:16px 0 0; font-size:15px; }
+.page-surface dt, .page-surface dd { padding:8px 0; border-bottom:1px solid #edf0ea; }
+.page-surface dd { padding-left:16px; font-variant-numeric:tabular-nums; color:var(--ink); }
+.page-surface summary { cursor:pointer; color:#345c43; font-size:15px; padding:8px 0; }
 .usage-details { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px; margin:20px 0; }
 .usage-details > section { background:#fff; border:1px solid var(--stroke); border-radius:6px; padding:20px; }
 .usage-details h2 { margin-bottom:8px; }
@@ -488,7 +488,7 @@ details.measurement-notes > summary { cursor:pointer; font-weight:600; color:var
 .token-bar::-moz-progress-bar { background:#52715a; }
 @media (max-width:700px) { .token-trend li { grid-template-columns:60px minmax(0,1fr) 80px; gap:8px 12px; } .token-trend small { grid-column:2 / 4; } }
 @media (max-width:1000px) { .usage-details { grid-template-columns:1fr; } }
-@media (max-width:580px) { .legacy-surface dl { grid-template-columns:minmax(0,1fr) minmax(0,1fr); } .legacy-surface .metrics { grid-template-columns:repeat(2,minmax(0,1fr)); } .legacy-surface .metric { padding:12px; } .legacy-surface .metric strong { font-size:23px; } .legacy-surface th, .legacy-surface td { padding:10px; } }
+@media (max-width:580px) { .page-surface dl { grid-template-columns:minmax(0,1fr) minmax(0,1fr); } .page-surface .metrics { grid-template-columns:repeat(2,minmax(0,1fr)); } .page-surface .metric { padding:12px; } .page-surface .metric strong { font-size:23px; } .page-surface th, .page-surface td { padding:10px; } }
 /* Configuration is a readable field guide, not an unexplained key/value dump. */
 .configuration-change-note { border-left:2px solid #9bad91; padding:4px 0 4px 16px; margin:20px 0; }
 .configuration-change-note strong { font-size:15px; }
@@ -510,7 +510,7 @@ details.measurement-notes > summary { cursor:pointer; font-weight:600; color:var
 @media (min-width:1800px) { .activity-primary { padding:28px 32px; } .activity-layout.with-context { grid-template-columns:minmax(0,1fr) 310px; } .activity-rail { padding:28px 24px; } }
 @media (max-width:1280px) { .activity-layout.with-context { grid-template-columns:minmax(0,1fr) 250px; } .activity-rail { padding:24px 16px; } .ui-tabs { gap:16px; } }
 @media (max-width:1180px) { .activity-layout.with-context { grid-template-columns:1fr; } .activity-rail { border-top:1px solid var(--stroke); border-left:0; display:grid; grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:24px; padding:24px; } .activity-rail .rail-section + .rail-section { border:0; margin:0; padding:0; } }
-@media (max-width:800px) { .app-sidebar { position:static; width:100%; padding:16px 20px; border-right:0; border-bottom:1px solid var(--stroke); } .app-brand { margin:-16px -20px 0; padding:8px 20px; } .app-brand img { width:32px; aspect-ratio:780/680; } .app-nav { display:flex; overflow:auto; gap:8px; margin-top:12px; } .secondary-nav, .app-nav .nav-caption { display:none; } .app-nav > a { white-space:nowrap; margin:0; font-size:14px; padding:8px; } .app-nav .ui-icon { width:15px; } .app-workspace { margin-left:0; }  .activity-primary { padding:24px 20px; } .ryker-app .legacy-surface, .ryker-app .native-page > .instructions-page { padding:24px 20px; } }
+@media (max-width:800px) { .app-sidebar { position:static; width:100%; padding:16px 20px; border-right:0; border-bottom:1px solid var(--stroke); } .app-brand { margin:-16px -20px 0; padding:8px 20px; } .app-brand img { width:32px; aspect-ratio:780/680; } .app-nav { display:flex; overflow:auto; gap:8px; margin-top:12px; } .secondary-nav, .app-nav .nav-caption { display:none; } .app-nav > a { white-space:nowrap; margin:0; font-size:14px; padding:8px; } .app-nav .ui-icon { width:15px; } .app-workspace { margin-left:0; }  .activity-primary { padding:24px 20px; } .ryker-app .page-surface, .ryker-app .native-page > .instructions-page { padding:24px 20px; } }
 @media (max-width:580px) { .page-intro { flex-direction:column; align-items:flex-start; gap:16px; } .activity-pulse { gap:16px; margin:16px 0; } .activity-pulse .pulse-usage { display:none; } .inbox-toolbar { overflow:auto; padding:0 14px; } .inbox-total { display:none; } .ui-tabs { gap:19px; } .ui-tabs a { font-size:14px; } .inbox-search { padding:12px 14px; gap:7px; } .activity-row { flex-wrap:wrap; padding:15px; gap:10px; } .activity-row-copy { width:calc(100% - 45px); } .activity-row-status { flex-direction:row; align-items:center; margin-left:42px; flex:1; } .activity-title { white-space:normal; } .activity-meta time { display:none; } .row-open { margin-left:auto; } .activity-empty { padding:24px 16px; } .activity-rail { grid-template-columns:1fr; } }
 @media (prefers-reduced-motion:no-preference) { .activity-row, .app-nav a, .ui-button { transition:background-color .12s ease; } }
 
@@ -1066,10 +1066,10 @@ details.measurement-notes > summary { cursor:pointer; font-weight:600; color:var
 @media (max-width:580px) {
   .app-nav { flex-wrap:nowrap; }
   .app-nav > a { flex-shrink:0; }
-  .legacy-surface .table-wrap table { min-width:680px; }
-  .legacy-surface .metric dl { display:block; }
-  .legacy-surface .metric dt { border:0; padding:12px 0 2px; font-weight:600; }
-  .legacy-surface .metric dd { padding:0 0 10px; }
+  .page-surface .table-wrap table { min-width:680px; }
+  .page-surface .metric dl { display:block; }
+  .page-surface .metric dt { border:0; padding:12px 0 2px; font-weight:600; }
+  .page-surface .metric dd { padding:0 0 10px; }
   .episode-workbench { padding:16px 12px; }
   .case-timeline .chapter-heading h3 { font-size:23px; }
   .case-timeline .case-entry { display:block; padding:0 0 0 16px; }
@@ -1114,7 +1114,7 @@ details.measurement-notes > summary { cursor:pointer; font-weight:600; color:var
 }
 /* Mobile keeps the same order: title, action, description, help, then stacked toolbar controls. */
 @media (max-width:600px) {
-  .ryker-app .legacy-surface, .ryker-app .native-page > .instructions-page { padding:20px 16px; }
+  .ryker-app .page-surface, .ryker-app .native-page > .instructions-page { padding:20px 16px; }
   .page-heading { flex-direction:column; gap:8px; }
   .ryker-app .page-heading h1 { font-size:24px; }
   .ryker-app .filter-toolbar input[type=search] { flex-basis:100%; max-width:none; }
@@ -1477,7 +1477,7 @@ details.measurement-notes > summary { cursor:pointer; font-weight:600; color:var
 .configuration-evidence .code-editing-setup ol { max-width:80ch; }
 .configuration-evidence > p.muted { margin:16px 0 0; font-size:14px; color:var(--secondary); }
 .settings-page .settings-setup h2, .settings-page .settings-unavailable h2 { font-size:20px; margin:0 0 12px; }
-/* The Settings page is native LiveView rather than a legacy-surface body, so it carries the shell's gutters itself: 32px on desktop, narrower as the sidebar collapses. */
+/* The Settings page is native LiveView rather than a page-surface body, so it carries the shell's gutters itself: 32px on desktop, narrower as the sidebar collapses. */
 .settings-page { padding:32px; }
 @media (max-width:800px) { .settings-page { padding:24px 20px; } }
 @media (max-width:600px) { .settings-page { padding:20px 16px; } }

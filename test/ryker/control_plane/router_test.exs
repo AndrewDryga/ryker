@@ -1367,7 +1367,7 @@ defmodule Ryker.ControlPlane.RouterTest do
         ] do
       assert request(:get, path).status == 200, path
 
-      assert %{plug: Ryker.ControlPlane.LegacyPlug} =
+      assert %{plug: Ryker.ControlPlane.HttpPlug} =
                Phoenix.Router.route_info(Ryker.ControlPlane.WebRouter, "GET", path, "localhost"),
              "#{path} is not forwarded to the HTTP router"
     end

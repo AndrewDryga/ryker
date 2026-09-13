@@ -177,8 +177,8 @@ defmodule Ryker.ControlPlane.RykerTokensTest do
     roots = [
       {"workspace.css .ryker-app", Regex.run(~r/\n\.ryker-app \{([^}]+)\}/, workspace),
        ~w(ink secondary paper stroke green text muted line panel panel-raised accent cyan danger warning)},
-      {"workspace.css .legacy-surface",
-       Regex.run(~r/\.ryker-app \.legacy-surface \{([^}]+)\}/, workspace),
+      {"workspace.css .page-surface",
+       Regex.run(~r/\.ryker-app \.page-surface \{([^}]+)\}/, workspace),
        ~w(text muted line accent panel panel-raised cyan bg)},
       {"control-plane.css .control-room",
        Regex.run(~r/\.control-room \{([^}]+)\}/, control_plane),

@@ -35,7 +35,7 @@ defmodule Ryker.ControlPlane.Layouts do
             <div class="mobile-navigation">
               <Navigation.mobile path="" live={false} />
             </div>
-            <main class="legacy-surface action-page">
+            <main class="page-surface action-page">
               <div class="secondary-page">
                 <Components.page_header title={@title} description={@description} />{Phoenix.HTML.raw(
                   @body

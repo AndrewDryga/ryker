@@ -1,5 +1,14 @@
 defmodule Ryker.ControlPlane.Router do
-  @moduledoc false
+  @moduledoc """
+  The control plane's HTTP contracts: health, readiness and metrics; the
+  conversation's message, reaction and record actions with its artifact
+  downloads and record views; the two-step confirmed operator actions; and
+  the learning actions. Pages live in `WorkbenchLive` and `Pages`; a GET here
+  that is not one of these contracts is the not-found page.
+
+  Every mutation is a same-origin form post carrying a process-local CSRF
+  token bound to the exact action and resource it confirms.
+  """
 
   import Plug.Conn
 

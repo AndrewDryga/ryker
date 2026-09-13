@@ -1,5 +1,10 @@
 defmodule Ryker.ControlPlane.WebRouter do
-  @moduledoc false
+  @moduledoc """
+  The one route map: every page is a `WorkbenchLive` route, `/assets` is the
+  packaged allowlist, and everything else is forwarded to `HttpPlug` for the
+  confirmed actions, downloads, record views and observability endpoints.
+  A path answered here is never also answered there.
+  """
   use Phoenix.Router
   import Phoenix.Controller
   import Phoenix.LiveView.Router
@@ -33,5 +38,5 @@ defmodule Ryker.ControlPlane.WebRouter do
     live("/failures/:kind/:ref", Ryker.ControlPlane.WorkbenchLive)
   end
 
-  forward("/", Ryker.ControlPlane.LegacyPlug)
+  forward("/", Ryker.ControlPlane.HttpPlug)
 end
