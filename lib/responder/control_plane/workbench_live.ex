@@ -16,6 +16,7 @@ defmodule Responder.ControlPlane.WorkbenchLive do
     HTML,
     LabPage,
     Navigation,
+    Projection,
     RequestFilters,
     RequestPage,
     Router,
@@ -72,7 +73,7 @@ defmodule Responder.ControlPlane.WorkbenchLive do
        lab_token: nil,
        lab_announcement: "",
        lab_items: [],
-       lab_row_ids: []
+       lab_window: nil
      )
      |> stream_configure(:activity, dom_id: &dom_id/1)
      |> stream(:activity, [])
@@ -233,6 +234,24 @@ defmodule Responder.ControlPlane.WorkbenchLive do
     {:noreply, push_patch(socket, to: socket.assigns.path <> "?" <> query)}
   end
 
+  # One older page of the open conversation. The request names the boundary
+  # it expects to extend; anything else is a trigger that fired twice, a retry
+  # of a page that already landed, or a request from a conversation this view
+  # no longer shows, and each of those is answered, never loaded.
+  def handle_event("load-older", %{"conversation" => id, "before" => before}, socket)
+      when is_binary(id) and is_binary(before) do
+    case socket.assigns.lab_window do
+      %{conversation_id: ^id, before: ^before} when socket.assigns.native == :lab ->
+        load_older_page(socket)
+
+      _stale_or_repeated ->
+        {:reply, %{"status" => "ignored"}, socket}
+    end
+  end
+
+  def handle_event("load-older", _params, socket),
+    do: {:reply, %{"status" => "ignored"}, socket}
+
   defp refresh(socket, reset \\ false) do
     socket = assign(socket, :refresh_token, nil)
     options = Endpoint.config(:control_plane)
@@ -382,7 +401,7 @@ defmodule Responder.ControlPlane.WorkbenchLive do
             socket.assigns.lab.conversation_id != snapshot.conversation_id
 
         socket
-        |> sync_lab_messages(snapshot.messages, reset)
+        |> sync_lab_window(snapshot, reset, options)
         |> assign(
           native: :lab,
           page_title: "Conversations",
@@ -543,31 +562,227 @@ defmodule Responder.ControlPlane.WorkbenchLive do
 
   defp dom_id(item), do: "activity-#{item.kind}-#{item.id}"
 
+  # A row is named by the logical message it shows, so an edit, a delete, a
+  # retention prune or a delivery confirmation updates the row in place.
   defp lab_dom_id(message) do
     digest =
-      :crypto.hash(:sha256, "#{message.actor}:#{message[:item_id] || message.ref}")
+      :crypto.hash(:sha256, message[:identity] || "#{message.actor}:#{message.ref}")
       |> Base.encode16(case: :lower)
 
     "lab-message-" <> digest
   end
 
-  defp sync_lab_messages(socket, messages, true),
-    do:
-      socket
-      |> stream(:lab_messages, messages, reset: true)
-      |> assign(lab_row_ids: Enum.map(messages, &lab_dom_id/1))
+  # The loaded window of one conversation's transcript: which rows the client
+  # holds, in transcript order, a digest of what each one last showed, and the
+  # boundary for the next older page. Until 2026-09-13 every refresh deleted
+  # any loaded row the latest snapshot did not repeat, so the history a reader
+  # had scrolled up to vanished under them on the next reconcile. A refresh
+  # now merges the latest page into the window; only opening a different
+  # conversation resets it.
+  defp sync_lab_window(socket, snapshot, true, _options) do
+    history = lab_history_of(snapshot)
 
-  defp sync_lab_messages(socket, messages, false) do
-    incoming = Enum.map(messages, &lab_dom_id/1)
+    socket
+    |> stream(:lab_messages, snapshot.messages, reset: true)
+    |> assign(
+      :lab_window,
+      lab_window_rows(
+        %{
+          before: history.before,
+          conversation_id: snapshot.conversation_id,
+          digests: %{},
+          exhausted: history.exhausted,
+          failed: false,
+          loaded: 0,
+          page_size: history.page_size,
+          rows: [],
+          synced_at: DateTime.utc_now()
+        },
+        snapshot.messages
+      )
+    )
+  end
+
+  # A refresh merges the latest page, then every row that changed since the
+  # window last synced: an edit or reaction on a message the reader scrolled
+  # up to is not on the latest page but must still land on its row. The
+  # overlap behind `synced_at` covers the gap between the host clock and the
+  # database clock; a row fetched twice with nothing changed is not patched.
+  defp sync_lab_window(socket, snapshot, false, options) do
+    window = socket.assigns.lab_window
+    history = lab_history_of(snapshot)
+    since = DateTime.add(window.synced_at, -10, :second)
+    synced_at = DateTime.utc_now()
 
     socket =
-      Enum.reduce(
-        socket.assigns.lab_row_ids -- incoming,
-        socket,
-        &stream_delete_by_dom_id(&2, :lab_messages, &1)
+      case lab_bridge(snapshot.messages, history, window, options) do
+        {:merge, messages} ->
+          merge_lab_rows(socket, messages, nil)
+
+        {:adopt, messages, history} ->
+          socket
+          |> stream(:lab_messages, [], reset: true)
+          |> assign(:lab_window, %{
+            window
+            | before: history.before,
+              digests: %{},
+              exhausted: history.exhausted,
+              failed: false,
+              loaded: 0,
+              rows: []
+          })
+          |> merge_lab_rows(messages, nil)
+      end
+
+    socket =
+      case Router.lab_changes(window.conversation_id, since, window.page_size, options) do
+        {:ok, changed} -> merge_lab_rows(socket, changed, lab_window_floor(socket))
+        {:error, _reason} -> throw({:projection_unavailable, :lab})
+      end
+
+    assign(socket, :lab_window, %{socket.assigns.lab_window | synced_at: synced_at})
+  end
+
+  defp lab_window_floor(socket) do
+    case socket.assigns.lab_window.rows do
+      [{_dom_id, oldest} | _rest] -> oldest
+      [] -> nil
+    end
+  end
+
+  defp lab_history_of(snapshot) do
+    Map.get(snapshot, :history) ||
+      %{before: nil, exhausted: true, page_size: Projection.lab_page_size()}
+  end
+
+  # The latest page must reach back to a row the window already holds before
+  # it can be merged; otherwise more than a page arrived since the last
+  # refresh and the rows between would be missing. Up to three older pages
+  # bridge the gap. When even that is not enough, the window restarts from
+  # what was fetched and the reader can scroll up to reload what it dropped.
+  defp lab_bridge(messages, history, %{rows: []}, _options), do: {:adopt, messages, history}
+
+  defp lab_bridge(messages, history, window, options) do
+    {_dom_id, newest} = List.last(window.rows)
+    lab_bridge(messages, history, newest, window, options, 3)
+  end
+
+  defp lab_bridge(messages, history, newest, window, options, budget) do
+    overlapping? =
+      history.exhausted or messages == [] or hd(messages).sort_key <= newest
+
+    cond do
+      overlapping? ->
+        {:merge, messages}
+
+      budget == 0 ->
+        {:adopt, messages, history}
+
+      true ->
+        case Router.lab_history(
+               window.conversation_id,
+               history.before,
+               window.page_size,
+               options
+             ) do
+          {:ok, page} ->
+            lab_bridge(
+              page.messages ++ messages,
+              %{history | before: page.before, exhausted: page.exhausted},
+              newest,
+              window,
+              options,
+              budget - 1
+            )
+
+          {:error, _reason} ->
+            throw({:projection_unavailable, :lab})
+        end
+    end
+  end
+
+  # Inserts or updates each message in the window without moving any row the
+  # client already holds. A new row goes exactly where its sort key falls
+  # among the loaded rows; an existing row is re-sent only when what it
+  # shows has changed, so an untouched row is never patched at all. With a
+  # `floor`, a new row older than the window's oldest row is left for paging:
+  # inserting it at the top would hide the gap between it and the window.
+  defp merge_lab_rows(socket, messages, floor) do
+    {socket, window} =
+      Enum.reduce(messages, {socket, socket.assigns.lab_window}, fn message, {socket, window} ->
+        merge_lab_row(socket, window, message, floor)
+      end)
+
+    assign(socket, :lab_window, %{window | loaded: length(window.rows)})
+  end
+
+  defp merge_lab_row(socket, window, message, floor) do
+    dom_id = lab_dom_id(message)
+    digest = :crypto.hash(:sha256, :erlang.term_to_binary(message))
+
+    case Map.fetch(window.digests, dom_id) do
+      {:ok, ^digest} ->
+        {socket, window}
+
+      {:ok, _changed} ->
+        {stream_insert(socket, :lab_messages, message),
+         %{window | digests: Map.put(window.digests, dom_id, digest)}}
+
+      :error when is_tuple(floor) and message.sort_key < floor ->
+        {socket, window}
+
+      :error ->
+        index = Enum.count(window.rows, fn {_id, key} -> key < message.sort_key end)
+        at = if index == length(window.rows), do: -1, else: index
+
+        {stream_insert(socket, :lab_messages, message, at: at),
+         %{
+           window
+           | digests: Map.put(window.digests, dom_id, digest),
+             rows: List.insert_at(window.rows, index, {dom_id, message.sort_key})
+         }}
+    end
+  end
+
+  defp lab_window_rows(window, messages) do
+    rows = Enum.map(messages, &{lab_dom_id(&1), &1.sort_key})
+
+    digests =
+      Map.new(messages, &{lab_dom_id(&1), :crypto.hash(:sha256, :erlang.term_to_binary(&1))})
+
+    %{window | digests: digests, loaded: length(rows), rows: rows}
+  end
+
+  defp load_older_page(socket) do
+    window = socket.assigns.lab_window
+    options = Endpoint.config(:control_plane)
+
+    case Router.lab_history(window.conversation_id, window.before, window.page_size, options) do
+      {:ok, page} ->
+        socket =
+          socket
+          |> assign(:lab_window, %{
+            window
+            | before: page.before,
+              exhausted: page.exhausted,
+              failed: false
+          })
+          |> merge_lab_rows(page.messages, nil)
+
+        {:reply, %{"status" => "loaded"}, socket}
+
+      {:error, _reason} ->
+        {:reply, %{"status" => "failed"}, assign(socket, :lab_window, %{window | failed: true})}
+    end
+  rescue
+    error ->
+      # Never log the exception body: it can carry query parameters.
+      Logger.warning(
+        "Conversation history page unavailable category=#{inspect(error.__struct__)}"
       )
 
-    socket |> stream(:lab_messages, messages) |> assign(lab_row_ids: incoming)
+      window = socket.assigns.lab_window
+      {:reply, %{"status" => "failed"}, assign(socket, :lab_window, %{window | failed: true})}
   end
 
   @impl true
@@ -627,6 +842,7 @@ defmodule Responder.ControlPlane.WorkbenchLive do
             token={@lab_token}
             items={@lab_items}
             messages={@streams.lab_messages}
+            history={@lab_window}
             announcement={@lab_announcement}
           />
           <SettingsPage.render

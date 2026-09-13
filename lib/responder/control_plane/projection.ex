@@ -72,6 +72,7 @@ defmodule Responder.ControlPlane.Projection do
       incident: &incident/1,
       incidents: &incidents/1,
       lab_artifact: &lab_artifact/3,
+      lab_changes: &lab_changes/3,
       lab_conversation: &lab_conversation/1,
       lab_history: &lab_history/3,
       lab_index: &lab_index/0,
@@ -229,6 +230,10 @@ defmodule Responder.ControlPlane.Projection do
 
   def lab_history(_conversation_id, _cursor, _limit), do: {:error, :invalid_cursor}
 
+  @doc "How many transcript rows one history page holds."
+  @spec lab_page_size() :: pos_integer()
+  def lab_page_size, do: @lab_page_size
+
   @doc false
   def lab_artifact(conversation_id, turn_id, artifact_ref)
       when is_binary(turn_id) and is_binary(artifact_ref) do
@@ -349,14 +354,16 @@ defmodule Responder.ControlPlane.Projection do
     lookahead = limit + 1
 
     candidates =
-      Enum.concat([
-        ref |> lab_page_inputs(boundary, lookahead) |> Enum.map(&{:input, &1}),
-        ref |> lab_page_replies(boundary, lookahead) |> Enum.map(&{:reply, &1}),
-        ref |> lab_page_actions(boundary, lookahead) |> Enum.map(&{:action, &1}),
-        ref |> lab_page_publications(boundary, lookahead) |> Enum.map(&{:publication, &1})
-      ])
-      |> Enum.map(fn {kind, row} -> {lab_candidate_key(kind, row), kind, row} end)
-      |> Enum.sort_by(&elem(&1, 0), :desc)
+      lab_candidates(
+        ref,
+        %{
+          input: lab_inputs_older(lab_page_boundary(boundary, :input)),
+          reply: lab_replies_older(lab_page_boundary(boundary, :reply)),
+          action: lab_actions_older(lab_page_boundary(boundary, :action)),
+          publication: lab_publications_older(lab_page_boundary(boundary, :publication))
+        },
+        lookahead
+      )
 
     more? = length(candidates) > limit
     window = Enum.take(candidates, limit)
@@ -372,6 +379,201 @@ defmodule Responder.ControlPlane.Projection do
       exhausted: not more?,
       messages: lab_window_messages(window, conversation_id)
     }
+  end
+
+  # Every source's rows matching its filter, newest first, each with the key
+  # that places it in the merged transcript.
+  defp lab_candidates(ref, filters, limit) do
+    Enum.concat([
+      ref |> lab_page_inputs(filters.input, limit) |> Enum.map(&{:input, &1}),
+      ref |> lab_page_replies(filters.reply, limit) |> Enum.map(&{:reply, &1}),
+      ref |> lab_page_actions(filters.action, limit) |> Enum.map(&{:action, &1}),
+      ref |> lab_page_publications(filters.publication, limit) |> Enum.map(&{:publication, &1})
+    ])
+    |> Enum.map(fn {kind, row} -> {lab_candidate_key(kind, row), kind, row} end)
+    |> Enum.sort_by(&elem(&1, 0), :desc)
+  end
+
+  @doc """
+  The current representation of every transcript row that changed at or
+  after `since`: a new or revised input, a reaction on one, an accepted or
+  confirmed reply, a card whose record moved, a delivered platform message or
+  a publication that advanced. Bounded per source; ascending display order.
+
+  This is how a live window learns about a row it holds that is no longer on
+  the latest page, such as an edit to a message the reader scrolled up to.
+  """
+  def lab_changes(conversation_id, since, limit \\ @lab_page_size)
+
+  def lab_changes(conversation_id, %DateTime{} = since, limit)
+      when is_integer(limit) and limit in 1..@lab_page_maximum do
+    case normalized_uuid(conversation_id) do
+      {:ok, conversation_id} ->
+        ref = @lab_prefix <> conversation_id
+
+        candidates =
+          lab_candidates(
+            ref,
+            %{
+              input: lab_changed_inputs(ref, since, limit),
+              reply: lab_changed_replies(ref, since, limit),
+              action: lab_changed_actions(ref, since, limit),
+              publication: lab_changed_publications(ref, since, limit)
+            },
+            limit * 2
+          )
+
+        {:ok, lab_window_messages(candidates, conversation_id)}
+
+      :error ->
+        :not_found
+    end
+  end
+
+  def lab_changes(_conversation_id, _since, _limit), do: :not_found
+
+  defp lab_changed_inputs(ref, since, limit) do
+    revised = lab_revised_input_ids(ref, since, limit)
+    reacted = lab_reacted_item_refs(ref, since, limit)
+
+    if revised == [] and reacted == [],
+      do: dynamic(false),
+      else:
+        dynamic(
+          [entry, first],
+          entry.native_input_id in ^revised or entry.source_item_ref in ^reacted
+        )
+  end
+
+  defp lab_revised_input_ids(ref, since, limit) do
+    Repo.all(
+      from(entry in Entry,
+        where:
+          entry.destination_transport == "control_plane" and
+            entry.destination_conversation_ref == ^ref and
+            entry.destination_thread_ref == ^ref and
+            (entry.inserted_at >= ^since or entry.operational_pruned_at >= ^since),
+        distinct: true,
+        select: entry.native_input_id,
+        limit: ^limit
+      )
+    )
+  end
+
+  defp lab_reacted_item_refs(ref, since, limit) do
+    Repo.all(
+      from(reaction in Reaction,
+        where:
+          reaction.transport == "control_plane" and reaction.conversation_ref == ^ref and
+            reaction.updated_at >= ^since and not is_nil(reaction.source_item_ref),
+        distinct: true,
+        select: reaction.source_item_ref,
+        limit: ^limit
+      )
+    ) ++
+      Repo.all(
+        from(action in PlatformAction,
+          where:
+            action.transport == "control_plane" and action.conversation_ref == ^ref and
+              action.kind == :reaction and action.updated_at >= ^since and
+              not is_nil(action.source_item_ref),
+          distinct: true,
+          select: action.source_item_ref,
+          limit: ^limit
+        )
+      )
+  end
+
+  defp lab_changed_replies(ref, since, limit) do
+    turn_ids =
+      lab_updated_turn_ids(ref, since, limit) ++ lab_moved_record_turn_ids(ref, since, limit)
+
+    delivery_refs = lab_reacted_delivery_refs(ref, since, limit)
+
+    if turn_ids == [] and delivery_refs == [],
+      do: dynamic(false),
+      else: dynamic([turn], turn.id in ^turn_ids or turn.delivery_ref in ^delivery_refs)
+  end
+
+  defp lab_updated_turn_ids(ref, since, limit) do
+    Repo.all(
+      from(turn in Turn,
+        join: episode in Episode,
+        on: episode.id == turn.episode_id,
+        where:
+          episode.destination_transport == "control_plane" and
+            episode.destination_conversation_ref == ^ref and
+            episode.destination_thread_ref == ^ref and turn.updated_at >= ^since,
+        select: turn.id,
+        limit: ^limit
+      )
+    )
+  end
+
+  defp lab_moved_record_turn_ids(ref, since, limit) do
+    Repo.all(
+      from(record in Record,
+        join: episode in Episode,
+        on: episode.id == record.episode_id,
+        where:
+          episode.destination_transport == "control_plane" and
+            episode.destination_conversation_ref == ^ref and
+            episode.destination_thread_ref == ^ref and record.updated_at >= ^since and
+            not is_nil(record.turn_id),
+        distinct: true,
+        select: record.turn_id,
+        limit: ^limit
+      )
+    )
+  end
+
+  defp lab_reacted_delivery_refs(ref, since, limit) do
+    Repo.all(
+      from(event in Event,
+        join: episode in Episode,
+        on: episode.id == event.episode_id,
+        where:
+          episode.destination_transport == "control_plane" and
+            episode.destination_conversation_ref == ^ref and
+            episode.destination_thread_ref == ^ref and event.kind == :reaction_recorded and
+            event.inserted_at >= ^since,
+        select: fragment("?::jsonb ->> 'target_delivery_ref'", event.payload),
+        limit: ^limit
+      )
+    )
+    |> Enum.filter(&is_binary/1)
+  end
+
+  defp lab_changed_actions(ref, since, limit) do
+    case Repo.all(
+           from(action in PlatformAction,
+             where:
+               action.transport == "control_plane" and action.conversation_ref == ^ref and
+                 action.kind == :message and action.updated_at >= ^since,
+             select: action.id,
+             limit: ^limit
+           )
+         ) do
+      [] -> dynamic(false)
+      ids -> dynamic([action], action.id in ^ids)
+    end
+  end
+
+  defp lab_changed_publications(ref, since, limit) do
+    case Repo.all(
+           from(publication in Publication,
+             where:
+               publication.destination_transport == "control_plane" and
+                 publication.destination_conversation_ref == ^ref and
+                 publication.destination_thread_ref == ^ref and
+                 publication.updated_at >= ^since,
+             select: publication.id,
+             limit: ^limit
+           )
+         ) do
+      [] -> dynamic(false)
+      ids -> dynamic([publication], publication.id in ^ids)
+    end
   end
 
   defp lab_candidate_key(:input, row),
@@ -1252,7 +1454,7 @@ defmodule Responder.ControlPlane.Projection do
   # One row per logical input: its current revision, positioned where its
   # first revision entered the conversation. An edit or delete changes what
   # the row says and records `edited_at`; it never moves the row.
-  defp lab_page_inputs(ref, boundary, limit) do
+  defp lab_page_inputs(ref, filter, limit) do
     latest =
       from(entry in Entry,
         where:
@@ -1294,7 +1496,7 @@ defmodule Responder.ControlPlane.Projection do
       from(entry in subquery(latest),
         join: first in subquery(positions),
         on: first.native_input_id == entry.native_input_id,
-        where: ^lab_inputs_older(lab_page_boundary(boundary, :input)),
+        where: ^filter,
         order_by: [desc: first.position, desc: fragment("? COLLATE \"C\"", entry.native_input_id)],
         limit: ^limit,
         select: %{
@@ -1488,9 +1690,7 @@ defmodule Responder.ControlPlane.Projection do
 
   # Accepted replies, positioned at acceptance. A pruned reply keeps its row
   # and reads as expired; only an unaccepted or invisible result is absent.
-  defp lab_page_replies(ref, boundary, limit) do
-    older = lab_replies_older(lab_page_boundary(boundary, :reply))
-
+  defp lab_page_replies(ref, filter, limit) do
     Repo.all(
       from(turn in Turn,
         join: episode in Episode,
@@ -1505,7 +1705,7 @@ defmodule Responder.ControlPlane.Projection do
               turn.delivery_document,
               turn.delivery_document
             ),
-        where: ^older,
+        where: ^filter,
         order_by: [desc: turn.accepted_at, desc: turn.id],
         limit: ^limit,
         select: %{
@@ -1550,9 +1750,7 @@ defmodule Responder.ControlPlane.Projection do
 
   # A publication is one logical row that advances from reviewed to
   # published; its position is the delivery it currently shows.
-  defp lab_page_publications(ref, boundary, limit) do
-    older = lab_publications_older(lab_page_boundary(boundary, :publication))
-
+  defp lab_page_publications(ref, filter, limit) do
     Repo.all(
       from(publication in Publication,
         join: record in Record,
@@ -1565,7 +1763,7 @@ defmodule Responder.ControlPlane.Projection do
                 not is_nil(publication.review_delivery_receipt)) or
                (publication.status == :published and
                   not is_nil(publication.published_delivery_receipt))),
-        where: ^older,
+        where: ^filter,
         order_by: [desc: publication_position_sql(publication), desc: publication.id],
         limit: ^limit,
         select: {publication, record.ref}
@@ -1596,9 +1794,7 @@ defmodule Responder.ControlPlane.Projection do
   end
 
   # Delivered platform messages, positioned at delivery.
-  defp lab_page_actions(ref, boundary, limit) do
-    older = lab_actions_older(lab_page_boundary(boundary, :action))
-
+  defp lab_page_actions(ref, filter, limit) do
     Repo.all(
       from(action in PlatformAction,
         join: episode in Episode,
@@ -1609,7 +1805,7 @@ defmodule Responder.ControlPlane.Projection do
             episode.destination_conversation_ref == ^ref and
             action.kind == :message and action.status == :delivered and
             action.tool == :post_slack_message and not is_nil(action.delivered_at),
-        where: ^older,
+        where: ^filter,
         order_by: [desc: action.delivered_at, desc: action.id],
         limit: ^limit,
         select: %{

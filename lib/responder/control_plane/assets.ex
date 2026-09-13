@@ -9,6 +9,7 @@ defmodule Responder.ControlPlane.Assets do
     "control-plane.js" => {:responder, "priv/static/control-plane.js", "text/javascript"},
     "drafts.mjs" => {:responder, "priv/static/drafts.mjs", "text/javascript"},
     "filter-toolbar.mjs" => {:responder, "priv/static/filter-toolbar.mjs", "text/javascript"},
+    "history.mjs" => {:responder, "priv/static/history.mjs", "text/javascript"},
     "instruction-draft.mjs" =>
       {:responder, "priv/static/instruction-draft.mjs", "text/javascript"},
     "settings-draft.mjs" => {:responder, "priv/static/settings-draft.mjs", "text/javascript"},

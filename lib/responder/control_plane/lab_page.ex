@@ -60,41 +60,82 @@ defmodule Responder.ControlPlane.LabPage do
           {@announcement}
         </p>
         <div
-          id="lab-messages"
-          phx-update="stream"
-          class="lab-transcript"
-          role="log"
-          aria-live="off"
-          aria-label="Conversation messages"
+          id="lab-history"
+          phx-hook="ConversationHistory"
+          data-conversation={@snapshot.conversation_id}
+          data-before={@history.before}
+          data-history-state={history_state(@history)}
         >
-          <article
-            :for={{id, message} <- @messages}
-            id={id}
-            class={"lab-chat-message actor-#{message.actor}"}
-          >
-            <span class="story-avatar" aria-hidden="true">{if message.actor == :operator,
-              do: "You",
-              else: "r."}</span><div class="lab-chat-message-content">
-              <div class="story-byline">
-                <strong>{actor(message.actor)}</strong><time>{timestamp(message.occurred_at)}</time><span>{message_status(
-                  message
-                )}</span>
-              </div><div class="chat-message-text markdown-preview">
-                {Phoenix.HTML.raw(Responder.ControlPlane.SlackMarkdown.preview(message.text || ""))}
-              </div><div class="chat-message-extras">
-                {Phoenix.HTML.raw(HTML.lab_message_extras(message))}
-              </div><details
-                :if={message.record_refs != [] || message.artifact_refs != []}
-                class="document-provenance"
+          <div id="lab-history-edge" class="lab-history-edge" tabindex="-1">
+            <button
+              :if={history_state(@history) == "more"}
+              type="button"
+              class="lab-load-earlier"
+              phx-click="load-older"
+              phx-value-conversation={@snapshot.conversation_id}
+              phx-value-before={@history.before}
+            >
+              Load earlier messages
+            </button>
+            <span class="lab-history-loading">Loading earlier messages…</span>
+            <p :if={history_state(@history) == "failed"} class="lab-history-failed" role="status">
+              Earlier messages could not be loaded.
+              <button
+                type="button"
+                phx-click="load-older"
+                phx-value-conversation={@snapshot.conversation_id}
+                phx-value-before={@history.before}
               >
-                <summary>Linked record identities</summary><p :for={
-                  ref <- message.record_refs ++ message.artifact_refs
-                }>
-                  {ref}
-                </p>
-              </details>
-            </div>
-          </article>
+                Try again
+              </button>
+            </p>
+            <p
+              :if={history_state(@history) == "exhausted" && @history.loaded > 0}
+              class="lab-history-start"
+            >
+              Start of the retained conversation
+            </p>
+          </div>
+          <div
+            id="lab-messages"
+            phx-update="stream"
+            class="lab-transcript"
+            role="log"
+            aria-live="off"
+            aria-label="Conversation messages"
+          >
+            <article
+              :for={{id, message} <- @messages}
+              id={id}
+              class={"lab-chat-message actor-#{message.actor}"}
+            >
+              <span class="story-avatar" aria-hidden="true">{if message.actor == :operator,
+                do: "You",
+                else: "r."}</span><div class="lab-chat-message-content">
+                <div class="story-byline">
+                  <strong>{actor(message.actor)}</strong><time>{timestamp(message.occurred_at)}</time><span>{message_status(
+                    message
+                  )}</span>
+                </div><div class="chat-message-text markdown-preview">
+                  {Phoenix.HTML.raw(Responder.ControlPlane.SlackMarkdown.preview(message.text || ""))}
+                </div><div class="chat-message-extras">
+                  {Phoenix.HTML.raw(HTML.lab_message_extras(message))}
+                </div><details
+                  :if={message.record_refs != [] || message.artifact_refs != []}
+                  class="document-provenance"
+                >
+                  <summary>Linked record identities</summary><p :for={
+                    ref <- message.record_refs ++ message.artifact_refs
+                  }>
+                    {ref}
+                  </p>
+                </details>
+              </div>
+            </article>
+          </div>
+          <div id="lab-history-latest" phx-update="ignore">
+            <button type="button" class="lab-new-messages" hidden>New messages</button>
+          </div>
         </div>
         <form
           id={"lab-composer-#{@snapshot.conversation_id}"}
@@ -124,7 +165,7 @@ defmodule Responder.ControlPlane.LabPage do
             </div><button class="ui-button primary" type="submit">Send message <.icon name={:arrow} /></button>
           </div><p class="composer-status" role="status" hidden></p>
         </form><p class="lab-chat-footer">
-          Saved on acceptance · ⌘ / Ctrl + Enter to send · Latest 200 visible messages
+          Saved on acceptance · ⌘ / Ctrl + Enter to send
         </p>
       </section>
       <aside :if={@snapshot} class="lab-runtime" aria-label="Processing progress">
@@ -197,6 +238,13 @@ defmodule Responder.ControlPlane.LabPage do
 
     if notices == [], do: nil, else: Enum.join(notices, " ")
   end
+
+  # What the top edge of the transcript offers: more retained history to load,
+  # a failed load to retry, or the genuine start of what was retained. A
+  # failure is never shown as the start of the conversation.
+  defp history_state(%{failed: true}), do: "failed"
+  defp history_state(%{exhausted: true}), do: "exhausted"
+  defp history_state(_history), do: "more"
 
   defp message_status(%{actor: :operator, status: status}) when status in [:decided, :pending],
     do: "Sent"

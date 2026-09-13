@@ -5,6 +5,7 @@ import {createRelearnPicker} from "/assets/relearn-selection.mjs"
 import {createInstructionDraft} from "/assets/instruction-draft.mjs"
 import {createSettingsGuard} from "/assets/settings-draft.mjs"
 import {applyFilterChange} from "/assets/filter-toolbar.mjs"
+import {ConversationHistory, captureReadingAnchor, restoreReadingAnchor} from "/assets/history.mjs"
 const draftKey = element => element.closest?.("form[phx-change]") ? null : keyFor(element, location.pathname)
 
 // Filter toolbars are plain GET forms and work before the socket connects,
@@ -100,7 +101,9 @@ const PreserveReadingState = {
       key: node.id || `${index}:${node.querySelector("summary")?.textContent}`, open: node.open
     }))
     this.scroll = window.scrollY
-    this.following = window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 48
+    // A conversation transcript is anchored to the row being read, not to a
+    // pixel offset: pages prepend above it and late images resize under it.
+    this.reading = captureReadingAnchor(this.el)
   },
   updated() {
     const expanded = new Map((this.expanded || []).map(item => [item.key, item.open]))
@@ -121,11 +124,8 @@ const PreserveReadingState = {
       if (this.el.contains(focused)) focused.focus({preventScroll: true})
     }
     if (this.revealFragment(document.activeElement === document.body)) return
-    if (this.following && location.pathname.startsWith("/conversations/")) {
-      window.scrollTo({top: document.documentElement.scrollHeight, behavior: "instant"})
-    } else if (Number.isFinite(this.scroll)) {
-      window.scrollTo({top: this.scroll, behavior: "instant"})
-    }
+    if (restoreReadingAnchor(this.reading)) return
+    if (Number.isFinite(this.scroll)) window.scrollTo({top: this.scroll, behavior: "instant"})
   },
   revealFragment(moveFocus = true) {
     if (!location.hash || this.fragmentURL === location.href) return false
@@ -182,6 +182,6 @@ const SettingsDraft = {
 }
 const liveSocket = new LiveSocket("/live", Socket, {
   params: {_csrf_token: csrfToken},
-  hooks: {PreserveReadingState, InstructionDraft, SettingsDraft}
+  hooks: {PreserveReadingState, InstructionDraft, SettingsDraft, ConversationHistory}
 })
 liveSocket.connect()

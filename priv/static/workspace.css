@@ -1453,3 +1453,20 @@ details.measurement-notes > summary { cursor:pointer; font-weight:600; color:var
 .settings-page { padding:32px; }
 @media (max-width:800px) { .settings-page { padding:24px 20px; } }
 @media (max-width:600px) { .settings-page { padding:20px 16px; } }
+
+/* Conversation history */
+/* The top edge of a transcript: load earlier, loading, retry, or the genuine start. */
+.lab-history-edge { display:flex; flex-wrap:wrap; justify-content:center; align-items:center; gap:8px 12px; min-height:40px; padding:8px 28px 4px; color:#738168; font-size:14px; outline:none; }
+.lab-load-earlier { font:inherit; font-size:14px; color:#59773d; background:var(--panel); border:1px solid var(--stroke); border-radius:6px; padding:6px 12px; cursor:pointer; }
+.lab-load-earlier:hover { background:#f3f6ee; }
+.lab-load-earlier:focus-visible, .lab-history-failed button:focus-visible, .lab-new-messages:focus-visible { outline:2px solid #7a9a5c; outline-offset:2px; }
+.lab-history-loading { display:none; }
+#lab-history.phx-hook-loading .lab-history-loading, .lab-history-edge:has(.phx-click-loading) .lab-history-loading { display:inline; }
+#lab-history.phx-hook-loading .lab-load-earlier, .lab-load-earlier.phx-click-loading { opacity:.55; }
+.lab-history-failed { margin:0; color:#8a4b3d; }
+.lab-history-failed button { font:inherit; color:#59773d; background:none; border:0; padding:0 2px; text-decoration:underline; cursor:pointer; }
+.lab-history-start { margin:0; }
+/* New messages while reading earlier ones: a quiet offer floating over the transcript, never a jump. */
+#lab-history-latest { position:sticky; bottom:20px; z-index:3; display:flex; justify-content:center; align-items:flex-start; height:0; overflow:visible; pointer-events:none; }
+.lab-new-messages { pointer-events:auto; transform:translateY(-100%); font:inherit; font-size:14px; color:#fff; background:#5b7346; border:0; border-radius:999px; padding:7px 14px; box-shadow:0 4px 14px #2b3a2333; cursor:pointer; }
+.lab-new-messages[hidden] { display:none; }

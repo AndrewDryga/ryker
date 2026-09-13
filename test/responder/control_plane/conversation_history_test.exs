@@ -231,6 +231,51 @@ defmodule Responder.ControlPlane.ConversationHistoryTest do
     assert LabCursor.decode(first.before, @other_conversation_id) == :error
   end
 
+  test "rows changed since a moment are reported wherever they sit in history" do
+    # A live window refreshes only the latest page. An edit, a reaction or a
+    # retention prune on a row four pages back must still reach the window,
+    # so the projection can name every row changed since the last sync.
+    history = long_history!()
+    since = DateTime.utc_now()
+    assert {:ok, []} = Projection.lab_changes(@conversation_id, since)
+
+    all =
+      @conversation_id
+      |> Projection.lab_conversation()
+      |> elem(1)
+      |> traverse!()
+      |> Enum.reverse()
+      |> List.flatten()
+
+    edited = Enum.find(all, &(&1.identity == history.edited_input))
+
+    {:ok, _revised} =
+      ConversationLab.edit_message(@conversation_id, edited.item_id, "Fourth wording", profile())
+
+    "reply:" <> turn_id = history.carded_reply
+
+    Repo.update_all(from(t in Turn, where: t.id == ^turn_id),
+      set: [
+        delivery_document: %{"retention" => "pruned"},
+        operational_pruned_at: DateTime.utc_now(),
+        updated_at: DateTime.utc_now()
+      ]
+    )
+
+    assert {:ok, changed} = Projection.lab_changes(@conversation_id, since)
+
+    assert Enum.map(changed, &{&1.identity, &1.text}) == [
+             {history.edited_input, "Fourth wording"},
+             {history.carded_reply, "This reply expired under retention."}
+           ]
+
+    assert changed == Enum.sort_by(changed, & &1.sort_key)
+    assert Enum.find(changed, &(&1.identity == history.edited_input)).sort_key == edited.sort_key
+
+    assert Projection.lab_changes("not-a-uuid", since) == :not_found
+    assert Projection.lab_changes(@conversation_id, "yesterday") == :not_found
+  end
+
   test "processing state does not depend on which page is loaded" do
     # The former projection derived "Processing" from the same 200-row window
     # it displayed, so a delivery still pending behind 200 newer rows read as
