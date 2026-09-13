@@ -17,30 +17,6 @@ defmodule Ryker.Evals.OperatorTaskTest do
     :ok
   end
 
-  test "admission-pack exports every recorded judgment without a model or runtime" do
-    Eval.run(["admission-pack"])
-
-    documents = collect_info([])
-    assert length(documents) == 14
-
-    decoded = Enum.map(documents, &Jason.decode!/1)
-    assert Enum.any?(decoded, &(&1["eval_id"] == "human_thread_reply_continues_existing_episode"))
-    assert Enum.any?(decoded, &(&1["eval_id"] == "direct_question_selects_conversational_work"))
-    assert Enum.any?(decoded, &(&1["eval_id"] == "broad_health_assessment_selects_deep_work"))
-    assert Enum.all?(decoded, &(&1["schema"]["title"] == "Ryker admission decision"))
-  end
-
-  test "work-pack exports the universal Work prompt corpus without a model or runtime" do
-    Eval.run(["work-pack"])
-
-    documents = collect_info([])
-    assert length(documents) == 12
-
-    decoded = Enum.map(documents, &Jason.decode!/1)
-    assert Enum.any?(decoded, &(&1["eval_id"] == "github_and_slack_remain_platform_adapters"))
-    assert Enum.all?(decoded, &(&1["schema"]["title"] == "Ryker episode result"))
-  end
-
   test "world-pack exports every versioned scenario with its exact tool catalog" do
     Eval.run(["world-pack"])
 
@@ -111,7 +87,17 @@ defmodule Ryker.Evals.OperatorTaskTest do
     assert_raise Mix.Error, ~r/usage: mix ryker.eval/, fn -> Eval.run([]) end
 
     assert_raise Mix.Error, ~r/invalid_arguments/, fn ->
-      Eval.run(["admission", "--config", "relative.yaml", "unexpected"])
+      Eval.run(["world", "--results", "/absolute/world.json", "unexpected"])
+    end
+  end
+
+  test "the retired no-tools admission and Work evals are gone, not aliased" do
+    # The model-world eval superseded them; a clean cut leaves no subcommand
+    # that could quietly run a stale corpus and report it as a model gate.
+    for command <- ["admission", "admission-pack", "work", "work-pack"] do
+      assert_raise Mix.Error, ~r/usage: mix ryker.eval world-pack \| world /, fn ->
+        Eval.run([command])
+      end
     end
   end
 
@@ -175,10 +161,8 @@ defmodule Ryker.Evals.OperatorTaskTest do
         "control-plane:local"
       )
 
-    for kind <- ["admission", "work"] do
-      assert_raise Mix.Error, ~r/model_eval_reuses_production_authority/, fn ->
-        Eval.run([kind])
-      end
+    assert_raise Mix.Error, ~r/model_eval_reuses_production_authority/, fn ->
+      Eval.run(["world", "--results", "/absolute/world.json"])
     end
   end
 
@@ -190,17 +174,13 @@ defmodule Ryker.Evals.OperatorTaskTest do
     on_exit(fn -> File.rm_rf!(root) end)
     results_path = Path.join(root, "world-results.json")
 
-    for kind <- ["admission", "work"] do
-      assert_raise Mix.Error, ~r/model_eval_policies_not_configured/, fn -> Eval.run([kind]) end
-    end
-
     assert_raise Mix.Error, ~r/model_eval_policies_not_configured/, fn ->
       Eval.run(["world", "--results", results_path])
     end
 
-    # A configuration path is no longer an argument any eval command accepts.
+    # A configuration path is no longer an argument the eval command accepts.
     assert_raise Mix.Error, ~r/invalid_arguments/, fn ->
-      Eval.run(["admission", "--config", Path.join(root, "ryker.yaml")])
+      Eval.run(["world", "--results", results_path, "--config", Path.join(root, "ryker.yaml")])
     end
 
     assert_raise Mix.Error, ~r/invalid_arguments/, fn ->

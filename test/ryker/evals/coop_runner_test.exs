@@ -1,7 +1,7 @@
 defmodule Ryker.Evals.CoopRunnerTest do
   use ExUnit.Case, async: true
 
-  alias Ryker.Evals.{AdmissionCase, CoopRunner}
+  alias Ryker.Evals.{CoopRunner, WorldCase, WorldJudgeCase}
   alias Ryker.TestSupport.FakeCoopAPI
 
   @digest String.duplicate("a", 64)
@@ -78,17 +78,16 @@ defmodule Ryker.Evals.CoopRunnerTest do
     end
   end
 
-  test "runs harvested judgments through one real Coop-shaped session and scores semantics" do
+  test "runs one judgment through one real Coop-shaped session and scores its verdict" do
     eval = eval_case()
-    candidate = Jason.encode!(Map.put(eval.expectation, "reason", "Continue the same lifecycle."))
-    {:ok, fake} = FakeCoopAPI.start_link([candidate])
+    {:ok, fake} = FakeCoopAPI.start_link([judgment(eval, true)])
 
     assert {:ok, %{failed: 0, passed: 1, total: 1, results: [result]}} =
              CoopRunner.run([eval], options(fake))
 
     assert result.status == :passed
     assert result.eval_id == eval.eval_id
-    assert result.decision["action"] == eval.expectation["action"]
+    assert result.decision["overall_pass"] == true
 
     state = FakeCoopAPI.state(fake)
     assert state.closed
@@ -96,38 +95,31 @@ defmodule Ryker.Evals.CoopRunnerTest do
     assert state.submit_count == 1
     assert length(state.validations) == 1
     assert state.schema == eval.schema
+    assert state.submitted_prompt == eval.prompt
   end
 
-  test "a well-formed but wrong lifecycle choice fails without leaking its eval session" do
+  test "a well-formed failing judgment fails without another attempt or a leaked session" do
     eval = eval_case()
-
-    candidate =
-      Jason.encode!(%{
-        "action" => "start_episode",
-        "episode_ref" => nil,
-        "reaction" => nil,
-        "relation" => "unrelated",
-        "repository_source" => nil,
-        "reason" => "Treat it as new work.",
-        "work_class" => "standard"
-      })
-
-    {:ok, fake} = FakeCoopAPI.start_link([candidate])
+    {:ok, fake} = FakeCoopAPI.start_link([judgment(eval, false)])
 
     assert {:ok, %{failed: 1, passed: 0, results: [result]}} =
              CoopRunner.run([eval], options(fake))
 
     assert result.status == :failed
-    assert match?({:admission_eval_mismatch, _details}, result.reason)
-    assert FakeCoopAPI.state(fake).closed
+    assert result.reason == :quality_rubric_failed
+    assert result.decision["overall_pass"] == false
+
+    state = FakeCoopAPI.state(fake)
+    assert state.closed
+    assert state.discarded
+    assert Enum.map(state.validations, & &1.verdict) == [:accept]
   end
 
   test "async Coop operations and a one-turn exhausted policy remain a complete eval" do
     eval = eval_case()
-    candidate = Jason.encode!(Map.put(eval.expectation, "reason", "Continue this exact work."))
 
     {:ok, fake} =
-      FakeCoopAPI.start_link([candidate],
+      FakeCoopAPI.start_link([judgment(eval, true)],
         async_create: true,
         async_operations_running: true,
         async_submit: true,
@@ -144,22 +136,51 @@ defmodule Ryker.Evals.CoopRunnerTest do
     assert map_size(state.known_operations) == 2
   end
 
-  test "malformed model output is scored as a failure but its eval session is still closed" do
+  test "byte-identical invalid candidates use distinct attempt-bound validation keys" do
+    # A rejection is keyed by the attempt it answers, so the same unreadable
+    # bytes offered twice are two rejections, not one idempotent replay that
+    # would leave the second candidate awaiting a verdict forever.
     eval = eval_case()
-    {:ok, fake} = FakeCoopAPI.start_link(["not-json"])
+    invalid = Jason.encode!(%{"criteria" => [], "overall_pass" => true})
+    {:ok, fake} = FakeCoopAPI.start_link([invalid, invalid, judgment(eval, true)])
 
-    assert %{decision: nil, reason: {:invalid_candidate, :json_object}, status: :failed} =
+    assert {:ok, %{failed: 0, passed: 1}} = CoopRunner.run([eval], options(fake))
+
+    state = FakeCoopAPI.state(fake)
+    assert state.submit_count == 1
+    assert Enum.map(state.validations, & &1.verdict) == [:reject, :reject, :accept]
+
+    [first, second, third] = state.validation_keys
+    assert first != second
+    assert second != third
+    assert first =~ ":validate:1:"
+    assert second =~ ":validate:2:"
+    assert third =~ ":validate:3:"
+  end
+
+  test "a judge that never returns a readable judgment is bounded and never scored as passing" do
+    # Every unreadable candidate is rejected for repair in the same turn; the
+    # twentieth is the last one asked for, so a model that never repairs cannot
+    # keep one eval session polling forever or turn its silence into a score.
+    eval = eval_case()
+    {:ok, fake} = FakeCoopAPI.start_link(List.duplicate("not-json", 20))
+
+    assert %{decision: nil, reason: {:eval_candidate_limit, 20}, status: :failed} =
              CoopRunner.run_case(eval, options(fake))
 
-    assert FakeCoopAPI.state(fake).closed
+    state = FakeCoopAPI.state(fake)
+    assert state.submit_count == 1
+    assert length(state.validations) == 19
+    assert Enum.all?(state.validations, &(&1.verdict == :reject))
   end
 
   test "a crossed Coop turn identity is refused before validation" do
     eval = eval_case()
-    candidate = Jason.encode!(Map.put(eval.expectation, "reason", "Continue this exact work."))
 
     {:ok, fake} =
-      FakeCoopAPI.start_link([candidate], turn_session_id_override: "remote-crossed-session")
+      FakeCoopAPI.start_link([judgment(eval, true)],
+        turn_session_id_override: "remote-crossed-session"
+      )
 
     assert %{
              decision: nil,
@@ -176,7 +197,7 @@ defmodule Ryker.Evals.CoopRunnerTest do
 
     assert %{
              decision: nil,
-             reason: {:invalid_admission_eval_runner, :options},
+             reason: {:invalid_eval_runner, :options},
              status: :failed
            } = CoopRunner.run_case(eval, %{})
 
@@ -188,7 +209,7 @@ defmodule Ryker.Evals.CoopRunnerTest do
 
   test "terminal and overlong remote turns fail one eval without leaking a false score" do
     eval = eval_case()
-    candidate = Jason.encode!(Map.put(eval.expectation, "reason", "Continue this exact work."))
+    candidate = judgment(eval, true)
 
     {:ok, terminal} =
       FakeCoopAPI.start_link([candidate], fail_first_turn: true, first_turn_state: "interrupted")
@@ -208,7 +229,7 @@ defmodule Ryker.Evals.CoopRunnerTest do
 
   test "validation receipt and close failures never become passing model judgments" do
     eval = eval_case()
-    candidate = Jason.encode!(Map.put(eval.expectation, "reason", "Continue this exact work."))
+    candidate = judgment(eval, true)
 
     {:ok, missing_receipt} =
       FakeCoopAPI.start_link([candidate], omit_validation_receipt: true)
@@ -234,21 +255,20 @@ defmodule Ryker.Evals.CoopRunnerTest do
 
   test "runner identities and keyword options are exact rather than best effort" do
     eval = eval_case()
-    candidate = Jason.encode!(Map.put(eval.expectation, "reason", "Continue this exact work."))
-    {:ok, fake} = FakeCoopAPI.start_link([candidate])
+    {:ok, fake} = FakeCoopAPI.start_link([judgment(eval, true)])
 
-    assert %{decision: nil, reason: {:invalid_admission_eval_runner, :run_ref}, status: :failed} =
+    assert %{decision: nil, reason: {:invalid_eval_runner, :run_ref}, status: :failed} =
              CoopRunner.run_case(eval, Keyword.put(options(fake), :id_generator, fn -> "" end))
 
     duplicate_options = options(fake) ++ [policy: "other"]
 
     assert CoopRunner.run([eval], duplicate_options) ==
-             {:error, {:invalid_admission_eval_runner, :options}}
+             {:error, {:invalid_eval_runner, :options}}
 
     assert CoopRunner.run([eval], :invalid) ==
-             {:error, {:invalid_admission_eval_runner, :options}}
+             {:error, {:invalid_eval_runner, :options}}
 
-    assert %{reason: {:invalid_admission_eval_runner, :run_ref}, status: :failed} =
+    assert %{reason: {:invalid_eval_runner, :run_ref}, status: :failed} =
              CoopRunner.run_case(eval, Keyword.put(options(fake), :id_generator, fn -> 42 end))
   end
 
@@ -357,19 +377,18 @@ defmodule Ryker.Evals.CoopRunnerTest do
              run_with_faults(%{close_session: {:return, {:ok, %{}}}})
 
     eval = eval_case()
-    candidate = Jason.encode!(Map.put(eval.expectation, "reason", "Continue this exact work."))
-    {:ok, blank_turn} = FakeCoopAPI.start_link([candidate], turn_id_override: "")
+    {:ok, blank_turn} = FakeCoopAPI.start_link([judgment(eval, true)], turn_id_override: "")
 
     assert %{reason: {:coop_protocol_error, :turn_identity}, status: :failed} =
              CoopRunner.run_case(eval, options(blank_turn))
   end
 
   test "unexpected adapter exceptions and throws stay inside one failed eval case" do
-    assert %{reason: {:admission_eval_runner_exception, "adapter exploded"}, status: :failed} =
+    assert %{reason: {:world_judge_runner_exception, "adapter exploded"}, status: :failed} =
              run_with_faults(%{create_session: {:raise, "adapter exploded"}})
 
     assert %{
-             reason: {:admission_eval_runner_caught, :throw, ":adapter_threw"},
+             reason: {:world_judge_runner_caught, :throw, ":adapter_threw"},
              status: :failed
            } = run_with_faults(%{create_session: {:throw, :adapter_threw}})
   end
@@ -378,16 +397,15 @@ defmodule Ryker.Evals.CoopRunnerTest do
     eval = eval_case()
 
     assert CoopRunner.run([eval], %{}) ==
-             {:error, {:invalid_admission_eval_runner, :options}}
+             {:error, {:invalid_eval_runner, :options}}
 
     assert CoopRunner.run(:invalid, %{}) ==
-             {:error, {:invalid_admission_eval_runner, :cases}}
+             {:error, {:invalid_eval_runner, :cases}}
   end
 
   test "a live eval refuses a repository-writable Coop policy before submitting a turn" do
     eval = eval_case()
-    candidate = Jason.encode!(Map.put(eval.expectation, "reason", "Must not be submitted."))
-    {:ok, fake} = FakeCoopAPI.start_link([candidate], repository_read_only: false)
+    {:ok, fake} = FakeCoopAPI.start_link([judgment(eval, true)], repository_read_only: false)
 
     assert %{reason: {:coop_protocol_error, :session_repository_write_authority}, status: :failed} =
              CoopRunner.run_case(eval, options(fake))
@@ -397,10 +415,9 @@ defmodule Ryker.Evals.CoopRunnerTest do
 
   test "a live eval refuses Coop policies with ambient project authority before submitting" do
     eval = eval_case()
-    candidate = Jason.encode!(Map.put(eval.expectation, "reason", "Must not be submitted."))
 
     for option <- [:project_env, :project_mcp] do
-      {:ok, fake} = FakeCoopAPI.start_link([candidate], [{option, true}])
+      {:ok, fake} = FakeCoopAPI.start_link([judgment(eval, true)], [{option, true}])
 
       assert %{reason: {:coop_protocol_error, :session_project_authority}, status: :failed} =
                CoopRunner.run_case(eval, options(fake))
@@ -410,9 +427,27 @@ defmodule Ryker.Evals.CoopRunnerTest do
   end
 
   defp eval_case do
-    {:ok, cases} = AdmissionCase.all()
+    {:ok, scenario} = WorldCase.fetch("va1-health-review-repairs-and-finishes")
 
-    Enum.find(cases, &(&1.eval_id == "human_thread_reply_continues_existing_episode"))
+    {:ok, judge} =
+      WorldJudgeCase.new(scenario, %{
+        deliveries: [%{document: %{"message" => "Healthy."}, kind: :message, target: %{}}],
+        records: [],
+        source_calls: []
+      })
+
+    judge
+  end
+
+  # One verdict per rubric criterion, so the judgment stays valid however the
+  # scenario's rubric is edited.
+  defp judgment(eval, passed?) do
+    criteria =
+      Enum.map(Enum.with_index(eval.rubric), fn {_criterion, index} ->
+        %{"index" => index, "passed" => passed?, "reason" => "Scored against the evidence."}
+      end)
+
+    Jason.encode!(%{"criteria" => criteria, "overall_pass" => passed?})
   end
 
   defp options(fake) do
@@ -421,7 +456,7 @@ defmodule Ryker.Evals.CoopRunnerTest do
       client: fake,
       id_generator: fn -> "run-eval-test" end,
       max_polls: 10,
-      policy: "admission-test",
+      policy: "world-judge-test",
       policy_digest: @digest,
       poll_interval_ms: 0,
       sleep: fn 0 -> :ok end
@@ -430,8 +465,7 @@ defmodule Ryker.Evals.CoopRunnerTest do
 
   defp run_with_faults(faults, max_polls \\ 10) do
     eval = eval_case()
-    candidate = Jason.encode!(Map.put(eval.expectation, "reason", "Continue this exact work."))
-    {:ok, fake} = FakeCoopAPI.start_link([candidate])
+    {:ok, fake} = FakeCoopAPI.start_link([judgment(eval, true)])
 
     eval
     |> CoopRunner.run_case(

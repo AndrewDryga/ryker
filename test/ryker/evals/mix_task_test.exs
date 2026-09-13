@@ -5,26 +5,16 @@ defmodule Ryker.Evals.MixTaskTest do
 
   alias Ecto.Adapters.Postgres, as: Storage
   alias Mix.Tasks.Ryker.Eval
-  alias Ryker.Evals.{AdmissionCase, WorkCase, WorldCase, WorldReport, WorldSuite}
+  alias Ryker.Evals.{WorldCase, WorldReport, WorldSuite}
   alias Ryker.Repo
 
-  test "offline pack commands emit every sanitized case without a model" do
-    assert_pack("admission-pack", AdmissionCase)
-    assert_pack("work-pack", WorkCase)
+  test "the offline pack command emits every scenario without a model" do
     assert_pack("world-pack", WorldCase)
   end
 
-  test "live commands fail closed on unknown arguments and unconfigured authority" do
+  test "the live command fails closed on unknown arguments and unconfigured authority" do
     # Nothing reaches a model before the local arguments and the dedicated
     # evaluation authority have both been resolved.
-    assert_raise Mix.Error, ~r/admission eval failed: :invalid_arguments/, fn ->
-      Eval.run(["admission", "--config", "/tmp/ryker.yaml"])
-    end
-
-    assert_raise Mix.Error, ~r/work eval failed: :invalid_arguments/, fn ->
-      Eval.run(["work", "extra"])
-    end
-
     assert_raise Mix.Error, ~r/world eval failed: :invalid_arguments/, fn ->
       Eval.run(["world", "--unknown", "value"])
     end
@@ -33,8 +23,8 @@ defmodule Ryker.Evals.MixTaskTest do
       Eval.run(["world", "--results", "relative.json"])
     end
 
-    assert_raise Mix.Error, ~r/admission eval failed: :model_eval_policies_not_configured/, fn ->
-      Eval.run(["admission"])
+    assert_raise Mix.Error, ~r/world eval failed: :model_eval_policies_not_configured/, fn ->
+      Eval.run(["world", "--results", "/absolute/world.json"])
     end
 
     assert_raise Mix.Error, ~r/usage: mix ryker.eval/, fn ->

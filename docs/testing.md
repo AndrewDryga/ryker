@@ -57,18 +57,16 @@ release scripts, not before every deploy.
 
 ## Model evaluation
 
-The evaluation runners are Mix tasks. Corpora can be compiled without credentials:
+The evaluation runner is a Mix task. The scenario corpus, with each scenario's exact tool catalog,
+can be compiled without credentials:
 
 ```bash
-MIX_ENV=test scripts/elixir-mix.sh ryker.eval admission-pack
-MIX_ENV=test scripts/elixir-mix.sh ryker.eval work-pack
 MIX_ENV=test scripts/elixir-mix.sh ryker.eval world-pack
 ```
 
-Admission and Work can be run through the isolated evaluation Coop daemon:
-
 Evaluation authority is supplied explicitly through the evaluation environment and is refused
-if it matches a reviewed production policy binding:
+if it matches a reviewed production policy binding; the no-tools policy is the one the tool-free
+quality judge runs under:
 
 ```bash
 export RYKER_EVAL_SOCKET=/absolute/evaluation-coop/control.sock
@@ -78,11 +76,6 @@ export RYKER_EVAL_WORLD_POLICY=ryker-eval-world-v1
 export RYKER_EVAL_WORLD_POLICY_DIGEST=SHA256
 export RYKER_EVAL_WORLD_BASELINE_POLICY=ryker-eval-world-baseline-v1
 export RYKER_EVAL_WORLD_BASELINE_POLICY_DIGEST=SHA256
-```
-
-```bash
-MIX_ENV=test scripts/elixir-mix.sh ryker.eval admission
-MIX_ENV=test scripts/elixir-mix.sh ryker.eval work
 ```
 
 The world evaluation exercises the real episode kernel, Work executor, lease-scoped state tools,
@@ -98,7 +91,7 @@ candidate and baseline matrix three times against the same deterministic worlds 
 configured aggregate, per-case, paired-regression, hard-invariant, execution, and cleanup limits.
 
 Both run through `scripts/elixir-world-eval.sh`, which splits the plan into shards that run at
-once. The full matrix is 186 observations at about 93 seconds each; one VM ran them one after
+once. The full matrix is 180 observations at about 93 seconds each; one VM ran them one after
 another and took 4.8 hours. Each shard is its own `mix ryker.eval world --shard I/N` VM on
 its own campaign database and its own worker-gateway and state-tools ports (the configured
 `RYKER_WORKER_PORT` and `RYKER_STATE_TOOLS_PORT` each advanced by two per shard, with the

@@ -16,9 +16,9 @@ defmodule Ryker.Evals.Policy do
 
   @type authority :: %{name: String.t(), digest: String.t()}
   @type selection :: %{
-          required(:subject) => authority(),
-          required(:judge) => authority() | nil,
-          optional(:baseline) => authority() | nil
+          baseline: authority() | nil,
+          judge: authority(),
+          subject: authority()
         }
 
   @variables %{
@@ -41,25 +41,22 @@ defmodule Ryker.Evals.Policy do
     end
   end
 
-  @spec for_kind(:admission | :work | :world) :: {:ok, selection()} | {:error, atom()}
-  def for_kind(kind) when kind in [:admission, :work, :world] do
-    with {:ok, no_tools} <- policy(:no_tools) do
-      case kind do
-        :world -> world_selection(no_tools)
-        _no_tools_lane -> {:ok, %{judge: nil, subject: no_tools}}
-      end
-    end
-  end
-
-  def for_kind(_kind), do: {:error, :invalid_model_eval_kind}
-
-  defp world_selection(no_tools) do
-    with {:ok, world} <- policy(:world),
+  @doc """
+  The world lane's authorities: the sandbox-only subject policy, the tool-free
+  no-tools policy its quality judge runs under, and the optional pinned
+  baseline for paired qualification.
+  """
+  @spec for_kind(:world) :: {:ok, selection()} | {:error, atom()}
+  def for_kind(:world) do
+    with {:ok, no_tools} <- policy(:no_tools),
+         {:ok, world} <- policy(:world),
          {:ok, baseline} <- optional_policy(:world_baseline),
          :ok <- distinct([no_tools, world, baseline]) do
       {:ok, %{baseline: baseline, judge: no_tools, subject: world}}
     end
   end
+
+  def for_kind(_kind), do: {:error, :invalid_model_eval_kind}
 
   defp policy(name) do
     case optional_policy(name) do

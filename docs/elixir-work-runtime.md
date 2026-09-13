@@ -465,29 +465,26 @@ reconciliation are described in
 
 ## Model behavior evaluation
 
-The checked-in Work corpus uses the production prompt, universal final-result schema, and semantic
-validator. Its offline suite proves that semantic rejection remains in the same Coop turn, that
-byte-identical correction attempts receive distinct attempt-bound validation keys, and that a
-host-valid but behaviorally wrong result fails instead of being silently accepted.
+The model-world scenarios use the production prompts, schemas, and semantic validators. The
+offline Coop-runner suite proves that an unreadable quality judgment is rejected for repair in the
+same Coop turn, that byte-identical repair attempts receive distinct attempt-bound validation
+keys, and that a well-formed failing judgment fails instead of being silently accepted.
 
 ```console
 scripts/elixir-test.sh test/ryker/evals
-MIX_ENV=test mix ryker.eval work-pack
-MIX_ENV=test mix ryker.eval work
 MIX_ENV=test mix ryker.eval world-pack
 make eval-world-smoke
 make eval-world
 ```
 
-`work-pack` compiles the sanitized narrow final-contract corpus without a model. Its live command runs each case through
-the dedicated `RYKER_EVAL_SOCKET` in an isolated Coop session under `RYKER_EVAL_NO_TOOLS_POLICY`,
-which must be read-only and expose no
-tools. It currently covers a useful direct answer, the Slack/GitHub/platform-adapter product
-boundary, and shadow-mode no-delivery. Accepted cases are closed, checked with Coop's exact discard
+`world-pack` compiles every versioned scenario and its exact tool catalog without a model. The
+tool-free quality judge runs each completed observation through the dedicated `RYKER_EVAL_SOCKET`
+in an isolated Coop session under `RYKER_EVAL_NO_TOOLS_POLICY`, which must be read-only and
+expose no tools. Judge sessions are closed, checked with Coop's exact discard
 plan, and discarded only when the workspace is clean. Unsafe cleanup fails the eval and retains the
 session for inspection.
 
-The separate world lane proves behavior with tools. `eval-world-smoke` runs eight high-value cases
+The world lane proves behavior with tools. `eval-world-smoke` runs the nine smoke-tagged scenarios
 once at a strict 100% floor. The release `eval-world` gate runs the full corpus three times for a
 dedicated candidate policy and a separately pinned baseline policy in the exact same deterministic
 world, enforcing aggregate, per-case, hard-invariant, `UNRUN`, and paired-regression limits. One
