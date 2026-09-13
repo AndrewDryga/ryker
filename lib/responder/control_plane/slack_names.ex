@@ -2,7 +2,6 @@ defmodule Responder.ControlPlane.SlackNames do
   @moduledoc "Workspace-scoped display cache. Never an authorization source or a dependency of rendering."
   use GenServer
   alias Responder.ControlPlane.InspectionRedactor
-  alias Responder.Slack.Client
   @table __MODULE__
   @ttl 900_000
   @interval 1600
@@ -145,22 +144,18 @@ defmodule Responder.ControlPlane.SlackNames do
     end
   end
 
+  # The caller supplies the workspace and the lookup. Reading them back out of the
+  # application environment here is what let this process decline with `:ignore`
+  # when it happened to start before that environment was published — and an
+  # `:ignore` is permanent, so the cache stayed dead and every name in the
+  # control plane rendered as its kind.
   defp settings(options) do
     case {Keyword.get(options, :workspace), Keyword.get(options, :fetch)} do
       {workspace, fetch} when is_binary(workspace) and is_function(fetch, 1) ->
         {:ok, workspace, fetch}
 
-      _ ->
-        configuration = Application.get_env(:responder, :slack) || %{}
-        configuration = if is_list(configuration), do: Map.new(configuration), else: configuration
-
-        case configuration do
-          %{identity: %{workspace_ref: workspace}, bot_client: %Client{} = client} ->
-            {:ok, workspace, &Client.directory_name(client, workspace, &1)}
-
-          _ ->
-            :disabled
-        end
+      _unconfigured ->
+        :disabled
     end
   end
 
