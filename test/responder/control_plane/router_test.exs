@@ -1947,6 +1947,10 @@ defmodule Responder.ControlPlane.RouterTest do
                continuity: %{drafts: 0, handover_failures: 0},
                rollups: %{key: "rollup_page", items: [], total: 0, page: 1, pages: 1},
                knowledge: %{key: "knowledge_page", items: [], total: 0, page: 1, pages: 1},
+               rules: %{key: "rule_page", items: [], total: 0, page: 1, pages: 1},
+               preferences: %{key: "preference_page", items: [], total: 0, page: 1, pages: 1},
+               guidance: %{key: "guidance_page", items: [], total: 0, page: 1, pages: 1},
+               memory: %{key: "memory_page", items: [], total: 0, page: 1, pages: 1},
                learning: %{
                  key: "learning_page",
                  items: [],

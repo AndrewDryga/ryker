@@ -165,7 +165,8 @@ defmodule Responder.ControlPlane.BehaviorLibrary do
     )
   end
 
-  defp sanitize(item) do
+  @doc false
+  def sanitize(item) do
     payload =
       Map.new(Map.take(item.payload, @payload_fields), fn {key, value} ->
         {key, sanitize_value(value)}

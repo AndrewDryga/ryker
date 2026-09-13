@@ -317,14 +317,15 @@ defmodule Responder.ControlPlane.BehaviorPage do
   defp scope(%{scope_kind: :repository, scope_ref: repository}), do: "Repository " <> repository
   defp scope(item), do: item.scope_ref
 
-  defp source_url(%{source_conversation_ref: "control-plane:lab:" <> id}) do
+  @doc false
+  def source_url(%{source_conversation_ref: "control-plane:lab:" <> id}) do
     case Ecto.UUID.cast(id) do
       {:ok, id} -> "/conversations/#{id}"
       :error -> nil
     end
   end
 
-  defp source_url(%{source_conversation_ref: "slack:" <> rest, source_message_ref: stamp}) do
+  def source_url(%{source_conversation_ref: "slack:" <> rest, source_message_ref: stamp}) do
     with [team, channel] <- String.split(rest, ":"),
          true <- Regex.match?(~r/\A[A-Z0-9]+\z/, team),
          true <- Regex.match?(~r/\A[A-Z0-9]+\z/, channel),
@@ -336,7 +337,7 @@ defmodule Responder.ControlPlane.BehaviorPage do
     end
   end
 
-  defp source_url(_), do: nil
+  def source_url(_), do: nil
 
   defp help_id(:standing_assignment), do: "rules-help"
   defp help_id(:preference), do: "preferences-help"

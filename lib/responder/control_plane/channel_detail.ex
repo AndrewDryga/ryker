@@ -21,7 +21,7 @@ defmodule Responder.ControlPlane.ChannelDetail do
   # Every repeating relation owns one namespaced page parameter, so paging one
   # section can never reset another. Anything else in the query string is
   # dropped before it reaches a query.
-  @page_keys ~w(episode_page schedule_page summary_page rollup_page knowledge_page learning_page)
+  @page_keys ~w(episode_page schedule_page summary_page rollup_page knowledge_page learning_page rule_page preference_page guidance_page memory_page)
 
   @doc "The query parameters the channel route accepts."
   @spec query_keys() :: [String.t()]
@@ -64,7 +64,11 @@ defmodule Responder.ControlPlane.ChannelDetail do
         summaries: ChannelContext.summaries(scope, params),
         rollups: ChannelContext.rollups(scope, params),
         knowledge: ChannelContext.knowledge(scope, params),
-        learning: ChannelContext.learning(scope, params)
+        learning: ChannelContext.learning(scope, params),
+        rules: ChannelContext.rules(scope, params),
+        preferences: ChannelContext.preferences(scope, params),
+        guidance: ChannelContext.guidance(scope, params),
+        memory: ChannelContext.memory(scope, params)
       }
 
       {:ok,
