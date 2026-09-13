@@ -1598,7 +1598,9 @@ defmodule Responder.ControlPlane.RouterTest do
     assert scope_at < metrics_at
 
     assert HTML.failures([]) =~ "Nothing needs attention"
-    assert HTML.workspaces([]) |> IO.iodata_to_binary() =~ "No durable workspaces"
+
+    assert HTML.workspaces([], %{budget: %{}, preview: [], workers: []}) |> IO.iodata_to_binary() =~
+             "No working copies right now"
 
     assert HTML.overview(%{counts: %{}, needs_attention: []}) |> IO.iodata_to_binary() =~
              "Nothing needs attention"

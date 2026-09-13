@@ -566,95 +566,154 @@ defmodule Responder.ControlPlane.HTML do
     ]
   end
 
+  # One comparison table of every channel Responder knows about. The name
+  # links to the channel's detail; the workspace, kind and raw Slack ids sit
+  # beneath it in small type, reachable without a tooltip.
   def channels(items, params \\ %{}) do
     rows =
       Enum.map(items, fn item ->
+        {membership, tone} = channel_membership(item.membership)
+
         [
-          "<tr><td><a href=\"/channels/",
-          segment(item.workspace_ref),
-          "/",
-          segment(item.channel_ref),
-          "\" title=\"",
-          escape(item.channel_ref),
-          "\">",
-          escape(SlackNames.name(item.workspace_ref, item.channel_ref)),
-          "</a><br><span class=\"muted\" title=\"",
-          escape(item.workspace_ref),
-          "\">",
-          escape(SlackNames.name(item.workspace_ref, item.workspace_ref)),
-          "</span></td><td>",
-          escape(channel_kind(item)),
-          "</td><td>",
-          escape(item.membership || "not recorded"),
-          "</td><td>",
-          escape(item.participation || "not configured"),
-          "</td><td>",
+          [
+            "<a href=\"/channels/",
+            segment(item.workspace_ref),
+            "/",
+            segment(item.channel_ref),
+            "\">",
+            escape(SlackNames.name(item.workspace_ref, item.channel_ref)),
+            "</a><span class=\"row-secondary\">",
+            channel_identity(item),
+            "</span>"
+          ],
+          dot_status(membership, tone),
+          if(item.participation,
+            do: escape(Components.label(item.participation)),
+            else: "Not configured"
+          ),
           if(item[:custom_instructions], do: "Global + channel", else: "Global only"),
-          "</td><td>",
-          escape(item.repository_ref || "none"),
-          "</td><td>",
+          escape(item.repository_ref || "None"),
           integer(item.episodes),
-          "</td><td>",
-          timestamp(item.last_at),
-          "</td></tr>"
+          if(item.last_at, do: readable_time(item.last_at), else: "No activity recorded")
         ]
       end)
 
     [
+      "<div class=\"channels-page\">",
       search_form("/channels", "Channel, workspace or repository", params),
-      table(
-        [
-          "Channel",
-          "Kind",
-          "Membership",
-          "Participation",
-          "Instructions",
-          "Repository",
-          "Episodes",
-          "Last activity"
-        ],
-        rows
-      )
+      cond do
+        rows != [] ->
+          [
+            result_count(length(rows), "channel", "channels"),
+            data_table(
+              [
+                "Channel",
+                "Membership",
+                "Participation",
+                "Instructions",
+                "Repository",
+                {"row-number", "Episodes"},
+                "Last activity"
+              ],
+              rows
+            )
+          ]
+
+        filtered?(params, []) ->
+          empty_state("No channels match these filters.")
+
+        true ->
+          empty_state(
+            "No channels yet. A channel appears here once it has configuration, membership, incident custody or recorded work."
+          )
+      end,
+      "</div>"
     ]
   end
 
+  defp channel_membership(:joined), do: {"Joined", "active"}
+  defp channel_membership(nil), do: {"Not recorded", "quiet"}
+  defp channel_membership(status), do: {Components.label(status), "quiet"}
+
+  # Workspace name, kind, and whichever raw ids the display names do not
+  # already spell out, so the exact identifiers stay on the page.
+  defp channel_identity(item) do
+    channel_name = SlackNames.name(item.workspace_ref, item.channel_ref)
+    workspace_name = SlackNames.name(item.workspace_ref, item.workspace_ref)
+
+    ids =
+      [
+        if(!String.contains?(workspace_name, item.workspace_ref), do: item.workspace_ref),
+        if(!String.contains?(channel_name, item.channel_ref), do: item.channel_ref)
+      ]
+      |> Enum.reject(&is_nil/1)
+
+    [escape(workspace_name), " · ", escape(channel_kind(item))] ++
+      if(ids == [], do: [], else: [" · <code>", escape(Enum.join(ids, "/")), "</code>"])
+  end
+
+  # One comparison table: each repository's counts and last-used revision on
+  # a row, with its access policy, frozen freshness receipt and worker
+  # connections as details on demand directly beneath.
   def repositories(items, params \\ %{}) do
     rows =
-      Enum.map(items, fn item ->
+      Enum.flat_map(items, fn item ->
         [
-          "<article class=\"repository-card\"><header class=\"repository-heading\"><h2>",
-          escape(item.ref),
-          "</h2><a href=\"/activity?repository=",
-          segment(item.ref),
-          "\">View requests →</a></header>",
-          "<div class=\"repository-summary\"><span><strong>",
-          integer(item.sessions),
-          "</strong> work sessions</span><span><strong>",
-          integer(item.channels),
-          "</strong> connected channels</span><span><strong>",
-          integer(item.schedules),
-          "</strong> schedules</span><span><strong>",
-          integer(item.publications),
-          "</strong> PR workflows</span></div>",
-          "<p class=\"repository-revision\">",
-          repository_revision(item.freshness),
-          "</p>",
-          "<details><summary>Code revision & access configuration</summary><p>Access: ",
-          escape(policy_summary(item.configured)),
-          " · <a href=\"/configuration\">Inspect configuration</a></p>",
-          freshness_detail(item.freshness),
-          "</details><details><summary>Worker connections</summary>",
-          worker_list(item.workers),
-          "<p><a href=\"/configuration\">Inspect worker configuration →</a></p></details></article>"
+          [
+            [
+              "<strong>",
+              escape(item.ref),
+              "</strong><span class=\"row-secondary\"><a href=\"/activity?repository=",
+              segment(item.ref),
+              "\">View requests →</a></span>"
+            ],
+            integer(item.sessions),
+            integer(item.channels),
+            integer(item.schedules),
+            integer(item.publications),
+            repository_revision(item.freshness)
+          ],
+          {:details,
+           [
+             "<details><summary>Access and code revision</summary><p>Access: ",
+             escape(policy_summary(item.configured)),
+             " · <a href=\"/configuration\">Inspect configuration</a></p>",
+             "<p>The revision is the saved execution snapshot, not a live Git check.</p>",
+             freshness_detail(item.freshness),
+             "</details><details><summary>Worker connections</summary>",
+             worker_list(item.workers),
+             "<p><a href=\"/configuration\">Inspect worker configuration →</a></p></details>"
+           ]}
         ]
       end)
 
     [
+      "<div class=\"repositories-page\">",
       search_form("/repositories", "Repository name", params),
-      if(rows == [],
-        do: "<p class=\"empty\">No configured or observed repositories.</p>",
-        else: rows
-      )
+      cond do
+        rows != [] ->
+          [
+            result_count(length(items), "repository", "repositories"),
+            data_table(
+              [
+                "Repository",
+                {"row-number", "Work sessions"},
+                {"row-number", "Channels"},
+                {"row-number", "Schedules"},
+                {"row-number", "PR workflows"},
+                "Code revision"
+              ],
+              rows
+            )
+          ]
+
+        filtered?(params, []) ->
+          empty_state("No repositories match these filters.")
+
+        true ->
+          empty_state("No configured or observed repositories.")
+      end,
+      "</div>"
     ]
   end
 
@@ -922,73 +981,81 @@ defmodule Responder.ControlPlane.HTML do
 
   defp failure_recovery_action(_row), do: []
 
-  def workspace_storage(%{budget: budget, preview: preview, workers: workers}) do
+  # Worker storage and the exact next cleanup targets, as the related
+  # operational sections beneath the working copies. Nothing here estimates a
+  # byte no worker measured: a missing report is unknown, not zero.
+  defp workspace_storage(%{budget: budget, preview: preview, workers: workers}) do
     worker_rows =
       Enum.map(workers, fn worker ->
         [
-          "<tr><td>",
-          escape(worker.id),
-          "</td><td>",
-          escape(measurement_label(worker)),
-          "</td><td>",
+          ["<code>", escape(worker.id), "</code>"],
+          measurement_label(worker),
           storage_bytes(worker.bytes["disposable_bytes"]),
-          "</td><td>",
           storage_bytes(worker.bytes["protected_bytes"]),
-          "</td><td>",
           storage_bytes(worker.bytes["unattributed_bytes"]),
-          "</td><td>",
           storage_bytes(worker.reclaimed_bytes),
-          "</td><td>",
-          escape(allocation_label(worker)),
-          "</td></tr>"
+          escape(allocation_label(worker))
         ]
       end)
 
     preview_rows =
       Enum.map(preview, fn item ->
         [
-          "<tr><td title=\"",
-          escape(item.target || "no remote session"),
-          "\">",
-          escape(item.ref),
-          "</td><td>",
+          [
+            "<code>",
+            escape(item.ref),
+            "</code><span class=\"row-secondary\">",
+            escape(item.repository || "Repository not recorded"),
+            " · ",
+            escape(item.target || "no remote session"),
+            "</span>"
+          ],
           escape(Atom.to_string(item.kind)),
-          "</td><td>",
           escape(item.reason),
-          "</td><td>",
-          escape(Integer.to_string(item.eligible_age_seconds)),
-          " s</td></tr>"
+          [escape(Integer.to_string(item.eligible_age_seconds)), " s"]
         ]
       end)
 
     [
-      "<section><h2>Workspace storage</h2>",
-      "<p>Workers measure their own filesystem. A worker that reported nothing is unknown, not empty, and a stale heartbeat means a stale measurement. Budget: ",
-      storage_bytes(budget.disposable_bytes_limit),
+      "<section class=\"workspace-storage\"><h2>Worker storage</h2><p>Budget: ",
+      storage_bytes(budget[:disposable_bytes_limit]),
       " of inactive disposable forks per worker, reclaimed within ",
-      escape(budget.reclaim_target_seconds || "an unset target"),
-      " seconds of eligibility.</p>",
-      table(
-        [
-          "Worker",
-          "Measurement",
-          "Disposable",
-          "Protected",
-          "Unattributed",
-          "Reclaimed",
-          "New forks"
-        ],
-        worker_rows
+      escape(budget[:reclaim_target_seconds] || "an unset target"),
+      " seconds of eligibility. Each worker measures its own filesystem; a stale heartbeat means a stale measurement.</p>",
+      if(worker_rows == [],
+        do: empty_state("No fleet worker has reported storage."),
+        else:
+          data_table(
+            [
+              "Worker",
+              "Measurement",
+              {"row-number", "Disposable"},
+              {"row-number", "Protected"},
+              {"row-number", "Unattributed"},
+              {"row-number", "Reclaimed"},
+              "New forks"
+            ],
+            worker_rows
+          )
       ),
-      "<h3>Next cleanup targets</h3><p>Read-only preview of the exact sessions cleanup will act on next, oldest eligible first. Nothing here is deleted by looking at it.</p>",
-      table(["Working copy", "Kind", "What cleanup will do", "Eligible for"], preview_rows),
+      "</section><section class=\"cleanup-preview\"><h2>Next cleanup targets</h2><p>Read-only preview of the exact sessions cleanup will act on next, oldest eligible first. Nothing here is deleted by looking at it.</p>",
+      if(preview_rows == [],
+        do: empty_state("Nothing is eligible for cleanup right now."),
+        else:
+          data_table(
+            ["Working copy", "Kind", "What cleanup will do", {"row-number", "Eligible for"}],
+            preview_rows
+          )
+      ),
       "</section>"
     ]
   end
 
   defp measurement_label(%{measurement: :unknown}), do: "no measurement reported"
   defp measurement_label(%{measurement: :stale}), do: "stale (worker heartbeat is stale)"
-  defp measurement_label(%{measured_at: measured_at}), do: "measured #{measured_at}"
+
+  defp measurement_label(%{measured_at: measured_at}),
+    do: ["measured ", readable_time(measured_at)]
 
   defp allocation_label(%{allocation: "refused", refusal_reason: reason}),
     do: "refused: #{reason || "reported refused"}"
@@ -1004,12 +1071,15 @@ defmodule Responder.ControlPlane.HTML do
 
   defp storage_bytes(value), do: escape(value)
 
-  def workspaces([]),
-    do: "<section><h2>Workspaces</h2><p class=\"empty\">No durable workspaces.</p></section>"
-
-  def workspaces(rows) do
+  # Working copies as one comparison table with their confirmed cleanup
+  # actions, then worker storage and the cleanup preview as the related
+  # operational sections. The GET button only opens the existing confirmation;
+  # its protected POST performs the discard or the resume.
+  def workspaces(rows, storage) do
     body =
       Enum.map(rows, fn row ->
+        {status, tone} = workspace_status(row.status)
+
         action =
           case row.action do
             :rearm ->
@@ -1031,46 +1101,66 @@ defmodule Responder.ControlPlane.HTML do
           end
 
         [
-          "<tr><td title=\"",
-          escape(row.ref),
-          "\"><strong>",
-          escape(Map.get(row, :repository) || "Repository not recorded"),
-          "</strong>",
-          if(row[:episode_ref],
-            do: [
-              "<br><a class=\"workspace-request-title\" href=\"/timeline/",
-              segment(row.episode_ref),
-              "\">",
-              workspace_request_label(row),
-              "</a>"
-            ],
-            else: []
-          ),
-          "</td><td>",
-          escape(workspace_status(row.status)),
-          "</td><td>",
-          "<span title=\"",
-          escape(row.summary),
-          "\">",
-          escape(workspace_reason(row)),
-          "</span>",
-          "</td><td>",
-          escape(Components.label(row.state)),
-          "</td><td>",
+          [
+            "<strong>",
+            escape(Map.get(row, :repository) || "Repository not recorded"),
+            "</strong><span class=\"row-secondary\">",
+            if(row[:episode_ref],
+              do: [
+                "<a class=\"workspace-request-title\" href=\"/timeline/",
+                segment(row.episode_ref),
+                "\">",
+                workspace_request_label(row),
+                "</a> · "
+              ],
+              else: []
+            ),
+            "<code>",
+            escape(row.ref),
+            "</code></span>"
+          ],
+          dot_status(status, tone),
+          [
+            "<span title=\"",
+            escape(row.summary),
+            "\">",
+            escape(workspace_reason(row)),
+            "</span>"
+          ],
+          escape(Components.label(to_string(row.state))),
           readable_time(row.updated_at),
-          "</td><td>",
-          action,
-          "</td></tr>"
+          action
         ]
       end)
 
     [
-      "<section><h2>Repository working copies</h2><p>These are the checkout directories used by tasks, not Slack workspaces. Responder keeps unfinished or unmerged work safe. Resume interrupted cleanup below; discarding unmerged commits always requires confirmation.</p>",
-      table(
-        ["Working copy", "Lifecycle", "What happens next", "Request", "Updated", "Action"],
-        body
+      "<div class=\"workspaces-page\">",
+      page_help("workspaces-help", "How working copies are kept and cleaned up", [
+        "<p>These are the repository checkouts tasks work in, not Slack workspaces. Responder keeps unfinished or unmerged work safe: a copy with uncommitted or unpublished changes is preserved until cleanup is safe, and discarding unmerged commits always requires confirmation.</p>",
+        "<p>Resume interrupted cleanup from the row. Workers measure their own filesystem for the storage figures below. A worker that reported nothing is unknown, not empty, and a stale heartbeat means a stale measurement.</p>"
+      ]),
+      if(body == [],
+        do:
+          empty_state(
+            "No working copies right now. A checkout appears here while a task uses it and until cleanup has safely removed it."
+          ),
+        else: [
+          result_count(length(body), "working copy", "working copies"),
+          data_table(
+            [
+              "Working copy",
+              "Lifecycle",
+              "What happens next",
+              "Request",
+              "Updated",
+              {"row-action", "Action"}
+            ],
+            body
+          )
+        ]
       ),
-      "</section>"
+      workspace_storage(storage),
+      "</div>"
     ]
   end
 
@@ -1215,7 +1305,7 @@ defmodule Responder.ControlPlane.HTML do
     code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.9em}.eyebrow{color:var(--accent);font-size:.72rem;font-weight:900;letter-spacing:.16em;margin:0 0 .4rem;text-transform:uppercase}.lab-hero{align-items:center;background:linear-gradient(125deg,#18222b,#101419 70%);border:1px solid #34414d;border-radius:18px;display:flex;gap:2rem;justify-content:space-between;padding:clamp(1.3rem,4vw,2.5rem)}.lab-hero h2{font-size:clamp(1.5rem,3vw,2.35rem);margin:.15rem 0}.lab-hero p{color:#b8c2cc;max-width:68ch}.lab-shell{background:#0d1116;border:1px solid var(--line);border-radius:18px;overflow:hidden}.lab-heading{align-items:flex-start;background:linear-gradient(120deg,#182029,#10151b);border-bottom:1px solid var(--line);display:flex;justify-content:space-between;padding:1.4rem}.lab-heading h2{margin:.1rem 0}.lab-heading p{margin:.2rem 0}.lab-safety-note{background:#142017;border-bottom:1px solid #334d36;color:#c7d6c5;margin:0;padding:.75rem 1.4rem}.lab-safety-note strong{color:var(--accent)}.status-cluster{align-items:flex-end;display:flex;flex-direction:column;gap:.55rem}.status{border:1px solid var(--line);border-radius:999px;font-size:.72rem;font-weight:900;letter-spacing:.08em;padding:.3rem .65rem;text-transform:uppercase}.status.live{border-color:#587425;color:var(--accent)}.status.waiting{border-color:#6f5b2d;color:var(--warning)}.status.blocked{border-color:#7f3a39;color:var(--danger)}.quiet-link{color:var(--muted);font-size:.82rem}.lab-stream{display:grid;grid-template-columns:minmax(0,1fr) 260px;min-height:280px}.messages{display:flex;flex-direction:column;gap:1rem;padding:1.4rem}.message{border:1px solid var(--line);border-radius:14px;max-width:86%;padding:.9rem 1rem}.message.operator{align-self:flex-end;background:#243420;border-color:#3f5d35}.message.integration{align-self:flex-start;background:#171b20;border-color:#5c6570;border-style:dashed;color:#d5dbe1}.message.responder{align-self:flex-start;background:var(--panel-raised);border-color:#344553}.message-head{align-items:center;color:var(--muted);display:flex;font-size:.72rem;gap:.65rem;justify-content:space-between;margin-bottom:.45rem;text-transform:uppercase}.message-body{overflow-wrap:anywhere;white-space:pre-wrap}.message-refs{display:flex;flex-wrap:wrap;gap:.35rem;margin:.65rem 0 0}.message-refs code{background:#0c1014;border-radius:5px;color:var(--cyan);padding:.15rem .35rem}.custody-strip{background:#0a0e12;border-left:1px solid var(--line);padding:1.25rem}.custody-strip strong{color:var(--cyan);font-size:.76rem;letter-spacing:.1em;text-transform:uppercase}.custody-strip ul{list-style:none;margin:1rem 0;padding:0}.custody-strip li{border-top:1px solid var(--line);padding:.7rem 0}.custody-strip li span{color:var(--muted);display:block;font-size:.78rem}.composer{border-top:1px solid var(--line);padding:1.25rem}.composer label{display:block;font-size:.8rem;font-weight:800;margin-bottom:.45rem;text-transform:uppercase}.composer textarea,.composer input[type=file]{background:#090d11;border:1px solid #3a4652;border-radius:10px;color:var(--text);font:inherit;padding:.85rem;width:100%}.composer textarea{resize:vertical}.composer textarea:focus,.composer input[type=file]:focus{border-color:var(--accent);outline:2px solid #c6ff4730}.composer .attachment-label{margin-top:.8rem}.composer-actions{align-items:center;color:var(--muted);display:flex;font-size:.78rem;gap:1rem;justify-content:space-between;margin-top:.8rem}
     .message-reactions{display:flex;gap:.35rem;margin-top:.55rem}.reaction-chip{background:#1c2831;border:1px solid #3b5364;border-radius:999px;color:#d8f6ff;font-family:var(--mono);font-size:.75rem;padding:.2rem .5rem}.message-attachments{display:grid;gap:.55rem;margin-top:.7rem}.attachment-chip{background:#101920;border:1px solid #3b5364;border-radius:8px;color:#d8f6ff;display:flex;flex-wrap:wrap;font-size:.78rem;gap:.45rem;padding:.45rem .6rem}.attachment-chip span{color:var(--muted)}.attachment-download{color:inherit;display:grid;gap:.45rem;text-decoration:none}.attachment-download img{background:#080a0d;border:1px solid var(--line);border-radius:8px;display:block;max-height:280px;max-width:100%;object-fit:contain}.lab-message-controls{align-items:flex-start;border-top:1px solid #3f5d35;display:flex;gap:.55rem;justify-content:flex-end;margin-top:.8rem;padding-top:.65rem}.lab-message-controls details{flex:1}.lab-message-controls summary{cursor:pointer;font-size:.75rem;font-weight:800}.lab-message-controls label{display:grid;font-size:.72rem;gap:.35rem;margin-top:.55rem}.lab-message-controls textarea{background:#090d11;border:1px solid #3a4652;border-radius:8px;color:var(--text);font:inherit;padding:.6rem;resize:vertical;width:100%}.danger-button{border:1px solid #7f3a39;color:#ffb3ad}.message-cards{display:grid;gap:.7rem;margin-top:.85rem}.lab-card{background:#0e1419;border:1px solid #344553;border-left:3px solid var(--cyan);border-radius:10px;padding:.85rem}.lab-card-head{color:var(--cyan);display:flex;font-size:.68rem;font-weight:900;gap:1rem;justify-content:space-between;letter-spacing:.1em;text-transform:uppercase}.lab-card h3{font-size:1rem;margin:.45rem 0}.lab-card p{color:#cbd3da;margin:.35rem 0;white-space:pre-wrap}.lab-card dl{font-size:.78rem;grid-template-columns:max-content minmax(0,1fr);margin:.65rem 0}.choice-list{display:flex;flex-wrap:wrap;gap:.4rem;margin-top:.65rem}.choice-chip{background:#1c2831;border:1px solid #3b5364;border-radius:999px;color:#d8f6ff;font-size:.78rem;padding:.25rem .55rem}
     .lab-reaction-controls{border-top:1px solid #344553;margin-top:.8rem;padding-top:.65rem}.reaction-label{color:var(--muted);display:block;font-size:.7rem;font-weight:800;letter-spacing:.07em;margin-bottom:.45rem;text-transform:uppercase}.quick-reactions,.feedback-reactions{align-items:center;display:flex;flex-wrap:wrap;gap:.35rem}.feedback-reactions{margin-bottom:.45rem}.reaction-form{display:inline}.reaction-form button{background:#1c2831;border:1px solid #3b5364;color:#d8f6ff;font-size:.75rem;padding:.3rem .5rem}.feedback-reaction{align-items:center;background:#142017;border:1px solid #3f5d35;border-radius:999px;display:inline-flex;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.75rem;gap:.25rem;padding-left:.5rem}.feedback-reaction button{border:0;border-left:1px solid #3f5d35;border-radius:0 999px 999px 0;padding:.2rem .4rem}.lab-reaction-controls details{margin-top:.45rem}.lab-reaction-controls summary{cursor:pointer;font-size:.72rem}.lab-reaction-controls label{display:flex;font-size:.72rem;gap:.4rem;margin-top:.4rem}.lab-reaction-controls input[name=emoji]{background:#090d11;border:1px solid #3a4652;border-radius:7px;color:var(--text);font:inherit;padding:.35rem}.danger-button{background:#261312}.lab-card-actions{display:flex;flex-wrap:wrap;gap:.5rem;margin-top:.75rem}.lab-card-actions form{margin:0}.lab-card-actions button,.lab-card-actions .button{font-size:.82rem;padding:.5rem .7rem}.work-view{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:1.2rem}.work-view pre{background:#090d11;border:1px solid var(--line);border-radius:10px;color:#dbe7ef;overflow:auto;padding:1rem;white-space:pre-wrap}.work-view-actions{align-items:center;display:flex;flex-wrap:wrap;gap:.7rem;margin-top:1rem}
-    .workbench-intro{background:linear-gradient(125deg,#18222b,#101419 70%);border:1px solid #34414d;border-radius:16px;padding:1.4rem}.workbench-intro h2{margin:.15rem 0}.workbench-intro p:last-child{color:#b8c2cc;max-width:78ch}.search-form{align-items:end;display:grid;gap:.7rem;grid-template-columns:auto minmax(220px,1fr) auto;margin:1.2rem 0}.search-form label{color:var(--muted);font-size:.78rem;font-weight:800;text-transform:uppercase}.search-form input{background:#090d11;border:1px solid #3a4652;border-radius:8px;color:var(--text);font:inherit;padding:.65rem}.repository-card{background:var(--panel);border:1px solid var(--line);border-radius:14px;margin:1rem 0;padding:1.2rem}.repository-card h2{margin:0}.repository-card h3{color:var(--cyan);font-size:.82rem;letter-spacing:.07em;margin-top:1.5rem;text-transform:uppercase}.record-body{background:#090d11;border:1px solid var(--line);border-radius:10px;color:#dbe7ef;overflow:auto;padding:1rem;white-space:pre-wrap}
+    .record-body{background:#090d11;border:1px solid var(--line);border-radius:10px;color:#dbe7ef;overflow:auto;padding:1rem;white-space:pre-wrap}
     .episode-hero{align-items:end;background:linear-gradient(118deg,#172128 0,#0e1217 62%,#17200f 100%);border:1px solid #33404b;border-radius:20px;display:flex;gap:2rem;justify-content:space-between;overflow:hidden;padding:clamp(1.3rem,4vw,2.4rem);position:relative}.episode-hero:after{background:linear-gradient(90deg,transparent,var(--accent));bottom:0;content:"";height:2px;left:0;position:absolute;width:100%}.episode-hero h2{font-size:clamp(1.45rem,3vw,2.3rem);margin:.15rem 0}.episode-ref{color:var(--muted);margin:.7rem 0 0;overflow-wrap:anywhere}.episode-state{border-left:2px solid var(--line);display:grid;min-width:190px;padding:.2rem 0 .2rem 1rem}.episode-state span,.episode-state small{color:var(--muted);font-size:.7rem;font-weight:800;letter-spacing:.08em;text-transform:uppercase}.episode-state strong{font-size:1.25rem;margin:.15rem 0}.episode-state.tone-good{border-color:var(--accent)}.episode-state.tone-warn{border-color:var(--warning)}.episode-state.tone-bad{border-color:var(--danger)}
     .episode-actions{align-items:center;background:#11171c;border:1px solid var(--line);border-radius:14px;display:flex;gap:1rem;justify-content:space-between;margin:1rem 0;padding:.85rem 1rem}.episode-action-copy{display:grid;gap:.1rem}.episode-action-copy strong{font-size:.92rem}.episode-action-copy small{color:var(--muted)}.episode-action-buttons{display:flex;flex-wrap:wrap;gap:.5rem;justify-content:flex-end}.button.secondary{background:#202a32}.button.danger{background:#5c2927}.episode-metrics{display:grid;gap:.65rem;grid-template-columns:repeat(auto-fit,minmax(125px,1fr));margin:1rem 0}.episode-metric{background:#0e1318;border:1px solid var(--line);border-radius:11px;display:grid;min-height:112px;padding:.85rem}.episode-metric>span{color:var(--muted);font-size:.66rem;font-weight:900;letter-spacing:.12em;text-transform:uppercase}.episode-metric strong{align-self:end;font-size:1.3rem;line-height:1.15;margin:.65rem 0 .25rem;overflow-wrap:anywhere}.episode-metric small{color:#89949f}.episode-metric.tone-good{border-top-color:#6c8e2e}.episode-metric.tone-warn{border-top-color:#8d6c25}.episode-metric.tone-bad{border-top-color:#994743}.episode-context{background:#0c1014;border:1px solid var(--line);border-radius:12px;margin:1rem 0;padding:.15rem 1rem}.episode-context dl{font-size:.78rem;grid-template-columns:max-content minmax(0,1fr)}
     .episode-stop{background:linear-gradient(120deg,#2a1717,#151114);border:1px solid #713c3b;border-radius:16px;display:grid;gap:1.1rem;grid-template-columns:46px minmax(0,1fr);margin:1rem 0;padding:1.15rem}.stop-signal{align-items:center;background:var(--danger);border-radius:50%;color:#1b0909;display:flex;font-size:1.35rem;font-weight:950;height:42px;justify-content:center;width:42px}.episode-stop h2{font-size:1.25rem;margin:.1rem 0}.episode-stop p{color:#dbbfbd;margin:.35rem 0}.stop-attempted{border-top:1px solid #563130;margin-top:.8rem;padding-top:.7rem}.stop-attempted>span,.stop-action>span{color:#bf9693;display:block;font-size:.67rem;font-weight:900;letter-spacing:.1em;text-transform:uppercase}.stop-attempted ul{display:flex;flex-wrap:wrap;gap:.4rem;list-style:none;margin:.45rem 0 0;padding:0}.stop-attempted li{background:#321d1e;border:1px solid #603333;border-radius:999px;color:#f0cdca;font-size:.76rem;padding:.18rem .55rem}.stop-action{align-items:center;display:grid;gap:.15rem;grid-template-columns:minmax(0,1fr) auto;margin-top:.85rem}.stop-action span,.stop-action strong{grid-column:1}.stop-action .button{grid-column:2;grid-row:1/3}
@@ -1676,39 +1766,43 @@ defmodule Responder.ControlPlane.HTML do
 
   # A comparison table whose every cell names its column, so a narrow screen
   # can stack a row into label/value pairs without hiding the row's identity
-  # (its first cell) or its action. A row is a list of cells; a cell is iodata
-  # or {class, iodata}. {:details, iodata} is a full-width row of details on
-  # demand belonging to the row above it.
-  defp data_table(headings, rows) do
-    span = Integer.to_string(length(headings))
+  # (its first column) or its action. A column is a heading, or {class,
+  # heading} when its header and cells share an alignment ("row-number",
+  # "row-action"). A row is a list of cells (iodata); {:details, iodata} is a
+  # full-width row of details on demand belonging to the row above it.
+  defp data_table(columns, rows) do
+    columns = Enum.map(columns, &data_column/1)
+    span = Integer.to_string(length(columns))
 
     [
       "<table class=\"data-table\"><thead><tr>",
-      Enum.map(headings, &["<th scope=\"col\">", escape(&1), "</th>"]),
+      Enum.map(columns, fn {class, heading} ->
+        ["<th scope=\"col\"", class_attribute([class]), ">", escape(heading), "</th>"]
+      end),
       "</tr></thead><tbody>",
-      Enum.map(rows, &data_row(&1, headings, span)),
+      Enum.map(rows, &data_row(&1, columns, span)),
       "</tbody></table>"
     ]
   end
 
-  defp data_row({:details, body}, _headings, span),
+  defp data_column({class, heading}) when is_binary(class), do: {class, heading}
+  defp data_column(heading), do: {nil, heading}
+
+  defp data_row({:details, body}, _columns, span),
     do: ["<tr class=\"row-details\"><td colspan=\"", span, "\">", body, "</td></tr>"]
 
-  defp data_row(cells, headings, _span) do
+  defp data_row(cells, columns, _span) do
     cells =
       cells
-      |> Enum.zip(headings)
+      |> Enum.zip(columns)
       |> Enum.with_index()
-      |> Enum.map(fn {{cell, heading}, index} ->
-        {class, body} = data_cell(cell)
-        classes = Enum.reject([if(index == 0, do: "row-identity"), class], &is_nil/1)
-
+      |> Enum.map(fn {{body, {class, heading}}, index} ->
         # The value wrapper is what a stacked row places beside the label.
         [
           "<td data-label=\"",
           escape(heading),
           "\"",
-          if(classes == [], do: [], else: [" class=\"", Enum.join(classes, " "), "\""]),
+          class_attribute([if(index == 0, do: "row-identity"), class]),
           "><div class=\"cell-value\">",
           body,
           "</div></td>"
@@ -1718,8 +1812,12 @@ defmodule Responder.ControlPlane.HTML do
     ["<tr>", cells, "</tr>"]
   end
 
-  defp data_cell({class, body}) when is_binary(class), do: {class, body}
-  defp data_cell(body), do: {nil, body}
+  defp class_attribute(classes) do
+    case Enum.reject(classes, &is_nil/1) do
+      [] -> []
+      classes -> [" class=\"", Enum.join(classes, " "), "\""]
+    end
+  end
 
   defp recovery_label("delivery"), do: "Retry delivery"
   defp recovery_label("admission"), do: "Retry routing"
@@ -1753,12 +1851,12 @@ defmodule Responder.ControlPlane.HTML do
   defp channel_label(workspace_ref, channel_ref),
     do: SlackNames.name(workspace_ref, channel_ref)
 
-  defp workspace_status(:active), do: "In use"
-  defp workspace_status(:grace), do: "Kept for follow-up"
-  defp workspace_status(:retained), do: "Changes preserved"
-  defp workspace_status(:discarded), do: "Removed safely"
-  defp workspace_status(:blocked), do: "Cleanup needs attention"
-  defp workspace_status(_), do: "Cleanup in progress"
+  defp workspace_status(:active), do: {"In use", "active"}
+  defp workspace_status(:grace), do: {"Kept for follow-up", "quiet"}
+  defp workspace_status(:retained), do: {"Changes preserved", "quiet"}
+  defp workspace_status(:discarded), do: {"Removed safely", "done"}
+  defp workspace_status(:blocked), do: {"Cleanup needs attention", "attention"}
+  defp workspace_status(_), do: {"Cleanup in progress", "active"}
 
   defp workspace_reason(%{status: :discarded}),
     do: "Working copy removed; request history remains available."
@@ -1777,17 +1875,19 @@ defmodule Responder.ControlPlane.HTML do
   defp workspace_reason(%{status: :blocked, summary: value}), do: failure_cause(value)
   defp workspace_reason(_), do: "Automatic cleanup is pending."
 
-  defp repository_revision(nil), do: "No code revision recorded yet."
+  defp repository_revision(nil), do: "No revision recorded yet"
 
+  # The short commit with the full one a hover or the details away; the
+  # snapshot caveat lives in the details beneath the row.
   defp repository_revision(freshness),
     do: [
-      "Last used commit <code title=\"",
+      "<code title=\"",
       escape(freshness.resolved_revision),
       "\">",
       escape(String.slice(freshness.resolved_revision || "unknown", 0, 8)),
-      "</code> · fetched ",
+      "</code><span class=\"row-secondary\">fetched ",
       readable_time(freshness.fetched_at),
-      ". This is the saved execution snapshot, not a live Git check."
+      "</span>"
     ]
 
   defp channel_kind(%{incident_room: true}), do: "incident room"
@@ -1876,25 +1976,22 @@ defmodule Responder.ControlPlane.HTML do
 
   defp worker_list([]),
     do:
-      "<p class=\"empty\">No fleet worker is reporting this repository here. A configured local development worker is not listed in the fleet.</p>"
+      empty_state(
+        "No fleet worker is reporting this repository here. A configured local development worker is not listed in the fleet."
+      )
 
   defp worker_list(workers) do
     rows =
       Enum.map(workers, fn worker ->
         [
-          "<tr><td><code>",
-          escape(worker.worker_ref),
-          "</code></td><td>",
-          escape(worker.state),
-          "</td><td><code>",
-          escape(worker.revision || "unrecorded"),
-          "</code></td><td>",
-          timestamp(worker.last_seen_at),
-          "</td></tr>"
+          ["<code>", escape(worker.worker_ref), "</code>"],
+          escape(Components.label(worker.state)),
+          ["<code>", escape(worker.revision || "unrecorded"), "</code>"],
+          if(worker.last_seen_at, do: readable_time(worker.last_seen_at), else: "Never")
         ]
       end)
 
-    table(["Worker", "State", "Advertised revision", "Last seen"], rows)
+    data_table(["Worker", "State", "Advertised revision", "Last seen"], rows)
   end
 
   defp definition_list(rows) do
