@@ -588,6 +588,61 @@ defmodule Responder.ObservabilityTest do
     assert claimed in [session.id, learning.id]
   end
 
+  # Production went silent for every Slack message on 2026-09-13: Coop refused
+  # every workspace because the volume crossed its watermark, while the worker
+  # still advertised free session slots — so readiness said "ready" and nothing
+  # alerted. A fleet that cannot allocate a workspace cannot start any work.
+  test "a fleet whose every worker refuses storage is not ready" do
+    previous_work = Application.get_env(:responder, :work, :missing)
+    previous_profiles = Application.get_env(:responder, :fleet_profiles, :missing)
+
+    assert {:ok, client} =
+             Client.new(capability_names: ["responder-state"], workspace_ref: "workspace-refused")
+
+    Application.put_env(:responder, :work, %{api: Client, client: client})
+
+    Application.put_env(:responder, :fleet_profiles, %{
+      {"read_only", nil} => %{
+        authority_digest: String.duplicate("d", 64),
+        policy: "work-read-only",
+        policy_digest: String.duplicate("b", 64),
+        repository_ref: nil
+      }
+    })
+
+    on_exit(fn ->
+      restore_env(:work, previous_work)
+      restore_env(:fleet_profiles, previous_profiles)
+    end)
+
+    assert {:ok, _worker} =
+             ControlPlane.authorize_worker(
+               "worker-refused",
+               "workspace-refused",
+               String.duplicate("e", 64)
+             )
+
+    assert {:ok, _poll} =
+             ControlPlane.handle_poll(
+               "worker-refused",
+               storage_poll("worker-refused", "workspace-refused", 0, "refused")
+             )
+
+    assert {:ok, snapshot} = Observability.snapshot(86_400)
+    storage = snapshot.fleet.storage
+    assert storage.reporting == 1
+    assert storage.refused == 1
+
+    assert {:error, readiness} =
+             Observability.ready(
+               check_progress: false,
+               check_runtimes: false,
+               stall_after_seconds: 86_400
+             )
+
+    assert :no_workspace_storage in readiness.fleet_issues
+  end
+
   test "workspace storage is reported per measurement state and unknown is never zero" do
     # Reporting a missing measurement as zero would have said the fleet had no
     # disposable bytes at the exact moment nobody could see how many it had.
@@ -685,9 +740,9 @@ defmodule Responder.ObservabilityTest do
     assert metrics =~ "responder_retention_oldest_eligible_age_seconds 0"
   end
 
-  defp storage_poll(worker_id, workspace_ref, disposable_bytes) do
+  defp storage_poll(worker_id, workspace_ref, disposable_bytes, allocation \\ "open") do
     storage = %{
-      "allocation" => "open",
+      "allocation" => allocation,
       "capacity_bytes" => 536_870_912_000,
       "disposable_bytes" => disposable_bytes,
       "free_bytes" => 107_374_182_400,
@@ -695,7 +750,7 @@ defmodule Responder.ObservabilityTest do
       "low_watermark_bytes" => 48_318_382_080,
       "measured_at" => DateTime.utc_now() |> DateTime.to_iso8601(),
       "protected_bytes" => 21_474_836_480,
-      "refusal_reason" => nil,
+      "refusal_reason" => if(allocation == "refused", do: "reserve_exhausted"),
       "reserve_bytes" => 5_368_709_120,
       "unattributed_bytes" => 1_073_741_824,
       "version" => 1
