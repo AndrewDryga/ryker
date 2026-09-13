@@ -253,7 +253,7 @@ defmodule Ryker.ControlPlane.LabPage do
       <div class="chat-message-extras">{Phoenix.HTML.raw(HTML.lab_message_extras(@message))}</div>
       {Phoenix.HTML.raw(HTML.lab_message_actions(@message))}
       <p :if={@failure} class="lab-message-failure" role="status">
-        <span>{@failure.label}</span> <.link navigate={@failure.retry}>Retry</.link>
+        <span>{@failure.label}</span> <a href={@failure.retry}>Retry</a>
         <.link navigate={@failure.inspect}>Inspect cause</.link>
       </p>
       <p :for={row <- @rows} id={"lab-progress-#{row.id}"} class="lab-message-progress" role="status">
@@ -397,7 +397,9 @@ defmodule Ryker.ControlPlane.LabPage do
   defp message_state(%{status: status}), do: label(status)
 
   # Model work that stopped is a material failure of this message: it reads
-  # beside the message with the same retry /failures offers, not nowhere.
+  # beside the message with the same retry /failures offers, not nowhere. The
+  # retry opens the HTTP confirmation page, so it is a plain link, not a live
+  # navigation that would fail the socket join first.
   defp message_failure(%{actor: :operator, execution: %{state: "blocked", key: key}}) do
     path = "/actions/work/#{URI.encode_www_form(key)}/retry"
     %{label: "Model work stopped", retry: path, inspect: "/failures"}

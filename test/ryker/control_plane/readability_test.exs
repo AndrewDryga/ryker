@@ -165,6 +165,24 @@ defmodule Ryker.ControlPlane.ReadabilityTest do
     end
   end
 
+  test "icon-only controls keep a 44px hit area around their small glyph" do
+    # brand/ryker: at least 44x44px for icon buttons even if the glyph is
+    # small. The activity row's "Inspect" chevron was a 20x36px link beside
+    # a 14px icon, the one icon-only control on the workspace under that
+    # size; the close and overflow controls already met it.
+    css = Assets.call(Plug.Test.conn(:get, "/workspace.css"), []).resp_body
+
+    for selector <- [
+          ".row-open",
+          ".ryker-app .behavior-menu > summary",
+          ".lab-directory.is-open .lab-directory-close"
+        ] do
+      [_, rule] = Regex.run(Regex.compile!(Regex.escape(selector) <> " \\{([^}]+)\\}"), css)
+      assert rule =~ ~r/(min-)?width:44px/, "#{selector} is narrower than 44px"
+      assert rule =~ ~r/(min-)?height:44px/, "#{selector} is shorter than 44px"
+    end
+  end
+
   defp contrast(a, b) do
     [low, high] = Enum.sort([luminance(a), luminance(b)])
     (high + 0.05) / (low + 0.05)
