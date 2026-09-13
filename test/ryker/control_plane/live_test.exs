@@ -939,6 +939,14 @@ defmodule Ryker.ControlPlane.LiveTest do
     assert has_element?(view, "#lab-messages .lab-message-failure a[href='#{retry}']", "Retry")
     assert length(find_all(view, ".lab-message-failure")) == 1
 
+    # The confirmation is an HTTP page, not a live route: a live redirect to it
+    # fails the socket join and only then falls back to a page request, with a
+    # console error for every click. It is an ordinary link.
+    refute has_element?(
+             view,
+             "#lab-messages .lab-message-failure a[href='#{retry}'][data-phx-link]"
+           )
+
     # Once the turn is working again the failure line is gone and the message
     # says it is working, once.
     Repo.get!(Ryker.Work.Turn, turn.id)

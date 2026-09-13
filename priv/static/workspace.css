@@ -399,7 +399,7 @@ details.measurement-notes > summary { cursor:pointer; font-weight:600; color:var
   .subscription-details dl > div { grid-template-columns:minmax(0,1fr); gap:2px; }
 }
 .row-elapsed { font-size:14px; color:#6c7064; }
-.row-open { color:#696e62; padding:6px 0 6px 6px; }
+.row-open { display:inline-flex; align-items:center; justify-content:center; min-width:44px; min-height:44px; margin:-8px -12px -8px -4px; padding:0; color:#696e62; }
 .row-open .ui-icon { width:14px; height:14px; }
 .new-activity { display:flex; align-items:center; justify-content:center; gap:10px; width:100%; border-radius:0; padding:10px; color:#566e3d; background:#eff5e3; font-size:14px; font-weight:500; }
 .new-activity .ui-icon { height:13px; }
