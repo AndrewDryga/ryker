@@ -349,7 +349,6 @@ defmodule Ryker.Work.Executor.Remote do
         %{
           kind: kind,
           lease_seconds: settings.lease_seconds,
-          maximum_block_ms: settings.max_block_ms,
           operation_key: key,
           operation_revision: revision
         },

@@ -755,7 +755,6 @@ defmodule Ryker.Work.CustodyTest do
     base = %{
       kind: :create_session,
       lease_seconds: 60,
-      maximum_block_ms: 1_000,
       operation_key: "operation:mutation-fence-contract",
       operation_revision: nil
     }
@@ -803,7 +802,6 @@ defmodule Ryker.Work.CustodyTest do
     create = %{
       kind: :create_session,
       lease_seconds: 60,
-      maximum_block_ms: 1_000,
       operation_key: "operation:create:mutation-fence-identity",
       operation_revision: nil
     }
@@ -856,7 +854,6 @@ defmodule Ryker.Work.CustodyTest do
     create = %{
       kind: :create_session,
       lease_seconds: 60,
-      maximum_block_ms: 1_000,
       operation_key: "operation:create:release-create-fence",
       operation_revision: nil
     }
