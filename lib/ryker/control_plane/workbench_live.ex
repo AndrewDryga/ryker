@@ -11,6 +11,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
     ChannelDetail,
     ChannelPage,
     Components,
+    ConversationProjection,
     Endpoint,
     EpisodePage,
     HTML,
@@ -18,7 +19,6 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
     LabPage,
     Navigation,
     Pages,
-    Projection,
     RequestFilters,
     RequestPage,
     SettingsPage,
@@ -696,7 +696,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
 
   defp lab_history_of(snapshot) do
     Map.get(snapshot, :history) ||
-      %{before: nil, exhausted: true, page_size: Projection.lab_page_size()}
+      %{before: nil, exhausted: true, page_size: ConversationProjection.page_size()}
   end
 
   # The latest page must reach back to a row the window already holds before

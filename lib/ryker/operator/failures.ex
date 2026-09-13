@@ -6,7 +6,7 @@ defmodule Ryker.Operator.Failures do
   non-publishable is a product decision, not failed infrastructure custody.
   """
 
-  alias Ryker.ControlPlane.Projection
+  alias Ryker.ControlPlane.FailureProjection
   alias Ryker.Delivery.Operator, as: DeliveryOperator
   alias Ryker.Emisar.Operator, as: EmisarOperator
   alias Ryker.Ingress.Inbox
@@ -21,7 +21,7 @@ defmodule Ryker.Operator.Failures do
   @kinds ~w(admission delivery emisar retention slack_incident slack_interaction work)
   @spec list(map()) :: {:ok, [map()]} | {:error, term()}
   def list(params \\ %{})
-  def list(params) when is_map(params), do: Projection.failures(params)
+  def list(params) when is_map(params), do: FailureProjection.list(params)
   def list(_params), do: {:error, {:invalid_operator_failure, :params}}
 
   @spec retry(String.t(), String.t(), keyword()) :: {:ok, term()} | {:error, term()}
@@ -59,7 +59,7 @@ defmodule Ryker.Operator.Failures do
   end
 
   defp fetch_failure(kind, ref) do
-    case Projection.failure(kind, ref) do
+    case FailureProjection.fetch(kind, ref) do
       {:ok, failure} -> {:ok, failure}
       :not_found -> {:error, :operator_failure_not_found}
       {:error, _reason} = error -> error

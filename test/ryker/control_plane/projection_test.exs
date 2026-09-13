@@ -5,12 +5,17 @@ defmodule Ryker.ControlPlane.ProjectionTest do
   require Phoenix.LiveViewTest
 
   alias Ryker.CanonicalJSON
-  alias Ryker.ControlPlane.Activity
-  alias Ryker.ControlPlane.EpisodePage
-  alias Ryker.ControlPlane.HTML
-  alias Ryker.ControlPlane.Projection
-  alias Ryker.ControlPlane.RequestFilters
-  alias Ryker.ControlPlane.UsageProjection
+
+  alias Ryker.ControlPlane.{
+    Activity,
+    EpisodePage,
+    FailureProjection,
+    HTML,
+    Projection,
+    RequestFilters,
+    UsageProjection
+  }
+
   alias Ryker.CoopFleet.{Event, Placement, Worker}
   alias Ryker.Delivery.{PlatformAction, PlatformActionCustody}
   alias Ryker.Episodes
@@ -2590,7 +2595,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
     assert summary == "publication_coop_protocol_error"
     refute detail =~ "private session transport detail"
 
-    assert {:ok, exact} = Projection.failure("publication", fixture.publication.ref)
+    assert {:ok, exact} = FailureProjection.fetch("publication", fixture.publication.ref)
     assert exact.kind == "publication"
     assert exact.attempt_count >= 1
   end
@@ -2657,7 +2662,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
       ]
     )
 
-    assert {:ok, failure} = Projection.failure("retention", session.external_ref)
+    assert {:ok, failure} = FailureProjection.fetch("retention", session.external_ref)
 
     assert failure.diagnosis == %{
              http_status: 409,

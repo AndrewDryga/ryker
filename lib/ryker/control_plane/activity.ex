@@ -60,6 +60,31 @@ defmodule Ryker.ControlPlane.Activity do
     |> Map.new(fn row -> {row.ref, present(row, secrets)} end)
   end
 
+  @doc """
+  Names each row's episode the way the Activity page names it.
+
+  A row with an `episode_ref` gains `request_title` and `request_conversation`
+  when that episode is still on file; rows without one are returned as they are.
+  """
+  @spec with_request_titles([map()]) :: [map()]
+  def with_request_titles(rows) do
+    titles =
+      rows
+      |> Enum.map(&Map.get(&1, :episode_ref))
+      |> Enum.reject(&is_nil/1)
+      |> request_titles()
+
+    Enum.map(rows, fn row ->
+      case Map.get(titles, row[:episode_ref]) do
+        nil ->
+          row
+
+        title ->
+          Map.merge(row, %{request_title: title.title, request_conversation: title.conversation})
+      end
+    end)
+  end
+
   def list(params) do
     mode = if params["mode"] in ~w(shadow all), do: params["mode"], else: "live"
     page = page(params["page"])

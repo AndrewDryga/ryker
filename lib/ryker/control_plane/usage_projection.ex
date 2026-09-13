@@ -31,6 +31,21 @@ defmodule Ryker.ControlPlane.UsageProjection do
   def window(value) when value in ~w(24h 7d 30d all), do: value
   def window(_), do: "7d"
 
+  @doc "The Usage page: every breakdown for the requested window and execution mode."
+  @spec page(term()) :: map()
+  def page(params) when is_map(params) do
+    window = window(params["window"])
+    mode = if params["mode"] in ~w(live shadow), do: params["mode"], else: "all"
+
+    window
+    |> since()
+    |> Ryker.Accounting.Query.executions(mode)
+    |> snapshot()
+    |> Map.merge(%{mode: mode, window: window})
+  end
+
+  def page(_params), do: page(%{})
+
   def filter_activity(query, params) do
     if filtered?(params) do
       mode = if params["mode"] in ~w(shadow all), do: params["mode"], else: "live"
@@ -128,7 +143,7 @@ defmodule Ryker.ControlPlane.UsageProjection do
     )
   end
 
-  def dimensions(query) do
+  defp dimensions(query) do
     from(e in query,
       left_join: turn in Turn,
       on: e.kind == "work" and turn.id == e.source_id,

@@ -5,7 +5,7 @@ defmodule Ryker.Work.ExecutorTest do
 
   alias Ryker.Artifacts
   alias Ryker.Artifacts.Outputs
-  alias Ryker.ControlPlane.Projection
+  alias Ryker.ControlPlane.{FailureProjection, Projection}
   alias Ryker.CoopFleet.SessionEvidence
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
@@ -862,7 +862,7 @@ defmodule Ryker.Work.ExecutorTest do
     assert :not_found = Projection.work(claim.episode.key)
 
     assert {:ok, _} =
-             Projection.failure("delivery", delivery.turn.delivery_ref)
+             FailureProjection.fetch("delivery", delivery.turn.delivery_ref)
   end
 
   test "custody refuses a recovery confirmation after the stopped turn changes" do
