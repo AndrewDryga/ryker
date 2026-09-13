@@ -2116,8 +2116,12 @@ defmodule Responder.Slack.Renderer do
            "status" => status
          } = record
        )
-       when map_size(record) == 4 and status in ["open", "answered", "dismissed", "superseded"] do
+       when map_size(record) in [4, 5] and
+              status in ["open", "answered", "dismissed", "superseded"] do
+    presentation = Map.get(record, "presentation", %{})
+
     with :ok <- reference(ref),
+         :ok <- remembered_presentation(presentation),
          {:ok, %{payload: prepared}} <- RecordPayload.prepare("input_request", payload, ref) do
       if status == "open" do
         {:ok, input_request_blocks(ref, prepared)}
@@ -2126,7 +2130,7 @@ defmodule Responder.Slack.Renderer do
          [
            %{"type" => "section", "text" => plain_text(prepared["question"])},
            context(question_status(status))
-         ]}
+         ] ++ remembered_blocks(presentation["memory"])}
       end
     else
       _invalid -> {:error, {:invalid_slack_render, :record}}
@@ -2967,4 +2971,36 @@ defmodule Responder.Slack.Renderer do
       do: text,
       else: graphemes |> Enum.take(maximum - 1) |> Enum.join() |> Kernel.<>("…")
   end
+
+  # The host knows whether the answer was saved; before this the model wrote
+  # "Remembered X" in prose, which a reader cannot check and which the
+  # instructions had to keep policing. This is a receipt, never a control.
+  defp remembered_presentation(presentation) when map_size(presentation) == 0, do: :ok
+
+  defp remembered_presentation(%{"memory" => memory} = presentation)
+       when map_size(presentation) == 1 and map_size(memory) == 3 do
+    case memory do
+      %{"applicability" => applicability, "subject" => subject, "value" => value}
+      when is_binary(applicability) and is_binary(subject) and is_binary(value) ->
+        :ok
+
+      _other ->
+        {:error, :invalid_remembered_presentation}
+    end
+  end
+
+  defp remembered_presentation(_presentation), do: {:error, :invalid_remembered_presentation}
+
+  defp remembered_blocks(nil), do: []
+
+  defp remembered_blocks(%{
+         "applicability" => applicability,
+         "subject" => subject,
+         "value" => value
+       }),
+       do: [
+         section(
+           "✓ Remembered *#{mrkdwn(subject)}* as `#{mrkdwn(value)}` for #{mrkdwn(applicability)}."
+         )
+       ]
 end

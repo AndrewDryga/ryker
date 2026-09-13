@@ -25,6 +25,12 @@ defmodule Responder.Work.PromptTest do
     # the candidates, so nothing can check the answer against anything.
     assert instructions =~ "enumerate the real candidates, and only then ask"
 
+    # The judge rejected a delivery that read a permission_denied from
+    # gcp.projects.list as "no projects" and asked only for a project name —
+    # which the next turn would refuse identically, for the same reason.
+    assert instructions =~ "A tool that refuses is not a tool that answered"
+    assert instructions =~ "ask for the access as well as the identifier"
+
     assert instructions =~
              "state what it found and what it could not reach, then ask one concrete"
 
