@@ -13,7 +13,6 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
   import Ecto.Query
   import Phoenix.ConnTest, only: [build_conn: 0, get: 2]
   import Phoenix.LiveViewTest
-  import Plug.Test
 
   alias Ryker.Accounting.Execution
 
@@ -21,9 +20,10 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
     Actions,
     Activity,
     Endpoint,
+    HTML,
     LearningActivity,
+    Pages,
     Projection,
-    Router,
     UsageProjection
   }
 
@@ -1844,28 +1844,29 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
     |> Repo.insert!()
   end
 
+  # The channel page as the live shell prepares it, wrapped in the static
+  # shell so the title is a real heading the assertions can query.
   defp page(path) do
-    conn = request(path)
-    assert conn.status == 200, "#{path} answered #{conn.status}"
-    conn.resp_body
+    page = request(path)
+    assert page.status == 200, "#{path} answered #{page.status}"
+    HTML.page(page.title, page.description, page.body)
   end
 
   defp page_status(path), do: request(path).status
 
   defp request(path) do
-    options =
-      Router.init(%{
+    %{path: path, query: query} = URI.parse(path)
+
+    Pages.page(
+      String.split(path, "/", trim: true),
+      Plug.Conn.Query.decode(query || ""),
+      %{
         actions: %{},
         csrf_secret: String.duplicate("s", 32),
         observability: %{},
         projection: Projection.callbacks()
-      })
-
-    :get
-    |> conn(path)
-    |> Map.put(:host, "localhost")
-    |> Map.put(:remote_ip, {127, 0, 0, 1})
-    |> Router.call(options)
+      }
+    )
   end
 
   defp fact_labels(html) do

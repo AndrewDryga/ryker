@@ -1,7 +1,7 @@
 defmodule Ryker.ControlPlane.FindingsPageTest do
   use Ryker.DataCase, async: false
   import Phoenix.LiveViewTest
-  alias Ryker.ControlPlane.{FindingsPage, HTML, Projection, Router}
+  alias Ryker.ControlPlane.{FindingsPage, HTML, Pages, Projection}
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: Fixtures
   alias Ryker.Repo
@@ -157,7 +157,7 @@ defmodule Ryker.ControlPlane.FindingsPageTest do
 
   test "the findings route carries the shell's title and description" do
     page =
-      Router.snapshot("/findings", "", %{
+      Pages.page(["findings"], %{}, %{
         projection: %{findings: fn _params -> %{items: [], total: 0, page: 1, pages: 1} end}
       })
 

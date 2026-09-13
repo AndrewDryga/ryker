@@ -1,24 +1,20 @@
 defmodule Ryker.ControlPlane.Router do
-  alias Ryker.ControlPlane.SlackNames
   @moduledoc false
 
   import Plug.Conn
 
-  alias Phoenix.HTML.Safe
   alias Plug.Conn.Query
   alias Ryker.CanonicalJSON
 
   alias Ryker.ControlPlane.{
     BehaviorLibrary,
     BehaviorPage,
-    ChannelDetail,
-    ChannelPage,
     CSRF,
     HTML,
     LearningActivity,
+    PathRef,
     Projection,
-    RelearnPanel,
-    SettingsPage
+    RelearnPanel
   }
 
   alias Ryker.Learning.Operator, as: LearningOperator
@@ -62,55 +58,11 @@ defmodule Ryker.ControlPlane.Router do
     end
   end
 
-  @doc false
-  def snapshot(path, query, options) do
-    segments = String.split(path, "/", trim: true)
-
-    if snapshot_path?(segments) do
-      route(
-        %Plug.Conn{
-          method: "GET",
-          path_info: segments,
-          request_path: path,
-          query_string: query,
-          host: "localhost",
-          remote_ip: {127, 0, 0, 1},
-          private: %{control_plane_snapshot: true}
-        },
-        options
-      )
-    else
-      %{
-        status: 404,
-        title: "Not found",
-        description: nil,
-        body: "<p>This view does not exist.</p>"
-      }
-    end
-  end
-
-  defp snapshot_path?([]), do: true
-
-  defp snapshot_path?([page]),
-    do:
-      page in ~w(conversations incident-rooms schedules subscriptions channels repositories failures workspaces findings memory rules preferences guidance usage configuration)
-
-  defp snapshot_path?([page, _ref]),
-    do: page in ~w(conversations incident-rooms schedules)
-
-  defp snapshot_path?([page, _, _]), do: page in ~w(channels failures)
-  defp snapshot_path?(_path), do: false
-
   defp release_version do
     case Application.spec(:ryker, :vsn) do
       nil -> "unknown"
       version -> to_string(version)
     end
-  end
-
-  defp route(%Plug.Conn{method: "GET", path_info: []} = conn, options) do
-    snapshot = options.projection.overview.()
-    html(conn, 200, "Overview", HTML.overview(snapshot))
   end
 
   defp route(%Plug.Conn{method: "GET", path_info: ["healthz"]} = conn, options) do
@@ -140,24 +92,6 @@ defmodule Ryker.ControlPlane.Router do
     end
   end
 
-  defp route(%Plug.Conn{method: "GET", path_info: ["conversations"]} = conn, options) do
-    html(conn, 200, "Conversations", HTML.lab_index(options.projection.lab_index.()))
-  end
-
-  # A new conversation is an identity, not a record: the live index binds its
-  # composer to a fresh identity and nothing is written until the first
-  # message, so opening it twice cannot leave two empty chats behind. There is
-  # no /conversations/new redirect; "new" is not a conversation and 404s.
-  defp route(
-         %Plug.Conn{method: "GET", path_info: ["conversations", conversation_id]} = conn,
-         options
-       ) do
-    case lab_id(conversation_id) do
-      {:ok, conversation_id} -> render_lab(conn, options, conversation_id)
-      {:error, :path_ref} -> html(conn, 404, "Not found", HTML.generic("Conversation", []))
-    end
-  end
-
   defp route(
          %Plug.Conn{
            method: "GET",
@@ -172,9 +106,9 @@ defmodule Ryker.ControlPlane.Router do
          } = conn,
          options
        ) do
-    with {:ok, conversation_id} <- lab_id(conversation_id),
-         {:ok, turn_id} <- lab_id(turn_id),
-         {:ok, artifact_ref} <- path_ref(artifact_ref),
+    with {:ok, conversation_id} <- PathRef.uuid(conversation_id),
+         {:ok, turn_id} <- PathRef.uuid(turn_id),
+         {:ok, artifact_ref} <- PathRef.decode(artifact_ref),
          {:ok, artifact} <-
            options.projection.lab_artifact.(conversation_id, turn_id, artifact_ref) do
       artifact(conn, artifact)
@@ -188,7 +122,7 @@ defmodule Ryker.ControlPlane.Router do
            conn,
          options
        ) do
-    with {:ok, conversation_id} <- lab_id(conversation_id),
+    with {:ok, conversation_id} <- PathRef.uuid(conversation_id),
          {:ok, token, message, attachments, conn} <- lab_form(conn),
          true <- CSRF.valid?(options.csrf_secret, @lab_action, conversation_id, token),
          {:ok, _receipt} <-
@@ -210,8 +144,8 @@ defmodule Ryker.ControlPlane.Router do
          } = conn,
          options
        ) do
-    with {:ok, conversation_id} <- lab_id(conversation_id),
-         {:ok, item_id} <- lab_id(item_id),
+    with {:ok, conversation_id} <- PathRef.uuid(conversation_id),
+         {:ok, item_id} <- PathRef.uuid(item_id),
          {:ok, token, message, conn} <- lab_message_edit_form(conn),
          resource <- lab_message_resource(conversation_id, item_id, :edit),
          true <- CSRF.valid?(options.csrf_secret, @lab_message_action, resource, token),
@@ -234,8 +168,8 @@ defmodule Ryker.ControlPlane.Router do
          } = conn,
          options
        ) do
-    with {:ok, conversation_id} <- lab_id(conversation_id),
-         {:ok, item_id} <- lab_id(item_id),
+    with {:ok, conversation_id} <- PathRef.uuid(conversation_id),
+         {:ok, item_id} <- PathRef.uuid(item_id),
          {:ok, token, conn} <- form_token(conn),
          resource <- lab_message_resource(conversation_id, item_id, :delete),
          true <- CSRF.valid?(options.csrf_secret, @lab_message_action, resource, token),
@@ -257,8 +191,8 @@ defmodule Ryker.ControlPlane.Router do
          } = conn,
          options
        ) do
-    with {:ok, conversation_id} <- lab_id(conversation_id),
-         {:ok, message_ref} <- path_ref(message_ref),
+    with {:ok, conversation_id} <- PathRef.uuid(conversation_id),
+         {:ok, message_ref} <- PathRef.decode(message_ref),
          {:ok, token, action, emoji_name, conn} <- lab_reaction_form(conn),
          resource <- lab_reaction_resource(conversation_id, message_ref),
          true <- CSRF.valid?(options.csrf_secret, @lab_reaction_action, resource, token),
@@ -289,8 +223,8 @@ defmodule Ryker.ControlPlane.Router do
        ) do
     conn = fetch_query_params(conn)
 
-    with {:ok, conversation_id} <- lab_id(conversation_id),
-         {:ok, record_ref} <- path_ref(record_ref),
+    with {:ok, conversation_id} <- PathRef.uuid(conversation_id),
+         {:ok, record_ref} <- PathRef.decode(record_ref),
          {:ok, view} <- lab_record_view(view_name),
          {:ok, params} <- lab_record_view_params(view, conn.query_params),
          {:ok, snapshot} <-
@@ -324,8 +258,8 @@ defmodule Ryker.ControlPlane.Router do
          } = conn,
          options
        ) do
-    with {:ok, conversation_id} <- lab_id(conversation_id),
-         {:ok, record_ref} <- path_ref(record_ref),
+    with {:ok, conversation_id} <- PathRef.uuid(conversation_id),
+         {:ok, record_ref} <- PathRef.decode(record_ref),
          {:ok, action} <- lab_record_action(action_name),
          {:ok, token, action_context, conn} <- lab_record_form(conn, action),
          resource <- lab_record_resource(conversation_id, record_ref, action, action_context),
@@ -348,149 +282,6 @@ defmodule Ryker.ControlPlane.Router do
       {:error, :form} -> text(conn, 400, "Invalid form")
       {:error, _reason} -> text(conn, 409, "Record action is no longer available")
     end
-  end
-
-  defp route(%Plug.Conn{method: "GET", path_info: ["incident-rooms"]} = conn, options) do
-    conn = fetch_query_params(conn)
-    snapshot = options.projection.incidents.(Map.take(conn.query_params, ["q", "status"]))
-
-    html(
-      conn,
-      200,
-      "Incident rooms",
-      "Track Slack incident rooms from setup through closure, with channel status and linked investigation work.",
-      HTML.incidents(snapshot, conn.query_params)
-    )
-  end
-
-  defp route(
-         %Plug.Conn{method: "GET", path_info: ["incident-rooms", incident_ref]} = conn,
-         options
-       ) do
-    case path_ref(incident_ref) do
-      {:ok, incident_ref} -> render_incident(conn, options, incident_ref)
-      {:error, :path_ref} -> html(conn, 404, "Not found", HTML.generic("Incident room", []))
-    end
-  end
-
-  defp route(%Plug.Conn{method: "GET", path_info: ["schedules"]} = conn, options) do
-    conn = fetch_query_params(conn)
-    snapshot = options.projection.schedules.(Map.take(conn.query_params, ["q", "status"]))
-
-    html(
-      conn,
-      200,
-      "Schedules",
-      "Recurring and one-shot work Ryker has agreed to run, with each dispatched or missed occurrence.",
-      HTML.schedules(snapshot, conn.query_params)
-    )
-  end
-
-  defp route(%Plug.Conn{method: "GET", path_info: ["schedules", schedule_ref]} = conn, options) do
-    case path_ref(schedule_ref) do
-      {:ok, schedule_ref} -> render_schedule(conn, options, schedule_ref)
-      {:error, :path_ref} -> html(conn, 404, "Not found", HTML.generic("Schedule", []))
-    end
-  end
-
-  defp route(%Plug.Conn{method: "GET", path_info: ["subscriptions"]} = conn, options) do
-    conn = fetch_query_params(conn)
-
-    snapshot =
-      options.projection.subscriptions.(Map.take(conn.query_params, ["q", "status"]))
-
-    html(
-      conn,
-      200,
-      "Waits",
-      "What the agent is waiting for, when it will check again, and what resumed the work.",
-      HTML.subscriptions(snapshot, conn.query_params)
-    )
-  end
-
-  defp route(%Plug.Conn{method: "GET", path_info: ["channels"]} = conn, options) do
-    conn = fetch_query_params(conn)
-    snapshot = options.projection.channels.(Map.take(conn.query_params, ["q"]))
-
-    html(
-      conn,
-      200,
-      "Channels",
-      "Slack channels Ryker knows about: configuration, membership, repository and recorded work.",
-      HTML.channels(snapshot, conn.query_params)
-    )
-  end
-
-  defp route(
-         %Plug.Conn{method: "GET", path_info: ["channels", workspace_ref, channel_ref]} = conn,
-         options
-       ) do
-    with {:ok, workspace_ref} <- path_ref(workspace_ref),
-         {:ok, channel_ref} <- path_ref(channel_ref) do
-      conn = fetch_query_params(conn)
-      params = Map.take(conn.query_params, ChannelDetail.query_keys())
-
-      case options.projection.channel.(workspace_ref, channel_ref, params) do
-        {:ok, snapshot} ->
-          html(
-            conn,
-            200,
-            SlackNames.name(workspace_ref, channel_ref),
-            ChannelPage.description(snapshot),
-            [
-              Safe.to_iodata(ChannelPage.lead(%{__changed__: nil, view: snapshot})),
-              Safe.to_iodata(ChannelPage.render(%{__changed__: nil, view: snapshot}))
-            ]
-          )
-
-        :not_found ->
-          html(conn, 404, "Not found", HTML.generic("Channel", []))
-
-        {:error, _reason} ->
-          html(conn, 503, "Unavailable", HTML.generic("Channel", []))
-      end
-    else
-      {:error, :path_ref} -> html(conn, 404, "Not found", HTML.generic("Channel", []))
-    end
-  end
-
-  defp route(%Plug.Conn{method: "GET", path_info: ["repositories"]} = conn, options) do
-    conn = fetch_query_params(conn)
-    snapshot = options.projection.repositories.(Map.take(conn.query_params, ["q"]))
-
-    html(
-      conn,
-      200,
-      "Repositories",
-      "Connected repositories, the work they receive, and the code revision last used.",
-      HTML.repositories(snapshot, conn.query_params)
-    )
-  end
-
-  defp route(%Plug.Conn{method: "GET", path_info: ["memory"]} = conn, options) do
-    html(
-      conn,
-      200,
-      "Memory",
-      "What Ryker learned from conversations, with the messages and work it came from.",
-      HTML.memory(
-        options.projection.memory.(fetch_query_params(conn).query_params),
-        options.csrf_secret
-      )
-    )
-  end
-
-  defp route(%Plug.Conn{method: "GET", path_info: [page]} = conn, options)
-       when page in ~w(rules preferences guidance) do
-    conn = fetch_query_params(conn)
-    kind = BehaviorLibrary.kind(page)
-    snapshot = options.projection.behaviors.(kind, conn.query_params)
-
-    body =
-      BehaviorPage.render(%{__changed__: nil, view: snapshot})
-      |> Safe.to_iodata()
-
-    html(conn, 200, BehaviorPage.title(kind), BehaviorPage.description(kind), body)
   end
 
   defp route(
@@ -592,76 +383,6 @@ defmodule Ryker.ControlPlane.Router do
     end
   end
 
-  defp route(%Plug.Conn{method: "GET", path_info: ["configuration"]} = conn, options) do
-    html(
-      conn,
-      200,
-      "Settings",
-      SettingsPage.description(),
-      HTML.configuration(options.projection.operator_configuration.())
-    )
-  end
-
-  defp route(%Plug.Conn{method: "GET", path_info: ["usage"]} = conn, options) do
-    conn = fetch_query_params(conn)
-    snapshot = options.projection.usage.(Map.take(conn.query_params, ["window", "mode", "page"]))
-    html(conn, 200, "Usage & cost", HTML.usage(snapshot))
-  end
-
-  defp route(%Plug.Conn{method: "GET", path_info: ["failures"]} = conn, options) do
-    conn = fetch_query_params(conn)
-
-    case options.projection.failures.(conn.query_params) do
-      {:ok, rows} -> html(conn, 200, "Failures", HTML.failures(rows))
-      {:error, _reason} -> text(conn, 503, "Failures unavailable")
-    end
-  end
-
-  defp route(
-         %Plug.Conn{method: "GET", path_info: ["failures", kind, resource_ref]} = conn,
-         options
-       ) do
-    with true <- kind in failure_kinds(),
-         {:ok, resource_ref} <- path_ref(resource_ref),
-         {:ok, failures} <- options.projection.failures.(%{}),
-         %{} = row <-
-           Enum.find(failures, fn row ->
-             row.kind == kind and row.ref == resource_ref
-           end) do
-      html(conn, 200, "Recovery", HTML.failure(row))
-    else
-      {:error, _reason} -> text(conn, 503, "Failure context unavailable")
-      _not_found -> html(conn, 404, "Not found", HTML.generic("Failure", []))
-    end
-  end
-
-  defp route(%Plug.Conn{method: "GET", path_info: ["workspaces"]} = conn, options) do
-    conn = fetch_query_params(conn)
-
-    html(
-      conn,
-      200,
-      "Workspaces",
-      "Repository checkouts used by tasks, not Slack workspaces: what each one holds, what cleanup will do next, and the storage workers report.",
-      HTML.workspaces(
-        options.projection.workspaces.(conn.query_params),
-        options.projection.workspace_storage.()
-      )
-    )
-  end
-
-  defp route(%Plug.Conn{method: "GET", path_info: ["findings"]} = conn, options) do
-    conn = fetch_query_params(conn)
-
-    html(
-      conn,
-      200,
-      "Findings",
-      "Saved investigation conclusions with the evidence behind them: what needs explaining, what explains it, or why it is expected.",
-      HTML.findings(options.projection.findings.(conn.query_params))
-    )
-  end
-
   defp route(%Plug.Conn{method: "GET", path_info: ["static", "app.css"]} = conn, _options) do
     conn
     |> put_resp_content_type("text/css")
@@ -683,7 +404,7 @@ defmodule Ryker.ControlPlane.Router do
          } = conn,
          options
        ) do
-    with {:ok, resource_ref} <- path_ref(resource_ref),
+    with {:ok, resource_ref} <- PathRef.decode(resource_ref),
          {:ok, review} <- editable_memory_review(resource_ref, options) do
       token = CSRF.token(options.csrf_secret, "memory-review:edit", resource_ref)
 
@@ -698,7 +419,7 @@ defmodule Ryker.ControlPlane.Router do
         )
       )
     else
-      {:error, _reason} -> html(conn, 404, "Not found", HTML.generic("Action", []))
+      {:error, _reason} -> html(conn, 404, "Not found", HTML.not_found("Action"))
     end
   end
 
@@ -709,7 +430,7 @@ defmodule Ryker.ControlPlane.Router do
          } = conn,
          options
        ) do
-    with {:ok, resource_ref} <- path_ref(resource_ref),
+    with {:ok, resource_ref} <- PathRef.decode(resource_ref),
          {:ok, _review} <- editable_memory_review(resource_ref, options),
          {:ok, token, subject, value, conn} <- memory_review_form(conn),
          true <-
@@ -735,7 +456,7 @@ defmodule Ryker.ControlPlane.Router do
          %Plug.Conn{method: "GET", path_info: ["actions", kind, resource_ref, action]} = conn,
          options
        ) do
-    with {:ok, resource_ref} <- path_ref(resource_ref),
+    with {:ok, resource_ref} <- PathRef.decode(resource_ref),
          {:ok, title, explanation, canonical_action} <-
            confirmation(kind, resource_ref, action, options) do
       path = action_path(kind, resource_ref, action)
@@ -754,7 +475,7 @@ defmodule Ryker.ControlPlane.Router do
         )
       )
     else
-      {:error, _reason} -> html(conn, 404, "Not found", HTML.generic("Action", []))
+      {:error, _reason} -> html(conn, 404, "Not found", HTML.not_found("Action"))
     end
   end
 
@@ -762,7 +483,7 @@ defmodule Ryker.ControlPlane.Router do
          %Plug.Conn{method: "POST", path_info: ["actions", kind, resource_ref, action]} = conn,
          options
        ) do
-    with {:ok, resource_ref} <- path_ref(resource_ref),
+    with {:ok, resource_ref} <- PathRef.decode(resource_ref),
          {:ok, _title, _explanation, canonical_action} <-
            confirmation(kind, resource_ref, action, options),
          {:ok, token, conn} <- form_token(conn),
@@ -782,39 +503,13 @@ defmodule Ryker.ControlPlane.Router do
   end
 
   defp route(%Plug.Conn{method: "GET"} = conn, _options),
-    do: html(conn, 404, "Not found", HTML.generic("Page", []))
+    do: html(conn, 404, "Not found", HTML.not_found("Page"))
 
   defp route(conn, _options), do: text(conn, 405, "Method not allowed")
 
-  defp render_incident(conn, options, incident_ref) do
-    case options.projection.incident.(incident_ref) do
-      {:ok, snapshot} -> html(conn, 200, snapshot.room.title, HTML.incident(snapshot))
-      :not_found -> html(conn, 404, "Not found", HTML.generic("Incident room", []))
-      {:error, _reason} -> html(conn, 503, "Unavailable", HTML.generic("Incident room", []))
-    end
-  end
-
-  defp render_schedule(conn, options, schedule_ref) do
-    case options.projection.schedule.(schedule_ref) do
-      {:ok, snapshot} -> html(conn, 200, snapshot.schedule.title, HTML.schedule(snapshot))
-      :not_found -> html(conn, 404, "Not found", HTML.generic("Schedule", []))
-      {:error, _reason} -> html(conn, 503, "Unavailable", HTML.generic("Schedule", []))
-    end
-  end
-
-  defp render_lab(conn, options, conversation_id) do
-    case lab_snapshot(conversation_id, options) do
-      {:ok, snapshot, token} ->
-        html(conn, 200, "Conversations", HTML.lab_conversation(snapshot, token))
-
-      _unavailable ->
-        html(conn, 503, "Unavailable", HTML.generic("Conversation", []))
-    end
-  end
-
   @doc false
   def lab_snapshot(conversation_id, options) do
-    with {:ok, conversation_id} <- lab_id(conversation_id) do
+    with {:ok, conversation_id} <- PathRef.uuid(conversation_id) do
       prepare_lab_snapshot(conversation_id, options)
     end
   end
@@ -824,7 +519,7 @@ defmodule Ryker.ControlPlane.Router do
   # exactly as usable as one that was on screen at open.
   @doc false
   def lab_history(conversation_id, cursor, page_size, options) do
-    with {:ok, conversation_id} <- lab_id(conversation_id),
+    with {:ok, conversation_id} <- PathRef.uuid(conversation_id),
          {:ok, page} <- options.projection.lab_history.(conversation_id, cursor, page_size) do
       decorated =
         %{conversation_id: conversation_id, messages: page.messages}
@@ -842,7 +537,7 @@ defmodule Ryker.ControlPlane.Router do
   # same way, so a live window can refresh a row it holds off the latest page.
   @doc false
   def lab_changes(conversation_id, since, page_size, options) do
-    with {:ok, conversation_id} <- lab_id(conversation_id),
+    with {:ok, conversation_id} <- PathRef.uuid(conversation_id),
          {:ok, messages} <- options.projection.lab_changes.(conversation_id, since, page_size) do
       decorated =
         %{conversation_id: conversation_id, messages: messages}
@@ -1520,12 +1215,6 @@ defmodule Ryker.ControlPlane.Router do
   defp action_return_path(kind, resource_ref, _options),
     do: action_return_path(kind, resource_ref)
 
-  # Every kind the failures page can list, because it links each row it lists and
-  # a kind missing here answers 404 to its own link. Publications were listed and
-  # unreachable in production for exactly that reason.
-  defp failure_kinds,
-    do: ~w(admission delivery emisar publication retention slack_incident slack_interaction work)
-
   defp form_token(conn) do
     with [content_type] <- get_req_header(conn, "content-type"),
          true <-
@@ -1747,7 +1436,7 @@ defmodule Ryker.ControlPlane.Router do
          } = form <- Query.decode(body),
          true <- Enum.sort(Map.keys(form)) == ["_token", "choice_index", "publication_ref"],
          {generation, ""} when generation > 0 <- Integer.parse(generation),
-         {:ok, publication_ref} <- path_ref(publication_ref) do
+         {:ok, publication_ref} <- PathRef.decode(publication_ref) do
       {:ok, token, %{generation: generation, publication_ref: publication_ref}, conn}
     else
       _invalid -> {:error, :form}
@@ -1762,7 +1451,7 @@ defmodule Ryker.ControlPlane.Router do
          {:ok, body, conn} <- read_form(conn),
          %{"_token" => token, "publication_ref" => publication_ref} = form <- Query.decode(body),
          true <- Enum.sort(Map.keys(form)) == ["_token", "publication_ref"],
-         {:ok, publication_ref} <- path_ref(publication_ref) do
+         {:ok, publication_ref} <- PathRef.decode(publication_ref) do
       {:ok, token, %{publication_ref: publication_ref}, conn}
     else
       _invalid -> {:error, :form}
@@ -1891,46 +1580,14 @@ defmodule Ryker.ControlPlane.Router do
     end
   end
 
-  defp path_ref(encoded) when is_binary(encoded) and byte_size(encoded) <= 3_072 do
-    decoded = URI.decode(encoded)
-
-    if String.valid?(decoded) and decoded != "" and byte_size(decoded) <= 1_024,
-      do: {:ok, decoded},
-      else: {:error, :path_ref}
-  end
-
-  defp path_ref(_encoded), do: {:error, :path_ref}
-
-  defp lab_id(encoded) do
-    with {:ok, decoded} <- path_ref(encoded),
-         {:ok, normalized} <- Ecto.UUID.cast(decoded) do
-      {:ok, normalized}
-    else
-      _invalid -> {:error, :path_ref}
-    end
-  end
-
-  # A page is a title, an optional one-line description and a body. The shell
-  # renders the first two as the page's only heading; the body owns the rest.
-  defp html(conn, status, title, body), do: html(conn, status, title, nil, body)
-
-  defp html(%{private: %{control_plane_snapshot: true}}, status, title, description, body),
-    do: %{status: status, title: title, description: description, body: IO.iodata_to_binary(body)}
-
-  defp html(conn, status, title, description, body) do
+  # A confirmed action or record view is a title and a body in the static
+  # shell; the title is the page's only heading and the body owns the rest.
+  defp html(conn, status, title, body) do
     conn
     |> put_resp_content_type("text/html")
-    |> send_resp(status, HTML.page(title, description, body))
+    |> send_resp(status, HTML.page(title, nil, body))
     |> halt()
   end
-
-  defp text(%{private: %{control_plane_snapshot: true}}, status, body),
-    do: %{
-      status: status,
-      title: "Unavailable",
-      description: nil,
-      body: Plug.HTML.html_escape(body)
-    }
 
   defp text(conn, status, body) do
     conn

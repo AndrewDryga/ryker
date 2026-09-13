@@ -1,13 +1,13 @@
 defmodule Ryker.ControlPlane.ConfigurationShellTest do
   @moduledoc """
   The shared shell every secondary page renders into: the title once, its
-  description directly beneath, then whatever the page owns. Router.snapshot
-  produces the same title, description and body the live shell shows, and
+  description directly beneath, then whatever the page owns. Pages.page
+  produces the title, description and body the live shell shows, and
   HTML.page wraps them in the static shell used by confirmed HTTP actions.
   """
   use ExUnit.Case, async: true
   import Phoenix.LiveViewTest
-  alias Ryker.ControlPlane.{Components, HTML, Router}
+  alias Ryker.ControlPlane.{Components, HTML, Pages}
 
   @pages [
     {"/rules", "Standing rules"},
@@ -28,7 +28,7 @@ defmodule Ryker.ControlPlane.ConfigurationShellTest do
     # rule and a 26px gap. Andrew asked for one heading, one description 8px
     # under it, and one left edge on every Configuration page.
     for {path, title} <- @pages do
-      page = Router.snapshot(path, "", options())
+      page = Pages.page(String.split(path, "/", trim: true), %{}, options())
       assert page.status == 200, path
       assert page.title == title
       document = HTML.page(page.title, page.description, page.body) |> LazyHTML.from_document()
@@ -62,7 +62,7 @@ defmodule Ryker.ControlPlane.ConfigurationShellTest do
     # columns and an "Apply filters" button; dropdowns now apply on change and
     # search submits on Enter, so a shareable URL is the only state.
     for path <- ["/schedules", "/subscriptions", "/channels", "/repositories", "/incident-rooms"] do
-      page = Router.snapshot(path, "q=emisar", options())
+      page = Pages.page(String.split(path, "/", trim: true), %{"q" => "emisar"}, options())
       document = LazyHTML.from_fragment(page.body)
       toolbar = LazyHTML.query(document, "form.filter-toolbar")
       assert Enum.count(toolbar) == 1, path
@@ -83,7 +83,8 @@ defmodule Ryker.ControlPlane.ConfigurationShellTest do
     end
 
     with_status =
-      Router.snapshot("/schedules", "status=paused", options()).body |> LazyHTML.from_fragment()
+      Pages.page(["schedules"], %{"status" => "paused"}, options()).body
+      |> LazyHTML.from_fragment()
 
     assert Enum.count(
              LazyHTML.query(with_status, "form.filter-toolbar label[for=operator-status]")

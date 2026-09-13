@@ -6,7 +6,7 @@ defmodule Ryker.ControlPlane.SchedulesPageTest do
   """
   use ExUnit.Case, async: true
 
-  alias Ryker.ControlPlane.{HTML, Router}
+  alias Ryker.ControlPlane.{HTML, Pages}
 
   @schedule %{
     authority: :read_only,
@@ -133,7 +133,7 @@ defmodule Ryker.ControlPlane.SchedulesPageTest do
 
   test "the route keeps the shell's title and description and carries the filter into the toolbar" do
     page =
-      Router.snapshot("/schedules", "q=health&status=paused", %{
+      Pages.page(["schedules"], %{"q" => "health", "status" => "paused"}, %{
         projection: %{schedules: fn _params -> [%{@schedule | status: :paused}] end}
       })
 
