@@ -8,6 +8,7 @@ defmodule Responder.ControlPlane.WorkbenchLive do
   alias Responder.ControlPlane.{
     Activity,
     ActivityPage,
+    ChannelDetail,
     ChannelPage,
     Components,
     Endpoint,
@@ -337,7 +338,9 @@ defmodule Responder.ControlPlane.WorkbenchLive do
   end
 
   defp load_detail(socket, options, ["channels", workspace, channel]) do
-    with {:ok, snapshot} <- options.projection.channel.(workspace, channel),
+    params = Map.take(socket.assigns.params, ChannelDetail.query_keys())
+
+    with {:ok, snapshot} <- options.projection.channel.(workspace, channel, params),
          {:ok, view} <- options.projection.instructions.({:channel, workspace, channel}) do
       assign(socket,
         native: :instructions,

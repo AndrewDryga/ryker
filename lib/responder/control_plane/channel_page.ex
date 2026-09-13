@@ -9,13 +9,21 @@ defmodule Responder.ControlPlane.ChannelPage do
   """
   use Phoenix.Component
   import Responder.ControlPlane.Components, only: [label: 1, timestamp: 1]
-  alias Responder.ControlPlane.{ChannelScope, SlackNames}
+  alias Responder.ControlPlane.{Activity, ChannelScope, SlackNames}
 
   attr(:view, :map, required: true)
 
   def render(assigns) do
+    assigns = assign(assigns, :base, base_path(assigns.view.scope))
+
     ~H"""
     <div class="channel-page">
+      <p class="channel-metrics">
+        <a href={Activity.conversation_path("slack", @view.scope.conversation_ref)}>
+          {count(@view.episodes.total, "episode")}
+        </a>
+        <span>retained for this conversation, in every mode</span>
+      </p>
       <section id="configuration" class="channel-section">
         <h2>Configuration</h2>
         <dl class="channel-facts">
@@ -108,6 +116,8 @@ defmodule Responder.ControlPlane.ChannelPage do
       </section>
       <.relation
         id="schedules"
+        base={@base}
+        params={@view.params}
         title="Schedules"
         relation={@view.schedules}
         noun="schedule"
@@ -130,6 +140,8 @@ defmodule Responder.ControlPlane.ChannelPage do
       </.relation>
       <.relation
         id="episodes"
+        base={@base}
+        params={@view.params}
         title="Related episodes"
         relation={@view.episodes}
         noun="episode"
@@ -154,6 +166,8 @@ defmodule Responder.ControlPlane.ChannelPage do
       </.relation>
       <.relation
         id="summaries"
+        base={@base}
+        params={@view.params}
         title="Conversation summaries"
         relation={@view.summaries}
         noun="summary"
@@ -195,6 +209,8 @@ defmodule Responder.ControlPlane.ChannelPage do
   attr(:relation, :map, required: true)
   attr(:noun, :string, required: true)
   attr(:empty, :string, required: true)
+  attr(:base, :string, required: true)
+  attr(:params, :map, required: true)
   slot(:inner_block, required: true)
 
   defp relation(assigns) do
@@ -205,8 +221,38 @@ defmodule Responder.ControlPlane.ChannelPage do
       </header>
       <p :if={@relation.total == 0} class="empty-state">{@empty}</p>
       <div :if={@relation.items != []} class="table-wrap">{render_slot(@inner_block)}</div>
+      <nav :if={@relation.pages > 1} class="pagination" aria-label={"#{@title} pages"}>
+        <a
+          :if={@relation.page > 1}
+          href={page_path(@base, @params, @relation, @relation.page - 1, @id)}
+        >
+          ← Previous
+        </a>
+        <span>Page {@relation.page} of {@relation.pages}</span>
+        <a
+          :if={@relation.page < @relation.pages}
+          href={page_path(@base, @params, @relation, @relation.page + 1, @id)}
+        >
+          Next →
+        </a>
+      </nav>
     </section>
     """
+  end
+
+  defp base_path(%ChannelScope{} = scope),
+    do: "/channels/" <> encode(scope.workspace_ref) <> "/" <> encode(scope.channel_ref)
+
+  # One pager link carries every other section's resolved page and lands on
+  # its own anchor, so paging summaries never resets episodes.
+  defp page_path(base, params, relation, page, anchor) do
+    params =
+      if page > 1,
+        do: Map.put(params, relation.key, Integer.to_string(page)),
+        else: Map.delete(params, relation.key)
+
+    query = if params == %{}, do: "", else: "?" <> URI.encode_query(params)
+    base <> query <> "#" <> anchor
   end
 
   @doc "The one-line description the route hands to the shared page header."

@@ -1233,6 +1233,29 @@ defmodule Responder.ControlPlane.RouterTest do
     end
   end
 
+  test "channel detail pagers reach the projection through live and snapshot routing, bounded and loopback-only" do
+    # The channel route never fetched its query string, so a `?summary_page=2`
+    # link could only ever render page one.
+    assert request(:get, "/channels/T123/C456?summary_page=2&episode_page=3&q=x&page=9").status ==
+             200
+
+    assert_received {:channel_params, params}
+    assert params == %{"summary_page" => "2", "episode_page" => "3"}
+
+    assert Router.snapshot("/channels/T123/C456", "schedule_page=4&unknown=1", options()).status ==
+             200
+
+    assert_received {:channel_params, %{"schedule_page" => "4"} = snapshot_params}
+    refute Map.has_key?(snapshot_params, "unknown")
+
+    assert request(:get, "/channels/T123/C456", "localhost", {10, 0, 0, 1}).status == 403
+
+    assert request(:get, "/channels/T123/C456?episode_page=2", "example.com", {127, 0, 0, 1}).status ==
+             421
+
+    refute_received {:channel_params, _}
+  end
+
   test "renders every bounded read-only operator view without external assets" do
     channel = request(:get, "/channels/T123/C456")
 
@@ -1812,9 +1835,12 @@ defmodule Responder.ControlPlane.RouterTest do
           ]
         end,
         channel: fn
-          "T123", "C456" ->
+          "T123", "C456", params ->
+            send(parent, {:channel_params, params})
+
             {:ok,
              %{
+               params: %{},
                scope: %Responder.ControlPlane.ChannelScope{
                  workspace_ref: "T123",
                  channel_ref: "C456",
@@ -1908,7 +1934,7 @@ defmodule Responder.ControlPlane.RouterTest do
                }
              }}
 
-          _workspace, _channel ->
+          _workspace, _channel, _params ->
             :not_found
         end,
         delivery: fn
