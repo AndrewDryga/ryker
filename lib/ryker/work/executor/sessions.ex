@@ -61,9 +61,22 @@ defmodule Ryker.Work.Executor.Sessions do
        when is_binary(repository_ref),
        do: repository_capabilities(claim, settings)
 
-  defp replace_lost_session(claim, settings) do
+  defp replace_lost_session(claim, settings),
+    do:
+      continue_on_next_generation(
+        claim,
+        settings,
+        &Custody.replace_session_after_placement_loss/4
+      )
+
+  defp rotate_session(claim, settings),
+    do: continue_on_next_generation(claim, settings, &Custody.rotate_session/4)
+
+  # Custody mints the next session generation for this turn; the executor
+  # rebinds its state tools to the new session and starts over from there.
+  defp continue_on_next_generation(claim, settings, rotate) do
     with {:ok, rotated} <-
-           Custody.replace_session_after_placement_loss(
+           rotate.(
              claim.episode.id,
              claim.turn.turn_ref,
              claim.lease_ref,
@@ -96,23 +109,6 @@ defmodule Ryker.Work.Executor.Sessions do
 
   defp use_or_rotate_session(_claim, _remote, _settings),
     do: {:error, {:coop_protocol_error, :session_state}}
-
-  defp rotate_session(claim, settings) do
-    with {:ok, rotated} <-
-           Custody.rotate_session(
-             claim.episode.id,
-             claim.turn.turn_ref,
-             claim.lease_ref,
-             claim.session.generation
-           ),
-         {:ok, rebound} <-
-           Executor.ensure_state_binding(
-             %{claim | session: rotated.session, turn: rotated.turn},
-             settings
-           ) do
-      ensure_session(rebound, settings)
-    end
-  end
 
   # Selector-bound work is never dispatched to a worker that cannot resolve a
   # selector, and no session is created on a worker without version-2 freshness
