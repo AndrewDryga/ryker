@@ -7,6 +7,7 @@ defmodule Ryker.State.MemorySearchConcurrencyTest do
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Slack.ChannelFence
   alias Ryker.State.{Behavior, Behaviors, Memories, MemoryEntry, MemorySearch, Record}
+  alias Ryker.State.Memories.Recall
   alias Ryker.Work.{Custody, Session, Turn}
 
   @captured "testdata/learning/retained-draft-ai-suggestions-learning.json"
@@ -380,10 +381,10 @@ defmodule Ryker.State.MemorySearchConcurrencyTest do
   defp revoke(:guidance, entry, status),
     do: Behaviors.set_status(entry.ref, status, entry.workspace_ref)
 
-  defp read(:fact, :recall, context), do: Memories.recall(context)
+  defp read(:fact, :recall, context), do: Recall.recall(context)
 
   defp read(:fact, :search, context),
-    do: Memories.search(context, "draft-ai-suggestions", "workspace", 10)
+    do: Recall.search(context, "draft-ai-suggestions", "workspace", 10)
 
   defp read(:guidance, :recall, context), do: Behaviors.guidance(context)
 

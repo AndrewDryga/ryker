@@ -7,16 +7,16 @@ defmodule Ryker.State.MemorySearch do
   alias Ryker.State.{
     Behaviors,
     Cases,
-    Continuity,
     Knowledge,
     KnowledgeSnapshot,
-    Memories,
     MemorySearchPage,
     MemorySourceLink,
     Observations,
     Scope
   }
 
+  alias Ryker.State.Continuity.Recall, as: ContinuityRecall
+  alias Ryker.State.Memories.Recall
   alias Ryker.StateTools.Binding
 
   @continuity ~w(knowledge observation summary rollup)
@@ -190,19 +190,6 @@ defmodule Ryker.State.MemorySearch do
   defp search_error({:store_failed, :configuration_lock, reason}), do: search_error(reason)
   defp search_error(reason), do: reason
 
-  @doc false
-  def continuity(episode, repository, query, scope, limit) do
-    binding = %{episode: episode, session: %{repository_ref: repository}}
-    page = MemorySearchPage.first(query, scope)
-
-    {documents, _state, _budget} =
-      collect(page, initial(["continuity"]), limit, fn lane, current ->
-        fetch(lane, binding, current)
-      end)
-
-    documents
-  end
-
   defp initial(kinds) do
     kinds = Enum.filter(~w(fact guidance continuity case), &(&1 in kinds))
 
@@ -318,7 +305,7 @@ defmodule Ryker.State.MemorySearch do
 
   defp fetch("case", binding, page), do: Cases.search_page(context(binding), page)
 
-  defp fetch("fact", binding, page), do: Memories.search_page(context(binding), page)
+  defp fetch("fact", binding, page), do: Recall.search_page(context(binding), page)
 
   defp fetch("guidance", binding, page) do
     context = context(binding) |> Map.put(:operator_ref, binding.operator_ref)
@@ -331,11 +318,13 @@ defmodule Ryker.State.MemorySearch do
   defp fetch("observation", binding, page),
     do: Observations.search_page(binding.episode, binding.session.repository_ref, page)
 
-  defp fetch("summary", binding, page),
-    do: Continuity.search_page(:summary, binding.episode, binding.session.repository_ref, page)
+  defp fetch("summary", binding, page) do
+    ContinuityRecall.search_page(:summary, binding.episode, binding.session.repository_ref, page)
+  end
 
-  defp fetch("rollup", binding, page),
-    do: Continuity.search_page(:rollup, binding.episode, binding.session.repository_ref, page)
+  defp fetch("rollup", binding, page) do
+    ContinuityRecall.search_page(:rollup, binding.episode, binding.session.repository_ref, page)
+  end
 
   defp context(binding) do
     %{

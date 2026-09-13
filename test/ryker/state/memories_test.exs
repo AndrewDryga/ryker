@@ -6,6 +6,7 @@ defmodule Ryker.State.MemoriesTest do
   alias Ryker.Episodes
   alias Ryker.Fixtures.DatabaseClock
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
+  alias Ryker.Ingress.Inbox.Entry
 
   alias Ryker.Slack.{
     AppHomeEditor,
@@ -26,6 +27,8 @@ defmodule Ryker.State.MemoriesTest do
     Record,
     Records
   }
+
+  alias Ryker.State.Memories.{Recall, Reviews}
 
   alias Ryker.Work.{Custody, DeliveryReceipt, Result, Submission, Turn}
 
@@ -51,7 +54,7 @@ defmodule Ryker.State.MemoriesTest do
       workspace_ref: "slack:T123"
     }
 
-    assert [match] = Memories.search(context, "ryker", "current_channel", 20)
+    assert [match] = Recall.search(context, "ryker", "current_channel", 20)
     assert match["memory_ref"] == confirmed.memory.ref
     assert confirmed.memory.inserted_at == database_time
     assert confirmed.memory.updated_at == database_time
@@ -61,7 +64,7 @@ defmodule Ryker.State.MemoriesTest do
     page = MemorySearchPage.first("ryker", "current_channel")
 
     assert :done =
-             Memories.search_page(context, %{page | cutoff: DateTime.add(database_time, -1)})
+             Recall.search_page(context, %{page | cutoff: DateTime.add(database_time, -1)})
   end
 
   test "operator fact edits use database time without entering an older search snapshot" do
@@ -70,8 +73,8 @@ defmodule Ryker.State.MemoriesTest do
     database_time = DatabaseClock.behind_host!()
     old = DateTime.add(database_time, -120, :second)
     Repo.update_all(MemoryEntry, set: [inserted_at: old, updated_at: old])
-    assert {:ok, %{created: 1}} = Memories.refresh_reviews("slack:T123", 60)
-    [review] = Memories.list_reviews("slack:T123")
+    assert {:ok, %{created: 1}} = Reviews.refresh_reviews("slack:T123", 60)
+    [review] = Reviews.list_reviews("slack:T123")
 
     assert {:ok, _} =
              Memories.resolve_review(
@@ -91,14 +94,14 @@ defmodule Ryker.State.MemoriesTest do
     page = MemorySearchPage.first("ryker-elixir", "current_channel")
 
     assert :done =
-             Memories.search_page(context, %{page | cutoff: DateTime.add(database_time, -1)})
+             Recall.search_page(context, %{page | cutoff: DateTime.add(database_time, -1)})
 
     edited = Repo.get!(MemoryEntry, confirmed.memory.id)
     assert edited.edited_at == database_time
     assert edited.inserted_at == old
     assert edited.confirmed_at == confirmed.memory.confirmed_at
     assert edited.expires_at == confirmed.memory.expires_at
-    assert {:ok, match, _position} = Memories.search_page(context, page)
+    assert {:ok, match, _position} = Recall.search_page(context, page)
     assert match["memory_ref"] == confirmed.memory.ref
   end
 
@@ -120,13 +123,13 @@ defmodule Ryker.State.MemoriesTest do
       workspace_ref: "slack:T123"
     }
 
-    assert [recalled] = Memories.recall(context)
+    assert [recalled] = Recall.recall(context)
     assert recalled["memory_ref"] == first.memory.ref
     assert recalled["value"] == "ryker"
     assert recalled["source"]["message_ref"] == fixture.receipt["message_ref"]
 
     refute inspect(recalled) =~ "confirmation_ref"
-    assert Memories.recall(%{context | conversation_ref: "slack:T123:C999"}) == []
+    assert Recall.recall(%{context | conversation_ref: "slack:T123:C999"}) == []
 
     first_recalled = Repo.get!(MemoryEntry, first.memory.id)
     assert first_recalled.recall_count == 1
@@ -143,7 +146,7 @@ defmodule Ryker.State.MemoriesTest do
     refute inspect(superseded.payload) =~ "ryker"
     assert Memories.forget(first.memory.ref) == {:error, :memory_terminal}
 
-    assert [latest] = Memories.recall(context)
+    assert [latest] = Recall.recall(context)
     assert latest["memory_ref"] == replacement.memory.ref
     assert latest["value"] == "ryker-next"
 
@@ -156,7 +159,7 @@ defmodule Ryker.State.MemoriesTest do
     assert forgotten.status == :deleted
     assert forgotten.payload["forgotten_payload_sha256"] == replacement.memory.payload_fingerprint
     refute inspect(forgotten.payload) =~ "ryker-next"
-    assert Memories.recall(context) == []
+    assert Recall.recall(context) == []
 
     assert {:ok, duplicate_forget} = Memories.forget(replacement.memory.ref, "slack:T123")
     assert duplicate_forget.id == forgotten.id
@@ -171,7 +174,7 @@ defmodule Ryker.State.MemoriesTest do
     assert workspace.memory.visibility == :workspace
 
     assert [entry] =
-             Memories.recall(%{
+             Recall.recall(%{
                conversation_ref: "slack:T123:C999",
                repository: nil,
                workspace_ref: "slack:T123"
@@ -236,9 +239,9 @@ defmodule Ryker.State.MemoriesTest do
     assert Memories.list("slack:T123", extra: true) == []
     assert Memories.list("slack:T123", :not_options) == []
 
-    assert Memories.recall(:invalid, 20) == []
-    assert Memories.recall(%{}, 20) == []
-    assert Memories.recall(%{}, 0) == []
+    assert Recall.recall(:invalid, 20) == []
+    assert Recall.recall(%{}, 20) == []
+    assert Recall.recall(%{}, 0) == []
     assert Memories.model_context(%{}, nil) == []
 
     Repo.update_all(
@@ -252,7 +255,7 @@ defmodule Ryker.State.MemoriesTest do
       workspace_ref: "slack:T123"
     }
 
-    assert Memories.recall(context) == []
+    assert Recall.recall(context) == []
     assert Repo.get!(MemoryEntry, confirmed.memory.id).status == :active
     assert {:ok, deleted} = Memories.forget(confirmed.memory.ref)
     assert deleted.status == :deleted
@@ -290,29 +293,34 @@ defmodule Ryker.State.MemoriesTest do
   end
 
   test "memory review APIs reject malformed requests and out-of-transaction maintenance" do
-    assert Memories.search(:invalid, "query", "workspace", 20) == []
-    assert Memories.search(%{}, "query", "workspace", 20) == []
-    assert Memories.search(%{}, "query", "workspace", 0) == []
+    assert Recall.search(:invalid, "query", "workspace", 20) == []
+    assert Recall.search(%{}, "query", "workspace", 20) == []
+    assert Recall.search(%{}, "query", "workspace", 0) == []
 
-    assert Memories.refresh_reviews("slack:T123", 0) ==
+    assert Reviews.refresh_reviews("slack:T123", 0) ==
              {:error, {:invalid_memory_review, :stale_seconds}}
 
-    assert Memories.refresh_all_reviews_in_transaction(86_400) ==
+    assert Reviews.refresh_all_reviews_in_transaction(86_400) ==
              {:error, :memory_review_transaction_required}
 
-    assert Memories.refresh_all_reviews_in_transaction(0) ==
+    assert Reviews.refresh_all_reviews_in_transaction(0) ==
              {:error, {:invalid_memory_review, :stale_seconds}}
 
-    assert Memories.dismiss_invalid_reviews_in_transaction() ==
+    assert Reviews.dismiss_invalid_reviews_in_transaction() ==
              {:error, :memory_review_transaction_required}
 
-    assert Memories.list_reviews("", limit: 20) == []
-    assert Memories.list_reviews("slack:T123", :invalid) == []
+    assert Memories.revoke_answer_source_in_transaction(%Entry{
+             event_kind: :edit,
+             source_item_ref: "slack:msg:1"
+           }) == {:error, :memory_review_transaction_required}
+
+    assert Reviews.list_reviews("", limit: 20) == []
+    assert Reviews.list_reviews("slack:T123", :invalid) == []
     assert Memories.home_reviews("", "slack:user:U123") == %{items: [], total: 0}
-    assert Memories.home_review_count("", "slack:user:U123") == 0
+    assert Reviews.home_review_count("", "slack:user:U123") == 0
     assert Memories.pending_reviews(0) == []
-    assert Memories.fetch_review("") == :error
-    assert Memories.fetch_review("memory-review:missing") == :error
+    assert Reviews.fetch_review("") == :error
+    assert Reviews.fetch_review("memory-review:missing") == :error
 
     assert Memories.fetch_home_review("", "slack:T123", "slack:user:U123") ==
              {:error, :memory_review_not_found}
@@ -376,10 +384,10 @@ defmodule Ryker.State.MemoriesTest do
       set: [last_used_at: nil, last_reviewed_at: nil, updated_at: old]
     )
 
-    assert {:ok, %{created: 4}} = Memories.refresh_reviews("slack:T123", 60)
-    assert {:ok, %{created: 0}} = Memories.refresh_reviews("slack:T123", 60)
+    assert {:ok, %{created: 4}} = Reviews.refresh_reviews("slack:T123", 60)
+    assert {:ok, %{created: 0}} = Reviews.refresh_reviews("slack:T123", 60)
 
-    reviews = Memories.list_reviews("slack:T123", limit: 10)
+    reviews = Reviews.list_reviews("slack:T123", limit: 10)
     assert length(reviews) == 4
     assert duplicate_review = Enum.find(reviews, &(&1["kind"] == "duplicate"))
 
@@ -465,10 +473,10 @@ defmodule Ryker.State.MemoriesTest do
       ]
     )
 
-    assert {:ok, %{created: 1}} = Memories.refresh_reviews("slack:T123", 60)
+    assert {:ok, %{created: 1}} = Reviews.refresh_reviews("slack:T123", 60)
 
     stale_first =
-      Memories.list_reviews("slack:T123", limit: 10)
+      Reviews.list_reviews("slack:T123", limit: 10)
       |> Enum.find(fn review ->
         Enum.any?(review["entries"], &(&1["memory_ref"] == first.memory.ref))
       end)
@@ -492,7 +500,7 @@ defmodule Ryker.State.MemoriesTest do
     assert %DateTime{} = edited_memory.last_reviewed_at
 
     assert [edited_document] =
-             Memories.search(
+             Recall.search(
                %{
                  conversation_ref: "slack:T123:C456",
                  repository: nil,
@@ -520,10 +528,10 @@ defmodule Ryker.State.MemoriesTest do
       ]
     )
 
-    assert {:ok, %{created: 1}} = Memories.refresh_reviews("slack:T123", 60)
+    assert {:ok, %{created: 1}} = Reviews.refresh_reviews("slack:T123", 60)
 
     forget_review =
-      Memories.list_reviews("slack:T123", limit: 10)
+      Reviews.list_reviews("slack:T123", limit: 10)
       |> Enum.find(fn review ->
         Enum.any?(review["entries"], &(&1["memory_ref"] == first.memory.ref))
       end)
@@ -543,7 +551,7 @@ defmodule Ryker.State.MemoriesTest do
              :count
            ) == 0
 
-    assert Memories.list_reviews("slack:T999", limit: 10) == []
+    assert Reviews.list_reviews("slack:T999", limit: 10) == []
 
     assert {:error, :memory_review_workspace_mismatch} =
              Memories.resolve_review(
@@ -572,17 +580,17 @@ defmodule Ryker.State.MemoriesTest do
       ]
     )
 
-    assert {:ok, %{created: 1}} = Memories.refresh_reviews("slack:T123", 60)
+    assert {:ok, %{created: 1}} = Reviews.refresh_reviews("slack:T123", 60)
 
     assert [%{"kind" => "stale", "review_ref" => review_ref}] =
-             Memories.list_reviews("slack:T123")
+             Reviews.list_reviews("slack:T123")
 
     assert {:ok, %{status: :confirmed}} =
              Memories.confirm(confirmation(fixture, fixture.replacement, "supersede-replacement"))
 
     assert Repo.get!(MemoryEntry, first.memory.id).status == :superseded
     assert Repo.get_by!(MemoryReviewItem, ref: review_ref).status == :dismissed
-    assert Memories.list_reviews("slack:T123") == []
+    assert Reviews.list_reviews("slack:T123") == []
     assert Memories.home_reviews("slack:T123", "slack:user:U123") == %{items: [], total: 0}
   end
 
@@ -595,8 +603,8 @@ defmodule Ryker.State.MemoriesTest do
       set: [updated_at: old]
     )
 
-    assert {:ok, %{created: 1}} = Memories.refresh_reviews("slack:T123", 60)
-    [review] = Memories.list_reviews("slack:T123", limit: 10)
+    assert {:ok, %{created: 1}} = Reviews.refresh_reviews("slack:T123", 60)
+    [review] = Reviews.list_reviews("slack:T123", limit: 10)
 
     Repo.update_all(from(entry in MemoryEntry, where: entry.id == ^confirmed.memory.id),
       set: [last_recalled_at: DateTime.utc_now()]
@@ -624,7 +632,7 @@ defmodule Ryker.State.MemoriesTest do
     old = DateTime.add(DateTime.utc_now(), -3_600, :second)
     Repo.update_all(MemoryEntry, set: [updated_at: old])
 
-    assert {:ok, %{created: 2}} = Memories.refresh_reviews("slack:T123", 60)
+    assert {:ok, %{created: 2}} = Reviews.refresh_reviews("slack:T123", 60)
 
     hidden_review_ids =
       Enum.map(1..101, fn index ->
@@ -653,10 +661,10 @@ defmodule Ryker.State.MemoriesTest do
              Memories.home_reviews("slack:T123", "slack:user:U123", limit: 5)
 
     assert [^visible] =
-             Memories.list_home_reviews("slack:T123", "slack:user:U123", limit: 5)
+             Memories.home_reviews("slack:T123", "slack:user:U123", limit: 5).items
 
     assert get_in(visible, ["entries", Access.at(0), "memory_ref"]) == workspace.memory.ref
-    assert Memories.home_review_count("slack:T123", "slack:user:U123") == 1
+    assert Reviews.home_review_count("slack:T123", "slack:user:U123") == 1
 
     assert {:ok, fetched} =
              Memories.fetch_home_review(
@@ -680,7 +688,7 @@ defmodule Ryker.State.MemoriesTest do
     assert_received {:opened_memory_modal, "trigger.home-memory", %{"type" => "modal"}}
 
     hidden =
-      Memories.list_reviews("slack:T123", limit: 5)
+      Reviews.list_reviews("slack:T123", limit: 5)
       |> Enum.find(fn review ->
         get_in(review, ["entries", Access.at(0), "memory_ref"]) == conversation.memory.ref
       end)
@@ -787,7 +795,7 @@ defmodule Ryker.State.MemoriesTest do
     old = DateTime.add(DateTime.utc_now(), -3_600, :second)
     Repo.update_all(MemoryEntry, set: [updated_at: old])
     Repo.update_all(Behavior, set: [updated_at: old])
-    assert {:ok, %{created: 2}} = Memories.refresh_reviews("slack:T123", 60)
+    assert {:ok, %{created: 2}} = Reviews.refresh_reviews("slack:T123", 60)
 
     Repo.delete_all(
       from(membership in ChannelMembership,
@@ -879,8 +887,8 @@ defmodule Ryker.State.MemoriesTest do
     assert {:ok, _workspace} = Memories.confirm(confirmation(fixture, fixture.workspace, "one"))
     assert {:ok, _duplicate} = Memories.confirm(confirmation(fixture, fixture.duplicate, "two"))
 
-    assert {:ok, %{created: 0}} = Memories.refresh_reviews("slack:T123", 86_400)
-    assert Memories.list_reviews("slack:T123", limit: 10) == []
+    assert {:ok, %{created: 0}} = Reviews.refresh_reviews("slack:T123", 86_400)
+    assert Reviews.list_reviews("slack:T123", limit: 10) == []
   end
 
   test "keeping duplicate guidance suppresses the unchanged group and search counts only matches" do
@@ -890,8 +898,8 @@ defmodule Ryker.State.MemoriesTest do
     assert {:ok, second} =
              Behaviors.confirm(confirmation(fixture, fixture.guidance_duplicate, "second"))
 
-    assert {:ok, %{created: 1}} = Memories.refresh_reviews("slack:T123", 86_400)
-    [review] = Memories.list_reviews("slack:T123", limit: 10)
+    assert {:ok, %{created: 1}} = Reviews.refresh_reviews("slack:T123", 86_400)
+    [review] = Reviews.list_reviews("slack:T123", limit: 10)
 
     assert {:ok, %{status: :resolved}} =
              Memories.resolve_review(
@@ -901,8 +909,8 @@ defmodule Ryker.State.MemoriesTest do
                "slack:T123"
              )
 
-    assert {:ok, %{created: 0}} = Memories.refresh_reviews("slack:T123", 86_400)
-    assert Memories.list_reviews("slack:T123", limit: 10) == []
+    assert {:ok, %{created: 0}} = Reviews.refresh_reviews("slack:T123", 86_400)
+    assert Reviews.list_reviews("slack:T123", limit: 10) == []
 
     context = %{
       conversation_ref: "slack:T123:C456",
@@ -933,10 +941,10 @@ defmodule Ryker.State.MemoriesTest do
       workspace_ref: "slack:T123"
     }
 
-    assert Memories.search(context, "missing", "current_channel", 20) == []
+    assert Recall.search(context, "missing", "current_channel", 20) == []
     assert Repo.get!(MemoryEntry, confirmed.memory.id).recall_count == 0
 
-    assert [match] = Memories.search(context, "ryker", "current_channel", 20)
+    assert [match] = Recall.search(context, "ryker", "current_channel", 20)
     assert match["memory_ref"] == confirmed.memory.ref
     assert Repo.get!(MemoryEntry, confirmed.memory.id).recall_count == 1
   end

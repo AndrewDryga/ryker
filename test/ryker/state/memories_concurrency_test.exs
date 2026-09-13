@@ -20,6 +20,7 @@ defmodule Ryker.State.MemoriesConcurrencyTest do
     Records
   }
 
+  alias Ryker.State.Memories.Reviews
   alias Ryker.Work.{Custody, Session, Turn}
 
   @review_advisory_lock 7_152_019_552_843_112
@@ -254,8 +255,8 @@ defmodule Ryker.State.MemoriesConcurrencyTest do
       set: [inserted_at: old, updated_at: old]
     )
 
-    assert {:ok, %{created: 2}} = Memories.refresh_reviews(workspace_ref, 60)
-    review_refs = Enum.map(Memories.list_reviews(workspace_ref), & &1["review_ref"])
+    assert {:ok, %{created: 2}} = Reviews.refresh_reviews(workspace_ref, 60)
+    review_refs = Enum.map(Reviews.list_reviews(workspace_ref), & &1["review_ref"])
 
     %{
       episode_id: transition.episode.id,

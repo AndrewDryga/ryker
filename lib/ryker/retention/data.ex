@@ -11,7 +11,9 @@ defmodule Ryker.Retention.Data do
   """
 
   alias Ryker.Repo
-  alias Ryker.State.{Cases, Continuity, KnowledgeRetention, Learning, Memories}
+  alias Ryker.State.{Cases, KnowledgeRetention, Learning}
+  alias Ryker.State.Continuity.Compaction
+  alias Ryker.State.Memories.Reviews
 
   @advisory_lock 7_152_019_552_843_111
   @terminal_episode_states ~w(complete cancelled)
@@ -72,12 +74,12 @@ defmodule Ryker.Retention.Data do
 
   defp prune_expiring_resources(result, settings) do
     {:ok, _reviews_created} =
-      Memories.refresh_all_reviews_in_transaction(
+      Reviews.refresh_all_reviews_in_transaction(
         min(settings.conversation_memory_seconds, @memory_review_seconds)
       )
 
     {:ok, compacted} =
-      Continuity.compact_in_transaction(
+      Compaction.compact_in_transaction(
         min(settings.conversation_memory_seconds, @summary_compaction_seconds),
         settings.conversation_memory_seconds
       )
@@ -152,7 +154,7 @@ defmodule Ryker.Retention.Data do
       WHERE behavior.id = candidates.id
       """)
 
-    :ok = Memories.dismiss_invalid_reviews_in_transaction()
+    :ok = Reviews.dismiss_invalid_reviews_in_transaction()
 
     _schedules =
       execute_count(
