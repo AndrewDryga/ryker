@@ -229,7 +229,9 @@ defmodule Responder.ControlPlane.WorkerEvidenceCardTest do
 
     rendered = html(session.episode_id)
 
-    assert rendered =~ "did not run under restricted networking"
+    # One line, not two headed blocks of nothing repeated per worker.
+    assert rendered =~ "nothing to enforce or observe"
+    refute rendered =~ "<h3>Network access</h3>"
     assert rendered =~ "Open"
     # No task was ever bound, so no Coop task card is invented for it.
     refute rendered =~ "Coop task"
