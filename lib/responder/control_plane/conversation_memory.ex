@@ -64,16 +64,7 @@ defmodule Responder.ControlPlane.ConversationMemory do
       )
 
     ids = items |> Enum.map(& &1.source_episode_id) |> Enum.reject(&is_nil/1)
-
-    episodes =
-      Repo.all(
-        from(episode in Episode,
-          where: episode.id in ^ids,
-          select: {episode.id, episode.key}
-        )
-      )
-      |> Map.new()
-
+    episodes = episode_keys(ids)
     secrets = InspectionRedactor.configured_secrets()
     knowledge_ids = if kind == "knowledge", do: Enum.map(items, & &1.id), else: []
 
@@ -131,6 +122,47 @@ defmodule Responder.ControlPlane.ConversationMemory do
     }
   end
 
+  @doc """
+  Presents learned rows the way `/memory` does: sanitized state, safe titles,
+  source links and retention, never a raw payload or dependency list.
+  """
+  @spec present([struct()]) :: [map()]
+  def present(rows) when is_list(rows) do
+    ids = rows |> Enum.map(& &1.source_episode_id) |> Enum.reject(&is_nil/1)
+    episodes = episode_keys(ids)
+    secrets = InspectionRedactor.configured_secrets()
+    Enum.map(rows, &item(&1, episodes, secrets))
+  end
+
+  @doc "The human-readable heading, text and fact groups of one continuity state."
+  @spec continuity_state(term(), [String.t()]) :: %{
+          title: String.t(),
+          text: String.t(),
+          groups: [{String.t(), [String.t()]}]
+        }
+  def continuity_state(state, secrets) do
+    state = sanitized(state, secrets)
+
+    %{
+      title:
+        List.first(state["active_topics"] || []) || state["purpose"] || "Conversation summary",
+      text: state["situation"] || state["goal"] || "",
+      groups: summary_groups(state)
+    }
+  end
+
+  defp episode_keys([]), do: %{}
+
+  defp episode_keys(ids) do
+    Repo.all(
+      from(episode in Episode,
+        where: episode.id in ^ids,
+        select: {episode.id, episode.key}
+      )
+    )
+    |> Map.new()
+  end
+
   defp rebuild(id, "knowledge", available_ids, params) when is_binary(id) do
     if not MapSet.member?(available_ids, id) do
       options = %{page: page_number(params["rebuild_page"]), q: search_text(params["rebuild_q"])}
@@ -153,7 +185,8 @@ defmodule Responder.ControlPlane.ConversationMemory do
 
   # The operator can inspect withdrawn history, but its recall label must apply
   # the same inherited-source visibility and retention fences as model recall.
-  defp available_ids(items) do
+  @doc false
+  def available_ids(items) do
     items
     |> Enum.reject(&(&1.state["retention"] == "pruned"))
     |> Enum.group_by(&{&1.transport, &1.conversation_ref, &1.repository_ref})
@@ -258,15 +291,12 @@ defmodule Responder.ControlPlane.ConversationMemory do
   end
 
   defp item(%ConversationSummary{} = summary, episodes, secrets) do
-    state = sanitized(summary.state, secrets)
-    title = List.first(state["active_topics"] || []) || state["purpose"] || "Conversation summary"
     warning = summary_history_warning(summary.source_dependencies)
     view = base(summary, episodes)
 
-    Map.merge(view, %{
-      title: title,
-      text: state["situation"] || state["goal"] || "",
-      groups: summary_groups(state),
+    view
+    |> Map.merge(continuity_state(summary.state, secrets))
+    |> Map.merge(%{
       source: nil,
       expires_at: if(is_nil(warning), do: view.expires_at),
       recall_warning: warning,

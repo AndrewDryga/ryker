@@ -279,7 +279,8 @@ defmodule Responder.ControlPlane.LearningActivity do
     )
   end
 
-  defp batch(row),
+  @doc false
+  def batch(row),
     do: %{
       id: row.id,
       status: row.status,

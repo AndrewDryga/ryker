@@ -15,13 +15,25 @@ defmodule Responder.ControlPlane.ChannelDetailTest do
   import Phoenix.LiveViewTest
   import Plug.Test
 
-  alias Responder.ControlPlane.{Actions, Activity, Endpoint, Projection, Router}
+  alias Responder.ControlPlane.{Actions, Activity, Endpoint, LearningActivity, Projection, Router}
   alias Responder.Episodes
   alias Responder.Episodes.Episode
   alias Responder.Fixtures.Episodes, as: EpisodeFixtures
+  alias Responder.Fixtures.Knowledge, as: KnowledgeFixtures
   alias Responder.Fixtures.SavedEntities
+  alias Responder.Learning.Batch
   alias Responder.Slack.{ChannelConfigurationChangeset, IncidentRoomChangeset}
-  alias Responder.State.{ConversationSummary, Records, Schedule}
+
+  alias Responder.State.{
+    ConversationKnowledge,
+    ConversationRollup,
+    ConversationSummary,
+    ConversationSummaryDraft,
+    Records,
+    Schedule
+  }
+
+  alias Responder.Work.Turn
 
   @endpoint Endpoint
   @now ~U[2026-09-10 12:00:00.000000Z]
@@ -232,6 +244,15 @@ defmodule Responder.ControlPlane.ChannelDetailTest do
   test "loading the page changes nothing and calls nobody" do
     membership!("T123", "C456", private: false, external_shared: false)
     summary!("slack:T123", "slack:T123:C456", recall_count: 4)
+
+    rollup!("slack:T123", :conversation, "slack:T123:C456",
+      expires_at: DateTime.add(@now, 30, :day),
+      recall_count: 6
+    )
+
+    [key] = episodes!("slack:T123:C456", 1)
+    KnowledgeFixtures.learn!(Repo.get_by!(Episode, key: key))
+    batch!("slack:T123:C456", status: :deferred, error_code: "learning_judgment_deferred")
     handler = "channel-detail-no-external-request-#{System.unique_integer([:positive])}"
     test_pid = self()
 
@@ -253,6 +274,7 @@ defmodule Responder.ControlPlane.ChannelDetailTest do
     assert transaction_writes() == writes_before
     refute_received {:external_request, _}
     assert Repo.one!(from(summary in ConversationSummary, select: summary.recall_count)) == 4
+    assert Repo.one!(from(rollup in ConversationRollup, select: rollup.recall_count)) == 6
   end
 
   test "nothing that must stay inside the host crosses the page boundary" do
@@ -265,9 +287,27 @@ defmodule Responder.ControlPlane.ChannelDetailTest do
       source_dependencies: [%{"secret-dependency" => "must-not-render-dependency"}]
     )
 
+    rollup!("slack:T123", :conversation, "slack:T123:CINCIDENT",
+      expires_at: DateTime.add(@now, 30, :day),
+      source_dependencies: [%{"secret" => "must-not-render-rollup-dependency"}],
+      source_refs: ["must-not-render-source-ref"]
+    )
+
+    knowledge!("slack:T123:CINCIDENT",
+      title: "Topic",
+      source_dependencies: [%{"secret" => "must-not-render-knowledge-dependency"}]
+    )
+
+    batch!("slack:T123:CINCIDENT", status: :deferred, error_code: "must-not-render-raw-code")
+    draft!(source, "must-not-render-draft")
+
     html = page("/channels/T123/CINCIDENT")
 
-    for marker <- ~w(private-incident-prompt private-incident-error must-not-render-dependency) do
+    for marker <-
+          ~w(private-incident-prompt private-incident-error must-not-render-dependency
+             must-not-render-rollup-dependency must-not-render-source-ref
+             must-not-render-knowledge-dependency must-not-render-raw-code must-not-render-draft
+             must-not-render-lease must-not-render-policy) do
       refute html =~ marker, "#{marker} crossed the page boundary"
     end
   end
@@ -313,11 +353,29 @@ defmodule Responder.ControlPlane.ChannelDetailTest do
       episode_refs = episodes!("slack:T123:C456", 26, updated_at: @now)
       schedule_refs = schedules!(source, "slack:T123:C456", 26)
       summary_refs = for _ <- 1..26, do: summary!("slack:T123", "slack:T123:C456", []).ref
+      future = DateTime.add(@now, 30, :day)
+
+      # A rollup is unique per period, so each one starts on its own day.
+      rollup_refs =
+        for index <- 1..26,
+            do:
+              rollup!("slack:T123", :conversation, "slack:T123:C456",
+                expires_at: future,
+                period_start: DateTime.add(@now, -index, :day)
+              ).ref
+
+      knowledge_refs =
+        for index <- 1..26, do: knowledge!("slack:T123:C456", title: "Topic #{index}").id
+
+      learning_refs = for _ <- 1..26, do: batch!("slack:T123:C456", status: :no_change).id
 
       for {section, key, refs} <- [
             {:episodes, "episode_page", episode_refs},
             {:schedules, "schedule_page", schedule_refs},
-            {:summaries, "summary_page", summary_refs}
+            {:summaries, "summary_page", summary_refs},
+            {:rollups, "rollup_page", rollup_refs},
+            {:knowledge, "knowledge_page", knowledge_refs},
+            {:learning, "learning_page", learning_refs}
           ] do
         assert {:ok, first} = Projection.channel("T123", "C456", %{})
         assert {:ok, second} = Projection.channel("T123", "C456", %{key => "2"})
@@ -329,7 +387,7 @@ defmodule Responder.ControlPlane.ChannelDetailTest do
         assert length(first_page.items) == @page_size
         assert length(second_page.items) == 1
 
-        seen = Enum.map(first_page.items ++ second_page.items, & &1.ref)
+        seen = Enum.map(first_page.items ++ second_page.items, &Map.get(&1, :ref, &1[:id]))
         assert Enum.sort(seen) == Enum.sort(refs), "#{section} pages must partition the rows"
 
         # Invalid and out-of-range pages resolve to a valid page, never to an
@@ -411,6 +469,258 @@ defmodule Responder.ControlPlane.ChannelDetailTest do
       html = page("/channels/T123/C456?summary_page=9")
       refute html =~ "No conversation summaries are retained"
       assert html =~ "1 summary"
+    end
+  end
+
+  describe "continuity and learning" do
+    test "a summary shows its retained state, sources and maintenance error, never its internals" do
+      # The old row was an opaque continuity UUID with a thread and a date; an
+      # operator could not tell what the channel remembered or why recall was
+      # blocked without opening PostgreSQL.
+      membership!("T123", "C456", private: false, external_shared: false)
+      source = SavedEntities.source!("slack:T123:C456")
+
+      summary =
+        summary!("slack:T123", "slack:T123:C456",
+          situation: "Replication is stalled on the primary",
+          decisions: ["Fail over to the replica"],
+          open_loops: ["Confirm the backup finished"],
+          thread_ref: "1787832000.000100",
+          repository_ref: "responder",
+          source_episode_id: source.episode.id,
+          source_message_ref: "1787832000.000100",
+          compaction_error_code: "source_capacity",
+          compaction_retry_at: ~U[2026-09-11 12:00:00.000000Z],
+          recall_count: 3,
+          last_recalled_at: ~U[2026-09-10 13:00:00.000000Z],
+          source_dependencies: [%{"secret-dependency" => "must-not-render-dependency"}]
+        )
+
+      assert {:ok, view} = Projection.channel("T123", "C456", %{})
+      assert [item] = view.summaries.items
+      assert item.ref == summary.ref
+      assert item.title == "database"
+      assert item.text == "Replication is stalled on the primary"
+
+      assert item.groups == [
+               {"Decisions", ["Fail over to the replica"]},
+               {"Open work", ["Confirm the backup finished"]}
+             ]
+
+      assert item.thread_ref == "1787832000.000100"
+      assert item.repository_ref == "responder"
+
+      assert item.request_path ==
+               "/timeline/" <> URI.encode(source.episode.key, &URI.char_unreserved?/1)
+
+      assert item.source == "https://slack.com/archives/C456/p1787832000000100"
+      assert item.maintenance_error == LearningActivity.error("source_capacity")
+      assert item.maintenance_retry_at == ~U[2026-09-11 12:00:00.000000Z]
+      assert item.recall_count == 3
+      assert item.last_recalled_at == ~U[2026-09-10 13:00:00.000000Z]
+      refute Map.has_key?(item, :source_dependencies)
+      refute Map.has_key?(item, :state)
+      refute inspect(item) =~ "must-not-render"
+
+      html = page("/channels/T123/C456")
+      document = LazyHTML.from_document(html)
+      section = LazyHTML.query(document, "#summaries")
+      text = LazyHTML.text(section)
+      assert text =~ "database"
+      assert text =~ "Replication is stalled on the primary"
+      assert text =~ "Fail over to the replica"
+      assert text =~ "Confirm the backup finished"
+      assert text =~ LearningActivity.error("source_capacity")
+      assert text =~ "Recalled 3 times"
+      assert text =~ "responder"
+      hrefs = section |> LazyHTML.query("a") |> LazyHTML.attribute("href")
+      assert item.request_path in hrefs
+      assert item.source in hrefs
+      refute html =~ "must-not-render-dependency"
+      refute html =~ String.duplicate("a", 64)
+      # The ref stays reachable, but it is not the heading.
+      refute section |> LazyHTML.query("h3") |> LazyHTML.text() =~ summary.ref
+      assert html =~ summary.ref
+    end
+
+    test "rollups are the canonical conversation's own, unexpired ones" do
+      membership!("T123", "C456", private: false, external_shared: false)
+      configuration!("T123", "C456", repository_ref: "responder")
+      future = DateTime.add(@now, 30, :day)
+      past = DateTime.add(@now, -30, :day)
+
+      current =
+        rollup!("slack:T123", :conversation, "slack:T123:C456",
+          expires_at: future,
+          source_count: 4,
+          recall_count: 2,
+          situation: "Rolled up situation"
+        )
+
+      rollup!("slack:T123", :conversation, "slack:T123:C456",
+        expires_at: DateTime.add(past, 2, :day),
+        period_start: past
+      )
+
+      rollup!("slack:T123", :repository, "responder",
+        expires_at: future,
+        repository_ref: "responder"
+      )
+
+      rollup!("slack:T123", :conversation, "slack:T123:C999", expires_at: future)
+      rollup!("T123", :conversation, "slack:T123:C456", expires_at: future)
+      rollup!("slack:T999", :conversation, "slack:T999:C456", expires_at: future)
+
+      assert {:ok, view} = Projection.channel("T123", "C456", %{})
+      assert view.rollups.total == 1
+      assert [item] = view.rollups.items
+      assert item.ref == current.ref
+      assert item.source_count == 4
+      assert item.recall_count == 2
+      assert item.expires_at == future
+      assert item.text == "Rolled up situation"
+      assert %DateTime{} = item.period_start
+      assert %DateTime{} = item.period_end
+      refute Map.has_key?(item, :source_refs)
+      refute Map.has_key?(item, :source_scopes)
+
+      html = page("/channels/T123/C456")
+      section = html |> LazyHTML.from_document() |> LazyHTML.query("#rollups") |> LazyHTML.text()
+      assert section =~ "1 rollup"
+      assert section =~ "4 sources"
+      assert section =~ "Rolled up situation"
+      assert section =~ "Recalled 2 times"
+      assert section =~ "Expires 10 Oct, 12:00 UTC"
+    end
+
+    test "learned knowledge for the exact conversation shows its topic, state and history link" do
+      membership!("T123", "C456", private: false, external_shared: false)
+      [key] = episodes!("slack:T123:C456", 1)
+      episode = Repo.get_by!(Episode, key: key)
+      {_entry, _document} = KnowledgeFixtures.learn!(episode)
+      knowledge!("slack:T123:C999", title: "Elsewhere", summary: "Another channel's topic")
+
+      pruned =
+        knowledge!("slack:T123:C456",
+          title: "Old topic",
+          summary: "must-not-render-pruned",
+          retention: "pruned"
+        )
+
+      assert {:ok, view} = Projection.channel("T123", "C456", %{})
+      assert view.knowledge.total == 2
+      titles = Enum.map(view.knowledge.items, & &1.title)
+      assert "Keep draft-ai-suggestions" in titles
+      assert "Expired knowledge" in titles
+      refute "Elsewhere" in titles
+
+      learned = Enum.find(view.knowledge.items, &(&1.title == "Keep draft-ai-suggestions"))
+      assert learned.available
+      assert learned.version == 1
+      assert learned.text =~ "wants to keep"
+
+      assert learned.path ==
+               "/memory?" <> URI.encode_query(%{"kind" => "knowledge", "item" => learned.id})
+
+      expired = Enum.find(view.knowledge.items, &(&1.id == pruned.id))
+      refute expired.available
+      refute expired.text =~ "must-not-render-pruned"
+
+      html = page("/channels/T123/C456")
+      section = html |> LazyHTML.from_document() |> LazyHTML.query("#knowledge")
+      assert LazyHTML.text(section) =~ "Keep draft-ai-suggestions"
+      assert LazyHTML.text(section) =~ "Not used for recall"
+      assert learned.path in LazyHTML.attribute(LazyHTML.query(section, "a"), "href")
+      refute html =~ "must-not-render-pruned"
+      refute html =~ "Elsewhere"
+    end
+
+    test "learning batches for the exact conversation show their health and link to the inspection" do
+      membership!("T123", "C456", private: false, external_shared: false)
+
+      deferred =
+        batch!("slack:T123:C456",
+          status: :deferred,
+          error_code: "learning_judgment_deferred",
+          next_attempt_at: ~U[2026-09-11 12:00:00.000000Z]
+        )
+
+      queued = batch!("slack:T123:C456", status: :queued, execution_mode: :shadow, input_count: 3)
+      settled = batch!("slack:T123:C456", status: :no_change, completed_at: @now)
+      batch!("slack:T123:C999", status: :queued)
+
+      assert {:ok, view} = Projection.channel("T123", "C456", %{})
+      assert view.learning.total == 3
+
+      assert view.learning.counts == %{
+               queued: 1,
+               running: 0,
+               applied: 0,
+               no_change: 1,
+               deferred: 1,
+               superseded: 0
+             }
+
+      # Three batches formed in the same instant: the unique id breaks the tie.
+      assert Enum.map(view.learning.items, & &1.id) ==
+               Enum.sort([settled.id, queued.id, deferred.id], :desc)
+
+      item = Enum.find(view.learning.items, &(&1.id == deferred.id))
+      assert item.label == "Needs attention"
+      assert item.error == LearningActivity.error("learning_judgment_deferred")
+      assert item.path == LearningActivity.path(deferred.id)
+      assert item.next_attempt_at == ~U[2026-09-11 12:00:00.000000Z]
+      assert Enum.find(view.learning.items, &(&1.id == queued.id)).mode == :shadow
+      refute Map.has_key?(item, :lease_owner)
+      refute Map.has_key?(item, :policy_digest)
+
+      html = page("/channels/T123/C456")
+      section = html |> LazyHTML.from_document() |> LazyHTML.query("#learning")
+      text = LazyHTML.text(section)
+      assert text =~ "1 queued"
+      assert text =~ "1 needs attention"
+      assert text =~ "3 messages"
+      assert text =~ LearningActivity.error("learning_judgment_deferred")
+
+      assert LearningActivity.path(deferred.id) in LazyHTML.attribute(
+               LazyHTML.query(section, "a"),
+               "href"
+             )
+
+      refute html =~ "must-not-render-lease"
+      refute html =~ "must-not-render-policy"
+    end
+
+    test "in-flight drafts and unsaved handovers are counted, never shown" do
+      membership!("T123", "C456", private: false, external_shared: false)
+      source = SavedEntities.source!("slack:T123:C456")
+      other = SavedEntities.source!("slack:T123:C999")
+      draft!(source, "must-not-render-draft")
+      draft!(other, "other-draft")
+
+      Repo.update_all(from(turn in Turn, where: turn.id == ^source.turn.id),
+        set: [summary_error_code: "no_sources"]
+      )
+
+      assert {:ok, view} = Projection.channel("T123", "C456", %{})
+      assert view.continuity == %{drafts: 1, handover_failures: 1}
+      assert view.summaries.total == 0
+
+      html = page("/channels/T123/C456")
+      section = html |> LazyHTML.from_document() |> LazyHTML.query("#summaries")
+      assert LazyHTML.text(section) =~ "1 summary draft in flight"
+      assert LazyHTML.text(section) =~ "1 handover not saved"
+
+      assert "/memory#handover-failures" in LazyHTML.attribute(
+               LazyHTML.query(section, "a"),
+               "href"
+             )
+
+      assert LazyHTML.text(section) =~ "No conversation summaries are retained"
+      refute html =~ "must-not-render-draft"
+
+      assert {:ok, quiet} = Projection.channel("T123", "C999", %{})
+      assert quiet.continuity == %{drafts: 1, handover_failures: 0}
     end
   end
 
@@ -545,22 +855,24 @@ defmodule Responder.ControlPlane.ChannelDetailTest do
     |> Repo.insert!()
   end
 
-  defp summary!(workspace, conversation, attributes) do
-    attributes = Map.new(attributes)
-    sequence = System.unique_integer([:positive, :monotonic])
-
-    state = %{
+  defp continuity_state(attributes, sequence) do
+    %{
       "active_topics" => ["database"],
-      "decisions" => [],
+      "decisions" => Map.get(attributes, :decisions, []),
       "evidence_refs" => [],
       "goal" => "Restore the primary",
-      "open_loops" => [],
+      "open_loops" => Map.get(attributes, :open_loops, []),
       "participants" => ["U1"],
       "purpose" => "Incident response",
       "situation" => Map.get(attributes, :situation, "Situation #{sequence}"),
       "topology" => [],
       "unresolved_questions" => []
     }
+  end
+
+  defp summary!(workspace, conversation, attributes) do
+    attributes = Map.new(attributes)
+    sequence = System.unique_integer([:positive, :monotonic])
 
     Repo.insert!(%ConversationSummary{
       id: Ecto.UUID.generate(),
@@ -570,14 +882,120 @@ defmodule Responder.ControlPlane.ChannelDetailTest do
       workspace_ref: workspace,
       conversation_ref: conversation,
       thread_ref: Map.get(attributes, :thread_ref),
+      repository_ref: Map.get(attributes, :repository_ref),
       visibility: :conversation,
-      state: state,
+      state: continuity_state(attributes, sequence),
       source_dependencies: Map.get(attributes, :source_dependencies, []),
       state_fingerprint: String.duplicate("a", 64),
+      source_episode_id: Map.get(attributes, :source_episode_id),
+      source_message_ref: Map.get(attributes, :source_message_ref),
       source_result_ref: "result:#{sequence}",
+      compaction_error_code: Map.get(attributes, :compaction_error_code),
+      compaction_retry_at: Map.get(attributes, :compaction_retry_at),
       recall_count: Map.get(attributes, :recall_count, 0),
+      last_recalled_at: Map.get(attributes, :last_recalled_at),
       inserted_at: Map.get(attributes, :updated_at, @now),
       updated_at: Map.get(attributes, :updated_at, @now)
+    })
+  end
+
+  defp rollup!(workspace, scope_kind, scope_ref, attributes) do
+    attributes = Map.new(attributes)
+    sequence = System.unique_integer([:positive, :monotonic])
+    period_start = Map.get(attributes, :period_start, DateTime.add(@now, -2, :day))
+
+    Repo.insert!(%ConversationRollup{
+      id: Ecto.UUID.generate(),
+      ref: "rollup:#{sequence}",
+      workspace_ref: workspace,
+      scope_kind: scope_kind,
+      scope_ref: scope_ref,
+      repository_ref: Map.get(attributes, :repository_ref),
+      visibility: if(scope_kind == :repository, do: :public, else: :conversation),
+      period_start: period_start,
+      period_end: DateTime.add(period_start, 1, :day),
+      state: continuity_state(attributes, sequence),
+      source_dependencies: Map.get(attributes, :source_dependencies, []),
+      state_fingerprint: String.duplicate("b", 64),
+      source_refs: Map.get(attributes, :source_refs, ["summary:#{sequence}"]),
+      source_scopes: [
+        %{"transport" => "slack", "workspace_ref" => "T123", "channel_ref" => "C456"}
+      ],
+      source_count: Map.get(attributes, :source_count, 1),
+      expires_at: Map.fetch!(attributes, :expires_at),
+      recall_count: Map.get(attributes, :recall_count, 0),
+      inserted_at: @now,
+      updated_at: @now
+    })
+  end
+
+  defp knowledge!(conversation, attributes) do
+    attributes = Map.new(attributes)
+    sequence = System.unique_integer([:positive, :monotonic])
+    workspace = conversation |> String.split(":", parts: 3) |> Enum.take(2) |> Enum.join(":")
+
+    state =
+      %{
+        "title" => Map.fetch!(attributes, :title),
+        "summary" => Map.get(attributes, :summary, "Summary #{sequence}")
+      }
+      |> then(fn state ->
+        case Map.get(attributes, :retention) do
+          nil -> state
+          retention -> Map.put(state, "retention", retention)
+        end
+      end)
+
+    Repo.insert!(%ConversationKnowledge{
+      id: Ecto.UUID.generate(),
+      scope_key: Responder.CanonicalJSON.digest(conversation),
+      topic_key: "topic-#{sequence}",
+      transport: "slack",
+      workspace_ref: workspace,
+      conversation_ref: conversation,
+      visibility: :conversation,
+      state: state,
+      version: 1,
+      source_generation: 1,
+      source_dependencies: Map.get(attributes, :source_dependencies, []),
+      source_input_id: Ecto.UUID.generate(),
+      latest_source_at: @now,
+      inserted_at: @now,
+      updated_at: @now
+    })
+  end
+
+  defp batch!(conversation, attributes) do
+    attributes = Map.new(attributes)
+    status = Map.fetch!(attributes, :status)
+
+    Repo.insert!(%Batch{
+      scope_key: Responder.CanonicalJSON.digest(conversation),
+      transport: "slack",
+      conversation_ref: conversation,
+      execution_mode: Map.get(attributes, :execution_mode, :live),
+      policy: "learning-policy",
+      policy_digest: "must-not-render-policy",
+      status: status,
+      input_count: Map.get(attributes, :input_count, 1),
+      lease_ref: if(status == :running, do: Ecto.UUID.generate()),
+      lease_owner: if(status == :running, do: "must-not-render-lease"),
+      lease_expires_at: if(status == :running, do: DateTime.add(@now, 1, :hour)),
+      next_attempt_at: Map.get(attributes, :next_attempt_at),
+      error_code: Map.get(attributes, :error_code),
+      completed_at: Map.get(attributes, :completed_at),
+      inserted_at: @now,
+      updated_at: @now
+    })
+  end
+
+  defp draft!(source, marker) do
+    Repo.insert!(%ConversationSummaryDraft{
+      id: Ecto.UUID.generate(),
+      episode_id: source.episode.id,
+      turn_id: source.turn.id,
+      state: %{"situation" => marker},
+      state_fingerprint: String.duplicate("d", 64)
     })
   end
 
