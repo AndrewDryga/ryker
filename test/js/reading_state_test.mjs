@@ -48,6 +48,8 @@ function fixture(hash = "") {
   vm.runInNewContext(source.replace(/^import .*$/gm, ""), {document, window, location,
     sessionStorage: {getItem() { return null }}, Socket: class {}, keyFor: () => null, createRelearnPicker,
     applyFilterChange: () => false,
+    // No transcript on this page: the conversation anchor declines ownership.
+    ConversationHistory: {}, captureReadingAnchor: () => null, restoreReadingAnchor: () => false,
     LiveSocket: class { constructor(_path, _socket, options) { hook = options.hooks.PreserveReadingState } connect() {} }})
   const pushed = []
   const mounted = Object.assign({el: root, pushEvent: (name, params) => pushed.push([name, params])}, hook)

@@ -16,6 +16,7 @@ defmodule Responder.ControlPlane.Router do
     CSRF,
     HTML,
     LearningActivity,
+    Projection,
     RelearnPanel,
     SettingsPage
   }
@@ -835,6 +836,43 @@ defmodule Responder.ControlPlane.Router do
     end
   end
 
+  # One older page of a conversation, decorated with the same edit, reaction
+  # and record controls as the latest page so a row loaded by scrolling up is
+  # exactly as usable as one that was on screen at open.
+  @doc false
+  def lab_history(conversation_id, cursor, page_size, options) do
+    with {:ok, conversation_id} <- lab_id(conversation_id),
+         {:ok, page} <- options.projection.lab_history.(conversation_id, cursor, page_size) do
+      decorated =
+        %{conversation_id: conversation_id, messages: page.messages}
+        |> lab_message_controls(options.csrf_secret)
+        |> lab_record_controls(options.csrf_secret)
+
+      {:ok, %{page | messages: decorated.messages}}
+    else
+      :not_found -> {:error, :not_found}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  # The rows of a conversation that changed since a moment, decorated the
+  # same way, so a live window can refresh a row it holds off the latest page.
+  @doc false
+  def lab_changes(conversation_id, since, page_size, options) do
+    with {:ok, conversation_id} <- lab_id(conversation_id),
+         {:ok, messages} <- options.projection.lab_changes.(conversation_id, since, page_size) do
+      decorated =
+        %{conversation_id: conversation_id, messages: messages}
+        |> lab_message_controls(options.csrf_secret)
+        |> lab_record_controls(options.csrf_secret)
+
+      {:ok, decorated.messages}
+    else
+      :not_found -> {:error, :not_found}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
   defp prepare_lab_snapshot(conversation_id, options) do
     snapshot =
       case options.projection.lab_conversation.(conversation_id) do
@@ -916,6 +954,7 @@ defmodule Responder.ControlPlane.Router do
       conversation_id: conversation_id,
       conversation_ref: "control-plane:lab:#{conversation_id}",
       episodes: [],
+      history: %{before: nil, exhausted: true, page_size: Projection.lab_page_size()},
       live: false,
       messages: [],
       pending: 0
