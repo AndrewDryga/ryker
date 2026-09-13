@@ -29,6 +29,11 @@ defmodule Responder.Work.PromptTest do
              "state what it found and what it could not reach, then ask one concrete"
 
     assert instructions =~ "arm that watch with wait_for in the same turn as the question"
+    # The judge rejected a delivery that answered about "the requested revision"
+    # without ever naming it, and another that rested on saved source-linked
+    # findings while the Slack prose carried no source at all.
+    assert instructions =~ "Carry the exact identifier the request was about"
+    assert instructions =~ "Name the sources the answer rests on in the reply itself"
     assert instructions =~ "concrete recap of the established findings in the final reply"
     assert instructions =~ "A list of missing checks is not that recap"
     assert instructions =~ "rather than repeating its text in the final reply"

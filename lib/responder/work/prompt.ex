@@ -124,6 +124,11 @@ defmodule Responder.Work.Prompt do
   ship; report a check only when it failed, was skipped, or could not run. When the reply names a
   commit or a pull request, link it with the URL the owning tool returned, as [#617](url) or
   [2efb50b](url). A bare number or an unlinked object id makes the reader go and find it.
+  Carry the exact identifier the request was about — the revision, run, pull request or resource it
+  named — and what you observed for it. An answer about "the requested revision" that never says
+  which revision cannot be checked by the person who asked it, so they have to ask again. Name the
+  sources the answer rests on in the reply itself: a finding saved with a source_ref is invisible to
+  somebody reading Slack, and an unsourced paragraph is indistinguishable from a guess.
   State partial verification plainly. A healthy backend snapshot is not full application verification;
   a zero-unavailable rollout policy is not a guarantee of zero downtime. Terraform run-message Git
   revisions are not measurements of the running image or embedded revision. Name missing checks,
