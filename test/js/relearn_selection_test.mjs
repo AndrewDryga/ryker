@@ -3,11 +3,10 @@ import assert from "node:assert/strict"
 import {readFileSync} from "node:fs"
 import vm from "node:vm"
 
-const source = readFileSync(new URL("../../priv/static/control-plane.js", import.meta.url), "utf8")
+const source = readFileSync(new URL("../../priv/static/reading-state.mjs", import.meta.url), "utf8")
 const imports = {}
-// Load the actual shipped local helpers, while keeping Phoenix transport inert.
-for (const match of source.matchAll(/^import \{([^}]+)\} from "\/assets\/([^"/]+\.mjs)"/gm)) {
-  if (match[2] === "phoenix.mjs") continue
+// Load the actual shipped local helpers the shell hook imports.
+for (const match of source.matchAll(/^import \{([^}]+)\} from "\.\/([^"/]+\.mjs)"/gm)) {
   const module = await import(new URL(`../../priv/static/${match[2]}`, import.meta.url))
   for (const name of match[1].split(",")) {
     const [original, local = original] = name.trim().split(/\s+as\s+/)
@@ -30,7 +29,7 @@ function storage() {
 }
 
 function fixture(items, store = storage(), target = scope) {
-  let hook, form
+  let form
   const listeners = new Map()
   const document = {body: {}, documentElement: {scrollHeight: 1000},
     querySelector: () => ({content: "host-test-csrf"}), getElementById: () => null,
@@ -62,9 +61,8 @@ function fixture(items, store = storage(), target = scope) {
     return Object.assign(next, {hidden, count, help, submit, clear})
   }
   form = page(items, target)
-  vm.runInNewContext(source.replace(/^import .*$/gm, ""), {...imports, document, window, location,
-    sessionStorage: store, Socket: class {},
-    LiveSocket: class { constructor(_path, _socket, options) { hook = options.hooks.PreserveReadingState } connect() {} }})
+  const hook = vm.runInNewContext(source.replace(/^import .*$/gm, "").replace(/^export /gm, "") + "\ncreateReadingStateHook()",
+    {...imports, document, window, location, sessionStorage: store})
   const mounted = Object.assign({el: root}, hook)
   mounted.mounted()
   function emit(type, element) {

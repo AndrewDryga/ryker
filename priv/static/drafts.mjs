@@ -18,6 +18,10 @@ export const draftKey = (element, path) => {
 // collision, a storage failure loses nothing, and once a key has been settled
 // no retired key is read again in this session. Nothing here sends: the
 // operator still has to press Send.
+//
+// Everything from here to captureDrafts is that one-time carry-over. Remove it,
+// its callers and its tests after 2026-09-20: drafts live in sessionStorage,
+// which dies with the tab, and no tab stays open that long.
 const currentPrefix = "ryker:"
 const retiredPrefix = "responder:"
 const conversationPattern = /^draft:\/conversations\/([^:/]+):\/conversations\/([^:]+):(.+)$/

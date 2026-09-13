@@ -4,21 +4,19 @@ import {readFileSync} from "node:fs"
 import vm from "node:vm"
 import {captureReadingAnchor, restoreReadingAnchor, createHistory, readerScrolled, scrollerFor} from "../../priv/static/history.mjs"
 
-const shellSource = readFileSync(new URL("../../priv/static/control-plane.js", import.meta.url), "utf8")
+const shellSource = readFileSync(new URL("../../priv/static/reading-state.mjs", import.meta.url), "utf8")
 
 // The shipped shell hook with its real local helpers, so the test fails if
-// control-plane.js goes back to restoring a pixel offset on a transcript.
+// reading-state.mjs goes back to restoring a pixel offset on a transcript.
 async function shell(p) {
   const imports = {}
-  for (const match of shellSource.matchAll(/^import \{([^}]+)\} from "\/assets\/([^"/]+\.mjs)"/gm)) {
-    if (match[2] === "phoenix.mjs") continue
+  for (const match of shellSource.matchAll(/^import \{([^}]+)\} from "\.\/([^"/]+\.mjs)"/gm)) {
     const module = await import(new URL(`../../priv/static/${match[2]}`, import.meta.url))
     for (const name of match[1].split(",")) {
       const [exported, local = exported] = name.trim().split(/\s+as\s+/)
       imports[local.trim()] = module[exported.trim()]
     }
   }
-  let hook
   const location = {pathname: "/conversations/conv-a", search: "", hash: "", href: "http://127.0.0.1/conversations/conv-a"}
   const root = {querySelectorAll: () => [], querySelector: selector => selector === "#lab-messages" ? p.container : null,
     addEventListener() {}, removeEventListener() {}, contains: () => false}
@@ -26,9 +24,8 @@ async function shell(p) {
   // The helpers read the page's globals, as they do in the browser.
   globalThis.window = p.win
   globalThis.document = document
-  vm.runInNewContext(shellSource.replace(/^import .*$/gm, ""), {...imports, document,
-    window: p.win, location, sessionStorage: {getItem: () => null, setItem() {}, removeItem() {}}, Socket: class {},
-    LiveSocket: class { constructor(_path, _socket, options) { hook = options.hooks.PreserveReadingState } connect() {} }})
+  const hook = vm.runInNewContext(shellSource.replace(/^import .*$/gm, "").replace(/^export /gm, "") + "\ncreateReadingStateHook()",
+    {...imports, document, window: p.win, location, sessionStorage: {getItem: () => null, setItem() {}, removeItem() {}}})
   return Object.assign({el: root, pushEvent() {}}, hook)
 }
 

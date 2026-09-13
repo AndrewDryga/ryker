@@ -16,6 +16,8 @@ export function createRelearnPicker(root, getStorage) {
   function read(nextScope) {
     if (!persistent) return new Map()
     let raw
+    // Remove adoptRetiredKey after 2026-09-20: it moves a selection saved under
+    // the pre-rename key (2026-09-13); a tab open since before then has closed.
     try { adoptRetiredKey(storageKey, storage); raw = storage.getItem(storageKey) } catch (_) { persistent = false; return new Map() }
     try {
       if (!raw || raw.length > 10000) return new Map()
