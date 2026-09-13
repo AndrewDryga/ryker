@@ -1657,8 +1657,11 @@ defmodule Responder.ControlPlane.Router do
   defp action_return_path(kind, resource_ref, _options),
     do: action_return_path(kind, resource_ref)
 
+  # Every kind the failures page can list, because it links each row it lists and
+  # a kind missing here answers 404 to its own link. Publications were listed and
+  # unreachable in production for exactly that reason.
   defp failure_kinds,
-    do: ~w(admission delivery emisar retention slack_incident slack_interaction work)
+    do: ~w(admission delivery emisar publication retention slack_incident slack_interaction work)
 
   defp form_token(conn) do
     with [content_type] <- get_req_header(conn, "content-type"),

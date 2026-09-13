@@ -1001,6 +1001,27 @@ defmodule Responder.ControlPlane.RouterTest do
                      %{"subject" => "primary_codebase", "value" => "responder-elixir"}}
   end
 
+  # The failures page listed publication failures and linked each one, and the
+  # router then answered 404 because its allowlist of failure kinds had never
+  # learned about publications. Three real ones were unreachable in production.
+  test "every failure kind the page links is a kind the router will open" do
+    failures = request(:get, "/failures")
+    assert failures.status == 200
+
+    links =
+      failures.resp_body
+      |> LazyHTML.from_document()
+      |> LazyHTML.query("a[href^='/failures/']")
+      |> LazyHTML.attribute("href")
+      |> Enum.uniq()
+
+    assert Enum.any?(links, &String.starts_with?(&1, "/failures/publication/"))
+
+    for href <- links do
+      assert request(:get, href).status == 200, "#{href} is linked but does not open"
+    end
+  end
+
   test "a blocked delivery can be rearmed only from its exact confirmed intent" do
     failures = request(:get, "/failures")
     assert failures.status == 200
@@ -2013,6 +2034,19 @@ defmodule Responder.ControlPlane.RouterTest do
                status: :blocked,
                summary: "operation_uncertain",
                updated_at: ~U[2026-08-28 11:59:00Z]
+             },
+             %{
+               action: nil,
+               attempt_count: 1,
+               detail: "stored diagnostic sha256:publication",
+               destination: "responder / symbolicator-deploy",
+               episode_ref: "episode:one",
+               kind: "publication",
+               ref: "publication:one",
+               source: nil,
+               status: :blocked,
+               summary: "publication_repository_not_configured",
+               updated_at: ~U[2026-08-28 11:58:00Z]
              },
              %{
                action: :retry,
