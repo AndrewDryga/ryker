@@ -8,7 +8,6 @@ defmodule Ryker.State.Behavior do
 
   schema "operator_behaviors" do
     belongs_to(:offer_record, Ryker.State.Record)
-    belongs_to(:cutover_item, Ryker.Cutover.Item)
     field(:ref, :string)
     field(:kind, Ecto.Enum, values: [:preference, :guidance, :standing_assignment])
     field(:status, Ecto.Enum, values: [:active, :disabled, :superseded, :deleted, :expired])

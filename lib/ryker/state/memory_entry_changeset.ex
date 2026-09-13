@@ -10,7 +10,6 @@ defmodule Ryker.State.MemoryEntryChangeset do
     :confirmation_ref,
     :confirmed_at,
     :confirmed_by_actor_ref,
-    :cutover_item_id,
     :expires_at,
     :id,
     :kind,
@@ -30,7 +29,7 @@ defmodule Ryker.State.MemoryEntryChangeset do
     :workspace_ref
   ]
 
-  @normal_required @insert_fields -- [:answer_provenance, :cutover_item_id, :source_thread_ref]
+  @normal_required @insert_fields -- [:answer_provenance, :source_thread_ref]
 
   @spec insert(map()) :: Ecto.Changeset.t()
   def insert(attributes) do
@@ -65,11 +64,9 @@ defmodule Ryker.State.MemoryEntryChangeset do
     |> validate_format(:payload_fingerprint, ~r/\A[0-9a-f]{64}\z/)
     |> unique_constraint(:ref)
     |> unique_constraint(:offer_record_id)
-    |> unique_constraint(:cutover_item_id)
     |> unique_constraint(:confirmation_ref, name: :operational_memory_answer_confirmation)
     |> unique_constraint(:subject, name: :operational_memory_active_identity)
     |> foreign_key_constraint(:offer_record_id)
-    |> foreign_key_constraint(:cutover_item_id)
     |> check_constraint(:offer_record_id, name: :operational_memory_provenance_valid)
     |> check_constraint(:kind, name: :operational_memory_entry_valid)
   end

@@ -26,7 +26,6 @@ defmodule Ryker.Retention.Data do
           closed_work: non_neg_integer(),
           configuration_sessions: non_neg_integer(),
           conversation_memory: non_neg_integer(),
-          cutover_items: non_neg_integer(),
           delivery_reactions: non_neg_integer(),
           episode_histories: non_neg_integer(),
           input_artifacts: non_neg_integer(),
@@ -934,31 +933,6 @@ defmodule Ryker.Retention.Data do
   end
 
   defp prune_audit(result, settings) do
-    cutover_items =
-      execute_count(
-        """
-        WITH candidates AS (
-          SELECT item.id
-          FROM ryker_cutover_items AS item
-          JOIN ryker_cutover_runs AS run ON run.id = item.run_id
-          WHERE item.status IN ('applied', 'skipped', 'rolled_back', 'failed')
-            AND run.status IN ('applied', 'rolled_back', 'failed')
-            AND item.data::jsonb <> '{"retention":"pruned"}'::jsonb
-            AND COALESCE(run.rolled_back_at, run.applied_at, run.updated_at)
-                < clock_timestamp() - ($1 * interval '1 second')
-          ORDER BY item.updated_at, item.id
-          LIMIT 100
-          FOR UPDATE OF item SKIP LOCKED
-        )
-        UPDATE ryker_cutover_items AS item
-        SET data = '{"retention":"pruned"}',
-            updated_at = clock_timestamp()
-        FROM candidates
-        WHERE item.id = candidates.id
-        """,
-        [settings.audit_data_seconds]
-      )
-
     worker_certificates =
       execute_count(
         """
@@ -1119,8 +1093,7 @@ defmodule Ryker.Retention.Data do
     %{
       result
       | audit_episodes: length(ids),
-        audit_rows: audit_rows + orphan_inputs + worker_certificates,
-        cutover_items: cutover_items
+        audit_rows: audit_rows + orphan_inputs + worker_certificates
     }
   end
 
@@ -1254,7 +1227,6 @@ defmodule Ryker.Retention.Data do
       closed_work: 0,
       configuration_sessions: 0,
       conversation_memory: 0,
-      cutover_items: 0,
       delivery_reactions: 0,
       episode_histories: 0,
       input_artifacts: 0,

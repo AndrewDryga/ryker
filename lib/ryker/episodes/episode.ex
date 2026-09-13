@@ -12,7 +12,6 @@ defmodule Ryker.Episodes.Episode do
   @foreign_key_type :binary_id
 
   schema "episode_kernel_episodes" do
-    belongs_to(:cutover_item, Ryker.Cutover.Item)
     field(:key, :string)
     field(:execution_mode, Ecto.Enum, values: [:live, :shadow], default: :live)
     field(:history_pruned_at, :utc_datetime_usec)

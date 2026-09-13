@@ -10,7 +10,6 @@ defmodule Ryker.State.ScheduleChangeset do
     :confirmation_ref,
     :confirmed_at,
     :confirmed_by_actor_ref,
-    :cutover_item_id,
     :destination_conversation_ref,
     :destination_thread_ref,
     :destination_transport,
@@ -37,7 +36,6 @@ defmodule Ryker.State.ScheduleChangeset do
 
   @insert_required @fields --
                      [
-                       :cutover_item_id,
                        :destination_thread_ref,
                        :expires_at,
                        :failure_count,
@@ -62,8 +60,6 @@ defmodule Ryker.State.ScheduleChangeset do
     |> unique_constraint(:offer_record_id)
     |> foreign_key_constraint(:offer_record_id)
     |> foreign_key_constraint(:source_episode_id)
-    |> foreign_key_constraint(:cutover_item_id)
-    |> check_constraint(:offer_record_id, name: :episode_schedule_provenance_valid)
     |> check_constraint(:status, name: :episode_schedule_valid)
     |> check_constraint(:lease_ref, name: :episode_schedule_lease_valid)
     |> check_constraint(:revision, name: :episode_schedule_revision_valid)

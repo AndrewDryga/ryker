@@ -7,7 +7,6 @@ defmodule Ryker.State.RecordChangeset do
 
   @fields [
     :continuation,
-    :cutover_item_id,
     :confirmed_at,
     :confirmed_by_actor_ref,
     :confirmed_episode_id,
@@ -58,9 +57,6 @@ defmodule Ryker.State.RecordChangeset do
     |> unique_constraint(:subject_ref, name: :episode_state_record_goal_subject_index)
     |> foreign_key_constraint(:episode_id)
     |> foreign_key_constraint(:turn_id, name: :episode_state_record_turn_episode_fkey)
-    |> unique_constraint(:cutover_item_id)
-    |> foreign_key_constraint(:cutover_item_id)
-    |> check_constraint(:turn_id, name: :episode_state_record_provenance_valid)
     |> check_constraint(:kind, name: :episode_state_record_identity_valid)
   end
 
