@@ -855,7 +855,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
         </div>
         <main
           id="operator-page"
-          class={if @native, do: "native-page", else: "legacy-surface"}
+          class={if @native, do: "native-page", else: "page-surface"}
         >
           <section :if={@native == :loading && @unavailable} class="document-unavailable">
             <h1>This view is temporarily unavailable</h1><p>

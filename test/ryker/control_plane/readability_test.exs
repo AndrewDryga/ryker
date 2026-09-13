@@ -7,7 +7,7 @@ defmodule Ryker.ControlPlane.ReadabilityTest do
     # Every usage label was pale green on paper; calibration put dark headings
     # on a black banner. These actual shipped colors must not recur.
     css = Assets.call(Plug.Test.conn(:get, "/workspace.css"), []).resp_body
-    [_, tokens] = Regex.run(~r/\.ryker-app \.legacy-surface \{([^}]+)\}/, css)
+    [_, tokens] = Regex.run(~r/\.ryker-app \.page-surface \{([^}]+)\}/, css)
     [_, muted] = Regex.run(~r/--muted:\s*(var\(--ryker-[a-z-]+\))/, tokens)
 
     # The surfaces are Ryker roles now (priv/static/ryker-tokens.css); resolve
