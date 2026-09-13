@@ -176,6 +176,7 @@ defmodule Ryker.ControlPlane.WorkRecoveryTest do
       incident_turn()
       | completion_receipt: %{},
         cancellation_receipt: nil,
+        last_error_code: "coop_unavailable",
         last_error_detail: "{:coop_unavailable, :offline}"
     }
 
@@ -184,8 +185,45 @@ defmodule Ryker.ControlPlane.WorkRecoveryTest do
     assert brief.next_step =~ "connection"
     refute brief.next_step =~ "storage"
     refute brief.workspace =~ "snapshot is required"
-    unknown = WorkRecovery.project(%{turn | last_error_detail: "unknown failure"}, :ok)
+
+    unknown =
+      WorkRecovery.project(
+        %{turn | last_error_code: "work_execution_failed", last_error_detail: "unknown failure"},
+        :ok
+      )
+
     refute unknown.next_step =~ "storage"
+  end
+
+  # The dispatcher records why a completion stopped as the turn's error code;
+  # the detail beside it is an inspected term for a reader's eyes. Reading the
+  # cause back out of that term by prefix worked only for the exact spellings
+  # the dispatcher happened to produce, so a completion parked with a plain
+  # sentence, or a reason nested one level deeper, explained nothing.
+  test "a completion block is explained by its recorded error code, never by parsing the detail" do
+    explanations = [
+      {"coop_transport_error", "connection failed while Ryker was saving"},
+      {"coop_session_replacement_required", "no longer available on its recorded worker"},
+      {"coop_protocol_error", "did not match the completed turn's recorded state"}
+    ]
+
+    for {code, cause} <- explanations do
+      brief =
+        WorkRecovery.project(
+          %{
+            incident_turn()
+            | completion_receipt: %{},
+              cancellation_receipt: nil,
+              last_error_code: code,
+              last_error_detail: "Worker unavailable."
+          },
+          :ok
+        )
+
+      assert brief.kind == :completion
+      assert brief.headline == "The worker finished, but saving its result stopped"
+      assert brief.cause =~ cause, "#{code} was explained as: #{brief.cause}"
+    end
   end
 
   test "an accepted reply awaiting delivery is no longer awaiting result finalization" do
@@ -222,6 +260,7 @@ defmodule Ryker.ControlPlane.WorkRecoveryTest do
       WorkRecovery.workspace_hold(%{
         incident_turn()
         | completion_receipt: %{},
+          last_error_code: "coop_unavailable",
           last_error_detail: "{:coop_unavailable, :offline}"
       })
 

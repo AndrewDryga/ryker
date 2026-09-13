@@ -440,14 +440,9 @@ defmodule Ryker.ControlPlane.ConversationMemory do
   defp expires_at(nil), do: nil
 
   defp expires_at(updated_at) do
-    settings = Application.get_env(:ryker, :retention) || %{}
-
-    case if(is_list(settings),
-           do: Keyword.get(settings, :conversation_memory_seconds),
-           else: Map.get(settings, :conversation_memory_seconds)
-         ) do
-      seconds when is_integer(seconds) and seconds > 0 -> DateTime.add(updated_at, seconds)
-      _ -> nil
+    case LearningSources.retention_seconds() do
+      seconds when is_integer(seconds) -> DateTime.add(updated_at, seconds)
+      nil -> nil
     end
   end
 

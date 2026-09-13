@@ -140,15 +140,17 @@ defmodule Ryker.Work.Dispatcher do
     end
   end
 
+  # The reason's own code is what the recovery brief reads to explain a stopped
+  # completion; the completion receipt already says which kind of block this is.
   defp block_completion(claim, receipt, reason) do
-    {_code, detail} = describe_error(reason)
+    {code, detail} = describe_error(reason)
 
     case Custody.block_completion(
            claim.episode.id,
            claim.turn.turn_ref,
            claim.lease_ref,
            receipt,
-           "work_completion_blocked",
+           code,
            detail
          ) do
       {:ok, _turn} -> {:ok, {:blocked, reason}}

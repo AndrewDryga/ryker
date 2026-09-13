@@ -423,11 +423,12 @@ defmodule Ryker.ControlPlane.ProjectionTest do
       end)
     end)
 
-    assert %{key: "control_plane", value: "enabled"} in Projection.configuration()
-    assert %{key: "emisar", value: "enabled"} in Projection.configuration()
-    assert %{key: "retention", value: "enabled"} in Projection.configuration()
-    refute inspect(Projection.configuration()) =~ "4321"
-    refute inspect(Projection.configuration()) =~ "secret"
+    %{rows: rows} = Projection.operator_configuration()
+    assert %{key: "control_plane", value: "enabled", source: "durable settings"} in rows
+    assert %{key: "emisar", value: "enabled", source: "durable settings"} in rows
+    assert %{key: "retention", value: "enabled", source: "durable settings"} in rows
+    refute inspect(rows) =~ "4321"
+    refute inspect(rows) =~ "secret"
   end
 
   test "usage keeps measured coverage cost timing and effective targets distinct" do
@@ -1621,7 +1622,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
     assert Projection.episode("missing") == :not_found
 
     assert Projection.findings(%{}) == %{items: [], total: 0, page: 1, pages: 1}
-    assert map_size(Projection.callbacks()) == 39
+    assert map_size(Projection.callbacks()) == 38
     assert is_function(Projection.callbacks().instructions, 1)
     assert is_function(Projection.callbacks().lab_history, 3)
     assert is_function(Projection.callbacks().lab_changes, 3)

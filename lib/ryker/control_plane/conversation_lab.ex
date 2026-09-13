@@ -169,7 +169,6 @@ defmodule Ryker.ControlPlane.ConversationLab do
           work_profile
         )
       end)
-      |> transaction_result()
     else
       false -> {:error, {:invalid_conversation_lab, :attachments}}
       {:error, _reason} = error -> error
@@ -444,7 +443,4 @@ defmodule Ryker.ControlPlane.ConversationLab do
 
   defp content(message, []), do: %{"text" => message}
   defp content(message, files), do: %{"files" => files, "text" => message}
-
-  defp transaction_result({:ok, result}), do: {:ok, result}
-  defp transaction_result({:error, reason}), do: {:error, reason}
 end

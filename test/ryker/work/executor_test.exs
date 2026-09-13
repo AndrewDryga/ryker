@@ -968,6 +968,12 @@ defmodule Ryker.Work.ExecutorTest do
                  executor_options: options(fake)
                )
 
+      # The recovery page explains a stopped completion from this code alone;
+      # a constant here left the reason only inside the inspected detail.
+      blocked = Repo.get!(Ryker.Work.Turn, claim.turn.id)
+      assert blocked.status == :blocked
+      assert blocked.last_error_code == "coop_unavailable"
+
       assert {:ok, _} = retry_inspected_work(claim)
       assert {:ok, resumed} = Custody.claim_next("completion-fence-resume", 60, :work)
       proof = resumed.turn.completion_receipt

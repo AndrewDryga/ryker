@@ -60,7 +60,6 @@ defmodule Ryker.ControlPlane.SlackNames do
   def workspace do
     case Application.get_env(:ryker, :slack) do
       %{identity: %{workspace_ref: workspace}} -> workspace
-      options when is_list(options) -> get_in(options, [:identity, :workspace_ref])
       _ -> nil
     end
   end
