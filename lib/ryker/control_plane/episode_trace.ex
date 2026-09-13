@@ -1,5 +1,5 @@
 defmodule Ryker.ControlPlane.EpisodeTrace do
-  alias Ryker.ControlPlane.SlackNames
+  alias Ryker.ControlPlane.{SlackMarkdown, SlackNames}
   alias Ryker.Slack.ThreadStatusReceipts
 
   @moduledoc """
@@ -312,8 +312,13 @@ defmodule Ryker.ControlPlane.EpisodeTrace do
 
   defp task_title(_), do: nil
 
-  defp input_title(%{available: true, text: text}),
-    do: text |> String.split("\n", parts: 2) |> hd() |> bounded(120)
+  defp input_title(%{available: true, text: text} = first) do
+    text
+    |> String.split("\n", parts: 2)
+    |> hd()
+    |> SlackMarkdown.plain(first[:workspace])
+    |> bounded(120)
+  end
 
   defp input_title(_), do: "Episode case file"
 

@@ -367,6 +367,28 @@ defmodule Ryker.ControlPlane.EpisodeTraceTest do
     refute message.text =~ "[no preview available]"
   end
 
+  test "the case file's title names who the message mentions, never a raw Slack id" do
+    # The first Slack episode after the rename was headed "<@U0BL8MNPUSY> post-rename
+    # check…" while the message under it read "@Emisar": the title took the
+    # message text verbatim. The case message already knows its workspace;
+    # the title resolves the same way the body does.
+    start_supervised!(
+      {Ryker.ControlPlane.SlackNames,
+       workspace: "TC9F5B40D364C", fetch: fn _ref -> {:ok, "emisar"} end}
+    )
+
+    {entry, episode} = admitted_input!()
+    Ryker.ControlPlane.SlackNames.name("TC9F5B40D364C", "U1")
+    assert :ok = GenServer.call(Ryker.ControlPlane.SlackNames, :refresh)
+
+    Repo.update_all(from(i in Entry, where: i.id == ^entry.id),
+      set: [content: %{"text" => "<@U1> is checkout healthy?"}]
+    )
+
+    assert {:ok, detail} = Projection.episode(episode.key)
+    assert detail.trace.case_file.title == "@emisar is checkout healthy?"
+  end
+
   test "arbitrary source metadata cannot hide valid message text or crash its preview" do
     {entry, episode} = admitted_input!()
 
