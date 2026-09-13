@@ -365,16 +365,33 @@ defmodule Responder.Work.Validator do
     end
   end
 
-  defp primary_waits(
-         [
-           %{continuation: %{"wait_kind" => "input"}} = question,
-           %{kind: "event_wait", continuation: %{"wait_kind" => "event", "deadline_at" => nil}}
-         ],
-         :waiting_for_input
-       ),
-       do: [question]
+  # A question owns continuation while any number of event-only watches stay
+  # armed beside it. This matched a two-element list, so an episode holding a
+  # question and two open watches had no valid answer at all: referencing all
+  # three failed "exactly one durable input wait", and dropping the extras
+  # failed "open durable waits cannot be abandoned". Production hit it on
+  # episode 0b0c3590 and burned the turn's three attempts against itself.
+  defp primary_waits(waits, :waiting_for_input) do
+    case Enum.split_with(waits, &(continuation_kind(&1.continuation) == :input)) do
+      {[question], watches} ->
+        if Enum.all?(watches, &event_only_watch?/1), do: [question], else: waits
+
+      _other ->
+        waits
+    end
+  end
 
   defp primary_waits(waits, _state), do: waits
+
+  # A timed wait is a wait somebody must come back to, so it can never ride
+  # along silently; only a deadline-free source watch can.
+  defp event_only_watch?(%{
+         kind: "event_wait",
+         continuation: %{"wait_kind" => "event", "deadline_at" => nil}
+       }),
+       do: true
+
+  defp event_only_watch?(_wait), do: false
 
   defp validate_wait(violations, %{continuation: continuation, ref: ref}, expected_kind, now) do
     actual_kind = continuation_kind(continuation)
