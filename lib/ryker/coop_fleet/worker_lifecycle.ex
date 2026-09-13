@@ -14,8 +14,6 @@ defmodule Ryker.CoopFleet.WorkerLifecycle do
   alias Ryker.CoopFleet.{Certificate, EnrollmentToken, Placement, Protocol, Worker}
   alias Ryker.Repo
 
-  @current_placement_states [:assigning, :active, :draining, :revoking]
-
   @type result :: %{status: :draining | :duplicate | :resumed | :revoked, worker: Worker.t()}
 
   @spec drain(String.t(), String.t()) :: {:ok, result()} | {:error, term()}
@@ -121,7 +119,7 @@ defmodule Ryker.CoopFleet.WorkerLifecycle do
         from(placement in Placement,
           where:
             placement.worker_id == ^worker.id and
-              placement.state in ^@current_placement_states
+              placement.state in ^Placement.current_states()
         ),
         set: [lease_expires_at: now, state: :revoking, updated_at: now]
       )
