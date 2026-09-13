@@ -293,6 +293,45 @@ defmodule Ryker.StateTools.RouterTest do
     end
   end
 
+  test "a goal planned twice under one id is an operation conflict, not an outage" do
+    # Records refuses the second plan with :state_record_subject_conflict. The
+    # fixed-tool error table had no clause for that atom, so the model read
+    # "temporarily_unavailable" — an outage it would retry — for a duplicate it
+    # can only resolve by choosing another id or updating the existing goal.
+    claim = claim!("goal-duplicate-id")
+    options = bound_options(claim)
+
+    arguments = %{
+      "authority" => "read_only",
+      "completion_contract" => "The drain path is covered by a focused test.",
+      "id" => "drain-workers",
+      "kind" => "engineering",
+      "parent_goal_id" => nil,
+      "prerequisite_goal_ids" => [],
+      "read_only_repositories" => [],
+      "requested_outcome" => "Drain and recycle workers safely",
+      "required" => true,
+      "stage" => "implementation",
+      "successor_of" => nil,
+      "writable_repository" => nil
+    }
+
+    assert {:ok, %{"kind" => "goal"}} = Tools.call("plan_goal", arguments, options)
+
+    # The identical call is an idempotent replay; a different plan under the
+    # same id is the conflict.
+    assert {:ok, %{"kind" => "goal"}} = Tools.call("plan_goal", arguments, options)
+
+    assert {:error, "operation_conflict"} =
+             Tools.call(
+               "plan_goal",
+               %{arguments | "requested_outcome" => "Drain the workers only"},
+               options
+             )
+
+    assert [%{"kind" => "goal"}] = Records.retained_records(claim.episode.id)
+  end
+
   test "plan_goal requires a lifecycle stage the model owns and never a host stage" do
     # Stage rows on the Slack task card come from typed membership. A goal
     # claiming CI or Draft PR would let the model paint a host-owned stage.
