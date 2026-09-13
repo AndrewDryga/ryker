@@ -309,13 +309,13 @@ defmodule Responder.ControlPlane.LiveTest do
 
   test "native directory entry points and missing records remain usable across live navigation" do
     conn = build_conn() |> Map.put(:host, "localhost")
-    {:ok, view, _} = live(conn, "/lab")
-    assert has_element?(view, ".lab-start", "Test a conversation")
+    {:ok, view, _} = live(conn, "/conversations")
+    assert has_element?(view, ".lab-start", "Start a conversation")
     assert has_element?(view, ".lab-start-notes", "Real tools, local replies")
     assert has_element?(view, ".lab-start-notes", "Repository and Emisar actions")
     assert has_element?(view, ".lab-start-notes a[href='/configuration']")
-    assert has_element?(view, ".lab-start a[href='/lab/new']")
-    refute has_element?(view, ".lab-directory a[href='/lab/new']")
+    assert has_element?(view, ".lab-start a[href='/conversations/new']")
+    refute has_element?(view, ".lab-directory a[href='/conversations/new']")
 
     for path <- [
           "/timeline/missing",
@@ -340,12 +340,117 @@ defmodule Responder.ControlPlane.LiveTest do
     end
   end
 
+  test "the retired /lab routes cannot mount a live page or redirect" do
+    # Renamed to /conversations on 2026-09-13 as a clean cut: an old /lab link
+    # gets the ordinary 404, never a redirect that would keep two URL
+    # families alive for the same retained conversation.
+    id = Ecto.UUID.generate()
+
+    for path <- ["/lab", "/lab/new", "/lab/#{id}"] do
+      conn = build_conn() |> Map.put(:host, "localhost") |> get(path)
+      assert conn.status == 404, path
+      assert Plug.Conn.get_resp_header(conn, "location") == []
+      refute conn.resp_body =~ "data-phx-main"
+    end
+  end
+
+  test "Conversations is the primary navigation item and carries no Lab or test phrasing" do
+    # The navigation, browser title, accessible labels and action labels said
+    # Conversation Lab / Test a message / Send a test message; the surface is
+    # an ordinary way to talk to the agent, not a test bench.
+    conn = build_conn() |> Map.put(:host, "localhost")
+    {:ok, view, html} = live(conn, "/conversations")
+    assert page_title(view) == "Conversations · Responder"
+
+    assert has_element?(
+             view,
+             ".app-sidebar nav[aria-label='Main navigation'] a[href='/conversations'][aria-current=page]",
+             "Conversations"
+           )
+
+    [home, conversations | _rest] =
+      html
+      |> LazyHTML.from_document()
+      |> LazyHTML.query(".app-sidebar nav[aria-label='Main navigation'] a")
+      |> LazyHTML.attribute("href")
+
+    assert home == "/"
+    assert conversations == "/conversations"
+    assert has_element?(view, ".lab-directory-heading h1", "Conversations")
+    refute html =~ ~r/\bLab\b/
+    refute html =~ "Test a "
+    refute html =~ "test message"
+
+    {:ok, home_view, home_html} = live(conn, "/")
+    assert has_element?(home_view, "a[href='/conversations/new']", "New conversation")
+    refute home_html =~ "Test a message"
+
+    id = Ecto.UUID.generate()
+    {:ok, open, open_html} = live(conn, "/conversations/#{id}")
+    assert page_title(open) == "Conversations · Responder"
+    assert has_element?(open, ".app-sidebar a[href='/conversations'][aria-current=page]")
+    assert has_element?(open, "form[action='/conversations/#{id}/messages']")
+    assert has_element?(open, ".lab-directory a[href='/conversations/new']", "New conversation")
+    refute open_html =~ ~r/\bLab\b/
+    refute open_html =~ "test message"
+  end
+
+  test "a conversation keeps its identity, history and links across the URL rename" do
+    # Stored conversations are keyed by control-plane:lab:<uuid>; the rename
+    # changes only the URL. Every retained message must open at
+    # /conversations/<id>, and no empty record may appear for a page visit.
+    {:ok, profile} =
+      WorkProfile.new(%{
+        policy: "lab-live-test",
+        policy_digest: String.duplicate("a", 64),
+        repository_ref: nil
+      })
+
+    conn = build_conn() |> Map.put(:host, "localhost")
+    unsent = Ecto.UUID.generate()
+    {:ok, _view, _html} = live(conn, "/conversations/#{unsent}")
+    assert Projection.lab_conversation(unsent) == :not_found
+    refute Enum.any?(Projection.lab_index(), &(&1.id == unsent))
+
+    id = Ecto.UUID.generate()
+
+    assert {:ok, %{entry: entry}} =
+             ConversationLab.send_message(id, "Keep this history across the rename", profile)
+
+    assert entry.destination_conversation_ref == "control-plane:lab:#{id}"
+    "control-plane-item:" <> item_id = entry.source_item_ref
+    {:ok, view, _html} = live(conn, "/conversations/#{id}")
+
+    assert has_element?(
+             view,
+             "#lab-messages .chat-message-text",
+             "Keep this history across the rename"
+           )
+
+    assert has_element?(
+             view,
+             ".lab-directory-list a[href='/conversations/#{id}'][aria-current=page]"
+           )
+
+    assert has_element?(
+             view,
+             ".lab-message-controls form[action='/conversations/#{id}/messages/#{item_id}/edit']"
+           )
+
+    assert has_element?(
+             view,
+             ".lab-message-controls form[action='/conversations/#{id}/messages/#{item_id}/delete']"
+           )
+
+    refute has_element?(view, "[href^='/lab/'], [action^='/lab/']")
+  end
+
   test "the workspace offers no card catalog, previews or specimen events" do
     # WorkflowGuide's ten workflows linked eighteen /card-lab previews and the
     # workbench answered card-family/card-state/card-transition events. None of
     # that may survive as a hidden catalog behind the surviving conversation page.
     conn = build_conn() |> Map.put(:host, "localhost")
-    {:ok, view, html} = live(conn, "/lab")
+    {:ok, view, html} = live(conn, "/conversations")
     refute html =~ "/card-lab"
     refute html =~ "What you can do"
     refute html =~ "Card previews"
@@ -435,7 +540,7 @@ defmodule Responder.ControlPlane.LiveTest do
   test "the native Lab never claims admission before a message exists and streams committed messages" do
     id = Ecto.UUID.generate()
     conn = build_conn() |> Map.put(:host, "localhost")
-    {:ok, view, _html} = live(conn, "/lab/#{id}")
+    {:ok, view, _html} = live(conn, "/conversations/#{id}")
     assert has_element?(view, ".lab-chat", "Ready for your message")
     assert has_element?(view, ".lab-runtime", "No request yet")
     assert has_element?(view, ".lab-native-composer[phx-update=ignore]")
@@ -705,7 +810,7 @@ defmodule Responder.ControlPlane.LiveTest do
     assert LabPage.announcement(after_reply, after_reply) == nil
 
     {:ok, view, _} =
-      live(build_conn() |> Map.put(:host, "localhost"), "/lab/#{Ecto.UUID.generate()}")
+      live(build_conn() |> Map.put(:host, "localhost"), "/conversations/#{Ecto.UUID.generate()}")
 
     assert has_element?(view, "#lab-announcement[role=status][aria-live=polite]")
     assert has_element?(view, "#lab-messages[role=log][aria-live=off]")

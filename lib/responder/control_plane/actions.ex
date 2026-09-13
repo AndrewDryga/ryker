@@ -573,7 +573,7 @@ defmodule Responder.ControlPlane.Actions do
              episode.key,
              episode.owner_ref,
              action_ref,
-             "The local operator stopped the current run. Reply in this Lab conversation to continue."
+             "The local operator stopped the current run. Reply in this conversation to continue."
            ) do
       {:ok, result}
     else
@@ -756,7 +756,7 @@ defmodule Responder.ControlPlane.Actions do
       episode.key,
       turn_ref,
       action_ref,
-      "Closed by the local operator from the exact Conversation Lab task card."
+      "Closed by the local operator from the exact conversation task card."
     )
   end
 
@@ -770,7 +770,7 @@ defmodule Responder.ControlPlane.Actions do
       episode_key: episode.key,
       expected_owner: %{kind: owner_kind, ref: owner_ref},
       occurred_at: now(),
-      reason: "Closed by the local operator from the exact Conversation Lab task card."
+      reason: "Closed by the local operator from the exact conversation task card."
     }
 
     case Episodes.apply(command) do

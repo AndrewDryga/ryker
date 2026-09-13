@@ -148,7 +148,8 @@ defmodule Responder.ControlPlane.SlackNamesTest do
     assert html =~ "title=\"U456\""
     assert html =~ "<code>literal &lt;@U456&gt;</code>"
     refute html =~ "<admin>"
-    assert SlackNames.destination("control_plane:control-plane:lab:uuid") == "Conversation Lab"
+    assert SlackNames.destination("control_plane:control-plane:lab:uuid") == "Direct conversation"
+    assert SlackNames.destination("control-plane:lab:uuid") == "Direct conversation"
 
     artifact =
       InspectionRedactor.artifact(%{

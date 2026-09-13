@@ -18,7 +18,7 @@ const repository = path.resolve(__dirname, '..');
 assert(output !== repository && !output.startsWith(repository + path.sep), 'Do not commit organization screenshots');
 const filtersOnly = process.argv.includes('--filters');
 const routes = filtersOnly ? [['activity-root', '/'], ['episodes', '/activity?state=complete']] : [
-  ['activity-root', '/'], ['lab', '/lab'], ['activity', '/activity'],
+  ['activity-root', '/'], ['conversations', '/conversations'], ['lab-retired', '/lab'], ['activity', '/activity'],
   ['incident-rooms', '/incident-rooms'], ['failures', '/failures'], ['usage', '/usage'],
   ['schedules', '/schedules'], ['subscriptions', '/subscriptions'],
   ['rules', '/rules'], ['preferences', '/preferences'], ['guidance', '/guidance'],
@@ -29,7 +29,7 @@ const routes = filtersOnly ? [['activity-root', '/'], ['episodes', '/activity?st
   ['card-lab-state', '/card-lab/task-card/working'], ['missing-episode', '/timeline/missing']
 ];
 // Pages removed as clean cuts. They must answer 404 without a redirect.
-const removedPages = ['decisions', 'calibration', 'journeys', 'card-lab', 'card-lab-state'];
+const removedPages = ['decisions', 'calibration', 'journeys', 'card-lab', 'card-lab-state', 'lab-retired'];
 
 async function connected(page) {
   await page.locator('[data-connection-state="connected"]').waitFor({timeout: 5000});
@@ -67,7 +67,7 @@ async function discover(page) {
   const absent = [];
   for (const [name, route, selector] of [
     ['episode-detail', '/', '.activity-title[href^="/timeline/"]'],
-    ['lab-chat', '/lab', '.lab-directory-list a[href^="/lab/"]'],
+    ['conversation', '/conversations', '.lab-directory-list a[href^="/conversations/"]'],
     ['channel-detail', '/channels', 'a[href^="/channels/"]'],
     ['incident-room-detail', '/incident-rooms', 'a[href^="/incident-rooms/"]'],
     ['schedule-detail', '/schedules', 'a[href^="/schedules/"]'],
@@ -131,7 +131,7 @@ async function discover(page) {
             if (name === 'activity-root' || name === 'activity') await checkFilterAlignment(page);
             assert.equal(await page.locator('a[href^="/card-lab"], a[href="/manual-tests"]').count(), 0, 'Retired testing pages must not return to navigation');
             assert.equal(await page.locator('.nav-caption', {hasText: 'Testing'}).count(), 0, 'The Testing navigation group was removed');
-            if (name === 'lab-chat' && width === 390) assert(result.layout.composerTop >= result.layout.transcriptBottom, 'Composer obscures the conversation');
+            if (name === 'conversation' && width === 390) assert(result.layout.composerTop >= result.layout.transcriptBottom, 'Composer obscures the conversation');
             if (name === 'repositories') {
               const panels = await page.locator('.repository-card > header').evaluateAll(es => es.map(e => getComputedStyle(e).backgroundColor));
               assert(panels.every(color => color === 'rgba(0, 0, 0, 0)' || color === 'rgb(255, 255, 255)'), 'Repository headings must not inherit the old dark page banner');

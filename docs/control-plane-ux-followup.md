@@ -49,7 +49,7 @@ tests, and 22 recorded contract replays. No credentialed model evaluation was ru
 ## Implemented
 
 - Compact accessible search, automatic updates without a standing live toolbar,
-  a wider Conversation Lab directory, and no persistent live-tools banner.
+  a wider conversation directory, and no persistent live-tools banner.
 - Follow-up chapters are labelled and visually separated in the single execution
   timeline. Retained instructions and context remain grouped by their source;
   refreshed pages preserve expanded inspection sections and reading state.

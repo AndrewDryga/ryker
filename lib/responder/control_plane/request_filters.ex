@@ -245,7 +245,7 @@ defmodule Responder.ControlPlane.RequestFilters do
   defp selected_label(:channel, value, _), do: SlackNames.destination(value)
   defp selected_label(:conversation, value, _), do: SlackNames.destination(value)
   defp selected_label(_, value, _), do: value
-  defp choice_label("control_plane"), do: "Conversation Lab"
+  defp choice_label("control_plane"), do: "Direct conversation"
   defp choice_label("github"), do: "GitHub"
   defp choice_label("user"), do: "Person"
   defp choice_label("measured"), do: "Recorded"

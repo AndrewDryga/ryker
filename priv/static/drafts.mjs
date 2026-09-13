@@ -4,6 +4,38 @@ export const draftKey = (element, path) => {
   return `responder:draft:${path}:${element.form.getAttribute("action")}:${element.name}`
 }
 
+// Drafts typed before 2026-09-13 were keyed by the retired /lab URLs. A draft
+// under that key is carried to its /conversations identity exactly once, both
+// texts survive a collision, a storage failure loses nothing, and once a key
+// has been settled the retired key is never read again in this session.
+// Nothing here sends: the operator still has to press Send.
+const legacyPattern = /^responder:draft:\/conversations\/([^:/]+):\/conversations\/([^:]+):(.+)$/
+const settled = new Set()
+
+export const legacyDraftKey = key => {
+  const match = legacyPattern.exec(key)
+  return match ? `responder:draft:/lab/${match[1]}:/lab/${match[2]}:${match[3]}` : null
+}
+
+export const transferLegacyDraft = (key, storage) => {
+  const legacyKey = legacyDraftKey(key)
+  if (!legacyKey || settled.has(key)) return null
+  let legacy
+  try { legacy = storage.getItem(legacyKey) } catch (_) { return null }
+  if (legacy === null) { settled.add(key); return null }
+  try {
+    const current = storage.getItem(key)
+    const merged = current === null || current === "" || current === legacy ? legacy : `${legacy}\n\n${current}`
+    storage.setItem(key, merged)
+    storage.removeItem(legacyKey)
+    settled.add(key)
+    return merged
+  } catch (_) {
+    // The retired key stays until a transfer succeeds; nothing is dropped.
+    return null
+  }
+}
+
 export const captureDrafts = (form, path) => Array.from(form.elements).flatMap(element => {
   const key = draftKey(element, path)
   return key ? [{key, element, value: element.value}] : []

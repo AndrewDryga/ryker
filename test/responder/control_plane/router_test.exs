@@ -93,6 +93,71 @@ defmodule Responder.ControlPlane.RouterTest do
     end
   end
 
+  test "the retired /lab route family answers like any other unknown page and sends nothing" do
+    # The surface was renamed to Conversations on 2026-09-13 as a clean cut.
+    # /lab links live in old Slack threads, bookmarks and browser history; a
+    # compatibility route would keep two URL families alive for one identity,
+    # and a stale composer posting to /lab/:id/messages must not be accepted
+    # as a message on the renamed route without the operator resubmitting it.
+    id = "018f3ef7-1f62-7ee0-a83c-0c12f21d83e6"
+    unknown_page = request(:get, "/never-a-page")
+    unknown_post = request(:post, "/never-a-page", "_token=stale")
+
+    for path <- [
+          "/lab",
+          "/lab/new",
+          "/lab/#{id}",
+          "/lab/#{id}/records/record%3Atask_offer%3Aconfirmed/timeline",
+          "/lab/#{id}/turns/018f3ef7-1f62-7ee0-a83c-0c12f21d83e9/artifacts/artifact_chart"
+        ] do
+      removed = request(:get, path)
+      assert removed.status == unknown_page.status, path
+      assert get_resp_header(removed, "location") == []
+      assert Router.snapshot(path, "", options()).status == 404
+    end
+
+    token = CSRF.token(@secret, "conversation_lab:send", id)
+
+    for path <- [
+          "/lab/#{id}/messages",
+          "/lab/#{id}/messages/018f3ef7-1f62-7ee0-a83c-0c12f21d83e7/edit",
+          "/lab/#{id}/messages/018f3ef7-1f62-7ee0-a83c-0c12f21d83e7/delete",
+          "/lab/#{id}/replies/control-plane-message%3Alab-reply/reactions",
+          "/lab/#{id}/records/record%3Atask_offer%3Alab/confirm-task"
+        ] do
+      removed = request(:post, path, URI.encode_query(%{"_token" => token, "message" => "Hello"}))
+      assert removed.status == unknown_post.status, path
+      assert get_resp_header(removed, "location") == []
+    end
+
+    refute_received {:lab_message, _conversation, _message}
+    refute_received {:lab_message_edit, _conversation, _item, _message}
+    refute_received {:lab_message_delete, _conversation, _item}
+    refute_received {:lab_reaction, _conversation, _message, _action, _emoji}
+    refute_received {:lab_record_action, _conversation, _record, _action, _choice}
+  end
+
+  test "a new conversation is an unsaved identity until its first message" do
+    # /conversations/new hands out a fresh UUID and redirects; nothing is
+    # written until the operator sends. Opening the page twice must not create
+    # two empty records, and an invalid identity is a 404, not a fresh chat.
+    fresh = request(:get, "/conversations/new")
+    assert fresh.status == 303
+    [location] = get_resp_header(fresh, "location")
+    assert "/conversations/" <> generated_id = location
+    assert {:ok, _uuid} = Ecto.UUID.cast(generated_id)
+    refute_received {:lab_message, _conversation, _message}
+
+    empty = request(:get, location)
+    assert empty.status == 200
+    assert empty.resp_body =~ "Send the first message to begin this durable conversation."
+    assert empty.resp_body =~ "action=\"#{location}/messages\""
+    refute_received {:lab_message, _conversation, _message}
+
+    assert request(:get, "/conversations/not-a-uuid").status == 404
+    assert request(:get, "/conversations/new/extra").status == 404
+  end
+
   test "renders an offline overview with hard browser boundaries" do
     conn = request(:get, "/")
 
@@ -111,22 +176,28 @@ defmodule Responder.ControlPlane.RouterTest do
     refute conn.resp_body =~ "<script"
   end
 
-  test "the conversation lab sends through a CSRF-protected durable action and refreshes locally" do
-    index = request(:get, "/lab")
+  test "a conversation sends through a CSRF-protected durable action and refreshes locally" do
+    index = request(:get, "/conversations")
     assert index.status == 200
+    assert index.resp_body =~ "<title>Conversations · Responder</title>"
     assert index.resp_body =~ "Talk to Responder without posting to Slack"
+    refute index.resp_body =~ ~r/\bLab\b/
     assert index.resp_body =~ "Conversation inputs"
-    assert index.resp_body =~ "/lab/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6"
+    assert index.resp_body =~ "/conversations/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6"
 
-    fresh = request(:get, "/lab/new")
+    fresh = request(:get, "/conversations/new")
     assert fresh.status == 303
     [location] = get_resp_header(fresh, "location")
-    assert "/lab/" <> generated_id = location
+    assert "/conversations/" <> generated_id = location
     assert {:ok, _uuid} = Ecto.UUID.cast(generated_id)
 
-    conversation = request(:get, "/lab/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6")
+    conversation = request(:get, "/conversations/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6")
     assert conversation.status == 200
+    assert conversation.resp_body =~ "<title>Conversations · Responder</title>"
     assert conversation.resp_body =~ "Local model conversation"
+    # The fixture message text says "Lab flow"; retained content keeps its words.
+    refute conversation.resp_body =~ "Conversation Lab"
+    refute conversation.resp_body =~ "this Lab"
     assert conversation.resp_body =~ "Same conversational product as Slack"
     assert conversation.resp_body =~ "state and Emisar tools"
     assert conversation.resp_body =~ "tasks, local incidents, publication cards"
@@ -145,17 +216,17 @@ defmodule Responder.ControlPlane.RouterTest do
     assert conversation.resp_body =~ "Repository"
 
     assert conversation.resp_body =~
-             "/lab/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6/records/record%3Atask_offer%3Alab/confirm-task"
+             "/conversations/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6/records/record%3Atask_offer%3Alab/confirm-task"
 
     assert conversation.resp_body =~ ">Start task<"
 
     assert conversation.resp_body =~
-             "/lab/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6/records/record%3Atask_offer%3Aincident/open-incident"
+             "/conversations/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6/records/record%3Atask_offer%3Aincident/open-incident"
 
     assert conversation.resp_body =~ ">Open local incident<"
 
     assert conversation.resp_body =~
-             "/lab/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6/records/record%3Atask_offer%3Aconfirmed/diff"
+             "/conversations/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6/records/record%3Atask_offer%3Aconfirmed/diff"
 
     assert conversation.resp_body =~ ">View diff<"
     assert conversation.resp_body =~ ">Timeline<"
@@ -171,10 +242,10 @@ defmodule Responder.ControlPlane.RouterTest do
     assert conversation.resp_body =~ "React to this reply"
 
     assert conversation.resp_body =~
-             "/lab/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6/messages/018f3ef7-1f62-7ee0-a83c-0c12f21d83e7/edit"
+             "/conversations/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6/messages/018f3ef7-1f62-7ee0-a83c-0c12f21d83e7/edit"
 
     assert conversation.resp_body =~
-             "/lab/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6/messages/018f3ef7-1f62-7ee0-a83c-0c12f21d83e7/delete"
+             "/conversations/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6/messages/018f3ef7-1f62-7ee0-a83c-0c12f21d83e7/delete"
 
     assert conversation.resp_body =~ "src=\"/static/lab.js\""
     assert length(Regex.scan(~r/>Staging</, conversation.resp_body)) == 1
@@ -183,7 +254,7 @@ defmodule Responder.ControlPlane.RouterTest do
     refute conversation.resp_body =~ "Repair <unsafe> Lab flow"
 
     artifact_path =
-      "/lab/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6/turns/018f3ef7-1f62-7ee0-a83c-0c12f21d83e9/artifacts/artifact_chart"
+      "/conversations/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6/turns/018f3ef7-1f62-7ee0-a83c-0c12f21d83e9/artifacts/artifact_chart"
 
     artifact = request(:get, artifact_path)
     assert artifact.status == 200
@@ -198,14 +269,14 @@ defmodule Responder.ControlPlane.RouterTest do
 
     [_, token] =
       Regex.run(
-        ~r/action="\/lab\/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6\/messages".*?name="_token" value="([^"]+)"/,
+        ~r/action="\/conversations\/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6\/messages".*?name="_token" value="([^"]+)"/,
         conversation.resp_body
       )
 
     rejected =
       request(
         :post,
-        "/lab/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6/messages",
+        "/conversations/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6/messages",
         URI.encode_query(%{"_token" => "wrong", "message" => "Follow up"})
       )
 
@@ -215,14 +286,14 @@ defmodule Responder.ControlPlane.RouterTest do
     accepted =
       request(
         :post,
-        "/lab/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6/messages",
+        "/conversations/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6/messages",
         URI.encode_query(%{"_token" => token, "message" => "Follow up"})
       )
 
     assert accepted.status == 303
 
     assert get_resp_header(accepted, "location") == [
-             "/lab/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6"
+             "/conversations/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6"
            ]
 
     assert_received {:lab_message, "018f3ef7-1f62-7ee0-a83c-0c12f21d83e6", "Follow up"}
@@ -230,7 +301,7 @@ defmodule Responder.ControlPlane.RouterTest do
     receipt =
       conn(
         :post,
-        "/lab/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6/messages",
+        "/conversations/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6/messages",
         URI.encode_query(%{"_token" => token, "message" => "Live draft receipt"})
       )
       |> Map.put(:host, "localhost")
@@ -247,7 +318,7 @@ defmodule Responder.ControlPlane.RouterTest do
 
     uploaded =
       multipart_request(
-        "/lab/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6/messages",
+        "/conversations/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6/messages",
         token,
         "Read the attached status.",
         "status.yaml",
@@ -275,7 +346,7 @@ defmodule Responder.ControlPlane.RouterTest do
     rejected_edit =
       request(
         :post,
-        "/lab/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6/messages/018f3ef7-1f62-7ee0-a83c-0c12f21d83e7/edit",
+        "/conversations/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6/messages/018f3ef7-1f62-7ee0-a83c-0c12f21d83e7/edit",
         URI.encode_query(%{"_token" => "wrong", "message" => "Corrected request"})
       )
 
@@ -285,7 +356,7 @@ defmodule Responder.ControlPlane.RouterTest do
     accepted_edit =
       request(
         :post,
-        "/lab/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6/messages/018f3ef7-1f62-7ee0-a83c-0c12f21d83e7/edit",
+        "/conversations/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6/messages/018f3ef7-1f62-7ee0-a83c-0c12f21d83e7/edit",
         URI.encode_query(%{"_token" => edit_token, "message" => "Corrected request"})
       )
 
@@ -302,7 +373,7 @@ defmodule Responder.ControlPlane.RouterTest do
     accepted_delete =
       request(
         :post,
-        "/lab/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6/messages/018f3ef7-1f62-7ee0-a83c-0c12f21d83e7/delete",
+        "/conversations/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6/messages/018f3ef7-1f62-7ee0-a83c-0c12f21d83e7/delete",
         URI.encode_query(%{"_token" => delete_token})
       )
 
@@ -321,7 +392,7 @@ defmodule Responder.ControlPlane.RouterTest do
     rejected_reaction =
       request(
         :post,
-        "/lab/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6/replies/control-plane-message%3Alab-reply/reactions",
+        "/conversations/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6/replies/control-plane-message%3Alab-reply/reactions",
         URI.encode_query(%{"_token" => "wrong", "action" => "add", "emoji" => "heart"})
       )
 
@@ -331,7 +402,7 @@ defmodule Responder.ControlPlane.RouterTest do
     accepted_reaction =
       request(
         :post,
-        "/lab/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6/replies/control-plane-message%3Alab-reply/reactions",
+        "/conversations/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6/replies/control-plane-message%3Alab-reply/reactions",
         URI.encode_query(%{
           "_token" => reaction_token,
           "action" => "add",
@@ -346,7 +417,7 @@ defmodule Responder.ControlPlane.RouterTest do
 
     [_, task_token] =
       Regex.run(
-        ~r/action="\/lab\/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6\/records\/record%3Atask_offer%3Alab\/confirm-task".*?name="_token" value="([^"]+)"/,
+        ~r/action="\/conversations\/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6\/records\/record%3Atask_offer%3Alab\/confirm-task".*?name="_token" value="([^"]+)"/,
         conversation.resp_body
       )
 
@@ -362,7 +433,7 @@ defmodule Responder.ControlPlane.RouterTest do
     refused_task =
       request(
         :post,
-        "/lab/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6/records/record%3Atask_offer%3Alab/confirm-task",
+        "/conversations/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6/records/record%3Atask_offer%3Alab/confirm-task",
         URI.encode_query(%{"_token" => "wrong"})
       )
 
@@ -372,14 +443,14 @@ defmodule Responder.ControlPlane.RouterTest do
     accepted_task =
       request(
         :post,
-        "/lab/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6/records/record%3Atask_offer%3Alab/confirm-task",
+        "/conversations/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6/records/record%3Atask_offer%3Alab/confirm-task",
         URI.encode_query(%{"_token" => task_token})
       )
 
     assert accepted_task.status == 303
 
     assert get_resp_header(accepted_task, "location") == [
-             "/lab/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6"
+             "/conversations/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6"
            ]
 
     assert_received {:lab_record_action, "018f3ef7-1f62-7ee0-a83c-0c12f21d83e6",
@@ -387,14 +458,14 @@ defmodule Responder.ControlPlane.RouterTest do
 
     [_, choice_token] =
       Regex.run(
-        ~r/action="\/lab\/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6\/records\/record%3Ainput_request%3Alab\/answer"><input type="hidden" name="_token" value="([^"]+)"><input type="hidden" name="choice_index" value="1">/,
+        ~r/action="\/conversations\/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6\/records\/record%3Ainput_request%3Alab\/answer"><input type="hidden" name="_token" value="([^"]+)"><input type="hidden" name="choice_index" value="1">/,
         conversation.resp_body
       )
 
     crossed_choice =
       request(
         :post,
-        "/lab/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6/records/record%3Ainput_request%3Alab/answer",
+        "/conversations/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6/records/record%3Ainput_request%3Alab/answer",
         URI.encode_query(%{"_token" => choice_token, "choice_index" => "0"})
       )
 
@@ -403,7 +474,7 @@ defmodule Responder.ControlPlane.RouterTest do
     accepted_choice =
       request(
         :post,
-        "/lab/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6/records/record%3Ainput_request%3Alab/answer",
+        "/conversations/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6/records/record%3Ainput_request%3Alab/answer",
         URI.encode_query(%{"_token" => choice_token, "choice_index" => "1"})
       )
 
@@ -414,14 +485,14 @@ defmodule Responder.ControlPlane.RouterTest do
 
     [_, stop_token] =
       Regex.run(
-        ~r/action="\/lab\/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6\/records\/record%3Atask_offer%3Aconfirmed\/stop-task".*?name="_token" value="([^"]+)"/,
+        ~r/action="\/conversations\/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6\/records\/record%3Atask_offer%3Aconfirmed\/stop-task".*?name="_token" value="([^"]+)"/,
         conversation.resp_body
       )
 
     stopped =
       request(
         :post,
-        "/lab/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6/records/record%3Atask_offer%3Aconfirmed/stop-task",
+        "/conversations/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6/records/record%3Atask_offer%3Aconfirmed/stop-task",
         URI.encode_query(%{"_token" => stop_token})
       )
 
@@ -433,7 +504,7 @@ defmodule Responder.ControlPlane.RouterTest do
     task_view =
       request(
         :get,
-        "/lab/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6/records/record%3Atask_offer%3Aconfirmed/timeline"
+        "/conversations/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6/records/record%3Atask_offer%3Aconfirmed/timeline"
       )
 
     assert task_view.status == 200
@@ -451,7 +522,7 @@ defmodule Responder.ControlPlane.RouterTest do
       rendered =
         request(
           :get,
-          "/lab/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6/records/record%3Atask_offer%3Aconfirmed/#{view_name}"
+          "/conversations/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6/records/record%3Atask_offer%3Aconfirmed/#{view_name}"
         )
 
       assert rendered.status == 200
@@ -462,17 +533,17 @@ defmodule Responder.ControlPlane.RouterTest do
 
     assert request(
              :get,
-             "/lab/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6/records/record%3Atask_offer%3Aconfirmed/unknown"
+             "/conversations/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6/records/record%3Atask_offer%3Aconfirmed/unknown"
            ).status == 404
 
     assert request(
              :get,
-             "/lab/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6/records/record%3Atask_offer%3Aconfirmed/timeline?unexpected=true"
+             "/conversations/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6/records/record%3Atask_offer%3Aconfirmed/timeline?unexpected=true"
            ).status == 400
 
     assert request(
              :get,
-             "/lab/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6/records/record%3Atask_offer%3Aconfirmed/diff?offset=2400"
+             "/conversations/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6/records/record%3Atask_offer%3Aconfirmed/diff?offset=2400"
            ).status == 400
 
     refute_received {:lab_task_view, _conversation, _record, :diff, _params}
@@ -482,7 +553,7 @@ defmodule Responder.ControlPlane.RouterTest do
     diff_view =
       request(
         :get,
-        "/lab/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6/records/record%3Atask_offer%3Aconfirmed/diff"
+        "/conversations/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6/records/record%3Atask_offer%3Aconfirmed/diff"
       )
 
     assert diff_view.status == 200
@@ -498,7 +569,7 @@ defmodule Responder.ControlPlane.RouterTest do
     next_diff =
       request(
         :get,
-        "/lab/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6/records/record%3Atask_offer%3Aconfirmed/diff?offset=2400&snapshot=#{digest}"
+        "/conversations/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6/records/record%3Atask_offer%3Aconfirmed/diff?offset=2400&snapshot=#{digest}"
       )
 
     assert next_diff.status == 200
@@ -509,7 +580,7 @@ defmodule Responder.ControlPlane.RouterTest do
 
     assert request(
              :post,
-             "/lab/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6/messages",
+             "/conversations/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6/messages",
              URI.encode_query(%{"_token" => token, "message" => String.duplicate("x", 20_001)})
            ).status == 422
 
@@ -556,17 +627,17 @@ defmodule Responder.ControlPlane.RouterTest do
 
   test "new and malformed Lab routes fail closed without creating hidden authority" do
     empty_id = "018f3ef7-1f62-7ee0-a83c-0c12f21d83ff"
-    empty = request(:get, "/lab/#{empty_id}")
+    empty = request(:get, "/conversations/#{empty_id}")
     assert empty.status == 200
     assert empty.resp_body =~ empty_id
     assert empty.resp_body =~ "Send the first message to begin this durable conversation."
 
-    assert request(:get, "/lab/not-a-uuid").status == 404
+    assert request(:get, "/conversations/not-a-uuid").status == 404
 
     invalid_path =
       request(
         :post,
-        "/lab/not-a-uuid/messages",
+        "/conversations/not-a-uuid/messages",
         URI.encode_query(%{"_token" => "none", "message" => "Do not persist me"})
       )
 
@@ -574,7 +645,7 @@ defmodule Responder.ControlPlane.RouterTest do
 
     unsupported =
       :post
-      |> conn("/lab/#{empty_id}/messages", ~s({"message":"no"}))
+      |> conn("/conversations/#{empty_id}/messages", ~s({"message":"no"}))
       |> put_req_header("content-type", "application/json")
       |> Map.put(:host, "localhost")
       |> Map.put(:remote_ip, {127, 0, 0, 1})
@@ -587,7 +658,7 @@ defmodule Responder.ControlPlane.RouterTest do
       |> put_in([:projection, :lab_conversation], fn _id ->
         {:error, :database_unavailable}
       end)
-      |> then(&request_with_options(:get, "/lab/#{empty_id}", nil, &1))
+      |> then(&request_with_options(:get, "/conversations/#{empty_id}", nil, &1))
 
     assert unavailable_projection.status == 503
 
@@ -601,7 +672,7 @@ defmodule Responder.ControlPlane.RouterTest do
       |> then(fn opts ->
         request_with_options(
           :post,
-          "/lab/#{empty_id}/messages",
+          "/conversations/#{empty_id}/messages",
           URI.encode_query(%{"_token" => message_token, "message" => "Keep me durable"}),
           opts
         )
@@ -621,7 +692,7 @@ defmodule Responder.ControlPlane.RouterTest do
       |> then(fn opts ->
         request_with_options(
           :post,
-          "/lab/#{empty_id}/records/#{record_ref}/confirm-memory",
+          "/conversations/#{empty_id}/records/#{record_ref}/confirm-memory",
           URI.encode_query(%{"_token" => record_token}),
           opts
         )
@@ -633,10 +704,10 @@ defmodule Responder.ControlPlane.RouterTest do
   test "the superseded task readiness action has no route or handler" do
     conversation_id = "018f3ef7-1f62-7ee0-a83c-0c12f21d83e6"
     record_ref = "record:task_offer:confirmed"
-    path = "/lab/#{conversation_id}/records/#{record_ref}/task-readiness"
+    path = "/conversations/#{conversation_id}/records/#{record_ref}/task-readiness"
 
     assert request(:post, path, URI.encode_query(%{"_token" => "obsolete"})).status == 404
-    refute request(:get, "/lab/#{conversation_id}").resp_body =~ "task-readiness"
+    refute request(:get, "/conversations/#{conversation_id}").resp_body =~ "task-readiness"
     refute_received {:lab_record_action, _, _, :request_task_readiness, _}
   end
 
@@ -656,11 +727,11 @@ defmodule Responder.ControlPlane.RouterTest do
       {"record:task_offer:confirmed", "close-task", :close_task}
     ]
 
-    conversation = request(:get, "/lab/#{conversation_id}")
+    conversation = request(:get, "/conversations/#{conversation_id}")
 
     for {record_ref, action_name, action} <- actions do
       encoded_ref = URI.encode(record_ref, &URI.char_unreserved?/1)
-      path = "/lab/#{conversation_id}/records/#{encoded_ref}/#{action_name}"
+      path = "/conversations/#{conversation_id}/records/#{encoded_ref}/#{action_name}"
       assert conversation.resp_body =~ path
 
       resource = "#{conversation_id}:#{record_ref}:#{action}:none"
@@ -678,7 +749,7 @@ defmodule Responder.ControlPlane.RouterTest do
         ] do
       record_ref = "record:task_offer:confirmed"
       encoded_ref = URI.encode(record_ref, &URI.char_unreserved?/1)
-      path = "/lab/#{conversation_id}/records/#{encoded_ref}/#{action_name}"
+      path = "/conversations/#{conversation_id}/records/#{encoded_ref}/#{action_name}"
       assert conversation.resp_body =~ path
 
       resource = "#{conversation_id}:#{record_ref}:#{action}:#{value}"
@@ -698,7 +769,7 @@ defmodule Responder.ControlPlane.RouterTest do
         ] do
       record_ref = "record:task_offer:confirmed"
       encoded_ref = URI.encode(record_ref, &URI.char_unreserved?/1)
-      path = "/lab/#{conversation_id}/records/#{encoded_ref}/#{action_name}"
+      path = "/conversations/#{conversation_id}/records/#{encoded_ref}/#{action_name}"
       assert conversation.resp_body =~ path
 
       publication_ref = "publication:confirmed-task"
@@ -722,7 +793,7 @@ defmodule Responder.ControlPlane.RouterTest do
                        %{generation: 4, publication_ref: ^publication_ref}}
     end
 
-    invalid = request(:post, "/lab/#{conversation_id}/records/record:one/unknown", "")
+    invalid = request(:post, "/conversations/#{conversation_id}/records/record:one/unknown", "")
     assert invalid.status == 404
   end
 
@@ -2068,7 +2139,7 @@ defmodule Responder.ControlPlane.RouterTest do
                        media_type: "image/png",
                        name: "generated-chart.png",
                        path:
-                         "/lab/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6/turns/018f3ef7-1f62-7ee0-a83c-0c12f21d83e9/artifacts/artifact_chart",
+                         "/conversations/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6/turns/018f3ef7-1f62-7ee0-a83c-0c12f21d83e9/artifacts/artifact_chart",
                        ref: "artifact_chart",
                        status: "available"
                      }
@@ -2197,7 +2268,7 @@ defmodule Responder.ControlPlane.RouterTest do
                        ref: "record:slack_post_offer:lab",
                        status: :open,
                        summary: "Post this only after confirmation.",
-                       title: "Post this in Conversation Lab",
+                       title: "Post this in the conversation",
                        url: nil
                      },
                      %{

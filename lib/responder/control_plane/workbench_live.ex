@@ -349,16 +349,16 @@ defmodule Responder.ControlPlane.WorkbenchLive do
     end
   end
 
-  defp load_detail(socket, options, ["lab"]) do
+  defp load_detail(socket, options, ["conversations"]) do
     assign(socket,
       native: :lab,
-      page_title: "Conversation Lab",
+      page_title: "Conversations",
       lab: nil,
       lab_items: options.projection.lab_index.()
     )
   end
 
-  defp load_detail(socket, options, ["lab", _id]) do
+  defp load_detail(socket, options, ["conversations", _id]) do
     case Router.lab_snapshot(socket.assigns.params["id"], options) do
       {:ok, snapshot, token} ->
         reset =
@@ -369,7 +369,7 @@ defmodule Responder.ControlPlane.WorkbenchLive do
         |> sync_lab_messages(snapshot.messages, reset)
         |> assign(
           native: :lab,
-          page_title: "Conversation Lab",
+          page_title: "Conversations",
           lab: snapshot,
           lab_announcement:
             if(reset,

@@ -32,8 +32,8 @@ defmodule Responder.ControlPlane.SlackNames do
     end
   end
 
-  def destination("control_plane:" <> _), do: "Conversation Lab"
-  def destination("control-plane:lab:" <> _), do: "Conversation Lab"
+  def destination("control_plane:" <> _), do: "Direct conversation"
+  def destination("control-plane:lab:" <> _), do: "Direct conversation"
   def destination(value), do: value
 
   @doc """

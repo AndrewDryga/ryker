@@ -11,7 +11,7 @@ defmodule Responder.ControlPlane.FindingsPage do
         <p>Findings are saved conclusions: what needs explaining, what evidence explains it,
           or why the behavior is expected. This is not a second list of episodes.</p>
         <p>
-          Ask Responder to investigate in a conversation or <a href="/lab">Conversation Lab</a>.
+          Ask Responder to investigate in Slack or in a <a href="/conversations">direct conversation</a>.
           It can save a finding with the evidence it collected. Saving a finding does not create
           an incident or send a message. To correct or extend a conclusion, follow up in the source conversation
           using <em>Open investigation</em> below; the original finding remains part of the history.

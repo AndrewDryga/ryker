@@ -363,7 +363,7 @@ source receipts. An absent saved excerpt does not erase a valid original receipt
 its actual repository or conversation scope; navigation to a supporting thread does not turn the
 rollup itself into a thread summary.
 
-Through the Work MCP endpoint, Slack and Conversation Lab message lookups return a shared `related_memory` section:
+Through the Work MCP endpoint, Slack and direct-conversation message lookups return a shared `related_memory` section:
 up to eight source-linked confirmed facts, guidance, topics, observations, handovers or rollups,
 selected across at most twenty
 unique lookup anchors. Eight is also the per-source maximum: this is one shared allowance, not eight
@@ -380,7 +380,7 @@ coverage and `omitted_context` reader descriptors; search expansions restart bef
 `source_result_too_large` means the required originals and coverage still cannot fit. These attachments
 do not establish fresh operational state. Shared context is not recursively expanded.
 
-Conversation Lab search uses signed, caller/query-bound keyset continuation over current retained
+Direct-conversation search uses signed, caller/query-bound keyset continuation over current retained
 originals and includes nonmatching neighbors inside the requested date bounds. It rechecks the live
 session, ownership and lease before local reads or effects. Its coverage names
 the retained-conversation basis and 200-message retention window; it is not proof of full Slack history.
@@ -540,8 +540,8 @@ config :responder, :work,
 The YAML field is named `work.source_and_action_tools`; the internal runtime option is
 `platform_tools`. The configured names must exactly match tools actually supplied to that Coop
 policy by its owner-private MCP configuration. Responder never reads MCP credentials, and an
-incoming Slack, GitHub, webhook, or Conversation Lab message cannot add a tool or change this list.
-All of those sources share the same trusted Work runtime. Conversation Lab also installs a loopback
+incoming Slack, GitHub, webhook, or direct-conversation message cannot add a tool or change this list.
+All of those sources share the same trusted Work runtime. Direct conversations also install a loopback
 implementation of the exact Slack chat capability schemas: `list_slack_channels`, `search_slack`,
 `read_slack_source`, `set_slack_reaction`, and `post_slack_message`. In a Lab turn those tools expose
 one virtual workspace scoped to the current Lab conversation. Reads return only its durable messages;
@@ -552,8 +552,8 @@ next logical turn. Lab message edits and deletes use the same stable-item revisi
 adapters. Every result identifies the adapter as emulated with external effects disabled.
 This lets the model make the same chat/tool/card choices without generating Slack test traffic or
 receiving a Slack credential. Configured repository and Emisar tools remain real and retain the exact
-Work policy authority. Incident offers start a real linked Work episode in the Lab under that pinned
-authority; the virtual incident stays in the Lab timeline instead of fabricating a Slack channel.
+Work policy authority. Incident offers start a real linked Work episode in the conversation under that pinned
+authority; the virtual incident stays in the conversation instead of fabricating a Slack channel.
 Slack workspace audience rules, real workspace data, and Slack API provisioning still require the
 authenticated Slack adapter and its disposable live qualification.
 

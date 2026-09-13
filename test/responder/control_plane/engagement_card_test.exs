@@ -80,7 +80,7 @@ defmodule Responder.ControlPlane.EngagementCardTest do
     assert LazyHTML.text(card) =~ "Standing rules card above"
   end
 
-  test "an explicit Lab submission says it bypassed channel settings instead of inventing checks" do
+  test "an explicit direct-conversation submission says it bypassed channel settings instead of inventing checks" do
     receipt = %{
       "version" => 1,
       "path" => "conversation_lab",
@@ -96,8 +96,10 @@ defmodule Responder.ControlPlane.EngagementCardTest do
     document = LazyHTML.from_document(html)
 
     assert LazyHTML.query(document, ".participation-settings") |> LazyHTML.text() =~
-             "Not applicable: an explicit Conversation Lab submission bypasses channel participation settings."
+             "Not applicable: an explicit direct-conversation submission bypasses channel participation settings."
 
+    # The recorded reason is history: a receipt written before the rename
+    # keeps its own words, and the page shows exactly what was recorded.
     engagement = LazyHTML.query(document, ".engagement-decision") |> LazyHTML.text()
     assert engagement =~ "Explicitly submitted through Conversation Lab."
     refute engagement =~ "Direct message / mention"

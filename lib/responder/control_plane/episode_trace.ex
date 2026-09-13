@@ -529,7 +529,7 @@ defmodule Responder.ControlPlane.EpisodeTrace do
 
   defp source_label("slack"), do: "Slack"
   defp source_label("github"), do: "GitHub"
-  defp source_label("control_plane"), do: "Conversation Lab"
+  defp source_label("control_plane"), do: "Direct conversation"
   defp source_label("webhook"), do: "Webhook"
   defp source_label(other), do: to_string(other)
 
@@ -1027,7 +1027,7 @@ defmodule Responder.ControlPlane.EpisodeTrace do
   defp setting_source_label(nil), do: "Source not recorded"
   defp setting_source_label(other), do: human(to_string(other))
 
-  defp path_label("conversation_lab"), do: "an explicit Conversation Lab submission"
+  defp path_label("conversation_lab"), do: "an explicit direct-conversation submission"
   defp path_label("slack_shortcut"), do: "an explicit Slack shortcut"
   defp path_label("slack_event"), do: "a Slack event"
   defp path_label(other), do: human(to_string(other))
@@ -3179,7 +3179,7 @@ defmodule Responder.ControlPlane.EpisodeTrace do
     do: "Slack transport confirmed the delivery."
 
   defp delivery_confirmation(%{"transport" => "control_plane"}),
-    do: "Conversation Lab recorded the response."
+    do: "The conversation recorded the response."
 
   defp delivery_confirmation(_), do: "The destination confirmed the delivery."
 
@@ -3291,8 +3291,15 @@ defmodule Responder.ControlPlane.EpisodeTrace do
          _input
        ) do
     case Ecto.UUID.cast(conversation_id) do
-      {:ok, id} -> %{href: "/lab/#{id}", label: "Open source conversation", transport: "Lab"}
-      :error -> nil
+      {:ok, id} ->
+        %{
+          href: "/conversations/#{id}",
+          label: "Open source conversation",
+          transport: "Conversation"
+        }
+
+      :error ->
+        nil
     end
   end
 

@@ -288,7 +288,8 @@ defmodule Responder.ControlPlane.OperatorUsabilityTest do
 
     assert html =~ "Working-copy cleanup stopped"
     assert html =~ "Open request"
-    assert html =~ "Conversation Lab"
+    assert html =~ "Direct conversation"
+    refute html =~ "Conversation Lab"
     assert html =~ "<summary>Technical details</summary>"
     refute html =~ ">Custody reference</dt>"
   end

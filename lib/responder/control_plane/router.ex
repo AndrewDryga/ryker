@@ -89,10 +89,13 @@ defmodule Responder.ControlPlane.Router do
 
   defp snapshot_path?([page]),
     do:
-      page in ~w(lab incident-rooms schedules subscriptions channels repositories failures workspaces findings memory rules preferences guidance usage configuration)
+      page in ~w(conversations incident-rooms schedules subscriptions channels repositories failures workspaces findings memory rules preferences guidance usage configuration)
 
-  defp snapshot_path?(["lab", "new"]), do: false
-  defp snapshot_path?([page, _ref]), do: page in ~w(lab incident-rooms schedules)
+  defp snapshot_path?(["conversations", "new"]), do: false
+
+  defp snapshot_path?([page, _ref]),
+    do: page in ~w(conversations incident-rooms schedules)
+
   defp snapshot_path?([page, _, _]), do: page in ~w(channels failures)
   defp snapshot_path?(_path), do: false
 
@@ -135,18 +138,23 @@ defmodule Responder.ControlPlane.Router do
     end
   end
 
-  defp route(%Plug.Conn{method: "GET", path_info: ["lab"]} = conn, options) do
-    html(conn, 200, "Conversation Lab", HTML.lab_index(options.projection.lab_index.()))
+  defp route(%Plug.Conn{method: "GET", path_info: ["conversations"]} = conn, options) do
+    html(conn, 200, "Conversations", HTML.lab_index(options.projection.lab_index.()))
   end
 
-  defp route(%Plug.Conn{method: "GET", path_info: ["lab", "new"]} = conn, _options) do
+  # A new conversation is an identity, not a record: nothing is written until
+  # the first message, so opening this twice cannot leave two empty chats behind.
+  defp route(%Plug.Conn{method: "GET", path_info: ["conversations", "new"]} = conn, _options) do
     conn
-    |> put_resp_header("location", "/lab/#{Ecto.UUID.generate()}")
+    |> put_resp_header("location", "/conversations/#{Ecto.UUID.generate()}")
     |> send_resp(303, "")
     |> halt()
   end
 
-  defp route(%Plug.Conn{method: "GET", path_info: ["lab", conversation_id]} = conn, options) do
+  defp route(
+         %Plug.Conn{method: "GET", path_info: ["conversations", conversation_id]} = conn,
+         options
+       ) do
     case lab_id(conversation_id) do
       {:ok, conversation_id} -> render_lab(conn, options, conversation_id)
       {:error, :path_ref} -> html(conn, 404, "Not found", HTML.generic("Conversation", []))
@@ -156,7 +164,14 @@ defmodule Responder.ControlPlane.Router do
   defp route(
          %Plug.Conn{
            method: "GET",
-           path_info: ["lab", conversation_id, "turns", turn_id, "artifacts", artifact_ref]
+           path_info: [
+             "conversations",
+             conversation_id,
+             "turns",
+             turn_id,
+             "artifacts",
+             artifact_ref
+           ]
          } = conn,
          options
        ) do
@@ -172,7 +187,8 @@ defmodule Responder.ControlPlane.Router do
   end
 
   defp route(
-         %Plug.Conn{method: "POST", path_info: ["lab", conversation_id, "messages"]} = conn,
+         %Plug.Conn{method: "POST", path_info: ["conversations", conversation_id, "messages"]} =
+           conn,
          options
        ) do
     with {:ok, conversation_id} <- lab_id(conversation_id),
@@ -187,7 +203,7 @@ defmodule Responder.ControlPlane.Router do
         |> halt()
       else
         conn
-        |> put_resp_header("location", "/lab/#{conversation_id}")
+        |> put_resp_header("location", "/conversations/#{conversation_id}")
         |> send_resp(303, "")
         |> halt()
       end
@@ -203,7 +219,7 @@ defmodule Responder.ControlPlane.Router do
   defp route(
          %Plug.Conn{
            method: "POST",
-           path_info: ["lab", conversation_id, "messages", item_id, "edit"]
+           path_info: ["conversations", conversation_id, "messages", item_id, "edit"]
          } = conn,
          options
        ) do
@@ -227,7 +243,7 @@ defmodule Responder.ControlPlane.Router do
   defp route(
          %Plug.Conn{
            method: "POST",
-           path_info: ["lab", conversation_id, "messages", item_id, "delete"]
+           path_info: ["conversations", conversation_id, "messages", item_id, "delete"]
          } = conn,
          options
        ) do
@@ -250,7 +266,7 @@ defmodule Responder.ControlPlane.Router do
   defp route(
          %Plug.Conn{
            method: "POST",
-           path_info: ["lab", conversation_id, "replies", message_ref, "reactions"]
+           path_info: ["conversations", conversation_id, "replies", message_ref, "reactions"]
          } = conn,
          options
        ) do
@@ -280,7 +296,7 @@ defmodule Responder.ControlPlane.Router do
   defp route(
          %Plug.Conn{
            method: "GET",
-           path_info: ["lab", conversation_id, "records", record_ref, view_name]
+           path_info: ["conversations", conversation_id, "records", record_ref, view_name]
          } = conn,
          options
        ) do
@@ -300,7 +316,7 @@ defmodule Responder.ControlPlane.Router do
         snapshot.title,
         HTML.lab_task_record(
           snapshot,
-          "/lab/#{conversation_id}"
+          "/conversations/#{conversation_id}"
         )
       )
     else
@@ -317,7 +333,7 @@ defmodule Responder.ControlPlane.Router do
   defp route(
          %Plug.Conn{
            method: "POST",
-           path_info: ["lab", conversation_id, "records", record_ref, action_name]
+           path_info: ["conversations", conversation_id, "records", record_ref, action_name]
          } = conn,
          options
        ) do
@@ -335,7 +351,7 @@ defmodule Responder.ControlPlane.Router do
              action_context
            ) do
       conn
-      |> put_resp_header("location", "/lab/#{conversation_id}")
+      |> put_resp_header("location", "/conversations/#{conversation_id}")
       |> send_resp(303, "")
       |> halt()
     else
@@ -782,7 +798,7 @@ defmodule Responder.ControlPlane.Router do
   defp render_lab(conn, options, conversation_id) do
     case lab_snapshot(conversation_id, options) do
       {:ok, snapshot, token} ->
-        html(conn, 200, "Conversation Lab", HTML.lab_conversation(snapshot, token))
+        html(conn, 200, "Conversations", HTML.lab_conversation(snapshot, token))
 
       _unavailable ->
         html(conn, 503, "Unavailable", HTML.generic("Conversation", []))
@@ -840,11 +856,11 @@ defmodule Responder.ControlPlane.Router do
 
     Map.put(message, :message_controls, %{
       delete: %{
-        path: "/lab/#{conversation_id}/messages/#{item_id}/delete",
+        path: "/conversations/#{conversation_id}/messages/#{item_id}/delete",
         token: CSRF.token(csrf_secret, @lab_message_action, delete_resource)
       },
       edit: %{
-        path: "/lab/#{conversation_id}/messages/#{item_id}/edit",
+        path: "/conversations/#{conversation_id}/messages/#{item_id}/edit",
         token: CSRF.token(csrf_secret, @lab_message_action, edit_resource)
       }
     })
@@ -863,7 +879,7 @@ defmodule Responder.ControlPlane.Router do
 
     Map.put(message, :reaction_controls, %{
       path:
-        "/lab/#{conversation_id}/replies/#{URI.encode(message_ref, &URI.char_unreserved?/1)}/reactions",
+        "/conversations/#{conversation_id}/replies/#{URI.encode(message_ref, &URI.char_unreserved?/1)}/reactions",
       token: CSRF.token(csrf_secret, @lab_reaction_action, resource)
     })
   end
@@ -952,7 +968,7 @@ defmodule Responder.ControlPlane.Router do
     action_name = lab_record_action_name(action)
 
     path =
-      "/lab/#{conversation_id}/records/#{URI.encode(record_ref, &URI.char_unreserved?/1)}/#{action_name}"
+      "/conversations/#{conversation_id}/records/#{URI.encode(record_ref, &URI.char_unreserved?/1)}/#{action_name}"
 
     if lab_record_read_action?(action) do
       %{
@@ -1100,7 +1116,7 @@ defmodule Responder.ControlPlane.Router do
 
   defp lab_record_view_path(conversation_id, record_ref, view, page) do
     base =
-      "/lab/#{conversation_id}/records/#{URI.encode(record_ref, &URI.char_unreserved?/1)}/#{lab_record_action_name(view_action(view))}"
+      "/conversations/#{conversation_id}/records/#{URI.encode(record_ref, &URI.char_unreserved?/1)}/#{lab_record_action_name(view_action(view))}"
 
     case page do
       %{offset: offset, snapshot_digest: digest} ->
@@ -1790,7 +1806,7 @@ defmodule Responder.ControlPlane.Router do
 
   defp redirect_lab(conn, conversation_id) do
     conn
-    |> put_resp_header("location", "/lab/#{conversation_id}")
+    |> put_resp_header("location", "/conversations/#{conversation_id}")
     |> send_resp(303, "")
     |> halt()
   end

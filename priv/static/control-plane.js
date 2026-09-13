@@ -1,6 +1,6 @@
 import {Socket} from "/assets/phoenix.mjs"
 import {LiveSocket} from "/assets/phoenix_live_view.esm.js"
-import {draftKey as keyFor, captureDrafts, acceptDrafts, sendDraft, validateDraft} from "/assets/drafts.mjs"
+import {draftKey as keyFor, captureDrafts, acceptDrafts, sendDraft, validateDraft, transferLegacyDraft} from "/assets/drafts.mjs"
 import {createRelearnPicker} from "/assets/relearn-selection.mjs"
 import {createInstructionDraft} from "/assets/instruction-draft.mjs"
 import {createSettingsGuard} from "/assets/settings-draft.mjs"
@@ -68,11 +68,7 @@ const PreserveReadingState = {
     this.el.addEventListener("input", this.onInput)
     this.el.addEventListener("change", this.onInput)
     this.el.addEventListener("submit", this.onSubmit)
-    this.onClick = event => {
-      this.relearnPicker.click(event)
-      const choice = event.target.closest?.("#card-state-picker a")
-      if (choice) choice.closest("details").open = false
-    }
+    this.onClick = event => this.relearnPicker.click(event)
     this.el.addEventListener("click", this.onClick)
     this.onKeydown = event => {
       if (event.key === "Enter" && (event.metaKey || event.ctrlKey) && event.target.matches(".composer textarea")) {
@@ -125,7 +121,7 @@ const PreserveReadingState = {
       if (this.el.contains(focused)) focused.focus({preventScroll: true})
     }
     if (this.revealFragment(document.activeElement === document.body)) return
-    if (this.following && location.pathname.startsWith("/lab/")) {
+    if (this.following && location.pathname.startsWith("/conversations/")) {
       window.scrollTo({top: document.documentElement.scrollHeight, behavior: "instant"})
     } else if (Number.isFinite(this.scroll)) {
       window.scrollTo({top: this.scroll, behavior: "instant"})
@@ -153,7 +149,9 @@ const PreserveReadingState = {
     this.el.querySelectorAll("textarea, input[type=text], input[type=search]").forEach(element => {
       const key = draftKey(element)
       if (key && element !== document.activeElement) {
+        // A storage failure leaves whatever is already typed in place.
         try {
+          transferLegacyDraft(key, sessionStorage)
           const value = sessionStorage.getItem(key)
           if (value !== null) element.value = value
         } catch (_) {}

@@ -1,5 +1,5 @@
 defmodule Responder.ControlPlane.LabPage do
-  @moduledoc "A first-class conversation test bench using the normal durable action boundary."
+  @moduledoc "Direct conversations with the agent, through the normal durable action boundary."
   use Phoenix.Component
   import Responder.ControlPlane.Components
   alias Responder.ControlPlane.HTML
@@ -9,9 +9,9 @@ defmodule Responder.ControlPlane.LabPage do
     <div class={"conversation-lab #{if @snapshot, do: "has-conversation", else: "lab-welcome"}"}>
       <aside class="lab-directory">
         <div class="lab-directory-heading">
-          <h1>Conversation Lab</h1>
+          <h1>Conversations</h1>
         </div>
-        <a :if={@snapshot} class="ui-button secondary" href="/lab/new"><.icon name={:plus} />New conversation</a>
+        <a :if={@snapshot} class="ui-button secondary" href="/conversations/new"><.icon name={:plus} />New conversation</a>
         <div class="lab-directory-list">
           <p class="ui-eyebrow">RECENT CONVERSATIONS</p><p
             :if={@items == []}
@@ -21,7 +21,7 @@ defmodule Responder.ControlPlane.LabPage do
           </p>
           <.link
             :for={item <- @items}
-            navigate={"/lab/#{item.id}"}
+            navigate={"/conversations/#{item.id}"}
             aria-current={if @snapshot && item.id == @snapshot.conversation_id, do: "page"}
           ><strong>{Map.get(item, :title, "Conversation")}</strong><span>{item.message_count} inputs · {timestamp(
             item.updated_at
@@ -29,9 +29,10 @@ defmodule Responder.ControlPlane.LabPage do
         </div>
       </aside>
       <div :if={!@snapshot} class="lab-start">
-        <h2>Test a conversation</h2><p>
-          Send a message to the configured models and tools, then inspect the prompt, tool calls, and reply in its execution timeline.
-        </p><a class="ui-button primary" href="/lab/new">New conversation <.icon name={:arrow} /></a><p class="lab-start-notes">
+        <h2>Start a conversation</h2><p>
+          Direct conversations with Responder, without Slack. Every message runs through the configured models and tools, and each reply links its execution timeline.
+        </p><a class="ui-button primary" href="/conversations/new">New conversation
+        <.icon name={:arrow} /></a><p class="lab-start-notes">
           <strong>Real tools, local replies.</strong>
           Slack effects are emulated here. Repository and Emisar actions still use their configured authority.
           <a href="/configuration">Inspect configuration</a>
@@ -40,7 +41,7 @@ defmodule Responder.ControlPlane.LabPage do
       <section :if={@snapshot} class="lab-chat" aria-label="Conversation">
         <div class="lab-chat-header">
           <div>
-            <span class="ui-eyebrow">CONVERSATION LAB</span><h2>{conversation_title(@snapshot)}</h2>
+            <span class="ui-eyebrow">CONVERSATION</span><h2>{conversation_title(@snapshot)}</h2>
           </div><span class={"ui-status status-#{if @snapshot.blocked, do: "attention", else: "quiet"}"}><i></i>{cond do
             @snapshot.blocked -> "Needs attention"
             @snapshot.live -> "Processing"
@@ -50,7 +51,7 @@ defmodule Responder.ControlPlane.LabPage do
         </div>
         <div :if={@snapshot.messages == []} class="lab-first-message">
           <h3>
-            Send a test message
+            Send a message
           </h3><p>
             Ask a question, investigate an issue, or try a feature. Your first message starts the conversation.
           </p>
@@ -101,7 +102,7 @@ defmodule Responder.ControlPlane.LabPage do
           class="composer lab-native-composer"
           method="post"
           enctype="multipart/form-data"
-          action={"/lab/#{@snapshot.conversation_id}/messages"}
+          action={"/conversations/#{@snapshot.conversation_id}/messages"}
         >
           <input type="hidden" name="_token" value={@token} /><label class="sr-only" for="lab-message">Message Responder</label><textarea
             id="lab-message"

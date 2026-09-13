@@ -67,6 +67,31 @@ defmodule Responder.ControlPlane.BehaviorPageTest do
     end
   end
 
+  test "an instruction confirmed in a direct conversation links its original conversation" do
+    # Standing rules confirmed from the control plane store
+    # control-plane:lab:<uuid>; the stored ref did not change with the
+    # 2026-09-13 URL rename, and the link it produces must be the renamed route.
+    id = "018f3ef7-1f62-7ee0-a83c-0c12f21d83e6"
+
+    item = %{
+      item(:standing_assignment)
+      | source_conversation_ref: "control-plane:lab:#{id}",
+        source_message_ref: nil
+    }
+
+    html = render_component(&BehaviorPage.render/1, view: view(item.kind, [item]))
+    document = LazyHTML.from_fragment(html)
+
+    assert document |> LazyHTML.query("a[href='/conversations/#{id}']") |> LazyHTML.text() =~
+             "Original conversation"
+
+    refute html =~ "/lab/"
+
+    broken = %{item | source_conversation_ref: "control-plane:lab:not-a-uuid"}
+    html = render_component(&BehaviorPage.render/1, view: view(item.kind, [broken]))
+    refute html =~ "Original conversation"
+  end
+
   test "the library reads help, toolbar, count, entries, history with no statistics row or apply button" do
     # Same screenshot: a <dl class="behavior-counts"> of Active/Paused/Expired
     # numbers above the list, an Apply button beside the filters, and the

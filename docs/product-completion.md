@@ -56,13 +56,13 @@ does not mark the broader typed timeline item complete.
 - [ ] Fast admission and Work startup with existing credentials; warm/cold/load
   measurements, preserved authority, abstention, escalation and recovery.
 - [ ] One active conversation: durable follow-up steering, ordering, cancellation
-  races, and persistent pending/progress indication in Slack and the Lab.
+  races, and persistent pending/progress indication in Slack and direct conversations.
 - [ ] Scoped GCP project discovery and useful Emisar organization context;
   resolve goal authorization and citation interoperability defects.
 - [ ] Rich real-data Slack task cards for every family/state;
   public progress, subtasks, native confirmations and live in-place transitions.
 - [ ] Complete GitHub App integration and native GitHub replay/live workbench.
-- [ ] Finish native LiveView operational pages and Conversation Lab parity.
+- [ ] Finish native LiveView operational pages and direct-conversation parity.
 - [ ] Configuration v2 defaults, internally resolved policy pins, migration,
   validation and explanation without capability expansion.
 - [ ] Reviewed organization-isolated learning corpus and comparative evaluation.
@@ -82,7 +82,7 @@ the unchecked product items below remain open.
 
 - [ ] Requests and filters
 - [ ] Episode and retained request detail
-- [ ] Conversation Lab and all card actions
+- [ ] Conversations and all card actions
 - [ ] Incident rooms and room detail
 - [ ] Failures and confirmed recovery
 - [ ] Usage and cost, including drill-downs

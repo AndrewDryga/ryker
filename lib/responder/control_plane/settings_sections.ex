@@ -52,7 +52,7 @@ defmodule Responder.ControlPlane.SettingsSections do
   @transports [
     {"slack", "Slack"},
     {"github", "GitHub"},
-    {"control_plane", "Conversation Lab"}
+    {"control_plane", "Direct conversation"}
   ]
   @mapping_fields ~w(event_id status title severity summary source_url starts_at ends_at incident_id item_id labels annotations revision)
   @lifecycle_fields ~w(environments kinds repositories targets)
@@ -239,7 +239,7 @@ defmodule Responder.ControlPlane.SettingsSections do
       title: "Repository contexts",
       description:
         "A context is one primary repository plus read-only companions, referenced by Slack, " <>
-          "GitHub, webhooks and the Lab. Its goal limit may lower, never raise, the host maximum.",
+          "GitHub, webhooks and direct conversations. Its goal limit may lower, never raise, the host maximum.",
       fields: [
         %{name: :ref, kind: :text, label: "Reference", identity: true},
         %{name: :display_name, kind: :text, label: "Display name"},

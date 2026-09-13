@@ -34,12 +34,12 @@ const {chromium} = require(process.env.RESPONDER_PLAYWRIGHT_MODULE || 'playwrigh
       assert.equal(await page.locator('.execution-ledger-disclosure').count(), 0);
       assert.equal(await page.locator('.usage-scope [aria-current=page]').textContent(), 'All work');
       assert.equal(await page.getByText('Unknown model', {exact: true}).count(), 0);
-      assert.equal(await page.locator('#usage-channels').getByText('Conversation Lab', {exact: true}).count(), 0);
+      assert.equal(await page.locator('#usage-channels').getByText('Direct conversation', {exact: true}).count(), 0);
       for (const href of await page.locator('#usage-channels .usage-identity a').evaluateAll(es => es.map(e => e.href))) {
         assert.equal(new URL(href).searchParams.get('usage_transport'), 'slack');
       }
       assert.deepEqual(await page.locator('#usage-people th').allTextContents(), ['Person', 'Episodes', 'Tokens', 'Cost']);
-      for (const label of ['Conversation Lab', 'Slack app', 'universal']) {
+      for (const label of ['Direct conversation', 'Slack app', 'universal']) {
         assert.equal(await page.locator('#usage-people').getByText(label, {exact: true}).count(), 0);
       }
       for (const href of await page.locator('#usage-people .usage-identity a').evaluateAll(es => es.map(e => e.href))) {

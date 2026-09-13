@@ -443,7 +443,7 @@ defmodule Responder.ControlPlane.ConversationMemory do
         transport: "control_plane",
         conversation_ref: "control-plane:lab:" <> id
       }),
-      do: "/lab/" <> URI.encode(id, &URI.char_unreserved?/1)
+      do: "/conversations/" <> URI.encode(id, &URI.char_unreserved?/1)
 
   def source_message(_), do: nil
 
