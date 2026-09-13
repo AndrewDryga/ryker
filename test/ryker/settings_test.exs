@@ -160,12 +160,12 @@ defmodule Ryker.SettingsTest do
 
     assert Settings.record_application(1, :ok) == {:error, :settings_revision_changed}
 
-    assert Settings.record_application(1, {:error, :missing_credentials}) ==
+    assert Settings.record_application(1, {:error, :runtime_start_failed}) ==
              {:error, :settings_revision_changed}
 
-    assert :ok = Settings.record_application(2, {:error, :missing_credentials})
+    assert :ok = Settings.record_application(2, {:error, :runtime_start_failed})
     assert {:ok, failed} = Settings.fetch()
-    assert Settings.application_status(failed) == {:failed, :missing_credentials}
+    assert Settings.application_status(failed) == {:failed, :runtime_start_failed}
     assert failed.installation.applied_revision == 1
 
     assert :ok = Settings.record_application(2, :ok)
