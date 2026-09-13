@@ -188,7 +188,10 @@ defmodule Responder.ControlPlane.ChannelPage do
             </thead>
             <tbody>
               <tr :for={item <- @view.episodes.items}>
-                <td><a href={"/timeline/" <> encode(item.ref)}><code>{item.ref}</code></a></td>
+                <td>
+                  <a href={"/timeline/" <> encode(item.ref)}>{item.title || item.ref}</a>
+                  <code :if={item.title}>{item.ref}</code>
+                </td>
                 <td>{label(item.state)}</td>
                 <td>{label(item.execution_mode)}</td>
                 <td>{item.thread_ref || "Channel root"}</td>

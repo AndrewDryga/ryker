@@ -194,7 +194,7 @@ defmodule Responder.ControlPlane.Components do
   """
   def result_count(assigns) do
     ~H"""
-    <p class="result-count">{@count} {if @count == 1, do: @one, else: @many}</p>
+    <p :if={@count > 0} class="result-count">{@count} {if @count == 1, do: @one, else: @many}</p>
     """
   end
 
