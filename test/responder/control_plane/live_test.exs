@@ -6,6 +6,7 @@ defmodule Responder.ControlPlane.LiveTest do
   alias Responder.ControlPlane.{CardLab, ConversationLab, LiveSocket, Projection}
   alias Responder.ControlPlane.LabPage
   alias Responder.ControlPlane.WorkbenchLive
+  alias Responder.Fixtures.SavedEntities
   alias Responder.Ingress.Inbox
   alias Responder.Ingress.WorkProfile
 
@@ -111,6 +112,68 @@ defmodule Responder.ControlPlane.LiveTest do
     refute has_element?(view, ".document-unavailable")
   end
 
+  test "the live shell shows a configuration page's title once, its description beneath, then one column" do
+    # The Standing rules screenshot Andrew sent on 2026-09-09: three 30px
+    # status counts in a flex row with the creation help pushed to the right
+    # by margin-left:auto, an Apply button, and the total buried inside the
+    # pagination line. The approved order is title, description, help
+    # disclosure, toolbar, quiet count, entries, history — down one left
+    # edge — and a routine reconcile must not disturb it.
+    source = SavedEntities.source!("slack:T123:C456")
+
+    SavedEntities.behavior!(
+      source,
+      :standing_assignment,
+      %{
+        "action" => "triage_alert",
+        "expires_in" => "30d",
+        "repository" => nil,
+        "source_filter" => "human",
+        "task" => "Watch Terraform applies and report readiness.",
+        "trigger" => "operational_alert"
+      },
+      scope_ref: "slack:T123:C456"
+    )
+
+    {:ok, view, html} = live(build_conn() |> Map.put(:host, "localhost"), "/rules")
+    document = LazyHTML.from_document(html)
+    headings = LazyHTML.query(document, "main h1")
+    assert Enum.count(headings) == 1
+    assert LazyHTML.text(headings) == "Standing rules"
+
+    assert Enum.count(LazyHTML.query(document, "main header.page-header > .page-heading > h1")) ==
+             1
+
+    assert LazyHTML.query(
+             document,
+             "main header.page-header > .page-heading + p.page-description"
+           )
+           |> LazyHTML.text() =~ "Instructions that run"
+
+    assert outline(document, "main .secondary-page > *") == [
+             "header.page-header",
+             "div.behavior-library"
+           ]
+
+    assert outline(document, "main .behavior-library > *") == [
+             "details.page-help",
+             "form.filter-toolbar",
+             "p.result-count",
+             "div.behavior-entries",
+             "section.behavior-history"
+           ]
+
+    assert has_element?(view, "main p.result-count", "1 rule")
+    assert has_element?(view, "main .behavior-entry h2", "Operational alert")
+    assert has_element?(view, "main .behavior-entry", "Watch Terraform applies")
+    refute has_element?(view, ".behavior-counts, .behavior-overview, .secondary-page-title")
+    refute has_element?(view, "form.filter-toolbar button:not(noscript button)")
+
+    send(view.pid, :reconcile)
+    assert has_element?(view, "main header.page-header h1", "Standing rules")
+    assert has_element?(view, "main details.page-help summary", "How to add and manage rules")
+  end
+
   test "malformed usage filters cannot crash navigation or search links" do
     # Nested URL values reached URI.encode_query as maps instead of scalars.
     for query <- [
@@ -137,14 +200,14 @@ defmodule Responder.ControlPlane.LiveTest do
         ] do
       query = URI.encode_query(%{"q" => "emisar", "status" => status || ""})
       {:ok, view, _} = live(build_conn() |> Map.put(:host, "localhost"), path <> "?" <> query)
-      assert has_element?(view, "form.search-form input[name=q][value=emisar]")
-      assert has_element?(view, "form.search-form a[href='#{path}']", "Clear filters")
+      assert has_element?(view, "form.filter-toolbar input[name=q][value=emisar]")
+      assert has_element?(view, "form.filter-toolbar a[href='#{path}']", "Clear filters")
 
       if status,
         do: assert(has_element?(view, "select[name=status] option[value='#{status}'][selected]"))
 
       send(view.pid, :reconcile)
-      assert has_element?(view, "form.search-form input[name=q][value=emisar]")
+      assert has_element?(view, "form.filter-toolbar input[name=q][value=emisar]")
     end
   end
 
@@ -728,5 +791,20 @@ defmodule Responder.ControlPlane.LiveTest do
     assert_patch(view, "/card-lab/incident-room/#{transition.to}")
     assert has_element?(view, ".specimen-canvas")
     refute has_element?(view, ".legacy-surface")
+  end
+
+  # "tag.first-class" for each matched element, in document order.
+  defp outline(document, selector) do
+    nodes = LazyHTML.query(document, selector)
+
+    nodes
+    |> LazyHTML.tag()
+    |> Enum.zip(LazyHTML.attributes(nodes))
+    |> Enum.map(fn {tag, attributes} ->
+      case List.keyfind(attributes, "class", 0) do
+        {"class", class} -> tag <> "." <> hd(String.split(class))
+        nil -> tag
+      end
+    end)
   end
 end

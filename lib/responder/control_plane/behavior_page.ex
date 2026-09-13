@@ -8,92 +8,87 @@ defmodule Responder.ControlPlane.BehaviorPage do
   def title(:preference), do: "Preferences"
   def title(:guidance), do: "Guidance"
 
+  # The shell's one-line description under the title. Guidance keeps its
+  # authority boundary here, visible, rather than inside the closed help.
+  def description(:standing_assignment),
+    do: "Instructions that run when a matching event arrives."
+
+  def description(:preference),
+    do:
+      "Saved choices for how Responder replies and works, scoped to a person, conversation, repository, or workspace."
+
+  def description(:guidance),
+    do:
+      "Confirmed instructions recalled in relevant conversations. Guidance helps the model; it does not grant permission to act."
+
+  @status_options [
+    {"current", "Active & paused"},
+    {"all", "All statuses"},
+    {"active", "Active"},
+    {"disabled", "Paused"},
+    {"expired", "Expired"},
+    {"archived", "Archived"}
+  ]
+  @scope_options [
+    {"", "All scopes"},
+    {"conversation", "Conversation"},
+    {"workspace", "Workspace"},
+    {"repository", "Repository"},
+    {"operator", "Person"}
+  ]
+
   def render(assigns) do
-    assigns = assign(assigns, :path, BehaviorLibrary.path(assigns.view.kind))
+    assigns =
+      assign(assigns,
+        path: BehaviorLibrary.path(assigns.view.kind),
+        status_options: @status_options,
+        scope_options: @scope_options
+      )
 
     ~H"""
     <div class="behavior-library">
-      <p class="page-description">{description(@view.kind)}</p>
-      <p :if={@view.kind == :guidance} class="muted">
-        Guidance is recalled when relevant. Use <a href="/instructions">Instructions</a>
-        for global or channel defaults supplied on every model turn.
-      </p>
-      <div class="behavior-overview">
-        <dl class="behavior-counts">
-          <div :for={
-            {status, label} <- [{"active", "Active"}, {"disabled", "Paused"}, {"expired", "Expired"}]
-          }>
-            <dt>{label}</dt><dd>{@view.counts[status] || 0}</dd>
-          </div>
-        </dl>
-        <section class="behavior-create" id={"#{@path}-create"}>
-          <h2>{create_label(@view.kind)}</h2>
-          <p>{create_help(@view.kind)}</p>
-          <p>Review and confirm the proposed card in that conversation before it takes effect.</p>
-          <p>
-            Use Pause or Resume below to change whether it applies. Delete removes it from active use while keeping its history.
-          </p>
-          <div class="behavior-links">
-            <a href="/channels">Slack channels →</a><a href="/lab">Try in Conversation Lab →</a><a href={
-              preview(@view.kind)
-            }>Preview the card →</a>
-          </div>
-        </section>
-      </div>
-      <form method="get" action={@path} class="behavior-filters">
-        <div>
-          <label for="behavior-search">Search</label><input
-            id="behavior-search"
-            type="search"
-            name="q"
-            value={@view.params["q"]}
-            placeholder="Search instructions or scope"
-          />
-        </div>
-        <div>
-          <label for="behavior-status">Status</label><select id="behavior-status" name="status">
-            <option
-              :for={
-                {value, label} <- [
-                  {"current", "Active & paused"},
-                  {"all", "All statuses"},
-                  {"active", "Active"},
-                  {"disabled", "Paused"},
-                  {"expired", "Expired"},
-                  {"archived", "Archived"}
-                ]
-              }
-              value={value}
-              selected={@view.params["status"] == value}
-            >
-              {label}
-            </option>
-          </select>
-        </div>
-        <div>
-          <label for="behavior-scope">Applies to</label><select id="behavior-scope" name="scope">
-            <option
-              :for={
-                {value, label} <- [
-                  {"", "All scopes"},
-                  {"conversation", "Conversation"},
-                  {"workspace", "Workspace"},
-                  {"repository", "Repository"},
-                  {"operator", "Person"}
-                ]
-              }
-              value={value}
-              selected={@view.params["scope"] == value}
-            >
-              {label}
-            </option>
-          </select>
-        </div>
-        <button type="submit" class="ui-button primary">Apply</button><a
-          :if={filtered?(@view)}
-          href={@path}
-        >Clear filters</a>
-      </form>
+      <.page_help id={help_id(@view.kind)} label={help_label(@view.kind)}>
+        <p>{create_help(@view.kind)}</p>
+        <p>Review and confirm the proposed card in that conversation before it takes effect.</p>
+        <p>
+          Use Pause or Resume to change whether an entry applies. Delete removes it from active use while keeping its history.
+        </p>
+        <p :if={@view.kind == :guidance}>
+          Guidance is recalled when relevant. Use <a href="/instructions">Instructions</a>
+          for global or channel defaults supplied on every model turn.
+        </p>
+        <p><a href="/channels">Slack channels →</a></p>
+      </.page_help>
+      <.filter_toolbar
+        id="behavior-search"
+        path={@path}
+        label={"Filter #{String.downcase(title(@view.kind))}"}
+        placeholder="Search instructions or scope"
+        query={@view.params["q"]}
+        filtered={filtered?(@view)}
+        selects={[
+          %{
+            id: "behavior-status",
+            name: "status",
+            label: "Status",
+            value: @view.params["status"],
+            options: @status_options
+          },
+          %{
+            id: "behavior-scope",
+            name: "scope",
+            label: "Applies to",
+            value: @view.params["scope"],
+            options: @scope_options
+          }
+        ]}
+      />
+      <.result_count
+        :if={@view.total > 0}
+        count={@view.total}
+        one={noun(@view.kind, 1)}
+        many={noun(@view.kind, 2)}
+      />
       <div :if={@view.items == []} class="behavior-empty">
         <h2>
           {empty_title(@view)}
@@ -284,21 +279,20 @@ defmodule Responder.ControlPlane.BehaviorPage do
 
   defp source_url(_), do: nil
 
-  defp description(:standing_assignment),
-    do:
-      "Instructions that run when a matching source event arrives, without needing a new request."
+  defp help_id(:standing_assignment), do: "rules-help"
+  defp help_id(:preference), do: "preferences-help"
+  defp help_id(:guidance), do: "guidance-help"
 
-  defp description(:preference),
-    do:
-      "Saved choices for how Responder replies and works, scoped to a person, conversation, repository, or workspace."
+  defp help_label(:standing_assignment), do: "How to add and manage rules"
+  defp help_label(:preference), do: "How to save and manage preferences"
+  defp help_label(:guidance), do: "How to add and manage guidance"
 
-  defp description(:guidance),
-    do:
-      "Confirmed instructions recalled in relevant conversations. Guidance helps the model; it does not grant permission to act."
-
-  defp create_label(:standing_assignment), do: "Add a standing rule"
-  defp create_label(:preference), do: "Save a preference"
-  defp create_label(:guidance), do: "Add guidance"
+  defp noun(:standing_assignment, 1), do: "rule"
+  defp noun(:standing_assignment, _), do: "rules"
+  defp noun(:preference, 1), do: "preference"
+  defp noun(:preference, _), do: "preferences"
+  defp noun(:guidance, 1), do: "guidance entry"
+  defp noun(:guidance, _), do: "guidance entries"
 
   defp create_help(:standing_assignment),
     do:
@@ -322,8 +316,4 @@ defmodule Responder.ControlPlane.BehaviorPage do
   defp empty_help(:guidance),
     do:
       "No confirmed guidance is active. Ask Responder to remember an instruction to make it available here."
-
-  defp preview(:standing_assignment), do: "/card-lab/behavior-offer/standing-assignment"
-  defp preview(:preference), do: "/card-lab/behavior-offer/preference"
-  defp preview(:guidance), do: "/card-lab/behavior-offer/guidance"
 end

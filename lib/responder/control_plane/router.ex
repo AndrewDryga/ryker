@@ -82,7 +82,12 @@ defmodule Responder.ControlPlane.Router do
         options
       )
     else
-      %{status: 404, title: "Not found", body: "<p>This view does not exist.</p>"}
+      %{
+        status: 404,
+        title: "Not found",
+        description: nil,
+        body: "<p>This view does not exist.</p>"
+      }
     end
   end
 
@@ -583,7 +588,14 @@ defmodule Responder.ControlPlane.Router do
   defp route(%Plug.Conn{method: "GET", path_info: ["incident-rooms"]} = conn, options) do
     conn = fetch_query_params(conn)
     snapshot = options.projection.incidents.(Map.take(conn.query_params, ["q", "status"]))
-    html(conn, 200, "Incident rooms", HTML.incidents(snapshot, conn.query_params))
+
+    html(
+      conn,
+      200,
+      "Incident rooms",
+      "Track Slack incident rooms from setup through closure, with channel status and linked investigation work.",
+      HTML.incidents(snapshot, conn.query_params)
+    )
   end
 
   defp route(
@@ -599,7 +611,14 @@ defmodule Responder.ControlPlane.Router do
   defp route(%Plug.Conn{method: "GET", path_info: ["schedules"]} = conn, options) do
     conn = fetch_query_params(conn)
     snapshot = options.projection.schedules.(Map.take(conn.query_params, ["q", "status"]))
-    html(conn, 200, "Schedules", HTML.schedules(snapshot, conn.query_params))
+
+    html(
+      conn,
+      200,
+      "Schedules",
+      "Recurring and one-shot work Responder has agreed to run, with each dispatched or missed occurrence.",
+      HTML.schedules(snapshot, conn.query_params)
+    )
   end
 
   defp route(%Plug.Conn{method: "GET", path_info: ["schedules", schedule_ref]} = conn, options) do
@@ -615,13 +634,26 @@ defmodule Responder.ControlPlane.Router do
     snapshot =
       options.projection.subscriptions.(Map.take(conn.query_params, ["q", "status"]))
 
-    html(conn, 200, "Waits", HTML.subscriptions(snapshot, conn.query_params))
+    html(
+      conn,
+      200,
+      "Waits",
+      "What the agent is waiting for, when it will check again, and what resumed the work.",
+      HTML.subscriptions(snapshot, conn.query_params)
+    )
   end
 
   defp route(%Plug.Conn{method: "GET", path_info: ["channels"]} = conn, options) do
     conn = fetch_query_params(conn)
     snapshot = options.projection.channels.(Map.take(conn.query_params, ["q"]))
-    html(conn, 200, "Channels", HTML.channels(snapshot, conn.query_params))
+
+    html(
+      conn,
+      200,
+      "Channels",
+      "Slack channels Responder knows about: configuration, membership, repository and recorded work.",
+      HTML.channels(snapshot, conn.query_params)
+    )
   end
 
   defp route(
@@ -648,7 +680,14 @@ defmodule Responder.ControlPlane.Router do
   defp route(%Plug.Conn{method: "GET", path_info: ["repositories"]} = conn, options) do
     conn = fetch_query_params(conn)
     snapshot = options.projection.repositories.(Map.take(conn.query_params, ["q"]))
-    html(conn, 200, "Repositories", HTML.repositories(snapshot, conn.query_params))
+
+    html(
+      conn,
+      200,
+      "Repositories",
+      "Connected repositories, the work they receive, and the code revision last used.",
+      HTML.repositories(snapshot, conn.query_params)
+    )
   end
 
   defp route(%Plug.Conn{method: "GET", path_info: ["memory"]} = conn, options) do
@@ -656,6 +695,7 @@ defmodule Responder.ControlPlane.Router do
       conn,
       200,
       "Memory",
+      "What Responder learned from conversations, with the messages and work it came from.",
       HTML.memory(
         options.projection.memory.(fetch_query_params(conn).query_params),
         options.csrf_secret
@@ -673,7 +713,7 @@ defmodule Responder.ControlPlane.Router do
       BehaviorPage.render(%{__changed__: nil, view: snapshot})
       |> Safe.to_iodata()
 
-    html(conn, 200, BehaviorPage.title(kind), body)
+    html(conn, 200, BehaviorPage.title(kind), BehaviorPage.description(kind), body)
   end
 
   defp route(
@@ -2155,18 +2195,27 @@ defmodule Responder.ControlPlane.Router do
     end
   end
 
-  defp html(%{private: %{control_plane_snapshot: true}}, status, title, body),
-    do: %{status: status, title: title, body: IO.iodata_to_binary(body)}
+  # A page is a title, an optional one-line description and a body. The shell
+  # renders the first two as the page's only heading; the body owns the rest.
+  defp html(conn, status, title, body), do: html(conn, status, title, nil, body)
 
-  defp html(conn, status, title, body) do
+  defp html(%{private: %{control_plane_snapshot: true}}, status, title, description, body),
+    do: %{status: status, title: title, description: description, body: IO.iodata_to_binary(body)}
+
+  defp html(conn, status, title, description, body) do
     conn
     |> put_resp_content_type("text/html")
-    |> send_resp(status, HTML.page(title, body))
+    |> send_resp(status, HTML.page(title, description, body))
     |> halt()
   end
 
   defp text(%{private: %{control_plane_snapshot: true}}, status, body),
-    do: %{status: status, title: "Unavailable", body: Plug.HTML.html_escape(body)}
+    do: %{
+      status: status,
+      title: "Unavailable",
+      description: nil,
+      body: Plug.HTML.html_escape(body)
+    }
 
   defp text(conn, status, body) do
     conn

@@ -4,7 +4,12 @@ import {draftKey as keyFor, captureDrafts, acceptDrafts, sendDraft, validateDraf
 import {createRelearnPicker} from "/assets/relearn-selection.mjs"
 import {createInstructionDraft} from "/assets/instruction-draft.mjs"
 import {createSettingsGuard} from "/assets/settings-draft.mjs"
+import {applyFilterChange} from "/assets/filter-toolbar.mjs"
 const draftKey = element => element.closest?.("form[phx-change]") ? null : keyFor(element, location.pathname)
+
+// Filter toolbars are plain GET forms and work before the socket connects,
+// so their dropdowns are handled at the document, not inside the hook.
+document.addEventListener("change", applyFilterChange)
 
 const PreserveReadingState = {
   mounted() {

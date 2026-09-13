@@ -293,11 +293,37 @@ defmodule Responder.ControlPlane.OperatorUsabilityTest do
     refute html =~ ">Custody reference</dt>"
   end
 
-  test "search has a visible label grouped with its input instead of an extra column" do
-    html = HTML.repositories([]) |> IO.iodata_to_binary()
+  test "search keeps an accessible label bound to its input instead of an extra column" do
+    # The label once sat in its own grid column; it then became a visible
+    # caption above the field. The approved toolbar shows the placeholder and
+    # keeps the label for assistive technology, immediately before the input.
+    document = HTML.repositories([]) |> IO.iodata_to_binary() |> LazyHTML.from_fragment()
 
-    assert html =~
-             "<div class=\"filter-field filter-search\"><label for=\"operator-search\">Search</label><input"
+    assert outline(document, "form.filter-toolbar > *") |> Enum.take(2) == [
+             "label.sr-only",
+             "input"
+           ]
+
+    assert LazyHTML.query(document, "form.filter-toolbar label[for=operator-search]")
+           |> LazyHTML.text() == "Repository name"
+
+    assert LazyHTML.query(document, "form.filter-toolbar input#operator-search[name=q]")
+           |> LazyHTML.attribute("placeholder") == ["Repository name"]
+  end
+
+  # "tag.first-class" for each matched element, in document order.
+  defp outline(document, selector) do
+    nodes = LazyHTML.query(document, selector)
+
+    nodes
+    |> LazyHTML.tag()
+    |> Enum.zip(LazyHTML.attributes(nodes))
+    |> Enum.map(fn {tag, attributes} ->
+      case List.keyfind(attributes, "class", 0) do
+        {"class", class} -> tag <> "." <> hd(String.split(class))
+        nil -> tag
+      end
+    end)
   end
 
   test "daily graph keeps calendar spacing and accessible values without an extra table" do

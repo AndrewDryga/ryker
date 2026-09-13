@@ -2,6 +2,7 @@ defmodule Responder.ControlPlane.Components do
   @moduledoc "Shared, accessible primitives for the operator workspace."
   use Phoenix.Component
 
+  import Phoenix.HTML.Form, only: [options_for_select: 2]
   alias Phoenix.HTML.Safe
 
   @icons %{
@@ -74,6 +75,127 @@ defmodule Responder.ControlPlane.Components do
     %{path: path, label: label, tone: tone}
     |> action_button()
     |> Safe.to_iodata()
+  end
+
+  attr(:title, :string, required: true)
+  attr(:description, :string, default: nil)
+  slot(:action, doc: "A real page-level action that already exists; never a placeholder")
+
+  @doc """
+  The one heading of a secondary page.
+
+  The title renders once, an existing primary action may sit opposite it,
+  and the page's short description sits 8px underneath. Everything the page
+  owns follows in one column: optional help, one toolbar, a quiet count, the
+  content, then related history. A body never renders a competing heading or
+  a second description; the shell that mounts it is the only place a title
+  comes from, so outer and inner titles cannot duplicate each other.
+  """
+  def page_header(assigns) do
+    assigns =
+      assigns
+      |> assign_new(:description, fn -> nil end)
+      |> assign_new(:action, fn -> [] end)
+
+    ~H"""
+    <header class="page-header">
+      <div class="page-heading">
+        <h1>{@title}</h1>
+        <div :if={@action != []} class="page-action">{render_slot(@action)}</div>
+      </div>
+      <p :if={@description} class="page-description">{@description}</p>
+    </header>
+    """
+  end
+
+  attr(:id, :string, required: true)
+  attr(:label, :string, required: true, doc: "Specific, e.g. \"How to add and manage rules\"")
+  slot(:inner_block, required: true)
+
+  @doc """
+  Longer help that expands below the description, never in a side column.
+
+  It starts closed. The id lets the reading-state hook keep it open across a
+  live refresh. Scope or authority warnings that a reader must not miss do
+  not belong in here; they stay visible in the description or the content.
+  """
+  def page_help(assigns) do
+    ~H"""
+    <details class="page-help" id={@id}>
+      <summary>{@label}</summary>
+      <div class="page-help-body">{render_slot(@inner_block)}</div>
+    </details>
+    """
+  end
+
+  attr(:id, :string, required: true)
+  attr(:path, :string, required: true)
+  attr(:label, :string, required: true, doc: "Accessible name, e.g. \"Filter standing rules\"")
+  attr(:placeholder, :string, required: true)
+  attr(:query, :string, default: "")
+  attr(:filtered, :boolean, default: false)
+
+  attr(:selects, :list,
+    default: [],
+    doc:
+      "Dropdowns as %{id, name, label, value, options: [{value, text}]}; each applies on change"
+  )
+
+  @doc """
+  The one compact filter toolbar of a page that filters.
+
+  A GET form, so the URL stays shareable and back/forward stay honest. Search
+  submits on Enter; a dropdown submits the form as soon as it changes
+  (filter-toolbar.mjs), so there is no Apply button. Labels stay bound to
+  their controls for assistive technology while the placeholder and the
+  chosen option carry the visible meaning.
+  """
+  def filter_toolbar(assigns) do
+    assigns =
+      assigns
+      |> assign_new(:query, fn -> "" end)
+      |> assign_new(:filtered, fn -> false end)
+      |> assign_new(:selects, fn -> [] end)
+
+    ~H"""
+    <form class="filter-toolbar" method="get" action={@path} role="search" aria-label={@label}>
+      <label class="sr-only" for={@id}>{@placeholder}</label>
+      <input
+        type="search"
+        id={@id}
+        name="q"
+        maxlength="200"
+        value={@query || ""}
+        placeholder={@placeholder}
+      />
+      <%= for select <- @selects do %>
+        <label class="sr-only" for={select.id}>{select.label}</label>
+        <select id={select.id} name={select.name}>
+          {options_for_select(
+            Enum.map(select.options, fn {value, text} -> {text, value} end),
+            select.value
+          )}
+        </select>
+      <% end %>
+      <a :if={@filtered} class="filter-clear" href={@path}>Clear filters</a>
+      <noscript><button type="submit" class="ui-button secondary">Apply</button></noscript>
+    </form>
+    """
+  end
+
+  attr(:count, :integer, required: true)
+  attr(:one, :string, required: true, doc: "Noun for exactly one, e.g. \"rule\"")
+  attr(:many, :string, required: true, doc: "Noun for any other count, e.g. \"rules\"")
+
+  @doc """
+  The quiet count of what the list below actually holds after filtering —
+  never a separate statistics area, and never a count computed over a wider
+  set than the one on the page.
+  """
+  def result_count(assigns) do
+    ~H"""
+    <p class="result-count">{@count} {if @count == 1, do: @one, else: @many}</p>
+    """
   end
 
   def label("pending"), do: "Queued"

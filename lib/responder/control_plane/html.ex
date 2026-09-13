@@ -15,15 +15,16 @@ defmodule Responder.ControlPlane.HTML do
   @external_resource @native_slack_path
   @native_slack_css File.read!(@native_slack_path)
 
-  @spec page(String.t(), iodata()) :: binary()
+  @spec page(String.t(), String.t() | nil, iodata()) :: binary()
   alias Phoenix.HTML.Safe
   alias Responder.ControlPlane.ConfigurationHelp
   alias Responder.ControlPlane.Layouts
   alias Responder.ControlPlane.MemoryPage
   alias Responder.ControlPlane.SlackMarkdown
 
-  def page(title, body) do
-    %{title: title, body: IO.iodata_to_binary(body)}
+  # The title and description are the shell's header; the body owns the rest.
+  def page(title, description, body) do
+    %{__changed__: nil, title: title, description: description, body: IO.iodata_to_binary(body)}
     |> Layouts.static()
     |> Safe.to_iodata()
     |> IO.iodata_to_binary()
@@ -710,10 +711,6 @@ defmodule Responder.ControlPlane.HTML do
       end)
 
     [
-      workbench_intro(
-        "Incident rooms",
-        "Track Slack incident rooms from setup through closure, with channel status and linked investigation work."
-      ),
       search_form(
         "/incident-rooms",
         "Title, room, repository or channel",
@@ -803,10 +800,6 @@ defmodule Responder.ControlPlane.HTML do
       end)
 
     [
-      workbench_intro(
-        "Recurring and one-shot work",
-        "Inspect the exact durable schedule and every dispatched or missed occurrence. Lifecycle controls remain host-confirmed."
-      ),
       search_form(
         "/schedules",
         "Title, repository or destination",
@@ -920,10 +913,6 @@ defmodule Responder.ControlPlane.HTML do
 
   def subscriptions(items, params \\ %{}) do
     [
-      workbench_intro(
-        "Waits",
-        "What the agent is waiting for, when it will check again, and what resumed the work."
-      ),
       search_form(
         "/subscriptions",
         "Request, target, source or reference",
@@ -975,10 +964,6 @@ defmodule Responder.ControlPlane.HTML do
       end)
 
     [
-      workbench_intro(
-        "Slack conversation roster",
-        "A channel remains visible when it has configuration, membership, incident custody, or recorded work."
-      ),
       search_form("/channels", "Channel, workspace or repository", params),
       table(
         [
@@ -1066,10 +1051,6 @@ defmodule Responder.ControlPlane.HTML do
       end)
 
     [
-      workbench_intro(
-        "Where Responder can work",
-        "Connected repositories, the work they receive, and the code revision last used. Open a request to inspect the actual changes and model activity."
-      ),
       search_form("/repositories", "Repository name", params),
       if(rows == [],
         do: "<p class=\"empty\">No configured or observed repositories.</p>",
@@ -1087,8 +1068,7 @@ defmodule Responder.ControlPlane.HTML do
     review_rows = Enum.map(reviews, &review_row/1)
 
     [
-      "<p class=\"page-description\">What Responder learned from conversations, with the messages and work it came from.</p>",
-      "<details class=\"memory-help\" id=\"memory-help\"><summary>How memory works</summary><div class=\"page-help\"><p>Current knowledge keeps one evolving summary per subject, with source-linked updates. When background learning is enabled, Responder maintains useful decisions, intentions and changes even when it does not reply, including in shadow mode. Not every message needs a new memory: a learning batch can finish with no change. Related topics are recalled for later routing and work. Source excerpts retain original message text; conversation handovers summarize completed work.</p><p>To create or correct conversation knowledge, explain the fact or change in the original Slack conversation or Conversation Lab. Related updates maintain the same topic. Edits, deletions and expiry invalidate knowledge that depended on the old source; invalidated items remain inspectable but are not recalled. Retention follows the oldest supporting source, so a new update cannot keep an expired fact alive indefinitely.</p><p>Learning activity below shows waiting messages, outcomes and the exact saved attempts. If a batch needs attention, inspect its error before granting one additional model start. A retry does not reset its spent starts or bypass source and execution checks.</p><p>For a deliberate saved fact, ask Responder to remember it and confirm the proposal. When a question explicitly says the answer will be remembered, an operator's answer confirms that fact without another click. These global mappings apply across conversations in this installation and survive ordinary history cleanup. Operational memory shows each saved value and where it applies; use Forget to remove one. Knowledge is context, not an instruction, permission or proof of current health.</p></div></details>",
+      "<details class=\"memory-help\" id=\"memory-help\"><summary>How memory works</summary><div class=\"page-help-body\"><p>Current knowledge keeps one evolving summary per subject, with source-linked updates. When background learning is enabled, Responder maintains useful decisions, intentions and changes even when it does not reply, including in shadow mode. Not every message needs a new memory: a learning batch can finish with no change. Related topics are recalled for later routing and work. Source excerpts retain original message text; conversation handovers summarize completed work.</p><p>To create or correct conversation knowledge, explain the fact or change in the original Slack conversation or Conversation Lab. Related updates maintain the same topic. Edits, deletions and expiry invalidate knowledge that depended on the old source; invalidated items remain inspectable but are not recalled. Retention follows the oldest supporting source, so a new update cannot keep an expired fact alive indefinitely.</p><p>Learning activity below shows waiting messages, outcomes and the exact saved attempts. If a batch needs attention, inspect its error before granting one additional model start. A retry does not reset its spent starts or bypass source and execution checks.</p><p>For a deliberate saved fact, ask Responder to remember it and confirm the proposal. When a question explicitly says the answer will be remembered, an operator's answer confirms that fact without another click. These global mappings apply across conversations in this installation and survive ordinary history cleanup. Operational memory shows each saved value and where it applies; use Forget to remove one. Knowledge is context, not an instruction, permission or proof of current health.</p></div></details>",
       "<nav class=\"behavior-links\" aria-label=\"Related saved instructions\"><a href=\"/rules\">Standing rules →</a><a href=\"/preferences\">Preferences →</a><a href=\"/guidance\">Guidance →</a></nav>",
       if(snapshot[:conversation_memory],
         do:
@@ -2080,52 +2060,38 @@ defmodule Responder.ControlPlane.HTML do
     ]
   end
 
-  defp workbench_intro(title, description) do
-    [
-      "<section class=\"page-description\"><h2>",
-      escape(title),
-      "</h2><p>",
-      escape(description),
-      "</p></section>"
-    ]
-  end
-
+  # The shared toolbar: search on Enter, a status dropdown that applies on
+  # change, and a clear link once anything is filtered. The page's title and
+  # description are the shell's; a list body starts here.
   defp search_form(path, placeholder, params, statuses \\ [], status_label \\ &Components.label/1) do
     params = UsageProjection.link_params(params)
+    status = params["status"]
 
-    [
-      "<form class=\"search-form\" method=\"get\" action=\"",
-      escape(path),
-      "\"><div class=\"filter-field filter-search\"><label for=\"operator-search\">Search</label><input type=\"search\" id=\"operator-search\" name=\"q\" maxlength=\"200\" value=\"",
-      escape(params["q"] || ""),
-      "\" placeholder=\"",
-      escape(placeholder),
-      "\"></div>",
-      if(statuses != [],
-        do: [
-          "<div class=\"filter-field\"><label for=\"operator-status\">Status</label><select id=\"operator-status\" name=\"status\"><option value=\"\">All statuses</option>",
-          Enum.map(statuses, fn status ->
-            [
-              "<option value=\"",
-              escape(status),
-              "\"",
-              if(params["status"] == status, do: " selected", else: ""),
-              ">",
-              escape(status_label.(status)),
-              "</option>"
-            ]
-          end),
-          "</select></div>"
-        ],
-        else: []
-      ),
-      "<button class=\"ui-button primary\" type=\"submit\">Apply filters</button>",
-      if(params["q"] not in [nil, ""] or params["status"] in statuses,
-        do: ["<a class=\"ui-button secondary\" href=\"", escape(path), "\">Clear filters</a>"],
-        else: []
-      ),
-      "</form>"
-    ]
+    selects =
+      if statuses == [],
+        do: [],
+        else: [
+          %{
+            id: "operator-status",
+            name: "status",
+            label: "Status",
+            value: if(status in statuses, do: status, else: ""),
+            options: [{"", "All statuses"} | Enum.map(statuses, &{&1, status_label.(&1)})]
+          }
+        ]
+
+    %{
+      __changed__: nil,
+      id: "operator-search",
+      path: path,
+      label: "Filter this list",
+      placeholder: placeholder,
+      query: params["q"] || "",
+      filtered: params["q"] not in [nil, ""] or status in statuses,
+      selects: selects
+    }
+    |> Components.filter_toolbar()
+    |> Safe.to_iodata()
   end
 
   defp recovery_label("delivery"), do: "Retry delivery"

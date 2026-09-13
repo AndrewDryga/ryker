@@ -65,25 +65,34 @@ async function contrast(locator) {
 
       for (const [route, status] of [['incident-rooms', 'blocked'], ['schedules', 'paused'], ['subscriptions', 'timed_out'], ['channels', null], ['repositories', null]]) {
         await open(`/${route}?q=emisar${status ? '&status=' + status : ''}`);
-        const form = page.locator('form.search-form');
+        const form = page.locator('form.filter-toolbar');
+        assert.equal(await page.locator('main h1').count(), 1, `${route}: the title renders once`);
+        assert.equal(await page.locator('main header.page-header .page-heading + p.page-description').count(), 1, `${route}: description under the title`);
         assert.equal(await form.locator('input[name=q]').inputValue(), 'emisar');
+        assert.equal(await form.locator('button').count(), 0, `${route}: no Apply button`);
         if (status) {
           const select = form.locator('select[name=status]');
           assert.equal(await select.inputValue(), status);
           assert.notEqual(await select.evaluate(el => getComputedStyle(el).backgroundImage), 'none', `${route}: dropdown arrow must remain visible`);
         }
         assert(await form.getByRole('link', {name: 'Clear filters', exact: true}).isVisible());
-        for (const item of await contrast(form.locator('button, a'))) assert(item.ratio >= 4.5, `${route}: ${item.text} contrast ${item.ratio}`);
+        for (const item of await contrast(form.locator('a'))) assert(item.ratio >= 4.5, `${route}: ${item.text} contrast ${item.ratio}`);
         await form.locator('input[name=q]').fill('another search');
-        await form.getByRole('button', {name: 'Apply filters', exact: true}).click();
+        await form.locator('input[name=q]').press('Enter');
         await page.waitForURL(url => url.searchParams.get('q') === 'another search');
         if (status) assert.equal(new URL(page.url()).searchParams.get('status'), status);
+        if (status) {
+          // A dropdown applies on change; the search it sits beside is kept.
+          await page.locator('[data-connection-state=connected]').waitFor();
+          await page.locator('form.filter-toolbar select[name=status]').selectOption('');
+          await page.waitForURL(url => url.searchParams.get('status') === '' && url.searchParams.get('q') === 'another search');
+        }
         const bounds = await page.evaluate(() => [document.documentElement.scrollWidth, document.documentElement.clientWidth]);
         assert(bounds[0] <= bounds[1], `${route} must fit at ${width}`);
         await page.screenshot({path: path.join(output, `${route}-${width}.png`)});
         await page.getByRole('link', {name: 'Clear filters', exact: true}).click();
         await page.waitForURL(url => !url.search);
-        assert.equal(await page.locator('form.search-form input[name=q]').inputValue(), '');
+        assert.equal(await page.locator('form.filter-toolbar input[name=q]').inputValue(), '');
       }
       assert.deepEqual(errors, []);
       console.log(`Filters ${width}: PASS`);

@@ -440,10 +440,25 @@ details.measurement-notes > summary { cursor:pointer; font-weight:600; color:var
 .runtime-link .ui-icon { height:11px; }
 .runtime-problem { font-size:14px; color:#8e6830; }
 /* Secondary routes retain their operation contracts while their bodies migrate. */
-.responder-app .legacy-surface { --text:#252b28; --muted:#525d55; --line:#dce2d9; --accent:#345c43; --panel:#fff; --panel-raised:#eef2ea; --cyan:#345c43; --bg:#f5f5f1; padding:24px; color:var(--text); }
+.responder-app .legacy-surface { --text:#252b28; --muted:#525d55; --line:#dce2d9; --accent:#345c43; --panel:#fff; --panel-raised:#eef2ea; --cyan:#345c43; --bg:#f5f5f1; padding:32px; color:var(--text); }
 .legacy-surface .secondary-page { max-width:1440px; margin:auto; }
-.secondary-page-title { margin-bottom:26px; }
-.secondary-page-title h1 { margin:0; font-size:30px; font-weight:550; letter-spacing:-1px; }
+/* The shared page shell (approved 2026-09-09): one 28px title, an optional real action opposite it, the description 8px under, then help, toolbar, count, content and history down one left edge with 24px between sections. 16px/24px body, 13px/18px metadata. The base stylesheet paints any bare <header> as a sticky dark bar; this one is a heading, not chrome. */
+.responder-app .page-header { position:static; top:auto; z-index:auto; display:block; background:none; border:0; backdrop-filter:none; padding:0; margin:0 0 24px; }
+.page-heading { display:flex; align-items:flex-start; justify-content:space-between; flex-wrap:wrap; gap:12px 24px; }
+.responder-app .page-heading h1 { margin:0; font-size:28px; line-height:1.2; font-weight:600; letter-spacing:-.6px; color:var(--ink); overflow-wrap:anywhere; }
+.page-action { display:flex; align-items:center; flex-wrap:wrap; gap:12px; }
+.responder-app .page-description { margin:8px 0 0; max-width:76ch; font-size:16px; line-height:1.5; color:var(--secondary); }
+.page-help { margin:0 0 24px; max-width:76ch; }
+.legacy-surface .page-help > summary { font-size:16px; line-height:1.5; font-weight:550; padding:10px 0; }
+.page-help-body { padding:4px 0 0; }
+.responder-app .page-help-body p { margin:0 0 12px; max-width:70ch; line-height:1.5; }
+.responder-app .page-help-body p:last-child { margin-bottom:0; }
+.filter-toolbar { display:flex; flex-wrap:wrap; align-items:center; gap:12px; margin:0 0 24px; }
+.responder-app .filter-toolbar input[type=search] { flex:1 1 260px; max-width:420px; min-width:0; box-sizing:border-box; height:40px; margin:0; font:inherit; }
+.responder-app .filter-toolbar select { flex:0 1 auto; min-width:160px; box-sizing:border-box; height:40px; margin:0; font:inherit; }
+.filter-toolbar .filter-clear { font-size:14px; padding:8px 0; }
+.filter-toolbar noscript button { height:40px; }
+.responder-app .result-count { margin:0 0 12px; font-size:13px; line-height:18px; color:var(--secondary); font-variant-numeric:tabular-nums; }
 .legacy-surface a { color:#517545; }
 .legacy-surface th { font-size:14px; letter-spacing:0; text-transform:none; font-weight:600; color:#354439; background:#eef2ea; }
 .legacy-surface td { font-size:15px; line-height:1.5; font-variant-numeric:tabular-nums; }
@@ -451,10 +466,7 @@ details.measurement-notes > summary { cursor:pointer; font-weight:600; color:var
 .legacy-surface input, .legacy-surface select, .legacy-surface textarea { background-color:#fff; color:#394e32; border:1px solid #cad7bf; border-radius:4px; padding:8px 10px; }
 .responder-app .legacy-surface select { padding-right:36px; }
 .legacy-surface pre { background:#eef3e7; color:#4a6240; border:1px solid #d9e4ce; padding:16px; }
-.legacy-surface .page-description { padding:0 0 20px; margin:0 0 20px; border-bottom:1px solid var(--stroke); background:none; }
-.legacy-surface .page-description h2 { font-size:19px; line-height:1.4; margin:0 0 8px; color:var(--ink); }
-.legacy-surface .page-description p { max-width:90ch; margin:0; color:var(--secondary); }
-.legacy-surface .secondary-page > section:not(.metrics):not(.page-description):not(.configuration-guide):not(.configuration-settings) { background:var(--panel); border:1px solid var(--stroke); border-radius:6px; padding:20px; margin:20px 0; }
+.legacy-surface .secondary-page > section:not(.metrics):not(.configuration-guide):not(.configuration-settings) { background:var(--panel); border:1px solid var(--stroke); border-radius:6px; padding:20px; margin:20px 0; }
 .legacy-surface h2 { font-size:22px; line-height:1.3; margin:0 0 16px; }
 .legacy-surface h3 { font-size:18px; line-height:1.4; }
 .legacy-surface p, .legacy-surface li { line-height:1.6; }
@@ -1159,27 +1171,11 @@ details.measurement-notes > summary { cursor:pointer; font-weight:600; color:var
 
 /* Saved instructions: concise policy rows, with scope and lifecycle always visible. */
 .behavior-library { max-width:1160px; }
-.behavior-library .page-description { max-width:76ch; margin:0 0 24px; padding:0; border:0; }
-.behavior-overview { display:flex; align-items:flex-start; gap:32px; margin-bottom:24px; }
-.behavior-library .behavior-counts { display:flex; gap:32px; margin:0; flex-shrink:0; }
-.behavior-library .behavior-counts dt, .behavior-library .behavior-counts dd { padding:0; border:0; }
-.behavior-counts > div { display:flex; flex-direction:column-reverse; gap:4px; }
-.behavior-counts dt { color:#576159; font-size:14px; }
-.behavior-counts dd { margin:0; font-size:30px; font-weight:650; line-height:1.2; font-variant-numeric:tabular-nums; }
-.behavior-create { margin-left:auto; max-width:580px; }
-.behavior-create h2 { color:#35533d; font-size:15px; font-weight:600; margin:0; padding:8px 0; }
-.behavior-create p { margin:8px 0; max-width:68ch; }
 .behavior-links { display:flex; align-items:center; flex-wrap:wrap; gap:10px 20px; }
 .memory-help { margin:0 0 16px; max-width:90ch; }
 .memory-help > summary { cursor:pointer; color:var(--green); font-size:14px; padding:4px 0; }
-.memory-help .page-help { font-size:14px; line-height:1.65; }
+.memory-help .page-help-body { font-size:14px; line-height:1.65; }
 .behavior-links a, .behavior-pagination a, .workflow-guide a, .applied-context a { color:#34563e; }
-.behavior-filters { display:flex; align-items:flex-end; flex-wrap:wrap; gap:12px; padding:18px 0; border-block:1px solid #d9dfd6; margin-bottom:20px; }
-.behavior-filters > div { display:grid; gap:6px; }
-.behavior-filters > div:first-child { width:min(100%,340px); }
-.behavior-filters label { color:#465047; font-size:14px; font-weight:600; margin:0; }
-.behavior-filters input, .behavior-filters select { box-sizing:border-box; margin:0; min-height:42px; width:100%; font:inherit; }
-.behavior-filters > a { padding-bottom:10px; }
 .behavior-empty { background:#fff; border:1px solid #dce2d9; border-radius:8px; padding:24px; }
 .behavior-empty h2 { font-size:21px; margin:0 0 8px; }
 .behavior-empty p { color:#525d55; margin:0; max-width:70ch; }
@@ -1220,16 +1216,17 @@ details.measurement-notes > summary { cursor:pointer; font-weight:600; color:var
 .applied-context a { font-size:13px; }
 @media (max-width:900px) {
   .workflow-list article { grid-template-columns:1fr; gap:6px; }
-  .behavior-overview { flex-wrap:wrap; gap:16px; }
-  .behavior-create { margin-left:0; }
   .behavior-history li { grid-template-columns:1fr 1fr; gap:8px 16px; }
 }
+/* Mobile keeps the same order: title, action, description, help, then stacked toolbar controls. */
 @media (max-width:600px) {
-  .behavior-filters > div:first-child { width:100%; flex-basis:100%; }
-  .behavior-filters > div { flex:1 1 calc(50% - 6px); }
+  .responder-app .legacy-surface { padding:20px 16px; }
+  .page-heading { flex-direction:column; gap:8px; }
+  .responder-app .page-heading h1 { font-size:24px; }
+  .responder-app .filter-toolbar input[type=search] { flex-basis:100%; max-width:none; }
+  .responder-app .filter-toolbar select { flex:1 1 calc(50% - 6px); min-width:0; }
   .behavior-entry { padding:16px; }
   .behavior-entry header { flex-wrap:wrap; gap:8px; }
-  .behavior-counts { gap:28px; }
   .behavior-history li { grid-template-columns:1fr; }
 }
 .episode-follow-through { margin-block: 1.5rem; padding-block: 1rem; border-block: 1px solid var(--stroke); }

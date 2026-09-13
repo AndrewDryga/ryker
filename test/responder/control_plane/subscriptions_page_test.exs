@@ -3,6 +3,7 @@ defmodule Responder.ControlPlane.SubscriptionsPageTest do
 
   alias Responder.ControlPlane.HTML
   alias Responder.ControlPlane.Navigation
+  alias Responder.ControlPlane.Router
   alias Responder.ControlPlane.SubscriptionsPage
   import Phoenix.LiveViewTest
 
@@ -121,8 +122,14 @@ defmodule Responder.ControlPlane.SubscriptionsPageTest do
   end
 
   test "wait page titles and navigation use the same name", %{item: item} do
-    content = HTML.subscriptions([item]) |> IO.iodata_to_binary() |> LazyHTML.from_document()
-    assert LazyHTML.query(content, ".page-description h2") |> LazyHTML.text() == "Waits"
+    # The page title is the shell's one heading; the body carries no second
+    # intro heading of its own, so the name can only come from the route.
+    page =
+      Router.snapshot("/subscriptions", "", %{projection: %{subscriptions: fn _ -> [item] end}})
+
+    assert page.title == "Waits"
+    content = LazyHTML.from_fragment(page.body)
+    assert Enum.empty?(LazyHTML.query(content, "h1, .page-description"))
 
     sidebar =
       render_component(&Navigation.sidebar/1,

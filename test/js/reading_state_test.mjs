@@ -13,7 +13,8 @@ function fixture(hash = "") {
   const location = {pathname: "/timeline/candidate-ui/model-calls", search: "?responses_page=1", hash}
   Object.defineProperty(location, "href", {get() { return `http://127.0.0.1:45459${this.pathname}${this.search}${this.hash}` }})
   const document = {body: {id: ""}, documentElement: {scrollHeight: 2000},
-    querySelector: () => ({content: "host-test-csrf"}), getElementById: id => nodes.get(id)}
+    querySelector: () => ({content: "host-test-csrf"}), getElementById: id => nodes.get(id),
+    addEventListener() {}, removeEventListener() {}}
   document.activeElement = document.body
   const window = {scrollY: 100, innerHeight: 800, scrollTo: value => scrolled.push(value),
     addEventListener: (name, handler) => listeners.set(name, handler), removeEventListener: name => listeners.delete(name)}
@@ -46,6 +47,7 @@ function fixture(hash = "") {
   // are stubbed. Real LiveView patches are qualified separately in Chromium.
   vm.runInNewContext(source.replace(/^import .*$/gm, ""), {document, window, location,
     sessionStorage: {getItem() { return null }}, Socket: class {}, keyFor: () => null, createRelearnPicker,
+    applyFilterChange: () => false,
     LiveSocket: class { constructor(_path, _socket, options) { hook = options.hooks.PreserveReadingState } connect() {} }})
   const pushed = []
   const mounted = Object.assign({el: root, pushEvent: (name, params) => pushed.push([name, params])}, hook)
