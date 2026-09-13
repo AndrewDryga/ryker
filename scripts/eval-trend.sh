@@ -1,25 +1,25 @@
 #!/usr/bin/env bash
-# Print the trend across recorded model evaluations.
+# Print the trend across recorded model-world evaluations.
 #
-# The judges have always produced numbers. A quality rubric scores six
-# dimensions per case, an evidence verifier re-checks the claims, and a
-# calibration pass scores the judge itself. All of it went to stdout and then to
-# nowhere: --results was passed by no target, no script, and no CI job, and CI
-# reads only the exit code. So every release could say the gate passed and none
-# of them could say whether the answers were better than last month's.
+# `make eval-world` and `make eval-world-smoke` each leave one report under
+# $(EVAL_HISTORY), written by Ryker.Evals.WorldReport: every observation with
+# its lane and the judge's decision, and a summary with the candidate counts
+# and, for a paired run, the regressions against the baseline. CI reads only
+# the exit code, so without this reader every release could say the gate
+# passed and none could say whether the answers were better than last month's.
 #
-# This is the reader for what the Makefile now writes. It is deliberately a
-# table and not a dashboard — the question is "did the number move", and a
-# column of numbers answers it.
+# It is deliberately a table and not a dashboard — the question is "did the
+# number move", and a column of numbers answers it.
 set -euo pipefail
 
 usage() {
   cat <<'EOF'
 Usage: eval-trend.sh [history-directory]
 
-Summarize every recorded model evaluation, grouped by the target that produced
-it and ordered by time. Prints pass rate and mean judge score per run, with the
-change from the previous run of the same target.
+Summarize every recorded model-world evaluation, grouped by the label that
+produced it and ordered by time. Prints the candidate pass rate, the share of
+judged candidate observations the judge passed, and the paired regression
+count per run, with the change from the previous run of the same label.
 
 Defaults to $EVAL_HISTORY, then ~/.local/state/ryker/eval-history.
 EOF
@@ -57,9 +57,11 @@ if ((${#results[@]} == 0)); then
   exit 1
 fi
 
-# One row per run: label, timestamp, passed, total, pass rate, mean quality.
-# A summary that will not parse is reported rather than skipped silently — a
-# corrupt result is itself a finding, and dropping it would overstate the trend.
+# One row per run: label, timestamp, passed, total, pass rate, judge pass share,
+# paired regressions. A summary that will not parse is reported rather than
+# skipped silently — a corrupt result is itself a finding, and dropping it would
+# overstate the trend. A readable file that is not a world report is named once
+# at the end and never counted as a run.
 rows=$(
   for path in "${results[@]}"; do
     file=$(basename "$path" .json)
@@ -69,35 +71,47 @@ rows=$(
       printf '%s\t%s\tUNREADABLE\n' "$label" "$stamp"
       continue
     fi
-    jq -r --arg label "$label" --arg stamp "$stamp" '
-      [
-        $label,
-        $stamp,
-        (.passed // 0 | tostring),
-        (.total // 0 | tostring),
-        (if (.total // 0) > 0 then ((.passed // 0) / .total * 100) else -1 end | tostring),
-        ((.quality.mean_score // -1) | tostring)
-      ] | @tsv
+    jq -r --arg label "$label" --arg stamp "$stamp" --arg file "$file" '
+      def count: (. // 0);
+      if (.summary.candidate | type) != "object" then
+        ["NOT_WORLD", $file] | @tsv
+      else
+        (.summary.candidate.passed | count) as $passed
+        | (.summary.candidate.total | count) as $total
+        | ([.results[]? | select(.lane == "candidate")
+            | .quality.decision.overall_pass | select(. != null)]) as $judged
+        | [
+            $label,
+            $stamp,
+            ($passed | tostring),
+            ($total | tostring),
+            (if $total > 0 then ($passed / $total * 100) else -1 end | tostring),
+            (if ($judged | length) > 0
+             then (([$judged[] | select(. == true)] | length) / ($judged | length) * 100)
+             else -1 end | tostring),
+            (if (.summary.paired | type) == "object"
+             then (.summary.paired.regressions | count | tostring)
+             else "-" end)
+          ] | @tsv
+      end
     ' "$path"
   done
 )
 
-printf '%s\n\n' "model evaluation trend — $history_dir"
+printf '%s\n\n' "model-world evaluation trend — $history_dir"
 
 printf '%s\n' "$rows" | awk -F'\t' '
-function pct(v) { return v < 0 ? "  n/a" : sprintf("%5.1f", v) }
-function qual(v) { return v < 0 ? " n/a" : sprintf("%4.2f", v) }
+function pct(v) { return v < 0 ? "  n/a" : sprintf("%5.1f%%", v) }
 function delta(now, was) {
   if (was == "" || now < 0 || was < 0) return ""
   d = now - was
   if (d > -0.05 && d < 0.05) return "     ="
   return sprintf("%+6.1f", d)
 }
-function qdelta(now, was) {
-  if (was == "" || now < 0 || was < 0) return ""
-  d = now - was
-  if (d > -0.005 && d < 0.005) return "     ="
-  return sprintf("%+6.2f", d)
+$1 == "NOT_WORLD" {
+  skipped = skipped == "" ? $2 : skipped ", " $2
+  skipped_count++
+  next
 }
 {
   label = $1
@@ -106,21 +120,24 @@ function qdelta(now, was) {
     printf "%s\n", label
     current = label
     lastpct = ""
-    lastqual = ""
+    lastjudge = ""
   }
+  runs++
   if ($3 == "UNREADABLE") {
     printf "  %s  UNREADABLE — this result did not parse\n", $2
     next
   }
-  printf "  %s  %4d/%-4d  %s%%  quality %s   %s %s\n",
-    $2, $3, $4, pct($5), qual($6), delta($5, lastpct), qdelta($6, lastqual)
+  regressions = $7 == "-" ? "" : sprintf("  regressions %s", $7)
+  printf "  %s  %4d/%-4d  %s  judge %s%s   %s %s\n",
+    $2, $3, $4, pct($5), pct($6), regressions, delta($5, lastpct), delta($6, lastjudge)
   if ($5 >= 0) lastpct = $5
-  if ($6 >= 0) lastqual = $6
+  if ($6 >= 0) lastjudge = $6
 }
 END {
-  if (current == "") print "  no readable results"
+  if (current == "") print "  no readable world reports"
+  printf "\n%d run(s). \"judge n/a\" means no candidate observation of that run was judged;\n", runs
+  print "regressions are counted only for a paired run."
+  if (skipped_count > 0)
+    printf "%d file(s) are not world reports: %s\n", skipped_count, skipped
 }
 '
-
-printf '\n%d run(s). "quality n/a" means that run had no judge; only --judge and\n' "${#results[@]}"
-printf '%s\n' "--calibrate-judge produce a score."
