@@ -1,11 +1,7 @@
 defmodule Mix.Tasks.Ryker.Eval do
   @moduledoc """
-  Exports or executes the recorded Elixir admission and Work model corpora.
+  Exports or executes the versioned model-world scenarios.
 
-      mix ryker.eval admission-pack
-      mix ryker.eval admission
-      mix ryker.eval work-pack
-      mix ryker.eval work
       mix ryker.eval world-pack
       mix ryker.eval world --results /absolute/world-results.json
       mix ryker.eval world --results /absolute/shard-2.json --shard 2/4
@@ -13,23 +9,24 @@ defmodule Mix.Tasks.Ryker.Eval do
       mix ryker.eval world-merge --results /absolute/world-results.json \\
         /absolute/shard-1.json /absolute/shard-2.json
 
-  A `*-pack` command emits one JSON object per case without calling a model.
-  The live commands run the same sanitized cases through the dedicated
-  evaluation policies named by the evaluation environment
+  `world-pack` emits one JSON object per scenario, with its exact tool catalog,
+  without calling a model. `world` runs the same scenarios through the
+  dedicated evaluation policies named by the evaluation environment
   (`RYKER_EVAL_SOCKET`, `RYKER_EVAL_NO_TOOLS_POLICY`,
-  `RYKER_EVAL_WORLD_POLICY` and their `_DIGEST` companions). Admission and
-  narrow Work evals use the no-tools policy; fabricated-world evals use a
-  separate sandbox-only policy. Eval authority is supplied explicitly and is
-  refused if it matches a reviewed production policy binding, so an evaluation
-  cannot inherit production repository or mutation authority.
+  `RYKER_EVAL_WORLD_POLICY`, `RYKER_EVAL_WORLD_BASELINE_POLICY` and their
+  `_DIGEST` companions): the subject and baseline lanes run under the
+  sandbox-only world policies, and the tool-free quality judge under the
+  no-tools policy. Eval authority is supplied explicitly and is refused if it
+  matches a reviewed production policy binding, so an evaluation cannot inherit
+  production repository or mutation authority.
 
-  A world matrix is 31 scenarios × 3 repeats × 2 lanes at about 93 seconds an
-  observation, so `scripts/elixir-world-eval.sh` runs it as shards: separate
-  VMs, each on its own campaign database and listener ports, each running the
-  slice `--shard I/N` deals it from the same ordered plan and writing results
-  without a verdict. `world-shards` previews which shards a plan fills so no
-  empty VM is started, and `world-merge` joins the partial results into the
-  one report the thresholds and the trend tooling read.
+  A world matrix is 30 scenarios × 3 repeats × 2 lanes, 180 observations at
+  about 93 seconds each, so `scripts/elixir-world-eval.sh` runs it as shards:
+  separate VMs, each on its own campaign database and listener ports, each
+  running the slice `--shard I/N` deals it from the same ordered plan and
+  writing results without a verdict. `world-shards` previews which shards a
+  plan fills so no empty VM is started, and `world-merge` joins the partial
+  results into the one report the thresholds and the trend tooling read.
   """
 
   use Mix.Task
@@ -41,10 +38,8 @@ defmodule Mix.Tasks.Ryker.Eval do
   alias Ryker.CoopFleet.Server, as: FleetServer
 
   alias Ryker.Evals.{
-    AdmissionCase,
     CoopRunner,
     Policy,
-    WorkCase,
     WorldCase,
     WorldCassette,
     WorldCoverage,
@@ -60,39 +55,15 @@ defmodule Mix.Tasks.Ryker.Eval do
   alias Ryker.Retention.Dispatcher, as: RetentionDispatcher
   alias Ryker.Work.Session, as: WorkSession
 
-  @shortdoc "Exports or runs the recorded Elixir model eval corpora"
+  @shortdoc "Exports or runs the versioned model-world scenarios"
 
   @impl Mix.Task
-  def run(["admission-pack"]) do
-    AdmissionCase.all()
-    |> case do
-      {:ok, cases} -> Enum.each(cases, &(AdmissionCase.document(&1) |> Jason.encode!() |> info()))
-      {:error, reason} -> Mix.raise("could not compile admission evals: #{inspect(reason)}")
-    end
-  end
-
-  def run(["work-pack"]) do
-    WorkCase.all()
-    |> case do
-      {:ok, cases} -> Enum.each(cases, &(WorkCase.document(&1) |> Jason.encode!() |> info()))
-      {:error, reason} -> Mix.raise("could not compile Work evals: #{inspect(reason)}")
-    end
-  end
-
   def run(["world-pack"]) do
     WorldCase.all()
     |> case do
       {:ok, cases} -> Enum.each(cases, &(WorldCase.document(&1) |> Jason.encode!() |> info()))
       {:error, reason} -> Mix.raise("could not compile model-world evals: #{inspect(reason)}")
     end
-  end
-
-  def run(["admission" | arguments]) do
-    run_live(:admission, arguments)
-  end
-
-  def run(["work" | arguments]) do
-    run_live(:work, arguments)
   end
 
   def run(["world" | arguments]) do
@@ -109,37 +80,12 @@ defmodule Mix.Tasks.Ryker.Eval do
 
   def run(_arguments) do
     Mix.raise(
-      "usage: mix ryker.eval admission-pack | work-pack | world-pack | admission | work" <>
+      "usage: mix ryker.eval world-pack" <>
         " | world --results /absolute/world-results.json [--shard I/N]" <>
         " | world-shards --shards N" <>
         " | world-merge --results /absolute/world-results.json /absolute/shard.json..."
     )
   end
-
-  defp run_live(kind, arguments) do
-    with :ok <- no_arguments(arguments),
-         {:ok, %{subject: eval_policy}} <- Policy.for_kind(kind),
-         {:ok, cases} <- eval_cases(kind),
-         {:ok, finch} <- start_finch(),
-         {:ok, client} <- eval_client(finch),
-         {:ok, report} <-
-           CoopRunner.run(cases,
-             client: client,
-             policy: eval_policy.name,
-             policy_digest: eval_policy.digest
-           ) do
-      Enum.each(report.results, &info(Jason.encode!(printable_result(&1))))
-      info("#{kind} evals: #{report.passed}/#{report.total} passed")
-
-      if report.failed > 0,
-        do: Mix.raise("#{report.failed} #{kind} model eval(s) failed")
-    else
-      {:error, reason} -> Mix.raise("#{kind} eval failed: #{inspect(reason)}")
-    end
-  end
-
-  defp eval_cases(:admission), do: AdmissionCase.all()
-  defp eval_cases(:work), do: WorkCase.all()
 
   defp run_world(arguments) do
     with {:ok, world} <- world_arguments(arguments),
@@ -490,9 +436,6 @@ defmodule Mix.Tasks.Ryker.Eval do
     end
   end
 
-  defp no_arguments([]), do: :ok
-  defp no_arguments(_arguments), do: {:error, :invalid_arguments}
-
   defp start_repo do
     case Process.whereis(Ryker.Repo) do
       nil ->
@@ -778,17 +721,6 @@ defmodule Mix.Tasks.Ryker.Eval do
       _pid ->
         {:ok, Ryker.EvalFinch}
     end
-  end
-
-  defp printable_result(result) do
-    %{
-      "decision" => result.decision,
-      "eval_id" => result.eval_id,
-      "reason" => result.reason && inspect(result.reason),
-      "session_id" => result[:session_id],
-      "status" => Atom.to_string(result.status),
-      "turn_id" => result[:turn_id]
-    }
   end
 
   defp info(message), do: Mix.shell().info(message)

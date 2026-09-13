@@ -20,12 +20,7 @@ defmodule Ryker.Evals.PolicyTest do
     })
   end
 
-  test "each live eval lane receives only its dedicated authority" do
-    for kind <- [:admission, :work] do
-      assert {:ok, %{subject: %{name: "eval-no-tools", digest: @no_tools}, judge: nil}} =
-               Policy.for_kind(kind)
-    end
-
+  test "the world lane receives only its dedicated authorities" do
     assert {:ok,
             %{
               subject: %{name: "eval-world", digest: @world},
@@ -62,10 +57,13 @@ defmodule Ryker.Evals.PolicyTest do
       )
 
     assert Policy.for_kind(:world) == {:error, :model_eval_reuses_production_authority}
-    assert {:ok, %{subject: %{name: "eval-no-tools"}}} = Policy.for_kind(:admission)
+
+    # The judge's no-tools authority is checked the same way as the subject's.
+    environment(%{"RYKER_EVAL_WORLD_POLICY_DIGEST" => String.duplicate("d", 64)})
+    assert {:ok, %{judge: %{name: "eval-no-tools"}}} = Policy.for_kind(:world)
 
     System.put_env("RYKER_EVAL_NO_TOOLS_POLICY", "ryker-conversation-v1")
-    assert Policy.for_kind(:admission) == {:error, :model_eval_reuses_production_authority}
+    assert Policy.for_kind(:world) == {:error, :model_eval_reuses_production_authority}
   end
 
   test "missing, malformed or crossed eval authority fails closed" do
@@ -78,7 +76,7 @@ defmodule Ryker.Evals.PolicyTest do
       "RYKER_EVAL_NO_TOOLS_POLICY_DIGEST" => "not-a-digest"
     })
 
-    assert Policy.for_kind(:admission) == {:error, :invalid_model_eval_policy_digest}
+    assert Policy.for_kind(:world) == {:error, :invalid_model_eval_policy_digest}
 
     environment(%{"RYKER_EVAL_NO_TOOLS_POLICY_DIGEST" => @no_tools})
     environment(%{"RYKER_EVAL_WORLD_POLICY_DIGEST" => @no_tools})

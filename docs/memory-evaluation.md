@@ -159,17 +159,15 @@ catalog references unchanged. The existing all-scenario snapshot test fails on s
 Refreshing a catalog is not a model evaluation and invalidates any claim that an older result
 qualified the exact new tool contract.
 
-Admission and Work pack commands rebuild prompts from current code without calling a model:
+The world pack command rebuilds every scenario and its exact tool catalog from current code
+without calling a model:
 
 ```console
-MIX_ENV=test scripts/elixir-mix.sh ryker.eval admission-pack
-MIX_ENV=test scripts/elixir-mix.sh ryker.eval work-pack
 MIX_ENV=test scripts/elixir-mix.sh ryker.eval world-pack
 ```
 
-Admission fixtures already use the six routing fields; the pack uses the current strict schema.
-The narrow Work corpus names tools but does not contain embedded search schemas. Do not manufacture
-schema migrations inside those captured input bodies or add a permissive legacy admission parser.
+The harvested admission fixtures already use the six routing fields. Do not manufacture schema
+migrations inside those captured input bodies or add a permissive legacy admission parser.
 
 ## Real-model acceptance
 
@@ -189,8 +187,6 @@ export RYKER_EVAL_WORLD_BASELINE_POLICY_DIGEST=SHA256
 ```
 
 ```console
-MIX_ENV=test scripts/elixir-mix.sh ryker.eval admission
-MIX_ENV=test scripts/elixir-mix.sh ryker.eval work
 make eval-world-smoke
 make eval-world
 ```
@@ -200,9 +196,9 @@ for candidate and baseline. No production Slack/GitHub writes or infrastructure 
 needed. The full schema/operation-list gate is required for a changed contract; the wording-only
 smoke exception is not sufficient here.
 
-The existing admission/final-result cases and tool-world scenarios do not by themselves exercise
-longitudinal background learning. The dedicated lane drives the actual durable dispatcher, current
-prompt/schema, source validation, topic application, and proof-bearing cleanup:
+The tool-world scenarios do not by themselves exercise longitudinal background learning. The
+dedicated lane drives the actual durable dispatcher, current prompt/schema, source validation,
+topic application, and proof-bearing cleanup:
 
 ```console
 MIX_ENV=test PGDATABASE=ryker_learning_eval_haproxy scripts/elixir-mix.sh ryker.learning_eval --database ryker_learning_eval_haproxy --socket /absolute/evaluation-coop.sock --scratch /absolute/canonical-empty-git-repository --policy learning-eval-only --policy-digest POLICY_SHA256 --results /absolute/new-learning-report.json --scenario haproxy

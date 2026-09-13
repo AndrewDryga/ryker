@@ -1,18 +1,16 @@
 defmodule Ryker.Evals.CoopRunner do
   @moduledoc """
-  Executes compiled admission or Work judgments against a real Coop policy.
+  Executes a tool-free model-world quality judgment against a real Coop policy.
 
-  Eval cases contain sanitized recorded context and no tools. Each case gets a
-  fresh session, exact output schema, and unique operation identity. The result
-  is scored on the typed host contract and a small recorded behavioral
-  expectation, never exact explanatory prose.
+  A judge case carries the sanitized evidence of one completed model-world run
+  and no tools. Each case gets a fresh session, exact output schema, and unique
+  operation identity. A judgment the host cannot read is rejected for repair in
+  the same turn, and the accepted judgment is scored on its bounded rubric
+  verdict, never on explanatory prose.
   """
 
-  alias Ryker.Admission.Decision
-  alias Ryker.CanonicalJSON
-  alias Ryker.Evals.{AdmissionCase, WorkCase, WorldJudgeCase}
+  alias Ryker.Evals.WorldJudgeCase
   alias Ryker.Retention.Plan
-  alias Ryker.Work.Final
 
   @waiting_operations ~w(reserved running)
   @waiting_turns ~w(queued starting running)
@@ -28,7 +26,7 @@ defmodule Ryker.Evals.CoopRunner do
     :sleep
   ]
 
-  @type eval_case :: AdmissionCase.t() | WorkCase.t() | WorldJudgeCase.t()
+  @type eval_case :: WorldJudgeCase.t()
 
   @spec run([eval_case()], keyword() | map()) :: {:ok, map()} | {:error, term()}
   def run(cases, options) when is_list(cases) do
@@ -45,72 +43,14 @@ defmodule Ryker.Evals.CoopRunner do
     end
   end
 
-  def run(_cases, _options), do: {:error, {:invalid_admission_eval_runner, :cases}}
+  def run(_cases, _options), do: {:error, {:invalid_eval_runner, :cases}}
 
   @spec run_case(eval_case(), keyword() | map()) :: map()
-  def run_case(%module{} = eval, options)
-      when module in [AdmissionCase, WorkCase, WorldJudgeCase] and
-             (is_list(options) or is_map(options)) do
+  def run_case(%WorldJudgeCase{} = eval, options) when is_list(options) or is_map(options) do
     case settings(options) do
       {:ok, settings} -> execute_case(eval, settings)
       {:error, reason} -> failed(eval, reason)
     end
-  end
-
-  defp execute_case(%AdmissionCase{} = eval, settings) do
-    run_ref = settings.id_generator.()
-    external_ref = "ryker-eval:admission:#{run_ref}:#{eval.eval_id}"
-    create_key = "ryker:eval:admission:#{run_ref}:create"
-
-    with :ok <- reference(run_ref, :run_ref),
-         :ok <- reference(external_ref, :external_ref),
-         {:ok, session} <- create_session(create_key, external_ref, settings),
-         {:ok, turn} <- submit_turn("admission", run_ref, session, eval, settings),
-         {:ok, turn, candidate} <- await_candidate(session, turn, settings),
-         result <- assess(eval, candidate),
-         {:ok, _completed} <-
-           accept_candidate("admission", run_ref, session, turn, candidate, settings),
-         :ok <- close_session("admission", run_ref, session, settings),
-         :ok <- discard_clean_session("admission", run_ref, session, settings) do
-      Map.merge(result, %{
-        eval_id: eval.eval_id,
-        session_id: session["id"],
-        turn_id: turn["id"]
-      })
-    else
-      {:error, reason} -> failed(eval, reason)
-    end
-  rescue
-    error -> failed(eval, {:admission_eval_runner_exception, Exception.message(error)})
-  catch
-    kind, reason -> failed(eval, {:admission_eval_runner_caught, kind, inspect(reason)})
-  end
-
-  defp execute_case(%WorkCase{} = eval, settings) do
-    run_ref = settings.id_generator.()
-    external_ref = "ryker-eval:work:#{run_ref}:#{eval.eval_id}"
-    create_key = "ryker:eval:work:#{run_ref}:create"
-
-    with :ok <- reference(run_ref, :run_ref),
-         :ok <- reference(external_ref, :external_ref),
-         {:ok, session} <- create_session(create_key, external_ref, settings),
-         {:ok, turn} <- submit_turn("work", run_ref, session, eval, settings),
-         {:ok, turn, candidate} <- await_candidate(session, turn, settings),
-         {:ok, result} <- work_candidate(eval, run_ref, session, turn, candidate, settings),
-         :ok <- close_session("work", run_ref, session, settings),
-         :ok <- discard_clean_session("work", run_ref, session, settings) do
-      Map.merge(result, %{
-        eval_id: eval.eval_id,
-        session_id: session["id"],
-        turn_id: turn["id"]
-      })
-    else
-      {:error, reason} -> failed(eval, reason)
-    end
-  rescue
-    error -> failed(eval, {:work_eval_runner_exception, Exception.message(error)})
-  catch
-    kind, reason -> failed(eval, {:work_eval_runner_caught, kind, inspect(reason)})
   end
 
   defp execute_case(%WorldJudgeCase{} = eval, settings) do
@@ -168,7 +108,6 @@ defmodule Ryker.Evals.CoopRunner do
 
   defp submit_turn(namespace, run_ref, session, eval, settings) do
     key = "ryker:eval:#{namespace}:#{run_ref}:turn"
-    prompt = eval_prompt(eval)
 
     with {:ok, current} <- settings.api.get_session(settings.client, session["id"]),
          {:ok, current} <-
@@ -186,7 +125,7 @@ defmodule Ryker.Evals.CoopRunner do
              session["id"],
              key,
              revision,
-             prompt,
+             eval.prompt,
              eval.schema
            ) do
       submit_response(response, session, key, settings)
@@ -334,38 +273,6 @@ defmodule Ryker.Evals.CoopRunner do
 
   defp validate_candidate(_candidate), do: {:error, {:coop_protocol_error, :candidate}}
 
-  defp work_candidate(eval, run_ref, session, turn, candidate, settings) do
-    case WorkCase.validate(eval, candidate["message"]) do
-      {:accept, accepted} ->
-        result = assess_work(eval, accepted)
-
-        with {:ok, _completed} <-
-               accept_candidate("work", run_ref, session, turn, candidate, settings) do
-          {:ok, result}
-        end
-
-      {:reject, violations} ->
-        with :ok <- candidate_attempt_available(candidate),
-             {:ok, next_turn} <-
-               reject_candidate(
-                 "work",
-                 run_ref,
-                 session,
-                 turn,
-                 candidate,
-                 violations,
-                 settings
-               ),
-             {:ok, next_turn, next_candidate} <-
-               await_candidate(session, next_turn, settings) do
-          work_candidate(eval, run_ref, session, next_turn, next_candidate, settings)
-        end
-
-      {:error, reason} ->
-        {:error, reason}
-    end
-  end
-
   defp judge_candidate(eval, run_ref, session, turn, candidate, settings) do
     case WorldJudgeCase.validate(eval, candidate["message"]) do
       {:accept, judgment} ->
@@ -400,23 +307,7 @@ defmodule Ryker.Evals.CoopRunner do
   defp candidate_attempt_available(%{"attempt" => attempt}) when attempt < 20, do: :ok
 
   defp candidate_attempt_available(%{"attempt" => attempt}),
-    do: {:error, {:work_eval_candidate_limit, attempt}}
-
-  defp assess(eval, candidate) do
-    parsed =
-      case Jason.decode(candidate["message"]) do
-        {:ok, document} when is_map(document) -> AdmissionCase.assess(eval, document)
-        _invalid -> {:error, {:invalid_candidate, :json_object}}
-      end
-
-    case parsed do
-      {:ok, decision} ->
-        %{decision: Decision.document(decision), reason: nil, status: :passed}
-
-      {:error, reason} ->
-        %{decision: safe_document(candidate["message"]), reason: reason, status: :failed}
-    end
-  end
+    do: {:error, {:eval_candidate_limit, attempt}}
 
   defp accept_candidate(namespace, run_ref, session, turn, candidate, settings) do
     key =
@@ -731,7 +622,7 @@ defmodule Ryker.Evals.CoopRunner do
   defp settings(options) when is_list(options) do
     if Keyword.keyword?(options) and Enum.uniq(Keyword.keys(options)) == Keyword.keys(options),
       do: options |> Map.new() |> settings(),
-      else: {:error, {:invalid_admission_eval_runner, :options}}
+      else: {:error, {:invalid_eval_runner, :options}}
   end
 
   defp settings(%{} = options) do
@@ -757,50 +648,29 @@ defmodule Ryker.Evals.CoopRunner do
            true <- is_function(settings.sleep, 1) do
         {:ok, settings}
       else
-        _invalid -> {:error, {:invalid_admission_eval_runner, :options}}
+        _invalid -> {:error, {:invalid_eval_runner, :options}}
       end
     else
-      {:error, {:invalid_admission_eval_runner, :options}}
+      {:error, {:invalid_eval_runner, :options}}
     end
   end
 
-  defp settings(_options), do: {:error, {:invalid_admission_eval_runner, :options}}
+  defp settings(_options), do: {:error, {:invalid_eval_runner, :options}}
 
   defp reference(value, _field) when is_binary(value) and byte_size(value) in 1..2_048 do
     if String.valid?(value) and String.trim(value) != "" and
          :binary.match(value, <<0>>) == :nomatch,
        do: :ok,
-       else: {:error, {:invalid_admission_eval_runner, :reference}}
+       else: {:error, {:invalid_eval_runner, :reference}}
   end
 
-  defp reference(_value, field), do: {:error, {:invalid_admission_eval_runner, field}}
+  defp reference(_value, field), do: {:error, {:invalid_eval_runner, field}}
 
   defp digest?(value),
     do: is_binary(value) and Regex.match?(~r/\A[0-9a-f]{64}\z/, value)
 
-  defp eval_prompt(%AdmissionCase{prompt: prompt}), do: CanonicalJSON.encode!(prompt)
-  defp eval_prompt(%WorkCase{prompt: prompt}), do: prompt
-  defp eval_prompt(%WorldJudgeCase{prompt: prompt}), do: prompt
-
-  defp assess_work(eval, accepted) do
-    case WorkCase.assess(eval, accepted) do
-      {:ok, final} ->
-        %{decision: Final.document(final), reason: nil, status: :passed}
-
-      {:error, reason} ->
-        %{decision: Final.document(accepted.final), reason: reason, status: :failed}
-    end
-  end
-
   defp sha256(value),
     do: :sha256 |> :crypto.hash(value) |> Base.encode16(case: :lower)
-
-  defp safe_document(message) do
-    case Jason.decode(message) do
-      {:ok, document} when is_map(document) -> document
-      _invalid -> nil
-    end
-  end
 
   defp failed(eval, reason) do
     %{decision: nil, eval_id: eval.eval_id, reason: reason, status: :failed}

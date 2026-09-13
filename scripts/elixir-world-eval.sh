@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Run the model-world evaluation as concurrent shards and merge one report.
 #
-# The full matrix is 31 scenarios × 3 repeats × 2 lanes, 186 observations at
+# The full matrix is 30 scenarios × 3 repeats × 2 lanes, 180 observations at
 # about 93 seconds each. One VM ran them one after another — the Repo is a
 # singleton and the worker gateway binds one port — so the matrix took 4.8
 # hours, and nothing is allowed to take longer than 30 minutes. Each shard is

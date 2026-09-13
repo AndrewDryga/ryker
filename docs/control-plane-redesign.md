@@ -419,7 +419,7 @@ changing today's configuration must not silently rewrite yesterday's estimates.
 The learning loop captures corrections, reviews fixture candidates, promotes
 approved cases into a replay corpus, and compares model profiles. Reuse those
 semantics rather than building a disconnected analytics dashboard. The current
-admission fixtures and `Ryker.Evals.AdmissionCase` are the starting corpus.
+harvested admission fixtures under `testdata/eval/admission` are the starting corpus.
 
 The new durable loop is:
 
