@@ -4,6 +4,11 @@ defmodule Responder.Evals.WorldReport do
   alias Responder.CanonicalJSON
 
   @required_fields ~w(deliveries episode_id failures lane quality record_history records repeat_index runtime scenario_id source_calls status turn_id)a
+  @diagnostic_fields ~w(execution_error cleanup_error)a
+  @kind "responder_model_world"
+  @version 2
+  @lanes %{"baseline" => :baseline, "candidate" => :candidate}
+  @statuses %{"failed" => :failed, "passed" => :passed, "unrun" => :unrun}
 
   @spec write(Path.t(), [map()], keyword() | map()) :: :ok | {:error, term()}
   def write(path, reports, options \\ []) do
@@ -14,10 +19,10 @@ defmodule Responder.Evals.WorldReport do
          %DateTime{} = now <- options.now.() do
       document = %{
         "generated_at" => timestamp(now),
-        "kind" => "responder_model_world",
+        "kind" => @kind,
         "results" => results,
         "summary" => json_value(options.summary),
-        "version" => 2
+        "version" => @version
       }
 
       atomic_write(path, CanonicalJSON.encode!(document))
@@ -31,6 +36,28 @@ defmodule Responder.Evals.WorldReport do
     end
   end
 
+  @doc """
+  The reports a written result file was produced from.
+
+  A sharded matrix writes one result file per shard and merges them; the
+  merge summarizes and rewrites exactly what each shard observed, so a report
+  read here is accepted by `write/3` and `Responder.Evals.WorldSuite.summarize/2`
+  and encodes back to the same result. Lanes and statuses come back as the
+  atoms the summary expects; everything else stays the JSON it was written as.
+  """
+  @spec read(Path.t()) :: {:ok, [map()]} | {:error, term()}
+  def read(path) do
+    with :ok <- absolute_path(path),
+         {:ok, bytes} <- read_file(path),
+         {:ok, document} <- decode(bytes),
+         {:ok, results} <- document_results(document),
+         {:ok, reports} <- reports(results) do
+      {:ok, reports}
+    else
+      {:error, reason} -> {:error, {:invalid_world_report, reason}}
+    end
+  end
+
   @spec result(map()) :: {:ok, map()} | {:error, :report}
   def result(%{} = report) do
     if Enum.all?(@required_fields, &Map.has_key?(report, &1)) and
@@ -38,30 +65,93 @@ defmodule Responder.Evals.WorldReport do
          report.lane in [:baseline, :candidate] and
          report.repeat_index in 1..10 do
       {:ok,
-       Map.merge(
-         %{
-           "deliveries" => json_value(report.deliveries),
-           "episode_id" => report.episode_id,
-           "failures" => json_value(report.failures),
-           "lane" => Atom.to_string(report.lane),
-           "quality" => json_value(report.quality),
-           "record_history" => json_value(report.record_history),
-           "records" => json_value(report.records),
-           "repeat_index" => report.repeat_index,
-           "runtime" => json_value(report.runtime),
-           "scenario_id" => report.scenario_id,
-           "source_calls" => json_value(report.source_calls),
-           "status" => Atom.to_string(report.status),
-           "turn_id" => report.turn_id
-         },
-         report |> Map.take([:execution_error, :cleanup_error]) |> json_value()
-       )}
+       %{
+         "deliveries" => json_value(report.deliveries),
+         "episode_id" => report.episode_id,
+         "failures" => json_value(report.failures),
+         "lane" => Atom.to_string(report.lane),
+         "quality" => json_value(report.quality),
+         "record_history" => json_value(report.record_history),
+         "records" => json_value(report.records),
+         "repeat_index" => report.repeat_index,
+         "runtime" => json_value(report.runtime),
+         "scenario_id" => report.scenario_id,
+         "source_calls" => json_value(report.source_calls),
+         "status" => Atom.to_string(report.status),
+         "turn_id" => report.turn_id
+       }
+       |> Map.merge(report |> Map.take(@diagnostic_fields) |> json_value())
+       |> Map.merge(preserved_database(report))}
     else
       {:error, :report}
     end
   end
 
   def result(_report), do: {:error, :report}
+
+  # A failed or faulted observation keeps its database under the name the
+  # report carries; a passed observation's database is gone and is not named.
+  defp preserved_database(%{database: database}) when is_binary(database),
+    do: %{"database" => database}
+
+  defp preserved_database(_report), do: %{}
+
+  defp read_file(path) do
+    case File.read(path) do
+      {:ok, bytes} -> {:ok, bytes}
+      {:error, reason} -> {:error, {:unreadable, path, reason}}
+    end
+  end
+
+  defp decode(bytes) do
+    case Jason.decode(bytes) do
+      {:ok, document} -> {:ok, document}
+      {:error, _reason} -> {:error, :document}
+    end
+  end
+
+  defp document_results(%{"kind" => @kind, "version" => @version, "results" => results})
+       when is_list(results),
+       do: {:ok, results}
+
+  defp document_results(%{"kind" => @kind, "version" => @version}), do: {:error, :results}
+  defp document_results(%{}), do: {:error, :kind}
+  defp document_results(_document), do: {:error, :document}
+
+  defp reports(results) do
+    Enum.reduce_while(results, {:ok, []}, fn result, {:ok, reports} ->
+      case report(result) do
+        {:ok, report} -> {:cont, {:ok, [report | reports]}}
+        {:error, :report} -> {:halt, {:error, :report}}
+      end
+    end)
+    |> case do
+      {:ok, reports} -> {:ok, Enum.reverse(reports)}
+      {:error, :report} = error -> error
+    end
+  end
+
+  defp report(%{} = result) do
+    fields = Map.new(@required_fields, &{&1, Map.get(result, Atom.to_string(&1))})
+
+    with true <- Enum.all?(@required_fields, &Map.has_key?(result, Atom.to_string(&1))),
+         {:ok, lane} <- Map.fetch(@lanes, fields.lane),
+         {:ok, status} <- Map.fetch(@statuses, fields.status) do
+      report = %{fields | lane: lane, status: status}
+
+      {:ok,
+       Enum.reduce([:database | @diagnostic_fields], report, fn field, report ->
+         case Map.fetch(result, Atom.to_string(field)) do
+           {:ok, value} -> Map.put(report, field, value)
+           :error -> report
+         end
+       end)}
+    else
+      _invalid -> {:error, :report}
+    end
+  end
+
+  defp report(_result), do: {:error, :report}
 
   defp results(reports) do
     Enum.reduce_while(reports, {:ok, []}, fn report, {:ok, values} ->

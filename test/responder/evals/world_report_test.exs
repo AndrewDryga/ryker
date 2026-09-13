@@ -147,6 +147,73 @@ defmodule Responder.Evals.WorldReportTest do
     assert get_in(document, ["results", Access.at(0), "cleanup_error"]) == inspect(reason)
   end
 
+  test "a written report reads back as the reports that produced it" do
+    # A sharded matrix writes its results once per shard and merges them into
+    # one report. The merge has to recover exactly what each shard observed —
+    # lanes, statuses, diagnostics and the database a failed observation kept —
+    # or the merged summary would be computed over something other than the
+    # observations.
+    root =
+      Path.join(System.tmp_dir!(), "responder-world-report-#{System.unique_integer([:positive])}")
+
+    path = Path.join(root, "shard.json")
+    on_exit(fn -> File.rm_rf!(root) end)
+
+    preserved =
+      valid_report()
+      |> Map.merge(%{database: "responder_world_eval_1_o3", repeat_index: 2, status: :failed})
+      |> Map.put(:execution_error, {:world_eval_failed, :event_wait_not_matched})
+      |> Map.put(:cleanup_error, {:coop_error, 503, "session_cleanup_error", "unavailable"})
+
+    dropped = Map.merge(valid_report(), %{database: nil, lane: :baseline})
+    reports = [preserved, dropped]
+
+    assert :ok = WorldReport.write(path, reports, summary: nil)
+    assert {:ok, read} = WorldReport.read(path)
+
+    assert Enum.map(read, &Map.take(&1, [:database, :lane, :repeat_index, :scenario_id, :status])) ==
+             [
+               %{
+                 database: "responder_world_eval_1_o3",
+                 lane: :candidate,
+                 repeat_index: 2,
+                 scenario_id: "scenario-1",
+                 status: :failed
+               },
+               %{lane: :baseline, repeat_index: 1, scenario_id: "scenario-1", status: :passed}
+             ]
+
+    assert Enum.map(read, &WorldReport.result/1) == Enum.map(reports, &WorldReport.result/1)
+    assert Map.has_key?(hd(read), :execution_error)
+    assert Map.has_key?(hd(read), :cleanup_error)
+    refute Map.has_key?(List.last(read), :execution_error)
+
+    document = path |> File.read!() |> Jason.decode!()
+    assert get_in(document, ["results", Access.at(0), "database"]) == "responder_world_eval_1_o3"
+    refute Map.has_key?(Enum.at(document["results"], 1), "database")
+
+    assert WorldReport.read("relative.json") == {:error, {:invalid_world_report, :path}}
+
+    assert {:error, {:invalid_world_report, {:unreadable, _path, :enoent}}} =
+             WorldReport.read(Path.join(root, "absent.json"))
+
+    File.write!(Path.join(root, "text.json"), "not json")
+
+    assert {:error, {:invalid_world_report, :document}} =
+             WorldReport.read(Path.join(root, "text.json"))
+
+    File.write!(Path.join(root, "kind.json"), Jason.encode!(%{document | "kind" => "other"}))
+
+    assert {:error, {:invalid_world_report, :kind}} =
+             WorldReport.read(Path.join(root, "kind.json"))
+
+    broken = put_in(document, ["results", Access.at(0), "lane"], "judge")
+    File.write!(Path.join(root, "lane.json"), Jason.encode!(broken))
+
+    assert {:error, {:invalid_world_report, :report}} =
+             WorldReport.read(Path.join(root, "lane.json"))
+  end
+
   defp valid_report do
     %{
       deliveries: [],

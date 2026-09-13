@@ -98,14 +98,31 @@ make eval-world
 candidate and baseline matrix three times against the same deterministic worlds and enforces the
 configured aggregate, per-case, paired-regression, hard-invariant, execution, and cleanup limits.
 
+Both run through `scripts/elixir-world-eval.sh`, which splits the plan into shards that run at
+once. The full matrix is 186 observations at about 93 seconds each; one VM ran them one after
+another and took 4.8 hours. Each shard is its own `mix responder.eval world --shard I/N` VM on
+its own campaign database and its own worker-gateway and state-tools ports (the configured
+`RESPONDER_WORKER_PORT` and `RESPONDER_STATE_TOOLS_PORT` each advanced by two per shard, with the
+port of `RESPONDER_WORKER_PUBLIC_URL` rewritten to match), running the slice it is dealt from the
+same ordered plan: scenario/repeat pairs go round-robin, so a candidate and its baseline always
+share a shard. `RESPONDER_WORLD_EVAL_SHARDS` (default 4, also a `make` variable) is the most
+shards that run; `mix responder.eval world-shards` previews how many the plan fills, so
+`--repeat 1 --case X` starts one VM, not four. A shard writes its results with no verdict, and
+`mix responder.eval world-merge` joins the partial results into the one report — same shape,
+same summary code, same thresholds and exit status as a single run — that the trend tooling reads.
+Per-shard logs and partial results sit beside the report in `<report>.shards/`; a shard that
+fails fails the run without a merge and leaves them there. Each shard holds a pool of ten
+PostgreSQL connections, so the server the campaign databases live on must allow ten per shard
+on top of whatever else is connected to it.
+
 The YAML must configure dedicated `model_evals.socket`, `model_evals.no_tools_policy`, and
 `model_evals.world_policy` values. The full paired gate also requires
 `model_evals.world_baseline_policy`. These identities must be isolated from production policies and
 repositories. The evaluation database must contain no pre-existing episodes. Each observation runs
-against its own database, copied from the migrated campaign database the run creates and always
+against its own database, copied from the migrated campaign database its shard creates and always
 drops, so no observation sees another's custody and a failed one never stops the rest of the plan.
-An observation that passed drops its database; one that failed or faulted preserves it, and the run
-names it at the end for custody inspection.
+An observation that passed drops its database; one that failed or faulted preserves it, and both
+the shard and the merged run name it at the end for custody inspection.
 
 Detailed reports are written mode `0600` under `$(EVAL_HISTORY)`, which defaults to
 `~/.local/state/responder/eval-history`. Inspect the series with:

@@ -42,6 +42,39 @@ defmodule Responder.Evals.WorldSuite do
     end
   end
 
+  @doc """
+  The slice of a plan that shard `index` of `count` runs.
+
+  Shards are separate VMs that never talk to each other, so the partition is a
+  pure function of the ordered plan: scenario/repeat pairs are dealt round-robin
+  in plan order, and a pair's candidate and baseline observations always land
+  on the same shard so the merged paired comparison is independent of
+  scheduling. One shard of one is the plan itself. A plan with fewer pairs than
+  shards leaves the surplus shards empty rather than repeating an observation.
+  """
+  @spec shard([map()], pos_integer(), pos_integer()) :: {:ok, [map()]} | {:error, term()}
+  def shard(plan, index, count)
+      when is_list(plan) and is_integer(index) and is_integer(count) and count >= 1 and
+             index in 1..count//1 do
+    if Enum.all?(plan, &observation?/1) do
+      pairs = plan |> Enum.map(&pair/1) |> Enum.uniq() |> Enum.with_index() |> Map.new()
+
+      {:ok, Enum.filter(plan, &(rem(Map.fetch!(pairs, pair(&1)), count) + 1 == index))}
+    else
+      invalid(:plan)
+    end
+  end
+
+  def shard(plan, _index, _count) when is_list(plan), do: invalid(:shard)
+  def shard(_plan, _index, _count), do: invalid(:plan)
+
+  defp observation?(%{lane: lane, repeat_index: repeat_index, scenario: %WorldCase{}}),
+    do: lane in @lanes and repeat_index in 1..@maximum_repeats
+
+  defp observation?(_observation), do: false
+
+  defp pair(observation), do: {observation.scenario.id, observation.repeat_index}
+
   @spec summarize([map()], keyword() | map()) :: {:ok, map()} | {:error, term()}
   def summarize(reports, options \\ [])
 

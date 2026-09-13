@@ -8,6 +8,11 @@ ELIXIR_VERSION ?=
 LIVE_CHANNEL ?=
 DEV_CHECK_JOBS ?= 4
 EVAL_HISTORY ?= $(HOME)/.local/state/responder/eval-history
+# How many world-eval shards run at once; each is its own VM, campaign database
+# and listener-port pair. Override with RESPONDER_WORLD_EVAL_SHARDS=8 on the
+# make command line or in the environment.
+RESPONDER_WORLD_EVAL_SHARDS ?= 4
+export RESPONDER_WORLD_EVAL_SHARDS
 
 $(EVAL_HISTORY):
 	@mkdir -p "$@"
@@ -102,6 +107,10 @@ live-acceptance-wrapper-check:
 eval-world-pack:
 	MIX_ENV=test scripts/elixir-mix.sh responder.eval world-pack
 
+# Both world targets run through the sharded wrapper: RESPONDER_WORLD_EVAL_SHARDS
+# VMs observe slices of one plan at once, and one merged report lands under
+# $(EVAL_HISTORY) with the per-shard logs and partial results beside it in
+# <report>.shards/.
 eval-world-smoke: | $(EVAL_HISTORY)
 	scripts/elixir-world-eval.sh \
 		"$(EVAL_HISTORY)/world-smoke-$$(date -u +%Y%m%dT%H%M%SZ).json" \

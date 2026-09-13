@@ -8,6 +8,10 @@ defmodule Mix.Tasks.Responder.Eval do
       mix responder.eval work
       mix responder.eval world-pack
       mix responder.eval world --results /absolute/world-results.json
+      mix responder.eval world --results /absolute/shard-2.json --shard 2/4
+      mix responder.eval world-shards --shards 4
+      mix responder.eval world-merge --results /absolute/world-results.json \\
+        /absolute/shard-1.json /absolute/shard-2.json
 
   A `*-pack` command emits one JSON object per case without calling a model.
   The live commands run the same sanitized cases through the dedicated
@@ -18,6 +22,14 @@ defmodule Mix.Tasks.Responder.Eval do
   separate sandbox-only policy. Eval authority is supplied explicitly and is
   refused if it matches a reviewed production policy binding, so an evaluation
   cannot inherit production repository or mutation authority.
+
+  A world matrix is 31 scenarios × 3 repeats × 2 lanes at about 93 seconds an
+  observation, so `scripts/elixir-world-eval.sh` runs it as shards: separate
+  VMs, each on its own campaign database and listener ports, each running the
+  slice `--shard I/N` deals it from the same ordered plan and writing results
+  without a verdict. `world-shards` previews which shards a plan fills so no
+  empty VM is started, and `world-merge` joins the partial results into the
+  one report the thresholds and the trend tooling read.
   """
 
   use Mix.Task
@@ -87,9 +99,20 @@ defmodule Mix.Tasks.Responder.Eval do
     run_world(arguments)
   end
 
+  def run(["world-shards" | arguments]) do
+    run_world_shards(arguments)
+  end
+
+  def run(["world-merge" | arguments]) do
+    run_world_merge(arguments)
+  end
+
   def run(_arguments) do
     Mix.raise(
-      "usage: mix responder.eval admission-pack | work-pack | world-pack | admission | work | world --results /absolute/world-results.json"
+      "usage: mix responder.eval admission-pack | work-pack | world-pack | admission | work" <>
+        " | world --results /absolute/world-results.json [--shard I/N]" <>
+        " | world-shards --shards N" <>
+        " | world-merge --results /absolute/world-results.json /absolute/shard.json..."
     )
   end
 
@@ -130,19 +153,101 @@ defmodule Mix.Tasks.Responder.Eval do
          {:ok, eval_client} <- eval_client(finch),
          {:ok, cases} <- WorldCase.all(),
          {:ok, plan} <- WorldSuite.plan(cases, plan_options(world)),
+         {:ok, plan} <- shard_plan(plan, world.shard),
          :ok <- stop_repo(),
          reports <- run_world_plan(plan, runtime, eval_policies, eval_client),
-         {:ok, summary} <- WorldSuite.summarize(reports, summary_options(world)),
+         {:ok, summary} <- world_summary(reports, world),
          :ok <- WorldReport.write(results_path, reports, summary: summary) do
       Enum.each(reports, &info(Jason.encode!(printable_world_report(&1))))
       announce_preserved_databases(reports)
-      info(Jason.encode!(%{"world_summary" => summary}))
-      info("world evals: #{summary.candidate.passed}/#{summary.candidate.total} passed")
-
-      unless summary.passed?,
-        do: Mix.raise("model-world qualification failed: #{inspect(summary.failures)}")
+      conclude_world(world, reports, summary)
     else
-      {:error, reason} -> Mix.raise("world eval failed: #{inspect(reason)}")
+      {:error, {:invalid_shard, value}} ->
+        Mix.raise(
+          "world eval failed: --shard must be I/N, one 1-based shard of N (for example 2/4)," <>
+            " got #{inspect(value)}"
+        )
+
+      {:error, reason} ->
+        Mix.raise("world eval failed: #{inspect(reason)}")
+    end
+  end
+
+  defp shard_plan(plan, nil), do: {:ok, plan}
+
+  defp shard_plan(plan, {index, count}) do
+    case WorldSuite.shard(plan, index, count) do
+      {:ok, []} -> {:error, {:world_shard_empty, %{shard: index, of: count, plan: length(plan)}}}
+      result -> result
+    end
+  end
+
+  # A shard's results carry no verdict: its per-case rates would be over the
+  # one or two repeats it happened to be dealt, and the paired comparison over
+  # a fraction of the matrix. The thresholds are applied once, to the merge.
+  defp world_summary(_reports, %{shard: {_index, _count}}), do: {:ok, nil}
+
+  defp world_summary(reports, world),
+    do: WorldSuite.summarize(reports, summary_options(world))
+
+  defp conclude_world(%{shard: {index, count}}, reports, nil) do
+    candidates = Enum.filter(reports, &(&1.lane == :candidate))
+    passed = Enum.count(candidates, &(&1.status == :passed))
+
+    info(
+      "world shard #{index}/#{count}: #{passed}/#{length(candidates)} candidate observations" <>
+        " passed; thresholds apply to the merged report"
+    )
+  end
+
+  defp conclude_world(_world, _reports, summary), do: qualify_world(summary)
+
+  defp qualify_world(summary) do
+    info(Jason.encode!(%{"world_summary" => summary}))
+    info("world evals: #{summary.candidate.passed}/#{summary.candidate.total} passed")
+
+    unless summary.passed?,
+      do: Mix.raise("model-world qualification failed: #{inspect(summary.failures)}")
+  end
+
+  defp run_world_shards(arguments) do
+    with {:ok, shards} <- world_shards_arguments(arguments),
+         {:ok, cases} <- WorldCase.all(),
+         {:ok, plan} <- WorldSuite.plan(cases, plan_options(shards)) do
+      for index <- 1..shards.shards,
+          {:ok, observations} = WorldSuite.shard(plan, index, shards.shards),
+          observations != [] do
+        info(Jason.encode!(%{"observations" => length(observations), "shard" => index}))
+      end
+    else
+      {:error, reason} -> Mix.raise("world shards failed: #{inspect(reason)}")
+    end
+  end
+
+  defp run_world_merge(arguments) do
+    with {:ok, merge} <- world_merge_arguments(arguments),
+         {:ok, reports} <- read_partial_reports(merge.partials),
+         {:ok, summary} <- WorldSuite.summarize(reports, summary_options(merge)),
+         :ok <- WorldReport.write(merge.results, reports, summary: summary) do
+      announce_preserved_databases(reports)
+      qualify_world(summary)
+    else
+      {:error, reason} -> Mix.raise("world merge failed: #{inspect(reason)}")
+    end
+  end
+
+  # Partial results are joined in plan order — scenario, repeat, then lane —
+  # so the merged report reads exactly as one sequential run's would.
+  defp read_partial_reports(partials) do
+    Enum.reduce_while(partials, {:ok, []}, fn partial, {:ok, reports} ->
+      case WorldReport.read(partial) do
+        {:ok, read} -> {:cont, {:ok, reports ++ read}}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+    |> case do
+      {:ok, reports} -> {:ok, Enum.sort_by(reports, &{&1.scenario_id, &1.repeat_index, &1.lane})}
+      {:error, _reason} = error -> error
     end
   end
 
@@ -427,25 +532,87 @@ defmodule Mix.Tasks.Responder.Eval do
     result
   end
 
-  defp world_arguments(arguments) do
-    strict = [
-      {:case, :string},
-      max_paired_regression: :float,
-      min_case_pass_rate: :float,
-      min_overall_pass_rate: :float,
-      paired_baseline: :boolean,
-      repeat: :integer,
-      results: :string,
-      tag: :string
-    ]
+  # The plan flags say what runs and belong to every shard; the threshold flags
+  # qualify one report and belong to the merge. --paired-baseline is both: it
+  # adds the baseline lane to the plan and the paired comparison to the summary.
+  @plan_flags [{:case, :string}, paired_baseline: :boolean, repeat: :integer, tag: :string]
+  @threshold_flags [
+    max_paired_regression: :float,
+    min_case_pass_rate: :float,
+    min_overall_pass_rate: :float,
+    paired_baseline: :boolean
+  ]
 
+  defp world_arguments(arguments) do
+    strict = Keyword.merge(@plan_flags, @threshold_flags) ++ [results: :string, shard: :string]
+
+    with {:ok, parsed, []} <- parse_flags(arguments, strict),
+         {:ok, shard} <- parse_shard(Keyword.get(parsed, :shard)) do
+      prepare_world_arguments(parsed, shard)
+    else
+      {:ok, _parsed, _positional} -> {:error, :invalid_arguments}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp world_shards_arguments(arguments) do
+    with {:ok, parsed, []} <- parse_flags(arguments, @plan_flags ++ [shards: :integer]),
+         shards when is_integer(shards) and shards >= 1 <- Keyword.get(parsed, :shards),
+         plan = plan_options(parsed),
+         {:ok, _plan} <- WorldSuite.plan([argument_case(plan)], plan) do
+      {:ok, Map.put(plan, :shards, shards)}
+    else
+      _invalid -> {:error, :invalid_arguments}
+    end
+  end
+
+  defp world_merge_arguments(arguments) do
+    with {:ok, parsed, partials} <- parse_flags(arguments, @threshold_flags ++ [results: :string]),
+         true <- partials != [] and Enum.all?(partials, &absolute_reference?/1),
+         merge = merge_settings(parsed, partials),
+         true <- absolute_reference?(merge.results),
+         {:ok, _summary} <- WorldSuite.summarize(argument_reports(merge), summary_options(merge)) do
+      {:ok, merge}
+    else
+      _invalid -> {:error, :invalid_arguments}
+    end
+  end
+
+  defp merge_settings(parsed, partials) do
+    parsed
+    |> threshold_settings()
+    |> Map.merge(%{partials: partials, results: Keyword.get(parsed, :results)})
+  end
+
+  defp threshold_settings(parsed) do
+    %{
+      max_paired_regression: Keyword.get(parsed, :max_paired_regression, 0.1),
+      min_case_pass_rate: Keyword.get(parsed, :min_case_pass_rate, 2 / 3),
+      min_overall_pass_rate: Keyword.get(parsed, :min_overall_pass_rate, 0.9),
+      paired_baseline: Keyword.get(parsed, :paired_baseline, false)
+    }
+  end
+
+  defp parse_flags(arguments, strict) do
     if duplicate_world_flags?(arguments) do
       {:error, :invalid_arguments}
     else
       case OptionParser.parse(arguments, strict: strict) do
-        {parsed, [], []} -> prepare_world_arguments(parsed)
+        {parsed, positional, []} -> {:ok, parsed, positional}
         _invalid -> {:error, :invalid_arguments}
       end
+    end
+  end
+
+  defp parse_shard(nil), do: {:ok, nil}
+
+  defp parse_shard(value) do
+    with true <- Regex.match?(~r{\A[0-9]+/[0-9]+\z}, value),
+         [index, count] <- value |> String.split("/") |> Enum.map(&String.to_integer/1),
+         true <- count >= 1 and index in 1..count do
+      {:ok, {index, count}}
+    else
+      _invalid -> {:error, {:invalid_shard, value}}
     end
   end
 
@@ -458,18 +625,13 @@ defmodule Mix.Tasks.Responder.Eval do
     Enum.uniq(flags) != flags
   end
 
-  defp prepare_world_arguments(parsed) do
+  defp prepare_world_arguments(parsed, shard) do
     if Enum.uniq(Keyword.keys(parsed)) == Keyword.keys(parsed) do
-      world = %{
-        max_paired_regression: Keyword.get(parsed, :max_paired_regression, 0.1),
-        min_case_pass_rate: Keyword.get(parsed, :min_case_pass_rate, 2 / 3),
-        min_overall_pass_rate: Keyword.get(parsed, :min_overall_pass_rate, 0.9),
-        paired_baseline: Keyword.get(parsed, :paired_baseline, false),
-        repeat: Keyword.get(parsed, :repeat, 3),
-        results: Keyword.get(parsed, :results),
-        scenario_id: Keyword.get(parsed, :case),
-        tag: Keyword.get(parsed, :tag)
-      }
+      world =
+        parsed
+        |> plan_options()
+        |> Map.merge(threshold_settings(parsed))
+        |> Map.merge(%{results: Keyword.get(parsed, :results), shard: shard})
 
       validate_world_arguments(world)
     else
@@ -527,6 +689,15 @@ defmodule Mix.Tasks.Responder.Eval do
     do: Path.type(value) == :absolute
 
   defp absolute_reference?(_value), do: false
+
+  defp plan_options(parsed) when is_list(parsed) do
+    %{
+      paired_baseline: Keyword.get(parsed, :paired_baseline, false),
+      repeat: Keyword.get(parsed, :repeat, 3),
+      scenario_id: Keyword.get(parsed, :case),
+      tag: Keyword.get(parsed, :tag)
+    }
+  end
 
   defp plan_options(world) do
     %{
