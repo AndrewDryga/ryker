@@ -303,7 +303,10 @@ defmodule Ryker.ControlPlane.RykerTokensTest do
     refute policy =~ "https:"
   end
 
-  test "the layouts load the tokens before the stylesheets that consume them" do
+  test "both shells load the same stylesheets, tokens first, from the asset allowlist" do
+    # Until 2026-09-13 the confirmation shell skipped control-plane.css and both
+    # shells linked a /static/app.css string the HTTP router assembled ahead of
+    # the tokens; a rule that existed in one shell could be missing from the other.
     for html <- [
           render_component(&Layouts.static/1, title: "Retry delivery", body: ""),
           render_component(&Layouts.root/1, page_title: "Activity", inner_content: "")
@@ -314,14 +317,24 @@ defmodule Ryker.ControlPlane.RykerTokensTest do
         |> LazyHTML.query("link[rel=stylesheet]")
         |> LazyHTML.attribute("href")
 
-      assert Enum.at(hrefs, 0) == "/static/app.css"
-      assert Enum.at(hrefs, 1) == "/assets/ryker-tokens.css"
-      assert List.last(hrefs) == "/assets/workspace.css"
+      assert hrefs == [
+               "/assets/ryker-tokens.css",
+               "/assets/control-plane.css",
+               "/assets/workspace.css"
+             ]
+
+      assert hrefs == Layouts.stylesheets()
     end
 
-    tokens = Assets.call(Plug.Test.conn(:get, "/ryker-tokens.css"), [])
-    assert tokens.status == 200
-    assert Plug.Conn.get_resp_header(tokens, "content-type") |> hd() =~ "text/css"
+    for "/assets/" <> file <- Layouts.stylesheets() do
+      served = Assets.call(Plug.Test.conn(:get, "/" <> file), [])
+      assert served.status == 200, file
+      assert Plug.Conn.get_resp_header(served, "content-type") |> hd() =~ "text/css"
+    end
+
+    # The base rules /static/app.css used to carry open control-plane.css.
+    assert control_plane_css() =~ ~r/\A(\/\*[^*]*\*\/\s*)?:root\{color-scheme:dark;/
+    assert control_plane_css() =~ "font-family"
   end
 
   defp tokens do

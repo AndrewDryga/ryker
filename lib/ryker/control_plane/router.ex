@@ -383,20 +383,6 @@ defmodule Ryker.ControlPlane.Router do
     end
   end
 
-  defp route(%Plug.Conn{method: "GET", path_info: ["static", "app.css"]} = conn, _options) do
-    conn
-    |> put_resp_content_type("text/css")
-    |> send_resp(200, HTML.css())
-    |> halt()
-  end
-
-  defp route(%Plug.Conn{method: "GET", path_info: ["static", "lab.js"]} = conn, _options) do
-    conn
-    |> put_resp_content_type("text/javascript")
-    |> send_resp(200, HTML.lab_javascript())
-    |> halt()
-  end
-
   defp route(
          %Plug.Conn{
            method: "GET",
