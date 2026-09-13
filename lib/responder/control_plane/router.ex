@@ -452,7 +452,10 @@ defmodule Responder.ControlPlane.Router do
             200,
             SlackNames.name(workspace_ref, channel_ref),
             ChannelPage.description(snapshot),
-            Safe.to_iodata(ChannelPage.render(%{__changed__: nil, view: snapshot}))
+            [
+              Safe.to_iodata(ChannelPage.lead(%{__changed__: nil, view: snapshot})),
+              Safe.to_iodata(ChannelPage.render(%{__changed__: nil, view: snapshot}))
+            ]
           )
 
         :not_found ->

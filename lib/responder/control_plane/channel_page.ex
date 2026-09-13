@@ -16,11 +16,16 @@ defmodule Responder.ControlPlane.ChannelPage do
 
   attr(:view, :map, required: true)
 
-  def render(assigns) do
-    assigns = assign(assigns, :base, base_path(assigns.view.scope))
+  @doc """
+  The quiet episode metric and the help disclosure that open the page.
 
+  They are rendered apart from the sections so the live page can place the
+  channel's own instruction editor between them and the configuration it
+  belongs beside, in the page's reading order rather than above it.
+  """
+  def lead(assigns) do
     ~H"""
-    <div class="channel-page">
+    <div class="channel-page channel-lead">
       <p class="channel-metrics">
         <a href={Activity.conversation_path("slack", @view.scope.conversation_ref)}>
           {count(@view.episodes.total, "episode")}
@@ -36,6 +41,17 @@ defmodule Responder.ControlPlane.ChannelPage do
           effect and are listed in their library instead; opening this page recalls nothing.
         </p>
       </.page_help>
+    </div>
+    """
+  end
+
+  attr(:view, :map, required: true)
+
+  def render(assigns) do
+    assigns = assign(assigns, :base, base_path(assigns.view.scope))
+
+    ~H"""
+    <div class="channel-page">
       <section id="configuration" class="channel-section">
         <h2>Configuration</h2>
         <dl class="channel-facts">

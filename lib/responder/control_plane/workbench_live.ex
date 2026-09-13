@@ -51,6 +51,7 @@ defmodule Responder.ControlPlane.WorkbenchLive do
        native: nil,
        instructions: nil,
        instruction_scope: nil,
+       body_lead: "",
        save_instructions: nil,
        settings: nil,
        settings_commands: nil,
@@ -330,6 +331,7 @@ defmodule Responder.ControlPlane.WorkbenchLive do
     assign(socket,
       native: :instructions,
       page_title: "Instructions",
+      body_lead: "",
       body: "",
       instructions: view,
       instruction_scope: :global,
@@ -346,6 +348,10 @@ defmodule Responder.ControlPlane.WorkbenchLive do
         native: :instructions,
         page_title: SlackNames.name(workspace, channel),
         page_description: ChannelPage.description(snapshot),
+        body_lead:
+          ChannelPage.lead(%{__changed__: nil, view: snapshot})
+          |> Safe.to_iodata()
+          |> IO.iodata_to_binary(),
         body:
           ChannelPage.render(%{__changed__: nil, view: snapshot})
           |> Safe.to_iodata()
@@ -632,6 +638,7 @@ defmodule Responder.ControlPlane.WorkbenchLive do
           />
           <div :if={@native == :instructions} class="secondary-page instructions-page">
             <Components.page_header title={@page_title} description={@page_description} />
+            {Phoenix.HTML.raw(@body_lead)}
             <.live_component
               module={Responder.ControlPlane.InstructionsEditor}
               id={"instructions-#{@instructions.setting.scope_ref}"}
