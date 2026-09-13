@@ -14,8 +14,8 @@ defmodule Mix.Tasks.Ryker.CoopWorker do
 
   use Mix.Task
 
+  alias Mix.Tasks.Ryker.OperatorSupport, as: Support
   alias Ryker.CoopFleet.{Enrollment, WorkerLifecycle}
-  alias Ryker.Repo
 
   @shortdoc "Enrolls, drains, resumes, or revokes a Coop worker"
 
@@ -63,17 +63,9 @@ defmodule Mix.Tasks.Ryker.CoopWorker do
   end
 
   defp with_repo(operation, prepare \\ & &1) do
-    repo = Mix.Ecto.ensure_repo(Repo, [])
-
-    case Ecto.Migrator.with_repo(repo, fn _repo -> operation.() end, mode: :temporary) do
-      {:ok, {:ok, value}, _started_apps} ->
-        Mix.shell().info(Jason.encode!(prepare.(value)))
-
-      {:ok, {:error, reason}, _started_apps} ->
-        Mix.raise("worker enrollment failed: #{inspect(reason)}")
-
-      {:error, reason} ->
-        Mix.raise("could not start worker enrollment repository: #{inspect(reason)}")
+    case Support.with_repo(operation) do
+      {:ok, value} -> Support.print(prepare.(value))
+      {:error, reason} -> Support.fail("worker enrollment", reason)
     end
   end
 

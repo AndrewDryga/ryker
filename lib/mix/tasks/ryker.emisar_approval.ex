@@ -11,8 +11,8 @@ defmodule Mix.Tasks.Ryker.EmisarApproval do
 
   use Mix.Task
 
+  alias Mix.Tasks.Ryker.OperatorSupport, as: Support
   alias Ryker.Emisar.Operator
-  alias Ryker.Repo
 
   @shortdoc "Lists, inspects, or rearms blocked Emisar approval monitoring"
 
@@ -26,17 +26,8 @@ defmodule Mix.Tasks.Ryker.EmisarApproval do
     end
   end
 
-  defp with_repo(operation) do
-    repo = Mix.Ecto.ensure_repo(Repo, [])
+  defp with_repo(operation), do: operation |> Support.with_repo() |> print_result()
 
-    case Ecto.Migrator.with_repo(repo, fn _repo -> operation.() end, mode: :temporary) do
-      {:ok, result, _started_apps} -> print(result)
-      {:error, reason} -> Mix.raise("could not start Emisar repository: #{inspect(reason)}")
-    end
-  end
-
-  defp print({:ok, value}), do: Mix.shell().info(Jason.encode!(value))
-
-  defp print({:error, reason}),
-    do: Mix.raise("Emisar approval operation failed: #{inspect(reason)}")
+  defp print_result({:ok, value}), do: Support.print(value)
+  defp print_result({:error, reason}), do: Support.fail("Emisar approval operation", reason)
 end

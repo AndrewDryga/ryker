@@ -9,8 +9,8 @@ defmodule Mix.Tasks.Ryker.Delivery do
 
   use Mix.Task
 
+  alias Mix.Tasks.Ryker.OperatorSupport, as: Support
   alias Ryker.Delivery.Operator
-  alias Ryker.Repo
 
   @shortdoc "Lists, inspects, or rearms blocked delivery"
 
@@ -24,15 +24,8 @@ defmodule Mix.Tasks.Ryker.Delivery do
     end
   end
 
-  defp with_repo(operation) do
-    repo = Mix.Ecto.ensure_repo(Repo, [])
+  defp with_repo(operation), do: operation |> Support.with_repo() |> print_result()
 
-    case Ecto.Migrator.with_repo(repo, fn _repo -> operation.() end, mode: :temporary) do
-      {:ok, result, _started_apps} -> print(result)
-      {:error, reason} -> Mix.raise("could not start delivery repository: #{inspect(reason)}")
-    end
-  end
-
-  defp print({:ok, value}), do: Mix.shell().info(Jason.encode!(value))
-  defp print({:error, reason}), do: Mix.raise("delivery operation failed: #{inspect(reason)}")
+  defp print_result({:ok, value}), do: Support.print(value)
+  defp print_result({:error, reason}), do: Support.fail("delivery operation", reason)
 end
