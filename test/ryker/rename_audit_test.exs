@@ -16,7 +16,7 @@ defmodule Ryker.RenameAuditTest do
   # here is not scanned at all.
   @immutable_paths [
     {~r{^testdata/},
-     "harvested Slack and eval corpora, recorded tool catalogs and model results, frozen co:op protocol schemas, and the retired configuration document the importer reads by its old names"},
+     "harvested Slack and eval corpora, recorded tool catalogs and model results, and frozen co:op protocol schemas"},
     {~r{^test/.*/fixtures/.*\.json$},
      "recorded episodes, replies and threads (harvested, never invented)"},
     {~r{^test/.*/fixtures/README\.md$|\.PROVENANCE\.md$}, "provenance of the recorded fixtures"},
@@ -68,9 +68,6 @@ defmodule Ryker.RenameAuditTest do
      "harvest provenance: the live database's name on the day the rows were taken"},
     {~r{^test/ryker/coop_fleet/protocol_test\.exs$}, ~r/responder-read-only-v1/,
      "policy name recorded in the frozen co:op worker protocol golden (testdata/protocol)"},
-    {~r{^test/ryker/settings/import_test\.exs$},
-     ~r{RESPONDER_(STATE_TOOLS_TOKEN|CHECKPOINT_KEY)|responder-worker\.example\.net|/var/lib/responder/},
-     "credential names and values of the retired configuration document, which the importer must report by their old names"},
     # --- retained stored values exercised in tests of Ryker.Retained
     {~r{^test/ryker/slack/(app_home_controls|home_interaction)_test\.exs$}, ~r/responder-work:/,
      "external_ref prefix of Work sessions created before the rename (Ryker.Retained.work_session_prefix/0)"},
@@ -93,9 +90,6 @@ defmodule Ryker.RenameAuditTest do
      "asserts the manifest copy no longer names the old product"},
     {~r{^test/ryker/ingress/migration_upgrade_test\.exs$}, ~r/[Rr]esponder/,
      "the migration ladder test drives historical schema states by their names, including the rename migration's own up and down"},
-    {~r{^lib/ryker/settings/import(/document)?\.ex$|^test/ryker/settings/import_test\.exs$},
-     ~r/responder_actor_id/,
-     "key of the retired configuration document, which the importer reads by its own names and maps to ryker_actor_id"},
     # --- the English word
     {~r//,
      ~r/\b(first|on-call|configured|coordinate|invited) responders?\b|\ba responder to read\b|\bresponders\b/i,
