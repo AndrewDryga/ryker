@@ -18,7 +18,6 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
   alias Ryker.Repo
   alias Ryker.Work.{RepositorySource, Session, Turn}
 
-  @current_placement_states [:assigning, :active, :draining, :revoking]
   @heartbeat_stale_seconds 60
 
   @spec place_session(Ecto.UUID.t(), map(), pos_integer()) ::
@@ -325,7 +324,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
     from(placement in Placement,
       where:
         placement.worker_id == ^worker.id and
-          placement.state in ^(@current_placement_states -- [:active]) and
+          placement.state in ^(Placement.current_states() -- [:active]) and
           placement.lease_expires_at <= ^now,
       lock: "FOR UPDATE"
     )
@@ -487,7 +486,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
         where:
           placement.worker_id == ^worker_id and
             placement.inserted_at > ^reported_at and
-            placement.state in ^@current_placement_states and
+            placement.state in ^Placement.current_states() and
             not exists(subquery(closed))
       ),
       :count
@@ -571,7 +570,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
       from(placement in Placement,
         where:
           placement.session_id == ^session_id and
-            placement.state in ^@current_placement_states,
+            placement.state in ^Placement.current_states(),
         lock: "FOR UPDATE"
       )
     )

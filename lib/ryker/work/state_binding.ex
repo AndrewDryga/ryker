@@ -8,7 +8,6 @@ defmodule Ryker.Work.StateBinding do
   alias Ryker.Work.{Session, Turn}
 
   @context "ryker-state-binding:v1:"
-  @current_placement_states [:assigning, :active, :draining, :revoking]
   @maximum_endpoint_bytes 2_048
   @maximum_scope_bytes 2_048
 
@@ -51,7 +50,7 @@ defmodule Ryker.Work.StateBinding do
     placement =
       Repo.one(
         from(value in Placement,
-          where: value.session_id == ^session_id and value.state in ^@current_placement_states,
+          where: value.session_id == ^session_id and value.state in ^Placement.current_states(),
           limit: 1
         )
       )
