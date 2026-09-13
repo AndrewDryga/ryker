@@ -162,7 +162,6 @@ defmodule Ryker.Slack.Renderer.WorkCards do
          :ok <- optional_https_url(repository_url),
          :ok <- incident_generation(session_generation),
          :ok <- TaskPublication.validate(publication),
-         :ok <- work_controls(controls),
          :ok <- positive_integer(ui_revision),
          :ok <- iso8601(confirmed_at),
          :ok <- iso8601(updated_at) do
