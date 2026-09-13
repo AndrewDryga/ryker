@@ -102,11 +102,7 @@ defmodule Ryker.Work.Executor.Cancellation do
   defp bind_cancellation_session(claim, %{"id" => session_id} = remote_session)
        when is_binary(session_id) do
     with :ok <-
-           Remote.exact_remote_session_state(
-             claim.session,
-             remote_session,
-             ~w(open exhausted closed discarded)
-           ),
+           Remote.exact_remote_session_state(claim.session, remote_session),
          {:ok, session} <-
            Custody.bind_session(
              claim.episode.id,
@@ -391,11 +387,7 @@ defmodule Ryker.Work.Executor.Cancellation do
              settings.api.get_session(settings.client, claim.session.coop_session_id)
            end),
          :ok <-
-           Remote.exact_remote_session_state(
-             claim.session,
-             remote_session,
-             ~w(open exhausted closed discarded)
-           ) do
+           Remote.exact_remote_session_state(claim.session, remote_session) do
       {:ok, remote_session}
     end
   end

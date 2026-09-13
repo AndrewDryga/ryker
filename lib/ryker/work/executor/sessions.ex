@@ -19,11 +19,7 @@ defmodule Ryker.Work.Executor.Sessions do
     case Remote.api_call(settings, fn -> settings.api.get_session(settings.client, id) end) do
       {:ok, remote_session} ->
         with :ok <-
-               Remote.exact_remote_session_state(
-                 claim.session,
-                 remote_session,
-                 ~w(open exhausted closed discarded)
-               ) do
+               Remote.exact_remote_session_state(claim.session, remote_session) do
           use_or_rotate_session(claim, remote_session, settings)
         end
 

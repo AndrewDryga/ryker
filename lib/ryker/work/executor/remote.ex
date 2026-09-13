@@ -16,6 +16,7 @@ defmodule Ryker.Work.Executor.Remote do
 
   @git_commit_regex ~r/\A(?:[0-9a-f]{40}|[0-9a-f]{64})\z/
   @operation_waiting_states ~w(reserved running)
+  @session_states ~w(open exhausted closed discarded)
   @terminal_turn_states ~w(cancelled completed failed interrupted budget_exhausted)
   @turn_waiting_states ~w(queued starting running)
 
@@ -240,7 +241,11 @@ defmodule Ryker.Work.Executor.Remote do
   def exact_remote_session(_expected, _remote_session),
     do: {:error, {:coop_protocol_error, :session_resource}}
 
+  # Proves the remote session is the one the claim bound, in any state Coop
+  # reports unless the caller narrows the states it can proceed from.
   @doc false
+  def exact_remote_session_state(expected, remote_session, allowed_states \\ @session_states)
+
   def exact_remote_session_state(
         expected,
         %{
