@@ -9,54 +9,72 @@ defmodule Responder.ControlPlane.SettingsPage do
 
   use Phoenix.Component
 
-  alias Responder.ControlPlane.{SettingsEditor, SettingsSections, WebhookPreview}
+  alias Responder.ControlPlane.{Components, SettingsEditor, SettingsSections, WebhookPreview}
+
+  @description "What this installation decided, and what is actually running."
+
+  # The shell's one-line description under the Settings title, shared with the
+  # static route that renders only the read-only evidence.
+  def description, do: @description
 
   attr(:view, :any, required: true)
   attr(:commands, :map, required: true)
   attr(:body, :string, default: "")
   attr(:error, :string, default: nil)
 
+  # Every state of the page — setup, unavailable, editable — has the one
+  # shell title; what differs sits beneath it as content.
   def render(%{view: {:error, :settings_not_initialized}} = assigns) do
+    assigns = assign(assigns, :description, @description)
+
     ~H"""
-    <section class="settings-setup">
-      <h1>Set up this installation</h1>
-      <p>
-        This database has no product settings yet. Creating them writes one installation
-        identity and the shipped defaults: no integration is connected, no work is placed and
-        nothing is submitted to a model until you say so.
-      </p>
-      <p>
-        If this deployment already ran with an application YAML file, import it instead — a new
-        identity would re-key the worker, delivery and publication custody that history belongs to.
-      </p>
-      <button type="button" class="ui-button primary" phx-click="initialize-settings">
-        Create settings for this installation
-      </button>
-      <p :if={@error} class="settings-error" role="alert">{@error}</p>
-    </section>
+    <div class="settings-page">
+      <Components.page_header title="Settings" description={@description} />
+      <section class="settings-setup">
+        <h2>Set up this installation</h2>
+        <p>
+          This database has no product settings yet. Creating them writes one installation
+          identity and the shipped defaults: no integration is connected, no work is placed and
+          nothing is submitted to a model until you say so.
+        </p>
+        <p>
+          If this deployment already ran with an application YAML file, import it instead — a new
+          identity would re-key the worker, delivery and publication custody that history belongs to.
+        </p>
+        <button type="button" class="ui-button primary" phx-click="initialize-settings">
+          Create settings for this installation
+        </button>
+        <p :if={@error} class="settings-error" role="alert">{@error}</p>
+      </section>
+    </div>
     """
   end
 
   def render(%{view: {:error, :settings_unavailable}} = assigns) do
+    assigns = assign(assigns, :description, @description)
+
     ~H"""
-    <section class="settings-unavailable">
-      <h1>Settings could not be read</h1>
-      <p>
-        The settings database did not answer. This is not an installation without settings:
-        nothing has been reset, and the running configuration is whatever was last applied.
-        Editing is disabled until the database answers again.
-      </p>
-    </section>
+    <div class="settings-page">
+      <Components.page_header title="Settings" description={@description} />
+      <section class="settings-unavailable">
+        <h2>Settings could not be read</h2>
+        <p>
+          The settings database did not answer. This is not an installation without settings:
+          nothing has been reset, and the running configuration is whatever was last applied.
+          Editing is disabled until the database answers again.
+        </p>
+      </section>
+    </div>
     """
   end
 
   def render(%{view: {:ok, _view}} = assigns) do
-    assigns = assign(assigns, :view, elem(assigns.view, 1))
+    assigns = assign(assigns, view: elem(assigns.view, 1), description: @description)
 
     ~H"""
     <div class="settings-page" id="settings-page" phx-hook="SettingsDraft">
-      <header class="settings-status">
-        <h1>Settings</h1>
+      <Components.page_header title="Settings" description={@description} />
+      <div class="settings-status">
         <dl>
           <div>
             <dt>Installation</dt>
@@ -83,7 +101,7 @@ defmodule Responder.ControlPlane.SettingsPage do
         >
           {status_message(@view.application)}
         </p>
-      </header>
+      </div>
       <nav class="settings-index" aria-label="Settings sections">
         <a :for={section <- SettingsSections.sections()} href={"#settings-#{section.key}"}>{section.title}</a>
         <a href="#webhook-preview">Check a payload</a>
@@ -102,15 +120,9 @@ defmodule Responder.ControlPlane.SettingsPage do
         view={@view}
         check={@commands.preview_webhook}
       />
-      <section class="settings-effective">
-        <h2>Effective host configuration</h2>
-        <p>
-          What the running process assembled from these settings, the deployment environment
-          and the shipped defaults. This part is read-only: it is evidence, not a second place
-          to change something.
-        </p>
+      <div class="settings-effective">
         {Phoenix.HTML.raw(@body)}
-      </section>
+      </div>
     </div>
     """
   end

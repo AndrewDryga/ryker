@@ -53,6 +53,68 @@ defmodule Responder.ControlPlane.SettingsLiveTest do
     assert {:ok, %{installation: %{revision: 1}}} = Settings.fetch()
   end
 
+  test "the settings page shows its title once with saved and running revisions beneath, and the effective configuration once",
+       context do
+    # Before 2026-09-13 the page drew its own 30px "Settings" h1 inside a
+    # header the base stylesheet styles as a sticky dark bar, and the
+    # effective-configuration section rendered an "Effective host
+    # configuration" h2 with an intro immediately above a body that opened
+    # with the same h2 and a second intro. Every state of the page — setup,
+    # unavailable, editable — now has exactly one title.
+    for {prepare, marker} <- [
+          {fn -> :ok end, "Set up this installation"},
+          {fn -> initialize!() end, "Saved revision"}
+        ] do
+      prepare.()
+      {:ok, _view, html} = open()
+      document = LazyHTML.from_document(html)
+      headings = LazyHTML.query(document, "main h1")
+      assert Enum.count(headings) == 1, marker
+      assert LazyHTML.text(headings) == "Settings"
+
+      assert LazyHTML.query(document, "main header.page-header > .page-heading > h1")
+             |> Enum.count() ==
+               1
+
+      assert LazyHTML.query(document, "main header.page-header p.page-description")
+             |> LazyHTML.text() =~
+               "What this installation decided"
+
+      assert html =~ marker
+      refute html =~ "settings-status\"><h1"
+    end
+
+    document = open() |> elem(2) |> LazyHTML.from_document()
+    status = LazyHTML.query(document, "main .settings-status dt") |> LazyHTML.text()
+    assert status =~ "Saved revision"
+    assert status =~ "Running revision"
+
+    assert LazyHTML.query(document, "main h2")
+           |> LazyHTML.text()
+           |> String.split("Effective host configuration")
+           |> length() == 2
+
+    assert Enum.count(
+             LazyHTML.query(document, "main .settings-effective .configuration-evidence")
+           ) == 1
+
+    assert Enum.empty?(
+             LazyHTML.query(
+               document,
+               "main .settings-effective form, main .settings-effective button"
+             )
+           )
+
+    Agent.update(context.unavailable, fn _ -> true end)
+    {:ok, _view, html} = open()
+    assert html =~ "Settings could not be read"
+    unavailable = LazyHTML.from_document(html)
+    assert LazyHTML.query(unavailable, "main h1") |> LazyHTML.text() == "Settings"
+
+    assert LazyHTML.query(unavailable, "main .settings-unavailable h2") |> LazyHTML.text() ==
+             "Settings could not be read"
+  end
+
   test "an installation that already holds product history is told to import, not re-keyed" do
     # Creating a second identity here would re-key worker, delivery and
     # publication custody that the existing history belongs to.

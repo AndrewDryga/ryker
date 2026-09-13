@@ -23,19 +23,20 @@ defmodule Responder.ControlPlane.MemorySummaryStatusTest do
     # On the retained replay's 390px page, expanded help consumed the entire
     # first screen before counts, search or a single topic could be reached.
     document = render_summaries() |> LazyHTML.from_document()
-    introduction = document |> LazyHTML.query(".page-description") |> LazyHTML.text()
-    assert length(String.split(introduction)) <= 32
+    # The one-line description is the route's, rendered by the shell; the
+    # body carries no intro of its own.
+    assert Enum.empty?(LazyHTML.query(document, ".page-description, h1"))
 
-    help = LazyHTML.query(document, "details.memory-help:not([open])")
+    help = LazyHTML.query(document, "details.page-help#memory-help:not([open])")
     assert Enum.count(help) == 1
     assert help |> LazyHTML.query("summary") |> LazyHTML.text() == "How memory works"
     assert LazyHTML.text(help) =~ "even when it does not reply"
     assert LazyHTML.text(help) =~ "To create or correct"
     assert LazyHTML.text(help) =~ "oldest supporting source"
     assert LazyHTML.text(help) =~ "confirm the proposal"
-    assert Enum.count(LazyHTML.query(document, ".memory-totals")) == 1
+    assert Enum.count(LazyHTML.query(document, "nav.memory-views")) == 1
     assert Enum.count(LazyHTML.query(document, "#memory-search")) == 1
-    assert Enum.empty?(LazyHTML.query(help, ".memory-totals, #memory-search"))
+    assert Enum.empty?(LazyHTML.query(help, "nav.memory-views, #memory-search"))
   end
 
   for dependencies <- [[], nil, %{}, "unavailable"] do

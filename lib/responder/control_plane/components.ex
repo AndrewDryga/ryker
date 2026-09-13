@@ -141,6 +141,18 @@ defmodule Responder.ControlPlane.Components do
       "Dropdowns as %{id, name, label, value, options: [{value, text}]}; each applies on change"
   )
 
+  attr(:name, :string, default: "q", doc: "The search field's parameter name")
+
+  attr(:hidden, :list,
+    default: [],
+    doc: "[{name, value}] the form must keep, e.g. the memory view it searches within"
+  )
+
+  attr(:clear, :string,
+    default: nil,
+    doc: "Where \"Clear filters\" goes when that is not the bare path"
+  )
+
   @doc """
   The one compact filter toolbar of a page that filters.
 
@@ -156,14 +168,18 @@ defmodule Responder.ControlPlane.Components do
       |> assign_new(:query, fn -> "" end)
       |> assign_new(:filtered, fn -> false end)
       |> assign_new(:selects, fn -> [] end)
+      |> assign_new(:name, fn -> "q" end)
+      |> assign_new(:hidden, fn -> [] end)
+      |> assign_new(:clear, fn -> nil end)
 
     ~H"""
     <form class="filter-toolbar" method="get" action={@path} role="search" aria-label={@label}>
+      <input :for={{name, value} <- @hidden} type="hidden" name={name} value={value} />
       <label class="sr-only" for={@id}>{@placeholder}</label>
       <input
         type="search"
         id={@id}
-        name="q"
+        name={@name}
         maxlength="200"
         value={@query || ""}
         placeholder={@placeholder}
@@ -177,7 +193,7 @@ defmodule Responder.ControlPlane.Components do
           )}
         </select>
       <% end %>
-      <a :if={@filtered} class="filter-clear" href={@path}>Clear filters</a>
+      <a :if={@filtered} class="filter-clear" href={@clear || @path}>Clear filters</a>
       <noscript><button type="submit" class="ui-button secondary">Apply</button></noscript>
     </form>
     """

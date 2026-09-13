@@ -110,7 +110,7 @@ defmodule Responder.ControlPlane.OperatorUsabilityTest do
 
   test "findings explain their scope and supported creation workflow" do
     html = HTML.findings(%{items: [], total: 0, page: 1, pages: 1}) |> IO.iodata_to_binary()
-    assert html =~ "What was found"
+    assert html =~ "How findings are saved and followed up"
     assert html =~ "not a second list of episodes"
     assert html =~ "Ask Responder to investigate"
     refute html =~ "Create finding"

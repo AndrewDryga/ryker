@@ -726,42 +726,52 @@ defmodule Responder.ControlPlane.HTML do
     review_rows = Enum.map(reviews, &review_row/1)
 
     [
-      "<details class=\"memory-help\" id=\"memory-help\"><summary>How memory works</summary><div class=\"page-help-body\"><p>Current knowledge keeps one evolving summary per subject, with source-linked updates. When background learning is enabled, Responder maintains useful decisions, intentions and changes even when it does not reply, including in shadow mode. Not every message needs a new memory: a learning batch can finish with no change. Related topics are recalled for later routing and work. Source excerpts retain original message text; conversation handovers summarize completed work.</p><p>To create or correct conversation knowledge, explain the fact or change in the original Slack conversation or direct conversation. Related updates maintain the same topic. Edits, deletions and expiry invalidate knowledge that depended on the old source; invalidated items remain inspectable but are not recalled. Retention follows the oldest supporting source, so a new update cannot keep an expired fact alive indefinitely.</p><p>Learning activity below shows waiting messages, outcomes and the exact saved attempts. If a batch needs attention, inspect its error before granting one additional model start. A retry does not reset its spent starts or bypass source and execution checks.</p><p>For a deliberate saved fact, ask Responder to remember it and confirm the proposal. When a question explicitly says the answer will be remembered, an operator's answer confirms that fact without another click. These global mappings apply across conversations in this installation and survive ordinary history cleanup. Operational memory shows each saved value and where it applies; use Forget to remove one. Knowledge is context, not an instruction, permission or proof of current health.</p></div></details>",
-      "<nav class=\"behavior-links\" aria-label=\"Related saved instructions\"><a href=\"/rules\">Standing rules →</a><a href=\"/preferences\">Preferences →</a><a href=\"/guidance\">Guidance →</a></nav>",
+      "<div class=\"memory-page\">",
+      page_help("memory-help", "How memory works", [
+        "<p>Current knowledge keeps one evolving summary per subject, with source-linked updates. When background learning is enabled, Responder maintains useful decisions, intentions and changes even when it does not reply, including in shadow mode. Not every message needs a new memory: a learning batch can finish with no change. Related topics are recalled for later routing and work. Source excerpts retain original message text; conversation handovers summarize completed work.</p>",
+        "<p>To create or correct conversation knowledge, explain the fact or change in the original Slack conversation or direct conversation. Related updates maintain the same topic. Edits, deletions and expiry invalidate knowledge that depended on the old source; invalidated items remain inspectable but are not recalled. Retention follows the oldest supporting source, so a new update cannot keep an expired fact alive indefinitely.</p>",
+        "<p>Learning activity below shows waiting messages, outcomes and the exact saved attempts. If a batch needs attention, inspect its error before granting one additional model start. A retry does not reset its spent starts or bypass source and execution checks.</p>",
+        "<p>For a deliberate saved fact, ask Responder to remember it and confirm the proposal. When a question explicitly says the answer will be remembered, an operator's answer confirms that fact without another click. These global mappings apply across conversations in this installation and survive ordinary history cleanup. Operational memory shows each saved value and where it applies; use Forget to remove one. Knowledge is context, not an instruction, permission or proof of current health.</p>",
+        "<p>Saved instructions live on their own pages: <a href=\"/rules\">Standing rules →</a> <a href=\"/preferences\">Preferences →</a> <a href=\"/guidance\">Guidance →</a></p>"
+      ]),
       if(snapshot[:conversation_memory],
         do:
-          MemoryPage.render(%{view: snapshot.conversation_memory, csrf_secret: csrf_secret})
+          MemoryPage.render(%{
+            __changed__: nil,
+            view: snapshot.conversation_memory,
+            csrf_secret: csrf_secret
+          })
           |> Safe.to_iodata(),
         else: []
       ),
-      "<section><h2>Operational memory</h2>",
+      "<section class=\"operational-memory\"><h2>Operational memory</h2>",
       if(memory_rows == [],
-        do: "<p>No confirmed memory is active.</p>",
-        else: table(["Subject", "Value", "Applies to", "Status", "Action"], memory_rows)
+        do: empty_state("No confirmed memory is active."),
+        else:
+          data_table(
+            ["Subject", "Value", "Applies to", "Status", {"row-action", "Action"}],
+            memory_rows
+          )
       ),
-      "</section><section><h2>Memory review</h2>",
+      "</section><section class=\"memory-review\"><h2>Memory review</h2>",
       if(review_rows == [],
-        do: "<p>No stale or duplicate memories need review.</p>",
-        else: table(["Kind", "Entries", "Reason", "Action"], review_rows)
+        do: empty_state("No stale or duplicate memories need review."),
+        else: data_table(["Kind", "Entries", "Reason", {"row-action", "Action"}], review_rows)
       ),
-      "</section>"
+      "</section></div>"
     ]
   end
 
   defp memory_row(item) do
     [
-      "<tr><td>",
       escape(item.subject),
-      "</td><td>",
       escape(item.value),
-      "</td><td>",
-      escape(String.capitalize(to_string(item.scope))),
-      if(item.applicability, do: [" · ", escape(item.applicability)], else: []),
-      "</td><td>",
-      escape(item.status),
-      "</td><td>",
-      Components.action_button("/actions/memory/#{segment(item.ref)}/forget", "Forget", :danger),
-      "</td></tr>"
+      [
+        escape(String.capitalize(to_string(item.scope))),
+        if(item.applicability, do: [" · ", escape(item.applicability)], else: [])
+      ],
+      escape(Components.label(to_string(item.status))),
+      Components.action_button("/actions/memory/#{segment(item.ref)}/forget", "Forget", :danger)
     ]
   end
 
@@ -769,15 +779,10 @@ defmodule Responder.ControlPlane.HTML do
     ref = segment(review["review_ref"])
 
     [
-      "<tr><td>",
-      escape(review["kind"]),
-      "</td><td>",
+      escape(Components.label(to_string(review["kind"]))),
       Enum.map_join(review["entries"], "<br>", &review_entry/1),
-      "</td><td>",
       escape(review["reason"]),
-      "</td><td>",
-      review_actions(review["kind"], ref),
-      "</td></tr>"
+      review_actions(review["kind"], ref)
     ]
   end
 
@@ -1185,71 +1190,111 @@ defmodule Responder.ControlPlane.HTML do
 
   def findings(view), do: FindingsPage.render(%{view: view}) |> Safe.to_iodata()
 
+  # Read-only evidence of what the running process assembled: one heading,
+  # the settings grouped by the subsystem they belong to with each value's
+  # explanation beside it, the code-editing setup guide, and the grant
+  # inventory. It never renders a control; product settings are edited in the
+  # live sections above it and the deployment environment in the unit file.
   def configuration(%{rows: rows, grants: grants, source: source}) do
-    configuration_rows =
-      Enum.map(rows, fn row ->
-        help = ConfigurationHelp.setting(row.key)
-
+    groups =
+      rows
+      |> Enum.group_by(&configuration_group/1)
+      |> Enum.sort_by(fn {{order, _key, _title}, _rows} -> order end)
+      |> Enum.map(fn {{_order, key, title}, rows} ->
         [
-          "<section class=\"configuration-setting\" data-setting=\"",
-          escape(row.key),
-          "\"><div class=\"configuration-setting-value\"><h3>",
-          escape(help.title),
-          "</h3><code>",
-          escape(row.key),
-          "</code><p class=\"configuration-value\">",
-          escape(ConfigurationHelp.value(row.key, row.value)),
-          "</p><span class=\"configuration-raw\">Loaded value: <code>",
-          escape(row.value),
-          "</code></span></div><div class=\"configuration-setting-help\"><p class=\"configuration-purpose\">",
-          escape(help.purpose),
-          "</p><p class=\"configuration-behavior\">",
-          escape(help.behavior),
-          "</p><p class=\"configuration-default\"><strong>Default / requirement:</strong> ",
-          escape(help.default),
-          "</p>",
-          if(row.source != source,
-            do: [
-              "<p class=\"configuration-provenance\">Loaded from <code>",
-              escape(row.source),
-              "</code>.</p>"
-            ],
-            else: []
-          ),
-          "</div></section>"
+          "<div class=\"configuration-group\" data-group=\"",
+          key,
+          "\"><h3>",
+          title,
+          "</h3>",
+          Enum.map(rows, &configuration_setting(&1, source)),
+          "</div>"
         ]
       end)
 
     grant_rows =
       Enum.map(grants, fn grant ->
         [
-          "<tr><td>",
-          escape(grant.kind),
-          "<p class=\"configuration-grant-help\">",
-          escape(ConfigurationHelp.grant(grant.kind)),
-          "</p>",
-          "</td><td><code>",
-          escape(grant.name),
-          "</code></td><td><code>",
-          escape(grant.source),
-          "</code></td></tr>"
+          [
+            escape(grant.kind),
+            "<span class=\"row-secondary\">",
+            escape(ConfigurationHelp.grant(grant.kind)),
+            "</span>"
+          ],
+          ["<code>", escape(grant.name), "</code>"],
+          ["<code>", escape(grant.source), "</code>"]
         ]
       end)
 
     [
-      "<div class=\"configuration-guide\"><h2>Effective host configuration</h2><p>What this Responder assembled and is running, and what each setting changes.</p><p>Assembled from <code>",
+      "<div class=\"configuration-evidence\"><section class=\"configuration-values\"><h2>Effective host configuration</h2><p class=\"section-description\">What the running process assembled from these settings, the deployment environment and the shipped defaults, and what each setting changes. Assembled from <code>",
       escape(source),
-      "</code>.</p><div class=\"configuration-change-note\"><strong>How to change these settings</strong><p>This part is read-only evidence. Product settings are edited in the sections above and take effect without a deployment; the deployment environment (database, listeners, credentials) is set in the unit file. Refreshing this page does not change running work.</p><p>Configured means this installation saved a setting, not that its connection or workers are healthy. Running values can lag a save that has not been applied yet. Credentials, URLs, callback values and raw policy documents remain private.</p></div></div><div class=\"configuration-settings\" aria-label=\"Effective values and explanations\">",
-      configuration_rows,
-      "</div>",
+      "</code>.</p><div class=\"configuration-change-note\"><strong>How to change these settings</strong><p>This part is read-only evidence. Product settings are edited in the sections above and take effect without a deployment; the deployment environment (database, listeners, credentials) is set in the unit file. Refreshing this page does not change running work.</p><p>Configured means this installation saved a setting, not that its connection or workers are healthy. Running values can lag a save that has not been applied yet. Credentials, URLs, callback values and raw policy documents remain private.</p></div>",
+      if(groups == [],
+        do: empty_state("No effective settings were published by the running process."),
+        else: [
+          "<div class=\"configuration-settings\" aria-label=\"Effective values and explanations\">",
+          groups,
+          "</div>"
+        ]
+      ),
+      "</section>",
       code_editing_setup(),
-      "<section><h2>MCP and tool grants</h2><p class=\"configuration-grants-note\">This is an inventory of configured names, not a live tool-health check. Listing a tool does not grant permission to use it.</p>",
-      table(["Grant kind", "Capability or tool", "Source"], grant_rows),
-      "</section><p class=\"muted\">Repository-specific policy topology and serving-worker revisions are shown under <a href=\"/repositories\">Repositories</a>.</p>"
+      "<section class=\"configuration-grants\"><h2>MCP and tool grants</h2><p class=\"section-description\">This is an inventory of configured names, not a live tool-health check. Listing a tool does not grant permission to use it.</p>",
+      if(grant_rows == [],
+        do: empty_state("No MCP or tool grants are configured."),
+        else: data_table(["Grant kind", "Capability or tool", "Source"], grant_rows)
+      ),
+      "</section><p class=\"muted\">Repository-specific policy topology and serving-worker revisions are shown under <a href=\"/repositories\">Repositories</a>.</p></div>"
     ]
   end
 
-  def configuration(rows), do: generic("Effective host configuration", rows)
+  # Presence flags have bare keys; everything else groups by the prefix of its
+  # dotted key, in the order an operator reads a deployment: what runs, then
+  # how each part behaves.
+  defp configuration_group(%{key: key}) do
+    case String.split(key, ".", parts: 2) do
+      [_flag] -> {0, "subsystems", "Subsystems"}
+      ["runtime", _] -> {1, "runtime", "Runtime"}
+      ["admission", _] -> {2, "admission", "Admission"}
+      ["work", _] -> {3, "work", "Work execution"}
+      ["retention", _] -> {4, "retention", "Cleanup and retention"}
+      _ -> {5, "other", "Other settings"}
+    end
+  end
+
+  defp configuration_setting(row, source) do
+    help = ConfigurationHelp.setting(row.key)
+
+    [
+      "<section class=\"configuration-setting\" data-setting=\"",
+      escape(row.key),
+      "\"><div class=\"configuration-setting-value\"><h4>",
+      escape(help.title),
+      "</h4><code>",
+      escape(row.key),
+      "</code><p class=\"configuration-value\">",
+      escape(ConfigurationHelp.value(row.key, row.value)),
+      "</p><span class=\"configuration-raw\">Loaded value: <code>",
+      escape(row.value),
+      "</code></span></div><div class=\"configuration-setting-help\"><p class=\"configuration-purpose\">",
+      escape(help.purpose),
+      "</p><p class=\"configuration-behavior\">",
+      escape(help.behavior),
+      "</p><p class=\"configuration-default\"><strong>Default / requirement:</strong> ",
+      escape(help.default),
+      "</p>",
+      if(row.source != source,
+        do: [
+          "<p class=\"configuration-provenance\">Loaded from <code>",
+          escape(row.source),
+          "</code>.</p>"
+        ],
+        else: []
+      ),
+      "</div></section>"
+    ]
+  end
 
   defp code_editing_setup do
     status =
@@ -1311,7 +1356,7 @@ defmodule Responder.ControlPlane.HTML do
     .episode-stop{background:linear-gradient(120deg,#2a1717,#151114);border:1px solid #713c3b;border-radius:16px;display:grid;gap:1.1rem;grid-template-columns:46px minmax(0,1fr);margin:1rem 0;padding:1.15rem}.stop-signal{align-items:center;background:var(--danger);border-radius:50%;color:#1b0909;display:flex;font-size:1.35rem;font-weight:950;height:42px;justify-content:center;width:42px}.episode-stop h2{font-size:1.25rem;margin:.1rem 0}.episode-stop p{color:#dbbfbd;margin:.35rem 0}.stop-attempted{border-top:1px solid #563130;margin-top:.8rem;padding-top:.7rem}.stop-attempted>span,.stop-action>span{color:#bf9693;display:block;font-size:.67rem;font-weight:900;letter-spacing:.1em;text-transform:uppercase}.stop-attempted ul{display:flex;flex-wrap:wrap;gap:.4rem;list-style:none;margin:.45rem 0 0;padding:0}.stop-attempted li{background:#321d1e;border:1px solid #603333;border-radius:999px;color:#f0cdca;font-size:.76rem;padding:.18rem .55rem}.stop-action{align-items:center;display:grid;gap:.15rem;grid-template-columns:minmax(0,1fr) auto;margin-top:.85rem}.stop-action span,.stop-action strong{grid-column:1}.stop-action .button{grid-column:2;grid-row:1/3}
     .trace-shell{background:#0b0f13;border:1px solid var(--line);border-radius:18px;margin-top:1.1rem;overflow:hidden}.trace-heading{align-items:flex-start;background:linear-gradient(110deg,#151c23,#0d1115);border-bottom:1px solid var(--line);display:flex;gap:2rem;justify-content:space-between;padding:1.4rem}.trace-heading h2{font-size:1.45rem;margin:.1rem 0}.trace-heading p:last-child{color:var(--muted);margin:.3rem 0;max-width:68ch}.trace-stats{display:flex;gap:.45rem}.trace-stats>span{background:#0a0e12;border:1px solid var(--line);border-radius:8px;color:var(--muted);display:grid;font-size:.62rem;letter-spacing:.08em;min-width:66px;padding:.45rem;text-align:center;text-transform:uppercase}.trace-stats strong{color:var(--text);font-size:1rem}.trace-chapter{padding:0 1.4rem}.trace-chapter+.trace-chapter{border-top:1px solid var(--line)}.chapter-heading{align-items:center;display:grid;gap:1rem;grid-template-columns:42px minmax(0,1fr) auto;padding:1.3rem 0 .8rem}.chapter-number{color:var(--cyan);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.78rem;font-weight:900;letter-spacing:.12em}.chapter-heading h3{font-size:1.15rem;margin:0}.chapter-heading p{color:var(--muted);font-size:.82rem;margin:.15rem 0}.chapter-span{color:var(--muted);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.7rem}
     .trace-rail{padding:0 0 1.25rem 20px;position:relative}.trace-rail:before{background:#33414c;bottom:1.7rem;content:"";left:26px;position:absolute;top:.55rem;width:1px}.trace-step{display:grid;gap:1rem;grid-template-columns:14px minmax(0,1fr);position:relative}.trace-step+.trace-step{margin-top:.7rem}.trace-marker{background:#6f7c87;border:3px solid #0b0f13;border-radius:50%;height:13px;margin-top:1.1rem;position:relative;width:13px;z-index:1}.trace-step.tone-good .trace-marker{background:var(--accent)}.trace-step.tone-warn .trace-marker{background:var(--warning)}.trace-step.tone-bad .trace-marker{background:var(--danger)}.trace-card{background:#11171d;border:1px solid #293640;border-radius:11px;padding:.85rem 1rem}.trace-step.tone-good .trace-card{border-left-color:#6c8e2e}.trace-step.tone-warn .trace-card{border-left-color:#8d6c25}.trace-step.tone-bad .trace-card{border-left-color:#994743}.trace-card-head{align-items:center;display:flex;gap:1rem;justify-content:space-between}.trace-labels,.trace-time{align-items:center;display:flex;flex-wrap:wrap;gap:.4rem}.trace-stage,.trace-state{border:1px solid #3b4853;border-radius:999px;color:#aab6c0;font-size:.62rem;font-weight:900;letter-spacing:.08em;padding:.15rem .45rem;text-transform:uppercase}.trace-state{border-color:#365364;color:var(--cyan)}.trace-time{color:#788590;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.66rem}.trace-card h4{font-size:1rem;margin:.55rem 0 .15rem}.trace-card h4 a{color:var(--text)}.trace-card>p{color:#bdc6ce;margin:.2rem 0}.trace-byline{color:#7f8c97;font-size:.68rem;font-weight:800;letter-spacing:.08em;margin-top:.5rem;text-transform:uppercase}.trace-details{border-top:1px solid #293640;margin-top:.7rem;padding-top:.55rem}.trace-details summary{color:#9facb7;cursor:pointer;font-size:.7rem;font-weight:800;letter-spacing:.05em}.trace-details dl{font-size:.74rem;grid-template-columns:minmax(100px,max-content) minmax(0,1fr);margin:.65rem 0 .15rem}.trace-details dd{color:#d2dae1;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}.trace-empty{color:var(--muted);padding:1.4rem}.tone-good .trace-state{border-color:#536d29;color:var(--accent)}.tone-warn .trace-state{border-color:#715a2a;color:var(--warning)}.tone-bad .trace-state{border-color:#743a39;color:var(--danger)}
-    @media(max-width:760px){header,main{padding-left:1rem;padding-right:1rem}.lab-hero,.lab-heading,.episode-hero,.episode-actions,.trace-heading{align-items:stretch;flex-direction:column}.episode-action-buttons{justify-content:flex-start}.lab-stream{grid-template-columns:1fr}.custody-strip{border-left:0;border-top:1px solid var(--line)}.message{max-width:96%}.composer-actions{align-items:stretch;flex-direction:column}.search-form{grid-template-columns:1fr}.episode-state{min-width:0}.trace-stats{align-self:stretch}.trace-stats>span{flex:1}.chapter-heading{align-items:start;grid-template-columns:32px minmax(0,1fr)}.chapter-span{grid-column:2}.trace-chapter{padding:0 .85rem}.trace-rail{padding-left:10px}.trace-rail:before{left:16px}.trace-card-head{align-items:flex-start;flex-direction:column}.stop-action{grid-template-columns:1fr}.stop-action .button{grid-column:1;grid-row:auto;margin-top:.6rem;text-align:center}}
+    @media(max-width:760px){header,main{padding-left:1rem;padding-right:1rem}.lab-hero,.lab-heading,.episode-hero,.episode-actions,.trace-heading{align-items:stretch;flex-direction:column}.episode-action-buttons{justify-content:flex-start}.lab-stream{grid-template-columns:1fr}.custody-strip{border-left:0;border-top:1px solid var(--line)}.message{max-width:96%}.composer-actions{align-items:stretch;flex-direction:column}.episode-state{min-width:0}.trace-stats{align-self:stretch}.trace-stats>span{flex:1}.chapter-heading{align-items:start;grid-template-columns:32px minmax(0,1fr)}.chapter-span{grid-column:2}.trace-chapter{padding:0 .85rem}.trace-rail{padding-left:10px}.trace-rail:before{left:16px}.trace-card-head{align-items:flex-start;flex-direction:column}.stop-action{grid-template-columns:1fr}.stop-action .button{grid-column:1;grid-row:auto;margin-top:.6rem;text-align:center}}
     """
   end
 

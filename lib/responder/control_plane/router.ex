@@ -16,7 +16,8 @@ defmodule Responder.ControlPlane.Router do
     CSRF,
     HTML,
     LearningActivity,
-    RelearnPanel
+    RelearnPanel,
+    SettingsPage
   }
 
   alias Responder.Learning.Operator, as: LearningOperator
@@ -612,6 +613,7 @@ defmodule Responder.ControlPlane.Router do
       conn,
       200,
       "Settings",
+      SettingsPage.description(),
       HTML.configuration(options.projection.operator_configuration.())
     )
   end
@@ -664,15 +666,16 @@ defmodule Responder.ControlPlane.Router do
     )
   end
 
-  defp route(%Plug.Conn{method: "GET", path_info: [page]} = conn, options)
-       when page == "findings" do
+  defp route(%Plug.Conn{method: "GET", path_info: ["findings"]} = conn, options) do
     conn = fetch_query_params(conn)
-    callback = Map.fetch!(options.projection, String.to_existing_atom(page))
-    rows = callback.(conn.query_params)
 
-    body = HTML.findings(rows)
-
-    html(conn, 200, String.capitalize(page), body)
+    html(
+      conn,
+      200,
+      "Findings",
+      "Saved investigation conclusions with the evidence behind them: what needs explaining, what explains it, or why it is expected.",
+      HTML.findings(options.projection.findings.(conn.query_params))
+    )
   end
 
   defp route(%Plug.Conn{method: "GET", path_info: ["static", "app.css"]} = conn, _options) do

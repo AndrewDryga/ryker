@@ -67,10 +67,6 @@
 .responder-app .usage-token-cell { text-align:center; white-space:nowrap; font-weight:500; }
 .responder-app .usage-detail-table .usage-group-start { border-left:1px solid var(--stroke); }
 .responder-app .usage-detail-table .usage-performance { text-align:center; }
-.memory-totals { display:flex; gap:12px; margin:20px 0; }
-.memory-totals a { display:flex; flex:1; align-items:center; justify-content:space-between; gap:16px; padding:16px 20px; border:1px solid var(--stroke); border-radius:8px; color:var(--text); background:var(--panel); }
-.memory-totals a[aria-current=page] { border-color:#60795f; background:#eaf0e5; }
-.memory-totals strong { font-size:28px; font-variant-numeric:tabular-nums; }
 .memory-cards { display:grid; grid-template-columns:minmax(0,1fr); gap:16px; margin:20px 0 32px; }
 .memory-card { min-width:0; overflow-wrap:anywhere; padding:20px 24px; border:1px solid var(--stroke); border-radius:8px; background:var(--panel); }
 .memory-card header { position:static; padding:0; margin:0; border:0; background:transparent; backdrop-filter:none; display:flex; gap:20px; justify-content:space-between; align-items:baseline; }
@@ -145,11 +141,6 @@
 .memory-dates dt { color:var(--muted); }
 .memory-dates dd { margin:4px 0 0; }
 .responder-app .conversation-memory .memory-dates dt, .responder-app .conversation-memory .memory-dates dd { padding:0; border:0; font-size:12px; }
-@media(max-width:600px) {
-  .conversation-memory .memory-totals { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; margin:12px 0; }
-  .conversation-memory .memory-totals a { padding:10px 8px; font-size:12px; gap:4px; align-items:flex-start; }
-  .conversation-memory .memory-totals strong { font-size:22px; }
-}
 @media(max-width:700px) { .learning-batch-detail { padding:16px; } .learning-batches li { display:block; } .learning-batches time { display:block; margin-top:8px; } }
 .learning-receipt-heading > p, .learning-estimate { color:var(--muted); font-size:13px; }
 .learning-reason { font-size:17px; line-height:1.6; max-width:80ch; }
@@ -163,7 +154,7 @@
 .learning-source-heading time, .learning-source-heading span { color:var(--muted); font-size:12px; }
 .learning-source details, .learning-part > details { font-size:13px; }
 @media(max-width:700px) { .learning-receipt { padding:16px; } .learning-part > summary span { display:block; margin:6px 0 0 18px; } }
-@media(max-width:700px) { .memory-card { padding:16px; } .memory-card header { display:block; } .memory-totals a { align-items:flex-start; flex-direction:column; padding:12px; gap:6px; } }
+@media(max-width:700px) { .memory-card { padding:16px; } .memory-card header { display:block; } }
 .responder-app .usage-page .usage-people-table { min-width:0; }
 .responder-app .usage-people-table th:first-child { width:46%; }
 .responder-app .usage-people-table th:not(:first-child) { width:18%; text-align:right; }
@@ -198,9 +189,6 @@
 .responder-app details.measurement-notes { margin:20px 0; padding:16px 20px; background:#fff; border:1px solid var(--stroke); border-radius:6px; }
 details.measurement-notes > summary { cursor:pointer; font-weight:600; color:var(--green); }
 @media(max-width:700px) { .usage-chart figcaption span { width:100%; margin:0; } }
-.responder-app .search-form { display:flex; flex-wrap:wrap; align-items:flex-end; gap:12px; width:100%; margin:16px 0 24px; }
-.responder-app .search-form input { min-width:0; flex:1; margin:0; height:40px; }
-.responder-app .search-form button { flex:none; margin:0; height:40px; padding:0 14px; }
 .filter-field { display:flex; flex-direction:column; gap:6px; min-width:160px; }
 .filter-field.filter-search { width:min(100%,360px); }
 .responder-app .filter-field label, .responder-app .criterion > label { font-size:13px; font-weight:600; color:var(--ink); text-transform:none; letter-spacing:0; }
@@ -376,7 +364,6 @@ details.measurement-notes > summary { cursor:pointer; font-weight:600; color:var
 .status-attention { color:#956228; background:#fbefdc; }
 .status-done { color:#59765a; background:#edf4e9; }
 .status-quiet { color:#6a7162; background:#f3f5ee; }
-.subscription-window { color:var(--secondary); font-size:13px; margin:0 0 12px; }
 .subscription-list { background:var(--panel); border:1px solid var(--stroke); border-radius:7px; overflow:hidden; }
 .subscription-row { display:grid; grid-template-columns:minmax(0,1fr) minmax(210px,260px); gap:14px 28px; padding:20px 24px; border-bottom:1px solid var(--stroke); overflow-wrap:anywhere; }
 .subscription-row:last-child { border-bottom:0; }
@@ -457,7 +444,7 @@ details.measurement-notes > summary { cursor:pointer; font-weight:600; color:var
 .legacy-surface input, .legacy-surface select, .legacy-surface textarea { background-color:#fff; color:#394e32; border:1px solid #cad7bf; border-radius:4px; padding:8px 10px; }
 .responder-app .legacy-surface select { padding-right:36px; }
 .legacy-surface pre { background:#eef3e7; color:#4a6240; border:1px solid #d9e4ce; padding:16px; }
-.legacy-surface .secondary-page > section:not(.metrics):not(.configuration-guide):not(.configuration-settings) { background:var(--panel); border:1px solid var(--stroke); border-radius:6px; padding:20px; margin:20px 0; }
+.legacy-surface .secondary-page > section:not(.metrics) { background:var(--panel); border:1px solid var(--stroke); border-radius:6px; padding:20px; margin:20px 0; }
 .legacy-surface h2 { font-size:22px; line-height:1.3; margin:0 0 16px; }
 .legacy-surface h3 { font-size:18px; line-height:1.4; }
 .legacy-surface p, .legacy-surface li { line-height:1.6; }
@@ -496,17 +483,14 @@ details.measurement-notes > summary { cursor:pointer; font-weight:600; color:var
 @media (max-width:1000px) { .usage-details { grid-template-columns:1fr; } }
 @media (max-width:580px) { .legacy-surface dl { grid-template-columns:minmax(0,1fr) minmax(0,1fr); } .legacy-surface .metrics { grid-template-columns:repeat(2,minmax(0,1fr)); } .legacy-surface .metric { padding:12px; } .legacy-surface .metric strong { font-size:23px; } .legacy-surface th, .legacy-surface td { padding:10px; } }
 /* Configuration is a readable field guide, not an unexplained key/value dump. */
-.configuration-guide { max-width:90ch; color:#3d493f; }
-.configuration-guide h2 { font-size:22px; margin:0 0 8px; }
-.configuration-guide p { font-size:16px; line-height:1.5; margin:8px 0; }
 .configuration-change-note { border-left:2px solid #9bad91; padding:4px 0 4px 16px; margin:20px 0; }
 .configuration-change-note strong { font-size:15px; }
 .configuration-change-note p { font-size:14px; color:#526153; }
 .configuration-settings { border-top:1px solid var(--stroke); margin:24px 0 32px; }
 .configuration-setting { display:grid; grid-template-columns:minmax(220px,1fr) minmax(0,2fr); gap:24px; padding:20px 0; border-bottom:1px solid var(--stroke); }
 .configuration-setting-value { min-width:0; }
-.configuration-setting-value h3 { color:#293b2e; font-size:17px; line-height:1.4; margin:0 0 4px; }
-.configuration-setting code, .configuration-guide code { overflow-wrap:anywhere; font-size:13px; color:#4d604c; }
+.configuration-setting-value h4 { color:#293b2e; font-size:17px; line-height:1.4; margin:0 0 4px; }
+.configuration-setting code, .configuration-values code { overflow-wrap:anywhere; font-size:13px; color:#4d604c; }
 .configuration-value { font-size:20px; line-height:1.3; color:#2c4833; font-weight:550; margin:12px 0 4px; overflow-wrap:anywhere; font-variant-numeric:tabular-nums; }
 .configuration-raw { font-size:13px; color:#5b6658; }
 .configuration-setting-help { min-width:0; max-width:80ch; }
@@ -1080,9 +1064,6 @@ details.measurement-notes > summary { cursor:pointer; font-weight:600; color:var
 /* Saved instructions: concise policy rows, with scope and lifecycle always visible. */
 .behavior-library { max-width:1160px; }
 .behavior-links { display:flex; align-items:center; flex-wrap:wrap; gap:10px 20px; }
-.memory-help { margin:0 0 16px; max-width:90ch; }
-.memory-help > summary { cursor:pointer; color:var(--green); font-size:14px; padding:4px 0; }
-.memory-help .page-help-body { font-size:14px; line-height:1.65; }
 .behavior-links a, .behavior-pagination a, .applied-context a { color:#34563e; }
 .behavior-empty { background:#fff; border:1px solid #dce2d9; border-radius:8px; padding:24px; }
 .behavior-empty h2 { font-size:21px; margin:0 0 8px; }
@@ -1236,7 +1217,6 @@ details.measurement-notes > summary { cursor:pointer; font-weight:600; color:var
 /* Settings: one editable section per product decision, with saved and running shown apart. */
 .settings-page { max-width:980px; }
 .settings-status { margin:0 0 28px; }
-.settings-status h1 { margin:0 0 12px; }
 .settings-status dl { display:flex; flex-wrap:wrap; gap:8px 32px; margin:0 0 12px; }
 .settings-status dl > div { display:grid; gap:2px; }
 .responder-app .settings-status dt, .responder-app .settings-status dd { padding:0; border:0; }
@@ -1299,7 +1279,6 @@ details.measurement-notes > summary { cursor:pointer; font-weight:600; color:var
 .settings-setup, .settings-unavailable { background:#fff; border:1px solid var(--stroke); border-radius:8px; max-width:760px; padding:26px 28px; }
 .settings-setup p, .settings-unavailable p { line-height:1.65; margin:0 0 14px; max-width:76ch; }
 .settings-effective { margin-top:32px; border-top:1px solid var(--stroke); padding-top:24px; }
-.settings-effective > p { color:var(--secondary); line-height:1.6; max-width:78ch; }
 @media (max-width:700px) {
   .settings-section { padding:18px 16px; }
   .settings-field { max-width:none; }
@@ -1453,3 +1432,24 @@ details.measurement-notes > summary { cursor:pointer; font-weight:600; color:var
   .responder-app .data-table td.row-number { text-align:left; }
   .responder-app .data-table td.row-action { white-space:normal; }
 }
+/* Memory: the three views are compact tabs (label and a small count), never a statistics row; the learning state line stays visible above them. */
+.memory-views { display:flex; flex-wrap:wrap; gap:4px 24px; margin:0 0 16px; font-size:14px; }
+.memory-views a { padding:6px 0 8px; border-bottom:2px solid transparent; color:var(--secondary); }
+.memory-views a[aria-current=page] { color:var(--ink); border-color:#6d8758; font-weight:600; }
+.memory-views a span { margin-left:4px; font-variant-numeric:tabular-nums; color:var(--secondary); font-weight:400; }
+.memory-page .learning-summary { padding:0 0 16px; }
+.memory-page .learning-activity-heading h2 { font-size:20px; letter-spacing:-.3px; }
+.memory-page .knowledge-history h2 { font-size:20px; letter-spacing:-.3px; }
+/* Settings: the effective configuration is grouped by subsystem under one heading; each row keeps its value beside its explanation. */
+.configuration-evidence .configuration-settings { border-top:0; margin:8px 0 0; }
+.configuration-group { margin:24px 0 0; }
+.configuration-group > h3 { font-size:16px; line-height:1.5; margin:0; padding:0 0 8px; color:var(--secondary); border-bottom:1px solid var(--stroke); }
+.configuration-evidence .configuration-change-note { margin:16px 0 0; }
+.configuration-evidence .code-editing-setup { margin:24px 0 0; max-width:none; }
+.configuration-evidence .code-editing-setup ol { max-width:80ch; }
+.configuration-evidence > p.muted { margin:16px 0 0; font-size:14px; color:var(--secondary); }
+.settings-page .settings-setup h2, .settings-page .settings-unavailable h2 { font-size:20px; margin:0 0 12px; }
+/* The Settings page is native LiveView rather than a legacy-surface body, so it carries the shell's gutters itself: 32px on desktop, narrower as the sidebar collapses. */
+.settings-page { padding:32px; }
+@media (max-width:800px) { .settings-page { padding:24px 20px; } }
+@media (max-width:600px) { .settings-page { padding:20px 16px; } }
