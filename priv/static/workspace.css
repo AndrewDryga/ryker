@@ -991,9 +991,11 @@ details.measurement-notes > summary { cursor:pointer; font-weight:600; color:var
    two rules a few pixels apart, which is what "there are two horizontal
    dividers but should be just one" was about. */
 .prompt-assembly + .final-prompt { border-top:0; margin-top:0; }
-.final-prompt > header { margin:0 0 8px; }
-.final-prompt > header h4 { margin:0; font-size:14px; }
-.final-prompt > header p { margin:3px 0 0; font-size:13px; color:var(--secondary); }
+/* Same reset .prompt-group > header carries: the page's global header rule
+   otherwise paints this as a dark bar with near-invisible text. */
+.final-prompt > header { margin:0 0 4px; padding:0; background:transparent; color:var(--ink); position:static; border:0; display:block; }
+.final-prompt > header h4 { margin:0; font-size:15px; font-weight:600; }
+.final-prompt > header h4 span { font-size:12px; font-weight:400; color:var(--secondary); margin-left:10px; }
 .prompt-legend { font-size:12px; color:#53604f; margin:12px 0; }
 .submitted-prompt { background:#fafbf8; color:#27352b; padding:16px; border:1px solid var(--stroke); white-space:pre-wrap; overflow-wrap:anywhere; max-height:70vh; overflow:auto; font:13px/1.8 ui-monospace, SFMono-Regular, Menlo, monospace; }
 .submitted-prompt code { font:inherit; color:inherit; background:transparent; padding:0; }
