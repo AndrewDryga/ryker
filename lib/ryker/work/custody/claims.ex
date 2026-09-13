@@ -35,12 +35,7 @@ defmodule Ryker.Work.Custody.Claims do
     end
   end
 
-  @doc """
-  Extends the current fenced turn lease without changing its owner or attempt count.
-
-  A healthy long-running Coop turn renews this lease before it can be reclaimed by
-  another worker. A stale worker cannot renew after losing its opaque lease.
-  """
+  @doc false
   @spec renew(Ecto.UUID.t(), String.t(), String.t(), pos_integer()) ::
           {:ok, Turn.t()} | {:error, term()}
   def renew(episode_id, turn_ref, lease_ref, lease_seconds) do
@@ -54,12 +49,7 @@ defmodule Ryker.Work.Custody.Claims do
     end
   end
 
-  @doc """
-  Releases one failed attempt for a bounded automatic retry.
-
-  The retry time is computed by PostgreSQL so process clock skew cannot steal or
-  indefinitely extend custody.
-  """
+  @doc false
   @spec defer(
           Ecto.UUID.t(),
           String.t(),
@@ -88,12 +78,7 @@ defmodule Ryker.Work.Custody.Claims do
     end
   end
 
-  @doc """
-  Releases healthy remote work at the end of one bounded polling window.
-
-  A polling window is not a failed execution attempt. The claim increment is
-  therefore returned before the turn becomes eligible for another worker.
-  """
+  @doc false
   @spec yield_progress(Ecto.UUID.t(), String.t(), String.t(), pos_integer()) ::
           {:ok, Turn.t()} | {:error, term()}
   def yield_progress(episode_id, turn_ref, lease_ref, retry_seconds) do

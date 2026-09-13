@@ -24,13 +24,7 @@ defmodule Ryker.Work.Custody.Sessions do
     TurnChangeset
   }
 
-  @doc """
-  Pins the trusted Coop policy before an episode can enter execution custody.
-
-  Workers never supply or replace this authority. The argument is the default
-  for a new episode; an existing episode keeps its stored policy across config
-  deploys. Authority changes require an explicit owner-fenced migration.
-  """
+  @doc false
   @spec pin_episode(Ecto.UUID.t(), String.t(), String.t()) ::
           {:ok, Session.t()} | {:error, term()}
   def pin_episode(episode_id, policy, policy_digest) do
@@ -127,7 +121,7 @@ defmodule Ryker.Work.Custody.Sessions do
           String.t(),
           String.t(),
           String.t() | nil
-        ) :: {:ok, Turn.t()} | {:error, term()}
+        ) :: {:ok, Session.t()} | {:error, term()}
   def pin_episode_in_transaction(episode_id, policy, policy_digest, repository_ref) do
     pin_episode_in_transaction(episode_id, policy, policy_digest, nil, repository_ref, nil)
   end
@@ -356,12 +350,7 @@ defmodule Ryker.Work.Custody.Sessions do
     end
   end
 
-  @doc """
-  Spends one confirmed failed Coop create operation that produced no session.
-
-  Ambiguous or uncertain outcomes must keep the existing generation and
-  reconcile the original idempotency key instead.
-  """
+  @doc false
   @spec advance_session_create(Ecto.UUID.t(), String.t(), String.t(), pos_integer()) ::
           {:ok, Session.t()} | {:error, term()}
   def advance_session_create(episode_id, turn_ref, lease_ref, expected_generation) do
@@ -375,17 +364,7 @@ defmodule Ryker.Work.Custody.Sessions do
     end
   end
 
-  @doc """
-  Releases the fence of a create that provably never reached Coop.
-
-  A create is fenced on its turn before it is attempted, so a response the host
-  never saw can never become a blind second remote session. `operation_by_key`
-  answering `:not_found` is the proof there is nothing to be blind about: no
-  operation exists under the key, so nothing crossed the boundary and no session
-  was made. The generation is not spent, because nothing spent it — the key is
-  free to be attempted again. An unresolved or uncertain outcome never reaches
-  here and keeps the fence.
-  """
+  @doc false
   @spec release_session_create(Ecto.UUID.t(), String.t(), String.t(), String.t()) ::
           {:ok, Turn.t()} | {:error, term()}
   def release_session_create(episode_id, turn_ref, lease_ref, operation_key) do
@@ -400,13 +379,7 @@ defmodule Ryker.Work.Custody.Sessions do
     end
   end
 
-  @doc """
-  Moves an unsubmitted logical turn to the next immutable Coop session generation.
-
-  The caller must first prove the currently bound remote session is exhausted or
-  unsafe to reuse (for example, its retained knowledge was withdrawn). A frozen submission cannot move because a same-session delta may not
-  be self-contained in the replacement provider transcript.
-  """
+  @doc false
   @spec rotate_session(Ecto.UUID.t(), String.t(), String.t(), pos_integer()) ::
           {:ok, %{session: Session.t(), turn: Turn.t()}} | {:error, term()}
   def rotate_session(episode_id, turn_ref, lease_ref, expected_generation) do

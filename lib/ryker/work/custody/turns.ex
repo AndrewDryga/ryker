@@ -27,7 +27,6 @@ defmodule Ryker.Work.Custody.Turns do
     FinalPreflight,
     Measurement,
     Result,
-    Session,
     Submission,
     Turn,
     TurnChangeset,
@@ -159,7 +158,7 @@ defmodule Ryker.Work.Custody.Turns do
           String.t(),
           String.t(),
           String.t()
-        ) :: {:ok, Session.t()} | {:error, term()}
+        ) :: {:ok, Turn.t()} | {:error, term()}
   def bind_state_tools(episode_id, turn_ref, lease_ref, endpoint, token_sha256) do
     with {:ok, episode_id} <- uuid(episode_id, :episode_id),
          :ok <- reference(turn_ref, :turn_ref),
@@ -172,9 +171,7 @@ defmodule Ryker.Work.Custody.Turns do
     end
   end
 
-  @doc """
-  Binds the immutable Coop turn resource created from the frozen submission.
-  """
+  @doc false
   @spec bind_turn(
           Ecto.UUID.t(),
           String.t(),
@@ -210,9 +207,7 @@ defmodule Ryker.Work.Custody.Turns do
     end
   end
 
-  @doc """
-  Spends one confirmed failed Coop submit operation that produced no turn.
-  """
+  @doc false
   @spec advance_turn_submit(Ecto.UUID.t(), String.t(), String.t(), pos_integer()) ::
           {:ok, Turn.t()} | {:error, term()}
   def advance_turn_submit(episode_id, turn_ref, lease_ref, expected_generation) do
@@ -226,12 +221,7 @@ defmodule Ryker.Work.Custody.Turns do
     end
   end
 
-  @doc """
-  Durably records the exact candidate before any semantic validation mutation.
-
-  Replacing a rejected candidate requires the exact stored candidate digest.
-  An accepted result can never be replaced.
-  """
+  @doc false
   @spec stage_candidate(
           Ecto.UUID.t(),
           String.t(),
@@ -279,12 +269,7 @@ defmodule Ryker.Work.Custody.Turns do
     end
   end
 
-  @doc """
-  Freezes the exact semantic verdict before any Coop validation mutation.
-
-  An accepted intent includes the exact host result that may become a delivery
-  intent. A retry cannot recompute or replace either the verdict or result.
-  """
+  @doc false
   @spec prepare_validation(
           Ecto.UUID.t(),
           String.t(),
@@ -325,9 +310,7 @@ defmodule Ryker.Work.Custody.Turns do
     end
   end
 
-  @doc """
-  Spends one confirmed failed validation mutation for the same frozen candidate.
-  """
+  @doc false
   @spec advance_validation(
           Ecto.UUID.t(),
           String.t(),
@@ -363,12 +346,7 @@ defmodule Ryker.Work.Custody.Turns do
     end
   end
 
-  @doc """
-  Atomically accepts one Coop-validated candidate and advances its episode.
-
-  A visible result creates the single durable delivery intent. A deliberate
-  no-delivery result settles immediately and advances any already queued input.
-  """
+  @doc false
   @spec accept_result(
           Ecto.UUID.t(),
           String.t(),
@@ -412,7 +390,7 @@ defmodule Ryker.Work.Custody.Turns do
     end
   end
 
-  @doc "Freezes remote completion before fallible host finalization, retaining the lease."
+  @doc false
   def record_completion(episode_id, turn_ref, lease_ref, receipt) do
     with {:ok, episode_id} <- uuid(episode_id, :episode_id),
          :ok <- reference(turn_ref, :turn_ref),
@@ -437,7 +415,7 @@ defmodule Ryker.Work.Custody.Turns do
     end
   end
 
-  @doc "Pauses host finalization of an exactly confirmed completed turn, without closing its workspace."
+  @doc false
   def block_completion(episode_id, turn_ref, lease_ref, receipt, code, detail) do
     with {:ok, episode_id} <- uuid(episode_id, :episode_id),
          :ok <- reference(turn_ref, :turn_ref),
@@ -483,14 +461,7 @@ defmodule Ryker.Work.Custody.Turns do
 
   def completion_matches?(_turn, _receipt), do: false
 
-  @doc """
-  Fences one outbound Coop mutation with exact durable request identity.
-
-  Create and submit identity is committed before the callback. The callback
-  runs after the database transaction, so a slow local Coop socket never holds
-  episode row locks. Stop may revoke the lease concurrently; exact replay of
-  the same key and body then proves and cleans up whatever crossed the boundary.
-  """
+  @doc false
   @spec with_mutation_fence(
           Ecto.UUID.t(),
           String.t(),
