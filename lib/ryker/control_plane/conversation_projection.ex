@@ -10,9 +10,18 @@ defmodule Ryker.ControlPlane.ConversationProjection do
   """
 
   import Ecto.Query
+  require Ryker.ControlPlane.CurrentInputs
 
   alias Ryker.Artifacts.OutputArtifact
-  alias Ryker.ControlPlane.{AdmissionProgress, Card, CurrentInputs, InspectionRedactor, LabCursor}
+
+  alias Ryker.ControlPlane.{
+    AdmissionProgress,
+    Card,
+    CurrentInputs,
+    InspectionRedactor,
+    TranscriptCursor
+  }
+
   alias Ryker.Delivery.PlatformAction
   alias Ryker.Delivery.Reaction
   alias Ryker.Episodes.{Episode, Event, Reactions}
@@ -85,8 +94,7 @@ defmodule Ryker.ControlPlane.ConversationProjection do
           ],
           select:
             {entry.destination_conversation_ref,
-             fragment(
-               "CASE WHEN ? IS NOT NULL THEN NULL WHEN ? = 'delete' THEN 'Message deleted' ELSE left(?::jsonb->>'text', 12000) END",
+             CurrentInputs.visible_text(
                current.operational_pruned_at,
                current.event_kind,
                current.content
@@ -129,7 +137,7 @@ defmodule Ryker.ControlPlane.ConversationProjection do
   from the rows that happen to be on the page.
   """
   def fetch(conversation_id) do
-    case normalized_uuid(conversation_id) do
+    case Ecto.UUID.cast(conversation_id) do
       {:ok, conversation_id} -> project_conversation(conversation_id)
       :error -> :not_found
     end
@@ -147,7 +155,7 @@ defmodule Ryker.ControlPlane.ConversationProjection do
 
   def history(conversation_id, cursor, limit)
       when is_integer(limit) and limit in 1..@page_maximum do
-    with {:ok, conversation_id} <- normalized_uuid(conversation_id),
+    with {:ok, conversation_id} <- Ecto.UUID.cast(conversation_id),
          {:ok, boundary} <- boundary_key(cursor, conversation_id),
          true <- conversation_exists?(@prefix <> conversation_id) do
       {:ok, page(conversation_id, boundary, limit)}
@@ -163,8 +171,8 @@ defmodule Ryker.ControlPlane.ConversationProjection do
   @doc false
   def artifact(conversation_id, turn_id, artifact_ref)
       when is_binary(turn_id) and is_binary(artifact_ref) do
-    with {:ok, conversation_id} <- normalized_uuid(conversation_id),
-         {:ok, turn_id} <- normalized_uuid(turn_id),
+    with {:ok, conversation_id} <- Ecto.UUID.cast(conversation_id),
+         {:ok, turn_id} <- Ecto.UUID.cast(turn_id),
          true <- Regex.match?(~r/\A[A-Za-z0-9_.:-]{1,256}\z/, artifact_ref),
          %OutputArtifact{} = artifact <-
            Repo.one(
@@ -254,7 +262,8 @@ defmodule Ryker.ControlPlane.ConversationProjection do
   defp boundary_key(nil, _conversation_id), do: {:ok, nil}
 
   defp boundary_key(cursor, conversation_id) do
-    with {:ok, {_micros, rank, identity} = key} <- LabCursor.decode(cursor, conversation_id),
+    with {:ok, {_micros, rank, identity} = key} <-
+           TranscriptCursor.decode(cursor, conversation_id),
          {:ok, _value} <- identity_value(rank, identity) do
       {:ok, key}
     else
@@ -265,9 +274,9 @@ defmodule Ryker.ControlPlane.ConversationProjection do
   defp identity_value(0, "input:" <> native_input_id) when byte_size(native_input_id) > 0,
     do: {:ok, native_input_id}
 
-  defp identity_value(1, "reply:" <> id), do: normalized_uuid(id)
-  defp identity_value(2, "action:" <> id), do: normalized_uuid(id)
-  defp identity_value(3, "publication:" <> id), do: normalized_uuid(id)
+  defp identity_value(1, "reply:" <> id), do: Ecto.UUID.cast(id)
+  defp identity_value(2, "action:" <> id), do: Ecto.UUID.cast(id)
+  defp identity_value(3, "publication:" <> id), do: Ecto.UUID.cast(id)
   defp identity_value(_rank, _identity), do: :error
 
   # Every source contributes its `limit + 1` newest rows older than the
@@ -296,7 +305,7 @@ defmodule Ryker.ControlPlane.ConversationProjection do
 
     before =
       case {more?, List.last(window)} do
-        {true, {key, _kind, _row}} -> LabCursor.encode(conversation_id, key)
+        {true, {key, _kind, _row}} -> TranscriptCursor.encode(conversation_id, key)
         _exhausted_or_empty -> nil
       end
 
@@ -333,7 +342,7 @@ defmodule Ryker.ControlPlane.ConversationProjection do
 
   def changes(conversation_id, %DateTime{} = since, limit)
       when is_integer(limit) and limit in 1..@page_maximum do
-    case normalized_uuid(conversation_id) do
+    case Ecto.UUID.cast(conversation_id) do
       {:ok, conversation_id} ->
         ref = @prefix <> conversation_id
 
@@ -503,17 +512,17 @@ defmodule Ryker.ControlPlane.ConversationProjection do
   end
 
   defp candidate_key(:input, row),
-    do: LabCursor.key(row.position, :input, "input:" <> row.native_input_id)
+    do: TranscriptCursor.key(row.position, :input, "input:" <> row.native_input_id)
 
   defp candidate_key(:reply, row),
-    do: LabCursor.key(row.occurred_at, :reply, "reply:" <> row.turn_id)
+    do: TranscriptCursor.key(row.occurred_at, :reply, "reply:" <> row.turn_id)
 
   defp candidate_key(:action, row),
-    do: LabCursor.key(row.delivered_at, :action, "action:" <> row.id)
+    do: TranscriptCursor.key(row.delivered_at, :action, "action:" <> row.id)
 
   defp candidate_key(:publication, {publication, _record_ref}),
     do:
-      LabCursor.key(
+      TranscriptCursor.key(
         publication_position(publication),
         :publication,
         "publication:" <> publication.id
@@ -552,7 +561,7 @@ defmodule Ryker.ControlPlane.ConversationProjection do
   end
 
   defp put_cursor(%{sort_key: key} = message, conversation_id),
-    do: Map.put(message, :cursor, LabCursor.encode(conversation_id, key))
+    do: Map.put(message, :cursor, TranscriptCursor.encode(conversation_id, key))
 
   # The execution an operator message started, as it stands now: the episode's
   # state, or "blocked" when its owning turn is, so a message whose model work
@@ -609,7 +618,7 @@ defmodule Ryker.ControlPlane.ConversationProjection do
 
   defp page_boundary({micros, rank, identity}, kind) do
     position = DateTime.from_unix!(micros, :microsecond)
-    own = LabCursor.rank(kind)
+    own = TranscriptCursor.rank(kind)
 
     cond do
       own < rank ->
@@ -1174,7 +1183,7 @@ defmodule Ryker.ControlPlane.ConversationProjection do
       input_id: input.id,
       native_input_id: input.native_input_id,
       occurred_at: input.position,
-      sort_key: LabCursor.key(input.position, :input, "input:" <> input.native_input_id)
+      sort_key: TranscriptCursor.key(input.position, :input, "input:" <> input.native_input_id)
     })
   end
 
@@ -1269,7 +1278,7 @@ defmodule Ryker.ControlPlane.ConversationProjection do
         record_refs: [],
         ref: action_ref,
         retained: true,
-        sort_key: LabCursor.key(delivered_at, :action, "action:" <> action.id),
+        sort_key: TranscriptCursor.key(delivered_at, :action, "action:" <> action.id),
         state: nil,
         status: :delivered,
         text: message
@@ -1340,7 +1349,7 @@ defmodule Ryker.ControlPlane.ConversationProjection do
       record_refs: [],
       ref: receipt["delivery_ref"],
       retained: true,
-      sort_key: LabCursor.key(occurred_at, :publication, identity),
+      sort_key: TranscriptCursor.key(occurred_at, :publication, identity),
       state: nil,
       status: publication.status,
       text: message
@@ -1373,7 +1382,7 @@ defmodule Ryker.ControlPlane.ConversationProjection do
         record_refs: [],
         ref: reply.ref,
         retained: false,
-        sort_key: LabCursor.key(reply.occurred_at, :reply, "reply:" <> reply.turn_id),
+        sort_key: TranscriptCursor.key(reply.occurred_at, :reply, "reply:" <> reply.turn_id),
         state: nil,
         status: reply.status,
         text: "This reply expired under retention.",
@@ -1399,7 +1408,7 @@ defmodule Ryker.ControlPlane.ConversationProjection do
         artifact_refs: artifact_refs,
         identity: "reply:" <> reply.turn_id,
         retained: true,
-        sort_key: LabCursor.key(reply.occurred_at, :reply, "reply:" <> reply.turn_id),
+        sort_key: TranscriptCursor.key(reply.occurred_at, :reply, "reply:" <> reply.turn_id),
         generated_files:
           artifacts
           |> Enum.filter(fn {{turn_id, ref}, _artifact} ->
@@ -1528,16 +1537,7 @@ defmodule Ryker.ControlPlane.ConversationProjection do
       deliveries.publications_pending
   end
 
-  defp normalized_uuid(value) when is_binary(value), do: Ecto.UUID.cast(value)
-  defp normalized_uuid(_value), do: :error
-
-  defp conversation_id(@prefix <> id) do
-    case normalized_uuid(id) do
-      {:ok, normalized} -> {:ok, normalized}
-      :error -> :error
-    end
-  end
-
+  defp conversation_id(@prefix <> id), do: Ecto.UUID.cast(id)
   defp conversation_id(_ref), do: :error
 
   defp next_action(%Episode{state: :waiting_for_input}, _turn_status, _coop_turn_id),

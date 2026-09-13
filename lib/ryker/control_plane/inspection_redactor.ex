@@ -65,6 +65,21 @@ defmodule Ryker.ControlPlane.InspectionRedactor do
     Map.merge(base, %{text: text, redacted: sanitized != document, truncated: truncated})
   end
 
+  @doc """
+  A retained JSON document as a map, redacted the way `artifact/2` redacts it.
+
+  Anything that is not a readable object after redaction, including an absent
+  or expired value, is an empty map: a page reads its fields and shows what
+  is there rather than failing on what is not.
+  """
+  @spec document(term(), [String.t()]) :: map()
+  def document(value, secrets) do
+    case Jason.decode(artifact(value, secrets: secrets).text || "{}") do
+      {:ok, %{} = document} -> document
+      _unreadable -> %{}
+    end
+  end
+
   def configured_secrets do
     Application.get_all_env(:ryker)
     |> secret_values()

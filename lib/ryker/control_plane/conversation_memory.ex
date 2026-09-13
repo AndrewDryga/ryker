@@ -7,10 +7,12 @@ defmodule Ryker.ControlPlane.ConversationMemory do
     InspectionRedactor,
     LearningActivity,
     LearningReceipt,
+    PagedRelation,
     SlackNames
   }
 
   alias Ryker.Episodes.Episode
+  alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Learning.Rebuilds
   alias Ryker.Repo
 
@@ -40,7 +42,6 @@ defmodule Ryker.ControlPlane.ConversationMemory do
 
     kind = selected_kind(params["kind"], counts)
     search = search_text(params["q"])
-    page = page_number(params["page"])
     query = kind_query(kind, notes) |> search(kind, search)
     selected = selected_id(params["item"])
 
@@ -49,20 +50,16 @@ defmodule Ryker.ControlPlane.ConversationMemory do
         do: from(item in query, where: item.id == ^selected),
         else: query
 
-    total = Repo.aggregate(query, :count)
-    pages = max(div(total + @page_size - 1, @page_size), 1)
-    page = min(page, pages)
-    offset = (page - 1) * @page_size
-
-    items =
-      Repo.all(
-        from(item in query,
-          order_by: [desc: item.updated_at, desc: item.id],
-          limit: @page_size,
-          offset: ^offset
-        )
+    page =
+      PagedRelation.read(
+        query,
+        [desc: :updated_at, desc: :id],
+        "page",
+        params,
+        page_size: @page_size
       )
 
+    items = page.items
     ids = items |> Enum.map(& &1.source_episode_id) |> Enum.reject(&is_nil/1)
     episodes = episode_keys(ids)
     secrets = InspectionRedactor.configured_secrets()
@@ -70,35 +67,23 @@ defmodule Ryker.ControlPlane.ConversationMemory do
 
     available_ids = if kind == "knowledge", do: available_ids(items), else: MapSet.new()
     sources = source_counts(knowledge_ids)
-    history = history(selected, kind, secrets, page_number(params["history_page"]))
+    history = history(selected, kind, secrets, params)
     learning_activity = LearningActivity.project(params)
 
     %{
       counts: counts,
       kind: kind,
       q: search,
-      page: page,
-      pages: pages,
-      total: total,
+      page: page.page,
+      pages: page.pages,
+      total: page.total,
       selected: selected,
       rebuild: rebuild(selected, kind, available_ids, params),
       history: history.items,
       history_page: history.page,
       history_pages: history.pages,
       learning_activity: learning_activity,
-      learning:
-        if(learning_activity.selected,
-          do:
-            LearningReceipt.project_attempt(
-              learning_activity.selected.id,
-              params["attempt"],
-              secrets
-            ),
-          else:
-            if(kind == "knowledge",
-              do: LearningReceipt.project(selected, params["update"], secrets)
-            )
-        ),
+      learning: learning_receipt(learning_activity.selected, kind, selected, params, secrets),
       items:
         Enum.map(items, fn row ->
           rendered = item(row, episodes, secrets)
@@ -141,7 +126,7 @@ defmodule Ryker.ControlPlane.ConversationMemory do
           groups: [{String.t(), [String.t()]}]
         }
   def continuity_state(state, secrets) do
-    state = sanitized(state, secrets)
+    state = InspectionRedactor.document(state, secrets)
 
     %{
       title:
@@ -165,7 +150,10 @@ defmodule Ryker.ControlPlane.ConversationMemory do
 
   defp rebuild(id, "knowledge", available_ids, params) when is_binary(id) do
     if not MapSet.member?(available_ids, id) do
-      options = %{page: page_number(params["rebuild_page"]), q: search_text(params["rebuild_q"])}
+      options = %{
+        page: PagedRelation.requested(params, "rebuild_page"),
+        q: search_text(params["rebuild_q"])
+      }
 
       case Rebuilds.preview(id, options) do
         {:ok, preview} ->
@@ -182,6 +170,15 @@ defmodule Ryker.ControlPlane.ConversationMemory do
   end
 
   defp rebuild(_, _, _, _), do: nil
+
+  # A selected learning attempt outranks the selected topic's own receipt.
+  defp learning_receipt(%{id: batch_id}, _kind, _selected, params, secrets),
+    do: LearningReceipt.project_attempt(batch_id, params["attempt"], secrets)
+
+  defp learning_receipt(nil, "knowledge", selected, params, secrets),
+    do: LearningReceipt.project(selected, params["update"], secrets)
+
+  defp learning_receipt(nil, _kind, _selected, _params, _secrets), do: nil
 
   # The operator can inspect withdrawn history, but its recall label must apply
   # the same inherited-source visibility and retention fences as model recall.
@@ -226,15 +223,6 @@ defmodule Ryker.ControlPlane.ConversationMemory do
   defp search_text(value) when is_binary(value), do: String.slice(String.trim(value), 0, 200)
   defp search_text(_), do: ""
 
-  defp page_number(value) when is_binary(value) do
-    case Integer.parse(value) do
-      {page, ""} when page in 1..10_000 -> page
-      _ -> 1
-    end
-  end
-
-  defp page_number(_), do: 1
-
   defp kind_query("knowledge", _), do: from(item in ConversationKnowledge)
   defp kind_query("notes", notes), do: notes
   defp kind_query("summaries", _), do: from(summary in ConversationSummary)
@@ -258,7 +246,7 @@ defmodule Ryker.ControlPlane.ConversationMemory do
       )
 
   defp item(%ConversationObservation{} = note, episodes, secrets) do
-    state = sanitized(note.note, secrets)
+    state = InspectionRedactor.document(note.note, secrets)
 
     base(note, episodes)
     |> Map.merge(%{
@@ -273,7 +261,7 @@ defmodule Ryker.ControlPlane.ConversationMemory do
   end
 
   defp item(%ConversationKnowledge{} = knowledge, episodes, secrets) do
-    state = sanitized(knowledge.state, secrets)
+    state = InspectionRedactor.document(knowledge.state, secrets)
 
     base(knowledge, episodes)
     |> Map.merge(%{
@@ -370,28 +358,26 @@ defmodule Ryker.ControlPlane.ConversationMemory do
 
   defp history(nil, _, _, _), do: %{items: [], page: 1, pages: 1}
 
-  defp history(id, "knowledge", secrets, page) do
-    total = Repo.aggregate(from(r in KnowledgeRevision, where: r.knowledge_id == ^id), :count)
-    pages = max(div(total + @history_size - 1, @history_size), 1)
-    page = min(page, pages)
-    offset = (page - 1) * @history_size
-
-    items =
-      Repo.all(
+  defp history(id, "knowledge", secrets, params) do
+    page =
+      PagedRelation.read(
         from(r in KnowledgeRevision,
-          left_join: entry in Ryker.Ingress.Inbox.Entry,
+          left_join: entry in Entry,
           on: entry.id == r.source_input_id,
           where: r.knowledge_id == ^id,
-          order_by: [desc: r.version],
-          limit: @history_size,
-          offset: ^offset,
           select:
             {r, entry.destination_transport, entry.destination_conversation_ref,
              entry.source_item_ref}
-        )
+        ),
+        [desc: :version],
+        "history_page",
+        params,
+        page_size: @history_size
       )
-      |> Enum.map(fn {revision, transport, conversation, message} ->
-        state = sanitized(revision.state, secrets)
+
+    items =
+      Enum.map(page.items, fn {revision, transport, conversation, message} ->
+        state = InspectionRedactor.document(revision.state, secrets)
 
         %{
           version: revision.version,
@@ -409,7 +395,7 @@ defmodule Ryker.ControlPlane.ConversationMemory do
         }
       end)
 
-    %{items: items, page: page, pages: pages}
+    %{items: items, page: page.page, pages: page.pages}
   end
 
   defp history(_, _, _, _), do: %{items: [], page: 1, pages: 1}
@@ -471,11 +457,4 @@ defmodule Ryker.ControlPlane.ConversationMemory do
       do: "/conversations/" <> URI.encode(id, &URI.char_unreserved?/1)
 
   def source_message(_), do: nil
-
-  defp sanitized(value, secrets) do
-    case Jason.decode(InspectionRedactor.artifact(value, secrets: secrets).text || "{}") do
-      {:ok, %{} = document} -> document
-      _ -> %{}
-    end
-  end
 end

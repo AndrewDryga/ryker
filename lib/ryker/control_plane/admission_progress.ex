@@ -1,6 +1,7 @@
 defmodule Ryker.ControlPlane.AdmissionProgress do
   @moduledoc "Observed admission state for the current conversation, without model bodies or private diagnostics."
   import Ecto.Query
+  require Ryker.ControlPlane.CurrentInputs
   alias Ryker.Admission.Attempt
   alias Ryker.ControlPlane.{CurrentInputs, InspectionRedactor}
   alias Ryker.Ingress.Inbox.Entry
@@ -47,8 +48,7 @@ defmodule Ryker.ControlPlane.AdmissionProgress do
           observed_at: attempt.updated_at,
           target: attempt.execution_target,
           text:
-            fragment(
-              "CASE WHEN ? IS NOT NULL THEN NULL WHEN ? = 'delete' THEN 'Message deleted' ELSE left(?::jsonb->>'text', 12000) END",
+            CurrentInputs.visible_text(
               current.operational_pruned_at,
               current.event_kind,
               current.content

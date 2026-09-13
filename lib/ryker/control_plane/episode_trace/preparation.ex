@@ -152,8 +152,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
   end
 
   # The identifiers somebody debugging this input needs to find it elsewhere.
-  # "Source acknowledgement" is gone: no adapter records one, so the row was
-  # always "Not recorded".
+  # No adapter records a source acknowledgement, so there is no row for one.
   defp queue_technical(input, _state) do
     compact_details([
       {"Input / revision", "ingress-input:#{input.id} · revision #{input.revision}"},

@@ -30,7 +30,7 @@ defmodule Ryker.ControlPlane.ModelRequests do
             from(row in base, select: %{id: row.id, status: row.status, at: row.inserted_at}),
             [desc: :inserted_at, desc: :id],
             "page",
-            PagedRelation.requested(params, "page"),
+            params,
             page_size: @page_size
           )
 
@@ -936,7 +936,7 @@ defmodule Ryker.ControlPlane.ModelRequests do
         ActivityRetention.visible(query),
         [asc: :sequence, asc: :id],
         "tools_page",
-        PagedRelation.requested(params, "tools_page"),
+        params,
         page_size: @tool_page_size
       )
 

@@ -1,10 +1,13 @@
 defmodule Ryker.ControlPlane.Activity do
   @moduledoc "A bounded conversation-first inbox, including work not yet admitted."
   import Ecto.Query
+  require Ryker.ControlPlane.CurrentInputs
 
   alias Ryker.ControlPlane.{
     CurrentInputs,
     InspectionRedactor,
+    PagedRelation,
+    Search,
     SlackMarkdown,
     SlackNames,
     UsageProjection
@@ -87,7 +90,6 @@ defmodule Ryker.ControlPlane.Activity do
 
   def list(params) do
     mode = if params["mode"] in ~w(shadow all), do: params["mode"], else: "live"
-    page = page(params["page"])
     query = from(row in subquery(rows()))
     query = if mode == "all", do: query, else: from(row in query, where: row.mode == ^mode)
 
@@ -98,22 +100,24 @@ defmodule Ryker.ControlPlane.Activity do
       |> UsageProjection.filter_activity(params)
       |> search(params["q"])
 
-    total = Repo.aggregate(query, :count)
-    pages = max(1, ceil(total / @page_size))
-    page = min(page, pages)
+    page =
+      PagedRelation.read(
+        query,
+        [desc: :updated_at, desc: :id],
+        "page",
+        params,
+        page_size: @page_size
+      )
+
     secrets = InspectionRedactor.configured_secrets()
 
-    items =
-      Repo.all(
-        from(row in query,
-          order_by: [desc: row.updated_at, desc: row.id],
-          limit: @page_size,
-          offset: ^((page - 1) * @page_size)
-        )
-      )
-      |> Enum.map(&present(&1, secrets))
-
-    %{items: items, total: total, page: page, pages: pages, mode: mode}
+    %{
+      items: Enum.map(page.items, &present(&1, secrets)),
+      total: page.total,
+      page: page.page,
+      pages: page.pages,
+      mode: mode
+    }
   end
 
   defp rows do
@@ -170,13 +174,7 @@ defmodule Ryker.ControlPlane.Activity do
           repository: input.repository,
           source_available:
             not is_nil(input.content) and is_nil(input.pruned_at) and input.event_kind != :delete,
-          text:
-            fragment(
-              "CASE WHEN ? IS NOT NULL THEN NULL WHEN ? = 'delete' THEN 'Message deleted' ELSE (SELECT left(COALESCE(NULLIF(source ->> 'text', ''), source #>> '{payload,comment,body}', source #>> '{payload,review,body}', source #>> '{attachments,0,title}', source #>> '{attachments,0,pretext}', source #>> '{attachments,0,text}', source #>> '{attachments,0,fallback}', source #>> '{blocks,0,text,text}', source #>> '{files,0,name}'), 12000) FROM (SELECT ?::jsonb AS source) AS payload) END",
-              input.pruned_at,
-              input.event_kind,
-              input.content
-            ),
+          text: CurrentInputs.visible_preview(input.pruned_at, input.event_kind, input.content),
           started_at: fragment("LEAST(?, ?)", episode.inserted_at, input.inserted_at),
           updated_at: episode.updated_at,
           target: turn.execution_target
@@ -217,8 +215,7 @@ defmodule Ryker.ControlPlane.Activity do
             not is_nil(current.content) and is_nil(current.operational_pruned_at) and
               current.event_kind != :delete,
           text:
-            fragment(
-              "CASE WHEN ? IS NOT NULL THEN NULL WHEN ? = 'delete' THEN 'Message deleted' ELSE (SELECT left(COALESCE(NULLIF(source ->> 'text', ''), source #>> '{payload,comment,body}', source #>> '{payload,review,body}', source #>> '{attachments,0,title}', source #>> '{attachments,0,pretext}', source #>> '{attachments,0,text}', source #>> '{attachments,0,fallback}', source #>> '{blocks,0,text,text}', source #>> '{files,0,name}'), 12000) FROM (SELECT ?::jsonb AS source) AS payload) END",
+            CurrentInputs.visible_preview(
               current.operational_pruned_at,
               current.event_kind,
               current.content
@@ -311,13 +308,7 @@ defmodule Ryker.ControlPlane.Activity do
   end
 
   defp search(query, text) when is_binary(text) and byte_size(text) > 0 do
-    pattern =
-      "%" <>
-        (text
-         |> String.slice(0, 200)
-         |> String.replace("\\", "\\\\")
-         |> String.replace("%", "\\%")
-         |> String.replace("_", "\\_")) <> "%"
+    pattern = Search.contains(text)
 
     from(row in query,
       where:
@@ -327,13 +318,4 @@ defmodule Ryker.ControlPlane.Activity do
   end
 
   defp search(query, _), do: query
-
-  defp page(value) when is_binary(value) do
-    case Integer.parse(value) do
-      {number, ""} when number > 0 -> min(number, 10_000)
-      _ -> 1
-    end
-  end
-
-  defp page(_), do: 1
 end

@@ -29,7 +29,7 @@ defmodule Ryker.ControlPlane.FindingsProjection do
         ),
         [desc: :inserted_at, desc: :id],
         "page",
-        PagedRelation.requested(params, "page"),
+        params,
         page_size: @page_size
       )
 
@@ -91,7 +91,7 @@ defmodule Ryker.ControlPlane.FindingsProjection do
   end
 
   defp finding_item({record, episode_key}, evidence, visible_records, secrets) do
-    payload = finding_payload(record.payload, secrets)
+    payload = InspectionRedactor.document(record.payload, secrets)
     path = "/timeline/" <> URI.encode_www_form(episode_key)
     refs = Map.get(record.payload, "cause_evidence", [])
 
@@ -112,7 +112,7 @@ defmodule Ryker.ControlPlane.FindingsProjection do
             item ->
               %{
                 text:
-                  finding_payload(item.payload, secrets)["observation"] ||
+                  InspectionRedactor.document(item.payload, secrets)["observation"] ||
                     "Evidence content is unavailable.",
                 path: finding_record_path(path, item.id, visible_records),
                 label:
@@ -124,18 +124,5 @@ defmodule Ryker.ControlPlane.FindingsProjection do
           end
         end)
     }
-  end
-
-  defp finding_payload(payload, secrets) do
-    case InspectionRedactor.artifact(payload, secrets: secrets).text do
-      text when is_binary(text) ->
-        case Jason.decode(text) do
-          {:ok, %{} = value} -> value
-          _ -> %{}
-        end
-
-      _ ->
-        %{}
-    end
   end
 end
