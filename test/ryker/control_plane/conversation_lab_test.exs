@@ -113,6 +113,20 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
     refute inspect(running.admission_progress) =~ claim.lease_ref
   end
 
+  # An attachment-only message is allowed, and its text is the empty string.
+  # Admission progress named the row after that text, so the queue beside the
+  # message showed a blank title where "Incoming event" belonged.
+  test "an attachment-only message's admission progress still has a title" do
+    assert {:ok, _receipt} =
+             ConversationLab.send_message(@conversation_id, "", profile(),
+               attachments: [%{data: "first", media_type: "text/plain", name: "note.txt"}]
+             )
+
+    assert {:ok, queued} = Projection.lab_conversation(@conversation_id)
+    assert [waiting] = queued.admission_progress
+    assert waiting.title == "Incoming event"
+  end
+
   test "a Lab incident offer starts a linked local incident with the configured chat authority" do
     conversation_ref = "control-plane:lab:#{@conversation_id}"
     source_episode_id = Ecto.UUID.generate()
