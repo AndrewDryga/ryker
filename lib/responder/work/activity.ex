@@ -441,6 +441,12 @@ defmodule Responder.Work.Activity do
       else: {:error, {:coop_activity_cursor_gap, cursor + 1, first.sequence}}
   end
 
+  # Retained activity has exactly one owner, an episode or an admission input;
+  # a learning session has neither, so its narration is acknowledged and not
+  # kept. Nothing reads ownerless activity, and refusing it wedged the fleet:
+  # every worker sync of that session answered 500 until the placement expired.
+  defp insert_fresh(%Session{episode_id: nil, admission_input_id: nil}, _events), do: {:ok, 0}
+
   defp insert_fresh(session, events) do
     events
     |> Enum.filter(&(&1.kind in @activity_kinds))
@@ -480,6 +486,7 @@ defmodule Responder.Work.Activity do
              :session_id,
              :version
            ])
+           |> Changeset.check_constraint(:episode_id, name: :activity_owner_valid)
            |> Repo.insert() do
         {:ok, _stored} -> {:cont, {:ok, count + 1}}
         {:error, changeset} -> {:halt, {:error, {:coop_activity_store, changeset.errors}}}

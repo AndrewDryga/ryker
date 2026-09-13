@@ -26,6 +26,9 @@ defmodule Responder.Work.ActivityTest do
 
   alias Responder.Episodes
   alias Responder.Fixtures.Episodes, as: EpisodeFixtures
+  alias Responder.Fixtures.Learning, as: LearningFixtures
+  alias Responder.Learning.FleetSession
+  alias Responder.State.Learning
   alias Responder.Work.{Activity, ActivitySyncWorker, Custody}
 
   @now ~U[2026-09-04 12:00:00.000000Z]
@@ -571,6 +574,45 @@ defmodule Responder.Work.ActivityTest do
     refute inspect(stored.payload) =~ "203.0.113.9"
     refute inspect(stored.payload) =~ "internal_note"
     refute inspect(stored.payload) =~ "do not export"
+  end
+
+  test "a learning session's narration is acknowledged without an activity owner" do
+    # Retained activity belongs to exactly one owner, an episode or an admission
+    # input, and a learning session has neither. On 2026-09-13 the first learning
+    # session to narrate a tool call tripped that check constraint as a raised
+    # Ecto.ConstraintError, every worker sync answered 500 from then on, and the
+    # fleet delivered no command for the next thirty-seven minutes: 2,625 raises,
+    # twenty-one expired placements, and both Slack inputs blocked. The worker
+    # must be acknowledged and move on; ownerless narration is not retained.
+    entries = LearningFixtures.inputs!()
+
+    assert {:ok, run} =
+             Learning.prepare(Enum.map(entries, & &1.id), %{
+               policy: "recorded-read-only-policy",
+               policy_digest: String.duplicate("a", 64)
+             })
+
+    assert {:ok, _session} = FleetSession.ensure(run)
+    assert {:ok, session} = FleetSession.bind(run, "remote:learning")
+
+    events = [
+      event(session, 1, "tool.started", %{
+        "tool_call_id" => "exec-learn",
+        "title" => "responder-state · recall",
+        "kind" => "mcp",
+        "input" => %{"server" => "responder-state", "tool" => "recall", "arguments" => %{}}
+      }),
+      event(session, 2, "tool.completed", %{
+        "tool_call_id" => "exec-learn",
+        "status" => "completed",
+        "output" => %{}
+      })
+    ]
+
+    assert {:ok, %{cursor: 2, inserted: 0}} =
+             Activity.ingest_fleet(session.id, "remote:learning", 0, events)
+
+    assert Repo.aggregate(Responder.Work.ActivityEvent, :count) == 0
   end
 
   defp event(session, sequence, type, payload) do
