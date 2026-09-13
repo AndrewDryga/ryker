@@ -106,7 +106,7 @@ defmodule Responder.ControlPlane.BehaviorPage do
       <div class="behavior-entries">
         <article :for={item <- @view.items} id={"behavior-#{item.ref}"} class="behavior-entry">
           <div class="behavior-heading">
-            <h2>{subject(item)}</h2><span class={"ui-status status-#{status_tone(item.status)}"}>{status(
+            <h2>{subject(item)}</h2><span class={"ui-status status-#{status_tone(item.status)}"}><i aria-hidden="true"></i>{status(
               item.status
             )}</span>
           </div>

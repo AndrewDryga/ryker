@@ -283,6 +283,8 @@ defmodule Responder.ControlPlane.BehaviorPageTest do
     heading = LazyHTML.query(document, "article.behavior-entry > .behavior-heading")
     assert LazyHTML.query(heading, "h2") |> LazyHTML.text() == "<unsafe>"
     assert LazyHTML.query(heading, "h2 + .ui-status") |> LazyHTML.text() == "Active"
+    # The dot is the shared status vocabulary; a word alone is a different component.
+    assert LazyHTML.query(heading, "h2 + .ui-status > i[aria-hidden]") |> Enum.count() == 1
 
     scope = LazyHTML.query(document, "article.behavior-entry > p.behavior-scope")
     assert LazyHTML.text(scope) =~ "Slack channel C456"
