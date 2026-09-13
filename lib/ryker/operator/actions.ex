@@ -10,7 +10,7 @@ defmodule Ryker.Operator.Actions do
   import Ecto.Query
 
   alias Ryker.CanonicalJSON
-  alias Ryker.Operator.Action
+  alias Ryker.Operator.{Action, Reference}
   alias Ryker.Repo
 
   @fields [:action, :action_ref, :actor_ref, :kind, :request, :resource_ref]
@@ -30,7 +30,7 @@ defmodule Ryker.Operator.Actions do
 
   @spec fetch(String.t()) :: {:ok, Action.t()} | :error
   def fetch(action_ref) do
-    with :ok <- reference(action_ref, :action_ref),
+    with :ok <- Reference.check(action_ref, :action_ref, :invalid_operator_action),
          %Action{} = action <- Repo.get_by(Action, action_ref: action_ref) do
       {:ok, action}
     else
@@ -134,7 +134,7 @@ defmodule Ryker.Operator.Actions do
          true <- attributes.action in [:retry, :replay, :update, :discard],
          :ok <- reference(attributes.action_ref, :action_ref),
          :ok <- reference(attributes.actor_ref, :actor_ref),
-         :ok <- reference(attributes.kind, :kind, 64),
+         :ok <- Reference.check(attributes.kind, :kind, :invalid_operator_action, 64),
          :ok <- reference(attributes.resource_ref, :resource_ref),
          :ok <- document(attributes.request, :request) do
       {:ok, attributes}
@@ -163,17 +163,7 @@ defmodule Ryker.Operator.Actions do
 
   defp document(_value, field), do: {:error, {:invalid_operator_action, field}}
 
-  defp reference(value, field, maximum \\ 1_024)
-
-  defp reference(value, field, maximum)
-       when is_binary(value) and byte_size(value) >= 1 and byte_size(value) <= maximum do
-    if String.valid?(value) and String.trim(value) != "" and
-         :binary.match(value, <<0>>) == :nomatch,
-       do: :ok,
-       else: {:error, {:invalid_operator_action, field}}
-  end
-
-  defp reference(_value, field, _maximum), do: {:error, {:invalid_operator_action, field}}
+  defp reference(value, field), do: Reference.check(value, field, :invalid_operator_action)
 
   defp database_now! do
     %{rows: [[%DateTime{} = now]]} = Repo.query!("SELECT clock_timestamp()")
