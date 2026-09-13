@@ -727,28 +727,30 @@ defmodule Ryker.Observability do
     # supervisor's own child list cannot answer that question.
     running = Owner.running_keys()
 
+    # Keyed by configuration key; the process named beside it is the one a
+    # runtime started outside the owner (the isolated test topology) registers.
     [
-      admission: {:admission, {:named, Ryker.Admission.Runtime}},
-      learning: {:learning, {:named, Ryker.Learning.Runtime}},
-      coop_worker_gateway: {:coop_worker_gateway, {:supervised, Ryker.CoopFleet.Server}},
-      control_plane: {:control_plane, {:supervised, Ryker.ControlPlane.Server}},
-      delivery: {:delivery, {:named, Ryker.Delivery.Runtime}},
-      emisar: {:emisar, {:named, Ryker.Emisar.ApprovalRuntime}},
-      event_waits: {:event_waits, {:named, Ryker.State.EventWaitWorker}},
-      github: {:github, {:named, Ryker.GitHub.Runtime}},
-      publication: {:publication, {:named, Ryker.Publication.Runtime}},
-      retention: {:retention, {:named, Ryker.Retention.Runtime}},
-      schedules: {:schedules, {:named, Ryker.State.ScheduleWorker}},
-      slack: {:slack, {:named, Ryker.Slack.Supervisor}},
-      state_tools: {:state_tools, {:supervised, Ryker.StateTools.Server}},
-      webhooks: {:webhooks, {:supervised, Ryker.Webhooks.Server}},
-      work: {:work, {:named, Ryker.Work.Runtime}}
+      admission: {:named, Ryker.Admission.Runtime},
+      learning: {:named, Ryker.Learning.Runtime},
+      coop_worker_gateway: {:supervised, Ryker.CoopFleet.Server},
+      control_plane: {:supervised, Ryker.ControlPlane.Server},
+      delivery: {:named, Ryker.Delivery.Runtime},
+      emisar: {:named, Ryker.Emisar.ApprovalRuntime},
+      event_waits: {:named, Ryker.State.EventWaitWorker},
+      github: {:named, Ryker.GitHub.Runtime},
+      publication: {:named, Ryker.Publication.Runtime},
+      retention: {:named, Ryker.Retention.Runtime},
+      schedules: {:named, Ryker.State.ScheduleWorker},
+      slack: {:named, Ryker.Slack.Supervisor},
+      state_tools: {:supervised, Ryker.StateTools.Server},
+      webhooks: {:supervised, Ryker.Webhooks.Server},
+      work: {:named, Ryker.Work.Runtime}
     ]
-    |> Enum.flat_map(fn {name, {configuration_key, owner}} ->
-      case Application.get_env(:ryker, configuration_key) do
+    |> Enum.flat_map(fn {key, owner} ->
+      case Application.get_env(:ryker, key) do
         nil -> []
         false -> []
-        _configured -> [{name, configuration_key in running or runtime_alive?(owner)}]
+        _configured -> [{key, key in running or runtime_alive?(owner)}]
       end
     end)
     |> Map.new()
