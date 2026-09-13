@@ -614,6 +614,15 @@ defmodule Responder.Observability do
     |> maybe_issue(fleet.capacity.session.free == 0, :no_session_capacity)
     |> maybe_issue(fleet.capacity.turn.free == 0, :no_turn_capacity)
     |> maybe_issue(fleet.capacity.workspace.free == 0, :no_workspace_capacity)
+    # Slot capacity and storage are separate refusals. On 2026-09-13 every Slack
+    # message stopped being processed while workers still advertised free
+    # session slots, because Coop refused every workspace on the volume
+    # watermark — and readiness said "ready" throughout. A fleet that cannot
+    # allocate a workspace cannot start work, whatever its slot counts say.
+    |> maybe_issue(
+      fleet.storage.reporting > 0 and fleet.storage.refused >= fleet.storage.reporting,
+      :no_workspace_storage
+    )
     |> maybe_issue(fleet.expired_current_placements > 0, :expired_current_placements)
     |> maybe_issue(fleet.event_cursor_lag > 0, :event_cursor_lag)
     |> maybe_issue(
