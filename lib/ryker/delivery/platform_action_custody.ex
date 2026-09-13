@@ -92,6 +92,12 @@ defmodule Ryker.Delivery.PlatformActionCustody do
 
   def request(_action), do: {:error, {:invalid_platform_action, :request}}
 
+  @doc """
+  Whether the reaction Ryker currently holds on this message is one it added.
+
+  The latest delivered reaction action for the emoji decides: once Ryker has
+  taken its own reaction back, a later removal would take a person's.
+  """
   @spec delivered_reaction_added?(
           Ecto.UUID.t(),
           String.t(),
@@ -99,17 +105,19 @@ defmodule Ryker.Delivery.PlatformActionCustody do
           String.t()
         ) :: boolean()
   def delivered_reaction_added?(episode_id, conversation_ref, source_item_ref, emoji_name) do
-    Repo.exists?(
+    Repo.one(
       from(action in PlatformAction,
         where:
           action.episode_id == ^episode_id and action.tool == :set_slack_reaction and
             action.kind == :reaction and action.status == :delivered and
             action.conversation_ref == ^conversation_ref and
             action.source_item_ref == ^source_item_ref and
-            fragment("(?::jsonb) ->> 'action' = 'add'", action.document) and
-            fragment("(?::jsonb) ->> 'emoji_name' = ?", action.document, ^emoji_name)
+            fragment("(?::jsonb) ->> 'emoji_name' = ?", action.document, ^emoji_name),
+        order_by: [desc: action.delivered_at, desc: action.inserted_at],
+        limit: 1,
+        select: fragment("(?::jsonb) ->> 'action'", action.document)
       )
-    )
+    ) == "add"
   end
 
   @spec renew(String.t(), Ecto.UUID.t(), pos_integer()) ::

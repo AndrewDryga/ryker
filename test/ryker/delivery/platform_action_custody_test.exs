@@ -154,6 +154,39 @@ defmodule Ryker.Delivery.PlatformActionCustodyTest do
     assert Enum.any?(violations, &String.contains?(&1, "Reaction removals"))
   end
 
+  test "a reaction Ryker already took back does not authorize removing a human's" do
+    # Removal authority came from "an add of this emoji was delivered on this
+    # message", which stays true forever: after Ryker added and then removed
+    # its own eyes, a person adding eyes would be the one removed on the next
+    # model request. The latest delivered reaction action for that emoji has
+    # to be the add.
+    first = claim!()
+    deliver!(first, reaction_attributes())
+
+    assert PlatformActionCustody.delivered_reaction_added?(
+             first.episode.id,
+             "slack:T123:C123",
+             "1787832000.000100",
+             "eyes"
+           )
+
+    # A turn holds one reaction slot; the second slot here stands in for the
+    # later turn that would remove it.
+    removal =
+      reaction_attributes()
+      |> put_in([:document, "action"], "remove")
+      |> Map.put(:host_slot, "reaction-later-turn")
+
+    deliver!(first, removal)
+
+    refute PlatformActionCustody.delivered_reaction_added?(
+             first.episode.id,
+             "slack:T123:C123",
+             "1787832000.000100",
+             "eyes"
+           )
+  end
+
   test "shadow work cannot create a platform side effect" do
     claim = claim!()
 
@@ -184,6 +217,30 @@ defmodule Ryker.Delivery.PlatformActionCustodyTest do
     episode_id = Ecto.UUID.generate()
     assert {:ok, transition} = Episodes.apply(input(episode_id))
     pin_and_claim!(transition.episode)
+  end
+
+  # Enqueues one action on the claim's turn and settles it as delivered.
+  defp deliver!(claim, attributes) do
+    assert {:ok, %{action: action}} = PlatformActionCustody.enqueue(claim, attributes)
+
+    assert {:ok, %{action: claimed, lease_ref: lease_ref}} =
+             PlatformActionCustody.claim_next("platform-action-worker", 60)
+
+    assert claimed.id == action.id
+
+    assert {:ok, receipt} =
+             DeliveryReceipt.new(
+               action.action_ref,
+               "slack",
+               "slack:T123:C123",
+               "1787832000.000100",
+               "1787832000.000100"
+             )
+
+    assert {:ok, %{status: :delivered}} =
+             PlatformActionCustody.confirm_delivery(action.action_ref, lease_ref, receipt)
+
+    action
   end
 
   defp claim_with_two_human_inputs! do
