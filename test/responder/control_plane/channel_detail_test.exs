@@ -376,6 +376,64 @@ defmodule Responder.ControlPlane.ChannelDetailTest do
       assert Enum.all?(directory.items, &(&1.conversation == "slack:T123:C456"))
     end
 
+    test "an empty relation says so once, not as a zero count above an empty line" do
+      # "0 rollups" over "No compacted continuity is retained" is the same
+      # fact twice; the count is for a list that has rows.
+      membership!("T123", "C456", private: false, external_shared: false)
+      document = page("/channels/T123/C456") |> LazyHTML.from_document()
+      rollups = LazyHTML.query(document, "#rollups")
+      assert LazyHTML.query(rollups, "p.empty-state") |> LazyHTML.text() =~ "No compacted"
+      assert LazyHTML.query(rollups, "p.result-count") |> Enum.empty?()
+    end
+
+    test "a related episode is named by what was asked, with its key as the secondary fact" do
+      # Deployed as 0.1.0-g865731d1, every row in Related episodes read
+      # `ingress-input:dc0ef577-…` in monospace and nothing else: the key of
+      # the request, not the request. The Activity page already names an
+      # episode by its first input; the channel page uses the same title.
+      membership!("T123", "C456", private: false, external_shared: false)
+      [key] = episodes!("slack:T123:C456", 1)
+      episode = Repo.get_by!(Episode, key: key)
+
+      {:ok, input} =
+        Responder.Slack.Input.new(%{
+          actor: %{kind: :user, ref: "U1"},
+          channel_ref: "C456",
+          content: %{"text" => "checkout is returning 502s for about 8% of requests"},
+          event_kind: :message,
+          event_ref: "Ev-channel-episode-title",
+          message_ref: "1.1",
+          occurred_at: @now,
+          revision: 1,
+          thread_ref: nil,
+          workspace_ref: "T123"
+        })
+
+      {:ok, %{entry: entry}} = Responder.Ingress.Inbox.record(input)
+
+      Repo.update_all(from(e in Responder.Ingress.Inbox.Entry, where: e.id == ^entry.id),
+        set: [
+          episode_id: episode.id,
+          status: :decided,
+          decision_action: :start_episode,
+          decision_ref: "decision:channel-episode-title",
+          decision_fingerprint: String.duplicate("a", 64),
+          decision_document: %{"action" => "start_episode", "episode_ref" => key}
+        ]
+      )
+
+      rows =
+        page("/channels/T123/C456")
+        |> LazyHTML.from_document()
+        |> LazyHTML.query("#episodes tbody tr")
+
+      assert [row] = Enum.to_list(rows)
+      link = LazyHTML.query(row, "td:first-child a")
+      assert LazyHTML.text(link) =~ "checkout is returning 502s"
+      refute LazyHTML.text(link) =~ key
+      assert LazyHTML.query(row, "td:first-child code") |> LazyHTML.text() == key
+    end
+
     test "every related collection pages exactly at 25 rows without losing a timestamp tie" do
       membership!("T123", "C456", private: false, external_shared: false)
       # The offers' source episode lives elsewhere so it is not a 27th episode.

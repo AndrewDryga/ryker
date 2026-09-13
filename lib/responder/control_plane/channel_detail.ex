@@ -11,7 +11,15 @@ defmodule Responder.ControlPlane.ChannelDetail do
   import Ecto.Query
 
   alias Responder.Accounting.Query, as: AccountingQuery
-  alias Responder.ControlPlane.{ChannelContext, ChannelScope, PagedRelation, UsageProjection}
+
+  alias Responder.ControlPlane.{
+    Activity,
+    ChannelContext,
+    ChannelScope,
+    PagedRelation,
+    UsageProjection
+  }
+
   alias Responder.Episodes.Episode
   alias Responder.Repo
   alias Responder.Slack.{ChannelConfiguration, ChannelMembership, ChannelSettings, IncidentRoom}
@@ -261,19 +269,32 @@ defmodule Responder.ControlPlane.ChannelDetail do
   end
 
   defp episodes(scope, params) do
-    from(episode in Episode,
-      where:
-        episode.destination_transport == "slack" and
-          episode.destination_conversation_ref == ^scope.conversation_ref,
-      select: %{
-        execution_mode: episode.execution_mode,
-        ref: episode.key,
-        state: episode.state,
-        thread_ref: episode.destination_thread_ref,
-        updated_at: episode.updated_at
-      }
-    )
-    |> read("episode_page", [desc: :updated_at, desc: :id], params)
+    relation =
+      from(episode in Episode,
+        where:
+          episode.destination_transport == "slack" and
+            episode.destination_conversation_ref == ^scope.conversation_ref,
+        select: %{
+          execution_mode: episode.execution_mode,
+          ref: episode.key,
+          state: episode.state,
+          thread_ref: episode.destination_thread_ref,
+          updated_at: episode.updated_at
+        }
+      )
+      |> read("episode_page", [desc: :updated_at, desc: :id], params)
+
+    # An episode is named by what was asked, the way the Activity page names
+    # it; the key stays beside the title as the secondary fact.
+    titles = Activity.request_titles(Enum.map(relation.items, & &1.ref))
+
+    %{
+      relation
+      | items:
+          Enum.map(relation.items, fn item ->
+            Map.put(item, :title, titles[item.ref] && titles[item.ref].title)
+          end)
+    }
   end
 
   defp schedules(scope, params) do
