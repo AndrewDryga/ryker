@@ -27,6 +27,27 @@ defmodule Ryker.ControlPlane.SlackNamesTest do
     refute_receive {:lookup, "C456"}
   end
 
+  test "a resolved user mention carries one sigil, from the directory, not two" do
+    # The first Slack episode after the rename rendered its opening message as
+    # "@@Emisar": SlackNames already prefixes a resolved user with "@" (and a
+    # channel with "#"), and the mention renderer added its own "@" on top.
+    # The directory owns the sigil; the renderer only wraps the name.
+    start_supervised!({SlackNames, workspace: "T123", fetch: fn _ref -> {:ok, "emisar"} end})
+    SlackNames.name("T123", "U1")
+    SlackNames.name("T123", "C1")
+    # refresh resolves one queued reference per call
+    assert :ok = GenServer.call(SlackNames, :refresh)
+    assert :ok = GenServer.call(SlackNames, :refresh)
+
+    html = SlackMarkdown.render("<@U1> ping <#C1>", "T123") |> IO.iodata_to_binary()
+    assert html =~ ~s(<span class="slack-mention" title="U1">@emisar</span>)
+    assert html =~ ~s(<span class="slack-mention" title="C1">#emisar</span>)
+    refute html =~ "@@"
+
+    assert SlackMarkdown.plain("<@U1> is <#C1> up?", "T123") == "@emisar is #emisar up?"
+    assert SlackMarkdown.plain("<@U1> is <#C1> up?", nil) == "<@U1> is <#C1> up?"
+  end
+
   test "directory failures preserve the UI fallback and malformed references never reach Slack" do
     parent = self()
 

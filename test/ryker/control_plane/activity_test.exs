@@ -2,7 +2,7 @@ defmodule Ryker.ControlPlane.ActivityTest do
   use Ryker.DataCase, async: false
   import Ecto.Query
   import Phoenix.LiveViewTest
-  alias Ryker.ControlPlane.{Activity, ActivityPage, HTML, Projection}
+  alias Ryker.ControlPlane.{Activity, ActivityPage, HTML, Projection, SlackNames}
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: Fixtures
   alias Ryker.Ingress.Inbox
@@ -12,6 +12,45 @@ defmodule Ryker.ControlPlane.ActivityTest do
   alias Ryker.Work.Custody
   alias Ryker.Work.Session
   alias Ryker.Work.Turn
+
+  test "a request title names the people and channels it mentions, never their raw ids" do
+    # The first Slack episode after the rename was headed "<@U0BL8MNPUSY> post-rename
+    # check…": the title is the message's text, and nothing resolved its mention
+    # tokens even though the body below it rendered "@Emisar". A title is plain
+    # text, so the directory's name replaces the token outright.
+    parent = self()
+
+    start_supervised!(
+      {SlackNames,
+       workspace: "T123",
+       fetch: fn ref ->
+         send(parent, {:lookup, ref})
+         {:ok, if(String.starts_with?(ref, "U"), do: "emisar", else: "test")}
+       end}
+    )
+
+    SlackNames.name("T123", "U1")
+    SlackNames.name("T123", "C456")
+    assert :ok = GenServer.call(SlackNames, :refresh)
+    assert :ok = GenServer.call(SlackNames, :refresh)
+
+    {:ok, input} =
+      Input.new(%{
+        actor: %{kind: :user, ref: "U2"},
+        channel_ref: "C456",
+        content: %{"text" => "<@U1> is <#C456> healthy?"},
+        event_kind: :message,
+        event_ref: "Ev-mention-title",
+        message_ref: "1788370103.362810",
+        occurred_at: DateTime.utc_now(),
+        revision: 1,
+        thread_ref: nil,
+        workspace_ref: "T123"
+      })
+
+    {:ok, _} = Inbox.record(input)
+    assert %{items: [%{title: "@emisar is #test healthy?"}]} = Activity.list(%{})
+  end
 
   test "attachment-only Slack notifications keep readable searchable request titles" do
     # Most replay rows said source unavailable although Slack retained the alert

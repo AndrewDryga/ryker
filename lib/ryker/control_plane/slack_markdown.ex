@@ -13,6 +13,30 @@ defmodule Ryker.ControlPlane.SlackMarkdown do
     end)
   end
 
+  @doc """
+  Plain text with every mention token replaced by the directory's name for it:
+  "@emisar", "#test", or the descriptive fallback while a name is unresolved.
+  For titles and other places that are not HTML.
+  """
+  def plain(text, workspace \\ SlackNames.workspace())
+
+  # Without a workspace there is no directory to ask; the token stays as the
+  # message wrote it rather than becoming a meaningless "Slack reference".
+  def plain(text, nil) when is_binary(text), do: text
+
+  def plain(text, workspace) when is_binary(text) and is_binary(workspace) do
+    @mentions
+    |> Regex.split(text, include_captures: true)
+    |> Enum.map_join(fn part ->
+      if Regex.match?(@mentions, part), do: mention_name(part, workspace), else: part
+    end)
+  end
+
+  defp mention_name("<" <> <<_prefix, rest::binary>>, workspace) do
+    ref = rest |> String.trim_trailing(">") |> String.split("|", parts: 2) |> hd()
+    SlackNames.name(workspace, ref)
+  end
+
   def render(text, workspace \\ SlackNames.workspace())
       when is_binary(text) do
     @tokens
@@ -72,7 +96,6 @@ defmodule Ryker.ControlPlane.SlackMarkdown do
       "<span class=\"slack-mention\" title=\"",
       escape(ref),
       "\">",
-      if(prefix == ?@, do: "@", else: ""),
       escape(name),
       "</span>"
     ]
