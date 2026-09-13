@@ -433,6 +433,8 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
   defp fork_required?(%Session{repository_ref: repository_ref}), do: is_binary(repository_ref)
 
   defp worker_candidate(requirements, cutoff, excluded_ids) do
+    current_states = Enum.map(Placement.current_states(), &Atom.to_string/1)
+
     Repo.one(
       from(worker in Worker,
         where:
@@ -442,8 +444,9 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
         order_by: [
           asc:
             fragment(
-              "(SELECT count(*) FROM coop_session_placements AS placement WHERE placement.worker_id = ? AND placement.state IN ('assigning', 'active', 'draining', 'revoking'))",
-              worker.id
+              "(SELECT count(*) FROM coop_session_placements AS placement WHERE placement.worker_id = ? AND placement.state = ANY(?))",
+              worker.id,
+              type(^current_states, {:array, :string})
             ),
           desc:
             fragment(
