@@ -103,14 +103,11 @@ defmodule Responder.ControlPlane.EpisodeRequest do
       </div>
       <section :if={@prompt_section} class="final-prompt" id={"#{@request.id}-final-prompt"}>
         <header>
-          <h4>Full submitted request</h4>
-          <p>
-            Responder's retained submission. Each component below opens on its own.<span :if={
-              @prompt_section.artifact.redacted
-            }> Secrets redacted.</span><span :if={@prompt_section.artifact.truncated}>
-              Partial display.
-            </span>
-          </p>
+          <h4>
+            Full submitted request<span :if={@prompt_section.artifact.redacted}>Secrets redacted</span><span :if={
+              @prompt_section.artifact.truncated
+            }>Partial display</span>
+          </h4>
         </header>
         {Phoenix.HTML.raw(
           RequestContextHTML.submitted(
