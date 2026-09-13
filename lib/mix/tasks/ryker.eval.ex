@@ -43,6 +43,7 @@ defmodule Mix.Tasks.Ryker.Eval do
     WorldCase,
     WorldCassette,
     WorldCoverage,
+    WorldDatabase,
     WorldJudgeCase,
     WorldReport,
     WorldRunner,
@@ -678,7 +679,7 @@ defmodule Mix.Tasks.Ryker.Eval do
         "model-world-cleanup:#{observation.lane}:#{observation.scenario.id}:#{observation.repeat_index}"
     ]
 
-    with :ok <- WorldRunner.terminalize_waiting_episodes() do
+    with :ok <- WorldDatabase.terminalize_waiting_episodes() do
       drain_world_cleanup(options, 16)
     end
   end
