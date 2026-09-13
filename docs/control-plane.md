@@ -674,7 +674,12 @@ welcome page or `/conversations/new` route. Editing an operator message happens
 in place: Edit swaps the rendered body for an editor at the same width, Enter
 adds a line, Cmd/Ctrl+Enter saves one new revision through the message's own
 edit route, Escape cancels without a request, a rejected save keeps the text with
-an error beside it, and an open editor survives live patches and reconnects. A
+an error beside it, and an open editor survives live patches and reconnects.
+Reactions on a reply are compact pills showing each recorded emoji with the
+count of its current reactors and a pressed state for the operator's own;
+clicking a pill posts the real add or remove for that exact reply, and an
+"Add reaction" control opens an anchored picker with the five quick choices and
+a labelled custom-name field whose validation stays beside it. A
 submitted message is
 normalized as a `control_plane` source input and then crosses the ordinary
 Inbox, Admission, Episode, Work, state-tool, and Delivery boundaries. The

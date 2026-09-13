@@ -47,6 +47,22 @@ export const validateEdit = text => {
   return ""
 }
 
+// A custom emoji name the way the server accepts it: lower-case, no
+// surrounding colons or whitespace. Validation happens beside the field.
+export const normalizeEmojiName = value =>
+  String(value ?? "").trim().replace(/^:+|:+$/g, "").trim().toLowerCase()
+
+const emojiNamePattern = /^[a-z0-9_+-]{1,100}$/
+
+const reactionFailureText = error => {
+  switch (error?.message) {
+    case "rejected:404": return "This reply is no longer available to react to. Reload the conversation to see its current state."
+    case "rejected:422": return "The server did not accept that emoji name. Use letters, digits, _, + or -."
+    case "rejected:403": return "This reaction could not be confirmed. Reload the conversation and try again."
+    default: return "The reaction was not confirmed. Check the conversation before trying again; nothing was retried."
+  }
+}
+
 const failureText = error => {
   switch (error?.message) {
     case "rejected:409": return "This message was deleted or changed while you were editing. Reload the conversation to see its current state; your text is kept here."
@@ -61,7 +77,8 @@ const failureText = error => {
 const receipt = async (form, fetcher) => {
   const body = new URLSearchParams()
   for (const field of form.elements || []) if (field.name && !field.disabled) body.append(field.name, field.value)
-  const response = await fetcher(form.action, {
+  // A field named "action" shadows form.action, so read the attribute.
+  const response = await fetcher(form.getAttribute("action"), {
     method: "POST", body, credentials: "same-origin", redirect: "error",
     headers: {Accept: "application/json"}
   })
@@ -242,6 +259,95 @@ export const createConversationControls = (root, options = {}) => {
     editing = null
   }
 
+  // Reactions. Pills and the picker post the real add/remove contract to the
+  // exact reply; nothing changes on screen until the live stream reflects the
+  // accepted event. The picker is ignored by live patches, so its open state
+  // here is what a refresh has to put back.
+  let picker = null
+
+  const pickerFor = button => doc?.getElementById(button.getAttribute("aria-controls") || "") || null
+  const pickerToggle = panel => panel.closest(".lab-message-actions")?.querySelector(".lab-reaction-toggle") || null
+
+  const setPicker = (panel, shown) => {
+    panel.hidden = !shown
+    pickerToggle(panel)?.setAttribute("aria-expanded", shown ? "true" : "false")
+  }
+
+  const openPicker = button => {
+    const panel = pickerFor(button)
+    if (!panel) return false
+    if (picker && picker.id !== panel.id) { const other = doc.getElementById(picker.id); if (other) setPicker(other, false) }
+    picker = {id: panel.id}
+    setPicker(panel, true)
+    panel.querySelector(".lab-reaction-quick button, .lab-reaction-custom input[name=emoji]")?.focus()
+    return true
+  }
+
+  const closePicker = (returnFocus = true) => {
+    if (!picker) return
+    const panel = doc?.getElementById(picker.id)
+    picker = null
+    if (!panel) return
+    setPicker(panel, false)
+    if (returnFocus) pickerToggle(panel)?.focus()
+  }
+
+  const reactionError = (form, message) => {
+    const error = form.querySelector(".lab-reaction-error")
+    const field = form.querySelector("input[name=emoji]")
+    if (error) { error.textContent = message; error.hidden = false }
+    if (message && field?.matches?.("input")) field.setAttribute("aria-invalid", "true")
+    if (!message && field?.removeAttribute) field.removeAttribute("aria-invalid")
+  }
+
+  const clearReactionError = form => {
+    const error = form.querySelector(".lab-reaction-error") || form.closest(".lab-reaction-picker")?.querySelector(".lab-reaction-error")
+    if (error) { error.hidden = true; error.textContent = "" }
+    form.querySelector("input[name=emoji]")?.removeAttribute?.("aria-invalid")
+  }
+
+  const sendReaction = async form => {
+    if (form.dataset?.pending) return
+    const custom = form.matches(".lab-reaction-custom")
+    const field = form.querySelector("input[name=emoji]")
+    if (custom) {
+      const name = normalizeEmojiName(field.value)
+      if (!emojiNamePattern.test(name)) {
+        reactionError(form, "Use an emoji name made of letters, digits, _, + or -, up to 100 characters.")
+        field.focus()
+        return
+      }
+      field.value = name
+    }
+    clearReactionError(form)
+    form.dataset.pending = "true"
+    const buttons = Array.from(form.querySelectorAll?.("button") || [])
+    buttons.forEach(button => { button.disabled = true; button.setAttribute?.("aria-busy", "true") })
+    try {
+      await receipt(form, fetcher)
+      if (custom) field.value = ""
+      if (form.closest(".lab-reaction-picker")) closePicker()
+      pushEvent("refresh", {})
+    } catch (error) {
+      const inPicker = form.closest(".lab-reaction-picker")
+      const slot = custom ? form : inPicker?.querySelector(".lab-reaction-custom")
+      if (slot) reactionError(slot, reactionFailureText(error))
+      else {
+        const notices = root.querySelector?.("#lab-notices")
+        if (notices && doc) {
+          const notice = doc.createElement("p")
+          notice.className = "lab-notice"
+          notice.setAttribute("role", "alert")
+          notice.textContent = reactionFailureText(error)
+          notices.appendChild(notice)
+        }
+      }
+    } finally {
+      delete form.dataset.pending
+      buttons.forEach(button => { button.disabled = false; button.removeAttribute?.("aria-busy") })
+    }
+  }
+
   const performAction = async form => {
     if (form.dataset?.pending) return
     form.dataset.pending = "true"
@@ -289,6 +395,13 @@ export const createConversationControls = (root, options = {}) => {
       if (edit) return openEdit(edit)
       const cancel = target.closest(".lab-edit-cancel")
       if (cancel) { const form = cancel.closest(".lab-edit-form"); if (form) cancelEdit(form); return true }
+      const react = target.closest(".lab-reaction-toggle")
+      if (react) {
+        const panel = pickerFor(react)
+        if (panel && picker && picker.id === panel.id) { closePicker(); return true }
+        return openPicker(react)
+      }
+      if (picker && !target.closest(".lab-reaction-picker")) { closePicker(false); return true }
       if (open && !target.closest("#lab-directory")) {
         // Choosing a conversation navigates; clicking the backdrop just closes.
         closeDirectory(false)
@@ -307,6 +420,7 @@ export const createConversationControls = (root, options = {}) => {
         }
         return false
       }
+      if (event.key === "Escape" && picker) { closePicker(); return true }
       if (event.key === "Escape" && open) { closeDirectory(); return true }
       return false
     },
@@ -328,6 +442,10 @@ export const createConversationControls = (root, options = {}) => {
         event.preventDefault()
         if (saving) return true
         return saveEdit(form)
+      }
+      if (form.matches(".lab-reaction-form")) {
+        event.preventDefault()
+        return sendReaction(form)
       }
       if (form.matches(".lab-action-form")) {
         event.preventDefault()
@@ -361,7 +479,15 @@ export const createConversationControls = (root, options = {}) => {
           showEditor(form, {focus: false, value: draft === null ? undefined : draft})
         }
       }
+      if (picker) {
+        const panel = doc?.getElementById(picker.id)
+        if (panel) setPicker(panel, true); else picker = null
+      }
     },
-    destroy() { open = false; editing = null }
+    destroy() {
+      closePicker(false)
+      open = false
+      editing = null
+    }
   }
 }

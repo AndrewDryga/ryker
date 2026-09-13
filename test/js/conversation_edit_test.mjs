@@ -119,7 +119,7 @@ test("saving posts one revision to that message's own route and exits only on ac
   assert.equal(m.save.disabled, true)
   await first
   assert.equal(f.fetches.length, 1)
-  assert.equal(f.fetches[0].url, m.form.action)
+  assert.equal(f.fetches[0].url, m.form.getAttribute("action"))
   assert.equal(f.fetches[0].options.method, "POST")
   assert.equal(f.fetches[0].options.headers.Accept, "application/json")
   assert.equal(m.form.hidden, true)
