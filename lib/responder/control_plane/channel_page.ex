@@ -8,7 +8,10 @@ defmodule Responder.ControlPlane.ChannelPage do
   a scope mismatch behind a friendly label.
   """
   use Phoenix.Component
-  import Responder.ControlPlane.Components, only: [label: 1, result_count: 1, timestamp: 1]
+
+  import Responder.ControlPlane.Components,
+    only: [label: 1, page_help: 1, result_count: 1, timestamp: 1]
+
   alias Responder.ControlPlane.{Activity, ChannelScope, SlackNames}
 
   attr(:view, :map, required: true)
@@ -24,6 +27,15 @@ defmodule Responder.ControlPlane.ChannelPage do
         </a>
         <span>retained for this conversation, in every mode</span>
       </p>
+      <.page_help id="channel-help" label="How context reaches this channel">
+        <p>
+          Rules apply only where they were confirmed. Preferences, guidance and memory reach this
+          channel through its exact conversation, the repository configured here, or the whole
+          workspace, and each entry says which. Entries visible only in the conversation that
+          confirmed them never appear elsewhere. Paused, expired and archived entries are not in
+          effect and are listed in their library instead; opening this page recalls nothing.
+        </p>
+      </.page_help>
       <section id="configuration" class="channel-section">
         <h2>Configuration</h2>
         <dl class="channel-facts">
@@ -329,6 +341,147 @@ defmodule Responder.ControlPlane.ChannelPage do
           </li>
         </ol>
       </.relation>
+      <.relation
+        id="rules"
+        base={@base}
+        params={@view.params}
+        title="Standing rules"
+        relation={@view.rules}
+        one="rule"
+        many="rules"
+        empty="No standing rules target this channel."
+      >
+        <article :for={item <- @view.rules.items} class="channel-entry" id={"rule-" <> item.ref}>
+          <header>
+            <h3>{item.title}</h3>
+            <span class={"ui-status status-#{if item.status == "active", do: "done", else: "quiet"}"}>
+              {if item.status == "active", do: "Active", else: "Paused"}
+            </span>
+          </header>
+          <p class="channel-entry-meta">
+            <span>When: {label(item.trigger || "Source event")}</span>
+            <span :if={item.source_filter}>From: {sender(item.source_filter)}</span>
+            <span :if={item.repository}>{item.repository}</span>
+            <span>{expiry(item.expires_at)}</span>
+            <span>{used(item)}</span>
+          </p>
+          <p :if={item.task} class="channel-entry-text">{item.task}</p>
+          <footer>
+            <a href={item.library_path}>Open in Standing rules →</a>
+            <a :if={item.source_url} href={item.source_url} rel="noopener noreferrer">
+              Original conversation →
+            </a>
+            <span>Confirmed {timestamp(item.confirmed_at)}</span>
+          </footer>
+        </article>
+      </.relation>
+      <.relation
+        id="preferences"
+        base={@base}
+        params={@view.params}
+        title="Preferences"
+        relation={@view.preferences}
+        one="preference"
+        many="preferences"
+        empty="No confirmed preferences apply here. Responder is using its defaults."
+      >
+        <article
+          :for={item <- @view.preferences.items}
+          class="channel-entry"
+          id={"preference-" <> item.ref}
+        >
+          <header>
+            <h3>{label(item.key || "Preference")}</h3>
+            <span class="channel-scope">{scope(item)}</span>
+          </header>
+          <p class="channel-entry-text">{label(item.value || "Not recorded")}</p>
+          <p class="channel-entry-meta">
+            <span>{expiry(item.expires_at)}</span>
+            <span>{used(item)}</span>
+          </p>
+          <footer>
+            <a href={item.library_path}>Open in Preferences →</a>
+            <a :if={item.source_url} href={item.source_url} rel="noopener noreferrer">
+              Original conversation →
+            </a>
+            <span>Confirmed {timestamp(item.confirmed_at)}</span>
+          </footer>
+        </article>
+      </.relation>
+      <.relation
+        id="guidance"
+        base={@base}
+        params={@view.params}
+        title="Guidance"
+        relation={@view.guidance}
+        one="guidance entry"
+        many="guidance entries"
+        empty="No confirmed guidance is recalled here."
+      >
+        <article
+          :for={item <- @view.guidance.items}
+          class="channel-entry"
+          id={"guidance-" <> item.ref}
+        >
+          <header>
+            <h3>{item.title}</h3>
+            <span class="channel-scope">{scope(item)}</span>
+          </header>
+          <p class="channel-entry-meta">
+            <span>{visibility(item.visibility)}</span>
+            <span>{expiry(item.expires_at)}</span>
+            <span>{used(item)}</span>
+          </p>
+          <p :if={item.summary} class="channel-entry-text">{item.summary}</p>
+          <details
+            :if={item.text}
+            id={"guidance-" <> item.ref <> "-text"}
+            class="channel-facts-disclosure"
+          >
+            <summary>Full guidance</summary>
+            <p class="channel-entry-text">{item.text}</p>
+          </details>
+          <footer>
+            <a href={item.library_path}>Open in Guidance →</a>
+            <a :if={item.source_url} href={item.source_url} rel="noopener noreferrer">
+              Original conversation →
+            </a>
+            <span>Confirmed {timestamp(item.confirmed_at)}</span>
+          </footer>
+        </article>
+      </.relation>
+      <.relation
+        id="memory"
+        base={@base}
+        params={@view.params}
+        title="Operational memory"
+        relation={@view.memory}
+        one="memory"
+        many="memories"
+        empty="No confirmed operational memory applies here."
+      >
+        <article :for={item <- @view.memory.items} class="channel-entry" id={"memory-" <> item.ref}>
+          <header>
+            <h3>{item.subject}</h3>
+            <span class="channel-scope">{scope(item)}</span>
+          </header>
+          <p class="channel-entry-text">{item.value || "Not recorded"}</p>
+          <p class="channel-entry-meta">
+            <span>{label(item.kind)}</span>
+            <span>{visibility(item.visibility)}</span>
+            <span :if={item.applicability}>{item.applicability}</span>
+            <span>{expiry(item.expires_at)}</span>
+            <span>{recalled(item)}</span>
+          </p>
+          <footer>
+            <a href={item.library_path}>Open in Memory →</a>
+            <a :if={item.source_url} href={item.source_url} rel="noopener noreferrer">
+              Original conversation →
+            </a>
+            <span>Confirmed {timestamp(item.confirmed_at)}</span>
+          </footer>
+        </article>
+      </.relation>
     </div>
     """
   end
@@ -501,6 +654,30 @@ defmodule Responder.ControlPlane.ChannelPage do
 
   defp learning_note(%{status: :deferred}), do: "channel-unavailable"
   defp learning_note(_batch), do: "channel-entry-meta"
+
+  defp scope(%{scope: :conversation}), do: "This channel"
+  defp scope(%{scope: :repository, scope_ref: ref}), do: "Inherited from repository #{ref}"
+  defp scope(%{scope: :workspace}), do: "Inherited from the workspace"
+  defp scope(%{scope: :global}), do: "Every workspace"
+
+  defp visibility(value) when value in ["workspace", :workspace],
+    do: "Visible across the workspace"
+
+  defp visibility(value) when value in ["global", :global], do: "Visible everywhere"
+  defp visibility(_conversation_or_private), do: "Visible only in this conversation"
+
+  defp expiry(nil), do: "No expiry"
+  defp expiry(expires_at), do: "Expires #{timestamp(expires_at)}"
+
+  defp used(%{use_count: 0}), do: "Used 0 times"
+
+  defp used(%{use_count: count, last_used_at: at}),
+    do: "Used #{count} #{if count == 1, do: "time", else: "times"} · last #{timestamp(at)}"
+
+  defp sender("human"), do: "People only"
+  defp sender("app"), do: "Apps only"
+  defp sender("any"), do: "People and apps"
+  defp sender(_), do: "Not recorded"
 
   defp encode(value), do: URI.encode(value, &URI.char_unreserved?/1)
 end

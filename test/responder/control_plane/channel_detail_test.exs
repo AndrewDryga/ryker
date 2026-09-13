@@ -25,10 +25,12 @@ defmodule Responder.ControlPlane.ChannelDetailTest do
   alias Responder.Slack.{ChannelConfigurationChangeset, IncidentRoomChangeset}
 
   alias Responder.State.{
+    Behavior,
     ConversationKnowledge,
     ConversationRollup,
     ConversationSummary,
     ConversationSummaryDraft,
+    MemoryEntry,
     Records,
     Schedule
   }
@@ -301,13 +303,24 @@ defmodule Responder.ControlPlane.ChannelDetailTest do
     batch!("slack:T123:CINCIDENT", status: :deferred, error_code: "must-not-render-raw-code")
     draft!(source, "must-not-render-draft")
 
+    guidance!(source, "Guidance", "conversation",
+      scope_ref: "slack:T123:CINCIDENT",
+      text: "Visible guidance",
+      extra: %{
+        "api_token" => "must-not-render-token",
+        "unknown_field" => "must-not-render-unknown"
+      }
+    )
+
     html = page("/channels/T123/CINCIDENT")
+    assert html =~ "Visible guidance"
 
     for marker <-
           ~w(private-incident-prompt private-incident-error must-not-render-dependency
              must-not-render-rollup-dependency must-not-render-source-ref
              must-not-render-knowledge-dependency must-not-render-raw-code must-not-render-draft
-             must-not-render-lease must-not-render-policy) do
+             must-not-render-lease must-not-render-policy must-not-render-token
+             must-not-render-unknown) do
       refute html =~ marker, "#{marker} crossed the page boundary"
     end
   end
@@ -369,13 +382,47 @@ defmodule Responder.ControlPlane.ChannelDetailTest do
 
       learning_refs = for _ <- 1..26, do: batch!("slack:T123:C456", status: :no_change).id
 
+      # One turn may hold only so many offers; each collection gets its own.
+      rules_source = SavedEntities.source!("slack:T123:CSOURCE-rules")
+      preferences_source = SavedEntities.source!("slack:T123:CSOURCE-preferences")
+      guidance_source = SavedEntities.source!("slack:T123:CSOURCE-guidance")
+      memory_source = SavedEntities.source!("slack:T123:CSOURCE-memory")
+
+      rule_refs =
+        for index <- 1..26,
+            do: rule!(rules_source, "Rule #{index}", scope_ref: "slack:T123:C456").ref
+
+      preference_refs =
+        for index <- 1..26,
+            do:
+              preference!(preferences_source, "key_#{index}", "v", scope_ref: "slack:T123:C456").ref
+
+      guidance_refs =
+        for index <- 1..26,
+            do:
+              guidance!(guidance_source, "Guidance #{index}", "conversation",
+                scope_ref: "slack:T123:C456"
+              ).ref
+
+      memory_refs =
+        for index <- 1..26,
+            do:
+              memory!(memory_source, "subject #{index}", "v",
+                scope_kind: :conversation,
+                scope_ref: "slack:T123:C456"
+              ).ref
+
       for {section, key, refs} <- [
             {:episodes, "episode_page", episode_refs},
             {:schedules, "schedule_page", schedule_refs},
             {:summaries, "summary_page", summary_refs},
             {:rollups, "rollup_page", rollup_refs},
             {:knowledge, "knowledge_page", knowledge_refs},
-            {:learning, "learning_page", learning_refs}
+            {:learning, "learning_page", learning_refs},
+            {:rules, "rule_page", rule_refs},
+            {:preferences, "preference_page", preference_refs},
+            {:guidance, "guidance_page", guidance_refs},
+            {:memory, "memory_page", memory_refs}
           ] do
         assert {:ok, first} = Projection.channel("T123", "C456", %{})
         assert {:ok, second} = Projection.channel("T123", "C456", %{key => "2"})
@@ -724,6 +771,276 @@ defmodule Responder.ControlPlane.ChannelDetailTest do
     end
   end
 
+  describe "confirmed context" do
+    setup do
+      membership!("T123", "C456", private: false, external_shared: false)
+      configuration!("T123", "C456", repository_ref: "responder")
+      # Offers need a real source turn; it lives elsewhere so it adds no episode here.
+      source = SavedEntities.source!("slack:T123:CSOURCE")
+      other = SavedEntities.source!("slack:T999:CSOURCE")
+      %{source: source, other: other}
+    end
+
+    test "standing rules are the exact conversation's own current rules", %{source: source} do
+      active = rule!(source, "Review Terraform plans", scope_ref: "slack:T123:C456")
+      paused = rule!(source, "Watch deploys", scope_ref: "slack:T123:C456", status: :disabled)
+      rule!(source, "Workspace rule", scope_kind: :workspace, scope_ref: "slack:T123")
+      rule!(source, "Repository rule", scope_kind: :repository, scope_ref: "responder")
+      rule!(source, "Other channel", scope_ref: "slack:T123:C999")
+      rule!(source, "Superseded", scope_ref: "slack:T123:C456", status: :superseded)
+      rule!(source, "Deleted", scope_ref: "slack:T123:C456", status: :deleted)
+      expire!(rule!(source, "Expired", scope_ref: "slack:T123:C456"))
+
+      assert {:ok, view} = Projection.channel("T123", "C456", %{})
+      assert view.rules.total == 2
+      by_ref = Map.new(view.rules.items, &{&1.ref, &1})
+      assert by_ref[active.ref].status == "active"
+      assert by_ref[active.ref].title == "Review Terraform plans"
+      assert by_ref[active.ref].trigger == "slack_message"
+      assert by_ref[active.ref].library_path == "/rules#behavior-" <> active.ref
+      assert by_ref[paused.ref].status == "disabled"
+
+      html = page("/channels/T123/C456")
+      section = html |> LazyHTML.from_document() |> LazyHTML.query("#rules")
+      text = LazyHTML.text(section)
+      assert text =~ "2 rules"
+      assert text =~ "Review Terraform plans"
+      assert text =~ "Paused"
+      assert text =~ "Used 0 times"
+      refute text =~ "Workspace rule"
+      refute text =~ "Repository rule"
+      refute text =~ "Other channel"
+      refute text =~ "Superseded"
+      refute text =~ "Expired"
+      hrefs = section |> LazyHTML.query("a") |> LazyHTML.attribute("href")
+      assert ("/rules#behavior-" <> active.ref) in hrefs
+    end
+
+    test "preferences and guidance apply through exact, repository and workspace scope with their labels",
+         %{source: source, other: other} do
+      channel = preference!(source, "response_detail", "concise", scope_ref: "slack:T123:C456")
+
+      repository =
+        preference!(source, "health_check_depth", "deep",
+          scope_kind: :repository,
+          scope_ref: "responder"
+        )
+
+      workspace =
+        preference!(source, "response_location", "prefer_thread",
+          scope_kind: :workspace,
+          scope_ref: "slack:T123"
+        )
+
+      preference!(source, "response_detail", "detailed", scope_ref: "slack:T123:C999")
+
+      preference!(source, "health_check_depth", "quick",
+        scope_kind: :repository,
+        scope_ref: "other"
+      )
+
+      preference!(other, "response_detail", "detailed",
+        scope_kind: :workspace,
+        scope_ref: "slack:T999"
+      )
+
+      preference!(source, "health_check_depth", "quick",
+        scope_ref: "slack:T123:C456",
+        status: :disabled
+      )
+
+      preference!(source, "response_detail", "detailed",
+        scope_kind: :operator,
+        scope_ref: "slack:user:U123"
+      )
+
+      expire!(preference!(source, "health_check_depth", "standard", scope_ref: "slack:T123:C456"))
+
+      assert {:ok, view} = Projection.channel("T123", "C456", %{})
+
+      assert Enum.map(view.preferences.items, &{&1.ref, &1.scope}) == [
+               {channel.ref, :conversation},
+               {repository.ref, :repository},
+               {workspace.ref, :workspace}
+             ]
+
+      # A conversation-scoped entry is always conversation- or private-visible;
+      # only repository and workspace scope can be workspace-visible.
+      here = guidance!(source, "Shared checklist", "conversation", scope_ref: "slack:T123:C456")
+
+      private =
+        guidance!(source, "Private note", "private",
+          scope_ref: "slack:T123:C456",
+          text: "Only here: must-stay-visible-here"
+        )
+
+      inherited =
+        guidance!(source, "Workspace guidance", "workspace",
+          scope_kind: :workspace,
+          scope_ref: "slack:T123"
+        )
+
+      repository_guidance =
+        guidance!(source, "Repository guidance", "workspace",
+          scope_kind: :repository,
+          scope_ref: "responder"
+        )
+
+      guidance!(source, "Foreign private", "conversation",
+        scope_kind: :repository,
+        scope_ref: "responder",
+        source: "slack:T123:C999",
+        text: "must-not-render-foreign-private"
+      )
+
+      guidance!(source, "Personal", "private",
+        scope_kind: :operator,
+        scope_ref: "slack:user:U123",
+        text: "must-not-render-personal"
+      )
+
+      assert {:ok, view} = Projection.channel("T123", "C456", %{})
+
+      assert Enum.map(view.guidance.items, & &1.scope) ==
+               [:conversation, :conversation, :repository, :workspace]
+
+      assert Enum.sort(Enum.map(view.guidance.items, &{&1.ref, &1.scope, &1.visibility})) ==
+               Enum.sort([
+                 {here.ref, :conversation, "conversation"},
+                 {private.ref, :conversation, "private"},
+                 {repository_guidance.ref, :repository, "workspace"},
+                 {inherited.ref, :workspace, "workspace"}
+               ])
+
+      html = page("/channels/T123/C456")
+      document = LazyHTML.from_document(html)
+      preferences = document |> LazyHTML.query("#preferences") |> LazyHTML.text()
+      assert preferences =~ "3 preferences"
+      assert preferences =~ "Response detail"
+      assert preferences =~ "This channel"
+      assert preferences =~ "Inherited from repository responder"
+      assert preferences =~ "Inherited from the workspace"
+      refute preferences =~ "Elsewhere"
+      refute preferences =~ "Paused"
+      refute preferences =~ "Person"
+      refute preferences =~ "Stale"
+
+      guidance = document |> LazyHTML.query("#guidance") |> LazyHTML.text()
+      assert guidance =~ "4 guidance entries"
+      assert guidance =~ "Only here: must-stay-visible-here"
+      assert guidance =~ "Visible only in this conversation"
+      refute html =~ "must-not-render-foreign-private"
+      refute html =~ "must-not-render-personal"
+
+      hrefs = document |> LazyHTML.query("#guidance a") |> LazyHTML.attribute("href")
+      assert ("/guidance#behavior-" <> here.ref) in hrefs
+
+      assert ("/preferences#behavior-" <> channel.ref) in LazyHTML.attribute(
+               LazyHTML.query(document, "#preferences a"),
+               "href"
+             )
+    end
+
+    test "operational memory applies through its runtime scope and visibility, labeled and unaccounted",
+         %{source: source} do
+      channel =
+        memory!(source, "primary database", "db-01",
+          scope_kind: :conversation,
+          scope_ref: "slack:T123:C456"
+        )
+
+      repository =
+        memory!(source, "deploy dashboard", "grafana",
+          scope_kind: :repository,
+          scope_ref: "responder"
+        )
+
+      workspace =
+        memory!(source, "pager", "opsgenie", scope_kind: :workspace, scope_ref: "slack:T123")
+
+      global = global_memory!("GCP project", "portal-prod")
+
+      memory!(source, "elsewhere", "x", scope_kind: :conversation, scope_ref: "slack:T123:C999")
+
+      memory!(source, "foreign private", "must-not-render-foreign-memory",
+        scope_kind: :repository,
+        scope_ref: "responder",
+        visibility: :conversation,
+        source: "slack:T123:C999"
+      )
+
+      memory!(source, "other repository", "x", scope_kind: :repository, scope_ref: "other")
+
+      memory!(source, "superseded", "x",
+        scope_kind: :workspace,
+        scope_ref: "slack:T123",
+        status: :superseded
+      )
+
+      expire!(memory!(source, "stale", "x", scope_kind: :workspace, scope_ref: "slack:T123"))
+
+      assert {:ok, view} = Projection.channel("T123", "C456", %{})
+
+      assert Enum.map(view.memory.items, &{&1.ref, &1.scope}) == [
+               {channel.ref, :conversation},
+               {repository.ref, :repository},
+               {workspace.ref, :workspace},
+               {global.ref, :global}
+             ]
+
+      item = Enum.find(view.memory.items, &(&1.ref == channel.ref))
+      assert item.subject == "primary database"
+      assert item.value == "db-01"
+      assert item.kind == :entity_relationship
+      assert item.visibility == :conversation
+      assert item.recall_count == 0
+
+      html = page("/channels/T123/C456")
+      section = html |> LazyHTML.from_document() |> LazyHTML.query("#memory")
+      text = LazyHTML.text(section)
+      assert text =~ "4 memories"
+      assert text =~ "primary database"
+      assert text =~ "db-01"
+      assert text =~ "This channel"
+      assert text =~ "Inherited from repository responder"
+      assert text =~ "Inherited from the workspace"
+      assert text =~ "Every workspace"
+      assert text =~ "Entity relationship"
+      refute html =~ "must-not-render-foreign-memory"
+      refute text =~ "elsewhere"
+      refute text =~ "superseded"
+      refute text =~ "stale"
+      assert "/memory" in LazyHTML.attribute(LazyHTML.query(section, "a"), "href")
+
+      # The page reads memory; only a model turn may account a recall.
+      assert Repo.all(from(entry in MemoryEntry, select: entry.recall_count)) |> Enum.uniq() == [
+               0
+             ]
+
+      assert Repo.all(from(behavior in Behavior, select: behavior.use_count)) |> Enum.uniq() == []
+    end
+
+    test "confirmed context is not inherited from a repository the channel does not configure",
+         %{source: source} do
+      Repo.delete_all(Responder.Slack.ChannelConfiguration)
+
+      preference!(source, "health_check_depth", "deep",
+        scope_kind: :repository,
+        scope_ref: "responder"
+      )
+
+      memory!(source, "deploy dashboard", "grafana",
+        scope_kind: :repository,
+        scope_ref: "responder"
+      )
+
+      assert {:ok, view} = Projection.channel("T123", "C456", %{})
+      assert is_nil(view.scope.repository_ref)
+      assert view.preferences.total == 0
+      assert view.memory.total == 0
+    end
+  end
+
   describe "live routing" do
     setup do
       start_supervised!(
@@ -987,6 +1304,222 @@ defmodule Responder.ControlPlane.ChannelDetailTest do
       inserted_at: @now,
       updated_at: @now
     })
+  end
+
+  # Offers are validated by their record contract; the stored payload is what
+  # the runtime and the page read. Keep the two apart so a page test can hold
+  # a stored key the contract would never accept (26 distinct preferences).
+  defp rule!(source, title, overrides) do
+    payload = %{
+      "context_channel" => "slack:T123:C456",
+      "delivery_channel" => "slack:T123:C456",
+      "expires_at" => nil,
+      "filter" => %{"event" => "terraform_plan", "title" => title},
+      "hold" => nil,
+      "repository" => nil,
+      "source_kind" => "slack_message",
+      "task" => "Review #{title}.",
+      "title" => title
+    }
+
+    behavior!(source, :standing_assignment, payload, payload, overrides)
+  end
+
+  defp preference!(source, key, value, overrides) do
+    scope_kind = Keyword.get(overrides, :scope_kind, :conversation)
+
+    offer = %{
+      "expires_in" => "30d",
+      "key" => "health_check_depth",
+      "repository" => if(scope_kind == :repository, do: Keyword.fetch!(overrides, :scope_ref)),
+      "scope" => Atom.to_string(scope_kind),
+      "value" => "deep"
+    }
+
+    behavior!(source, :preference, offer, %{"key" => key, "value" => value}, overrides)
+  end
+
+  defp guidance!(source, subject, visibility, overrides) do
+    scope_kind = Keyword.get(overrides, :scope_kind, :conversation)
+
+    offer = %{
+      "expires_in" => "30d",
+      "repository" => if(scope_kind == :repository, do: Keyword.fetch!(overrides, :scope_ref)),
+      "scope" => Atom.to_string(scope_kind),
+      "subject" => subject,
+      "summary" => "Summary of #{subject}",
+      "text" => Keyword.get(overrides, :text, "Full text of #{subject}."),
+      "visibility" => visibility
+    }
+
+    behavior!(
+      source,
+      :guidance,
+      offer,
+      Map.merge(offer, Keyword.get(overrides, :extra, %{})),
+      overrides
+    )
+  end
+
+  defp behavior!(source, kind, offer, payload, overrides) do
+    {:ok, record} =
+      Records.create(
+        Records.token(source.turn),
+        "offer:#{Ecto.UUID.generate()}",
+        "#{kind}_offer",
+        offer
+      )
+
+    id = Ecto.UUID.generate()
+
+    Repo.insert!(%Behavior{
+      id: id,
+      ref: "behavior:#{id}",
+      offer_record_id: record.id,
+      kind: kind,
+      status: Keyword.get(overrides, :status, :active),
+      workspace_ref: workspace_of(source.conversation_ref),
+      scope_kind: Keyword.get(overrides, :scope_kind, :conversation),
+      scope_ref: Keyword.fetch!(overrides, :scope_ref),
+      identity_key: payload["subject"] || payload["key"] || payload["title"] || payload["task"],
+      payload: payload,
+      confirmed_by_actor_ref: "slack:user:U123",
+      confirmation_ref: "interaction:#{id}",
+      confirmed_at: @now,
+      source_transport: "slack",
+      source_conversation_ref: confirmed_in(source, overrides),
+      source_thread_ref: "1.000001",
+      source_message_ref: "1.000002",
+      expires_at: DateTime.add(@now, 30, :day),
+      inserted_at: @now,
+      updated_at: @now
+    })
+  end
+
+  # A conversation-scoped entry is confirmed in the conversation it scopes;
+  # wider scopes were confirmed wherever the offer's source turn ran.
+  defp confirmed_in(source, overrides) do
+    Keyword.get_lazy(overrides, :source, fn ->
+      if Keyword.get(overrides, :scope_kind, :conversation) == :conversation,
+        do: Keyword.fetch!(overrides, :scope_ref),
+        else: source.conversation_ref
+    end)
+  end
+
+  defp memory!(source, subject, value, overrides) do
+    scope_kind = Keyword.fetch!(overrides, :scope_kind)
+    scope_ref = Keyword.fetch!(overrides, :scope_ref)
+
+    visibility =
+      Keyword.get(
+        overrides,
+        :visibility,
+        if(scope_kind == :conversation, do: :conversation, else: :workspace)
+      )
+
+    payload = %{
+      "expires_in" => "30d",
+      "kind" => "entity_relationship",
+      "repository" => if(scope_kind == :repository, do: scope_ref),
+      "scope" => Atom.to_string(scope_kind),
+      "subject" => subject,
+      "value" => value,
+      "visibility" => Atom.to_string(visibility)
+    }
+
+    {:ok, record} =
+      Records.create(
+        Records.token(source.turn),
+        "offer:#{Ecto.UUID.generate()}",
+        "memory_offer",
+        payload
+      )
+
+    id = Ecto.UUID.generate()
+
+    Repo.insert!(%MemoryEntry{
+      id: id,
+      ref: "memory:#{id}",
+      offer_record_id: record.id,
+      kind: :entity_relationship,
+      status: Keyword.get(overrides, :status, :active),
+      workspace_ref: "slack:T123",
+      scope_kind: scope_kind,
+      scope_ref: scope_ref,
+      visibility: visibility,
+      subject: subject,
+      payload: payload,
+      payload_fingerprint: Responder.CanonicalJSON.digest(payload),
+      confirmed_by_actor_ref: "slack:user:U123",
+      confirmation_ref: "interaction:#{id}",
+      confirmed_at: @now,
+      source_transport: "slack",
+      source_conversation_ref: confirmed_in(source, overrides),
+      source_thread_ref: "1.000001",
+      source_message_ref: "1.000002",
+      expires_at: DateTime.add(@now, 30, :day),
+      inserted_at: @now,
+      updated_at: @now
+    })
+  end
+
+  defp workspace_of("slack:" <> rest),
+    do: "slack:" <> (rest |> String.split(":", parts: 2) |> hd())
+
+  defp global_memory!(subject, value) do
+    id = Ecto.UUID.generate()
+
+    payload = %{
+      "kind" => "entity_relationship",
+      "scope" => "global",
+      "subject" => subject,
+      "value" => value,
+      "visibility" => "global"
+    }
+
+    Repo.insert!(%MemoryEntry{
+      id: id,
+      ref: "memory:#{id}",
+      kind: :entity_relationship,
+      status: :active,
+      workspace_ref: "installation",
+      scope_ref: "installation:" <> Responder.CanonicalJSON.digest(subject),
+      scope_kind: :global,
+      visibility: :global,
+      subject: subject,
+      payload: payload,
+      payload_fingerprint: Responder.CanonicalJSON.digest(payload),
+      answer_provenance: %{"record_ref" => "answer:#{id}"},
+      confirmed_by_actor_ref: "slack:user:U123",
+      confirmation_ref: "answer:#{id}",
+      confirmed_at: @now,
+      source_transport: "slack",
+      source_conversation_ref: "slack:T123:C456",
+      source_thread_ref: "1.000001",
+      source_message_ref: "1.000002",
+      expires_at: nil,
+      inserted_at: @now,
+      updated_at: @now
+    })
+  end
+
+  # Expiry is a read-time rule: the stored status still says active. The
+  # fixture clock sits in the past, so an hour after confirmation is already
+  # expired today while still satisfying "expires after confirmed".
+  defp expire!(%Behavior{id: id} = behavior) do
+    Repo.update_all(from(row in Behavior, where: row.id == ^id),
+      set: [expires_at: DateTime.add(@now, 1, :hour)]
+    )
+
+    behavior
+  end
+
+  defp expire!(%MemoryEntry{id: id} = entry) do
+    Repo.update_all(from(row in MemoryEntry, where: row.id == ^id),
+      set: [expires_at: DateTime.add(@now, 1, :hour)]
+    )
+
+    entry
   end
 
   defp draft!(source, marker) do
