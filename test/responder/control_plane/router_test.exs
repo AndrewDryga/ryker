@@ -1889,6 +1889,7 @@ defmodule Responder.ControlPlane.RouterTest do
                      ref: "episode:one",
                      state: :working,
                      thread_ref: "1787832000.001000",
+                     title: "checkout is returning 502s",
                      updated_at: ~U[2026-08-28 12:00:00Z]
                    }
                  ],
