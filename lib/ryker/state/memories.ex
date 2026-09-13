@@ -52,6 +52,9 @@ defmodule Ryker.State.Memories do
          {:ok, occurred_at} <- utc_datetime(attributes.occurred_at),
          {:ok, target} <- target(attributes.target) do
       Repo.transaction(fn ->
+        # Taken before the offer and channel locks, the order ingress uses;
+        # superseding the previous fact closes the reviews that named it.
+        lock_review_maintenance!()
         confirm_locked(%{attributes | occurred_at: occurred_at, target: target})
       end)
       |> transaction_result()
@@ -1493,18 +1496,28 @@ defmodule Ryker.State.Memories do
     end
   end
 
+  # Callers hold the review maintenance lock: a superseded entry leaves any
+  # pending review that named it with nothing to decide, and App Home would go
+  # on counting and listing that review until some other maintenance dismissed
+  # it, while keeping it failed as stale.
   defp supersede_existing(prepared) do
-    Repo.all(
-      from(entry in MemoryEntry,
-        where:
-          entry.workspace_ref == ^prepared.workspace_ref and
-            entry.scope_kind == ^prepared.scope_kind and entry.scope_ref == ^prepared.scope_ref and
-            entry.kind == ^prepared.kind and entry.subject == ^prepared.subject and
-            entry.status == :active,
-        lock: "FOR UPDATE"
+    superseded =
+      Repo.all(
+        from(entry in MemoryEntry,
+          where:
+            entry.workspace_ref == ^prepared.workspace_ref and
+              entry.scope_kind == ^prepared.scope_kind and
+              entry.scope_ref == ^prepared.scope_ref and
+              entry.kind == ^prepared.kind and entry.subject == ^prepared.subject and
+              entry.status == :active,
+          lock: "FOR UPDATE"
+        )
       )
-    )
-    |> Enum.each(&redact!(&1, :superseded, "replaced_payload_sha256"))
+
+    Enum.each(superseded, &redact!(&1, :superseded, "replaced_payload_sha256"))
+
+    if superseded != [],
+      do: dismiss_orphan_reviews("system:memory-supersede", prepared.workspace_ref)
 
     :ok
   end
