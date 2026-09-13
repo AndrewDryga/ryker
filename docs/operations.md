@@ -344,9 +344,9 @@ content or unreleased model output.
 
 “Couldn’t start” with the workspace-checkpoint connection error means the host
 stopped before creating a coding session. It is not a failed repository check.
-The direct connection (`work.execution: direct`) does not support saving and
-restoring writable task workspaces. Use fleet execution for code-editing tasks;
-do not bypass the preflight or keep retrying the unchanged setup.
+Code-editing tasks run only on enrolled fleet workers, which is what saves and
+restores writable task workspaces; do not bypass the preflight or keep retrying
+the unchanged setup.
 
 The Timeline page (`/timeline/:ref`) distinguishes this proven startup failure from an older task
 that ran and lost access to its workspace. It shows the task title, confirmation,

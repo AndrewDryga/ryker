@@ -480,7 +480,7 @@ make eval-world
 ```
 
 `work-pack` compiles the sanitized narrow final-contract corpus without a model. Its live command runs each case through
-the dedicated `model_evals.socket` in an isolated Coop session under `model_evals.no_tools_policy`,
+the dedicated `RYKER_EVAL_SOCKET` in an isolated Coop session under `RYKER_EVAL_NO_TOOLS_POLICY`,
 which must be read-only and expose no
 tools. It currently covers a useful direct answer, the Slack/GitHub/platform-adapter product
 boundary, and shadow-mode no-delivery. Accepted cases are closed, checked with Coop's exact discard

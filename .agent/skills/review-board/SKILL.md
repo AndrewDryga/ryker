@@ -20,7 +20,7 @@ Resolve the argument into a concrete diff + file list, then read it yourself fir
 - **a range** (`a..b`, `HEAD~3..HEAD`) → `git diff <range>`.
 - **a branch / ref / tag** → its diff vs the base: `git diff main...<ref>`.
 - **a PR number** (`123`) → `gh pr view <n> --json title,body,files` + `gh pr diff <n>` (read title/body for **intent**).
-- **a pathspec** (`-- internal/…`) → narrows any of the above.
+- **a pathspec** (`-- lib/ryker/work/…`) → narrows any of the above.
 
 **Shared checkout:** with a concurrent agent editing, `git diff HEAD` shows *everyone's* work, not just yours — narrow with a pathspec, or review a specific commit/PR, when you want only your slice. For intent on a non-PR scope, read the commit message(s) in range, or — for uncommitted work — the in-progress task's `task.md`/`log.md` under `.agent/tasks/10_in_progress/`. If what the change is *for* is unclear, say so.
 

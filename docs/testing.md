@@ -57,8 +57,7 @@ release scripts, not before every deploy.
 
 ## Model evaluation
 
-The current evaluation runners are owned by the Elixir runtime. Corpora can be compiled without
-credentials:
+The evaluation runners are Mix tasks. Corpora can be compiled without credentials:
 
 ```bash
 MIX_ENV=test scripts/elixir-mix.sh ryker.eval admission-pack
@@ -115,10 +114,11 @@ fails fails the run without a merge and leaves them there. Each shard holds a po
 PostgreSQL connections, so the server the campaign databases live on must allow ten per shard
 on top of whatever else is connected to it.
 
-The YAML must configure dedicated `model_evals.socket`, `model_evals.no_tools_policy`, and
-`model_evals.world_policy` values. The full paired gate also requires
-`model_evals.world_baseline_policy`. These identities must be isolated from production policies and
-repositories. The evaluation database must contain no pre-existing episodes. Each observation runs
+The evaluation environment must name a dedicated `RYKER_EVAL_SOCKET`,
+`RYKER_EVAL_NO_TOOLS_POLICY` and `RYKER_EVAL_WORLD_POLICY`, each policy with its digest. The full
+paired gate also requires `RYKER_EVAL_WORLD_BASELINE_POLICY`. These identities must be isolated from
+production policies and repositories; the resolver refuses any policy whose name or digest matches
+a reviewed production binding in the database it is pointed at. The evaluation database must contain no pre-existing episodes. Each observation runs
 against its own database, copied from the migrated campaign database its shard creates and always
 drops, so no observation sees another's custody and a failed one never stops the rest of the plan.
 An observation that passed drops its database; one that failed or faulted preserves it, and both
@@ -152,10 +152,14 @@ Elixir release and posts only to an existing joined, non-Connect channel named `
 
 ```bash
 set -a
-source ../emisar/.ryker/local.env
+source ~/.local/state/ryker/emisar/runtime.env
 set +a
 make live-acceptance LIVE_CHANNEL=C0123TEST
 ```
+
+`runtime.env` is the deployment's runtime environment file (see
+[`operations.md`](operations.md#normal-deployment)); the installed release reads its platform
+credentials and `DATABASE_URL` from it, exactly as the service does.
 
 The lane injects uniquely identified synthetic configured-operator inputs because a bot token
 cannot impersonate a human. It does not start a second Slack socket or product runtime. The proof

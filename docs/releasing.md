@@ -51,7 +51,7 @@ host.
    Elixir release, and boots the candidate against disposable PostgreSQL.
 3. Refuse a no-op release. Compare the latest version tag to `main`; if only documentation or the
    changelog changed, attribute those notes to the existing release instead of cutting a
-   byte-identical binary.
+   byte-identical archive.
 4. Treat the `## Unreleased` entries as the release scope. Replace placeholders and ensure they
    describe user-visible behavior rather than commit history.
 

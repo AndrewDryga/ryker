@@ -941,38 +941,55 @@ records for their configured retention.
 
 ## 21. Target package boundaries
 
-Keep the package structure small enough to enforce ownership without creating ceremony:
+Keep the module structure small enough to enforce ownership without creating ceremony. The
+release is one OTP application, and its contexts under `lib/ryker/` are the boundaries:
 
 ```text
-internal/core/             canonical value types and event envelopes
-internal/episode/          aggregate, reducer, projections, invariants
-internal/policy/           engagement, effort, authority, communication
-internal/evidence/         claims, ledger, completion assessment
-internal/knowledge/        committed sources, continuity, retrieval
-internal/orchestration/    application use cases and effect planning
-internal/ports/            narrow platform and execution capabilities
-internal/adapters/
-  slack/
-  coop/
-  emisar/
-  github/
-  terraform/
-  repository/
-  postgres/
+lib/ryker/episodes/        the episode aggregate: reducer, transitions, invariants, events, replay
+lib/ryker/ingress/         source-neutral inputs and the idempotent inbox
+lib/ryker/admission/       engagement decisions, their prompt and their schema contract
+lib/ryker/work/            turns, sessions, frozen submissions, results, validation, execution
+lib/ryker/state/           memory, behaviors, schedules, standing rules, records, continuity,
+                           committed knowledge
+lib/ryker/state_tools/     the loopback MCP tools a leased turn may call
+lib/ryker/learning/        conversation learning batches and knowledge rebuilds
+lib/ryker/publication/     review, approval, publication and notification custody
+lib/ryker/delivery/        durable delivery custody over the platform publisher contract
+lib/ryker/retention/       ownership-based cleanup and storage custody
+lib/ryker/settings/        typed durable product settings and their revisions
+lib/ryker/coop_fleet/      outbound worker enrollment, placement, wire protocol, checkpoints,
+                           session evidence
+lib/ryker/coop/            the bounded client for Coop's owner-only session API
+lib/ryker/emisar/          governed infrastructure actions and approval holds
+lib/ryker/slack/           }
+lib/ryker/github/          } platform adapters over the same ingress and delivery contracts
+lib/ryker/webhooks/        }
+lib/ryker/control_plane/   the loopback operator console
+lib/ryker/operator/        typed recovery actions, failure detail, status, episode reviews
+lib/ryker/observability/   payload-free health, readiness and metrics
+lib/ryker/runtime/         the settings-driven supervisor that assembles the running children
+lib/ryker/evals/           admission, Work and world evaluation runners
 ```
+
+Smaller modules beside them hold cross-cutting values rather than lifecycle: `canonical_json`,
+`defaults`, `retained`, `accounting`, `artifacts`, `instructions`, `commitments`.
 
 Dependency direction:
 
 ```text
-adapters -> ports -> orchestration -> episode/policy/evidence/knowledge -> core
+slack / github / webhooks / emisar / control_plane        (adapters)
+  -> ingress / delivery / coop_fleet / coop / state_tools  (ports: platform and execution capabilities)
+  -> admission / work / learning / publication / retention (orchestration: use cases and effect planning)
+  -> episodes / state / settings                           (aggregate, policy, evidence, knowledge)
+  -> canonical_json / defaults / retained                  (core value types)
 ```
 
-Domain packages never import Slack SDKs, Coop clients, SQL drivers, GitHub clients, or Block Kit
-types. The PostgreSQL adapter is split by repository interface instead of remaining one broad store god
-object.
+Domain contexts never import the Slack, Coop, or GitHub clients or Block Kit rendering. PostgreSQL
+is reached only through `Ryker.Repo`, one Ecto repository; each context owns its own schemas and
+queries instead of sharing one broad store god object.
 
-Package extraction happens after lifecycle ownership is corrected. Moving the current competing
-state into cleaner packages first would preserve the bugs.
+Module extraction happens after lifecycle ownership is corrected. Moving competing state into
+cleaner modules first would preserve the bugs.
 
 ## 22. Observability and exact replay
 
