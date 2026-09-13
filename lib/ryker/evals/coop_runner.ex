@@ -10,6 +10,7 @@ defmodule Ryker.Evals.CoopRunner do
   """
 
   alias Ryker.Evals.WorldJudgeCase
+  alias Ryker.Reference
   alias Ryker.Retention.Plan
 
   @waiting_operations ~w(reserved running)
@@ -658,10 +659,7 @@ defmodule Ryker.Evals.CoopRunner do
   defp settings(_options), do: {:error, {:invalid_eval_runner, :options}}
 
   defp reference(value, _field) when is_binary(value) and byte_size(value) in 1..2_048 do
-    if String.valid?(value) and String.trim(value) != "" and
-         :binary.match(value, <<0>>) == :nomatch,
-       do: :ok,
-       else: {:error, {:invalid_eval_runner, :reference}}
+    if Reference.valid?(value, 2_048), do: :ok, else: {:error, {:invalid_eval_runner, :reference}}
   end
 
   defp reference(_value, field), do: {:error, {:invalid_eval_runner, field}}

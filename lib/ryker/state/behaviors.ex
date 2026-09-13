@@ -14,6 +14,7 @@ defmodule Ryker.State.Behaviors do
   alias Ryker.Episodes.Episode
   alias Ryker.Ingress.Input
   alias Ryker.Operator.Actions
+  alias Ryker.Reference
   alias Ryker.Repo
   alias Ryker.Slack.ChannelFence
 
@@ -32,6 +33,7 @@ defmodule Ryker.State.Behaviors do
     StandingRuleInventory
   }
 
+  alias Ryker.UTCDateTime
   alias Ryker.Work.Turn
 
   @confirmation_fields [:actor_ref, :confirmation_ref, :occurred_at, :record_ref, :target]
@@ -203,7 +205,7 @@ defmodule Ryker.State.Behaviors do
 
   @spec assignments_for_channel(String.t(), String.t()) :: [Behavior.t()]
   def assignments_for_channel(workspace_ref, conversation_ref) do
-    if reference_value?(workspace_ref) and reference_value?(conversation_ref) do
+    if Reference.valid?(workspace_ref) and Reference.valid?(conversation_ref) do
       now = Repo.now!()
 
       Repo.all(
@@ -724,7 +726,7 @@ defmodule Ryker.State.Behaviors do
     status = Keyword.get(options, :status)
     limit = Keyword.get(options, :limit, 100)
 
-    if reference_value?(workspace_ref) and (is_nil(status) or status in @statuses) and
+    if Reference.valid?(workspace_ref) and (is_nil(status) or status in @statuses) and
          is_integer(limit) and limit in 1..100 do
       query = from(behavior in Behavior, where: behavior.workspace_ref == ^workspace_ref)
 
@@ -1253,8 +1255,8 @@ defmodule Ryker.State.Behaviors do
 
     if Map.keys(context) |> Enum.sort() == Enum.sort(fields) and
          Enum.all?([:conversation_ref, :operator_ref, :workspace_ref], fn field ->
-           reference_value?(context[field])
-         end) and (is_nil(context.repository) or reference_value?(context.repository)) do
+           Reference.valid?(context[field])
+         end) and (is_nil(context.repository) or Reference.valid?(context.repository)) do
       {:ok, context}
     else
       {:error, :invalid_behavior_context}
@@ -1395,11 +1397,9 @@ defmodule Ryker.State.Behaviors do
   defp target(_target), do: {:error, {:invalid_behavior_confirmation, :target}}
 
   defp utc_datetime(%DateTime{} = value, _field) do
-    if value.time_zone == "Etc/UTC" and value.utc_offset == 0 and value.std_offset == 0 do
-      {microsecond, _precision} = value.microsecond
-      {:ok, %{value | microsecond: {microsecond, 6}}}
-    else
-      {:error, {:invalid_behavior_confirmation, :datetime}}
+    case UTCDateTime.exact(value) do
+      {:ok, exact} -> {:ok, exact}
+      :error -> {:error, {:invalid_behavior_confirmation, :datetime}}
     end
   end
 
@@ -1409,13 +1409,6 @@ defmodule Ryker.State.Behaviors do
   defp optional_reference(value, field), do: reference(value, field)
 
   defp reference(value, field) do
-    if reference_value?(value),
-      do: :ok,
-      else: {:error, {:invalid_behavior_confirmation, field}}
-  end
-
-  defp reference_value?(value) do
-    is_binary(value) and String.valid?(value) and byte_size(value) in 1..1_024 and
-      :binary.match(value, <<0>>) == :nomatch and String.trim(value) != ""
+    if Reference.valid?(value), do: :ok, else: {:error, {:invalid_behavior_confirmation, field}}
   end
 end

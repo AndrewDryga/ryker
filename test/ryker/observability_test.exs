@@ -582,7 +582,7 @@ defmodule Ryker.ObservabilityTest do
 
     # The same fixtures are exactly what retention custody claims next.
     assert {:ok, %{session: %{id: claimed}}} =
-             Ryker.Retention.Custody.claim_next("observability-retention", 60, 900)
+             Ryker.Retention.Custody.claim_next("observability-retention", 60)
 
     assert claimed in [session.id, learning.id]
   end

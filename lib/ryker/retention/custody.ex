@@ -17,6 +17,7 @@ defmodule Ryker.Retention.Custody do
   alias Ryker.CoopFleet.Worker, as: FleetWorker
   alias Ryker.Episodes.Episode
   alias Ryker.Publication.Publication
+  alias Ryker.Reference
   alias Ryker.Repo
   alias Ryker.Retention.Plan
   alias Ryker.State.LearningRun
@@ -74,16 +75,13 @@ defmodule Ryker.Retention.Custody do
           worker_id: String.t() | nil
         }
 
-  @spec claim_next(String.t(), pos_integer(), non_neg_integer(), keyword()) ::
+  @spec claim_next(String.t(), pos_integer(), keyword()) ::
           {:ok, claim() | nil} | {:error, term()}
-  def claim_next(worker_ref, lease_seconds, closed_session_grace_seconds, exclude \\ []) do
+  def claim_next(worker_ref, lease_seconds, exclude \\ []) do
     with :ok <- reference(worker_ref, :worker_ref),
          :ok <- positive_integer(lease_seconds, :lease_seconds),
-         :ok <- nonnegative_integer(closed_session_grace_seconds, :closed_session_grace_seconds),
          {:ok, exclude} <- exclusions(exclude) do
-      Repo.transaction(fn ->
-        claim_locked(worker_ref, lease_seconds, closed_session_grace_seconds, exclude)
-      end)
+      Repo.transaction(fn -> claim_locked(worker_ref, lease_seconds, exclude) end)
     end
   end
 
@@ -410,7 +408,7 @@ defmodule Ryker.Retention.Custody do
       )
   end
 
-  defp claim_locked(worker_ref, lease_seconds, grace_seconds, exclude) do
+  defp claim_locked(worker_ref, lease_seconds, exclude) do
     now = Repo.now!()
 
     case candidate(now, exclude) do
@@ -421,7 +419,7 @@ defmodule Ryker.Retention.Custody do
         with owner when not is_nil(owner) <- lock_owner(kind, owner_id, :skip_locked),
              %Session{} = session <- lock_session(session_id),
              true <- claimable?(owner, session, now) do
-          session = prepare_phase(session, grace_seconds)
+          session = prepare_phase(session)
           lease_ref = "retention-lease:#{Ecto.UUID.generate()}"
 
           claimed =
@@ -610,13 +608,13 @@ defmodule Ryker.Retention.Custody do
 
   defp claimable_status?(_session, _now), do: false
 
-  defp prepare_phase(%Session{cleanup_status: :active} = session, _grace_seconds),
+  defp prepare_phase(%Session{cleanup_status: :active} = session),
     do: persist(session, %{cleanup_status: :close_pending})
 
-  defp prepare_phase(%Session{cleanup_status: :grace} = session, _grace_seconds),
+  defp prepare_phase(%Session{cleanup_status: :grace} = session),
     do: persist(session, %{cleanup_status: :plan_pending})
 
-  defp prepare_phase(%Session{cleanup_status: :retained} = session, _grace_seconds) do
+  defp prepare_phase(%Session{cleanup_status: :retained} = session) do
     persist(session, %{
       cleanup_status: :plan_pending,
       discard_plan: nil,
@@ -629,7 +627,7 @@ defmodule Ryker.Retention.Custody do
     })
   end
 
-  defp prepare_phase(%Session{} = session, _grace_seconds), do: session
+  defp prepare_phase(%Session{} = session), do: session
 
   defp unfinished_turn?(session_id) do
     Repo.exists?(
@@ -923,10 +921,7 @@ defmodule Ryker.Retention.Custody do
   defp exclusions(_exclude), do: {:error, {:invalid_retention_custody, :exclude}}
 
   defp reference(value, _field) when is_binary(value) do
-    if String.valid?(value) and :binary.match(value, <<0>>) == :nomatch and
-         String.trim(value) != "" and byte_size(value) <= 1_024,
-       do: :ok,
-       else: {:error, {:invalid_retention_custody, :reference}}
+    if Reference.valid?(value), do: :ok, else: {:error, {:invalid_retention_custody, :reference}}
   end
 
   defp reference(_value, field), do: {:error, {:invalid_retention_custody, field}}

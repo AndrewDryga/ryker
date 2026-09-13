@@ -353,7 +353,7 @@ defmodule Ryker.State.Records do
       SourceEventMatcher.matches?(trigger["match"], input.content)
   end
 
-  defp event_wait_matches?(_legacy_or_timer, _input), do: true
+  defp event_wait_matches?(_timer_or_deadline_wait, _input), do: true
 
   defp source_matches?(nil, _actual), do: true
   defp source_matches?(expected, actual), do: expected == actual
@@ -852,8 +852,7 @@ defmodule Ryker.State.Records do
     end)
   end
 
-  @doc false
-  def goals_from_records(records) do
+  defp goals_from_records(records) do
     states =
       records
       |> Enum.filter(&(&1.kind == "goal_state"))

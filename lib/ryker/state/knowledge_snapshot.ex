@@ -39,7 +39,7 @@ defmodule Ryker.State.KnowledgeSnapshot do
     current =
       Repo.one!(from(s in Ryker.Work.Session, where: s.id == ^session.id, lock: "FOR UPDATE"))
 
-    unless exposure_counts_valid?(current, false),
+    unless exposure_counts_consistent?(current),
       do: Repo.rollback(:work_knowledge_context_stale)
 
     {knowledge, sources, inherited} =
@@ -90,19 +90,24 @@ defmodule Ryker.State.KnowledgeSnapshot do
       current ->
         receiving_scope = %{current | repository_ref: session.repository_ref}
 
-        if exposure_counts_valid?(current, true) and
+        if exposure_counts_attested?(current) and
              authorize_session(destination, receiving_scope) == :ok,
            do: session_sources(current.id)
     end
   end
 
-  defp exposure_counts_valid?(
-         %{source_exposure_count: nil, knowledge_exposure_count: nil},
-         required
-       ),
-       do: not required
+  # A session created before exposure counts were attested carries none; a
+  # disclosure or a validity check tolerates that, a handover or a source read
+  # does not.
+  defp exposure_counts_consistent?(%{source_exposure_count: nil, knowledge_exposure_count: nil}),
+    do: true
 
-  defp exposure_counts_valid?(session, _required) do
+  defp exposure_counts_consistent?(session), do: exposure_counts_attested?(session)
+
+  defp exposure_counts_attested?(%{source_exposure_count: nil, knowledge_exposure_count: nil}),
+    do: false
+
+  defp exposure_counts_attested?(session) do
     exposure_counts(session.id) ==
       {session.source_exposure_count, session.knowledge_exposure_count}
   end
@@ -315,7 +320,7 @@ defmodule Ryker.State.KnowledgeSnapshot do
   def summary_sources(session_id) do
     session = Repo.get(Ryker.Work.Session, session_id)
 
-    if (Repo.in_transaction?() and session) && exposure_counts_valid?(session, true),
+    if (Repo.in_transaction?() and session) && exposure_counts_attested?(session),
       do: retained_summary_sources(session_id),
       else: {:error, "source_unavailable"}
   end
@@ -378,7 +383,7 @@ defmodule Ryker.State.KnowledgeSnapshot do
   defp session_valid?(destination, session) do
     current = Repo.get(Ryker.Work.Session, session.id)
 
-    if current && exposure_counts_valid?(current, false),
+    if current && exposure_counts_consistent?(current),
       do: retained_session_valid?(destination, session),
       else: false
   end

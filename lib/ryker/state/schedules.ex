@@ -13,6 +13,7 @@ defmodule Ryker.State.Schedules do
   alias Ryker.Episodes.{Command, Episode}
   alias Ryker.Ingress.Input
   alias Ryker.Operator.Actions
+  alias Ryker.Reference
   alias Ryker.Repo
 
   alias Ryker.State.{
@@ -26,6 +27,7 @@ defmodule Ryker.State.Schedules do
     ScheduleRecurrence
   }
 
+  alias Ryker.UTCDateTime
   alias Ryker.Work.{Custody, Turn}
 
   @confirmation_fields [:actor_ref, :confirmation_ref, :occurred_at, :record_ref, :target]
@@ -832,7 +834,7 @@ defmodule Ryker.State.Schedules do
 
   defp status_scope(%{conversation_prefix: prefix, transport: transport} = scope) do
     if Map.keys(scope) |> Enum.sort() == [:conversation_prefix, :transport] and
-         reference_value?(prefix) and reference_value?(transport) do
+         Reference.valid?(prefix) and Reference.valid?(transport) do
       {:ok, scope}
     else
       {:error, {:invalid_schedule, :scope}}
@@ -855,7 +857,7 @@ defmodule Ryker.State.Schedules do
   end
 
   defp policy(%{digest: digest, name: name}) do
-    if reference_value?(name) and is_binary(digest) and Regex.match?(~r/\A[0-9a-f]{64}\z/, digest),
+    if Reference.valid?(name) and is_binary(digest) and Regex.match?(~r/\A[0-9a-f]{64}\z/, digest),
       do: :ok,
       else: {:error, :schedule_policy_unavailable}
   end
@@ -903,35 +905,24 @@ defmodule Ryker.State.Schedules do
   defp optional_datetime(value), do: utc_datetime(value, :expires_at)
 
   defp utc_datetime(%DateTime{} = value, _field) do
-    if value.time_zone == "Etc/UTC" and value.utc_offset == 0 and value.std_offset == 0 do
-      {microsecond, _precision} = value.microsecond
-      {:ok, %{value | microsecond: {microsecond, 6}}}
-    else
-      {:error, {:invalid_schedule_confirmation, :datetime}}
+    case UTCDateTime.exact(value) do
+      {:ok, exact} -> {:ok, exact}
+      :error -> {:error, {:invalid_schedule_confirmation, :datetime}}
     end
   end
 
-  defp utc_datetime(value, field) when is_binary(value) do
-    case DateTime.from_iso8601(value) do
-      {:ok, datetime, 0} -> {:ok, datetime}
-      _invalid -> {:error, {:invalid_schedule_confirmation, field}}
+  defp utc_datetime(value, field) do
+    case UTCDateTime.parse(value) do
+      {:ok, datetime} -> {:ok, datetime}
+      :error -> {:error, {:invalid_schedule_confirmation, field}}
     end
   end
-
-  defp utc_datetime(_value, field), do: {:error, {:invalid_schedule_confirmation, field}}
 
   defp optional_reference(nil, _field), do: :ok
   defp optional_reference(value, field), do: reference(value, field)
 
   defp reference(value, field) do
-    if reference_value?(value),
-      do: :ok,
-      else: {:error, {:invalid_schedule_confirmation, field}}
-  end
-
-  defp reference_value?(value) do
-    is_binary(value) and String.valid?(value) and byte_size(value) in 1..1_024 and
-      :binary.match(value, <<0>>) == :nomatch and String.trim(value) != ""
+    if Reference.valid?(value), do: :ok, else: {:error, {:invalid_schedule_confirmation, field}}
   end
 
   defp positive(value, _field) when is_integer(value) and value > 0, do: :ok
