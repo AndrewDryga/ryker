@@ -78,6 +78,71 @@ defmodule Responder.Evals.WorldSuiteTest do
              {:error, {:invalid_world_suite, :options}}
   end
 
+  test "every observation lands in exactly one shard and a pair never splits" do
+    # The full matrix is 186 observations at ~93 seconds each, run one after
+    # another: 4.8 hours for one number. Shards run as separate VMs, so the
+    # partition has to be a pure function of the ordered plan — every shard
+    # derives its own slice from the same plan and nothing coordinates them —
+    # and a candidate/baseline pair of one scenario and repeat must stay on one
+    # shard, or the merged paired comparison would depend on which shard was
+    # slower.
+    assert {:ok, cases} = WorldCase.all()
+    assert {:ok, plan} = WorldSuite.plan(cases, repeat: 3, paired_baseline: true)
+    assert length(plan) == 2 * 3 * length(cases)
+
+    for count <- [1, 2, 3, 4, 7, 5_000] do
+      shards = Enum.map(1..count, &shard!(plan, &1, count))
+      assert Enum.sort(List.flatten(shards)) == Enum.sort(plan), "shard count #{count}"
+
+      for shard <- shards do
+        # A shard keeps the plan's own order, which is what the run log shows.
+        assert shard == Enum.filter(plan, &(&1 in shard))
+
+        pairs = Enum.group_by(shard, &{&1.scenario.id, &1.repeat_index}, & &1.lane)
+
+        assert Enum.all?(pairs, fn {_pair, lanes} ->
+                 Enum.sort(lanes) == [:baseline, :candidate]
+               end)
+      end
+
+      # Round-robin over scenario/repeat pairs: no shard carries more than one
+      # pair over any other, so the slowest shard bounds the wall clock.
+      sizes = Enum.map(shards, &length/1)
+      assert Enum.max(sizes) - Enum.min(Enum.reject(sizes, &(&1 == 0))) <= 2
+    end
+
+    # One shard is today's plan, unchanged.
+    assert shard!(plan, 1, 1) == plan
+
+    # A plan smaller than the shard count leaves the surplus shards empty
+    # rather than duplicating observations to fill them.
+    assert {:ok, small} =
+             WorldSuite.plan(cases,
+               scenario_id: "ordinary-thread-question-gets-natural-answer",
+               repeat: 1
+             )
+
+    assert shard!(small, 1, 4) == small
+    assert shard!(small, 2, 4) == []
+    assert shard!(small, 4, 4) == []
+  end
+
+  test "a shard outside its count is refused" do
+    assert {:ok, cases} = WorldCase.all()
+    assert {:ok, plan} = WorldSuite.plan(cases)
+
+    assert WorldSuite.shard(plan, 3, 2) == {:error, {:invalid_world_suite, :shard}}
+    assert WorldSuite.shard(plan, 0, 4) == {:error, {:invalid_world_suite, :shard}}
+    assert WorldSuite.shard(plan, 1, 0) == {:error, {:invalid_world_suite, :shard}}
+    assert WorldSuite.shard(plan, "1", 2) == {:error, {:invalid_world_suite, :shard}}
+    assert WorldSuite.shard(:invalid, 1, 1) == {:error, {:invalid_world_suite, :plan}}
+  end
+
+  defp shard!(plan, index, count) do
+    assert {:ok, shard} = WorldSuite.shard(plan, index, count)
+    shard
+  end
+
   test "candidate qualification enforces per-case, aggregate, hard, and unrun gates" do
     reports = [
       report("case-a", 1, :passed),
