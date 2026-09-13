@@ -16,14 +16,9 @@ defmodule Ryker.Work.Submission do
 
   @type t :: map()
 
-  @spec new(map(), String.t(), map(), String.t()) :: {:ok, t()} | {:error, term()}
-  def new(context, prompt, output_schema, contract_version) do
-    new(context, prompt, output_schema, contract_version, [])
-  end
-
   @spec new(map(), String.t(), map(), String.t(), [String.t()]) ::
           {:ok, t()} | {:error, term()}
-  def new(context, prompt, output_schema, contract_version, input_artifact_refs) do
+  def new(context, prompt, output_schema, contract_version, input_artifact_refs \\ []) do
     submission = %{
       "contract_version" => contract_version,
       "context" => context,
@@ -55,17 +50,6 @@ defmodule Ryker.Work.Submission do
       when map_size(submission) == 5 do
     new(context, prompt, output_schema, contract_version, input_artifact_refs)
   end
-
-  def prepare(
-        %{
-          "contract_version" => contract_version,
-          "context" => context,
-          "output_schema" => output_schema,
-          "prompt" => prompt
-        } = submission
-      )
-      when map_size(submission) == 4,
-      do: new(context, prompt, output_schema, contract_version)
 
   def prepare(_submission), do: {:error, {:invalid_work_submission, :fields}}
 

@@ -296,22 +296,6 @@ defmodule Ryker.Work.ActivityTest do
              "tool_call_id" => "tool-1"
            }
 
-    # An upgrade must accept redelivery of a row stored by the old lossy projection.
-    legacy = %{"tool_call_id" => "tool-1", "input" => %{"operation" => "nomad.job_status"}}
-
-    started_tool
-    |> Ecto.Changeset.change(
-      payload: legacy,
-      payload_fingerprint: Ryker.CanonicalJSON.digest(legacy)
-    )
-    |> Repo.update!()
-
-    assert {:ok, %{inserted: 0}} = Activity.ingest(session.id, events)
-
-    assert Repo.get!(Ryker.Work.ActivityEvent, started_tool.id).payload["input"]["args"] == %{
-             "job" => "ryker"
-           }
-
     changed_identity = events |> Enum.at(1) |> Map.put("id", "event-2-changed")
 
     assert {:error, {:coop_activity_replay_conflict, 2}} =

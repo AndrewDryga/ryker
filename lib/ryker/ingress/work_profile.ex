@@ -40,9 +40,7 @@ defmodule Ryker.Ingress.WorkProfile do
         }
 
   @spec new(keyword() | map()) :: {:ok, t()} | {:error, term()}
-  def new(attributes), do: build(attributes, false)
-
-  defp build(attributes, allow_legacy) do
+  def new(attributes) do
     with {:ok, attributes} <- attributes(attributes),
          :ok <- reference(attributes.policy, :policy, 1_024),
          :ok <- digest(attributes.policy_digest),
@@ -54,8 +52,7 @@ defmodule Ryker.Ingress.WorkProfile do
              Map.get(attributes, :repository_context),
              attributes.repository_ref
            ),
-         :ok <-
-           authority_equivalence(attributes.authority_digest, class_policies, allow_legacy) do
+         :ok <- authority_equivalence(attributes.authority_digest, class_policies) do
       attributes =
         attributes
         |> Map.put(:class_policies, class_policies)
@@ -132,17 +129,14 @@ defmodule Ryker.Ingress.WorkProfile do
              document["repository_ref"]
            ) do
         {:ok, repository_context} ->
-          build(
-            %{
-              authority_digest: Map.get(document, "authority_digest"),
-              class_policies: restore_class_policies(document["class_policies"]),
-              policy: document["policy"],
-              policy_digest: document["policy_digest"],
-              repository_context: repository_context,
-              repository_ref: document["repository_ref"]
-            },
-            true
-          )
+          new(%{
+            authority_digest: Map.get(document, "authority_digest"),
+            class_policies: restore_class_policies(document["class_policies"]),
+            policy: document["policy"],
+            policy_digest: document["policy_digest"],
+            repository_context: repository_context,
+            repository_ref: document["repository_ref"]
+          })
 
         {:error, :invalid} ->
           {:error, {:invalid_work_profile, :repository_context}}
@@ -241,13 +235,13 @@ defmodule Ryker.Ingress.WorkProfile do
 
   defp class_policy(_attributes), do: {:error, :class_policy}
 
-  defp authority_equivalence(nil, nil, _allow_legacy), do: :ok
+  defp authority_equivalence(nil, nil), do: :ok
 
-  defp authority_equivalence(authority_digest, nil, _allow_legacy)
-       when is_binary(authority_digest),
-       do: :ok
+  defp authority_equivalence(authority_digest, nil) when is_binary(authority_digest), do: :ok
 
-  defp authority_equivalence(nil, policies, allow_legacy) when is_map(policies) do
+  # Without an authority digest, distinct class policies cannot be proven to
+  # share one execution authority, so only one identity may stand behind them.
+  defp authority_equivalence(nil, policies) when is_map(policies) do
     identities =
       policies
       |> Map.values()
@@ -255,12 +249,12 @@ defmodule Ryker.Ingress.WorkProfile do
       |> Enum.uniq()
 
     if Enum.all?(policies, fn {_work_class, policy} -> is_nil(policy.authority_digest) end) and
-         (allow_legacy or length(identities) == 1),
+         length(identities) == 1,
        do: :ok,
        else: {:error, {:invalid_work_profile, :authority_equivalence}}
   end
 
-  defp authority_equivalence(authority_digest, policies, _allow_legacy) when is_map(policies) do
+  defp authority_equivalence(authority_digest, policies) when is_map(policies) do
     if is_binary(authority_digest) and
          Enum.all?(policies, fn {_work_class, policy} ->
            policy.authority_digest == authority_digest

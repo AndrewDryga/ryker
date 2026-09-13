@@ -198,20 +198,17 @@ defmodule Ryker.Work.RepositorySourceTest do
                {:error, {:invalid_repository_source_binding, :pull_request_number}}
     end
 
-    # Coop migrates a pre-selector pull-request session into this shape from its
-    # durable columns, which prove every field except a tree it never recorded.
-    # Such a session has no persisted request on this side, and only then may
-    # the tree be absent.
-    test "only a historical binding with no persisted request may omit the admitted tree" do
-      migrated = Map.delete(pull_request_binding(), "admitted_tree")
+    test "a binding without its admitted tree is refused with or without a persisted request" do
+      without_tree = Map.delete(pull_request_binding(), "admitted_tree")
 
-      assert RepositorySource.parse_binding(migrated) ==
+      assert RepositorySource.parse_binding(without_tree) ==
                {:error, {:invalid_repository_source_binding, :admitted_tree}}
 
-      assert RepositorySource.reconcile(migrated, %{"kind" => "pull_request", "number" => 514}) ==
+      assert RepositorySource.reconcile(without_tree, %{"kind" => "pull_request", "number" => 514}) ==
                {:error, {:invalid_repository_source_binding, :admitted_tree}}
 
-      assert RepositorySource.reconcile(migrated, nil) == {:ok, migrated}
+      assert RepositorySource.reconcile(without_tree, nil) ==
+               {:error, {:invalid_repository_source_binding, :admitted_tree}}
     end
 
     test "a binding whose derived ref disagrees with its request is refused" do

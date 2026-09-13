@@ -375,60 +375,20 @@ defmodule Ryker.Work.Activity do
         )
       )
 
-    case stored do
-      %ActivityEvent{} = activity ->
-        matches = replayed_activity?(activity, event)
-        if matches, do: enrich_legacy(activity, event)
-        replay_verdict(matches, event.sequence)
-
-      _missing_or_changed ->
-        {:halt, {:error, {:coop_activity_replay_conflict, event.sequence}}}
-    end
+    if match?(%ActivityEvent{}, stored) and replayed_activity?(stored, event),
+      do: {:cont, :ok},
+      else: {:halt, {:error, {:coop_activity_replay_conflict, event.sequence}}}
   end
 
-  defp enrich_legacy(activity, event) do
-    if is_nil(activity.operational_pruned_at) &&
-         is_nil(event.operational_pruned_at) &&
-         not Map.has_key?(activity.payload, "evidence_version") &&
-         Map.has_key?(event.payload, "evidence_version") do
-      # Re-reading real retained Coop events can enrich a legacy projection;
-      # it cannot manufacture an output the provider never saved.
-      # Retention can expire the row after this read. The update predicate
-      # must be rechecked under its row lock, never overwrite a tombstone.
-      ActivityRetention.enrich(activity.id,
-        payload: event.payload,
-        payload_fingerprint: event.payload_fingerprint,
-        remote_payload_fingerprint: event.remote_payload_fingerprint
-      )
-    end
-  end
-
+  # A replayed event is the same event when its identity, its raw remote
+  # payload and its time agree; the stored projection is never re-derived.
   defp replayed_activity?(activity, event) do
-    fields = [
-      :remote_event_id,
-      :coop_turn_id,
-      :kind,
-      :version
-    ]
+    fields = [:remote_event_id, :coop_turn_id, :kind, :version]
 
-    same_payload =
-      if activity.remote_payload_fingerprint do
-        activity.remote_payload_fingerprint == event.remote_payload_fingerprint
-      else
-        activity.payload_fingerprint == event.payload_fingerprint ||
-          (not Map.has_key?(activity.payload, "evidence_version") &&
-             activity.payload_fingerprint ==
-               CanonicalJSON.digest(legacy_payload(event.kind, event.payload)))
-      end
-
-    Map.take(activity, fields) == Map.take(event, fields) and same_payload and
+    Map.take(activity, fields) == Map.take(event, fields) and
+      activity.remote_payload_fingerprint == event.remote_payload_fingerprint and
       DateTime.compare(activity.occurred_at, event.occurred_at) == :eq
   end
-
-  defp replay_verdict(true, _sequence), do: {:cont, :ok}
-
-  defp replay_verdict(false, sequence),
-    do: {:halt, {:error, {:coop_activity_replay_conflict, sequence}}}
 
   defp exact_next(_cursor, []), do: :ok
 
@@ -709,17 +669,6 @@ defmodule Ryker.Work.Activity do
       end
     end
   end
-
-  defp legacy_payload("tool.started", payload),
-    do:
-      compact_map(%{
-        "tool_call_id" => payload["tool_call_id"],
-        "input" => public_tool_input(payload["input"])
-      })
-
-  defp legacy_payload("tool.completed", payload), do: Map.take(payload, ~w(tool_call_id status))
-  defp legacy_payload("model.plan", payload), do: Map.take(payload, ~w(step_count))
-  defp legacy_payload(_kind, payload), do: Map.delete(payload, "evidence_version")
 
   defp public_tool_input(%{} = input) do
     arguments = public_tool_arguments(input["arguments"])

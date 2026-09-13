@@ -38,12 +38,6 @@ defmodule Ryker.Work.ActivityRetention do
     from(a in query, where: is_nil(a.operational_pruned_at) and a.id not in subquery(expired))
   end
 
-  def enrich(id, fields) do
-    from(a in ActivityEvent, where: a.id == ^id)
-    |> visible()
-    |> Repo.update_all(set: fields)
-  end
-
   def prune do
     expired = expired_ids()
 
