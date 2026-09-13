@@ -1,7 +1,7 @@
 defmodule Responder.ControlPlane.BehaviorPageTest do
   use ExUnit.Case, async: true
   import Phoenix.LiveViewTest
-  alias Responder.ControlPlane.{BehaviorPage, CardLab}
+  alias Responder.ControlPlane.BehaviorPage
 
   test "typed rules show sender restrictions and their full instruction only once" do
     # Trigger-based rules have no title and can carry a long task. Repeating
@@ -34,22 +34,109 @@ defmodule Responder.ControlPlane.BehaviorPageTest do
     refute html =~ "No guidance yet"
   end
 
-  test "each empty library explains how to use the feature and links to a real preview" do
-    for kind <- [:standing_assignment, :preference, :guidance] do
+  test "creation help is a closed disclosure under the description that links only to surviving pages" do
+    # The Standing rules screenshot Andrew sent on 2026-09-09 showed the
+    # creation help floated into a right-hand column beside three 30px status
+    # counts, always open, linking into the Card Lab and /lab surfaces that
+    # are being retired. The help still has to be discoverable and still has
+    # to say an entry is proposed and confirmed in a conversation; it now
+    # lives under the description as a specifically labelled disclosure that
+    # points only at pages that survive.
+    for {kind, label} <- [
+          {:standing_assignment, "How to add and manage rules"},
+          {:preference, "How to save and manage preferences"},
+          {:guidance, "How to add and manage guidance"}
+        ] do
       html = render_component(&BehaviorPage.render/1, view: view(kind, []))
-      assert html =~ "Review and confirm the proposed card"
-      assert html =~ "All statuses"
-      assert html =~ "Applies to"
-      assert html =~ "No #{String.downcase(BehaviorPage.title(kind))} yet"
       document = LazyHTML.from_fragment(html)
+      help = LazyHTML.query(document, "details.page-help:not([open])")
+      assert Enum.count(help) == 1
+      assert help |> LazyHTML.query("summary") |> LazyHTML.text() == label
+      assert LazyHTML.text(help) =~ "Review and confirm the proposed card"
+      assert LazyHTML.text(help) =~ "Pause or Resume"
+      assert "/channels" in (help |> LazyHTML.query("a[href]") |> LazyHTML.attribute("href"))
 
-      assert document |> LazyHTML.query(".behavior-create:not(details)") |> LazyHTML.text() =~
-               "Review and confirm"
+      for href <- document |> LazyHTML.query("a[href]") |> LazyHTML.attribute("href") do
+        refute String.starts_with?(href, "/card-lab"), href
+        refute String.starts_with?(href, "/lab"), href
+      end
 
-      [path] = document |> LazyHTML.query("a[href^='/card-lab/']") |> LazyHTML.attribute("href")
-      ["card-lab", family, state] = String.split(path, "/", trim: true)
-      assert {:ok, _} = CardLab.fetch(family, state)
+      refute html =~ "behavior-create"
+      assert Enum.empty?(LazyHTML.query(document, ".behavior-library > h2, .page-help h2"))
+      assert html =~ "No #{String.downcase(BehaviorPage.title(kind))} yet"
     end
+  end
+
+  test "the library reads help, toolbar, count, entries, history with no statistics row or apply button" do
+    # Same screenshot: a <dl class="behavior-counts"> of Active/Paused/Expired
+    # numbers above the list, an Apply button beside the filters, and the
+    # total only inside the pagination line. Andrew approved one column:
+    # help, one compact toolbar, a quiet count, the entries, then history.
+    item = item(:standing_assignment)
+    html = render_component(&BehaviorPage.render/1, view: view(:standing_assignment, [item]))
+    document = LazyHTML.from_fragment(html)
+
+    assert outline(document, ".behavior-library > *") == [
+             "details.page-help",
+             "form.filter-toolbar",
+             "p.result-count",
+             "div.behavior-entries",
+             "section.behavior-history"
+           ]
+
+    refute html =~ "behavior-counts"
+    refute html =~ "behavior-overview"
+    assert document |> LazyHTML.query("p.result-count") |> LazyHTML.text() == "1 rule"
+
+    toolbar = LazyHTML.query(document, "form.filter-toolbar")
+    assert LazyHTML.attribute(toolbar, "method") == ["get"]
+    assert LazyHTML.attribute(toolbar, "action") == ["/rules"]
+    assert Enum.empty?(LazyHTML.query(toolbar, "button:not(noscript button)"))
+
+    for {name, id} <- [
+          {"q", "behavior-search"},
+          {"status", "behavior-status"},
+          {"scope", "behavior-scope"}
+        ] do
+      assert LazyHTML.query(toolbar, "[name=#{name}]") |> LazyHTML.attribute("id") == [id]
+      assert Enum.count(LazyHTML.query(toolbar, "label[for=#{id}]")) == 1
+    end
+
+    assert Enum.empty?(LazyHTML.query(toolbar, "a.filter-clear"))
+  end
+
+  test "the result count is the filtered total, never the unfiltered status counts" do
+    # BehaviorLibrary counts statuses before search and scope filtering while
+    # total is filtered. The old page showed the former as if they described
+    # the current list; the count beside the list must be the list's own.
+    for {kind, one, many} <- [
+          {:standing_assignment, "1 rule", "2 rules"},
+          {:preference, "1 preference", "2 preferences"},
+          {:guidance, "1 guidance entry", "2 guidance entries"}
+        ] do
+      snapshot = %{view(kind, [item(kind)]) | counts: %{"active" => 9, "expired" => 4}}
+      one_html = render_component(&BehaviorPage.render/1, view: snapshot)
+      assert count_text(one_html) == one
+      refute one_html =~ ">9<"
+      refute one_html =~ ">4<"
+
+      two = %{snapshot | items: [item(kind), %{item(kind) | ref: "behavior:two"}], total: 2}
+      assert count_text(render_component(&BehaviorPage.render/1, view: two)) == many
+    end
+
+    filtered = %{
+      view(:guidance, [])
+      | counts: %{"active" => 9},
+        params: %{"q" => "missing", "status" => "all", "scope" => ""}
+    }
+
+    html = render_component(&BehaviorPage.render/1, view: filtered)
+    document = LazyHTML.from_fragment(html)
+    assert Enum.empty?(LazyHTML.query(document, "p.result-count"))
+    assert html =~ "No matching entries"
+
+    assert LazyHTML.query(document, "form.filter-toolbar a.filter-clear")
+           |> LazyHTML.attribute("href") == ["/guidance"]
   end
 
   test "active instructions expose scope and confirmation buttons while history stays read only" do
@@ -143,6 +230,24 @@ defmodule Responder.ControlPlane.BehaviorPageTest do
     assert html =~ "No matching entries"
     assert html =~ "Clear filters"
     refute html =~ "No guidance yet"
+  end
+
+  defp count_text(html),
+    do: html |> LazyHTML.from_fragment() |> LazyHTML.query("p.result-count") |> LazyHTML.text()
+
+  # "tag.first-class" for each matched element, in document order.
+  defp outline(document, selector) do
+    nodes = LazyHTML.query(document, selector)
+
+    nodes
+    |> LazyHTML.tag()
+    |> Enum.zip(LazyHTML.attributes(nodes))
+    |> Enum.map(fn {tag, attributes} ->
+      case List.keyfind(attributes, "class", 0) do
+        {"class", class} -> tag <> "." <> hd(String.split(class))
+        nil -> tag
+      end
+    end)
   end
 
   defp view(kind, items),

@@ -1,9 +1,11 @@
 defmodule Responder.ControlPlane.Layouts do
   @moduledoc false
   use Phoenix.Component
-  alias Responder.ControlPlane.Navigation
+  alias Responder.ControlPlane.{Components, Navigation}
 
   def static(assigns) do
+    assigns = assign_new(assigns, :description, fn -> nil end)
+
     ~H"""
     <!DOCTYPE html>
     <html lang="en">
@@ -22,7 +24,9 @@ defmodule Responder.ControlPlane.Layouts do
             </div>
             <main class="legacy-surface action-page">
               <div class="secondary-page">
-                <div class="secondary-page-title"><h1>{@title}</h1></div>{Phoenix.HTML.raw(@body)}
+                <Components.page_header title={@title} description={@description} />{Phoenix.HTML.raw(
+                  @body
+                )}
               </div>
             </main>
           </div>

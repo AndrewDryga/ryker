@@ -8,6 +8,7 @@ defmodule Responder.ControlPlane.WorkbenchLive do
     ActivityPage,
     CardLab,
     CardLabPage,
+    Components,
     Endpoint,
     EpisodePage,
     HTML,
@@ -38,6 +39,7 @@ defmodule Responder.ControlPlane.WorkbenchLive do
        params: %{},
        body: "",
        page_title: "Activity",
+       page_description: nil,
        connected: connected?(socket),
        unavailable: false,
        refresh_token: nil,
@@ -104,6 +106,7 @@ defmodule Responder.ControlPlane.WorkbenchLive do
        native: :loading,
        body: "",
        page_title: "Workspace",
+       page_description: nil,
        observed_at: nil
      )
      |> refresh(true)}
@@ -491,7 +494,13 @@ defmodule Responder.ControlPlane.WorkbenchLive do
   defp load_snapshot(socket, options) do
     page = Router.snapshot(socket.assigns.path, socket.assigns.query, options)
     if page.status >= 500, do: throw({:projection_unavailable, :secondary})
-    assign(socket, native: nil, body: page.body, page_title: page.title)
+
+    assign(socket,
+      native: nil,
+      body: page.body,
+      page_title: page.title,
+      page_description: page.description
+    )
   end
 
   defp load_unassigned_input(
@@ -675,9 +684,7 @@ defmodule Responder.ControlPlane.WorkbenchLive do
             error={@settings_error}
           />
           <div :if={@native == :instructions} class="secondary-page instructions-page">
-            <div class="secondary-page-title">
-              <h1>{@page_title}</h1>
-            </div>
+            <Components.page_header title={@page_title} />
             <.live_component
               module={Responder.ControlPlane.InstructionsEditor}
               id={"instructions-#{@instructions.setting.scope_ref}"}
@@ -706,7 +713,9 @@ defmodule Responder.ControlPlane.WorkbenchLive do
             </p><.link navigate="/" class="ui-button secondary">Back to activity</.link>
           </section>
           <div :if={!@native} class="secondary-page">
-            <div class="secondary-page-title"><h1>{@page_title}</h1></div>{Phoenix.HTML.raw(@body)}
+            <Components.page_header title={@page_title} description={@page_description} />{Phoenix.HTML.raw(
+              @body
+            )}
           </div>
         </main>
       </div>

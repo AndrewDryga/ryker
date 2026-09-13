@@ -1325,12 +1325,12 @@ defmodule Responder.ControlPlane.RouterTest do
           {"/configuration", "Effective host configuration"},
           {"/incident-rooms", "Track Slack incident rooms"},
           {"/incident-rooms/incident%3Aone", "Room lifecycle"},
-          {"/schedules", "Recurring and one-shot work"},
+          {"/schedules", "dispatched or missed occurrence"},
           {"/schedules/schedule%3Aone", "Execution history"},
           {"/subscriptions", "Waits"},
-          {"/channels", "Slack conversation roster"},
+          {"/channels", "Slack channels Responder knows about"},
           {"/channels/T123/C456", "Conversation continuity"},
-          {"/repositories", "Where Responder can work"},
+          {"/repositories", "Connected repositories"},
           {"/workspaces", "Workspaces"},
           {"/findings", "Findings"}
         ] do

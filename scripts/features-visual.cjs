@@ -1,4 +1,4 @@
-// Read-only feature discovery checks: GET filters, disclosures, and real preview links.
+// Read-only feature discovery checks: the shared Configuration shell, GET filters and help disclosures.
 // node scripts/features-visual.cjs http://127.0.0.1:4321 PRIVATE_OUTPUT
 const {chromium} = require(process.env.RESPONDER_PLAYWRIGHT_MODULE || 'playwright');
 const fs = require('node:fs/promises');
@@ -32,27 +32,50 @@ assert(process.argv[3], 'Provide a private output directory');
           assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'Horizontal overflow');
           await page.screenshot({path: path.join(output, `${route.slice(1)}-${width}.png`), fullPage: true});
           if (['/rules', '/preferences', '/guidance'].includes(route)) {
-            const stats = await page.locator('.behavior-counts').evaluate(e => {
-              const ds = [...e.querySelectorAll('dt,dd')];
-              return {gap: parseFloat(getComputedStyle(e).gap),
-                clean: ds.every(d => getComputedStyle(d).padding === '0px' && getComputedStyle(d).borderBottomWidth === '0px')};
+            // The approved shell: one title, its description 8px under it, then the
+            // page's own column — help, toolbar, count, entries — down one left edge.
+            const shell = await page.locator('main .secondary-page').evaluate(e => {
+              const heading = e.querySelector('header.page-header .page-heading');
+              const h1 = heading.querySelector('h1'), description = heading.nextElementSibling;
+              const help = e.querySelector('.behavior-library > details.page-help');
+              const toolbar = e.querySelector('.behavior-library > form.filter-toolbar');
+              const box = node => node.getBoundingClientRect();
+              return {titles: e.querySelectorAll('h1').length, titleSize: getComputedStyle(h1).fontSize,
+                descriptionGap: Math.round(box(description).top - box(h1).bottom),
+                describes: description.matches('p.page-description'),
+                helpClosed: help && !help.open, helpLeft: Math.round(box(help).left - box(h1).left),
+                toolbarLeft: Math.round(box(toolbar).left - box(h1).left),
+                applyButtons: toolbar.querySelectorAll('button').length,
+                stats: e.querySelectorAll('.behavior-counts, .behavior-overview, .behavior-create').length};
             });
-            assert(stats.gap >= 24 && stats.clean, 'Summary counts must not inherit legacy table borders or collapse together');
+            assert.equal(shell.titles, 1, 'The title renders once');
+            assert.equal(shell.titleSize, width === 390 ? '24px' : '28px');
+            assert(shell.describes && shell.descriptionGap <= 8, `Description sits directly under the title (${shell.descriptionGap}px)`);
+            assert(shell.helpClosed && shell.helpLeft === 0 && shell.toolbarLeft === 0, 'Help and toolbar share the title\'s left edge');
+            assert.equal(shell.applyButtons, 0, 'No Apply button: dropdowns apply on change');
+            assert.equal(shell.stats, 0, 'No statistics row or side help column');
             if (width === 390) {
               const search = await page.locator('#behavior-search').boundingBox();
               assert(search.width > 300, 'Mobile search gets its own full row');
-              assert((await page.locator('#behavior-status').boundingBox()).width >= 160, 'The selected status must remain readable');
+              assert((await page.locator('#behavior-status').boundingBox()).width >= 150, 'The selected status must remain readable');
             }
-            await page.locator('.behavior-create > summary').click();
+            await page.locator('details.page-help > summary').focus();
+            await page.keyboard.press('Enter');
             assert(await page.getByText('Review and confirm the proposed card', {exact: false}).isVisible());
-            await page.screenshot({path: path.join(output, `${route.slice(1)}-${width}-create.png`)});
-            const preview = await page.locator('.behavior-create a[href^="/card-lab/"]').getAttribute('href');
-            const previewResponse = await page.request.get(new URL(preview, origin).href);
-            assert.equal(previewResponse.status(), 200, 'Preview must be a real route');
+            await page.screenshot({path: path.join(output, `${route.slice(1)}-${width}-help.png`)});
+            for (const href of await page.locator('details.page-help a').evaluateAll(es => es.map(e => e.getAttribute('href')))) {
+              assert(!href.startsWith('/card-lab') && !href.startsWith('/lab'), `Help must not link a retired page: ${href}`);
+              assert.equal((await page.request.get(new URL(href, origin).href)).status(), 200, `Help link must be a real route: ${href}`);
+            }
             await page.locator('#behavior-search').fill('No matching instruction');
+            await page.locator('#behavior-search').press('Enter');
+            await page.waitForURL(url => url.searchParams.get('q') === 'No matching instruction');
+            await page.locator('[data-connection-state="connected"]').waitFor();
             await page.locator('#behavior-status').selectOption('all');
+            await page.waitForURL(url => url.searchParams.get('status') === 'all');
+            await page.locator('[data-connection-state="connected"]').waitFor();
             await page.locator('#behavior-scope').selectOption('repository');
-            await page.getByRole('button', {name: 'Apply', exact: true}).click();
+            await page.waitForURL(url => url.searchParams.get('scope') === 'repository');
             await page.locator('[data-connection-state="connected"]').waitFor();
             assert.equal(await page.locator('#behavior-search').inputValue(), 'No matching instruction');
             assert.equal(await page.locator('#behavior-status').inputValue(), 'all');

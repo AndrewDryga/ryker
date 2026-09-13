@@ -34,6 +34,7 @@ function fixture(items, store = storage(), target = scope) {
   const listeners = new Map()
   const document = {body: {}, documentElement: {scrollHeight: 1000},
     querySelector: () => ({content: "host-test-csrf"}), getElementById: () => null,
+    addEventListener() {}, removeEventListener() {},
     createElement: tagName => ({tagName: tagName.toUpperCase(), dataset: {}, type: "", name: "", value: ""})}
   document.activeElement = document.body
   const location = {pathname: "/memory", hash: "", search: "?rebuild_page=1"}
