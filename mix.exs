@@ -67,6 +67,8 @@ defmodule Ryker.MixProject do
       {:jason, "~> 1.4"},
       {:jsv, "~> 0.22", only: :test},
       {:lazy_html, "~> 0.1.12", only: :test},
+      # The Slack app manifest test reads deploy/slack-app-manifest.yaml.
+      {:yaml_elixir, "~> 2.12", only: :test},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false}
     ]
   end
