@@ -18,7 +18,9 @@ defmodule Responder.Runtime.Owner do
   require Logger
 
   alias Responder.{Bootstrap, Settings}
+  alias Responder.ControlPlane.SlackNames
   alias Responder.Runtime.Assembly
+  alias Responder.Slack.Client
 
   @retry_ms 5_000
   # Started and replaced by this owner, in dependency order.
@@ -41,7 +43,7 @@ defmodule Responder.Runtime.Owner do
   ]
   @control_plane_companions [
     Responder.ControlPlane.Updates,
-    Responder.ControlPlane.SlackNames,
+    SlackNames,
     Responder.ControlPlane.CardLabWorker
   ]
 
@@ -181,17 +183,21 @@ defmodule Responder.Runtime.Owner do
 
   # The console is always configured: without settings it has bootstrap's
   # listener and no Work profile at all.
-  defp console(state, nil, _configuration) do
+  defp console(state, nil, configuration) do
     %{
       csrf_secret: state.csrf_secret,
       ip: state.bootstrap.control_plane.ip,
       port: state.bootstrap.control_plane.port,
+      slack: configuration[:slack],
       work_profile: nil
     }
   end
 
-  defp console(state, control_plane, _configuration),
-    do: Map.put(control_plane, :csrf_secret, state.csrf_secret)
+  defp console(state, control_plane, configuration) do
+    control_plane
+    |> Map.put(:csrf_secret, state.csrf_secret)
+    |> Map.put(:slack, configuration[:slack])
+  end
 
   defp reconcile_children(state, desired) do
     running =
@@ -262,11 +268,35 @@ defmodule Responder.Runtime.Owner do
     end
   end
 
+  # The name cache is handed the Slack runtime rather than reading it back out of
+  # the application environment in `init`. A child that reads global state at
+  # start is a child whose start depends on who ran before it: this one declined
+  # with `:ignore` for weeks in production, and nothing retries an `:ignore`.
   defp child_specs(:control_plane, module, configuration) do
-    Enum.map(@control_plane_companions, &{&1, []}) ++ [{module, configuration}]
+    {slack, console} = Map.pop(configuration, :slack)
+
+    companions =
+      Enum.map(@control_plane_companions, fn
+        Responder.ControlPlane.SlackNames ->
+          {Responder.ControlPlane.SlackNames, name_cache(slack)}
+
+        companion ->
+          {companion, []}
+      end)
+
+    companions ++ [{module, console}]
   end
 
   defp child_specs(_key, module, configuration), do: [{module, configuration}]
+
+  defp name_cache(%{identity: %{workspace_ref: workspace}, bot_client: client})
+       when is_binary(workspace),
+       do: [
+         workspace: workspace,
+         fetch: &Client.directory_name(client, workspace, &1)
+       ]
+
+  defp name_cache(_slack), do: []
 
   defp record(revision, result) do
     case Settings.record_application(revision, result) do
