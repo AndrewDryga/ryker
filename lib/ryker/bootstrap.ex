@@ -160,8 +160,16 @@ defmodule Ryker.Bootstrap do
     %{ip: ip, port: integer!(env, prefix <> "_PORT", default_port, 1..65_535)}
   end
 
+  # Any RYKER_WORKER_* variable means the operator wants the gateway, and the
+  # gateway needs all of them: an address without the TLS material used to be
+  # validated and then silently dropped, leaving a listener nobody started.
   defp worker_gateway!(env) do
-    names = ["RYKER_WORKER_PUBLIC_URL" | Keyword.values(@worker_files)]
+    names = [
+      "RYKER_WORKER_IP",
+      "RYKER_WORKER_PORT",
+      "RYKER_WORKER_PUBLIC_URL" | Keyword.values(@worker_files)
+    ]
+
     listener = listener!(env, "RYKER_WORKER", 4322, :network)
 
     if Enum.any?(names, &(env.(&1) != :error)) do
@@ -288,8 +296,17 @@ defmodule Ryker.Bootstrap do
 
   defp valid_secret?(value, minimum) do
     is_binary(value) and byte_size(value) in minimum..4_096 and String.valid?(value) and
-      String.trim(value) != "" and not String.contains?(value, <<0>>)
+      not String.contains?(value, <<0>>) and untrimmed?(value)
   end
+
+  # A credential copied with its surrounding whitespace fails at the provider
+  # with the same answer a wrong one gets, while presence checks call it
+  # configured. A PEM-armored key is the one secret that ends in a newline by
+  # construction.
+  defp untrimmed?("-----BEGIN " <> _rest = pem),
+    do: String.trim(pem) == String.trim_trailing(pem, "\n")
+
+  defp untrimmed?(value), do: String.trim(value) == value
 
   defp invalid!(name, reason), do: raise(ArgumentError, "#{name} #{reason}")
 end
