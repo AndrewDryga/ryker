@@ -1412,6 +1412,7 @@ defmodule Ryker.ControlPlane.Projection do
 
   def memory(params \\ %{}) do
     now = database_now!()
+    secrets = InspectionRedactor.configured_secrets()
 
     %{
       conversation_memory: ConversationMemory.project(params),
@@ -1438,7 +1439,10 @@ defmodule Ryker.ControlPlane.Projection do
                 )
             }
           )
-        ),
+        )
+        |> Enum.map(&redact_fields(&1, [:subject], secrets)),
+      # A memory is a person's own words, confirmed as a fact; they are redacted
+      # here exactly as the channel page and the behavior library redact them.
       memories:
         Repo.all(
           from(memory in MemoryEntry,
@@ -1457,7 +1461,8 @@ defmodule Ryker.ControlPlane.Projection do
               subject: memory.subject
             }
           )
-        ),
+        )
+        |> Enum.map(&redact_fields(&1, [:applicability, :subject, :value], secrets)),
       reviews: Memories.pending_reviews(100),
       schedules:
         Repo.all(
@@ -1476,6 +1481,18 @@ defmodule Ryker.ControlPlane.Projection do
           )
         )
     }
+  end
+
+  defp redact_fields(row, keys, secrets) do
+    Enum.reduce(keys, row, fn key, row ->
+      case Map.fetch!(row, key) do
+        text when is_binary(text) ->
+          Map.put(row, key, InspectionRedactor.artifact(text, secrets: secrets).text)
+
+        _absent ->
+          row
+      end
+    end)
   end
 
   def usage(params) when is_map(params) do

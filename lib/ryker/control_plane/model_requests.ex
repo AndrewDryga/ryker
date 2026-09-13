@@ -1,17 +1,14 @@
 defmodule Ryker.ControlPlane.ModelRequests do
-  alias Ryker.Work.ActivityRetention
   @moduledoc "Bounded, explicitly sensitive read boundary for retained model requests."
   import Ecto.Query
   alias Ryker.Admission.Attempt
-  alias Ryker.ControlPlane.Activity
-  alias Ryker.ControlPlane.EpisodeTrace
+  alias Ryker.ControlPlane.{Activity, EpisodeTrace, PagedRelation, WorkRecovery}
   alias Ryker.ControlPlane.InspectionRedactor, as: Redactor
-  alias Ryker.ControlPlane.WorkRecovery
   alias Ryker.Episodes.Episode
   alias Ryker.Ingress.Inbox
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Repo
-  alias Ryker.Work.{ActivityEvent, CandidateResponse, Session, Turn}
+  alias Ryker.Work.{ActivityEvent, ActivityRetention, CandidateResponse, Session, Turn}
 
   @page_size 20
   @tool_page_size 30
@@ -22,26 +19,22 @@ defmodule Ryker.ControlPlane.ModelRequests do
     case Repo.get_by(Episode, key: ref) do
       %Episode{} = episode ->
         kind = if params["kind"] == "admission", do: :admission, else: :work
-        page = page(params["page"])
 
         base =
           if kind == :work,
             do: from(row in Turn, where: row.episode_id == ^episode.id),
             else: from(row in Entry, where: row.episode_id == ^episode.id)
 
-        total = Repo.aggregate(base, :count)
-
-        rows =
-          Repo.all(
-            from(row in base,
-              order_by: [desc: row.inserted_at, desc: row.id],
-              offset: ^((page - 1) * @page_size),
-              limit: @page_size,
-              select: %{id: row.id, status: row.status, at: row.inserted_at}
-            )
+        page =
+          PagedRelation.read(
+            from(row in base, select: %{id: row.id, status: row.status, at: row.inserted_at}),
+            [desc: :inserted_at, desc: :id],
+            "page",
+            PagedRelation.requested(params, "page"),
+            page_size: @page_size
           )
 
-        case selected_row(base, params["attempt"], rows) do
+        case selected_row(base, params["attempt"], page.items) do
           :not_found ->
             :not_found
 
@@ -58,10 +51,10 @@ defmodule Ryker.ControlPlane.ModelRequests do
              %{
                episode_ref: episode.key,
                kind: kind,
-               page: page,
-               pages: max(1, ceil(total / @page_size)),
-               total: total,
-               items: rows,
+               page: page.page,
+               pages: page.pages,
+               total: page.total,
+               items: page.items,
                selected: inspect_row(selected, params, options)
              }}
         end
@@ -416,7 +409,7 @@ defmodule Ryker.ControlPlane.ModelRequests do
 
     generation =
       if params["generation"],
-        do: min(page(params["generation"]), entry.execution_generation),
+        do: min(PagedRelation.requested(params, "generation"), entry.execution_generation),
         else: entry.execution_generation
 
     attempt =
@@ -667,7 +660,9 @@ defmodule Ryker.ControlPlane.ModelRequests do
     selected = if timeline?, do: pages, else: 1
 
     page =
-      if params["responses_page"], do: min(page(params["responses_page"]), pages), else: selected
+      if params["responses_page"],
+        do: min(PagedRelation.requested(params, "responses_page"), pages),
+        else: selected
 
     offset =
       if timeline?,
@@ -936,19 +931,17 @@ defmodule Ryker.ControlPlane.ModelRequests do
   end
 
   defp activity_page(query, params, options) do
-    query = ActivityRetention.visible(query)
-    total = Repo.aggregate(query, :count)
-    page = page(params["tools_page"])
+    page =
+      PagedRelation.read(
+        ActivityRetention.visible(query),
+        [asc: :sequence, asc: :id],
+        "tools_page",
+        PagedRelation.requested(params, "tools_page"),
+        page_size: @tool_page_size
+      )
 
     items =
-      Repo.all(
-        from(event in query,
-          order_by: [asc: event.sequence],
-          offset: ^((page - 1) * @tool_page_size),
-          limit: @tool_page_size
-        )
-      )
-      |> Enum.map(fn event ->
+      Enum.map(page.items, fn event ->
         artifact_id = "tool-#{event.id}"
 
         %{
@@ -966,7 +959,7 @@ defmodule Ryker.ControlPlane.ModelRequests do
         }
       end)
 
-    %{items: items, page: page, pages: max(1, ceil(total / @tool_page_size)), total: total}
+    %{items: items, page: page.page, pages: page.pages, total: page.total}
   end
 
   defp section("request" = id, title, value, options) do
@@ -1022,14 +1015,6 @@ defmodule Ryker.ControlPlane.ModelRequests do
 
   defp decode(_value), do: %{}
 
-  defp page(value) when is_binary(value) do
-    case Integer.parse(value) do
-      {number, ""} when number in 1..10_000 -> number
-      _invalid -> 1
-    end
-  end
-
-  defp page(_value), do: 1
   defp iso(nil), do: nil
   defp iso(at), do: DateTime.to_iso8601(at)
 end

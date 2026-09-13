@@ -614,6 +614,28 @@ defmodule Ryker.ControlPlane.ModelRequestsTest do
     refute native =~ "Host-authored retained instructions"
   end
 
+  # Every other directory clamps a page past the end to the last page. This one
+  # read the offset straight from the query string, so a stale bookmark or a
+  # hand-edited `?page=` answered with an empty request list and no selected
+  # request, beside a pager that said "page 99 of 1".
+  test "a request page past the end is the last page, never an empty one" do
+    {episode, turn, _prompt} = frozen_turn!()
+
+    assert {:ok, view} = ModelRequests.project(episode.key, %{"page" => "99"})
+    assert view.page == view.pages
+    assert Enum.map(view.items, & &1.id) == [turn.id]
+    assert view.selected.id == turn.id
+
+    assert {:ok, first} = ModelRequests.project(episode.key, %{"page" => "0"})
+    assert first.page == 1
+    assert first.selected.id == turn.id
+
+    assert {:ok, tools} =
+             ModelRequests.project(episode.key, %{"attempt" => turn.id, "tools_page" => "40"})
+
+    assert tools.selected.tools.page == tools.selected.tools.pages
+  end
+
   defp frozen_turn! do
     id = Ecto.UUID.generate()
 

@@ -19,6 +19,7 @@ defmodule Ryker.ControlPlane.AdmissionProgress do
 
   def conversation(ref) do
     now = DateTime.utc_now()
+    secrets = InspectionRedactor.configured_secrets()
 
     Repo.all(
       from(entry in Entry,
@@ -61,7 +62,7 @@ defmodule Ryker.ControlPlane.AdmissionProgress do
         # Lets a conversation page place this progress beside the message that
         # caused it, whichever revision of that message is currently shown.
         native_input_id: row.native_input_id,
-        title: InspectionRedactor.artifact(row.text || "Incoming event", max_bytes: 180).text,
+        title: title(row.text, secrets),
         phase: phase(row, now),
         elapsed_ms: max(DateTime.diff(now, row.received_at, :millisecond), 0),
         observed_at: row.observed_at,
@@ -73,6 +74,12 @@ defmodule Ryker.ControlPlane.AdmissionProgress do
       }
     end)
   end
+
+  # A pruned or attachment-only message has no text to name the row after.
+  defp title(text, _secrets) when text in [nil, ""], do: "Incoming event"
+
+  defp title(text, secrets),
+    do: InspectionRedactor.artifact(text, secrets: secrets, max_bytes: 180).text
 
   defp phase(%{status: :blocked}, _now), do: "Blocked · operator recovery required"
 
