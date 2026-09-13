@@ -172,6 +172,7 @@ defmodule Responder.ControlPlane.LabPage do
               <button type="button" class="lab-new-messages" hidden>New messages</button>
             </div>
           </div>
+          <div id="lab-notices" class="lab-notices" phx-update="ignore" aria-live="polite"></div>
           <form
             id={"lab-composer-#{if @snapshot[:draft], do: "new", else: @snapshot.conversation_id}"}
             phx-update="ignore"
@@ -247,7 +248,9 @@ defmodule Responder.ControlPlane.LabPage do
       <div class="chat-message-text markdown-preview">
         {Phoenix.HTML.raw(Responder.ControlPlane.SlackMarkdown.preview(@message.text || ""))}
       </div>
+      {Phoenix.HTML.raw(HTML.lab_message_editor(@message))}
       <div class="chat-message-extras">{Phoenix.HTML.raw(HTML.lab_message_extras(@message))}</div>
+      {Phoenix.HTML.raw(HTML.lab_message_actions(@message))}
       <p :for={row <- @rows} id={"lab-progress-#{row.id}"} class="lab-message-progress" role="status">
         <span>{row.phase}</span><span class="lab-progress-elapsed">{Float.round(
           row.elapsed_ms / 1000,

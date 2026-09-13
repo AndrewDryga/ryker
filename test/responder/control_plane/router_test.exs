@@ -361,6 +361,32 @@ defmodule Responder.ControlPlane.RouterTest do
     assert_received {:lab_message_edit, "018f3ef7-1f62-7ee0-a83c-0c12f21d83e6",
                      "018f3ef7-1f62-7ee0-a83c-0c12f21d83e7", "Corrected request"}
 
+    # The inline editor saves without leaving the page: it asks for JSON and
+    # gets the same 202 receipt as the composer, one revision per request.
+    live_edit =
+      json_request(
+        "/conversations/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6/messages/018f3ef7-1f62-7ee0-a83c-0c12f21d83e7/edit",
+        URI.encode_query(%{"_token" => edit_token, "message" => "Corrected again"})
+      )
+
+    assert live_edit.status == 202
+    assert Jason.decode!(live_edit.resp_body) == %{"accepted" => true}
+    assert get_resp_header(live_edit, "location") == []
+
+    assert_received {:lab_message_edit, "018f3ef7-1f62-7ee0-a83c-0c12f21d83e6",
+                     "018f3ef7-1f62-7ee0-a83c-0c12f21d83e7", "Corrected again"}
+
+    refute_received {:lab_message_edit, _conversation, _item, _message}
+
+    rejected_live_edit =
+      json_request(
+        "/conversations/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6/messages/018f3ef7-1f62-7ee0-a83c-0c12f21d83e7/edit",
+        URI.encode_query(%{"_token" => "wrong", "message" => "Corrected again"})
+      )
+
+    assert rejected_live_edit.status == 403
+    refute_received {:lab_message_edit, _conversation, _item, _message}
+
     delete_resource =
       "018f3ef7-1f62-7ee0-a83c-0c12f21d83e6:018f3ef7-1f62-7ee0-a83c-0c12f21d83e7:delete"
 
@@ -374,6 +400,18 @@ defmodule Responder.ControlPlane.RouterTest do
       )
 
     assert accepted_delete.status == 303
+
+    assert_received {:lab_message_delete, "018f3ef7-1f62-7ee0-a83c-0c12f21d83e6",
+                     "018f3ef7-1f62-7ee0-a83c-0c12f21d83e7"}
+
+    live_delete =
+      json_request(
+        "/conversations/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6/messages/018f3ef7-1f62-7ee0-a83c-0c12f21d83e7/delete",
+        URI.encode_query(%{"_token" => delete_token})
+      )
+
+    assert live_delete.status == 202
+    assert Jason.decode!(live_delete.resp_body) == %{"accepted" => true}
 
     assert_received {:lab_message_delete, "018f3ef7-1f62-7ee0-a83c-0c12f21d83e6",
                      "018f3ef7-1f62-7ee0-a83c-0c12f21d83e7"}
@@ -2936,6 +2974,18 @@ defmodule Responder.ControlPlane.RouterTest do
         end
       }
     }
+  end
+
+  # A form post from the page's own JavaScript: it asks for a JSON receipt
+  # instead of the redirect a plain browser submission gets.
+  defp json_request(path, body) do
+    :post
+    |> conn(path, body)
+    |> Map.put(:host, "localhost")
+    |> Map.put(:remote_ip, {127, 0, 0, 1})
+    |> put_req_header("content-type", "application/x-www-form-urlencoded")
+    |> put_req_header("accept", "application/json")
+    |> Router.call(Router.init(options()))
   end
 
   defp multipart_request(path, token, message, filename, media_type, data) do

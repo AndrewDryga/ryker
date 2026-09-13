@@ -1347,8 +1347,8 @@ defmodule Responder.ControlPlane.HTML do
     table{border-collapse:collapse;width:100%;background:var(--panel)}th,td{border-bottom:1px solid var(--line);padding:.75rem;text-align:left;vertical-align:top}th{color:var(--muted);font-size:.8rem;text-transform:uppercase}dl{display:grid;grid-template-columns:max-content 1fr;gap:.5rem 1rem}dt{color:var(--muted)}dd{margin:0;overflow-wrap:anywhere}
     button,.button{background:var(--accent);border:0;border-radius:7px;color:#0a0b0d;display:inline-block;font:inherit;font-weight:700;padding:.65rem .9rem;text-decoration:none}.danger{background:var(--danger)}.windows{margin:0 0 1rem}.windows a[aria-current=page]{color:var(--accent);font-weight:800}.trend{background:var(--panel);border:1px solid var(--line);border-radius:12px;display:block;max-width:100%;width:100%}.trend rect{fill:var(--accent)}
     code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.9em}.eyebrow{color:var(--accent);font-size:.72rem;font-weight:900;letter-spacing:.16em;margin:0 0 .4rem;text-transform:uppercase}.lab-hero{align-items:center;background:linear-gradient(125deg,#18222b,#101419 70%);border:1px solid #34414d;border-radius:18px;display:flex;gap:2rem;justify-content:space-between;padding:clamp(1.3rem,4vw,2.5rem)}.lab-hero h2{font-size:clamp(1.5rem,3vw,2.35rem);margin:.15rem 0}.lab-hero p{color:#b8c2cc;max-width:68ch}.lab-shell{background:#0d1116;border:1px solid var(--line);border-radius:18px;overflow:hidden}.lab-heading{align-items:flex-start;background:linear-gradient(120deg,#182029,#10151b);border-bottom:1px solid var(--line);display:flex;justify-content:space-between;padding:1.4rem}.lab-heading h2{margin:.1rem 0}.lab-heading p{margin:.2rem 0}.lab-safety-note{background:#142017;border-bottom:1px solid #334d36;color:#c7d6c5;margin:0;padding:.75rem 1.4rem}.lab-safety-note strong{color:var(--accent)}.status-cluster{align-items:flex-end;display:flex;flex-direction:column;gap:.55rem}.status{border:1px solid var(--line);border-radius:999px;font-size:.72rem;font-weight:900;letter-spacing:.08em;padding:.3rem .65rem;text-transform:uppercase}.status.live{border-color:#587425;color:var(--accent)}.status.waiting{border-color:#6f5b2d;color:var(--warning)}.status.blocked{border-color:#7f3a39;color:var(--danger)}.quiet-link{color:var(--muted);font-size:.82rem}.lab-stream{display:grid;grid-template-columns:minmax(0,1fr) 260px;min-height:280px}.messages{display:flex;flex-direction:column;gap:1rem;padding:1.4rem}.message{border:1px solid var(--line);border-radius:14px;max-width:86%;padding:.9rem 1rem}.message.operator{align-self:flex-end;background:#243420;border-color:#3f5d35}.message.integration{align-self:flex-start;background:#171b20;border-color:#5c6570;border-style:dashed;color:#d5dbe1}.message.responder{align-self:flex-start;background:var(--panel-raised);border-color:#344553}.message-head{align-items:center;color:var(--muted);display:flex;font-size:.72rem;gap:.65rem;justify-content:space-between;margin-bottom:.45rem;text-transform:uppercase}.message-body{overflow-wrap:anywhere;white-space:pre-wrap}.message-refs{display:flex;flex-wrap:wrap;gap:.35rem;margin:.65rem 0 0}.message-refs code{background:#0c1014;border-radius:5px;color:var(--cyan);padding:.15rem .35rem}.custody-strip{background:#0a0e12;border-left:1px solid var(--line);padding:1.25rem}.custody-strip strong{color:var(--cyan);font-size:.76rem;letter-spacing:.1em;text-transform:uppercase}.custody-strip ul{list-style:none;margin:1rem 0;padding:0}.custody-strip li{border-top:1px solid var(--line);padding:.7rem 0}.custody-strip li span{color:var(--muted);display:block;font-size:.78rem}.composer{border-top:1px solid var(--line);padding:1.25rem}.composer label{display:block;font-size:.8rem;font-weight:800;margin-bottom:.45rem;text-transform:uppercase}.composer textarea,.composer input[type=file]{background:#090d11;border:1px solid #3a4652;border-radius:10px;color:var(--text);font:inherit;padding:.85rem;width:100%}.composer textarea{resize:vertical}.composer textarea:focus,.composer input[type=file]:focus{border-color:var(--accent);outline:2px solid #c6ff4730}.composer .attachment-label{margin-top:.8rem}.composer-actions{align-items:center;color:var(--muted);display:flex;font-size:.78rem;gap:1rem;justify-content:space-between;margin-top:.8rem}
-    .message-reactions{display:flex;gap:.35rem;margin-top:.55rem}.reaction-chip{background:#1c2831;border:1px solid #3b5364;border-radius:999px;color:#d8f6ff;font-family:var(--mono);font-size:.75rem;padding:.2rem .5rem}.message-attachments{display:grid;gap:.55rem;margin-top:.7rem}.attachment-chip{background:#101920;border:1px solid #3b5364;border-radius:8px;color:#d8f6ff;display:flex;flex-wrap:wrap;font-size:.78rem;gap:.45rem;padding:.45rem .6rem}.attachment-chip span{color:var(--muted)}.attachment-download{color:inherit;display:grid;gap:.45rem;text-decoration:none}.attachment-download img{background:#080a0d;border:1px solid var(--line);border-radius:8px;display:block;max-height:280px;max-width:100%;object-fit:contain}.lab-message-controls{align-items:flex-start;border-top:1px solid #3f5d35;display:flex;gap:.55rem;justify-content:flex-end;margin-top:.8rem;padding-top:.65rem}.lab-message-controls details{flex:1}.lab-message-controls summary{cursor:pointer;font-size:.75rem;font-weight:800}.lab-message-controls label{display:grid;font-size:.72rem;gap:.35rem;margin-top:.55rem}.lab-message-controls textarea{background:#090d11;border:1px solid #3a4652;border-radius:8px;color:var(--text);font:inherit;padding:.6rem;resize:vertical;width:100%}.danger-button{border:1px solid #7f3a39;color:#ffb3ad}.message-cards{display:grid;gap:.7rem;margin-top:.85rem}.lab-card{background:#0e1419;border:1px solid #344553;border-left:3px solid var(--cyan);border-radius:10px;padding:.85rem}.lab-card-head{color:var(--cyan);display:flex;font-size:.68rem;font-weight:900;gap:1rem;justify-content:space-between;letter-spacing:.1em;text-transform:uppercase}.lab-card h3{font-size:1rem;margin:.45rem 0}.lab-card p{color:#cbd3da;margin:.35rem 0;white-space:pre-wrap}.lab-card dl{font-size:.78rem;grid-template-columns:max-content minmax(0,1fr);margin:.65rem 0}.choice-list{display:flex;flex-wrap:wrap;gap:.4rem;margin-top:.65rem}.choice-chip{background:#1c2831;border:1px solid #3b5364;border-radius:999px;color:#d8f6ff;font-size:.78rem;padding:.25rem .55rem}
-    .lab-reaction-controls{border-top:1px solid #344553;margin-top:.8rem;padding-top:.65rem}.reaction-label{color:var(--muted);display:block;font-size:.7rem;font-weight:800;letter-spacing:.07em;margin-bottom:.45rem;text-transform:uppercase}.quick-reactions,.feedback-reactions{align-items:center;display:flex;flex-wrap:wrap;gap:.35rem}.feedback-reactions{margin-bottom:.45rem}.reaction-form{display:inline}.reaction-form button{background:#1c2831;border:1px solid #3b5364;color:#d8f6ff;font-size:.75rem;padding:.3rem .5rem}.feedback-reaction{align-items:center;background:#142017;border:1px solid #3f5d35;border-radius:999px;display:inline-flex;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.75rem;gap:.25rem;padding-left:.5rem}.feedback-reaction button{border:0;border-left:1px solid #3f5d35;border-radius:0 999px 999px 0;padding:.2rem .4rem}.lab-reaction-controls details{margin-top:.45rem}.lab-reaction-controls summary{cursor:pointer;font-size:.72rem}.lab-reaction-controls label{display:flex;font-size:.72rem;gap:.4rem;margin-top:.4rem}.lab-reaction-controls input[name=emoji]{background:#090d11;border:1px solid #3a4652;border-radius:7px;color:var(--text);font:inherit;padding:.35rem}.danger-button{background:#261312}.lab-card-actions{display:flex;flex-wrap:wrap;gap:.5rem;margin-top:.75rem}.lab-card-actions form{margin:0}.lab-card-actions button,.lab-card-actions .button{font-size:.82rem;padding:.5rem .7rem}.work-view{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:1.2rem}.work-view pre{background:#090d11;border:1px solid var(--line);border-radius:10px;color:#dbe7ef;overflow:auto;padding:1rem;white-space:pre-wrap}.work-view-actions{align-items:center;display:flex;flex-wrap:wrap;gap:.7rem;margin-top:1rem}
+    .message-reactions{display:flex;gap:.35rem;margin-top:.55rem}.reaction-chip{background:#1c2831;border:1px solid #3b5364;border-radius:999px;color:#d8f6ff;font-family:var(--mono);font-size:.75rem;padding:.2rem .5rem}.message-attachments{display:grid;gap:.55rem;margin-top:.7rem}.attachment-chip{background:#101920;border:1px solid #3b5364;border-radius:8px;color:#d8f6ff;display:flex;flex-wrap:wrap;font-size:.78rem;gap:.45rem;padding:.45rem .6rem}.attachment-chip span{color:var(--muted)}.attachment-download{color:inherit;display:grid;gap:.45rem;text-decoration:none}.attachment-download img{background:#080a0d;border:1px solid var(--line);border-radius:8px;display:block;max-height:280px;max-width:100%;object-fit:contain}.lab-message-actions{display:flex;gap:.55rem;justify-content:flex-end;margin-top:.8rem}.lab-edit-form textarea{background:#090d11;border:1px solid #3a4652;border-radius:8px;color:var(--text);font:inherit;padding:.6rem;width:100%}.message-cards{display:grid;gap:.7rem;margin-top:.85rem}.lab-card{background:#0e1419;border:1px solid #344553;border-left:3px solid var(--cyan);border-radius:10px;padding:.85rem}.lab-card-head{color:var(--cyan);display:flex;font-size:.68rem;font-weight:900;gap:1rem;justify-content:space-between;letter-spacing:.1em;text-transform:uppercase}.lab-card h3{font-size:1rem;margin:.45rem 0}.lab-card p{color:#cbd3da;margin:.35rem 0;white-space:pre-wrap}.lab-card dl{font-size:.78rem;grid-template-columns:max-content minmax(0,1fr);margin:.65rem 0}.choice-list{display:flex;flex-wrap:wrap;gap:.4rem;margin-top:.65rem}.choice-chip{background:#1c2831;border:1px solid #3b5364;border-radius:999px;color:#d8f6ff;font-size:.78rem;padding:.25rem .55rem}
+    .lab-reaction-controls{border-top:1px solid #344553;margin-top:.8rem;padding-top:.65rem}.reaction-label{color:var(--muted);display:block;font-size:.7rem;font-weight:800;letter-spacing:.07em;margin-bottom:.45rem;text-transform:uppercase}.quick-reactions,.feedback-reactions{align-items:center;display:flex;flex-wrap:wrap;gap:.35rem}.feedback-reactions{margin-bottom:.45rem}.reaction-form{display:inline}.reaction-form button{background:#1c2831;border:1px solid #3b5364;color:#d8f6ff;font-size:.75rem;padding:.3rem .5rem}.feedback-reaction{align-items:center;background:#142017;border:1px solid #3f5d35;border-radius:999px;display:inline-flex;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.75rem;gap:.25rem;padding-left:.5rem}.feedback-reaction button{border:0;border-left:1px solid #3f5d35;border-radius:0 999px 999px 0;padding:.2rem .4rem}.lab-reaction-controls details{margin-top:.45rem}.lab-reaction-controls summary{cursor:pointer;font-size:.72rem}.lab-reaction-controls label{display:flex;font-size:.72rem;gap:.4rem;margin-top:.4rem}.lab-reaction-controls input[name=emoji]{background:#090d11;border:1px solid #3a4652;border-radius:7px;color:var(--text);font:inherit;padding:.35rem}.lab-card-actions{display:flex;flex-wrap:wrap;gap:.5rem;margin-top:.75rem}.lab-card-actions form{margin:0}.lab-card-actions button,.lab-card-actions .button{font-size:.82rem;padding:.5rem .7rem}.work-view{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:1.2rem}.work-view pre{background:#090d11;border:1px solid var(--line);border-radius:10px;color:#dbe7ef;overflow:auto;padding:1rem;white-space:pre-wrap}.work-view-actions{align-items:center;display:flex;flex-wrap:wrap;gap:.7rem;margin-top:1rem}
     .record-body{background:#090d11;border:1px solid var(--line);border-radius:10px;color:#dbe7ef;overflow:auto;padding:1rem;white-space:pre-wrap}
     .episode-hero{align-items:end;background:linear-gradient(118deg,#172128 0,#0e1217 62%,#17200f 100%);border:1px solid #33404b;border-radius:20px;display:flex;gap:2rem;justify-content:space-between;overflow:hidden;padding:clamp(1.3rem,4vw,2.4rem);position:relative}.episode-hero:after{background:linear-gradient(90deg,transparent,var(--accent));bottom:0;content:"";height:2px;left:0;position:absolute;width:100%}.episode-hero h2{font-size:clamp(1.45rem,3vw,2.3rem);margin:.15rem 0}.episode-ref{color:var(--muted);margin:.7rem 0 0;overflow-wrap:anywhere}.episode-state{border-left:2px solid var(--line);display:grid;min-width:190px;padding:.2rem 0 .2rem 1rem}.episode-state span,.episode-state small{color:var(--muted);font-size:.7rem;font-weight:800;letter-spacing:.08em;text-transform:uppercase}.episode-state strong{font-size:1.25rem;margin:.15rem 0}.episode-state.tone-good{border-color:var(--accent)}.episode-state.tone-warn{border-color:var(--warning)}.episode-state.tone-bad{border-color:var(--danger)}
     .episode-actions{align-items:center;background:#11171c;border:1px solid var(--line);border-radius:14px;display:flex;gap:1rem;justify-content:space-between;margin:1rem 0;padding:.85rem 1rem}.episode-action-copy{display:grid;gap:.1rem}.episode-action-copy strong{font-size:.92rem}.episode-action-copy small{color:var(--muted)}.episode-action-buttons{display:flex;flex-wrap:wrap;gap:.5rem;justify-content:flex-end}.button.secondary{background:#202a32}.button.danger{background:#5c2927}.episode-metrics{display:grid;gap:.65rem;grid-template-columns:repeat(auto-fit,minmax(125px,1fr));margin:1rem 0}.episode-metric{background:#0e1318;border:1px solid var(--line);border-radius:11px;display:grid;min-height:112px;padding:.85rem}.episode-metric>span{color:var(--muted);font-size:.66rem;font-weight:900;letter-spacing:.12em;text-transform:uppercase}.episode-metric strong{align-self:end;font-size:1.3rem;line-height:1.15;margin:.65rem 0 .25rem;overflow-wrap:anywhere}.episode-metric small{color:#89949f}.episode-metric.tone-good{border-top-color:#6c8e2e}.episode-metric.tone-warn{border-top-color:#8d6c25}.episode-metric.tone-bad{border-top-color:#994743}.episode-context{background:#0c1014;border:1px solid var(--line);border-radius:12px;margin:1rem 0;padding:.15rem 1rem}.episode-context dl{font-size:.78rem;grid-template-columns:max-content minmax(0,1fr)}
@@ -1384,8 +1384,7 @@ defmodule Responder.ControlPlane.HTML do
       "<div class=\"message-cards\">",
       Enum.map(Map.get(message, :cards, []), &lab_card/1),
       "</div>",
-      lab_feedback_reaction_controls(message),
-      lab_message_controls(message)
+      lab_feedback_reaction_controls(message)
     ]
   end
 
@@ -1407,7 +1406,7 @@ defmodule Responder.ControlPlane.HTML do
     cards = Map.get(message, :cards, []) |> Enum.map(&lab_card/1)
     reactions = Map.get(message, :reactions, []) |> Enum.map(&lab_reaction/1)
     attachments = Map.get(message, :attachments, []) |> Enum.map(&lab_attachment/1)
-    message_controls = lab_message_controls(message)
+    message_controls = [lab_message_editor(message), lab_message_actions(message)]
     reaction_controls = lab_feedback_reaction_controls(message)
 
     [
@@ -1472,31 +1471,65 @@ defmodule Responder.ControlPlane.HTML do
     end)
   end
 
-  defp lab_message_controls(%{
-         message_controls: %{
-           delete: %{path: delete_path, token: delete_token},
-           edit: %{path: edit_path, token: edit_token}
-         },
-         text: text
-       }) do
+  @doc false
+  # The inline editor of one operator message: a hidden form bound to that
+  # message's exact edit route and token, holding the stored body, with Cancel
+  # and Save at its lower edge. The page's script shows it in place of the
+  # rendered body; nothing here is a disclosure, a heading or a second copy.
+  def lab_message_editor(%{
+        message_controls: %{edit: %{path: edit_path, token: edit_token}},
+        item_id: item_id,
+        text: text
+      })
+      when is_binary(item_id) do
+    editor_id = "lab-edit-#{item_id}"
+
     [
-      "<div class=\"lab-message-controls\"><details><summary>Edit</summary>",
-      "<form method=\"post\" action=\"",
+      "<form class=\"lab-edit-form\" id=\"",
+      editor_id,
+      "\" method=\"post\" action=\"",
       escape(edit_path),
-      "\"><input type=\"hidden\" name=\"_token\" value=\"",
+      "\" data-lab-edit=\"",
+      escape(item_id),
+      "\" hidden><input type=\"hidden\" name=\"_token\" value=\"",
       escape(edit_token),
-      "\"><label>Edit message<textarea name=\"message\" maxlength=\"20000\" rows=\"3\">",
+      "\"><label class=\"sr-only\" for=\"",
+      editor_id,
+      "-text\">Edit message</label><textarea id=\"",
+      editor_id,
+      "-text\" name=\"message\" maxlength=\"20000\" data-max-bytes=\"20000\" rows=\"1\">",
       escape(text),
-      "</textarea></label><button type=\"submit\">Save edit</button></form></details>",
-      "<form method=\"post\" action=\"",
-      escape(delete_path),
-      "\"><input type=\"hidden\" name=\"_token\" value=\"",
-      escape(delete_token),
-      "\"><button class=\"danger-button\" type=\"submit\">Delete</button></form></div>"
+      "</textarea><p class=\"lab-edit-error\" id=\"",
+      editor_id,
+      "-error\" role=\"alert\" hidden></p><div class=\"lab-edit-actions\">",
+      "<span class=\"lab-edit-hint\">Enter adds a line · ⌘ / Ctrl + Enter saves · Esc cancels</span>",
+      "<button type=\"button\" class=\"lab-edit-cancel\">Cancel</button>",
+      "<button type=\"submit\" class=\"lab-edit-save\">Save</button></div></form>"
     ]
   end
 
-  defp lab_message_controls(_message), do: ""
+  def lab_message_editor(_message), do: ""
+
+  @doc false
+  # The compact action row under a message. An operator message gets Edit,
+  # which opens the editor above, and its own exact Delete form.
+  def lab_message_actions(%{
+        message_controls: %{delete: %{path: delete_path, token: delete_token}},
+        item_id: item_id
+      })
+      when is_binary(item_id) do
+    [
+      "<div class=\"lab-message-actions\"><button type=\"button\" class=\"lab-edit-toggle\" aria-controls=\"lab-edit-",
+      escape(item_id),
+      "\" aria-expanded=\"false\">Edit</button><form class=\"lab-action-form\" method=\"post\" action=\"",
+      escape(delete_path),
+      "\"><input type=\"hidden\" name=\"_token\" value=\"",
+      escape(delete_token),
+      "\"><button class=\"lab-message-delete\" type=\"submit\">Delete</button></form></div>"
+    ]
+  end
+
+  def lab_message_actions(_message), do: ""
 
   defp lab_feedback_reaction_controls(%{
          feedback_reactions: reactions,

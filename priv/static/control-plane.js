@@ -18,9 +18,14 @@ const PreserveReadingState = {
     this.active = true
     this.restoreDrafts()
     this.relearnPicker = createRelearnPicker(this.el, () => sessionStorage)
-    this.conversation = createConversationControls(this.el)
+    this.conversation = createConversationControls(this.el, {
+      storage: () => sessionStorage,
+      pushEvent: (name, params) => this.pushEvent(name, params)
+    })
+    this.conversation.restore()
     this.onInput = event => {
       this.relearnPicker.change(event)
+      this.conversation.input(event)
       if (event.target.form?.matches(".composer")) event.target.form.querySelector("textarea")?.setCustomValidity("")
       const key = draftKey(event.target)
       if (key) {
@@ -29,6 +34,7 @@ const PreserveReadingState = {
     }
     this.onSubmit = async event => {
       const form = event.target
+      if (this.conversation.submit(event)) return
       if (!form.matches(".composer") || event.defaultPrevented || !form.checkValidity()) return
       event.preventDefault()
       if (this.sending) return

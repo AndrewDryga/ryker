@@ -2,7 +2,10 @@
 // draft by that action would strand the text on the next visit. A form may
 // name a stable draft scope instead (data-draft-action="new").
 export const draftKey = (element, path) => {
-  if (!element.name || !element.form?.matches(".composer")) return null
+  if (!element.name || !element.form) return null
+  // The composer and each message's inline editor keep drafts; the editor's
+  // key includes its own edit route, so two messages never share one.
+  if (!element.form.matches(".composer") && !element.form.matches(".lab-edit-form")) return null
   if (element.tagName !== "TEXTAREA" && !["text", "search"].includes(element.type)) return null
   const action = element.form.dataset?.draftAction || element.form.getAttribute("action")
   return `responder:draft:${path}:${action}:${element.name}`
