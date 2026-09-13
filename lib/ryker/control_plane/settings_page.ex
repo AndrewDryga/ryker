@@ -37,10 +37,6 @@ defmodule Ryker.ControlPlane.SettingsPage do
           identity and the shipped defaults: no integration is connected, no work is placed and
           nothing is submitted to a model until you say so.
         </p>
-        <p>
-          If this deployment already ran with an application YAML file, import it instead — a new
-          identity would re-key the worker, delivery and publication custody that history belongs to.
-        </p>
         <button type="button" class="ui-button primary" phx-click="initialize-settings">
           Create settings for this installation
         </button>

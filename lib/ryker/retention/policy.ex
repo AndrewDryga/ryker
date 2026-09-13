@@ -39,7 +39,7 @@ defmodule Ryker.Retention.Policy do
       table: "settings_import_receipts",
       class: :audit,
       why:
-        "fingerprints of the one-time configuration import expire at the audit horizon; the imported settings and the installation identity they created are kept, and an expired receipt still refuses a rerun because the installation already exists"
+        "fingerprints of the retired one-time configuration import expire at the audit horizon; the imported settings and the installation identity they created are kept"
     },
     %{
       table: "slack_settings",

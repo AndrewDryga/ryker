@@ -252,36 +252,9 @@ defmodule Ryker.Settings.DomainsTest do
     assert Enum.map(saved.pricing_rates, & &1.revision) == [2, 3]
   end
 
-  test "an imported identity is kept exactly and a second installation is refused" do
-    Repo.delete_all(Ryker.Settings.Installation)
-    Repo.delete_all(Edit)
-
-    assert {:ok, imported} =
-             Settings.import_installation("ryker-a", @actor, %{
-               retention:
-                 Map.put(Settings.retention_defaults(), :audit_data_seconds, 60 * 86_400),
-               learning: %{enabled: true}
-             })
-
-    assert imported.installation.host_ref == "ryker-a"
-    assert imported.retention.audit_data_seconds == 60 * 86_400
-    assert imported.learning.enabled
-    assert [%Edit{domain: :import, revision: 1}] = Repo.all(Edit)
-
-    assert Settings.import_installation("ryker-b", @actor, %{}) ==
-             {:error, :settings_already_initialized}
-
-    assert Settings.import_installation("bad\nref", @actor, %{}) ==
-             {:error, {:invalid_settings, [{:host_ref, :format}]}}
-
-    assert {:ok, ^imported} = Settings.initialize(@actor)
-  end
-
   test "every settings save is attributed to a domain the edit log can hold" do
-    # These rows are how the importer tells its own write from an operator's
-    # later edit: `target_edited` refuses a rerun on exactly this evidence. A
-    # domain the writer names but the edit log's enum does not accept raises on
-    # insert, which fails the very save it was recording.
+    # A domain the writer names but the edit log's enum does not accept raises
+    # on insert, which fails the very save it was recording.
     System.put_env("RYKER_WEBHOOK_SECRET_NAMES", "ALERTMANAGER_WEBHOOK_SECRET")
     on_exit(fn -> System.delete_env("RYKER_WEBHOOK_SECRET_NAMES") end)
 

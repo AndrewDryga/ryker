@@ -7,9 +7,7 @@ defmodule Ryker.Settings do
   match under a transaction lock, the typed changeset must validate as a whole,
   a normalized no-op costs nothing, and every real change records an edit
   receipt with a content fingerprint. A failed database read is never an
-  absent setting: only a missing installation row means "not initialized",
-  and a database that already holds product history refuses fresh defaults
-  because a new identity would re-key worker, delivery and publication custody.
+  absent setting: only a missing installation row means "not initialized".
   """
 
   import Ecto.Query
@@ -57,23 +55,6 @@ defmodule Ryker.Settings do
     :secret_unavailable,
     :worker_gateway_unavailable
   ]
-  # Tables whose rows only exist once the product ran: their presence means an
-  # existing installation whose identity must be imported, not re-keyed.
-  @retained_state_tables ~w(
-    model_instruction_settings
-    slack_channel_configurations
-    slack_channel_setting_overrides
-    slack_channel_memberships
-    coop_workers
-    episode_kernel_episodes
-    ingress_inbox_entries
-    episode_schedules
-    operator_behaviors
-    operational_memory_entries
-    episode_publications
-    slack_incident_rooms
-  )
-
   @type snapshot :: %{
           installation: Installation.t(),
           retention: Retention.t(),
@@ -143,35 +124,8 @@ defmodule Ryker.Settings do
     lock!()
 
     case Repo.one(Installation) do
-      %Installation{} = installation ->
-        load(installation)
-
-      nil ->
-        if retained_state?(), do: Repo.rollback(:settings_import_required)
-        insert_installation!(generate_host_ref(), actor_ref, %{})
-    end
-  end
-
-  @doc """
-  Creates the installation with an imported identity and imported domain values.
-
-  Only the explicit importer calls this: it is the one path that may create the
-  root row while retained product history exists, because it carries the exact
-  host identity that history was keyed under.
-  """
-  def import_installation(host_ref, actor_ref, domains) when is_map(domains) do
-    with :ok <- authorize(actor_ref),
-         :ok <- Validation.host_ref(host_ref) do
-      transaction(fn -> import_installation_locked(host_ref, actor_ref, domains) end)
-    end
-  end
-
-  defp import_installation_locked(host_ref, actor_ref, domains) do
-    lock!()
-
-    case Repo.one(Installation) do
-      %Installation{} -> Repo.rollback(:settings_already_initialized)
-      nil -> insert_installation!(host_ref, actor_ref, domains)
+      %Installation{} = installation -> load(installation)
+      nil -> insert_installation!(generate_host_ref(), actor_ref)
     end
   end
 
@@ -512,7 +466,7 @@ defmodule Ryker.Settings do
     })
   end
 
-  defp insert_installation!(host_ref, actor_ref, domains) do
+  defp insert_installation!(host_ref, actor_ref) do
     now = DateTime.utc_now()
 
     Repo.insert!(%Installation{
@@ -524,32 +478,18 @@ defmodule Ryker.Settings do
       inserted_at: now
     })
 
-    Repo.insert!(
-      struct!(
-        Retention,
-        Map.put(Map.get(domains, :retention, @retention_defaults), :id, host_ref)
-      )
-    )
+    Repo.insert!(struct!(Retention, Map.put(@retention_defaults, :id, host_ref)))
 
-    for {schema, key} <- [
-          {Slack, :slack},
-          {GitHub, :github},
-          {Publication, :publication},
-          {Emisar, :emisar},
-          {Report, :report},
-          {Learning, :learning},
-          {Work, :work}
-        ] do
-      Repo.insert!(struct!(schema, Map.put(Map.get(domains, key, %{}), :id, host_ref)))
+    for schema <- [Slack, GitHub, Publication, Emisar, Report, Learning, Work] do
+      Repo.insert!(struct!(schema, id: host_ref))
     end
 
     Repo.insert!(%Edit{
       id: Ecto.UUID.generate(),
-      domain: if(map_size(domains) == 0, do: :installation, else: :import),
+      domain: :installation,
       revision: 1,
       actor_ref: actor_ref,
-      fingerprint:
-        CanonicalJSON.digest(%{"host_ref" => host_ref, "domains" => stringify(domains)}),
+      fingerprint: CanonicalJSON.digest(%{"host_ref" => host_ref}),
       inserted_at: now
     })
 
@@ -576,13 +516,6 @@ defmodule Ryker.Settings do
       pricing_rates:
         Repo.all(from(p in PricingRate, order_by: [p.execution_target, p.effective_from]))
     }
-  end
-
-  defp retained_state? do
-    Enum.any?(@retained_state_tables, fn table ->
-      %{rows: [[present]]} = Repo.query!("SELECT EXISTS (SELECT 1 FROM #{table} LIMIT 1)")
-      present
-    end)
   end
 
   defp generate_host_ref do
