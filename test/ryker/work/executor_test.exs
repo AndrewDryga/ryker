@@ -1964,7 +1964,6 @@ defmodule Ryker.Work.ExecutorTest do
              %{
                kind: :submit_turn,
                lease_seconds: 60,
-               maximum_block_ms: 1_000,
                operation_key: key,
                operation_revision: 1
              },
@@ -2007,7 +2006,6 @@ defmodule Ryker.Work.ExecutorTest do
              %{
                kind: :create_session,
                lease_seconds: 60,
-               maximum_block_ms: 1_000,
                operation_key: key,
                operation_revision: nil
              },
@@ -2049,7 +2047,6 @@ defmodule Ryker.Work.ExecutorTest do
              %{
                kind: :create_session,
                lease_seconds: 60,
-               maximum_block_ms: 1_000,
                operation_key: key,
                operation_revision: nil
              },
@@ -2101,7 +2098,6 @@ defmodule Ryker.Work.ExecutorTest do
              %{
                kind: :submit_turn,
                lease_seconds: 60,
-               maximum_block_ms: 1_000,
                operation_key: key,
                operation_revision: 1
              },
@@ -4363,7 +4359,6 @@ defmodule Ryker.Work.ExecutorTest do
       %{
         kind: kind,
         lease_seconds: 60,
-        maximum_block_ms: 1_000,
         operation_key: key,
         operation_revision: revision
       },

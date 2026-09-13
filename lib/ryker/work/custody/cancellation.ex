@@ -267,43 +267,44 @@ defmodule Ryker.Work.Custody.Cancellation do
       if recovery_fingerprint(turn) != expected_recovery,
         do: Repo.rollback(:work_recovery_changed)
 
-      retry_blocked_episode(episode)
+      retry_blocked_episode(episode, turn)
     else
       {:error, reason} -> Repo.rollback(reason)
     end
   end
 
-  defp retry_blocked_episode(%Episode{state: :working, owner_kind: :turn} = episode) do
-    case turn_identity(episode.id, episode.owner_ref) do
-      %Turn{
-        status: :blocked,
-        completion_receipt: %{},
-        cancellation_intent: nil,
-        result_ref: nil,
-        delivery_ref: nil
-      } ->
-        with {:ok, _session, turn} <- lock_turn_after_episode(episode.id, episode.owner_ref),
-             true <-
-               is_nil(turn.operational_pruned_at) and
-                 Turns.completion_matches?(turn, turn.completion_receipt),
-             {:ok, _turn} <- turn |> TurnChangeset.retry_completion() |> Repo.update() do
-          episode
-        else
-          _invalid -> Repo.rollback(:work_completion_not_retryable)
-        end
-
-      %Turn{status: :blocked, cancellation_intent: %{"action" => "block"}} = identity ->
-        case resume_blocked_identity(episode, identity, nil) do
-          {:ok, resumed} -> resumed
-          {:error, reason} -> Repo.rollback(reason)
-        end
-
-      _not_blocked ->
-        Repo.rollback(:work_not_blocked)
+  # The turn is the episode's owner, already locked in this transaction.
+  defp retry_blocked_episode(
+         %Episode{state: :working, owner_kind: :turn} = episode,
+         %Turn{
+           status: :blocked,
+           completion_receipt: %{},
+           cancellation_intent: nil,
+           result_ref: nil,
+           delivery_ref: nil
+         } = turn
+       ) do
+    with true <-
+           is_nil(turn.operational_pruned_at) and
+             Turns.completion_matches?(turn, turn.completion_receipt),
+         {:ok, _turn} <- turn |> TurnChangeset.retry_completion() |> Repo.update() do
+      episode
+    else
+      _invalid -> Repo.rollback(:work_completion_not_retryable)
     end
   end
 
-  defp retry_blocked_episode(%Episode{}), do: Repo.rollback(:work_not_blocked)
+  defp retry_blocked_episode(
+         %Episode{state: :working, owner_kind: :turn} = episode,
+         %Turn{status: :blocked, cancellation_intent: %{"action" => "block"}} = turn
+       ) do
+    case resume_blocked_identity(episode, turn, nil) do
+      {:ok, resumed} -> resumed
+      {:error, reason} -> Repo.rollback(reason)
+    end
+  end
+
+  defp retry_blocked_episode(%Episode{}, %Turn{}), do: Repo.rollback(:work_not_blocked)
 
   defp resume_blocked_identity(episode, identity, required_input_ref) do
     new_turn_ref = "turn:resume-blocked:#{identity.id}:v#{episode.semantic_version}"

@@ -485,7 +485,6 @@ defmodule Ryker.Work.Custody.Turns do
          :ok <- remote_operation_revision(request.kind, request.operation_revision),
          :ok <- reference(request.operation_key, :operation_key),
          :ok <- positive_integer(request.lease_seconds, :lease_seconds),
-         :ok <- positive_integer(request.maximum_block_ms, :maximum_block_ms),
          :ok <- callback(callback),
          :ok <-
            prepare_remote_operation(
@@ -505,17 +504,15 @@ defmodule Ryker.Work.Custody.Turns do
          %{
            kind: kind,
            lease_seconds: lease_seconds,
-           maximum_block_ms: maximum_block_ms,
            operation_key: operation_key,
            operation_revision: operation_revision
          } = request
        )
-       when map_size(request) == 5 do
+       when map_size(request) == 4 do
     {:ok,
      %{
        kind: kind,
        lease_seconds: lease_seconds,
-       maximum_block_ms: maximum_block_ms,
        operation_key: operation_key,
        operation_revision: operation_revision
      }}
