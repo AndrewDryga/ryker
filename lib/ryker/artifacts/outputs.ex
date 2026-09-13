@@ -50,7 +50,6 @@ defmodule Ryker.Artifacts.Outputs do
          {:ok, prepared} <- prepare_bodies(turn_id, values),
          true <- Enum.sum(Enum.map(prepared, & &1.byte_size)) <= @maximum_bytes do
       Repo.transaction(fn -> Enum.map(prepared, &put_one!/1) end)
-      |> transaction_result()
     else
       false -> {:error, {:invalid_work_output_artifacts, :bodies}}
       {:error, _reason} = error -> error
@@ -184,9 +183,6 @@ defmodule Ryker.Artifacts.Outputs do
 
   defp identity(value),
     do: {value.ref, value.name, value.media_type, value.sha256, value.byte_size, value.data}
-
-  defp transaction_result({:ok, value}), do: {:ok, value}
-  defp transaction_result({:error, reason}), do: {:error, reason}
 
   defp unique?(values, field),
     do: values |> Enum.map(& &1[field]) |> Enum.uniq() == Enum.map(values, & &1[field])

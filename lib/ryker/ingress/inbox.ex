@@ -44,7 +44,6 @@ defmodule Ryker.Ingress.Inbox do
          {:ok, inputs} <- prepare_inputs(inputs),
          :ok <- slack_addressing_sources(inputs, settings.slack_addressing) do
       Repo.transaction(fn -> record_batch_locked(inputs, settings) end)
-      |> transaction_result()
       |> record_rule_inventories(inputs)
     end
   end
@@ -120,7 +119,6 @@ defmodule Ryker.Ingress.Inbox do
       fingerprint = CanonicalJSON.digest(context)
 
       Repo.transaction(fn -> bind_context_locked(id, lease_ref, context, fingerprint) end)
-      |> transaction_result()
     end
   end
 
@@ -141,7 +139,6 @@ defmodule Ryker.Ingress.Inbox do
         |> claimable()
         |> claim_entry(worker_ref, now, lease_seconds)
       end)
-      |> transaction_result()
     end
   end
 
@@ -159,7 +156,6 @@ defmodule Ryker.Ingress.Inbox do
          {:ok, now} <- utc_datetime(now),
          :ok <- positive_integer(lease_seconds, :lease_seconds) do
       Repo.transaction(fn -> renew_locked(id, lease_ref, now, lease_seconds) end)
-      |> transaction_result()
     end
   end
 
@@ -224,7 +220,6 @@ defmodule Ryker.Ingress.Inbox do
       Repo.transaction(fn ->
         block_locked(id, lease_ref, error_code, error_detail, generation)
       end)
-      |> transaction_result()
     end
   end
 
@@ -242,7 +237,6 @@ defmodule Ryker.Ingress.Inbox do
   def rearm(input_ref) do
     with {:ok, id} <- input_id(input_ref) do
       Repo.transaction(fn -> rearm_locked(id) end)
-      |> transaction_result()
     end
   end
 
@@ -256,7 +250,6 @@ defmodule Ryker.Ingress.Inbox do
       Repo.transaction(fn ->
         defer_locked(id, lease_ref, now, delay_ms, error_code, error_detail, generation)
       end)
-      |> transaction_result()
     end
   end
 
@@ -688,9 +681,6 @@ defmodule Ryker.Ingress.Inbox do
         submitted_fingerprint: submitted}}
     end
   end
-
-  defp transaction_result({:ok, receipt}), do: {:ok, receipt}
-  defp transaction_result({:error, reason}), do: {:error, reason}
 
   defp prepare_inputs(inputs)
        when is_list(inputs) and inputs != [] and length(inputs) <= @maximum_record_batch do

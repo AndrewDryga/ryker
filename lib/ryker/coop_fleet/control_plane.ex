@@ -30,7 +30,6 @@ defmodule Ryker.CoopFleet.ControlPlane do
 
   @current_placement_states [:assigning, :active, :draining, :revoking]
   @terminal_command_states [:succeeded, :failed, :uncertain]
-  @reference ~r/\A[A-Za-z0-9_.:-]+\z/
   @maximum_lease_seconds 3_600
   @heartbeat_stale_seconds 60
   @maximum_clock_skew_seconds 30
@@ -46,7 +45,7 @@ defmodule Ryker.CoopFleet.ControlPlane do
     with :ok <- reference(worker_id, 256, :worker_id),
          :ok <- reference(workspace_ref, 256, :workspace_ref),
          :ok <- digest(certificate_sha256, :certificate_sha256) do
-      transaction(fn ->
+      Repo.transaction(fn ->
         authorize_worker_locked(worker_id, workspace_ref, certificate_sha256)
       end)
     end
@@ -99,7 +98,7 @@ defmodule Ryker.CoopFleet.ControlPlane do
          :ok <- lease_seconds(lease_seconds),
          {:ok, poll} <- Protocol.poll(document),
          :ok <- poll_identity(authenticated_worker_id, poll) do
-      transaction(fn ->
+      Repo.transaction(fn ->
         apply_poll(
           authenticated_worker_id,
           poll,
@@ -117,7 +116,9 @@ defmodule Ryker.CoopFleet.ControlPlane do
     with :ok <- uuid(session_id, :session_id),
          {:ok, prepared} <- requirements(requirements),
          :ok <- lease_seconds(lease_seconds) do
-      result = transaction(fn -> place_session_locked(session_id, prepared, lease_seconds) end)
+      result =
+        Repo.transaction(fn -> place_session_locked(session_id, prepared, lease_seconds) end)
+
       placement_result(result, session_id)
     end
   end
@@ -146,7 +147,7 @@ defmodule Ryker.CoopFleet.ControlPlane do
   def worker_available?(%Session{} = session, requirements) do
     case requirements(requirements) do
       {:ok, prepared} ->
-        now = database_now!()
+        now = Repo.now!()
 
         Worker
         |> Repo.all()
@@ -218,7 +219,7 @@ defmodule Ryker.CoopFleet.ControlPlane do
          :ok <- enum(kind, Protocol.command_kinds(), :command_kind),
          :ok <- CanonicalJSON.validate(payload, max_bytes: 768 * 1_024),
          :ok <- reference(idempotency_key, 512, :idempotency_key) do
-      transaction(fn ->
+      Repo.transaction(fn ->
         enqueue_command_locked(placement_id, kind, payload, idempotency_key)
       end)
     else
@@ -265,7 +266,7 @@ defmodule Ryker.CoopFleet.ControlPlane do
   end
 
   defp apply_poll(worker_id, poll, lease_seconds, certificate_sha256, state_tools_secret) do
-    now = database_now!()
+    now = Repo.now!()
     hello = poll["worker"]
     worker = authenticated_worker!(worker_id, hello["workspace_ref"], certificate_sha256)
     clock_at = parse_timestamp!(hello["clock_at"])
@@ -340,7 +341,7 @@ defmodule Ryker.CoopFleet.ControlPlane do
         )
       ) || rollback({:coop_session_not_found, session_id})
 
-    now = database_now!()
+    now = Repo.now!()
 
     case current_placement(session_id) do
       %Placement{} = placement ->
@@ -542,7 +543,7 @@ defmodule Ryker.CoopFleet.ControlPlane do
         rollback({:coop_worker_command_conflict, idempotency_key})
 
       nil ->
-        now = database_now!()
+        now = Repo.now!()
 
         placement =
           Repo.one(
@@ -1604,24 +1605,17 @@ defmodule Ryker.CoopFleet.ControlPlane do
 
   defp lease_seconds(_value), do: {:error, {:invalid_coop_session_placement, :lease_seconds}}
 
-  defp reference(value, maximum, field)
-       when is_binary(value) and byte_size(value) > 0 and byte_size(value) <= maximum do
-    if String.valid?(value) and Regex.match?(@reference, value),
+  defp reference(value, maximum, field) do
+    if Protocol.reference?(value, maximum),
       do: :ok,
       else: {:error, {:invalid_coop_worker_control_plane, field}}
   end
 
-  defp reference(_value, _maximum, field),
-    do: {:error, {:invalid_coop_worker_control_plane, field}}
-
-  defp digest(value, _field) when is_binary(value) and byte_size(value) == 64 do
-    if value == String.downcase(value) and String.match?(value, ~r/\A[0-9a-f]{64}\z/),
+  defp digest(value, field) do
+    if Protocol.digest?(value),
       do: :ok,
-      else: {:error, {:invalid_coop_worker_control_plane, :digest}}
+      else: {:error, {:invalid_coop_worker_control_plane, field}}
   end
-
-  defp digest(_value, field),
-    do: {:error, {:invalid_coop_worker_control_plane, field}}
 
   defp optional_reference(nil, _maximum, _field), do: :ok
   defp optional_reference(value, maximum, field), do: reference(value, maximum, field)
@@ -1656,11 +1650,6 @@ defmodule Ryker.CoopFleet.ControlPlane do
     end
   end
 
-  defp database_now! do
-    %{rows: [[%DateTime{} = now]]} = Repo.query!("SELECT clock_timestamp()")
-    now
-  end
-
   defp active_certificate_worker(certificate_sha256) do
     Repo.one(
       from(certificate in Certificate,
@@ -1689,7 +1678,7 @@ defmodule Ryker.CoopFleet.ControlPlane do
   end
 
   defp ensure_manual_certificate!(worker_id, certificate_sha256) do
-    now = database_now!()
+    now = Repo.now!()
 
     %Certificate{}
     |> cast(
@@ -1717,13 +1706,6 @@ defmodule Ryker.CoopFleet.ControlPlane do
     |> check_constraint(:sha256, name: :coop_worker_certificate_valid)
     |> Repo.insert(on_conflict: :nothing, conflict_target: :sha256)
     |> unwrap_write()
-  end
-
-  defp transaction(fun) do
-    case Repo.transaction(fun) do
-      {:ok, value} -> {:ok, value}
-      {:error, reason} -> {:error, reason}
-    end
   end
 
   defp unwrap_write({:ok, value}), do: value

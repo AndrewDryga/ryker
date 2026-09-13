@@ -102,7 +102,7 @@ defmodule Ryker.CoopFleet.Bridge do
 
   defp current_placement(command) do
     placement = Repo.one(from(value in Placement, where: value.id == ^command.placement_id))
-    now = database_now!()
+    now = Repo.now!()
 
     cond do
       placement && placement.state == :active &&
@@ -119,11 +119,6 @@ defmodule Ryker.CoopFleet.Bridge do
         {:error,
          {:coop_session_replacement_required, command.session_id, command.placement_generation}}
     end
-  end
-
-  defp database_now! do
-    %{rows: [[%DateTime{} = now]]} = Repo.query!("SELECT clock_timestamp()")
-    now
   end
 
   defp settings(options) when is_list(options) do

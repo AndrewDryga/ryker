@@ -18,6 +18,8 @@ defmodule Ryker.CoopFleet.SessionEvidenceDocument do
     * a bound task carries its immutable identity even when its folder is gone
   """
 
+  alias Ryker.CoopFleet.Protocol
+
   @version 1
   @maximum_document_bytes 512 * 1_024
   @network_modes ~w(open none filtered)
@@ -51,9 +53,7 @@ defmodule Ryker.CoopFleet.SessionEvidenceDocument do
   @maximum_counter 18_446_744_073_709_551_615
 
   @counter ~r/\A(?:0|[1-9][0-9]{0,19})\z/
-  @digest ~r/\A[0-9a-f]{64}\z/
   @identity ~r/\A[0-9a-f]{32}\z/
-  @reference ~r/\A[A-Za-z0-9_.:-]+\z/
 
   @coverage_metrics ~w(proxy_bytes connections upstream_failures kernel_packets guard_denials
     maintenance_queries maintenance_bytes socket_inventory boundary_attribution)
@@ -640,12 +640,9 @@ defmodule Ryker.CoopFleet.SessionEvidenceDocument do
   defp required(nil, field), do: error(field)
   defp required(_value, _field), do: :ok
 
-  defp reference(value, maximum, field)
-       when is_binary(value) and byte_size(value) in 1..maximum//1 do
-    if String.valid?(value) and Regex.match?(@reference, value), do: :ok, else: error(field)
+  defp reference(value, maximum, field) do
+    if Protocol.reference?(value, maximum), do: :ok, else: error(field)
   end
-
-  defp reference(_value, _maximum, field), do: error(field)
 
   defp optional_reference(nil, _maximum, _field), do: :ok
   defp optional_reference(value, maximum, field), do: reference(value, maximum, field)
@@ -680,11 +677,9 @@ defmodule Ryker.CoopFleet.SessionEvidenceDocument do
   defp optional_counter(nil, _field), do: :ok
   defp optional_counter(value, field), do: counter(value, field)
 
-  defp digest(value, field) when is_binary(value) do
-    if Regex.match?(@digest, value), do: :ok, else: error(field)
+  defp digest(value, field) do
+    if Protocol.digest?(value), do: :ok, else: error(field)
   end
-
-  defp digest(_value, field), do: error(field)
 
   defp identity(value, field) when is_binary(value) do
     if Regex.match?(@identity, value), do: :ok, else: error(field)

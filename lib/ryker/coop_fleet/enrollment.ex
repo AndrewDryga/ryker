@@ -10,10 +10,9 @@ defmodule Ryker.CoopFleet.Enrollment do
   import Ecto.Changeset
   import Ecto.Query
 
-  alias Ryker.CoopFleet.{Certificate, CertificateAuthority, EnrollmentToken, Worker}
+  alias Ryker.CoopFleet.{Certificate, CertificateAuthority, EnrollmentToken, Protocol, Worker}
   alias Ryker.Repo
 
-  @reference ~r/\A[A-Za-z0-9_.:-]+\z/
   @maximum_token_ttl_seconds 3_600
   @maximum_certificate_ttl_seconds 7 * 24 * 60 * 60
   @default_token_ttl_seconds 15 * 60
@@ -34,8 +33,8 @@ defmodule Ryker.CoopFleet.Enrollment do
       token = :crypto.strong_rand_bytes(32) |> Base.url_encode64(padding: false)
       token_sha256 = sha256(token)
 
-      transaction(fn ->
-        now = database_now!()
+      Repo.transaction(fn ->
+        now = Repo.now!()
         ensure_worker_enrollable!(worker_id)
 
         enrollment =
@@ -77,7 +76,7 @@ defmodule Ryker.CoopFleet.Enrollment do
   def enroll(document, authority) do
     with {:ok, request} <- enrollment_request(document),
          {:ok, signer} <- authority(authority) do
-      transaction(fn -> enroll_locked(request, signer) end)
+      Repo.transaction(fn -> enroll_locked(request, signer) end)
     end
   end
 
@@ -87,7 +86,7 @@ defmodule Ryker.CoopFleet.Enrollment do
     with {:ok, request} <- renewal_request(document),
          {:ok, signer} <- authority(authority) do
       certificate_sha256 = sha256(certificate_der)
-      transaction(fn -> renew_locked(certificate_sha256, request, signer) end)
+      Repo.transaction(fn -> renew_locked(certificate_sha256, request, signer) end)
     end
   end
 
@@ -95,7 +94,7 @@ defmodule Ryker.CoopFleet.Enrollment do
     do: {:error, :invalid_coop_worker_renewal}
 
   defp enroll_locked(request, signer) do
-    now = database_now!()
+    now = Repo.now!()
     token_sha256 = sha256(request.token)
 
     token =
@@ -121,7 +120,7 @@ defmodule Ryker.CoopFleet.Enrollment do
   end
 
   defp renew_locked(certificate_sha256, request, signer) do
-    now = database_now!()
+    now = Repo.now!()
 
     certificate =
       Repo.one(
@@ -353,14 +352,11 @@ defmodule Ryker.CoopFleet.Enrollment do
 
   defp public_key_pem(_value), do: {:error, :invalid_coop_worker_enrollment}
 
-  defp reference(value, field)
-       when is_binary(value) and byte_size(value) in 1..256 do
-    if String.valid?(value) and Regex.match?(@reference, value),
+  defp reference(value, field) do
+    if Protocol.reference?(value),
       do: :ok,
       else: {:error, {:invalid_coop_worker_enrollment, field}}
   end
-
-  defp reference(_value, field), do: {:error, {:invalid_coop_worker_enrollment, field}}
 
   defp token_ttl(value)
        when is_integer(value) and value in 1..@maximum_token_ttl_seconds,
@@ -375,18 +371,6 @@ defmodule Ryker.CoopFleet.Enrollment do
   defp certificate_ttl(_value), do: {:error, :invalid_coop_worker_certificate_ttl}
 
   defp sha256(value), do: :crypto.hash(:sha256, value) |> Base.encode16(case: :lower)
-
-  defp database_now! do
-    %{rows: [[%DateTime{} = now]]} = Repo.query!("SELECT clock_timestamp()")
-    now
-  end
-
-  defp transaction(fun) do
-    case Repo.transaction(fun) do
-      {:ok, value} -> {:ok, value}
-      {:error, reason} -> {:error, reason}
-    end
-  end
 
   defp unwrap_write({:ok, value}), do: value
 

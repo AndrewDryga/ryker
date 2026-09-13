@@ -7,6 +7,8 @@ defmodule Ryker.CoopFleet.WorkspaceCheckpoint do
   worker-local paths, provider state, credentials, and transcript content.
   """
 
+  alias Ryker.CoopFleet.Protocol
+
   @version 1
   @bundle_media_type "application/vnd.coop.workspace-checkpoint.v1+tar"
   @maximum_bundle_bytes 64 * 1_024 * 1_024
@@ -25,9 +27,7 @@ defmodule Ryker.CoopFleet.WorkspaceCheckpoint do
   @task_projection_fields ~w(queue_id task_id id state state_sha256 files)
   @task_states ~w(todo in_progress blocked done)
   @gate_states ~w(not_run passed failed startup_error)
-  @reference ~r/\A[A-Za-z0-9_.:-]+\z/
   @identity ~r/\A[0-9a-f]{32}\z/
-  @digest ~r/\A[0-9a-f]{64}\z/
   @revision ~r/\A(?:[0-9a-f]{40}|[0-9a-f]{64})\z/
 
   @spec bundle_media_type() :: String.t()
@@ -211,7 +211,7 @@ defmodule Ryker.CoopFleet.WorkspaceCheckpoint do
   end
 
   defp reference(value, field) do
-    if is_binary(value) and byte_size(value) in 1..256 and Regex.match?(@reference, value),
+    if Protocol.reference?(value),
       do: :ok,
       else: {:error, {:invalid_workspace_checkpoint, field}}
   end
@@ -232,7 +232,7 @@ defmodule Ryker.CoopFleet.WorkspaceCheckpoint do
   end
 
   defp digest(value, field) do
-    if is_binary(value) and Regex.match?(@digest, value),
+    if Protocol.digest?(value),
       do: :ok,
       else: {:error, {:invalid_workspace_checkpoint, field}}
   end
@@ -384,7 +384,7 @@ defmodule Ryker.CoopFleet.WorkspaceCheckpoint do
   end
 
   defp manifest_reference(value) do
-    if is_binary(value) and byte_size(value) in 1..256 and Regex.match?(@reference, value),
+    if Protocol.reference?(value),
       do: :ok,
       else: bundle_error(:reference)
   end
@@ -418,7 +418,7 @@ defmodule Ryker.CoopFleet.WorkspaceCheckpoint do
   end
 
   defp manifest_digest(value) do
-    if is_binary(value) and Regex.match?(@digest, value),
+    if Protocol.digest?(value),
       do: :ok,
       else: bundle_error(:digest)
   end

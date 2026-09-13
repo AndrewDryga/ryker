@@ -55,9 +55,28 @@ defmodule Ryker.CoopFleet.Protocol do
   # whole poll when one arrived, so a single filtered run stopped the worker.
   @activity_event_kinds ~w(tool.started tool.completed model.plan model.thought permission.decided activity.elided provider.backoff provider.alive network)
   @reference ~r/\A[A-Za-z0-9_.:-]+\z/
+  @digest ~r/\A[0-9a-f]{64}\z/
 
   @spec version() :: 1
   def version, do: @version
+
+  @doc """
+  Whether `value` is one fleet identifier: 1 to `maximum` bytes of
+  `[A-Za-z0-9_.:-]`. Worker ids, workspace refs, session ids, operation keys
+  and artifact ids all share this vocabulary.
+  """
+  @spec reference?(term(), pos_integer()) :: boolean()
+  def reference?(value, maximum \\ 256)
+
+  def reference?(value, maximum) when is_binary(value) and byte_size(value) in 1..maximum//1,
+    do: String.valid?(value) and Regex.match?(@reference, value)
+
+  def reference?(_value, _maximum), do: false
+
+  @doc "Whether `value` is one lowercase hex SHA-256 digest."
+  @spec digest?(term()) :: boolean()
+  def digest?(value) when is_binary(value), do: Regex.match?(@digest, value)
+  def digest?(_value), do: false
 
   @doc """
   Every command kind a placed worker can be asked to execute.
@@ -526,26 +545,16 @@ defmodule Ryker.CoopFleet.Protocol do
     with :ok <- reference(value, 256, :reference), do: {:ok, value}
   end
 
-  defp reference(value, maximum, field)
-       when is_binary(value) and byte_size(value) > 0 and byte_size(value) <= maximum do
-    if String.valid?(value) and Regex.match?(@reference, value),
-      do: :ok,
-      else: {:error, {:invalid_coop_worker_protocol, field}}
+  defp reference(value, maximum, field) do
+    if reference?(value, maximum), do: :ok, else: {:error, {:invalid_coop_worker_protocol, field}}
   end
-
-  defp reference(_value, _maximum, field),
-    do: {:error, {:invalid_coop_worker_protocol, field}}
 
   defp optional_reference(nil, _maximum, _field), do: :ok
   defp optional_reference(value, maximum, field), do: reference(value, maximum, field)
 
-  defp digest(value, field) when is_binary(value) and byte_size(value) == 64 do
-    if value == String.downcase(value) and String.match?(value, ~r/\A[0-9a-f]{64}\z/),
-      do: :ok,
-      else: {:error, {:invalid_coop_worker_protocol, field}}
+  defp digest(value, field) do
+    if digest?(value), do: :ok, else: {:error, {:invalid_coop_worker_protocol, field}}
   end
-
-  defp digest(_value, field), do: {:error, {:invalid_coop_worker_protocol, field}}
 
   defp timestamp(value, field) when is_binary(value) do
     case DateTime.from_iso8601(value) do

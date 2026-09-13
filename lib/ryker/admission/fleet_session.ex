@@ -19,7 +19,6 @@ defmodule Ryker.Admission.FleetSession do
   def ensure(%Entry{} = entry, %{name: policy, digest: digest}) do
     with :ok <- policy(policy, digest) do
       Repo.transaction(fn -> ensure_locked(entry, policy, digest) end)
-      |> transaction_result()
     end
   end
 
@@ -29,7 +28,6 @@ defmodule Ryker.Admission.FleetSession do
   def bind(%Entry{} = entry, coop_session_id) do
     with :ok <- reference(coop_session_id) do
       Repo.transaction(fn -> bind_locked(entry, coop_session_id) end)
-      |> transaction_result()
     end
   end
 
@@ -39,7 +37,6 @@ defmodule Ryker.Admission.FleetSession do
   def settle(%Entry{} = entry, coop_session_id) do
     with :ok <- reference(coop_session_id) do
       Repo.transaction(fn -> settle_locked(entry, coop_session_id) end)
-      |> transaction_result()
     end
   end
 
@@ -55,7 +52,7 @@ defmodule Ryker.Admission.FleetSession do
   end
 
   defp insert_or_reload_session!(entry, policy, digest, external_ref) do
-    now = database_now!()
+    now = Repo.now!()
 
     %Session{}
     |> Ecto.Changeset.cast(
@@ -154,7 +151,7 @@ defmodule Ryker.Admission.FleetSession do
         coop_session_id: ^coop_session_id,
         cleanup_status: :active
       } = session ->
-        now = database_now!()
+        now = Repo.now!()
 
         session
         |> Ecto.Changeset.change(%{
@@ -195,12 +192,4 @@ defmodule Ryker.Admission.FleetSession do
     is_binary(value) and String.valid?(value) and byte_size(value) in 1..1_024 and
       :binary.match(value, <<0>>) == :nomatch and String.trim(value) != ""
   end
-
-  defp database_now! do
-    %{rows: [[%DateTime{} = now]]} = Repo.query!("SELECT clock_timestamp()")
-    now
-  end
-
-  defp transaction_result({:ok, result}), do: {:ok, result}
-  defp transaction_result({:error, reason}), do: {:error, reason}
 end

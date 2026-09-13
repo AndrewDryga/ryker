@@ -214,7 +214,7 @@ defmodule Ryker.CoopFleet.Client do
 
   @impl true
   def capabilities(%__MODULE__{} = client, %Session{id: session_id} = session) do
-    now = database_now!()
+    now = Repo.now!()
 
     case Repo.one(
            from(placement in Placement,
@@ -711,11 +711,6 @@ defmodule Ryker.CoopFleet.Client do
            "The fleet mutation was not enqueued and could not reach Coop."
          )}
     end
-  end
-
-  defp database_now! do
-    %{rows: [[%DateTime{} = now]]} = Repo.query!("SELECT clock_timestamp()")
-    now
   end
 
   defp normalize_options(options) when is_list(options) do
