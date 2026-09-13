@@ -114,6 +114,40 @@ defmodule Responder.ControlPlane.InstructionsLiveTest do
     refute other =~ "CHANNEL_PRIVATE_INSTRUCTION"
   end
 
+  test "the channel page reads title, episodes, help, its instructions, then its configuration" do
+    # Deployed 2026-09-13 as 0.1.0-g865731d1, the editor card sat between the
+    # title and everything the approved page leads with: the quiet episode
+    # count and the help disclosure came after a 400px form. The editor is one
+    # section in the page's own order, not a card the page is arranged around.
+    join!()
+    start_supervised!({SlackNames, workspace: "TINSTRUCTIONS", fetch: fn _ -> {:ok, "test"} end})
+    SlackNames.name("TINSTRUCTIONS", "CTEST")
+    GenServer.call(SlackNames, :refresh)
+
+    {:ok, _view, html} = open("/channels/TINSTRUCTIONS/CTEST")
+    page = LazyHTML.from_document(html) |> LazyHTML.query(".instructions-page")
+
+    outline =
+      page
+      |> LazyHTML.query(
+        "header.page-header, p.channel-metrics, details.page-help, section.instructions-editor, section.channel-section"
+      )
+      |> Enum.map(fn node ->
+        [tag] = LazyHTML.tag(node)
+        [class | _] = LazyHTML.attribute(node, "class") |> hd() |> String.split()
+        id = LazyHTML.attribute(node, "id") |> List.first()
+        "#{tag}.#{class}" <> if(id, do: "##{id}", else: "")
+      end)
+
+    assert Enum.take(outline, 5) == [
+             "header.page-header",
+             "p.channel-metrics",
+             "details.page-help#channel-help",
+             "section.instructions-editor#instructions-slack:TINSTRUCTIONS:CTEST",
+             "section.channel-section#configuration"
+           ]
+  end
+
   test "a channel revoked while editing cannot save and the existing draft stays visible" do
     membership = join!()
     {:ok, view, _} = open("/channels/TINSTRUCTIONS/CTEST")
