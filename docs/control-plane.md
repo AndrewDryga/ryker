@@ -745,11 +745,11 @@ the [redesign plan](control-plane-redesign.md#1-liveview-throughout-the-control-
   URL, which makes it bookmarkable and pasteable into an incident thread, and
   costs no client-side state to keep in step with the server's.
 - **CSS in one hand-written stylesheet**, vendored. No framework.
-- **One tiny same-origin script for live conversation refresh.** Every page renders and
-  every mutation works without JavaScript. While a local conversation owns live
-  custody, `/static/lab.js` replaces only the server-rendered transcript/status
-  fragment; it neither stores messages nor calls an external origin. Charts
-  remain inline SVG with geometry computed server-side.
+- **Same-origin scripts from the `/assets` allowlist only.** Every confirmed
+  mutation works without JavaScript. The live shell's modules (`control-plane.js`
+  and the `.mjs` files beside it) keep drafts, reading position and the
+  conversation controls in the browser; they neither store messages nor call an
+  external origin. Charts remain inline SVG with geometry computed server-side.
 
 The test is that the whole dashboard works offline, from the Ryker runtime,
 with no assets fetched at runtime.

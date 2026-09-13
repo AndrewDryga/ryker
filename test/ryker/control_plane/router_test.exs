@@ -610,17 +610,6 @@ defmodule Ryker.ControlPlane.RouterTest do
              "/conversations/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6/messages",
              URI.encode_query(%{"_token" => token, "message" => String.duplicate("x", 20_001)})
            ).status == 422
-
-    javascript = request(:get, "/static/lab.js")
-    assert javascript.status == 200
-    assert javascript.resp_body =~ "data-lab-stream"
-    assert javascript.resp_body =~ "data-lab-status"
-    assert javascript.resp_body =~ "TextEncoder"
-    assert javascript.resp_body =~ "nearConversationEnd"
-    assert javascript.resp_body =~ "scrollIntoView"
-    assert javascript.resp_body =~ "requestAnimationFrame"
-    refute javascript.resp_body =~ "http://"
-    refute javascript.resp_body =~ "https://"
   end
 
   test "new and malformed Lab routes fail closed without creating hidden authority" do
@@ -1089,13 +1078,12 @@ defmodule Ryker.ControlPlane.RouterTest do
     assert request(:get, "/healthz", "::1", {0, 0, 0, 0, 0, 0, 0, 1}).status == 200
   end
 
-  test "serves no external assets and names missing routes" do
-    css = request(:get, "/static/app.css")
-    assert css.status == 200
-    assert get_resp_header(css, "content-type") |> hd() =~ "text/css"
-    assert css.resp_body =~ "font-family"
-
-    assert request(:get, "/missing").status == 404
+  test "serves no assets of its own and names missing routes" do
+    # Stylesheets and scripts come from the /assets allowlist alone; the
+    # router's own /static copies went with the static pages that linked them.
+    for path <- ["/static/app.css", "/static/lab.js", "/missing"] do
+      assert request(:get, path).status == 404, path
+    end
   end
 
   test "serves payload-free health readiness and Prometheus metrics on loopback" do
