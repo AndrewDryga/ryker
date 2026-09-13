@@ -1,15 +1,12 @@
 defmodule Ryker.ControlPlane.WorkerEvidence do
   @moduledoc """
-  Projects one worker-exported session capture into the approved cards.
+  Projects one worker-exported session capture into presentation descriptors.
 
-  Three cards come out of one capture: Network access, a compact Network summary
-  and a conditional Coop task card. Each one renders only what the export
-  actually said.
-
-  The approved design seats Network access inside Work setup and the Network
-  summary inside Work activity. Those two cards do not exist yet, so all three
-  render together in one Worker evidence section; moving them is a placement
-  change, and nothing here depends on where they sit.
+  One capture yields the session's network access (the posture it was admitted
+  under), its network observation with the receipt behind it, and its bound Coop
+  task. Each descriptor carries only what the export actually said, with an
+  availability that names any absence; `WorkerEvidenceCard` decides how and
+  where they are shown.
 
   The distinctions the page must never lose:
 
@@ -27,7 +24,7 @@ defmodule Ryker.ControlPlane.WorkerEvidence do
   alias Ryker.CoopFleet.SessionEvidence
 
   @doc """
-  Builds the cards for one episode, newest capture per session.
+  The evidence for one episode, newest capture per session.
 
   An episode with no capture returns `[]`: the caller shows no card at all
   rather than an empty network, because nothing was ever asked or answered.

@@ -722,15 +722,6 @@ defmodule Ryker.ControlPlane.SettingsSections do
   def form_value(%{kind: :decimal}, %Decimal{} = value), do: Decimal.to_string(value, :normal)
   def form_value(_field, value), do: to_string(value)
 
-  @doc "Days for a stored horizon, and the exact seconds when they are not whole days."
-  @spec horizon(non_neg_integer()) :: %{
-          days: non_neg_integer(),
-          exact_seconds: pos_integer() | nil
-        }
-  def horizon(seconds) do
-    %{days: div(seconds, @day), exact_seconds: if(rem(seconds, @day) != 0, do: seconds)}
-  end
-
   defp display_name(%{ref: ref, display_name: nil}), do: ref
   defp display_name(%{ref: ref, display_name: name}), do: "#{name} (#{ref})"
 end
