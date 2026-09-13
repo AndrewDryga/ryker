@@ -14,12 +14,14 @@ defmodule Ryker.ControlPlane.BehaviorLibrary do
   def path(:preference), do: "/preferences"
   def path(:guidance), do: "/guidance"
 
-  def fetch(ref) do
+  def fetch(ref) when is_binary(ref) and byte_size(ref) <= 1_024 do
     case Repo.one(from(b in instruction_query(), where: b.ref == ^ref)) do
       nil -> :not_found
       item -> {:ok, sanitize(item)}
     end
   end
+
+  def fetch(_ref), do: :not_found
 
   defp instruction_query do
     now = DateTime.utc_now()
