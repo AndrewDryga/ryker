@@ -4,7 +4,7 @@ import {readFileSync} from "node:fs"
 import vm from "node:vm"
 import {createRelearnPicker} from "../../priv/static/relearn-selection.mjs"
 
-const source = readFileSync(new URL("../../priv/static/control-plane.js", import.meta.url), "utf8")
+const source = readFileSync(new URL("../../priv/static/reading-state.mjs", import.meta.url), "utf8")
 const retained = JSON.parse(readFileSync(new URL("../ryker/work/fixtures/airflow_candidate_responses.json", import.meta.url), "utf8"))
 
 function fixture(hash = "") {
@@ -43,16 +43,15 @@ function fixture(hash = "") {
   const response = node("response-1", "DETAILS", outer)
   let body = node("response-1-body", "DIV", response)
   body.textContent = retained.responses[0].body
-  // Evaluate the shipped hook itself; browser asset imports and the transport
-  // are stubbed. Real LiveView patches are qualified separately in Chromium.
-  vm.runInNewContext(source.replace(/^import .*$/gm, ""), {document, window, location,
-    sessionStorage: {getItem() { return null }}, Socket: class {}, keyFor: () => null, createRelearnPicker,
-    createConversationControls: () => ({click() {}, keydown() { return false }, input() { return false }, submit() { return false }, restore() { return false }, refresh() {}, destroy() {}}),
-    followSentDraft: () => null,
-    applyFilterChange: () => false,
-    // No transcript on this page: the conversation anchor declines ownership.
-    ConversationHistory: {}, captureReadingAnchor: () => null, restoreReadingAnchor: () => false,
-    LiveSocket: class { constructor(_path, _socket, options) { hook = options.hooks.PreserveReadingState } connect() {} }})
+  // Evaluate the shipped hook module itself with its sibling modules stubbed.
+  // Real LiveView patches are qualified separately in Chromium.
+  hook = vm.runInNewContext(source.replace(/^import .*$/gm, "").replace(/^export /gm, "") + "\ncreateReadingStateHook()",
+    {document, window, location, sessionStorage: {getItem() { return null }}, keyFor: () => null, transferLegacyDraft: () => null,
+      createRelearnPicker,
+      createConversationControls: () => ({click() {}, keydown() { return false }, input() { return false }, submit() { return false }, restore() { return false }, refresh() {}, destroy() {}}),
+      createComposer: () => ({input() {}, submit() { return false }}),
+      // No transcript on this page: the conversation anchor declines ownership.
+      captureReadingAnchor: () => null, restoreReadingAnchor: () => false})
   const pushed = []
   const mounted = Object.assign({el: root, pushEvent: (name, params) => pushed.push([name, params])}, hook)
   return {hook: mounted, document, window, location, root, outer, response, nodes, listeners, scrolled,

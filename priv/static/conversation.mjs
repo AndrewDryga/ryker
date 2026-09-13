@@ -103,7 +103,9 @@ export const createConversationControls = (root, options = {}) => {
   let saving = false
 
   const store = {
-    // A key written before the 2026-09-13 rename is carried over on first read.
+    // Remove the carry-over after 2026-09-20: a key written before the
+    // 2026-09-13 rename is moved on first read; a tab open since before then
+    // has closed by that date.
     get(key) {
       try {
         if (key.startsWith("ryker:draft:")) transferLegacyDraft(key, storage()); else adoptRetiredKey(key, storage())

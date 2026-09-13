@@ -228,7 +228,7 @@ defmodule Ryker.ControlPlane.NativePagesTest do
 
   test "the packaged asset allowlist serves local modules but never arbitrary paths" do
     for file <-
-          ~w(phoenix.mjs phoenix_live_view.esm.js control-plane.js conversation.mjs drafts.mjs filter-toolbar.mjs control-plane.css workspace.css) do
+          ~w(phoenix.mjs phoenix_live_view.esm.js control-plane.js reading-state.mjs composer.mjs conversation.mjs drafts.mjs filter-toolbar.mjs leave-guard.mjs control-plane.css workspace.css) do
       conn = Assets.call(Plug.Test.conn(:get, "/#{file}"), [])
       assert conn.status == 200
       assert conn.halted
