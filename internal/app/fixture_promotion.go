@@ -11,11 +11,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/config"
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/evaluation"
-	"github.com/AndrewDryga/responder/internal/store"
-	"github.com/AndrewDryga/responder/internal/store/fixturepromotionstore"
+	"github.com/AndrewDryga/ryker/internal/config"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/evaluation"
+	"github.com/AndrewDryga/ryker/internal/store"
+	"github.com/AndrewDryga/ryker/internal/store/fixturepromotionstore"
 )
 
 // promotionWindow is the period the rate bound is measured over.
@@ -199,7 +199,7 @@ func corpusRejection(corpus string, line string) string {
 // newFixturePromoter installs the drain when this deployment can actually
 // perform it, and reports nothing when it cannot.
 //
-// The corpus is not a configured path. It is a file inside Responder's own
+// The corpus is not a configured path. It is a file inside Ryker's own
 // repository, and a deployment either has that checkout configured or does not
 // — so the checkout to write into is whichever configured repository contains
 // the corpus. That makes auto-promotion impossible to point at the wrong tree,

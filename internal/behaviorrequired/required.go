@@ -3,10 +3,10 @@
 package behaviorrequired
 
 import (
-	"github.com/AndrewDryga/responder/internal/behavioroffer"
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/decision"
-	"github.com/AndrewDryga/responder/internal/operatoroffers"
+	"github.com/AndrewDryga/ryker/internal/behavioroffer"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/decision"
+	"github.com/AndrewDryga/ryker/internal/operatoroffers"
 )
 
 // Correction covers guidance, preferences and standing rules. New schedules

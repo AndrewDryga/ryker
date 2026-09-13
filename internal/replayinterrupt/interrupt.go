@@ -8,8 +8,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/coop"
-	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/ryker/internal/coop"
+	"github.com/AndrewDryga/ryker/internal/core"
 )
 
 type Coop interface {
@@ -76,7 +76,7 @@ func Cancel(ctx context.Context, client Coop, run core.AgentRun) error {
 			return err
 		}
 		_, _, err = client.Cancel(
-			ctx, fmt.Sprintf("responder:replay-timeout:%s:r%d", run.IdempotencyKey, session.Revision),
+			ctx, fmt.Sprintf("ryker:replay-timeout:%s:r%d", run.IdempotencyKey, session.Revision),
 			run.SessionID, turnID, session.Revision,
 		)
 		if err == nil {

@@ -5,14 +5,14 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/AndrewDryga/responder/internal/coop"
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/slackui"
-	"github.com/AndrewDryga/responder/internal/store"
+	"github.com/AndrewDryga/ryker/internal/coop"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/slackui"
+	"github.com/AndrewDryga/ryker/internal/store"
 )
 
 // Thirty focused tests passed in the live Rivals task, but the feedback turn
-// left two intended files uncommitted and Responder still accepted completion.
+// left two intended files uncommitted and Ryker still accepted completion.
 // Coop then refused the PR review, so the selected decision never reached the
 // existing pull request.
 func TestEngineeringTurnCannotFinishWithItsIntendedChangesUncommitted(t *testing.T) {

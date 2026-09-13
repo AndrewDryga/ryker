@@ -4,8 +4,8 @@ package agentprompt
 import (
 	"strings"
 
-	"github.com/AndrewDryga/responder/internal/core"
-	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
+	"github.com/AndrewDryga/ryker/internal/core"
+	decisionpkg "github.com/AndrewDryga/ryker/internal/decision"
 )
 
 func ToolTransport() string {
@@ -33,7 +33,7 @@ func Continuation(run core.AgentRun) string {
 		return `
 
 <host-structured-correction>
-The previous turn completed its work, but Responder rejected only its final structured report.
+The previous turn completed its work, but Ryker rejected only its final structured report.
 Preserve the work and verified result. Return a corrected report that fixes this exact host validation
 error: ` + decisionpkg.BoundedField(run.LastError, core.CorrectionTextLimit) + `
 Return only what changes: your one complete_episode with the report message every time, beside the
@@ -48,7 +48,7 @@ Do not repeat the investigation or drop completed work merely to repair the resp
 
 <host-transport-recovery>
 The previous read-only session exceeded Coop's ACP transcript bound and returned no usable final
-answer. This is a fresh authenticated session with the original Slack request and saved Responder
+answer. This is a fresh authenticated session with the original Slack request and saved Ryker
 context. Restart the required checks from current authoritative evidence. Avoid the prior failure by
 using tightly filtered queries, short time windows, aggregation, top-N results, and pagination rather
 than broad raw output. Do not assume that observations from the failed session are valid. Complete the

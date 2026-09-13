@@ -267,7 +267,7 @@ type SlackDelivery struct {
 	Steps                       []string
 	CoalesceKey                 string
 	CardVersion                 int64
-	// ResponseRoot marks the delivery that owns one logical Responder reply.
+	// ResponseRoot marks the delivery that owns one logical Ryker reply.
 	// Slack returns the thread root only after this delivery succeeds; for a
 	// visual-only bundle this is the first file, not the last delivery.
 	ResponseRoot  bool
@@ -639,7 +639,7 @@ type MemoryEntry struct {
 // a memory that describes a system outlives the system: an alias, a channel's
 // repository binding, an evidence route and an entity correction are all claims
 // about infrastructure, and infrastructure is renamed, moved and deleted
-// without telling Responder. A permanent one of those is a confident wrong
+// without telling Ryker. A permanent one of those is a confident wrong
 // answer with no expiry date.
 //
 // Guidance is not a claim about anything. "Always tell me the version delta" is
@@ -711,7 +711,7 @@ type PreferenceOffer struct {
 	ExpiresIn  string `json:"expires_in,omitempty"`
 }
 
-type ResponderPreference struct {
+type RykerPreference struct {
 	ID        string
 	ScopeKind string
 	ScopeKey  string
@@ -1361,7 +1361,7 @@ func (u ContextUsage) CostRecorded() bool { return u.CostedTurns > 0 }
 // Three spans rather than one duration, because "the answer took four minutes"
 // and "the model took four minutes" are different faults with different fixes.
 // Queued is Coop holding the turn before a provider picked it up, Provider is
-// the provider working, and Host is Responder not yet having noticed that the
+// the provider working, and Host is Ryker not yet having noticed that the
 // turn finished — it polls, so that gap is real and is nobody else's.
 //
 // Provider is not split into inference and tool calls. Coop's turn record
@@ -1559,7 +1559,7 @@ type WorkEpisodeProgress struct {
 // starting or finishing, a plan the model revised, a stretch of its reasoning,
 // or a permission Coop answered on nobody's behalf.
 //
-// Sequence is Coop's session event sequence, not a Responder counter. It is
+// Sequence is Coop's session event sequence, not a Ryker counter. It is
 // the identity of the moment as well as its order, which is what lets an
 // at-least-once poll replay without telling the story twice.
 type AgentActivity struct {
@@ -1653,7 +1653,7 @@ type AgentTurnActivity struct {
 
 // EditToolKinds are the tool kinds that change something on disk.
 //
-// The vocabulary is an adapter's, not Responder's: ACP lets each agent name its
+// The vocabulary is an adapter's, not Ryker's: ACP lets each agent name its
 // own tools, so this is a list of what the agents in use actually call an edit
 // rather than a closed enum anyone is obliged to match. It lives here because
 // two subsystems ask the same question of it — the live card, which counts
@@ -2048,7 +2048,7 @@ type StoredAgentResult struct {
 // StandingAssignmentChangeClasses is the closed set of changes an operator can
 // delegate to a standing assignment.
 //
-// It is an allowlist rather than free text because free text means "Responder
+// It is an allowlist rather than free text because free text means "Ryker
 // may change anything". Each entry is deliberately a class where a wrong change
 // is visible in review and cheap to discard — none of them touch business
 // logic, and none of them are things a reviewer would wave through.
@@ -2103,7 +2103,7 @@ func (a StandingAssignment) Live(now time.Time) bool {
 // StandingAssignmentEvaluation is one signal offered to one assignment, and
 // what the gate said about it.
 //
-// The declines are the interesting half. "Responder did nothing" is the hardest
+// The declines are the interesting half. "Ryker did nothing" is the hardest
 // behaviour to debug from Slack, and a shadow period whose record held only the
 // signals that passed could not answer the question it exists to answer: of the
 // signals this assignment would have acted on, how many deserved a pull

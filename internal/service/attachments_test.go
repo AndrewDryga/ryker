@@ -9,14 +9,14 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/AndrewDryga/responder/internal/config"
-	"github.com/AndrewDryga/responder/internal/coop"
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/publisher"
-	"github.com/AndrewDryga/responder/internal/resultcontract"
-	"github.com/AndrewDryga/responder/internal/slackui"
-	"github.com/AndrewDryga/responder/internal/store"
-	"github.com/AndrewDryga/responder/internal/taskpr"
+	"github.com/AndrewDryga/ryker/internal/config"
+	"github.com/AndrewDryga/ryker/internal/coop"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/publisher"
+	"github.com/AndrewDryga/ryker/internal/resultcontract"
+	"github.com/AndrewDryga/ryker/internal/slackui"
+	"github.com/AndrewDryga/ryker/internal/store"
+	"github.com/AndrewDryga/ryker/internal/taskpr"
 	"github.com/slack-go/slack"
 	"github.com/slack-go/slack/slackevents"
 	"github.com/slack-go/slack/socketmode"
@@ -36,7 +36,7 @@ type pullRequestTestPublisher struct {
 func (*pullRequestTestPublisher) Enabled() bool { return true }
 
 func (*pullRequestTestPublisher) HeadBranch(core.Incident, core.Publication) (string, error) {
-	return "responder/test", nil
+	return "ryker/test", nil
 }
 
 func (*pullRequestTestPublisher) Publish(

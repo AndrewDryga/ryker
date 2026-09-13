@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/operationalkey"
-	"github.com/AndrewDryga/responder/internal/recall"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/operationalkey"
+	"github.com/AndrewDryga/ryker/internal/recall"
 )
 
 // seedRecallableOutcomes writes n finished episodes straight to the three

@@ -1,14 +1,14 @@
 // Package operatoroffers normalizes the group of confirmable behavior offers
-// carried by either Responder result dialect.
+// carried by either Ryker result dialect.
 package operatoroffers
 
 import (
 	"strings"
 
-	"github.com/AndrewDryga/responder/internal/behavioroffer"
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/decision"
-	"github.com/AndrewDryga/responder/internal/standingrule"
+	"github.com/AndrewDryga/ryker/internal/behavioroffer"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/decision"
+	"github.com/AndrewDryga/ryker/internal/standingrule"
 )
 
 // Offers is the operator-confirmable offer set carried by either a watch

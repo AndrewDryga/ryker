@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/config"
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/store"
+	"github.com/AndrewDryga/ryker/internal/config"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/store"
 )
 
 // The control plane says what an assignment would have done, refusals included.
@@ -66,7 +66,7 @@ func TestTheControlPlaneShowsWhatAShadowedAssignmentWouldHaveDone(t *testing.T) 
 		t.Fatal(err)
 	}
 	defer reader.Close()
-	handler, err := NewHandler(reader, "test", "77", "responder-abc",
+	handler, err := NewHandler(reader, "test", "77", "ryker-abc",
 		func() (bool, string) { return true, "" }, config.Pricing{}, nil, nil)
 	if err != nil {
 		t.Fatal(err)

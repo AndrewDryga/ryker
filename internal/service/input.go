@@ -10,25 +10,25 @@ import (
 	"strings"
 	"unicode"
 
-	behaviorofferpkg "github.com/AndrewDryga/responder/internal/behavioroffer"
-	"github.com/AndrewDryga/responder/internal/channelsetup"
-	"github.com/AndrewDryga/responder/internal/coop"
-	"github.com/AndrewDryga/responder/internal/core"
-	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
-	episodepkg "github.com/AndrewDryga/responder/internal/episode"
-	publicationreview "github.com/AndrewDryga/responder/internal/publicationreview"
-	"github.com/AndrewDryga/responder/internal/reportcanvas"
-	"github.com/AndrewDryga/responder/internal/retrydelay"
-	"github.com/AndrewDryga/responder/internal/slackdismiss"
-	"github.com/AndrewDryga/responder/internal/slackfile"
-	slackinputpkg "github.com/AndrewDryga/responder/internal/slackinput"
-	"github.com/AndrewDryga/responder/internal/slackui"
-	"github.com/AndrewDryga/responder/internal/store"
-	"github.com/AndrewDryga/responder/internal/store/publicationstore"
-	"github.com/AndrewDryga/responder/internal/taskaccess"
-	"github.com/AndrewDryga/responder/internal/taskcard"
-	"github.com/AndrewDryga/responder/internal/taskpr"
-	"github.com/AndrewDryga/responder/internal/taskprompt"
+	behaviorofferpkg "github.com/AndrewDryga/ryker/internal/behavioroffer"
+	"github.com/AndrewDryga/ryker/internal/channelsetup"
+	"github.com/AndrewDryga/ryker/internal/coop"
+	"github.com/AndrewDryga/ryker/internal/core"
+	decisionpkg "github.com/AndrewDryga/ryker/internal/decision"
+	episodepkg "github.com/AndrewDryga/ryker/internal/episode"
+	publicationreview "github.com/AndrewDryga/ryker/internal/publicationreview"
+	"github.com/AndrewDryga/ryker/internal/reportcanvas"
+	"github.com/AndrewDryga/ryker/internal/retrydelay"
+	"github.com/AndrewDryga/ryker/internal/slackdismiss"
+	"github.com/AndrewDryga/ryker/internal/slackfile"
+	slackinputpkg "github.com/AndrewDryga/ryker/internal/slackinput"
+	"github.com/AndrewDryga/ryker/internal/slackui"
+	"github.com/AndrewDryga/ryker/internal/store"
+	"github.com/AndrewDryga/ryker/internal/store/publicationstore"
+	"github.com/AndrewDryga/ryker/internal/taskaccess"
+	"github.com/AndrewDryga/ryker/internal/taskcard"
+	"github.com/AndrewDryga/ryker/internal/taskpr"
+	"github.com/AndrewDryga/ryker/internal/taskprompt"
 )
 
 type frozenAction struct {
@@ -265,7 +265,7 @@ func (s *Service) routeSlackInputKind(
 // handleConversationPrefix answers the parts of an ordinary message that are
 // resolved before any incident lookup: an in-flight configuration or preference
 // reply, a retained visual retry, and an addressed request to set this channel
-// up. It also drops an empty channel message that never addressed Responder.
+// up. It also drops an empty channel message that never addressed Ryker.
 // It reports whether the input was consumed.
 func (s *Service) handleConversationPrefix(
 	ctx context.Context,
@@ -306,19 +306,19 @@ func (s *Service) handleConversationPrefix(
 	// An empty mention or direct message is still a request: it queues a model
 	// run that reads the conversation context, rather than a host-written
 	// clarifying question. Only an empty plain channel message, which never
-	// addressed Responder, is dropped here.
+	// addressed Ryker, is dropped here.
 	if text == "" && len(input.Attachments) == 0 && input.ThreadTS == "" &&
 		input.Kind == "message" {
 		return true, s.finishSlackInput(ctx, input)
 	}
-	// A sentence nobody addressed to Responder is never a command. What used to
+	// A sentence nobody addressed to Ryker is never a command. What used to
 	// stand here read every plain operator message through a keyword table and
 	// rewrote the matches into slash subcommands, so "shadow traffic is on the
 	// new cluster, ignore it" turned the channel silent. Intent on free text is
 	// the model's job now; the one text decision left has to survive the model
 	// being down, so it stays here behind the addressed guard.
 	if channelsetup.ExplicitChannelConfigurationRequest(
-		text, addressedToResponder(input),
+		text, addressedToRyker(input),
 	) {
 		if !s.cfg.IsOperator(input.UserID) {
 			return true, s.finishSlashInput(
@@ -334,11 +334,11 @@ func (s *Service) handleConversationPrefix(
 	return false, nil
 }
 
-// addressedToResponder reports whether a message was aimed at Responder rather
+// addressedToRyker reports whether a message was aimed at Ryker rather
 // than at the room it was posted in. A mention names it and a direct message
-// has nobody else in it; a plain channel message is a conversation Responder
+// has nobody else in it; a plain channel message is a conversation Ryker
 // is only listening to.
-func addressedToResponder(input core.SlackInput) bool {
+func addressedToRyker(input core.SlackInput) bool {
 	return input.Kind == "mention" || input.Kind == "direct"
 }
 
@@ -532,7 +532,7 @@ func (s *Service) processSlackInput(ctx context.Context) error {
 		return s.retrySlackInput(ctx, input, err)
 	}
 	if !allowed {
-		message := "Slack guests, bots, and external workspace members cannot steer Responder."
+		message := "Slack guests, bots, and external workspace members cannot steer Ryker."
 		if incident.IsEngineeringTask() {
 			message = "Only active full members of this Slack workspace can collaborate on engineering tasks."
 		}
@@ -907,7 +907,7 @@ func (s *Service) createManualIncident(ctx context.Context, input core.SlackInpu
 				"manual_capacity_"+input.ID,
 				input,
 				slackui.Notice(
-					"*Responder did not create an incident.* The configured open incident limit has "+
+					"*Ryker did not create an incident.* The configured open incident limit has "+
 						"been reached, so no channel, agent session, or working copy was created. "+
 						"Close an existing incident, or ask an administrator to raise "+
 						"`limits.max_open_incidents`, then send the request again.",
@@ -1205,7 +1205,7 @@ func (s *Service) handleControl(
 	case slackui.ActionResolve:
 		return s.closeIncident(ctx, input, incident)
 	default:
-		return errors.New("unknown Responder control")
+		return errors.New("unknown Ryker control")
 	}
 }
 
@@ -1517,11 +1517,11 @@ func (s *Service) explainAutomaticCapacity(
 		return err
 	}
 	return s.refuseControl(ctx, input, incident, fmt.Sprintf(
-		"*Manual turn allocation is no longer required.* Responder automatically adds "+
+		"*Manual turn allocation is no longer required.* Ryker automatically adds "+
 			"session capacity when authorized work arrives, up to this channel's safety "+
 			"ceiling of %d accepted requests. Tool calls and investigation steps inside a "+
 			"request are not counted separately. The ceiling is `coop.turn_limit` in "+
-			"responder.yaml.",
+			"ryker.yaml.",
 		limit,
 	))
 }
@@ -1534,7 +1534,7 @@ func (s *Service) reviewFix(ctx context.Context, input core.SlackInput, incident
 	}
 	if incident.CoopSessionID == "" {
 		return s.refuseControl(ctx, input, incident,
-			"*Fix review is not available yet.* Responder is still preparing the isolated "+
+			"*Fix review is not available yet.* Ryker is still preparing the isolated "+
 				"working copy. Wait for the pinned card to show *Waiting for input*, then "+
 				"run the review again.")
 	}
@@ -1577,7 +1577,7 @@ func (s *Service) reviewFix(ctx context.Context, input core.SlackInput, incident
 		return err
 	}
 	rawReview, _, err := s.coop.Review(
-		ctx, "responder:review:"+input.ID, action.SessionID, action.Revision,
+		ctx, "ryker:review:"+input.ID, action.SessionID, action.Revision,
 	)
 	if err != nil {
 		s.clearNativeStatus(ctx, incident)
@@ -1611,7 +1611,7 @@ func (s *Service) reviewFix(ctx context.Context, input core.SlackInput, incident
 func (s *Service) stopTurn(ctx context.Context, input core.SlackInput, incident core.Incident) error {
 	if incident.ActiveTurnID == "" {
 		return s.refuseControl(ctx, input, incident,
-			"*Nothing was stopped.* No agent turn is currently running. Responder is "+
+			"*Nothing was stopped.* No agent turn is currently running. Ryker is "+
 				"waiting for input; reply with the next request, ask for an update, or close "+
 				"the incident.")
 	}
@@ -1620,7 +1620,7 @@ func (s *Service) stopTurn(ctx context.Context, input core.SlackInput, incident 
 		return err
 	}
 	_, _, err = s.coop.Cancel(
-		ctx, "responder:stop:"+input.ID, action.SessionID, action.TurnID, action.Revision,
+		ctx, "ryker:stop:"+input.ID, action.SessionID, action.TurnID, action.Revision,
 	)
 	if err != nil {
 		return err
@@ -1635,7 +1635,7 @@ func (s *Service) stopTurn(ctx context.Context, input core.SlackInput, incident 
 	}
 	return s.enqueue(ctx, "out_stop_"+input.ID, incident, "notice",
 		incident.ConversationThreadTS(), slackui.Notice(
-			"*Stop requested for the active agent turn.* Responder will stop starting new work "+
+			"*Stop requested for the active agent turn.* Ryker will stop starting new work "+
 				"for that turn. The isolated working copy, collected evidence, and queued "+
 				"context are preserved so "+audience+" can inspect or continue later.",
 		))
@@ -1677,7 +1677,7 @@ func (s *Service) closeIncident(ctx context.Context, input core.SlackInput, inci
 			return err
 		}
 		if _, _, err := s.coop.Close(
-			ctx, "responder:close:"+input.ID, action.SessionID, action.Revision,
+			ctx, "ryker:close:"+input.ID, action.SessionID, action.Revision,
 		); err != nil {
 			return err
 		}
@@ -1990,7 +1990,7 @@ func (s *Service) slackInputFailureIsTerminal(
 
 // reportAbandonedInput tells whoever asked that their request will not happen.
 //
-// The message is "Responder could not complete that request after retrying",
+// The message is "Ryker could not complete that request after retrying",
 // the reason Slack gave, and an invitation to try the command again. Only the
 // person who typed the command can do that. To everyone else in the room it is
 // a stack trace addressed to nobody: it names no work, changes nothing they
@@ -2007,7 +2007,7 @@ func (s *Service) reportAbandonedInput(
 	cause error,
 ) {
 	message := slackui.Notice(
-		"*Responder could not complete that request after retrying.*\n\n" +
+		"*Ryker could not complete that request after retrying.*\n\n" +
 			"Reason: `" + trimError(cause) + "`\n\nThe incident and isolated working copy " +
 			"are preserved. Check the pinned card for the current state, then retry " +
 			"the command or reply with a different next step.",
@@ -2068,12 +2068,12 @@ func (s *Service) finishSlackInput(ctx context.Context, input core.SlackInput) e
 //
 // Both reasons name one Slack account and nothing else: this person is not a
 // configured operator, or this person is a guest the workspace does not let
-// steer Responder. Nobody else in the room can grant either, so nobody else
+// steer Ryker. Nobody else in the room can grant either, so nobody else
 // can act on reading it — which is the test, not whether it is an error.
 //
 // It was a channel post, so a colleague who typed one sentence in an incident
 // room was refused in public, once per message they sent, in front of everyone
-// working the incident. The refusal is between Responder and them.
+// working the incident. The refusal is between Ryker and them.
 //
 // Ephemeral needs a channel and a user. A channelless interaction has neither
 // a place to put it nor, by then, anything to say that the App Home does not

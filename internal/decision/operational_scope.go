@@ -1,9 +1,9 @@
 package decision
 
 import (
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/operationalreply"
-	"github.com/AndrewDryga/responder/internal/operationalscope"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/operationalreply"
+	"github.com/AndrewDryga/ryker/internal/operationalscope"
 )
 
 type OperationalTargetUniverse = operationalscope.TargetUniverse

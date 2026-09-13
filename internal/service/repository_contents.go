@@ -5,9 +5,9 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/AndrewDryga/responder/internal/core"
-	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
-	"github.com/AndrewDryga/responder/internal/investigation"
+	"github.com/AndrewDryga/ryker/internal/core"
+	decisionpkg "github.com/AndrewDryga/ryker/internal/decision"
+	"github.com/AndrewDryga/ryker/internal/investigation"
 )
 
 // repositoryScopeKeyPattern is the alias shape Coop policies and repository
@@ -48,7 +48,7 @@ func (s *Service) repositoryContentsForPrompt(ctx context.Context) map[string]st
 // applyRepositoryContents saves what a turn learned about which part of the
 // product a repository holds.
 //
-// This is the only memory Responder writes without an operator confirming it,
+// This is the only memory Ryker writes without an operator confirming it,
 // and the exemption is narrow by construction rather than by intention: one
 // subject per repository, a bounded single sentence, a configured repository
 // only, and the same credential and multiline rejection every other memory
@@ -67,7 +67,7 @@ func (s *Service) applyRepositoryContents(
 		name := strings.TrimSpace(operation.Repository)
 		// Deliberately not checked against cfg.Repositories. A Coop policy's
 		// companions and the Slack-visible repository contexts are two different
-		// lists: the emisar deployment mounts `coop` and `responder` as
+		// lists: the emisar deployment mounts `coop` and `ryker` as
 		// companions while configuring neither, and requiring configuration here
 		// would have made those two permanently undescribable — the exact repos
 		// an agent working in that workspace reads most.

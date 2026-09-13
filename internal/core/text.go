@@ -11,7 +11,7 @@ import (
 // carry operator and model text that routinely contains multi-byte runes.
 // Slicing those on a byte boundary yields invalid UTF-8, which surfaces to
 // operators as a replacement character and corrupts anything that later
-// re-encodes the value as JSON. Every bound in Responder goes through here.
+// re-encodes the value as JSON. Every bound in Ryker goes through here.
 func TruncateUTF8(value string, limit int) string {
 	if limit <= 0 {
 		return ""

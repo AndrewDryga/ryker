@@ -8,10 +8,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/selfreport"
-	"github.com/AndrewDryga/responder/internal/store/selfreportstore"
-	"github.com/AndrewDryga/responder/internal/store/storetest"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/selfreport"
+	"github.com/AndrewDryga/ryker/internal/store/selfreportstore"
+	"github.com/AndrewDryga/ryker/internal/store/storetest"
 )
 
 // The reported window is the week ending Monday 2026-08-10 09:00 UTC.
@@ -52,7 +52,7 @@ func seedWeek(t *testing.T, db *sql.DB) {
 	correction := func(id string, month time.Month, day int, detail string) {
 		t.Helper()
 		exec(`INSERT INTO audit_events (id, kind, actor_id, object_id, outcome, detail, created_at)
-		      VALUES (?, 'result.correction', 'responder', '', 'shape', ?, ?)`,
+		      VALUES (?, 'result.correction', 'ryker', '', 'shape', ?, ?)`,
 			id, detail, stamp(t, month, day, 13))
 	}
 	// Four finished turns this week with two corrections; four the week before

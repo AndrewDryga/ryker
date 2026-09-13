@@ -3,7 +3,7 @@ package decision_test
 import (
 	"testing"
 
-	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
+	decisionpkg "github.com/AndrewDryga/ryker/internal/decision"
 )
 
 // The judge's numbers and the runtime's refusal have to be the same bar.

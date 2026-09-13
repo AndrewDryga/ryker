@@ -7,10 +7,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/AndrewDryga/responder/internal/coop"
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/slackui"
-	"github.com/AndrewDryga/responder/internal/store"
+	"github.com/AndrewDryga/ryker/internal/coop"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/slackui"
+	"github.com/AndrewDryga/ryker/internal/store"
 )
 
 func TestPermanentChannelPreparationFailureNeedsOperatorAction(t *testing.T) {
@@ -205,7 +205,7 @@ func TestTerminalTaskSessionFailureGetsOneFreshIdempotencyGeneration(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"Investigation queued", "blitz-core", "No model turn has started", "Responder will retry"} {
+	for _, want := range []string{"Investigation queued", "blitz-core", "No model turn has started", "Ryker will retry"} {
 		if !strings.Contains(waiting.LastError, want) {
 			t.Fatalf("visible preparation status lacks %q: %q", want, waiting.LastError)
 		}
@@ -217,8 +217,8 @@ func TestTerminalTaskSessionFailureGetsOneFreshIdempotencyGeneration(t *testing.
 		t.Fatal(err)
 	}
 	want := []string{
-		"responder:session:" + task.ID,
-		"responder:session:" + task.ID + ":2",
+		"ryker:session:" + task.ID,
+		"ryker:session:" + task.ID + ":2",
 	}
 	if !slices.Equal(coopClient.createKeys, want) {
 		t.Fatalf("task session keys = %v, want %v", coopClient.createKeys, want)
@@ -265,7 +265,7 @@ func TestPendingTaskSessionKeepsItsIdempotencyGeneration(t *testing.T) {
 	if err := svc.processSessionIncident(ctx, task.ID); err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"responder:session:" + task.ID, "responder:session:" + task.ID}
+	want := []string{"ryker:session:" + task.ID, "ryker:session:" + task.ID}
 	if !slices.Equal(coopClient.createKeys, want) {
 		t.Fatalf("pending task session keys = %v, want %v", coopClient.createKeys, want)
 	}

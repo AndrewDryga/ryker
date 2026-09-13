@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-// A result Responder cannot read must go back to the model, not to the person
+// A result Ryker cannot read must go back to the model, not to the person
 // waiting on it.
 //
 // The watch path has always corrected and retried here. Incident and

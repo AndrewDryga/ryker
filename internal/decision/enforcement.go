@@ -8,14 +8,14 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/evidencepolicy"
-	"github.com/AndrewDryga/responder/internal/findingpolicy"
-	"github.com/AndrewDryga/responder/internal/investigation"
-	"github.com/AndrewDryga/responder/internal/schedulecontext"
-	"github.com/AndrewDryga/responder/internal/sourcecausepolicy"
-	"github.com/AndrewDryga/responder/internal/taskoffercarry"
-	"github.com/AndrewDryga/responder/internal/taskofferclaims"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/evidencepolicy"
+	"github.com/AndrewDryga/ryker/internal/findingpolicy"
+	"github.com/AndrewDryga/ryker/internal/investigation"
+	"github.com/AndrewDryga/ryker/internal/schedulecontext"
+	"github.com/AndrewDryga/ryker/internal/sourcecausepolicy"
+	"github.com/AndrewDryga/ryker/internal/taskoffercarry"
+	"github.com/AndrewDryga/ryker/internal/taskofferclaims"
 )
 
 // The turn state a decision is read against, and the rules that correct a
@@ -104,7 +104,7 @@ type WatchTurnState struct {
 	RecheckKey                    string                    `json:"recheck_key,omitempty"`
 	RecheckAttempt                int                       `json:"recheck_attempt,omitempty"`
 	// StreamAnsweredAt, StreamAnsweredVerdict and StreamAnsweredAction are what
-	// Responder has already posted about THIS operational stream, in this
+	// Ryker has already posted about THIS operational stream, in this
 	// thread: when, what it concluded, and what it told the channel to do.
 	//
 	// They exist so that "nothing has changed" is a decision the model can make
@@ -489,18 +489,18 @@ func (state *WatchTurnState) RemoveResolvedMentionDuplicate() {
 }
 
 type WatchContextMessage struct {
-	MessageTS         string                   `json:"message_ts"`
-	ThreadTS          string                   `json:"thread_ts,omitempty"`
-	MessageLink       string                   `json:"message_link,omitempty"`
-	SenderID          string                   `json:"sender_id"`
-	SenderType        string                   `json:"sender_type"`
-	Text              string                   `json:"text"`
-	Attachments       []WatchContextAttachment `json:"attachments,omitempty"`
-	Reactions         []WatchContextReaction   `json:"reactions,omitempty"`
-	MentionsResponder bool                     `json:"mentions_responder,omitempty"`
-	RequestedBy       string                   `json:"requested_by,omitempty"`
-	Continuation      bool                     `json:"conversation_continuation,omitempty"`
-	Target            bool                     `json:"target,omitempty"`
+	MessageTS     string                   `json:"message_ts"`
+	ThreadTS      string                   `json:"thread_ts,omitempty"`
+	MessageLink   string                   `json:"message_link,omitempty"`
+	SenderID      string                   `json:"sender_id"`
+	SenderType    string                   `json:"sender_type"`
+	Text          string                   `json:"text"`
+	Attachments   []WatchContextAttachment `json:"attachments,omitempty"`
+	Reactions     []WatchContextReaction   `json:"reactions,omitempty"`
+	MentionsRyker bool                     `json:"mentions_responder,omitempty"`
+	RequestedBy   string                   `json:"requested_by,omitempty"`
+	Continuation  bool                     `json:"conversation_continuation,omitempty"`
+	Target        bool                     `json:"target,omitempty"`
 }
 
 type WatchContextReaction struct {
@@ -667,7 +667,7 @@ func AlertAssessmentCorrection(
 		// evidence that the problem is still happening, and the two were being
 		// conflated: the recovery check above only ever ran when the model had
 		// already said not_issue, so a confirmed_issue verdict on a cleared
-		// alert went straight through. Responder published active degradation
+		// alert went straight through. Ryker published active degradation
 		// and recommended halting a rollout for a condition that had already
 		// recovered, on evidence that was fresh only in the sense of having
 		// been retrieved a moment ago — it described the incident, not the
@@ -712,7 +712,7 @@ func AlertAssessmentCorrection(
 // the line. The prompt told the model to stay silent unless it had something
 // new; this rule made obeying it impossible.
 //
-// So a card on a stream Responder has ALREADY answered in this thread may be
+// So a card on a stream Ryker has ALREADY answered in this thread may be
 // ignored. A recovery may not: a stream answered while it was firing still owes
 // the channel its closure, and OperationalAlertResolvedEvent is what tells the
 // two apart.
@@ -786,7 +786,7 @@ func WatchDecisionCorrectionAt(
 		len(decision.Evidence) > 0 {
 		return "the result contains a completed evidence-backed reply for the active conversation, " +
 			"but attention.addressee says human; return the same supported answer with " +
-			"attention.addressee=responder instead of misclassifying it as human-to-human chatter"
+			"attention.addressee=ryker instead of misclassifying it as human-to-human chatter"
 	}
 	if input.Kind == "bot_message" && decision.Action == "ignore" &&
 		OperationalAlertResolvedEvent(input.Text) &&
@@ -820,7 +820,7 @@ func WatchDecisionCorrectionAt(
 	// result are unchanged. This rule read that obedience as an unanswered
 	// operator and rejected it, so the only way a recheck could pass validation
 	// was to say something — which is the opposite of what a quiet recheck is
-	// for. Nobody is waiting on the other end of a timer Responder set itself.
+	// for. Nobody is waiting on the other end of a timer Ryker set itself.
 	if decision.Action == "ignore" && input.Kind != "recheck" &&
 		WatchInputTargeted(input, state) &&
 		decision.Attention.Addressee == "responder" {
@@ -1083,7 +1083,7 @@ func MatchedOperationalAlertRule(rules []core.StandingRule) bool {
 // HasActiveDegradationEvidence reports a fresh operational observation cited by
 // this assessment that actually found something wrong, as opposed to one that
 // merely arrived recently or describes an unrelated service. Freshness says
-// when Responder looked; the health effect and explicit assessment reference
+// when Ryker looked; the health effect and explicit assessment reference
 // say what it saw and which alert the observation supports.
 func HasActiveDegradationEvidence(
 	evidence []core.Evidence,
@@ -1360,7 +1360,7 @@ func locationWordSet(groups ...string) map[string]bool {
 }
 
 // LocationOnlyRequest reports whether the message asks for nothing but a
-// change of place. Responder answers those itself with an acknowledgement and
+// change of place. Ryker answers those itself with an acknowledgement and
 // never involves the model, so a false positive swallows real work — which is
 // why this is a closed vocabulary and not a guess. Any word outside it means
 // there is something else in the message.

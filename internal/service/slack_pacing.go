@@ -1,6 +1,6 @@
 package service
 
-import "github.com/AndrewDryga/responder/internal/slackui"
+import "github.com/AndrewDryga/ryker/internal/slackui"
 
 // unpacedSlack returns the Slack client behind the channel-write pacer.
 //

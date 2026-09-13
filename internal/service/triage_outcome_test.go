@@ -9,14 +9,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/coop"
-	"github.com/AndrewDryga/responder/internal/core"
-	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
-	"github.com/AndrewDryga/responder/internal/preparationnotice"
-	"github.com/AndrewDryga/responder/internal/sessionauthority"
-	"github.com/AndrewDryga/responder/internal/sessioncreate"
-	"github.com/AndrewDryga/responder/internal/slackui"
-	"github.com/AndrewDryga/responder/internal/store"
+	"github.com/AndrewDryga/ryker/internal/coop"
+	"github.com/AndrewDryga/ryker/internal/core"
+	decisionpkg "github.com/AndrewDryga/ryker/internal/decision"
+	"github.com/AndrewDryga/ryker/internal/preparationnotice"
+	"github.com/AndrewDryga/ryker/internal/sessionauthority"
+	"github.com/AndrewDryga/ryker/internal/sessioncreate"
+	"github.com/AndrewDryga/ryker/internal/slackui"
+	"github.com/AndrewDryga/ryker/internal/store"
 )
 
 // A live Blitz alert spent eleven hours behind one preparation lease after
@@ -867,7 +867,7 @@ func TestSuccessfulTriageSubmissionRetiresPreparationBlocker(t *testing.T) {
 }
 
 // A live alert on 2026-08-18 found 64 durable session-create keys left by old
-// request shapes. Responder preserved the run and its generation, but then
+// request shapes. Ryker preserved the run and its generation, but then
 // waited thirty minutes before continuing the bounded catch-up even though no
 // model turn had started. A busy alert channel must yield between bounded
 // batches without turning one safe batch boundary into a half-hour outage.
@@ -919,7 +919,7 @@ func TestHistoricalSessionKeyCatchupResumesQuicklyWithoutSpendingAnAttempt(t *te
 // it themselves.
 //
 // Silence is right for an unmatched bot card and for two humans talking past
-// Responder. It is never right for a message that said its name.
+// Ryker. It is never right for a message that said its name.
 func TestAFailedAnswerToAMentionIsNotSilent(t *testing.T) {
 	ctx := context.Background()
 	cfg := serviceConfig(t)
@@ -929,8 +929,8 @@ func TestAFailedAnswerToAMentionIsNotSilent(t *testing.T) {
 	}
 	defer st.Close()
 	input := core.SlackInput{
-		ID: "named-responder-failure", EnvelopeID: "env-named-responder-failure",
-		EventID: "event-named-responder-failure", Kind: "message", TeamID: cfg.Slack.TeamID,
+		ID: "named-ryker-failure", EnvelopeID: "env-named-ryker-failure",
+		EventID: "event-named-ryker-failure", Kind: "message", TeamID: cfg.Slack.TeamID,
 		ChannelID: "COPS", MessageTS: "1700.100", UserID: "U123ABC",
 		Text: "@Emisar there are issues atm with payments, I just made a new account",
 	}
@@ -970,7 +970,7 @@ func TestAFailedAnswerToAMentionIsNotSilent(t *testing.T) {
 }
 
 // The other half of the same rule: an ambient message that never named
-// Responder still fails quietly, so a watched room does not fill with notices
+// Ryker still fails quietly, so a watched room does not fill with notices
 // about work nobody asked for.
 func TestAFailedAmbientMessageStaysSilent(t *testing.T) {
 	ctx := context.Background()

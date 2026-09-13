@@ -7,12 +7,12 @@ import (
 	"slices"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/core"
-	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
-	"github.com/AndrewDryga/responder/internal/evidencepolicy"
-	"github.com/AndrewDryga/responder/internal/investigation"
-	"github.com/AndrewDryga/responder/internal/taskoffercarry"
-	"github.com/AndrewDryga/responder/internal/taskofferclaims"
+	"github.com/AndrewDryga/ryker/internal/core"
+	decisionpkg "github.com/AndrewDryga/ryker/internal/decision"
+	"github.com/AndrewDryga/ryker/internal/evidencepolicy"
+	"github.com/AndrewDryga/ryker/internal/investigation"
+	"github.com/AndrewDryga/ryker/internal/taskoffercarry"
+	"github.com/AndrewDryga/ryker/internal/taskofferclaims"
 )
 
 type Check struct {

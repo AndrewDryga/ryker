@@ -11,21 +11,21 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/branching"
-	"github.com/AndrewDryga/responder/internal/config"
-	"github.com/AndrewDryga/responder/internal/coop"
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/localstate"
-	"github.com/AndrewDryga/responder/internal/publisher"
-	"github.com/AndrewDryga/responder/internal/replaycontrol"
-	"github.com/AndrewDryga/responder/internal/repomirror"
-	"github.com/AndrewDryga/responder/internal/resultcontract"
-	"github.com/AndrewDryga/responder/internal/retrydelay"
-	"github.com/AndrewDryga/responder/internal/serviceport"
-	"github.com/AndrewDryga/responder/internal/slackui"
-	"github.com/AndrewDryga/responder/internal/store"
-	"github.com/AndrewDryga/responder/internal/taskpr"
-	"github.com/AndrewDryga/responder/internal/taskpublication"
+	"github.com/AndrewDryga/ryker/internal/branching"
+	"github.com/AndrewDryga/ryker/internal/config"
+	"github.com/AndrewDryga/ryker/internal/coop"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/localstate"
+	"github.com/AndrewDryga/ryker/internal/publisher"
+	"github.com/AndrewDryga/ryker/internal/replaycontrol"
+	"github.com/AndrewDryga/ryker/internal/repomirror"
+	"github.com/AndrewDryga/ryker/internal/resultcontract"
+	"github.com/AndrewDryga/ryker/internal/retrydelay"
+	"github.com/AndrewDryga/ryker/internal/serviceport"
+	"github.com/AndrewDryga/ryker/internal/slackui"
+	"github.com/AndrewDryga/ryker/internal/store"
+	"github.com/AndrewDryga/ryker/internal/taskpr"
+	"github.com/AndrewDryga/ryker/internal/taskpublication"
 )
 
 type PublicationAPI = serviceport.Publication
@@ -478,7 +478,7 @@ func (s *Service) prewarmConversationSessions(ctx context.Context) {
 		if err == nil {
 			_, err = s.coop.PrepareSession(
 				ctx,
-				fmt.Sprintf("responder:conversation-prepare:%s:%d", channelID, session.Revision),
+				fmt.Sprintf("ryker:conversation-prepare:%s:%d", channelID, session.Revision),
 				session.ID,
 				session.Revision,
 			)
@@ -515,7 +515,7 @@ func (s *Service) prewarmConversationSessions(ctx context.Context) {
 				_, err = s.coop.PrepareSession(
 					ctx,
 					fmt.Sprintf(
-						"responder:conversation-prepare:%s:%d",
+						"ryker:conversation-prepare:%s:%d",
 						channelID,
 						memory.SessionRevision,
 					),
@@ -648,7 +648,7 @@ func (s *Service) runMaintenance(ctx context.Context) {
 // warnAboutLapsingCorrections logs when the product's own corrections are about
 // to be forgotten.
 //
-// A fixture candidate is a correction Responder made about itself, and it is
+// A fixture candidate is a correction Ryker made about itself, and it is
 // only actionable while it is pending. Until this existed the only place a
 // pending correction appeared was App Home, so the loop could stall for a
 // fortnight and then lose the evidence with nothing said anywhere.

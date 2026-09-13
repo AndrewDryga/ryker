@@ -49,7 +49,7 @@ type RelatedTask struct {
 // main as 08f8b671. What was missing was the rollout, not the merge, and an
 // operator following that sentence would have opened a duplicate pull request.
 //
-// The ladder deliberately stops at Merged. Responder reads a git checkout, and
+// The ladder deliberately stops at Merged. Ryker reads a git checkout, and
 // a checkout cannot see what a cluster is running, so "merged but the deployed
 // revision does not contain it" is not a state the host may assert — it is live
 // evidence a turn goes and gathers. What the host owes the model is the half it

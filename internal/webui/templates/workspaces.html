@@ -1,7 +1,7 @@
 {{define "workspaces"}}
 {{template "problems" .Errs}}
 <p class="note">A workspace is a checkout on disk. Coop makes one so a turn has real files to read,
-and holds it until the work it belongs to is done. They are the largest thing Responder occupies on
+and holds it until the work it belongs to is done. They are the largest thing Ryker occupies on
 this machine, and nothing else counts them.</p>
 
 {{if .Disk.Available}}
@@ -42,7 +42,7 @@ the janitor reaches it the disk stays spoken for.</p>
 
 <h2>In use <span class="note">{{len .Live}}</span></h2>
 {{if .Live}}
-<p class="note">Largest first. A conversation or watch fork is disposable — Responder rebuilds one
+<p class="note">Largest first. A conversation or watch fork is disposable — Ryker rebuilds one
 on demand — while an engineering task's fork can hold commits that exist nowhere else, which is why
 those are the ones cleanup refuses to delete without a check.</p>
 <div class="rows">

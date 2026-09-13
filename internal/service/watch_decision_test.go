@@ -11,15 +11,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/core"
-	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
-	"github.com/AndrewDryga/responder/internal/slackui"
-	"github.com/AndrewDryga/responder/internal/store"
+	"github.com/AndrewDryga/ryker/internal/core"
+	decisionpkg "github.com/AndrewDryga/ryker/internal/decision"
+	"github.com/AndrewDryga/ryker/internal/slackui"
+	"github.com/AndrewDryga/ryker/internal/store"
 	"github.com/slack-go/slack/slackevents"
 	"github.com/slack-go/slack/socketmode"
 )
 
-func TestSocketPersistsReactionsToResponderMessagesWithoutStartingAgentTurn(t *testing.T) {
+func TestSocketPersistsReactionsToRykerMessagesWithoutStartingAgentTurn(t *testing.T) {
 	ctx := context.Background()
 	cfg := serviceConfig(t)
 	st, err := store.Open(cfg.StateDir)
@@ -496,7 +496,7 @@ func TestWatchedChannelDecisions(t *testing.T) {
 				}
 			}
 			if len(coopClient.createKeys) != 1 ||
-				coopClient.createKeys[0] != "responder:watch-session:CWATCH" ||
+				coopClient.createKeys[0] != "ryker:watch-session:CWATCH" ||
 				len(coopClient.submitPrompts) != 1 ||
 				!strings.Contains(coopClient.submitPrompts[0], "<untrusted-slack-context>") ||
 				!strings.Contains(coopClient.submitPrompts[0], "recent_channel_messages") ||

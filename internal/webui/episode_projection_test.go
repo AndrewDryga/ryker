@@ -11,11 +11,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/config"
-	"github.com/AndrewDryga/responder/internal/coop"
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/decision"
-	"github.com/AndrewDryga/responder/internal/store"
+	"github.com/AndrewDryga/ryker/internal/config"
+	"github.com/AndrewDryga/ryker/internal/coop"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/decision"
+	"github.com/AndrewDryga/ryker/internal/store"
 )
 
 // The page must join the decision, delivery, and durable effects that explain
@@ -109,7 +109,7 @@ USER: <@U0BL8MNPUSY> it would be better if plan summaries showed before and afte
 	  (id, episode_id, attempt_id, version, provider, model, reasoning_effort,
 	   prompt_version, contract_version, tool_schema_version, preset, submitted_prompt, created_at)
 	  VALUES ('manifest-1','episode-1','attempt-1',1,'claude','opus','high',
-	          'responder-prompt-v2','investigation-contract-v1','result-operations-v2',
+	          'ryker-prompt-v2','investigation-contract-v1','result-operations-v2',
 	          'emisar-conversation',?,?)`, prompt, stamp)
 	exec(`INSERT INTO slack_deliveries
 	  (id, operation, kind, channel_id, thread_ts, message_ts, body_json, state,
@@ -360,7 +360,7 @@ func TestFollowUpEpisodeStartsWithSlackOriginThenAutomaticTrigger(t *testing.T) 
 		stamp(t1.Add(100*time.Millisecond)))
 	exec(`INSERT INTO audit_events
 	  (id, kind, actor_id, object_id, outcome, detail, created_at)
-	  VALUES ('correction-1','result.correction','responder','primary-run',
+	  VALUES ('correction-1','result.correction','ryker','primary-run',
 	          'invalid result','return a corrected result',?)`, stamp(t1.Add(time.Second)))
 	if err := db.Close(); err != nil {
 		t.Fatal(err)
@@ -1155,7 +1155,7 @@ func TestEpisodeTimelineDoesNotTruncateEpisodeOwnedRecords(t *testing.T) {
 	for index := 0; index < 425; index++ {
 		fixture.exec(`INSERT INTO work_episode_events
 		  (id, episode_id, sequence, kind, actor, idempotency_key, payload_json, created_at)
-		  VALUES (?, 'episode-1', ?, ?, 'responder', ?, ?, ?)`,
+		  VALUES (?, 'episode-1', ?, ?, 'ryker', ?, ?, ?)`,
 			fmt.Sprintf("event-%03d", index), index+1, fmt.Sprintf("event.%03d", index),
 			fmt.Sprintf("event-idem-%03d", index), fmt.Sprintf(`{"index":%d}`, index), fixture.stamp)
 	}
@@ -1171,7 +1171,7 @@ func TestEpisodeTimelineDoesNotTruncateEpisodeOwnedRecords(t *testing.T) {
 	for index := 0; index < 75; index++ {
 		fixture.exec(`INSERT INTO audit_events
 		  (id, kind, actor_id, object_id, outcome, detail, created_at)
-		  VALUES (?, 'episode.test', 'responder', 'run-1', 'recorded', ?, ?)`,
+		  VALUES (?, 'episode.test', 'ryker', 'run-1', 'recorded', ?, ?)`,
 			fmt.Sprintf("audit-%03d", index), fmt.Sprintf("audit detail %03d", index), fixture.stamp)
 	}
 	fixture.exec(`INSERT INTO agent_runs
@@ -1233,14 +1233,14 @@ func TestEpisodeTimelinePreservesEveryFoldedOccurrence(t *testing.T) {
 		at := time.Date(2026, 8, 11, 12, 0, second, 0, time.UTC).Format(time.RFC3339Nano)
 		fixture.exec(`INSERT INTO work_episode_events
 		  (id, episode_id, sequence, kind, actor, idempotency_key, payload_json, created_at)
-		  VALUES (?, 'episode-1', ?, 'waiting', 'responder', ?, '{"status":"Waiting"}', ?)`,
+		  VALUES (?, 'episode-1', ?, 'waiting', 'ryker', ?, '{"status":"Waiting"}', ?)`,
 			fmt.Sprintf("repeat-%d", index), index+1, fmt.Sprintf("repeat-idem-%d", index), at)
 	}
 	for index, second := range []int{2, 8, 20} {
 		at := time.Date(2026, 8, 11, 12, 1, second, 0, time.UTC).Format(time.RFC3339Nano)
 		fixture.exec(`INSERT INTO audit_events
 		  (id, kind, actor_id, object_id, outcome, detail, created_at)
-		  VALUES (?, 'episode.test', 'responder', 'run-1', 'recorded', 'same audit', ?)`,
+		  VALUES (?, 'episode.test', 'ryker', 'run-1', 'recorded', 'same audit', ?)`,
 			fmt.Sprintf("repeat-audit-%d", index), at)
 	}
 
@@ -1344,13 +1344,13 @@ func TestEpisodeArtifactsCoverEveryDurableLifecycle(t *testing.T) {
 	fixture.exec(`UPDATE agent_runs SET incident_id = 'incident-1' WHERE id = 'run-1'`)
 	fixture.exec(`INSERT INTO timeline_events
 	  (id, incident_id, channel_id, kind, actor_id, title, detail, created_at)
-	  VALUES ('timeline-1','incident-1','C1','investigation','responder',
+	  VALUES ('timeline-1','incident-1','C1','investigation','ryker',
 	          'Rollout inspected','The new allocation is healthy',?)`, fixture.stamp)
 	fixture.exec(`INSERT INTO publications
 	  (incident_id, episode_id, repository, base_branch, head_branch, parent_head,
 	   candidate_tree, commit_sha, remote_sha, pr_number, pr_url, state,
 	   created_at, updated_at, published_at)
-	  VALUES ('incident-1','episode-1','emisar','main','responder/fix','parent','tree',
+	  VALUES ('incident-1','episode-1','emisar','main','ryker/fix','parent','tree',
 	          'commit','remote',42,'https://github.com/example/emisar/pull/42','published',?,?,?)`,
 		fixture.stamp, fixture.stamp, fixture.stamp)
 	fixture.exec(`INSERT INTO publication_lifecycle_events
@@ -1422,7 +1422,7 @@ func TestEpisodeArtifactsKeepPublicationWhenIncidentTimelineIsUnavailable(t *tes
 	  (incident_id, episode_id, repository, base_branch, head_branch, parent_head,
 	   candidate_tree, commit_sha, remote_sha, pr_number, pr_url, state,
 	   created_at, updated_at, published_at)
-	  VALUES ('incident-1','episode-1','emisar','main','responder/fix','parent','tree',
+	  VALUES ('incident-1','episode-1','emisar','main','ryker/fix','parent','tree',
 	          'commit','remote',42,'https://github.com/example/emisar/pull/42','published',?,?,?)`,
 		fixture.stamp, fixture.stamp, fixture.stamp)
 	fixture.closeAndDrop("timeline_events")

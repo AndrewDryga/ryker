@@ -81,10 +81,10 @@ const (
 	// KindProviderRefused: the agent protocol refused the request and did not
 	// say why.
 	//
-	// Responder sees only "ACP request was rejected"; the reason lives in
+	// Ryker sees only "ACP request was rejected"; the reason lives in
 	// Coop's session log, two layers down. On 2026-08-07 that reason was a
 	// spent quota with a reset date four days out, and every refusal in between
-	// surfaced in Slack as "Responder could not complete this check" for work
+	// surfaced in Slack as "Ryker could not complete this check" for work
 	// that was fine.
 	//
 	// Treated as a wait rather than a failure because every cause of it is one:
@@ -106,7 +106,7 @@ func Classify(detail string) Failure {
 	case containsAny(lower, "acp transcript exceeded its bound"):
 		return Failure{
 			Kind:        "transcript_limit",
-			Summary:     "The investigation repeatedly produced more tool output than Coop can transport, even after Responder restarted it with narrower-query guidance.",
+			Summary:     "The investigation repeatedly produced more tool output than Coop can transport, even after Ryker restarted it with narrower-query guidance.",
 			OperatorFix: "Retry with a narrower scope, or add a server-side aggregate or paginated evidence route for this check.",
 		}
 	case containsAny(lower, "usage limit", "quota", "insufficient_quota", "credit balance"):
@@ -142,7 +142,7 @@ func Classify(detail string) Failure {
 		return Failure{
 			Kind:        "model",
 			Summary:     "The configured model is unavailable to the current provider account.",
-			OperatorFix: "Choose a model available to that account, restart Responder so managed Coop reloads it, then retry.",
+			OperatorFix: "Choose a model available to that account, restart Ryker so managed Coop reloads it, then retry.",
 		}
 	// After the specific causes, not before: Coop now carries the adapter's own
 	// reason inside this string ("ACP request was rejected: <reason>"), and a

@@ -3,9 +3,9 @@
 package taskcompletion
 
 import (
-	"github.com/AndrewDryga/responder/internal/coop"
-	"github.com/AndrewDryga/responder/internal/investigation"
-	"github.com/AndrewDryga/responder/internal/taskcard"
+	"github.com/AndrewDryga/ryker/internal/coop"
+	"github.com/AndrewDryga/ryker/internal/investigation"
+	"github.com/AndrewDryga/ryker/internal/taskcard"
 )
 
 func RequestsOperatorInput(operations []investigation.ResultOperation) bool {

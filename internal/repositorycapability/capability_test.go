@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/AndrewDryga/responder/internal/config"
-	"github.com/AndrewDryga/responder/internal/coop"
+	"github.com/AndrewDryga/ryker/internal/config"
+	"github.com/AndrewDryga/ryker/internal/coop"
 )
 
 func TestBuildDistinguishesPinnedReadOnlyAndConfiguredRepositories(t *testing.T) {
@@ -58,7 +58,7 @@ func TestPromptMakesAccessAndDenialSemanticsExplicit(t *testing.T) {
 		PinnedCommit: "core-commit",
 	}}})
 	for _, required := range []string{
-		"<trusted-responder-repository-capabilities>",
+		"<trusted-ryker-repository-capabilities>",
 		`"key":"blitz-core"`,
 		`"access_mode":"pinned_read_only"`,
 		"has verified read access",

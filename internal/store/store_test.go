@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/ryker/internal/core"
 )
 
 func TestOpenLiveWritesCurrentDatabaseWithoutMigration(t *testing.T) {
@@ -694,7 +694,7 @@ func TestMigrationBackupRetentionIsBoundedAndScoped(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	// Files Responder did not write. The two database-shaped ones are the point:
+	// Files Ryker did not write. The two database-shaped ones are the point:
 	// the deployed backups directory holds 47.8 MB of exactly these, hand-taken
 	// before something risky, and every proposal to reclaim that space arrives
 	// as "widen the glob". A stray .txt would survive that widening and prove
@@ -722,7 +722,7 @@ func TestMigrationBackupRetentionIsBoundedAndScoped(t *testing.T) {
 	}
 	for _, path := range unrelated {
 		if _, err := os.Stat(path); err != nil {
-			t.Fatalf("a file Responder did not create was removed: %s: %v", path, err)
+			t.Fatalf("a file Ryker did not create was removed: %s: %v", path, err)
 		}
 	}
 }

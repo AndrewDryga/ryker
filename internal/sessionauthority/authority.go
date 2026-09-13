@@ -1,5 +1,5 @@
 // Package sessionauthority revokes Coop workspace authority that a durable
-// Responder lane no longer grants.
+// Ryker lane no longer grants.
 package sessionauthority
 
 import (
@@ -9,8 +9,8 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/coop"
-	"github.com/AndrewDryga/responder/internal/sessioncreate"
+	"github.com/AndrewDryga/ryker/internal/coop"
+	"github.com/AndrewDryga/ryker/internal/sessioncreate"
 )
 
 type Client interface {
@@ -59,7 +59,7 @@ func RejectCandidate(
 		}
 	}
 	for range 2 {
-		key := "responder:reject-session:" + session.ID + ":" +
+		key := "ryker:reject-session:" + session.ID + ":" +
 			strconv.FormatInt(session.Revision, 10)
 		if _, _, err := client.Close(ctx, key, session.ID, session.Revision); err == nil {
 			return nil
@@ -96,7 +96,7 @@ func Revoke(
 		}
 		for attempt := 0; attempt < 2; attempt++ {
 			_, _, cancelErr := client.Cancel(
-				ctx, "responder:revoke-writable:"+session.ID+":"+turn.ID+":"+
+				ctx, "ryker:revoke-writable:"+session.ID+":"+turn.ID+":"+
 					strconv.FormatInt(session.Revision, 10),
 				session.ID, turn.ID, session.Revision,
 			)

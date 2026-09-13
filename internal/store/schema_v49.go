@@ -12,7 +12,7 @@ package store
 // Three spans, because there are three places a turn waits and they fail
 // independently. usage_queued_ms is Coop holding the turn before a provider
 // picked it up — a busy session or an exhausted ladder. usage_provider_ms is the
-// provider working. usage_host_ms is Responder not yet having noticed the turn
+// provider working. usage_host_ms is Ryker not yet having noticed the turn
 // finished; it polls, so that gap is real, is nobody else's, and is the one span
 // this repository can actually fix.
 //

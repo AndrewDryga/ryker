@@ -23,11 +23,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/decision"
-	"github.com/AndrewDryga/responder/internal/memory"
-	"github.com/AndrewDryga/responder/internal/offerreason"
-	"github.com/AndrewDryga/responder/internal/schedule"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/decision"
+	"github.com/AndrewDryga/ryker/internal/memory"
+	"github.com/AndrewDryga/ryker/internal/offerreason"
+	"github.com/AndrewDryga/ryker/internal/schedule"
 )
 
 // Catalog is the host's repository configuration, narrowed to the two questions
@@ -237,16 +237,16 @@ func locationAcknowledgement(value string, scope string) string {
 func Preference(
 	offer core.PreferenceOffer,
 	context Context,
-) (core.ResponderPreference, time.Duration, error) {
+) (core.RykerPreference, time.Duration, error) {
 	offer.Scope = strings.ToLower(strings.TrimSpace(offer.Scope))
 	offer.Repository = strings.ToLower(strings.TrimSpace(offer.Repository))
 	offer.Name = strings.ToLower(strings.TrimSpace(offer.Name))
 	offer.Value = strings.ToLower(strings.TrimSpace(offer.Value))
 	ttl, err := memory.ParseMemoryTTL(offer.ExpiresIn)
 	if err != nil {
-		return core.ResponderPreference{}, 0, err
+		return core.RykerPreference{}, 0, err
 	}
-	preference := core.ResponderPreference{
+	preference := core.RykerPreference{
 		ScopeKind: offer.Scope, Name: offer.Name, Value: offer.Value,
 		Enabled: true, SourceRef: context.InputID, ActorID: context.UserID,
 		ExpiresAt: memory.ExpiryFrom(context.Now, ttl),
@@ -256,7 +256,7 @@ func Preference(
 		preference.ScopeKey = context.TeamID
 	case "channel":
 		if context.ChannelID == "" {
-			return core.ResponderPreference{}, 0, offerreason.Field(
+			return core.RykerPreference{}, 0, offerreason.Field(
 				"scope", offer.Scope,
 				"a channel preference has to come from a Slack channel; "+
 					"use operator or workspace scope here",
@@ -265,14 +265,14 @@ func Preference(
 		preference.ScopeKey = context.ChannelID
 	case "repository":
 		if !context.configured(offer.Repository) {
-			return core.ResponderPreference{}, 0,
+			return core.RykerPreference{}, 0,
 				UnknownRepository(offer.Repository, context.Repositories)
 		}
 		preference.ScopeKey = offer.Repository
 	case "operator":
 		preference.ScopeKey = context.UserID
 	default:
-		return core.ResponderPreference{}, 0, offerreason.Field(
+		return core.RykerPreference{}, 0, offerreason.Field(
 			"scope", offer.Scope,
 			"expected operator, channel, repository, or workspace",
 		)
@@ -280,7 +280,7 @@ func Preference(
 	if memory.ContainsSecretLikeValue(preference.Value) {
 		// The value is not read back here: it looks like a credential, and a
 		// refusal that quotes one has copied it somewhere new.
-		return core.ResponderPreference{}, 0, errors.New(
+		return core.RykerPreference{}, 0, errors.New(
 			"the preference value looks like a credential and cannot be stored; " +
 				"offer the setting, never the secret",
 		)
@@ -289,7 +289,7 @@ func Preference(
 	case "health_check_depth":
 		if preference.Value != "quick" && preference.Value != "standard" &&
 			preference.Value != "deep" {
-			return core.ResponderPreference{}, 0, offerreason.Field(
+			return core.RykerPreference{}, 0, offerreason.Field(
 				"value", preference.Value,
 				"health_check_depth expects quick, standard, or deep",
 			)
@@ -297,27 +297,27 @@ func Preference(
 	case "response_detail":
 		if preference.Value != "concise" && preference.Value != "standard" &&
 			preference.Value != "detailed" {
-			return core.ResponderPreference{}, 0, offerreason.Field(
+			return core.RykerPreference{}, 0, offerreason.Field(
 				"value", preference.Value,
 				"response_detail expects concise, standard, or detailed",
 			)
 		}
 	case "response_location":
 		if preference.ScopeKind == "repository" {
-			return core.ResponderPreference{}, 0, offerreason.Field(
+			return core.RykerPreference{}, 0, offerreason.Field(
 				"scope", preference.ScopeKind,
 				"response_location expects operator, channel, or workspace scope",
 			)
 		}
 		if preference.Value != "follow_context" && preference.Value != "prefer_thread" &&
 			preference.Value != "prefer_channel" {
-			return core.ResponderPreference{}, 0, offerreason.Field(
+			return core.RykerPreference{}, 0, offerreason.Field(
 				"value", preference.Value,
 				"response_location expects follow_context, prefer_thread, or prefer_channel",
 			)
 		}
 	default:
-		return core.ResponderPreference{}, 0, offerreason.Field(
+		return core.RykerPreference{}, 0, offerreason.Field(
 			"name", preference.Name,
 			"expected health_check_depth, response_detail, or response_location",
 		)
@@ -425,7 +425,7 @@ func Entry(
 			"expires_in", offer.ExpiresIn,
 			"expected 7d, 30d, 90d, or 365d, because predicate "+
 				strconv.Quote(offer.Predicate)+" describes a system that can change "+
-				"without telling Responder; only a guidance predicate may be permanent",
+				"without telling Ryker; only a guidance predicate may be permanent",
 		)
 	}
 	entry := core.MemoryEntry{

@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/ryker/internal/core"
 )
 
 // RepositoryChoice describes a human-facing code-context option. A set is a

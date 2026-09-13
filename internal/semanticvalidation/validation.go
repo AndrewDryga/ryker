@@ -9,8 +9,8 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/AndrewDryga/responder/internal/coop"
-	"github.com/AndrewDryga/responder/internal/decision"
+	"github.com/AndrewDryga/ryker/internal/coop"
+	"github.com/AndrewDryga/ryker/internal/decision"
 )
 
 const maxViolationBytes = 3500

@@ -13,34 +13,34 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/fanout"
-	"github.com/AndrewDryga/responder/internal/store/activitystore"
-	"github.com/AndrewDryga/responder/internal/store/alertstreamstore"
-	"github.com/AndrewDryga/responder/internal/store/approvalstore"
-	"github.com/AndrewDryga/responder/internal/store/artifactstore"
-	"github.com/AndrewDryga/responder/internal/store/behaviorstore"
-	"github.com/AndrewDryga/responder/internal/store/changestore"
-	"github.com/AndrewDryga/responder/internal/store/fanoutstore"
-	"github.com/AndrewDryga/responder/internal/store/fixturepromotionstore"
-	"github.com/AndrewDryga/responder/internal/store/goalstore"
-	"github.com/AndrewDryga/responder/internal/store/grantstore"
-	"github.com/AndrewDryga/responder/internal/store/incidentsessionstore"
-	"github.com/AndrewDryga/responder/internal/store/incidentstore"
-	"github.com/AndrewDryga/responder/internal/store/intelligencestore"
-	"github.com/AndrewDryga/responder/internal/store/memorystore"
-	"github.com/AndrewDryga/responder/internal/store/pausecleanupstore"
-	"github.com/AndrewDryga/responder/internal/store/preparationstore"
-	"github.com/AndrewDryga/responder/internal/store/publicationfollowupstore"
-	"github.com/AndrewDryga/responder/internal/store/publicationrecoverystore"
-	"github.com/AndrewDryga/responder/internal/store/publicationstore"
-	"github.com/AndrewDryga/responder/internal/store/replaycancelstore"
-	"github.com/AndrewDryga/responder/internal/store/schedulestore"
-	"github.com/AndrewDryga/responder/internal/store/selfreportstore"
-	"github.com/AndrewDryga/responder/internal/store/slackinputstore"
-	"github.com/AndrewDryga/responder/internal/store/sqlutil"
-	"github.com/AndrewDryga/responder/internal/store/standingassignmentstore"
-	"github.com/AndrewDryga/responder/internal/store/taskcardstore"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/fanout"
+	"github.com/AndrewDryga/ryker/internal/store/activitystore"
+	"github.com/AndrewDryga/ryker/internal/store/alertstreamstore"
+	"github.com/AndrewDryga/ryker/internal/store/approvalstore"
+	"github.com/AndrewDryga/ryker/internal/store/artifactstore"
+	"github.com/AndrewDryga/ryker/internal/store/behaviorstore"
+	"github.com/AndrewDryga/ryker/internal/store/changestore"
+	"github.com/AndrewDryga/ryker/internal/store/fanoutstore"
+	"github.com/AndrewDryga/ryker/internal/store/fixturepromotionstore"
+	"github.com/AndrewDryga/ryker/internal/store/goalstore"
+	"github.com/AndrewDryga/ryker/internal/store/grantstore"
+	"github.com/AndrewDryga/ryker/internal/store/incidentsessionstore"
+	"github.com/AndrewDryga/ryker/internal/store/incidentstore"
+	"github.com/AndrewDryga/ryker/internal/store/intelligencestore"
+	"github.com/AndrewDryga/ryker/internal/store/memorystore"
+	"github.com/AndrewDryga/ryker/internal/store/pausecleanupstore"
+	"github.com/AndrewDryga/ryker/internal/store/preparationstore"
+	"github.com/AndrewDryga/ryker/internal/store/publicationfollowupstore"
+	"github.com/AndrewDryga/ryker/internal/store/publicationrecoverystore"
+	"github.com/AndrewDryga/ryker/internal/store/publicationstore"
+	"github.com/AndrewDryga/ryker/internal/store/replaycancelstore"
+	"github.com/AndrewDryga/ryker/internal/store/schedulestore"
+	"github.com/AndrewDryga/ryker/internal/store/selfreportstore"
+	"github.com/AndrewDryga/ryker/internal/store/slackinputstore"
+	"github.com/AndrewDryga/ryker/internal/store/sqlutil"
+	"github.com/AndrewDryga/ryker/internal/store/standingassignmentstore"
+	"github.com/AndrewDryga/ryker/internal/store/taskcardstore"
 	_ "modernc.org/sqlite"
 )
 
@@ -120,7 +120,7 @@ type Store struct {
 	// Intelligence owns what an investigation established — evidence,
 	// coverage, timeline, proposals.
 	Intelligence *intelligencestore.Repository
-	// Behavior owns what an operator has taught Responder to do: preferences
+	// Behavior owns what an operator has taught Ryker to do: preferences
 	// and standing rules.
 	Behavior *behaviorstore.Repository
 	// TaskCards owns the single mutable Slack surface for engineering work.
@@ -377,7 +377,7 @@ func verifyMigrationBackup(path string, sourceVersion int) error {
 // better about, and deleting it as a side effect of an unrelated migration is
 // the kind of surprise that teaches an operator not to trust the tool.
 //
-// So the rule is that Responder collects what Responder created, and
+// So the rule is that Ryker collects what Ryker created, and
 // docs/operations.md promises exactly that: unrelated files are never removed.
 // The disk those manual copies occupy is real and is the operator's to reclaim;
 // the documentation now says where a manual copy belongs so the next one is not
@@ -443,14 +443,14 @@ func ensureIncrementalVacuum(db *sql.DB) error {
 }
 
 // OpenCurrent opens an existing database for inspection without changing its
-// schema or persistent settings. It is safe to use while Responder is running.
+// schema or persistent settings. It is safe to use while Ryker is running.
 func OpenCurrent(stateDir string) (*Store, error) {
 	return openCurrent(stateDir, true)
 }
 
 // OpenLive opens an existing database for a bounded local control operation
 // without migrating it or changing persistent settings. The caller must first
-// confirm that the owning Responder process is running.
+// confirm that the owning Ryker process is running.
 func OpenLive(stateDir string) (*Store, error) {
 	return openCurrent(stateDir, false)
 }
@@ -1971,7 +1971,7 @@ func channelStateError(state core.ChannelState, threadScoped bool) string {
 		case core.ChannelDeleted:
 			return "The Slack channel containing this task thread was deleted. The Coop session and isolated fork are preserved, but this thread can no longer continue."
 		case core.ChannelUnreachable:
-			return "The Slack channel containing this task thread is unavailable to Responder. Restore channel access to continue; the Coop session and isolated fork are preserved."
+			return "The Slack channel containing this task thread is unavailable to Ryker. Restore channel access to continue; the Coop session and isolated fork are preserved."
 		default:
 			return ""
 		}
@@ -1982,7 +1982,7 @@ func channelStateError(state core.ChannelState, threadScoped bool) string {
 	case core.ChannelDeleted:
 		return "Slack incident room was deleted. The Coop session and isolated fork are preserved; create or rebind a room before continuing."
 	case core.ChannelUnreachable:
-		return "Slack incident room is unavailable to Responder. The room may be inaccessible or deleted; restore access or rebind a room before continuing."
+		return "Slack incident room is unavailable to Ryker. The room may be inaccessible or deleted; restore access or rebind a room before continuing."
 	default:
 		return ""
 	}

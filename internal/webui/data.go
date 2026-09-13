@@ -14,9 +14,9 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/AndrewDryga/responder/internal/config"
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/decision"
+	"github.com/AndrewDryga/ryker/internal/config"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/decision"
 	"path/filepath"
 )
 
@@ -56,7 +56,7 @@ type Reader struct {
 // OpenCoopSessions attaches Coop's own session store, read-only.
 //
 // A second database rather than a join: workspaces belong to Coop, which
-// records what it is holding and why, and Responder only keeps the references
+// records what it is holding and why, and Ryker only keeps the references
 // it needs. Reading the file directly keeps the dashboard's bargain — local,
 // read-only, nothing fetched at render time — where asking Coop over its
 // control socket would make the page unrenderable whenever Coop is restarting.
@@ -178,7 +178,7 @@ type Item struct {
 
 	// Answer is what the episode concluded, in the model's own words. A list
 	// that shows only what came in makes every alert-driven row look the same
-	// as the last one and says nothing about what Responder did with it.
+	// as the last one and says nothing about what Ryker did with it.
 	Answer string
 	// Replied records whether any of this reached Slack. Almost nothing does —
 	// 38 of 625 episodes on the busiest deployment posted a message — so the
@@ -1034,7 +1034,7 @@ type RepositoryDescription struct {
 	Repository string
 	Contents   string
 	// Source is "agent" when a turn that read the repository wrote this,
-	// "configured" when it is still the sentence from responder.yaml, and
+	// "configured" when it is still the sentence from ryker.yaml, and
 	// "" when nothing describes the repository at all.
 	Source  string
 	Recalls int
@@ -1285,7 +1285,7 @@ func (r *Reader) MemoryReview(ctx context.Context) ([]ReviewItem, error) {
 	return items, rows.Err()
 }
 
-// Feedback is what a person said about a Responder answer. It had no surface
+// Feedback is what a person said about a Ryker answer. It had no surface
 // at all, which is a poor showing for the one entity that records a human
 // telling the system it was wrong.
 type Feedback struct {
@@ -1426,7 +1426,7 @@ type Knowledge struct {
 
 // ConversationDetail unpacks the state blob that a list can only count.
 //
-// The goal, open loops and knowledge items are the substance of what Responder
+// The goal, open loops and knowledge items are the substance of what Ryker
 // believes about a channel, and they were stored as one opaque JSON column that
 // nothing rendered. "21 conversation memories" is a number; this is the content.
 type ConversationDetail struct {
@@ -1892,7 +1892,7 @@ func (r *Reader) ScheduleRuns(ctx context.Context, id string, limit int) ([]Sche
 }
 
 // Preference and StandingRule mirror what the App Home lists, because how
-// Responder is configured belongs on the Configuration page and lived only in
+// Ryker is configured belongs on the Configuration page and lived only in
 // Slack.
 type Preference struct {
 	Name, Value, Scope string
@@ -2020,9 +2020,9 @@ type ChannelRoll struct {
 	// conversation id where a repository would go.
 	Direct bool
 	// Kind is what the channel is for, derived rather than stored: an incident
-	// room Responder opened, a shared channel it works in, or a direct message.
+	// room Ryker opened, a shared channel it works in, or a direct message.
 	Kind string
-	// Private and Member describe Slack's own view. A channel Responder has
+	// Private and Member describe Slack's own view. A channel Ryker has
 	// left still has its history and still belongs on the list, so absence is
 	// shown rather than used as a filter — except on a direct message, which
 	// has no membership row at all, so "not a member" there would report a
@@ -2037,7 +2037,7 @@ type ChannelRoll struct {
 
 // ChannelRolls groups every recorded episode by the channel it happened in.
 //
-// Direct messages and channels Responder has since left are kept: the work is
+// Direct messages and channels Ryker has since left are kept: the work is
 // on record and a page that silently drops it under-reports what ran. Rows
 // with no channel at all — webhook-only work — are excluded, because there is
 // no channel page to send them to.
@@ -2085,13 +2085,13 @@ func (r *Reader) ChannelRolls(ctx context.Context) ([]ChannelRoll, error) {
 // so the roster and a channel's own page cannot disagree about what a channel
 // is.
 //
-// A room is an incident Responder opened a channel for, which is the inverse
+// A room is an incident Ryker opened a channel for, which is the inverse
 // of core.Incident.IsThreadScoped and has to be spelled out in SQL to match it.
 // The obvious rule — any incident naming this channel — is wrong, and wrongly
 // in the direction that reads plausibly. Thread-scoped work also records a
 // channel_id: the channel the thread lives in. Every incident on the deployed
 // instance is a thread-scoped engineering task, so that rule labelled five
-// ordinary shared channels as rooms Responder had opened for itself, under a
+// ordinary shared channels as rooms Ryker had opened for itself, under a
 // heading promising they close with the work. They do not; people invited it
 // into them.
 const incidentRoomExists = `SELECT 1 FROM incidents i WHERE i.channel_id = k.channel_id
@@ -2102,13 +2102,13 @@ const incidentRoomCount = `SELECT COUNT(*) FROM incidents i WHERE i.channel_id =
 	  AND NOT (i.work_scope = 'thread' OR (i.work_scope = ''
 	    AND i.work_kind = 'engineering_task' AND i.origin_thread_ts <> ''))`
 
-// Channels lists every channel Responder has a footprint in.
+// Channels lists every channel Ryker has a footprint in.
 //
 // The union rather than the membership table: that table holds every channel
-// in the workspace — 254 on the busiest deployment, 249 of which Responder has
+// in the workspace — 254 on the busiest deployment, 249 of which Ryker has
 // never been in — so listing it would bury the dozen that matter. A channel
 // counts when it is configured, when work happened in it, when it is a room an
-// incident owns, or when Responder is currently a member.
+// incident owns, or when Ryker is currently a member.
 func (r *Reader) Channels(ctx context.Context) ([]ChannelRoll, error) {
 	rolls, err := r.ChannelRolls(ctx)
 	if err != nil {
@@ -2175,7 +2175,7 @@ func (r *Reader) Channels(ctx context.Context) ([]ChannelRoll, error) {
 	}
 
 	// Grouped before ranked: the question this page answers is "where is
-	// Responder", and a room it opened for one alert has nothing to do with a
+	// Ryker", and a room it opened for one alert has nothing to do with a
 	// channel a person invited it into, however recently either was touched.
 	rank := map[string]int{"shared channel": 0, "incident room": 1, "direct message": 2}
 	sort.SliceStable(channels, func(one, two int) bool {
@@ -2193,7 +2193,7 @@ func (r *Reader) Channels(ctx context.Context) ([]ChannelRoll, error) {
 
 // channelKind says what a channel is, which nothing records. Slack marks a
 // one-to-one conversation with a D-prefixed id; a channel some incident names
-// as its own is a room Responder opened to work in; everything left is a
+// as its own is a room Ryker opened to work in; everything left is a
 // channel a person invited it into.
 func channelKind(id string, room bool) string {
 	switch {
@@ -2279,7 +2279,7 @@ type ChannelTask struct {
 	Updated                       time.Time
 }
 
-// ChannelThread is one conversation inside the channel that Responder kept a
+// ChannelThread is one conversation inside the channel that Ryker kept a
 // memory for. The channel's own memory is the row with no thread.
 type ChannelThread struct {
 	ThreadTS string
@@ -2291,7 +2291,7 @@ type ChannelThread struct {
 // Channel gathers one channel's configuration, memory and history.
 //
 // Reported as (detail, found, error) rather than a bare error: a channel that
-// Responder is a member of but has never been configured for is a real answer
+// Ryker is a member of but has never been configured for is a real answer
 // with a page worth showing, and collapsing it into "not found" would hide the
 // channels most likely to need attention.
 func (r *Reader) Channel(ctx context.Context, id string) (ChannelDetail, bool, error) {
@@ -2324,7 +2324,7 @@ func (r *Reader) Channel(ctx context.Context, id string) (ChannelDetail, bool, e
 
 	// A channel nothing has ever seen is not a channel. Membership,
 	// configuration and recorded work are each enough on their own, so a
-	// channel Responder was invited to but has not worked in still opens.
+	// channel Ryker was invited to but has not worked in still opens.
 	seen := membership == nil || configured == nil ||
 		r.Count(ctx, `SELECT COUNT(*) FROM agent_runs WHERE channel_id = ?`, id) > 0
 	if !seen {

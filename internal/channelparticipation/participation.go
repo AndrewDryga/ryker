@@ -8,8 +8,8 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/AndrewDryga/responder/internal/episode"
-	"github.com/AndrewDryga/responder/internal/store"
+	"github.com/AndrewDryga/ryker/internal/episode"
+	"github.com/AndrewDryga/ryker/internal/store"
 )
 
 const (

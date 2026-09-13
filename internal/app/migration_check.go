@@ -8,8 +8,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/AndrewDryga/responder/internal/config"
-	"github.com/AndrewDryga/responder/internal/store"
+	"github.com/AndrewDryga/ryker/internal/config"
+	"github.com/AndrewDryga/ryker/internal/store"
 )
 
 // runMigrationCheck reports what this build's migrations would do to a real
@@ -44,7 +44,7 @@ func runMigrationCheck(args []string, stdout, stderr io.Writer) error {
 
 	destination := *keep
 	if destination == "" {
-		temporary, err := os.MkdirTemp("", "responder-migration-check-")
+		temporary, err := os.MkdirTemp("", "ryker-migration-check-")
 		if err != nil {
 			return err
 		}

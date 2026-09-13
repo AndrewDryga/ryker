@@ -8,15 +8,15 @@ import (
 	"slices"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/agentcontext"
-	"github.com/AndrewDryga/responder/internal/changeledger"
-	"github.com/AndrewDryga/responder/internal/core"
-	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
-	"github.com/AndrewDryga/responder/internal/investigation"
-	memorypkg "github.com/AndrewDryga/responder/internal/memory"
-	"github.com/AndrewDryga/responder/internal/recall"
-	"github.com/AndrewDryga/responder/internal/slackui"
-	"github.com/AndrewDryga/responder/internal/store"
+	"github.com/AndrewDryga/ryker/internal/agentcontext"
+	"github.com/AndrewDryga/ryker/internal/changeledger"
+	"github.com/AndrewDryga/ryker/internal/core"
+	decisionpkg "github.com/AndrewDryga/ryker/internal/decision"
+	"github.com/AndrewDryga/ryker/internal/investigation"
+	memorypkg "github.com/AndrewDryga/ryker/internal/memory"
+	"github.com/AndrewDryga/ryker/internal/recall"
+	"github.com/AndrewDryga/ryker/internal/slackui"
+	"github.com/AndrewDryga/ryker/internal/store"
 )
 
 type agentContextRequest struct {
@@ -167,7 +167,7 @@ func (s *Service) assembleAgentContext(
 			//
 			// This used to zero the situation loaded twenty lines above, so the
 			// first reply in every new thread started blind — in the channel
-			// where Responder had been working all day, on a question that was
+			// where Ryker had been working all day, on a question that was
 			// usually a follow-up to it. A thread lives in its channel and is
 			// read by the same people, so there is no audience the channel
 			// summary could leak to that the thread does not already have.
@@ -277,7 +277,7 @@ func (s *Service) assembleAgentContext(
 		} else if !errors.Is(conversationErr, store.ErrNotFound) {
 			return assembledAgentContext{}, conversationErr
 		}
-		// Falls back to the membership roster, because a thread Responder has
+		// Falls back to the membership roster, because a thread Ryker has
 		// never summarised has no conversation memory to carry the name — and
 		// that is exactly the case a cross-channel link creates.
 		if referenced.ChannelName == "" {

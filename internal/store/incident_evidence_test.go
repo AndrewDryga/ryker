@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/ryker/internal/core"
 )
 
 // An episode that escalated to an incident must see the evidence recorded

@@ -17,9 +17,9 @@ import (
 	"errors"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/selfreport"
-	"github.com/AndrewDryga/responder/internal/store/sqlutil"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/selfreport"
+	"github.com/AndrewDryga/ryker/internal/store/sqlutil"
 )
 
 // sentStateKey records when the digest last went out, in the same key-value

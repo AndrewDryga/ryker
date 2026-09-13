@@ -5,12 +5,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/ryker/internal/core"
 )
 
 func assignmentOffer() *core.StandingAssignmentOffer {
 	return &core.StandingAssignmentOffer{
-		Repository: "AndrewDryga/responder", ChangeClass: "observability",
+		Repository: "AndrewDryga/ryker", ChangeClass: "observability",
 		SignalPattern: "terraform drift", PathGlobs: []string{"infra/**"},
 		DailyBudget: 2, ExpiryDays: 30,
 	}
@@ -97,7 +97,7 @@ func TestAnAssignmentOfferAcceptsTheSpellingsTheRetiredCommandTaught(t *testing.
 	var operation ResultOperation
 	if err := json.Unmarshal([]byte(`{
 		"id":"assign-1","type":"offer_assignment",
-		"assignment":{"repo":"AndrewDryga/responder","class":"observability",
+		"assignment":{"repo":"AndrewDryga/ryker","class":"observability",
 		  "signal":"terraform drift","paths":["infra/**"],"budget":2,"days":30}
 	}`), &operation); err != nil {
 		t.Fatalf("the retired command's own field names were rejected: %v", err)
@@ -106,7 +106,7 @@ func TestAnAssignmentOfferAcceptsTheSpellingsTheRetiredCommandTaught(t *testing.
 		t.Fatalf("validate: %v", err)
 	}
 	got := operation.AssignmentOffer
-	if got.Repository != "AndrewDryga/responder" || got.ChangeClass != "observability" ||
+	if got.Repository != "AndrewDryga/ryker" || got.ChangeClass != "observability" ||
 		got.SignalPattern != "terraform drift" || got.DailyBudget != 2 || got.ExpiryDays != 30 ||
 		len(got.PathGlobs) != 1 {
 		t.Fatalf("an aliased offer lost a bound: %+v", got)

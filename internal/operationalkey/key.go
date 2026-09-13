@@ -9,9 +9,9 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/AndrewDryga/responder/internal/core"
-	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
-	"github.com/AndrewDryga/responder/internal/lifecycle"
+	"github.com/AndrewDryga/ryker/internal/core"
+	decisionpkg "github.com/AndrewDryga/ryker/internal/decision"
+	"github.com/AndrewDryga/ryker/internal/lifecycle"
 )
 
 var operationalLabelPattern = regexp.MustCompile(

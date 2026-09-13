@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
-	"github.com/AndrewDryga/responder/internal/slackui"
+	decisionpkg "github.com/AndrewDryga/ryker/internal/decision"
+	"github.com/AndrewDryga/ryker/internal/slackui"
 )
 
 // The operator's two complaints this week were that a reply was "extremely long
@@ -117,10 +117,10 @@ func TestQualityJudgePromptMeasuresLengthWithTheHostBound(t *testing.T) {
 		Name:  "watery answer to a greeting",
 		Kind:  "watch",
 		Lane:  "investigation",
-		Input: "hi <@responder>",
+		Input: "hi <@ryker>",
 	}, slackui.Message{Text: "Still no change to the account.", Markdown: watery})
 
-	bound := decisionpkg.ReplyWordBudget("hi <@responder>", "investigation")
+	bound := decisionpkg.ReplyWordBudget("hi <@ryker>", "investigation")
 	words := decisionpkg.ProseWordCount(watery)
 	if measured["over_word_bound"] != true {
 		t.Fatalf("over_word_bound = %v for %d words against %d", measured["over_word_bound"], words, bound)

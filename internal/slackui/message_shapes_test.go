@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/ryker/internal/core"
 )
 
 // Memory, preferences, rules and schedules are four subjects in five
@@ -40,8 +40,8 @@ func shapeGuidanceEntry() core.MemoryEntry {
 	return entry
 }
 
-func shapePreference(index int) core.ResponderPreference {
-	return core.ResponderPreference{
+func shapePreference(index int) core.RykerPreference {
+	return core.RykerPreference{
 		ID: "pref_" + string(rune('a'+index)), ScopeKind: "operator",
 		ScopeKey: "UOPERATOR", Name: "health_check_depth", Value: "deep",
 		Enabled: true, ExpiresAt: time.Now().Add(720 * time.Hour),

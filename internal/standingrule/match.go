@@ -6,7 +6,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/ryker/internal/core"
 )
 
 var (
@@ -32,7 +32,7 @@ var (
 )
 
 // EventTextMatches identifies only the typed event families supported by
-// standing workflows. It does not decide whether Responder should speak.
+// standing workflows. It does not decide whether Ryker should speak.
 func EventTextMatches(event string, text string) bool {
 	switch event {
 	case "terraform_run":

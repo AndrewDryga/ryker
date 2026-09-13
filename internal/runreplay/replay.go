@@ -5,10 +5,10 @@ import (
 	"encoding/json"
 	"strings"
 
-	"github.com/AndrewDryga/responder/internal/coop"
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/provider"
-	"github.com/AndrewDryga/responder/internal/retrydelay"
+	"github.com/AndrewDryga/ryker/internal/coop"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/provider"
+	"github.com/AndrewDryga/ryker/internal/retrydelay"
 )
 
 // MarkTurnTimeoutReplayed writes the dedicated replay budget without relying
@@ -139,7 +139,7 @@ func Decide(
 		return "", false
 	}
 	if turn.ErrorCode == "acp_cancelled" && detail == "turn cancelled" {
-		return "Coop turn was interrupted while Responder was stopping", true
+		return "Coop turn was interrupted while Ryker was stopping", true
 	}
 	if turn.ErrorCode == "turn_interrupted" || turn.State == "interrupted" {
 		return "Coop restarted under the turn; replaying it in a fresh session", true

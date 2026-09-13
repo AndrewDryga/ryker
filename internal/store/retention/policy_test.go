@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/store/retention"
-	"github.com/AndrewDryga/responder/internal/store/storetest"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/store/retention"
+	"github.com/AndrewDryga/ryker/internal/store/storetest"
 )
 
 // liveTables reads the table names out of a freshly migrated database, so these

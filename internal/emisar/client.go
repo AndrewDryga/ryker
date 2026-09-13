@@ -22,7 +22,7 @@ type HTTPDoer interface {
 	Do(*http.Request) (*http.Response, error)
 }
 
-// RunState is the intentionally small projection Responder needs to supervise
+// RunState is the intentionally small projection Ryker needs to supervise
 // an Emisar run. Action output remains in Emisar and is interpreted later by a
 // policy-bound Coop turn after the run becomes terminal.
 type RunState struct {
@@ -92,7 +92,7 @@ func (c *Client) call(
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Accept", "application/json, text/event-stream")
 	request.Header.Set("MCP-Protocol-Version", protocolVersion)
-	request.Header.Set("User-Agent", "responder")
+	request.Header.Set("User-Agent", "ryker")
 	response, err := c.http.Do(request)
 	if err != nil {
 		return nil, false, err

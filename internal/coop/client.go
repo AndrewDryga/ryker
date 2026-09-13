@@ -35,7 +35,7 @@ const (
 	promptTailBytes = 20 << 10
 )
 
-const promptElisionMarker = "\n\n<responder-context-elided>\nOlder bounded context was omitted to fit the Coop turn limit.\n</responder-context-elided>\n\n"
+const promptElisionMarker = "\n\n<ryker-context-elided>\nOlder bounded context was omitted to fit the Coop turn limit.\n</ryker-context-elided>\n\n"
 
 type Client struct {
 	socket            string
@@ -50,7 +50,7 @@ type Client struct {
 
 	// outputContract is installed once, before this client is shared with
 	// workers. Every turn method passes through submitTurnWithRouting, so no
-	// Responder lane can silently forget the contract.
+	// Ryker lane can silently forget the contract.
 	outputContract *OutputContract
 }
 
@@ -287,7 +287,7 @@ type Usage struct {
 //
 // Zero is a real answer for a trivial turn, so absence has to stay
 // distinguishable from free: ACP does not require an adapter to report usage,
-// and Responder must show "not recorded" rather than a fabricated zero when
+// and Ryker must show "not recorded" rather than a fabricated zero when
 // nobody measured the turn.
 func (u Usage) Recorded() bool {
 	return u.InputTokens > 0 || u.CachedInputTokens > 0 ||
@@ -408,7 +408,7 @@ type PlanEntry struct {
 	Priority string `json:"priority,omitempty"`
 }
 
-// DecodeActivity reads an activity payload. A payload Responder cannot parse
+// DecodeActivity reads an activity payload. A payload Ryker cannot parse
 // is not an error worth failing a poll over: the run still has to finish, and
 // a missing timeline line is the whole cost.
 func DecodeActivity(payload json.RawMessage) (Activity, bool) {

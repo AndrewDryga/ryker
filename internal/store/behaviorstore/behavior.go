@@ -8,31 +8,31 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/store/sqlutil"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/store/sqlutil"
 )
 
 func (r *Repository) UpsertPreference(
 	ctx context.Context,
-	preference core.ResponderPreference,
+	preference core.RykerPreference,
 	maxTotal int,
 	maxPerScope int,
-) (core.ResponderPreference, bool, error) {
+) (core.RykerPreference, bool, error) {
 	if err := validatePreference(preference); err != nil {
-		return core.ResponderPreference{}, false, err
+		return core.RykerPreference{}, false, err
 	}
 	if maxTotal < 1 || maxPerScope < 1 || maxPerScope > maxTotal {
-		return core.ResponderPreference{}, false, errors.New("preference limits are invalid")
+		return core.RykerPreference{}, false, errors.New("preference limits are invalid")
 	}
 	now := r.now().UTC()
 	if preference.ExpiresAt.IsZero() || !preference.ExpiresAt.After(now) {
-		return core.ResponderPreference{}, false, errors.New(
+		return core.RykerPreference{}, false, errors.New(
 			"preference expiry must be in the future",
 		)
 	}
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
-		return core.ResponderPreference{}, false, err
+		return core.RykerPreference{}, false, err
 	}
 	defer tx.Rollback()
 
@@ -45,7 +45,7 @@ func (r *Repository) UpsertPreference(
 	).Scan(&existingID, &createdAt)
 	replaced := err == nil
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
-		return core.ResponderPreference{}, false, err
+		return core.RykerPreference{}, false, err
 	}
 	if !replaced {
 		var total, scoped int
@@ -53,10 +53,10 @@ func (r *Repository) UpsertPreference(
 			SELECT count(*) FROM responder_preferences WHERE expires_at > ?`,
 			now.Format(core.TimestampFormat),
 		).Scan(&total); err != nil {
-			return core.ResponderPreference{}, false, err
+			return core.RykerPreference{}, false, err
 		}
 		if total >= maxTotal {
-			return core.ResponderPreference{}, false, fmt.Errorf(
+			return core.RykerPreference{}, false, fmt.Errorf(
 				"preference capacity reached (%d unexpired entries)", maxTotal,
 			)
 		}
@@ -65,17 +65,17 @@ func (r *Repository) UpsertPreference(
 			WHERE scope_kind = ? AND scope_key = ? AND expires_at > ?`,
 			preference.ScopeKind, preference.ScopeKey, now.Format(core.TimestampFormat),
 		).Scan(&scoped); err != nil {
-			return core.ResponderPreference{}, false, err
+			return core.RykerPreference{}, false, err
 		}
 		if scoped >= maxPerScope {
-			return core.ResponderPreference{}, false, fmt.Errorf(
+			return core.RykerPreference{}, false, fmt.Errorf(
 				"preference capacity reached for %s scope %q (%d unexpired entries)",
 				preference.ScopeKind, preference.ScopeKey, maxPerScope,
 			)
 		}
 		preference.ID, err = core.NewID("pref")
 		if err != nil {
-			return core.ResponderPreference{}, false, err
+			return core.RykerPreference{}, false, err
 		}
 		preference.CreatedAt = now
 	} else {
@@ -103,15 +103,15 @@ func (r *Repository) UpsertPreference(
 		preference.UpdatedAt.UTC().Format(core.TimestampFormat),
 	)
 	if err != nil {
-		return core.ResponderPreference{}, false, err
+		return core.RykerPreference{}, false, err
 	}
 	if err := tx.Commit(); err != nil {
-		return core.ResponderPreference{}, false, err
+		return core.RykerPreference{}, false, err
 	}
 	return preference, replaced, nil
 }
 
-func validatePreference(preference core.ResponderPreference) error {
+func validatePreference(preference core.RykerPreference) error {
 	switch preference.ScopeKind {
 	case "workspace", "channel", "repository", "operator":
 	default:
@@ -165,7 +165,7 @@ func validatePreference(preference core.ResponderPreference) error {
 func (r *Repository) GetPreference(
 	ctx context.Context,
 	id string,
-) (core.ResponderPreference, error) {
+) (core.RykerPreference, error) {
 	return scanPreference(r.db.QueryRowContext(
 		ctx, preferenceSelect+` WHERE id = ?`, id,
 	))
@@ -179,7 +179,7 @@ func (r *Repository) ListPreferencesForContext(
 	operatorID string,
 	enabledOnly bool,
 	limit int,
-) ([]core.ResponderPreference, error) {
+) ([]core.RykerPreference, error) {
 	if limit < 1 || limit > 100 {
 		return nil, errors.New("preference context limit must be between 1 and 100")
 	}
@@ -216,7 +216,7 @@ func (r *Repository) ListPreferencesForContext(
 func (r *Repository) ListPreferencesForHome(
 	ctx context.Context,
 	limit int,
-) ([]core.ResponderPreference, error) {
+) ([]core.RykerPreference, error) {
 	if limit < 1 || limit > 100 {
 		return nil, errors.New("home preference limit must be between 1 and 100")
 	}
@@ -235,7 +235,7 @@ func (r *Repository) SetPreferenceEnabled(
 	ctx context.Context,
 	id string,
 	enabled bool,
-) (core.ResponderPreference, error) {
+) (core.RykerPreference, error) {
 	value := 0
 	if enabled {
 		value = 1
@@ -246,7 +246,7 @@ func (r *Repository) SetPreferenceEnabled(
 		value, r.nowText(), id, r.nowText(),
 	)
 	if err := sqlutil.ExpectOne(result, err, "set preference state"); err != nil {
-		return core.ResponderPreference{}, err
+		return core.RykerPreference{}, err
 	}
 	return r.GetPreference(ctx, id)
 }
@@ -254,14 +254,14 @@ func (r *Repository) SetPreferenceEnabled(
 func (r *Repository) DeletePreference(
 	ctx context.Context,
 	id string,
-) (core.ResponderPreference, error) {
+) (core.RykerPreference, error) {
 	preference, err := r.GetPreference(ctx, id)
 	if err != nil {
-		return core.ResponderPreference{}, err
+		return core.RykerPreference{}, err
 	}
 	result, err := r.db.ExecContext(ctx, `DELETE FROM responder_preferences WHERE id = ?`, id)
 	if err := sqlutil.ExpectOne(result, err, "delete preference"); err != nil {
-		return core.ResponderPreference{}, err
+		return core.RykerPreference{}, err
 	}
 	return preference, nil
 }
@@ -549,7 +549,7 @@ func (r *Repository) RecordStandingRuleRun(
 // outcome itself never reaches the statement. The split matches the one
 // migration 53 backfilled with, and both spellings of it have to stay in step:
 // 'ignore' is the rule matching a message and deciding it was not worth
-// answering, 'shadowed' is a channel being watched before Responder may speak
+// answering, 'shadowed' is a channel being watched before Ryker may speak
 // in it. Everything else put something in front of a person.
 func standingRuleTallyColumn(outcome string) string {
 	if outcome == "ignore" || outcome == "shadowed" {
@@ -642,8 +642,8 @@ const preferenceSelect = `
 	  expires_at, created_at, updated_at
 	FROM responder_preferences`
 
-func scanPreference(row sqlutil.RowScanner) (core.ResponderPreference, error) {
-	var preference core.ResponderPreference
+func scanPreference(row sqlutil.RowScanner) (core.RykerPreference, error) {
+	var preference core.RykerPreference
 	var enabled int
 	var expiresAt, createdAt, updatedAt string
 	err := row.Scan(
@@ -652,10 +652,10 @@ func scanPreference(row sqlutil.RowScanner) (core.ResponderPreference, error) {
 		&preference.ActorID, &expiresAt, &createdAt, &updatedAt,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
-		return core.ResponderPreference{}, core.ErrNotFound
+		return core.RykerPreference{}, core.ErrNotFound
 	}
 	if err != nil {
-		return core.ResponderPreference{}, err
+		return core.RykerPreference{}, err
 	}
 	preference.Enabled = enabled == 1
 	preference.ExpiresAt = sqlutil.ParseTime(expiresAt)
@@ -664,8 +664,8 @@ func scanPreference(row sqlutil.RowScanner) (core.ResponderPreference, error) {
 	return preference, nil
 }
 
-func scanPreferences(rows *sql.Rows) ([]core.ResponderPreference, error) {
-	var result []core.ResponderPreference
+func scanPreferences(rows *sql.Rows) ([]core.RykerPreference, error) {
+	var result []core.RykerPreference
 	for rows.Next() {
 		preference, err := scanPreference(rows)
 		if err != nil {

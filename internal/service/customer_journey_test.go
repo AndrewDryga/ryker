@@ -13,11 +13,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/coop"
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/publisher"
-	"github.com/AndrewDryga/responder/internal/slackui"
-	"github.com/AndrewDryga/responder/internal/store"
+	"github.com/AndrewDryga/ryker/internal/coop"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/publisher"
+	"github.com/AndrewDryga/ryker/internal/slackui"
+	"github.com/AndrewDryga/ryker/internal/store"
 )
 
 func TestCustomerJourneyDraftPRPublishesReviewedEngineeringTaskWithIncompleteGate(t *testing.T) {
@@ -94,7 +94,7 @@ func TestCustomerJourneyDraftPRPublishesReviewedEngineeringTaskWithIncompleteGat
 	slackClient := &fakeSlack{}
 	publisherClient := &recordingPublisher{
 		result: publisher.Result{
-			HeadBranch: "responder/update-runtime-packs",
+			HeadBranch: "ryker/update-runtime-packs",
 			CommitSHA:  "commit-sha",
 			RemoteSHA:  "commit-sha",
 			PRNumber:   42,
@@ -299,7 +299,7 @@ func TestCustomerJourneyDraftPRCardShowsEveryInFlightTransition(t *testing.T) {
 	}
 	publisherClient := &recordingPublisher{
 		result: publisher.Result{
-			HeadBranch: "responder/publication-progress", CommitSHA: "commit-sha",
+			HeadBranch: "ryker/publication-progress", CommitSHA: "commit-sha",
 			RemoteSHA: "commit-sha", PRNumber: 43,
 			PRURL: "https://github.example/owner/repository/pull/43",
 		},
@@ -866,7 +866,7 @@ func TestCustomerJourneyMentionOnlyDoesNotReachPastAnotherPerson(t *testing.T) {
 	}
 }
 
-// On 2026-08-13 an operator answered Responder's own "Request needs a retry —
+// On 2026-08-13 an operator answered Ryker's own "Request needs a retry —
 // reply in this thread to try again" notice with a bare @Emisar twelve minutes
 // later. The deterministic carry cannot bind a bot message or reach past five
 // minutes, and the host answered "What should I check?" on its own — without
@@ -1255,7 +1255,7 @@ func TestCustomerJourneyBehaviorControlsAreScopedAndDurable(t *testing.T) {
 	operator := cfg.Slack.Operators[0]
 	preference, _, err := st.Behavior.UpsertPreference(
 		ctx,
-		core.ResponderPreference{
+		core.RykerPreference{
 			ScopeKind: "channel",
 			ScopeKey:  "COPS",
 			Name:      "health_check_depth",
@@ -1416,7 +1416,7 @@ func TestCustomerJourneyMergedFollowupOwnsDurableCardAcrossRestart(t *testing.T)
 	}
 	publication := core.Publication{
 		IncidentID: task.ID, Repository: "owner/repo", BaseBranch: "main",
-		HeadBranch: "responder/task", ParentHead: "parent", CandidateTree: "tree",
+		HeadBranch: "ryker/task", ParentHead: "parent", CandidateTree: "tree",
 		CommitSHA: "commit", RemoteSHA: "remote-head", PRNumber: 529,
 		PRURL: "https://github.com/owner/repo/pull/529",
 		State: core.PublicationPublished, PublishedAt: time.Now().UTC(),
@@ -1504,7 +1504,7 @@ func TestCustomerJourneyStalePublicationStillLearnsRemoteMerge(t *testing.T) {
 	}
 	publication := core.Publication{
 		IncidentID: task.ID, Repository: "owner/repo", BaseBranch: "main",
-		HeadBranch: "responder/task", ParentHead: "parent", CandidateTree: "tree",
+		HeadBranch: "ryker/task", ParentHead: "parent", CandidateTree: "tree",
 		CommitSHA: "commit", RemoteSHA: "published-head", PRNumber: 530,
 		PRURL: "https://github.com/owner/repo/pull/530",
 		State: core.PublicationPublished, PublishedAt: time.Now().UTC(),
@@ -1660,7 +1660,7 @@ func (f *recordingPublisher) HeadBranch(
 	if f.result.HeadBranch != "" {
 		return f.result.HeadBranch, nil
 	}
-	return "responder/test", nil
+	return "ryker/test", nil
 }
 
 func (f *recordingPublisher) Publish(

@@ -12,13 +12,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/config"
-	"github.com/AndrewDryga/responder/internal/core"
-	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
-	"github.com/AndrewDryga/responder/internal/evalsession"
-	memorypkg "github.com/AndrewDryga/responder/internal/memory"
-	"github.com/AndrewDryga/responder/internal/service"
-	"github.com/AndrewDryga/responder/internal/serviceport"
+	"github.com/AndrewDryga/ryker/internal/config"
+	"github.com/AndrewDryga/ryker/internal/core"
+	decisionpkg "github.com/AndrewDryga/ryker/internal/decision"
+	"github.com/AndrewDryga/ryker/internal/evalsession"
+	memorypkg "github.com/AndrewDryga/ryker/internal/memory"
+	"github.com/AndrewDryga/ryker/internal/service"
+	"github.com/AndrewDryga/ryker/internal/serviceport"
 )
 
 type EvaluationScenario struct {
@@ -45,7 +45,7 @@ type EvaluationScenarioStep struct {
 	Input             string              `json:"input"`
 	SenderType        string              `json:"sender_type,omitempty"`
 	SenderRole        string              `json:"sender_role,omitempty"`
-	MentionsResponder bool                `json:"mentions_responder,omitempty"`
+	MentionsRyker     bool                `json:"mentions_responder,omitempty"`
 	RecentMessages    []EvaluationMessage `json:"recent_messages,omitempty"`
 	FollowingMessages []EvaluationMessage `json:"following_messages,omitempty"`
 	RestartBefore     bool                `json:"restart_before,omitempty"`
@@ -253,9 +253,9 @@ func runLiveEvaluationScenario(
 	session, _, err := evalsession.Create(
 		ctx,
 		client,
-		"responder:scenario-session:"+scenarioID,
+		"ryker:scenario-session:"+scenarioID,
 		repository.CoopPolicy,
-		"Responder stateful evaluation: "+service.TruncateWatchText(scenario.Name, 160),
+		"Ryker stateful evaluation: "+service.TruncateWatchText(scenario.Name, 160),
 		options.PollInterval,
 	)
 	if err != nil {
@@ -309,7 +309,7 @@ func runLiveEvaluationScenario(
 		testCase.Repository = repositoryKey
 		testCase.SenderType = step.SenderType
 		testCase.SenderRole = step.SenderRole
-		testCase.MentionsResponder = step.MentionsResponder
+		testCase.MentionsRyker = step.MentionsRyker
 		testCase.RecentMessages = step.RecentMessages
 		testCase.FollowingMessages = step.FollowingMessages
 		caseID := fmt.Sprintf("%s_%d", scenarioID, index+1)
@@ -328,7 +328,7 @@ func runLiveEvaluationScenario(
 			caseCtx,
 			client,
 			sessionID,
-			"responder:scenario-turn:"+caseID,
+			"ryker:scenario-turn:"+caseID,
 			prompt,
 			options.PollInterval,
 		)

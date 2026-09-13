@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/audition"
-	"github.com/AndrewDryga/responder/internal/config"
+	"github.com/AndrewDryga/ryker/internal/audition"
+	"github.com/AndrewDryga/ryker/internal/config"
 )
 
 // AuditionLanes reads the live half of the audition report.
@@ -84,7 +84,7 @@ func (r *Reader) AuditionPanel(
 		money(estimated, auditionCurrency(report.Currency)), estimatedLanes)
 	panel.Gaps = append(report.Gaps,
 		"Gate-pass rate and judge score are not here: they live in the recorded evaluation "+
-			"results on disk, which this dashboard does not read. Run responder audition for "+
+			"results on disk, which this dashboard does not read. Run ryker audition for "+
 			"both halves.")
 	return panel, nil
 }

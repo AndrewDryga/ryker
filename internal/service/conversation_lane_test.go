@@ -7,11 +7,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/config"
-	"github.com/AndrewDryga/responder/internal/coop"
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/slackui"
-	"github.com/AndrewDryga/responder/internal/store"
+	"github.com/AndrewDryga/ryker/internal/config"
+	"github.com/AndrewDryga/ryker/internal/coop"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/slackui"
+	"github.com/AndrewDryga/ryker/internal/store"
 )
 
 func TestReferencedOldThreadContextIsAnchoredAndCached(t *testing.T) {
@@ -123,7 +123,7 @@ func TestConversationRouteAppliesPreferencePrecedenceAndExplicitOverride(t *test
 	}
 	defer st.Close()
 	now := time.Now().UTC().Add(90 * 24 * time.Hour)
-	for _, preference := range []core.ResponderPreference{
+	for _, preference := range []core.RykerPreference{
 		{
 			ScopeKind: "workspace", ScopeKey: cfg.Slack.TeamID,
 			Name: "response_location", Value: "prefer_channel",
@@ -344,7 +344,7 @@ func TestPrewarmConversationSessionsRotatesChangedPolicy(t *testing.T) {
 		t.Fatal(err)
 	}
 	coopClient := newFakeCoop()
-	coopClient.openAfterCreateKey = "responder:conversation-session:CSTALE:2"
+	coopClient.openAfterCreateKey = "ryker:conversation-session:CSTALE:2"
 	coopClient.prepareErrors = []error{&coop.APIError{
 		Status: 409,
 		Code:   "invalid_session_state",
@@ -395,7 +395,7 @@ func TestAReadOnlyPolicyNeverReusesLegacyWritableConversationSession(t *testing.
 	coopClient := newFakeCoop()
 	coopClient.session.ID = "ses_legacy"
 	coopClient.session.RepositoryReadOnly = false
-	coopClient.openAfterCreateKey = "responder:conversation-session:CLEGACY:2"
+	coopClient.openAfterCreateKey = "ryker:conversation-session:CLEGACY:2"
 	svc := New(cfg, st, coopClient, &fakeSlack{}, nil, slackui.NewSanitizer(12000), nil)
 
 	memory, session, err := svc.ensureConversationSession(
@@ -426,7 +426,7 @@ func TestAReadOnlyPolicyNeverReusesLegacyWritableWatchSession(t *testing.T) {
 	coopClient := newFakeCoop()
 	coopClient.session.ID = "ses_legacy"
 	coopClient.session.RepositoryReadOnly = false
-	coopClient.openAfterCreateKey = "responder:watch-session:CLEGACY:2"
+	coopClient.openAfterCreateKey = "ryker:watch-session:CLEGACY:2"
 	svc := New(cfg, st, coopClient, &fakeSlack{}, nil, slackui.NewSanitizer(12000), nil)
 
 	memory, session, err := svc.ensureWatchSessionForRepositoryAtGeneration(
@@ -489,8 +489,8 @@ func TestFailedConversationPrewarmAdvancesDurableGeneration(t *testing.T) {
 		t.Fatalf("recovered conversation session = %+v", recovered)
 	}
 	want := []string{
-		"responder:conversation-session:CRECOVER:5",
-		"responder:conversation-session:CRECOVER:6",
+		"ryker:conversation-session:CRECOVER:5",
+		"ryker:conversation-session:CRECOVER:6",
 	}
 	if !slices.Equal(coopClient.createKeys, want) {
 		t.Fatalf("conversation create keys = %v, want %v", coopClient.createKeys, want)
@@ -540,7 +540,7 @@ func TestBoundedConversationLaneRepliesWithoutInvestigation(t *testing.T) {
 	}
 	if len(coopClient.submitPrompts) != 1 ||
 		!strings.Contains(coopClient.submitPrompts[0], "bounded conversation turn") ||
-		!strings.Contains(coopClient.submitPrompts[0], "<trusted-responder-repository-capabilities>") ||
+		!strings.Contains(coopClient.submitPrompts[0], "<trusted-ryker-repository-capabilities>") ||
 		!strings.Contains(coopClient.submitPrompts[0], `"access_mode":"pinned_read_only"`) ||
 		// Which lane ran, told by a line only the full watch prompt carries.
 		// This was the compound-request policy until 2026-08-15, when that
@@ -634,7 +634,7 @@ func TestRepositoryAccessQuestionUsesPinnedSessionCapabilities(t *testing.T) {
 	prompt := coopClient.submitPrompts[0]
 	for _, required := range []string{
 		"Choose exactly one action:",
-		"<trusted-responder-repository-capabilities>",
+		"<trusted-ryker-repository-capabilities>",
 		`"key":"blitz-core","display_name":"Blitz Core","role":"companion","access_mode":"pinned_read_only","pinned_commit":"core-commit","can_publish":false`,
 		`"key":"blitz-flutter","display_name":"Blitz Flutter","role":"companion","access_mode":"pinned_read_only","pinned_commit":"flutter-commit","can_publish":false`,
 		`"key":"nexus","display_name":"Nexus","role":"unbound","access_mode":"configured","can_publish":false`,

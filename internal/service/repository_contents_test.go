@@ -5,14 +5,14 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/AndrewDryga/responder/internal/core"
-	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
-	"github.com/AndrewDryga/responder/internal/investigation"
-	"github.com/AndrewDryga/responder/internal/slackui"
-	"github.com/AndrewDryga/responder/internal/store"
+	"github.com/AndrewDryga/ryker/internal/core"
+	decisionpkg "github.com/AndrewDryga/ryker/internal/decision"
+	"github.com/AndrewDryga/ryker/internal/investigation"
+	"github.com/AndrewDryga/ryker/internal/slackui"
+	"github.com/AndrewDryga/ryker/internal/store"
 )
 
-// The repository map is the only memory Responder writes without an operator
+// The repository map is the only memory Ryker writes without an operator
 // confirming it, so the shape of that exemption is what this pins: one row per
 // repository that replaces rather than accumulates, an expiry that never comes,
 // and a configured repository or nothing at all.
@@ -80,7 +80,7 @@ func TestRepositoryContentsIsOnePermanentSelfMaintainedRowPerRepository(t *testi
 	}
 
 	// A companion that no repositories: entry configures is still describable.
-	// The emisar deployment mounts `coop` and `responder` as companions and
+	// The emisar deployment mounts `coop` and `ryker` as companions and
 	// configures neither, and those are the two repositories an agent there
 	// reads most; requiring configuration would have silenced exactly them.
 	if err := svc.applyRepositoryContents(ctx, run, decisionpkg.WatchDecision{

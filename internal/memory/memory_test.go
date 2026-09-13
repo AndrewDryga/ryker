@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/ryker/internal/core"
 )
 
 // Every way a memory can be scoped, and who may see it.
@@ -12,7 +12,7 @@ import (
 // This had no test. Making the function return true unconditionally — every
 // private memory visible to everyone — broke nothing in the suite. That is the
 // worst shape a gap can take: the check fails open, so the bug is silence
-// rather than an error, and the symptom is Responder telling a channel
+// rather than an error, and the symptom is Ryker telling a channel
 // something it was never meant to hear.
 func TestMemoryIsOnlyVisibleInsideItsScope(t *testing.T) {
 	const workspace = "T_WORKSPACE"

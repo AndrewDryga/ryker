@@ -10,15 +10,15 @@ import (
 	"strings"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/core"
-	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
-	memorypkg "github.com/AndrewDryga/responder/internal/memory"
-	"github.com/AndrewDryga/responder/internal/offerreason"
-	schedulepkg "github.com/AndrewDryga/responder/internal/schedule"
-	scheduleofferpkg "github.com/AndrewDryga/responder/internal/scheduleoffer"
-	"github.com/AndrewDryga/responder/internal/slackui"
-	"github.com/AndrewDryga/responder/internal/store"
-	"github.com/AndrewDryga/responder/internal/store/schedulestore"
+	"github.com/AndrewDryga/ryker/internal/core"
+	decisionpkg "github.com/AndrewDryga/ryker/internal/decision"
+	memorypkg "github.com/AndrewDryga/ryker/internal/memory"
+	"github.com/AndrewDryga/ryker/internal/offerreason"
+	schedulepkg "github.com/AndrewDryga/ryker/internal/schedule"
+	scheduleofferpkg "github.com/AndrewDryga/ryker/internal/scheduleoffer"
+	"github.com/AndrewDryga/ryker/internal/slackui"
+	"github.com/AndrewDryga/ryker/internal/store"
+	"github.com/AndrewDryga/ryker/internal/store/schedulestore"
 )
 
 const scheduleOfferMaxAge = 24 * time.Hour
@@ -170,7 +170,7 @@ func (s *Service) scheduleActivationNeedsOffer(
 func scheduleActivationOfferCorrection() string {
 	return "The operator explicitly activated the existing schedule in this conversation. " +
 		"Do not merely say it was activated. Return one typed schedule_offer containing the intended updated task; " +
-		"Responder will inherit unchanged title, destination, timezone, and cadence from the existing schedule and update it atomically."
+		"Ryker will inherit unchanged title, destination, timezone, and cadence from the existing schedule and update it atomically."
 }
 
 // inheritScheduleOfferFromConversation makes short confirmations such as

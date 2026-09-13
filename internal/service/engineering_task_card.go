@@ -3,9 +3,9 @@ package service
 import (
 	"context"
 
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/slackui"
-	"github.com/AndrewDryga/responder/internal/taskcard"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/slackui"
+	"github.com/AndrewDryga/ryker/internal/taskcard"
 )
 
 func (s *Service) updateEngineeringTaskCard(

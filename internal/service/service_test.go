@@ -15,21 +15,21 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/config"
-	"github.com/AndrewDryga/responder/internal/coop"
-	"github.com/AndrewDryga/responder/internal/core"
-	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
-	"github.com/AndrewDryga/responder/internal/emisar"
-	"github.com/AndrewDryga/responder/internal/resultcontract"
-	"github.com/AndrewDryga/responder/internal/sessioncreate"
-	"github.com/AndrewDryga/responder/internal/slackui"
-	"github.com/AndrewDryga/responder/internal/store"
+	"github.com/AndrewDryga/ryker/internal/config"
+	"github.com/AndrewDryga/ryker/internal/coop"
+	"github.com/AndrewDryga/ryker/internal/core"
+	decisionpkg "github.com/AndrewDryga/ryker/internal/decision"
+	"github.com/AndrewDryga/ryker/internal/emisar"
+	"github.com/AndrewDryga/ryker/internal/resultcontract"
+	"github.com/AndrewDryga/ryker/internal/sessioncreate"
+	"github.com/AndrewDryga/ryker/internal/slackui"
+	"github.com/AndrewDryga/ryker/internal/store"
 	"github.com/slack-go/slack"
 	"github.com/slack-go/slack/slackevents"
 	"github.com/slack-go/slack/socketmode"
 )
 
-// Thirty production turns reached Responder with a syntactically malformed
+// Thirty production turns reached Ryker with a syntactically malformed
 // result after the model had been shown the schema. Construction is the one
 // boundary every runtime lane shares, so the contract belongs here rather than
 // in each alert, conversation, wakeup, correction, or handoff caller.
@@ -363,12 +363,12 @@ func TestSlashProactiveOverrides(t *testing.T) {
 	}
 	run("slash-status", "COTHER", "status")
 	statusMessage := slackClient.ephemerals[len(slackClient.ephemerals)-1].message
-	if statusMessage.Header != "Responder is passive in this channel" ||
+	if statusMessage.Header != "Ryker is passive in this channel" ||
 		!strings.Contains(strings.Join(statusMessage.Sections, "\n"), "ignores ordinary human and app messages") ||
 		len(statusMessage.Fields) != 4 ||
 		!strings.Contains(statusMessage.Fields[0].Value, "force passive behavior") ||
 		!strings.Contains(statusMessage.Fields[1].Value, "proactive by default") ||
-		strings.Contains(statusMessage.Text, "responder.yaml") ||
+		strings.Contains(statusMessage.Text, "ryker.yaml") ||
 		strings.Contains(statusMessage.Text, "inherit") {
 		t.Fatalf("slash status does not explain effective behavior = %+v", statusMessage)
 	}
@@ -446,7 +446,7 @@ func TestSlashHelpButtonsRouteToReadOnlyCommands(t *testing.T) {
 		t.Fatal(err)
 	}
 	help := slackClient.ephemerals[len(slackClient.ephemerals)-1].message
-	if help.Header != "Responder command guide" || len(help.Actions) != 1 ||
+	if help.Header != "Ryker command guide" || len(help.Actions) != 1 ||
 		help.Actions[0].ID != slackui.ActionCommandStatus {
 		t.Fatalf("interactive help = %+v", help)
 	}
@@ -477,7 +477,7 @@ func TestSlashHelpButtonsRouteToReadOnlyCommands(t *testing.T) {
 		t.Fatal(err)
 	}
 	status := slackClient.ephemerals[len(slackClient.ephemerals)-1].message
-	if status.Header != "Responder is passive in this channel" {
+	if status.Header != "Ryker is passive in this channel" {
 		t.Fatalf("help status action = %+v", status)
 	}
 }
@@ -887,7 +887,7 @@ func TestOperationsHomeDoesNotExposeWorkToNonOperators(t *testing.T) {
 	// The refusal now leads in the header, and the body says what is withheld.
 	rendered := home.Header + "\n" + strings.Join(home.Sections, "\n")
 	if !strings.Contains(rendered, "access is restricted") ||
-		!strings.Contains(rendered, "visible only to configured Responder operators") {
+		!strings.Contains(rendered, "visible only to configured Ryker operators") {
 		t.Fatalf("restricted home = %+v", home)
 	}
 	// Nothing operational reaches a reader who is not an operator: not the work
@@ -1104,7 +1104,7 @@ type fakeCoop struct {
 
 func newFakeCoop() *fakeCoop {
 	return &fakeCoop{session: coop.Session{
-		ID: "ses_1", ForkName: "responder-api-unavailable",
+		ID: "ses_1", ForkName: "ryker-api-unavailable",
 		Revision: 1, State: "open", Activity: "parked", MaxTurns: 100,
 		RepositoryReadOnly: true,
 	}}
@@ -1781,7 +1781,7 @@ func (f *fakeSlack) CreateCanvas(
 	channelID, title, markdown string,
 ) (string, error) {
 	// The attempt is recorded before the error, because a workspace without
-	// canvases is not a workspace where Responder skipped asking — the ask is
+	// canvases is not a workspace where Ryker skipped asking — the ask is
 	// the feature detection, and a test proving the fallback has to see it
 	// happen exactly once.
 	f.canvases = append(f.canvases, slackCanvas{
@@ -1896,7 +1896,7 @@ func (f *fakeSlack) FindDeliveryFile(
 func serviceConfig(t *testing.T) config.Config {
 	t.Helper()
 	root := t.TempDir()
-	path := filepath.Join(root, "responder.yaml")
+	path := filepath.Join(root, "ryker.yaml")
 	body := `version: 1
 state_dir: ` + filepath.Join(root, "state") + `
 slack:

@@ -7,12 +7,12 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/AndrewDryga/responder/internal/assignments"
-	"github.com/AndrewDryga/responder/internal/channelparticipation"
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/reportcanvas"
-	"github.com/AndrewDryga/responder/internal/slackui"
-	"github.com/AndrewDryga/responder/internal/store"
+	"github.com/AndrewDryga/ryker/internal/assignments"
+	"github.com/AndrewDryga/ryker/internal/channelparticipation"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/reportcanvas"
+	"github.com/AndrewDryga/ryker/internal/slackui"
+	"github.com/AndrewDryga/ryker/internal/store"
 )
 
 const proactiveSettingName = "proactive"
@@ -154,7 +154,7 @@ func (s *Service) proactiveStatus(
 		return status, err
 	}
 	status.Enabled = status.ConfigDefault
-	status.EffectiveSource = "responder.yaml"
+	status.EffectiveSource = "ryker.yaml"
 	return status, nil
 }
 
@@ -179,7 +179,7 @@ func (s *Service) turnLimitStatus(
 	channelID string,
 ) (turnLimitStatus, error) {
 	status := turnLimitStatus{
-		EffectiveSource: "responder.yaml",
+		EffectiveSource: "ryker.yaml",
 		ConfigDefault:   s.cfg.Coop.TurnLimit,
 	}
 	channel, err := s.store.GetSlackSetting(
@@ -223,7 +223,7 @@ func parseTurnLimit(value string) (int, error) {
 // processSlashInput runs the emergency kit.
 //
 // `/responder` used to carry more than twenty subcommands, which made it a
-// second product surface: everything Responder could do had a spelling here
+// second product surface: everything Ryker could do had a spelling here
 // and a conversational path beside it, and the two drifted. Two months of
 // audit found the slash surface used for one deliberate `proactive on` per
 // deployment and otherwise only for its own failures.
@@ -244,9 +244,9 @@ func (s *Service) processSlashInput(ctx context.Context, input core.SlackInput) 
 	if !s.cfg.IsOperator(input.UserID) {
 		return s.refuseSlashInput(
 			ctx, input,
-			"*You cannot run Responder commands yet.*\n\n"+
+			"*You cannot run Ryker commands yet.*\n\n"+
 				"Your Slack account is not listed in `slack.operators`. An administrator must "+
-				"add your Slack user ID to that setting and restart Responder. Commands can "+
+				"add your Slack user ID to that setting and restart Ryker. Commands can "+
 				"change incident state and workspace listening behavior, so ordinary channel "+
 				"members cannot run them.",
 		)
@@ -258,8 +258,8 @@ func (s *Service) processSlashInput(ctx context.Context, input core.SlackInput) 
 	if !allowed {
 		return s.refuseSlashInput(
 			ctx, input,
-			"*This Slack account cannot run Responder commands.*\n\n"+
-				"Commands require an active, full member of Responder's configured workspace. "+
+			"*This Slack account cannot run Ryker commands.*\n\n"+
+				"Commands require an active, full member of Ryker's configured workspace. "+
 				"Guest, bot, deactivated, and external Slack Connect accounts are denied even "+
 				"when their user ID appears in `slack.operators`.",
 		)
@@ -342,10 +342,10 @@ var retiredSlashSubcommands = map[string]string{
 	"review":      "Use the buttons on the pinned card, or ask in the thread.",
 	"publish":     "Use the buttons on the pinned card, or ask in the thread.",
 	"stop":        "Use the buttons on the pinned card, or ask in the thread.",
-	"extend":      "Responder allocates capacity automatically; nothing needed extending.",
+	"extend":      "Ryker allocates capacity automatically; nothing needed extending.",
 	"close":       "Use the buttons on the pinned card, or ask in the thread.",
-	"turn-limit":  "The ceiling is `coop.turn_limit` in responder.yaml; operators never estimate turns.",
-	"turns":       "The ceiling is `coop.turn_limit` in responder.yaml; operators never estimate turns.",
+	"turn-limit":  "The ceiling is `coop.turn_limit` in ryker.yaml; operators never estimate turns.",
+	"turns":       "The ceiling is `coop.turn_limit` in ryker.yaml; operators never estimate turns.",
 }
 
 // recordControlCommands maps the four record buttons to the report each one
@@ -470,7 +470,7 @@ func (s *Service) configureShadow(
 		return s.finishSlashInput(
 			ctx,
 			input,
-			"*Shadow evaluation is "+state+".*\n\nWhen shadow mode is on, Responder still "+
+			"*Shadow evaluation is "+state+".*\n\nWhen shadow mode is on, Ryker still "+
 				"classifies new messages and records evidence and coverage, but it does not post "+
 				"a reply, offer an incident, or create one. Use `/responder shadow on|off|inherit` "+
 				"for this channel or add `global` before the value for the workspace default.",
@@ -556,7 +556,7 @@ func (s *Service) configureProactive(
 		if !channel.Member {
 			return s.refuseSlashInput(
 				ctx, input,
-				"*Responder cannot listen to this channel yet.*\n\n"+
+				"*Ryker cannot listen to this channel yet.*\n\n"+
 					"Invite `@Emisar` to this channel so Slack will deliver its messages, "+
 					"then run `/responder proactive on` again. No setting was changed.",
 			)
@@ -792,7 +792,7 @@ func slashHelp() string {
 func slashHelpSections() []string {
 	return []string{
 		"*The emergency kit*\n" +
-			"`/responder status` - what Responder is doing in this channel and why\n" +
+			"`/responder status` - what Ryker is doing in this channel and why\n" +
 			"`/responder proactive on|off|inherit` - change what this channel is read for\n" +
 			"`/responder proactive global on|off|inherit` - change the workspace default\n" +
 			"`/responder shadow on|off|inherit` - evaluate without posting or opening incidents\n" +
@@ -805,22 +805,22 @@ func slashHelpSections() []string {
 		"*Standing assignments*\n" +
 			"`/responder assignments` - read this channel's grants, and `pause`, `resume` " +
 			"or `delete` one\n" +
-			"Creating one is a conversation now: say what you want watched and Responder " +
+			"Creating one is a conversation now: say what you want watched and Ryker " +
 			"shows you the exact bounds to confirm.",
 		"*Why so little*\nThese work when nothing else does: no model runs, no Coop " +
 			"session is needed, and the answer is private to you. Everything else is a " +
-			"conversation with Responder, a button on a pinned card, or the App Home — " +
+			"conversation with Ryker, a button on a pinned card, or the App Home — " +
 			"which can reach a task thread, and a command typed into the channel " +
 			"composer cannot.",
-		"Ask for what you want in your own words and Responder will show you exactly " +
+		"Ask for what you want in your own words and Ryker will show you exactly " +
 			"what it is about to save, change, or start before it does it.",
 	}
 }
 
 func slashHelpMessage() slackui.Message {
 	return slackui.Message{
-		Text:     "Responder command guide: status, proactive, shadow, help.",
-		Header:   "Responder command guide",
+		Text:     "Ryker command guide: status, proactive, shadow, help.",
+		Header:   "Ryker command guide",
 		Sections: slashHelpSections(),
 		Actions: []slackui.Action{
 			{
@@ -837,7 +837,7 @@ func slashHelpMessage() slackui.Message {
 func slashUsage(command string) string {
 	switch command {
 	case "proactive":
-		return "*Choose what Responder should read.*\n\n" +
+		return "*Choose what Ryker should read.*\n\n" +
 			"`/responder proactive on|off|inherit` changes only this channel. " +
 			"`/responder proactive global on|off|inherit` changes the workspace default.\n\n" +
 			"`on` reads and triages new messages, `off` ignores ordinary messages, and " +
@@ -846,7 +846,7 @@ func slashUsage(command string) string {
 	case "assignments":
 		return assignments.Usage()
 	case "shadow":
-		return "*Evaluate Responder without channel output.*\n\n" +
+		return "*Evaluate Ryker without channel output.*\n\n" +
 			"`/responder shadow on|off|inherit` changes this channel. " +
 			"`/responder shadow global on|off|inherit` changes the workspace default. " +
 			"Shadow mode still runs read-only classification and records its decision, evidence, " +
@@ -873,7 +873,7 @@ func proactiveChangeMessage(
 	undo := "`/responder proactive inherit`"
 	if scope == "global" {
 		target = "the workspace default"
-		scopeEffect = "This becomes the default in every channel Responder has joined. A channel-specific setting still takes priority."
+		scopeEffect = "This becomes the default in every channel Ryker has joined. A channel-specific setting still takes priority."
 		undo = "`/responder proactive global inherit`"
 	}
 
@@ -896,7 +896,7 @@ func proactiveChangeMessage(
 		Sections: []string{
 			proactiveBehavior(status.Enabled, false),
 			"*Scope and precedence*\n" + scopeEffect + " " +
-				"Responder is currently *" + onOff(status.Enabled) + "* in this channel because " +
+				"Ryker is currently *" + onOff(status.Enabled) + "* in this channel because " +
 				effectiveReason(status) + ".",
 			"*Undo or inspect*\nUse " + undo + " to remove this setting, or " +
 				"`/responder status` for the complete effective configuration.",
@@ -922,10 +922,10 @@ func slashStatusMessage(
 	}
 	message := slackui.Message{
 		Text: fmt.Sprintf(
-			"Responder is %s in this channel. Proactive triage is %s because %s.",
+			"Ryker is %s in this channel. Proactive triage is %s because %s.",
 			state, onOff(status.Enabled), effectiveReason(status),
 		),
-		Header: "Responder is " + state + " in this channel",
+		Header: "Ryker is " + state + " in this channel",
 		Sections: []string{
 			proactiveBehavior(status.Enabled, incident != nil),
 			shadowBehavior(shadow),
@@ -968,10 +968,10 @@ func slashStatusMessage(
 }
 
 func proactiveBehavior(enabled bool, incidentRoom bool) string {
-	behavior := "*Proactive triage is off.* In a normal channel, Responder ignores ordinary human " +
+	behavior := "*Proactive triage is off.* In a normal channel, Ryker ignores ordinary human " +
 		"and app messages. Slash commands still work."
 	if enabled {
-		behavior = "*Proactive triage is on.* In a normal channel, Responder reads new human and " +
+		behavior = "*Proactive triage is on.* In a normal channel, Ryker reads new human and " +
 			"app messages. It may stay silent for noise or reply in the source thread. A credible " +
 			"unresolved external-app alert may open an incident automatically; a human message " +
 			"opens one only after an explicit request or button confirmation."
@@ -979,14 +979,14 @@ func proactiveBehavior(enabled bool, incidentRoom bool) string {
 	if incidentRoom {
 		behavior += "\n\n*This channel already has an incident.* Incident collaboration remains " +
 			"active regardless of proactive triage, so configured operators can talk to " +
-			"Responder here without an `@mention`."
+			"Ryker here without an `@mention`."
 	}
 	return behavior
 }
 
 func shadowBehavior(status shadowStatus) string {
 	if status.Enabled {
-		return "*Shadow evaluation is on.* Responder classifies new messages and records its " +
+		return "*Shadow evaluation is on.* Ryker classifies new messages and records its " +
 			"decision, evidence, and coverage, but it does not post replies, offer incidents, or " +
 			"create incident rooms. Effective source: " + status.EffectiveSource + "."
 	}
@@ -1052,16 +1052,16 @@ func mentionBehavior(enabled bool) string {
 
 func normalChannelNextStep(enabled, summon bool) string {
 	if enabled {
-		return "*What you can do now*\nPost normally and Responder will triage the message. Use " +
+		return "*What you can do now*\nPost normally and Ryker will triage the message. Use " +
 			"`/responder proactive off` to make this channel passive, or `/responder help` for " +
 			"the complete command guide."
 	}
 	if summon {
 		return "*What you can do now*\nUse `@Emisar <question>` for a thread reply, or explicitly " +
 			"ask `@Emisar open an incident for <summary>` for a dedicated room. Use " +
-			"`/responder proactive on` to let Responder triage every new message."
+			"`/responder proactive on` to let Ryker triage every new message."
 	}
-	return "*What you can do now*\nUse `/responder proactive on` to let Responder triage new " +
+	return "*What you can do now*\nUse `/responder proactive on` to let Ryker triage new " +
 		"messages here. Use `/responder help` to see channel and workspace options."
 }
 
@@ -1075,20 +1075,20 @@ func incidentStatusDescription(incident core.Incident) string {
 	case core.IncidentClosed:
 		status = "closed"
 	}
-	activity := "Responder's current activity is unknown."
+	activity := "Ryker's current activity is unknown."
 	switch incident.Workflow {
 	case core.WorkflowProvisioningChannel:
-		activity = "Responder is creating the dedicated incident room."
+		activity = "Ryker is creating the dedicated incident room."
 	case core.WorkflowProvisioningSession:
-		activity = "Responder is preparing the isolated Coop workspace."
+		activity = "Ryker is preparing the isolated Coop workspace."
 	case core.WorkflowHolding:
 		activity = "The investigation is queued until agent capacity is available."
 	case core.WorkflowInvestigating:
 		activity = "An agent turn is running or queued."
 	case core.WorkflowParked:
-		activity = "Responder is waiting for a message; no agent turn is currently running."
+		activity = "Ryker is waiting for a message; no agent turn is currently running."
 	case core.WorkflowBlocked:
-		activity = "Responder needs operator action before it can continue."
+		activity = "Ryker needs operator action before it can continue."
 	case core.WorkflowClosed:
 		activity = "The Coop session is closed and its isolated fork is preserved."
 	}

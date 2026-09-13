@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/AndrewDryga/responder/internal/store/lifecyclecheck"
+	"github.com/AndrewDryga/ryker/internal/store/lifecyclecheck"
 )
 
 // The comparison must actually detect a disagreement.

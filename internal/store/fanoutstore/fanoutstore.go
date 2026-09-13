@@ -16,7 +16,7 @@ import (
 	"database/sql"
 	"strings"
 
-	"github.com/AndrewDryga/responder/internal/fanout"
+	"github.com/AndrewDryga/ryker/internal/fanout"
 )
 
 type Repository struct {

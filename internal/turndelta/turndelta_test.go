@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/AndrewDryga/responder/internal/turndelta"
+	"github.com/AndrewDryga/ryker/internal/turndelta"
 )
 
 // eligible is the one shape that earns a delta: a live open session, the run
@@ -17,7 +17,7 @@ import (
 // Decide should be able to add one line here and see it fail.
 func eligible() (turndelta.Session, turndelta.Attempt, turndelta.Standing, turndelta.Contract) {
 	contract := turndelta.Contract{
-		Prompt:        "responder-prompt-v3",
+		Prompt:        "ryker-prompt-v3",
 		Investigation: "investigation-contract-v1",
 		ToolSchema:    "result-operations-v2",
 	}
@@ -144,7 +144,7 @@ func TestEveryDoubtFallsBackToTheFullBriefing(t *testing.T) {
 	}, {
 		name: "the prompt version changed mid-episode",
 		spoil: func(_ *turndelta.Session, _ *turndelta.Attempt, _ *turndelta.Standing, c *turndelta.Contract) {
-			c.Prompt = "responder-prompt-v4"
+			c.Prompt = "ryker-prompt-v4"
 		},
 		reason: turndelta.ReasonContractChanged,
 	}, {

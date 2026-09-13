@@ -1,4 +1,4 @@
-// Package memorystore owns everything Responder remembers between turns:
+// Package memorystore owns everything Ryker remembers between turns:
 // memory entries, rollups, the review queue, and conversation memories.
 //
 // It is a package rather than another few dozen methods on Store because the
@@ -10,7 +10,7 @@ import (
 	"database/sql"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/ryker/internal/core"
 )
 
 // Repository reads and writes remembered state.

@@ -6,10 +6,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/core"
-	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
-	"github.com/AndrewDryga/responder/internal/slackui"
-	"github.com/AndrewDryga/responder/internal/store"
+	"github.com/AndrewDryga/ryker/internal/core"
+	decisionpkg "github.com/AndrewDryga/ryker/internal/decision"
+	"github.com/AndrewDryga/ryker/internal/slackui"
+	"github.com/AndrewDryga/ryker/internal/store"
 )
 
 func TestConversationLocationDetection(t *testing.T) {
@@ -236,7 +236,7 @@ func TestLocationWorkIgnoreIsRetriedAndAnswered(t *testing.T) {
 	if len(coopClient.submitPrompts) != 2 ||
 		!strings.Contains(
 			coopClient.submitPrompts[1],
-			"Responder rejected your previous result, not your work",
+			"Ryker rejected your previous result, not your work",
 		) {
 		t.Fatalf("correction prompts = %+v", coopClient.submitPrompts)
 	}

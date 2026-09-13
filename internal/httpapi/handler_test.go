@@ -14,10 +14,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/config"
-	"github.com/AndrewDryga/responder/internal/repomirror"
-	"github.com/AndrewDryga/responder/internal/service"
-	"github.com/AndrewDryga/responder/internal/store"
+	"github.com/AndrewDryga/ryker/internal/config"
+	"github.com/AndrewDryga/ryker/internal/repomirror"
+	"github.com/AndrewDryga/ryker/internal/service"
+	"github.com/AndrewDryga/ryker/internal/store"
 )
 
 func TestWebhookAdmissionDeduplicationAndConflict(t *testing.T) {
@@ -138,10 +138,10 @@ func TestMetricsExposeDurableSchedulerHealth(t *testing.T) {
 	}
 	body := response.Body.String()
 	for _, want := range []string{
-		`responder_scheduler_work_pending{lane="control"}`,
-		`responder_scheduler_oldest_due_seconds{lane="background"}`,
-		`responder_scheduler_oldest_running_seconds{lane="maintenance"}`,
-		`responder_scheduler_heartbeat_age_seconds{lane="control"} -1.000`,
+		`ryker_scheduler_work_pending{lane="control"}`,
+		`ryker_scheduler_oldest_due_seconds{lane="background"}`,
+		`ryker_scheduler_oldest_running_seconds{lane="maintenance"}`,
+		`ryker_scheduler_heartbeat_age_seconds{lane="control"} -1.000`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("metrics missing %q:\n%s", want, body)
@@ -152,7 +152,7 @@ func TestMetricsExposeDurableSchedulerHealth(t *testing.T) {
 func testConfig(t *testing.T) config.Config {
 	t.Helper()
 	root := t.TempDir()
-	path := filepath.Join(root, "responder.yaml")
+	path := filepath.Join(root, "ryker.yaml")
 	body := `version: 1
 state_dir: ` + filepath.Join(root, "state") + `
 slack:
@@ -249,15 +249,15 @@ func TestMetricsRenderPromptTruncationCounters(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/metrics", nil))
 	body := recorder.Body.String()
-	if !strings.Contains(body, "responder_coop_prompt_truncations_total 3") {
+	if !strings.Contains(body, "ryker_coop_prompt_truncations_total 3") {
 		t.Fatalf("truncation counter missing or wrong:\n%s", body)
 	}
-	if !strings.Contains(body, "responder_coop_prompt_max_bytes 90000") {
+	if !strings.Contains(body, "ryker_coop_prompt_max_bytes 90000") {
 		t.Fatalf("max prompt gauge missing or wrong:\n%s", body)
 	}
 }
 
-// A repository Responder could not refresh is degraded evidence, and it has to
+// A repository Ryker could not refresh is degraded evidence, and it has to
 // be visible somewhere.
 //
 // A gauge on /metrics, deliberately, and not a failed work item. The watchdog
@@ -291,10 +291,10 @@ func TestMetricsRenderRepositoryFetchFailuresWithoutTouchingWorkMovement(t *test
 	recorder := httptest.NewRecorder()
 	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/metrics", nil))
 	body := recorder.Body.String()
-	if !strings.Contains(body, "responder_repository_fetch_failures 0") {
+	if !strings.Contains(body, "ryker_repository_fetch_failures 0") {
 		t.Fatalf("fetch-failure gauge missing:\n%s", body)
 	}
-	if !strings.Contains(body, "# TYPE responder_repository_fetch_failures gauge") {
+	if !strings.Contains(body, "# TYPE ryker_repository_fetch_failures gauge") {
 		t.Fatalf("fetch-failure metric is not declared a gauge:\n%s", body)
 	}
 
@@ -311,15 +311,15 @@ func TestMetricsRenderRepositoryFetchFailuresWithoutTouchingWorkMovement(t *test
 	recorder = httptest.NewRecorder()
 	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/metrics", nil))
 	body = recorder.Body.String()
-	if !strings.Contains(body, "responder_repository_fetch_failures 1") {
+	if !strings.Contains(body, "ryker_repository_fetch_failures 1") {
 		t.Fatalf("a failed fetch did not reach the gauge:\n%s", body)
 	}
 	// And it stayed out of every signal that means "work is not moving".
-	if !strings.Contains(body, "responder_work_failed 0") {
+	if !strings.Contains(body, "ryker_work_failed 0") {
 		t.Fatalf("a fetch failure was counted as failed durable work:\n%s", body)
 	}
 	for _, lane := range []string{"control", "background", "maintenance"} {
-		if !strings.Contains(body, `responder_scheduler_work_failed{lane="`+lane+`"} 0`) {
+		if !strings.Contains(body, `ryker_scheduler_work_failed{lane="`+lane+`"} 0`) {
 			t.Fatalf("a fetch failure reached the %s lane's failure count:\n%s", lane, body)
 		}
 	}

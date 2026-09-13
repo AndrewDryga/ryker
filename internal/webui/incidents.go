@@ -9,7 +9,7 @@ import (
 // Room is the container a whole conversation of work happens in, as opposed to
 // an episode, which is one turn of it. Two kinds share the table: an
 // engineering task someone asked for, and an incident an alert opened. Four
-// existed and none was reachable, so the three pull requests Responder had
+// existed and none was reachable, so the three pull requests Ryker had
 // opened were visible only in GitHub.
 type Room struct {
 	ID, Title, Status, Workflow string
@@ -178,7 +178,7 @@ func (r *Reader) EpisodesForIncident(ctx context.Context, incidentID string) ([]
 // Lane separates the scheduler's permanent poll loops from actual work.
 //
 // A recurring drain record normally spends almost all of its life pending for
-// its next poll. Counting that as queued work made an idle, healthy Responder
+// its next poll. Counting that as queued work made an idle, healthy Ryker
 // look as though dozens of tasks were stuck. Pollers remain visible as liveness
 // evidence, while the work columns contain only finite items.
 type Lane struct {

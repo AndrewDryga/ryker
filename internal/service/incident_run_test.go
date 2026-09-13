@@ -11,12 +11,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/coop"
-	"github.com/AndrewDryga/responder/internal/core"
-	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
-	"github.com/AndrewDryga/responder/internal/slackfile"
-	"github.com/AndrewDryga/responder/internal/slackui"
-	"github.com/AndrewDryga/responder/internal/store"
+	"github.com/AndrewDryga/ryker/internal/coop"
+	"github.com/AndrewDryga/ryker/internal/core"
+	decisionpkg "github.com/AndrewDryga/ryker/internal/decision"
+	"github.com/AndrewDryga/ryker/internal/slackfile"
+	"github.com/AndrewDryga/ryker/internal/slackui"
+	"github.com/AndrewDryga/ryker/internal/store"
 	"github.com/slack-go/slack/slackevents"
 	"github.com/slack-go/slack/socketmode"
 )
@@ -567,7 +567,7 @@ func TestManualHandoffWaitsForUsableIncidentRoom(t *testing.T) {
 		wantRootTS bool
 	}{
 		{name: "root delivery uncertain", rootErr: errors.New("Slack timeout")},
-		{name: "responder invite fails", inviteErr: errors.New("invite denied"), wantRootTS: true},
+		{name: "ryker invite fails", inviteErr: errors.New("invite denied"), wantRootTS: true},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -1113,7 +1113,7 @@ func TestSlashStatusExplainsIncidentRoomBehavior(t *testing.T) {
 			t.Fatalf("incident status lacks %q: %+v", required, message)
 		}
 	}
-	for _, internal := range []string{"parked", "provisioning_channel", "responder.yaml"} {
+	for _, internal := range []string{"parked", "provisioning_channel", "ryker.yaml"} {
 		if strings.Contains(message.Text+"\n"+sections, internal) {
 			t.Fatalf("incident status exposes internal label %q: %+v", internal, message)
 		}

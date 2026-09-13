@@ -11,11 +11,11 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/AndrewDryga/responder/internal/changeledger"
-	"github.com/AndrewDryga/responder/internal/config"
-	"github.com/AndrewDryga/responder/internal/coop"
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/promptarchive"
+	"github.com/AndrewDryga/ryker/internal/changeledger"
+	"github.com/AndrewDryga/ryker/internal/config"
+	"github.com/AndrewDryga/ryker/internal/coop"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/promptarchive"
 )
 
 // EpisodeMetric is one answer an operator should get before reading the trace.
@@ -209,7 +209,7 @@ func buildEpisodeTrace(pricing config.Pricing, page episodePage, present func(st
 		})
 	} else {
 		add(TraceStep{
-			ID: "source-missing", Stage: "Input", Actor: "Responder", State: "not recorded", Icon: "info",
+			ID: "source-missing", Stage: "Input", Actor: "Ryker", State: "not recorded", Icon: "info",
 			Title: "Starting input unavailable", At: page.Created,
 			Summary: "The message or event that started this episode was not retained.",
 		})
@@ -235,10 +235,10 @@ func buildEpisodeTrace(pricing config.Pricing, page episodePage, present func(st
 			stats = append(stats, TraceStat{"Deadline", wakeup.Deadline.Format(time.RFC3339)})
 		}
 		add(TraceStep{
-			ID: scheduledID, Stage: "Wait", Actor: "Responder", State: "scheduled", Icon: "clock",
+			ID: scheduledID, Stage: "Wait", Actor: "Ryker", State: "scheduled", Icon: "clock",
 			Title: "Wake-up scheduled", At: wakeup.Created,
 			Summary: wakeupSummary(wakeup),
-			Why:     "Instead of holding a worker, Responder saved what to watch for and let go. The matching event resumes this exact episode.",
+			Why:     "Instead of holding a worker, Ryker saved what to watch for and let go. The matching event resumes this exact episode.",
 			Stats:   stats, Details: details,
 		})
 		if !wakeup.Resolved.IsZero() {
@@ -249,7 +249,7 @@ func buildEpisodeTrace(pricing config.Pricing, page episodePage, present func(st
 				})
 			}
 			add(TraceStep{
-				ID: resolvedID, Stage: "Wait", Actor: "Responder", State: wakeup.State, Tone: "good", Icon: "clock",
+				ID: resolvedID, Stage: "Wait", Actor: "Ryker", State: wakeup.State, Tone: "good", Icon: "clock",
 				Title: "Wake-up resolved", At: wakeup.Resolved,
 				Summary: "The awaited event arrived; the episode could continue.",
 				Stats:   []TraceStat{{"Type", wakeup.Kind}, {"Wake-up", wakeup.ID}, {"Final state", wakeup.State}},
@@ -266,9 +266,9 @@ func buildEpisodeTrace(pricing config.Pricing, page episodePage, present func(st
 			Label: "Resume instruction", Body: present(page.Trigger.Text), Kind: "text", Open: true,
 		}}
 		add(TraceStep{
-			ID: "trigger", Stage: "Trigger", Actor: "Responder", State: page.Trigger.Kind, Icon: "clock",
+			ID: "trigger", Stage: "Trigger", Actor: "Ryker", State: page.Trigger.Kind, Icon: "clock",
 			Title: title, At: page.Trigger.Received,
-			Summary: "The awaited event arrived, so Responder resumed this work on its own — no new Slack message was needed.",
+			Summary: "The awaited event arrived, so Ryker resumed this work on its own — no new Slack message was needed.",
 			Stats: []TraceStat{{"Channel", page.Trigger.Channel},
 				{"Thread", fallback(page.Trigger.ThreadTS, "top level")}, {"Trigger", page.Trigger.Kind}},
 			Details: details,
@@ -286,7 +286,7 @@ func buildEpisodeTrace(pricing config.Pricing, page episodePage, present func(st
 			promptID = fmt.Sprintf("prompt-%d", manifestIndex+1)
 		}
 		add(TraceStep{
-			ID: modelID, Stage: "Routing", Actor: "Responder", State: "selected", Icon: "route",
+			ID: modelID, Stage: "Routing", Actor: "Ryker", State: "selected", Icon: "route",
 			Title: "Model selected", At: manifest.Created,
 			Why:   modelSelectionWhy(manifest),
 			Stats: []TraceStat{{"Provider", fallback(manifest.Provider, "not recorded")}, {"Model", fallback(manifest.Model, "not recorded")}, {"Reasoning", fallback(manifest.Effort, "not recorded")}, {"Preset", fallback(manifest.Preset, "none")}, {"Run", fallback(manifest.RunID, "not recorded")}},
@@ -366,7 +366,7 @@ func buildEpisodeTrace(pricing config.Pricing, page episodePage, present func(st
 				Label: "Trimmed to fit the turn", Body: present(strings.Join(leftoverTrims, "\n")), Kind: "missing",
 				Status: "Not sent", Tone: "missing", Open: true, ShowCount: true, Count: len(leftoverTrims),
 				Description: promptCapNote,
-				Group:       "Not sent to the model", GroupDetail: "Responder assembled these inputs, then dropped them before submission to fit the turn.",
+				Group:       "Not sent to the model", GroupDetail: "Ryker assembled these inputs, then dropped them before submission to fit the turn.",
 				GroupCount: 1,
 			})
 		}
@@ -389,7 +389,7 @@ func buildEpisodeTrace(pricing config.Pricing, page episodePage, present func(st
 			promptDetails[index].Open = false
 		}
 		add(TraceStep{
-			ID: promptID, Stage: "Context", Actor: "Responder", State: "recorded", Icon: "doc",
+			ID: promptID, Stage: "Context", Actor: "Ryker", State: "recorded", Icon: "doc",
 			Title: "Model briefed", Summary: promptStepSummary(manifest, memoryLayers, briefTokens), At: manifest.Created,
 			Bar:         composition,
 			Stats:       []TraceStat{{"Prompt", fallback(manifest.PromptVersion, "unversioned")}, {"Contract", fallback(manifest.Contract, "none")}, {"Tool schema", fallback(manifest.ToolSchema, "none")}, {"Attempt", fmt.Sprint(manifest.AttemptNumber)}},
@@ -675,9 +675,9 @@ func buildEpisodeTrace(pricing config.Pricing, page episodePage, present func(st
 
 	for index, rejection := range page.Rejections {
 		add(TraceStep{
-			ID: fmt.Sprintf("rejection-%d", index+1), Stage: "Validation", Actor: "Responder", State: "rejected", Tone: "bad", Icon: "x",
+			ID: fmt.Sprintf("rejection-%d", index+1), Stage: "Validation", Actor: "Ryker", State: "rejected", Tone: "bad", Icon: "x",
 			Title: "Answer rejected", Summary: correctionClassSummary(rejection.Outcome),
-			Why: "The result did not fit the required format, so Responder sent a correction back instead of acting on it.", At: rejection.At,
+			Why: "The result did not fit the required format, so Ryker sent a correction back instead of acting on it.", At: rejection.At,
 			Stats:   []TraceStat{{"Run", fallback(rejection.RunID, "not recorded")}, {"Check", rejection.Outcome}},
 			Details: []TraceDetail{{Label: "Correction sent to the model", Body: present(rejection.Detail), Kind: "text", Open: true}},
 		})
@@ -713,7 +713,7 @@ func buildEpisodeTrace(pricing config.Pricing, page episodePage, present func(st
 		add(TraceStep{
 			ID: resultID, Stage: "Result", Actor: "Model", State: fallback(turn.State, "received"), Tone: stateTone(turn.State), Icon: "sparkle",
 			Title: "Model result received", Summary: present(modelSummary(turn)),
-			Why: "Responder checks every result against its contract before anything reaches Slack.", At: turn.Updated,
+			Why: "Ryker checks every result against its contract before anything reaches Slack.", At: turn.Updated,
 			Stats:   []TraceStat{{"Run", turn.RunID}, {"Attempt", fmt.Sprint(turn.AttemptNumber)}, {"Action", fallback(turn.Action, "not recorded")}, {"Operations", fmt.Sprint(tallyTotal(turn.Operations))}, {"Follow-ups", fmt.Sprint(len(turn.Followups))}},
 			Details: details,
 		})
@@ -729,7 +729,7 @@ func buildEpisodeTrace(pricing config.Pricing, page episodePage, present func(st
 
 	if len(page.Claims)+len(page.Evidence)+len(page.Coverage) > 0 {
 		add(TraceStep{
-			ID: "ledger", Stage: "Evidence", Actor: "Responder", State: "recorded", Icon: "db",
+			ID: "ledger", Stage: "Evidence", Actor: "Ryker", State: "recorded", Icon: "db",
 			Title: "Evidence recorded", Summary: countList([]countPart{
 				{len(page.Claims), "claim", "claims"},
 				{len(page.Evidence), "evidence record", "evidence records"},
@@ -775,7 +775,7 @@ func buildEpisodeTrace(pricing config.Pricing, page episodePage, present func(st
 			}
 		}
 		add(TraceStep{
-			ID: fmt.Sprintf("effect-%d", index+1), Stage: "Side effect", Actor: "Responder", State: effect.State, Icon: "bookmark",
+			ID: fmt.Sprintf("effect-%d", index+1), Stage: "Side effect", Actor: "Ryker", State: effect.State, Icon: "bookmark",
 			Tone:  stateTone(effect.State),
 			Title: effectTitle(effect), Summary: summary, Why: sideEffectWhy(effect), Href: href, At: effect.At,
 			Stats:   stats,
@@ -935,9 +935,9 @@ const (
 // kept, the name belongs to the chapter that earns it.
 var chapterNames = [...]struct{ title, blurb string }{
 	{"What came in", "The message or event that started this."},
-	{"Getting ready", "How Responder set this up: the routing, the model, and its briefing."},
+	{"Getting ready", "How Ryker set this up: the routing, the model, and its briefing."},
 	{"The work", "What the model did once it started: what it reasoned about, what it ran, and what came back."},
-	{"The answer", "What the model returned and what Responder decided to do."},
+	{"The answer", "What the model returned and what Ryker decided to do."},
 	{"What came of it", "Replies, saved changes, and follow-ups."},
 }
 
@@ -1340,11 +1340,11 @@ func evidenceProvenance(evidence evidenceEvent, present func(string) string) *Tr
 // pipeline from one episode.
 func phaseExplain(phase string) string {
 	return map[string]string{
-		"accepted":                   "Responder took ownership of this work and queued it for a background worker.",
+		"accepted":                   "Ryker took ownership of this work and queued it for a background worker.",
 		"planning":                   "A background worker took this job off the queue and is preparing the model call — no model is running yet.",
 		"investigating":              "The prepared call went to Coop; from here until the result arrives, the model is the one working.",
 		"executing":                  "The prepared call went to Coop; from here until the result arrives, the model is the one working.",
-		"finalizing":                 "The model finished its turn. Before anything reaches Slack, Responder checks the result: it must parse, the answer must be complete — a verdict, coverage explained, claims the evidence supports — anything it offers must be well-formed, and the reply must fit the shape bounds. A failure goes back to the model as a correction instead of posting.",
+		"finalizing":                 "The model finished its turn. Before anything reaches Slack, Ryker checks the result: it must parse, the answer must be complete — a verdict, coverage explained, claims the evidence supports — anything it offers must be well-formed, and the reply must fit the shape bounds. A failure goes back to the model as a correction instead of posting.",
 		"finished":                   "The final outcome is recorded; nothing more runs for this episode.",
 		"resuming":                   "A new attempt is starting from this episode's saved state.",
 		"retrying":                   "The previous attempt failed; the work is queued to run again from the preserved context.",
@@ -1508,7 +1508,7 @@ func sourceTitle(source SourceInput) string {
 	case "bot_message":
 		return "App message received"
 	case "mention":
-		return "Responder was mentioned"
+		return "Ryker was mentioned"
 	case "recheck":
 		return "Follow-up input received"
 	case "schedule", "scheduled":
@@ -1540,30 +1540,30 @@ func actorName(actor string) string {
 	return actor
 }
 
-// sourceWhy says why this input produced an episode at all. Responder does not
+// sourceWhy says why this input produced an episode at all. Ryker does not
 // answer everything it sees: a mention is addressed to it, a direct message is
 // a private conversation, and a channel message only gets here after the watch
 // decided it was worth work.
 func sourceWhy(source SourceInput) string {
 	switch source.Kind {
 	case "bot_message":
-		return "Another app posted this. Responder watches app messages because alerts and run notifications are operational events, not conversation."
+		return "Another app posted this. Ryker watches app messages because alerts and run notifications are operational events, not conversation."
 	case "mention":
-		return "Someone addressed Responder directly, so the message is handled without a watch decision."
+		return "Someone addressed Ryker directly, so the message is handled without a watch decision."
 	case "direct":
-		return "A direct message to Responder. Everything said here is meant for it."
+		return "A direct message to Ryker. Everything said here is meant for it."
 	case "recheck":
-		return "Not a new message — Responder re-examined an earlier one after something changed."
+		return "Not a new message — Ryker re-examined an earlier one after something changed."
 	case "schedule", "scheduled":
 		return "No one sent anything. A schedule came due and started this run on its own."
 	case "action":
-		return "Someone pressed a button on a Responder message in Slack."
+		return "Someone pressed a button on a Ryker message in Slack."
 	case "slash":
-		return "Someone ran a Responder slash command."
+		return "Someone ran a Ryker slash command."
 	case "reaction_added":
-		return "Someone reacted to a message with an emoji Responder watches."
+		return "Someone reacted to a message with an emoji Ryker watches."
 	default:
-		return "A message in a channel Responder watches. The watch decision below is what turned it into work."
+		return "A message in a channel Ryker watches. The watch decision below is what turned it into work."
 	}
 }
 
@@ -1663,9 +1663,9 @@ func deliverySummary(delivery Delivery, present func(string) string) string {
 	switch delivery.Operation {
 	case "status":
 		if status := strings.TrimSpace(delivery.Status); status != "" {
-			return "“" + present(status) + "” now shows beside Responder's name in " + where + "."
+			return "“" + present(status) + "” now shows beside Ryker's name in " + where + "."
 		}
-		return "The progress note beside Responder's name in " + where + " was taken down."
+		return "The progress note beside Ryker's name in " + where + " was taken down."
 	case "reaction":
 		if delivery.Kind == "failure_marker_remove" {
 			return "The failure marker on the message in " + where + " was removed."
@@ -1677,9 +1677,9 @@ func deliverySummary(delivery Delivery, present func(string) string) string {
 		}
 		return "The answer was posted to " + where + "."
 	case "update":
-		return "An earlier Responder message in " + where + " was edited in place."
+		return "An earlier Ryker message in " + where + " was edited in place."
 	case "delete":
-		return "A Responder message was removed from " + where + "."
+		return "A Ryker message was removed from " + where + "."
 	}
 	return where
 }
@@ -2006,7 +2006,7 @@ func auditTracePresentation(audit AuditRow, present func(string) string) (string
 				// Three zeros and no rule cards say nothing. The fact worth
 				// stating is that this channel has no standing rules at all.
 				return "This channel has no standing rules, so there was nothing to match. " +
-					"Rules are added by asking Responder in the channel and confirming.", nil
+					"Rules are added by asking Ryker in the channel and confirming.", nil
 			}
 			skipped := max(evaluation.Checked-evaluation.Matched, 0)
 			stats := []TraceStat{
@@ -2039,9 +2039,9 @@ func auditTracePresentation(audit AuditRow, present func(string) string) (string
 	if audit.Kind == "slack.watch" && !strings.Contains(strings.TrimSpace(audit.Detail), " ") {
 		switch audit.Outcome {
 		case "replied":
-			summary = "Responder read this message and decided it deserved a reply in " + summary + "."
+			summary = "Ryker read this message and decided it deserved a reply in " + summary + "."
 		case "ignored":
-			summary = "Responder read this message and decided no reply was needed in " + summary + "."
+			summary = "Ryker read this message and decided no reply was needed in " + summary + "."
 		}
 	}
 	if audit.Outcome != "reacted" && audit.Outcome != "unreacted" {
@@ -2067,13 +2067,13 @@ func auditTraceWhy(audit AuditRow) string {
 	// than five lines of renderer.
 	case "result.legacy_shape":
 		if audit.Outcome == "legacy_corrected" {
-			return "The model first answered in an older result format, Responder asked it once to re-emit the same decision as typed operations, and this time it did. Nothing about the answer changed — only how it was carried."
+			return "The model first answered in an older result format, Ryker asked it once to re-emit the same decision as typed operations, and this time it did. Nothing about the answer changed — only how it was carried."
 		}
-		return "The model answered in an older result format that Responder accepted while both formats were in use. This row is from that migration: it means the answer stayed in the old format after Responder asked once for typed operations. That format is no longer read at all — a result carrying its answer outside the operation stream is now refused."
+		return "The model answered in an older result format that Ryker accepted while both formats were in use. This row is from that migration: it means the answer stayed in the old format after Ryker asked once for typed operations. That format is no longer read at all — a result carrying its answer outside the operation stream is now refused."
 	case "coop.budget.auto_extend":
-		return "The turn ran into its token budget and Responder raised it rather than cutting the work short."
+		return "The turn ran into its token budget and Ryker raised it rather than cutting the work short."
 	case "slack.paused":
-		return "Responder stops replying in a channel while it is paused; the work still runs and is recorded here."
+		return "Ryker stops replying in a channel while it is paused; the work still runs and is recorded here."
 	case "slack.replay":
 		return "The exact inputs and answer were saved as a replay candidate, which can become a regression test."
 	}
@@ -2085,7 +2085,7 @@ func auditTraceDetails(audit AuditRow, present func(string) string) []TraceDetai
 		return []TraceDetail{{
 			Label: "Matched rule - details not recorded",
 			Body: "Why it matched\nA confirmed channel rule matched this message.\n\n" +
-				"What happened\nResponder added " + slackReactionDisplay(audit.Detail) +
+				"What happened\nRyker added " + slackReactionDisplay(audit.Detail) +
 				" and started the rule's read-only work.\n\n" +
 				"Historical limit\nThis older event did not save the rule name or the rules that were skipped.",
 			Kind: "rule", Open: true,
@@ -2145,7 +2145,7 @@ func slackReactionDisplay(name string) string {
 
 // elidedInstructionDetail says what the archive is standing in for.
 //
-// The archived copy of a prompt stops carrying Responder's own instruction
+// The archived copy of a prompt stops carrying Ryker's own instruction
 // blocks — ~131 MB/week on blitz, ~60% of it the same block stored a hundred
 // and forty times a day — and leaves a marker naming each one. Without this the
 // panel would render those markers as unexplained tags in the middle of the
@@ -2173,7 +2173,7 @@ func elidedInstructionDetail(prompt string) TraceDetail {
 		Label: "Host instructions elided from the archive", Status: "Not stored",
 		Kind: "missing", Tone: "missing", ShowCount: true, Count: len(markers),
 		Description: fmt.Sprintf(
-			"%s bytes of Responder's own instructions stood here, byte-identical on "+
+			"%s bytes of Ryker's own instructions stood here, byte-identical on "+
 				"every turn of prompt version %s. The archive keeps a marker naming "+
 				"each block instead of another copy of it; everything above and below "+
 				"is what this turn in particular was told.",
@@ -2245,12 +2245,12 @@ func promptContextDetails(prompt string, present func(string) string, trimmed ma
 		// Its own group for the same reason and a sharper one: this layer is
 		// about work that was STARTED and not finished, which is the only thing
 		// on the page that can mean the model was told the fix already exists.
-		// A reader asking why a turn proposed writing something Responder had
+		// A reader asking why a turn proposed writing something Ryker had
 		// already committed needs to see whether this section was there.
 		{[]string{relatedTasksLayer}, nil, []string{relatedTasksLayer}, "Open engineering tasks", "Open engineering tasks", "Engineering tasks this channel has already opened and not closed, carried as history to check rather than as current state."},
 		// Also its own group, and for the reason above turned around: this is
 		// the only layer on the page that is about the world outside the
-		// conversation rather than about Responder's own history. A reader
+		// conversation rather than about Ryker's own history. A reader
 		// checking why a verdict blamed a deploy needs to see exactly which
 		// changes were in front of the model and why each was selected.
 		{[]string{recentChangesLayer}, nil, []string{recentChangesLayer}, "Recent changes", "Recent changes", "Deploys, merges and applies the host recorded against the services this incident implicates, carried as correlation to check rather than as cause."},
@@ -2742,7 +2742,7 @@ func evidenceMemoryBody(raw json.RawMessage, present func(string) string) string
 }
 
 // modelSelectionWhy explains how the routing decision is actually made, from
-// the code that makes it: Responder never ranks models per message. The
+// the code that makes it: Ryker never ranks models per message. The
 // channel's setup binds it to a repository; the repository's configuration
 // names a Coop policy; the policy's model ladder picks what runs and rotates
 // on rate limits. The manifest records the effective answerer, so a rotated
@@ -2788,7 +2788,7 @@ type jsonFieldRange struct {
 func promptSegments(prompt string) []PromptSegment {
 	ranges := []promptRange{}
 	for _, section := range []struct{ tag, source, tone string }{
-		{"trusted-responder-context", "Trusted Responder context", "trusted"},
+		{"trusted-responder-context", "Trusted Ryker context", "trusted"},
 	} {
 		open, close := "<"+section.tag+">", "</"+section.tag+">"
 		if start := strings.Index(prompt, open); start >= 0 {
@@ -3092,7 +3092,7 @@ func contextReferenceTableRow(ref ContextRef, present func(string) string) Trace
 		// evidence is an invitation to skip the checking, and the checking is
 		// the product. This row is a finished, different incident.
 		similarEpisodeRefKind: "History the host recalled by symptom overlap — not evidence of current health, and not authorization",
-		// And this one is work Responder itself opened and did not finish. It is
+		// And this one is work Ryker itself opened and did not finish. It is
 		// on the page because "the fix was already written and never published"
 		// is a claim an operator has to be able to check the model was told.
 		relatedTaskRefKind: "An engineering task this channel already has open — history to check, never proof that anything shipped",
@@ -3232,7 +3232,7 @@ func episodeMetrics(pricing config.Pricing, page episodePage) []EpisodeMetric {
 	return []EpisodeMetric{outcome, respond, spend, errorMetric}
 }
 
-// firstAcknowledgement is the first visible sign Responder picked the work up:
+// firstAcknowledgement is the first visible sign Ryker picked the work up:
 // a sent Slack status, or the working reaction a standing rule added.
 func firstAcknowledgement(page episodePage) time.Time {
 	var first time.Time
@@ -3438,7 +3438,7 @@ func wakeupSummary(wakeup Wakeup) string {
 // what the host actually objected to.
 func correctionClassSummary(class string) string {
 	if summary, ok := map[string]string{
-		"unreadable": "The result did not parse — Responder could not read an answer out of it at all.",
+		"unreadable": "The result did not parse — Ryker could not read an answer out of it at all.",
 		"incomplete": "The answer was readable but unfinished: a missing verdict, uncovered ground left unexplained, or a claim the evidence did not support.",
 		"rejected":   "The answer parsed and was complete, but something it proposed was not well-formed enough to act on.",
 		"shape":      "The reply did not fit the channel's shape bounds — too long, or built wrong for where it was going.",
@@ -3610,7 +3610,7 @@ func timelineKindWhy(kind string) string {
 		return "The delegated agent stopped before finishing; the incident keeps the failure so the work can resume."
 	}
 	if strings.HasPrefix(kind, "publication.") {
-		return "Recorded because this incident opened a pull request; Responder tracks it until the change is merged and applied."
+		return "Recorded because this incident opened a pull request; Ryker tracks it until the change is merged and applied."
 	}
 	return ""
 }
@@ -3666,7 +3666,7 @@ func artifactActor(kind string) string {
 	case "replay_candidate":
 		return "Regression corpus"
 	default:
-		return "Responder"
+		return "Ryker"
 	}
 }
 
@@ -3951,7 +3951,7 @@ type permissionVerdict struct {
 // with no option kind at all.
 //
 // The kinds are ACP's and they arrive from whichever agent Coop is driving —
-// external wire data, not Responder's vocabulary. reject_once and reject_always
+// external wire data, not Ryker's vocabulary. reject_once and reject_always
 // are the other two kinds ACP defines, and an agent free to send a kind is free
 // to send one nobody here has seen. An answer this code cannot name is reported
 // as exactly that, beside the value it was given, rather than guessed into the
@@ -4059,7 +4059,7 @@ func usageTraceStep(page episodePage) TraceStep {
 		at = page.Manifest.Created
 	}
 	step := TraceStep{
-		ID: "usage", Stage: "Measurement", Actor: "Responder", State: "recorded", Icon: "gauge", At: at,
+		ID: "usage", Stage: "Measurement", Actor: "Ryker", State: "recorded", Icon: "gauge", At: at,
 		Title: "Usage measured",
 	}
 	if !page.Spent.Recorded() {
@@ -4145,7 +4145,7 @@ func deliveryWhy(delivery Delivery) string {
 		return "A native status shows progress without adding a message to the conversation."
 	}
 	if delivery.Operation == "reaction" {
-		return "A single reaction reports Responder health without adding another message to the conversation."
+		return "A single reaction reports Ryker health without adding another message to the conversation."
 	}
 	return ""
 }

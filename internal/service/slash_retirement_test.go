@@ -5,9 +5,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/slackui"
-	"github.com/AndrewDryga/responder/internal/store"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/slackui"
+	"github.com/AndrewDryga/ryker/internal/store"
 )
 
 // A removed verb stays removed, and says where its capability went.
@@ -40,7 +40,7 @@ func TestARetiredSubcommandAnswersWithWhereItWent(t *testing.T) {
 		// Lifecycle: the pinned card's buttons.
 		{verb: "publish", pointer: "pinned card"},
 		// The turn ceiling: a deployment value, and never an operator estimate.
-		{verb: "turn-limit", pointer: "responder.yaml"},
+		{verb: "turn-limit", pointer: "ryker.yaml"},
 	} {
 		t.Run(probe.verb, func(t *testing.T) {
 			ctx := context.Background()

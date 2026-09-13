@@ -2,14 +2,14 @@
 // handed.
 //
 // It was extracted from internal/publisher, which held the only GitHub push
-// credential Responder has and therefore grew the discipline first: the service
+// credential Ryker has and therefore grew the discipline first: the service
 // environment is withheld, global and system gitconfig are pinned at /dev/null
 // so an operator's core.hooksPath cannot inject code, output is bounded while
 // the process runs rather than inspected afterwards, and a token reaches git as
 // a per-invocation HTTP header instead of anything written to disk.
 //
 // It lives in its own package because there is now a second caller.
-// internal/repomirror fetches Responder-managed clones with the same credential,
+// internal/repomirror fetches Ryker-managed clones with the same credential,
 // and a second copy of an env scrub is a second place for one of these rules to
 // quietly stop applying — which is the whole failure mode the scrub exists to
 // prevent.
@@ -43,7 +43,7 @@ var passthroughEnv = []string{
 // Env builds a hermetic environment for git. Global and system gitconfig are
 // pinned to /dev/null so an operator's `core.hooksPath` or `init.templateDir`
 // cannot inject code into the checkout, and HOME points at a directory
-// Responder owns so nothing resolves a real dotfile.
+// Ryker owns so nothing resolves a real dotfile.
 func Env(home string, extra ...string) []string {
 	env := make([]string, 0, len(passthroughEnv)+len(extra)+6)
 	for _, name := range passthroughEnv {
@@ -109,7 +109,7 @@ func (b *boundedBuffer) String() string { return b.buf.String() }
 //
 // home is the HOME the subprocess sees. Pass "" to use dir, which is what a
 // throwaway checkout wants; a managed clone passes the directory above it so
-// nothing git might write lands inside a work tree Responder promises never to
+// nothing git might write lands inside a work tree Ryker promises never to
 // dirty.
 func Run(
 	ctx context.Context,

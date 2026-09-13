@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/remediation"
-	"github.com/AndrewDryga/responder/internal/store/grantstore"
-	"github.com/AndrewDryga/responder/internal/store/storetest"
+	"github.com/AndrewDryga/ryker/internal/remediation"
+	"github.com/AndrewDryga/ryker/internal/store/grantstore"
+	"github.com/AndrewDryga/ryker/internal/store/storetest"
 )
 
 func at(hour int) time.Time {
@@ -237,7 +237,7 @@ func TestGetReportsAMissingGrantAsNotFound(t *testing.T) {
 // --- the promotion counter ----------------------------------------------
 
 // seedVerifiedRemediation writes the exact shape a real verified remediation
-// leaves behind: an Emisar approval Responder supervised to success, the
+// leaves behind: an Emisar approval Ryker supervised to success, the
 // continuation run it queued to go and CHECK the effect, and that episode's
 // projected outcome.
 //

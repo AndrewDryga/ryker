@@ -1,5 +1,5 @@
 // Package pausecleanupstore finds pre-upgrade Slack messages whose terminal
-// work still carries Responder's old pause reaction.
+// work still carries Ryker's old pause reaction.
 package pausecleanupstore
 
 import (
@@ -7,8 +7,8 @@ import (
 	"database/sql"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/store/slackinputstore"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/store/slackinputstore"
 )
 
 type Repository struct{ db *sql.DB }
@@ -38,7 +38,7 @@ func (r *Repository) MarkCleared(ctx context.Context, inputID string, now time.T
 	_, err := r.db.ExecContext(ctx, `
 		INSERT INTO audit_events
 		  (id, kind, actor_id, object_id, outcome, detail, created_at)
-		SELECT 'slack_pause_cleared_' || ?, 'slack.paused', 'responder', ?,
+		SELECT 'slack_pause_cleared_' || ?, 'slack.paused', 'ryker', ?,
 		       'cleared', 'removed legacy pause after terminal work', ?
 		WHERE EXISTS (
 		  SELECT 1 FROM audit_events AS paused

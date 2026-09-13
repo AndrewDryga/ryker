@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/config"
-	"github.com/AndrewDryga/responder/internal/hermeticgit"
+	"github.com/AndrewDryga/ryker/internal/config"
+	"github.com/AndrewDryga/ryker/internal/hermeticgit"
 )
 
 // Every test here clones from a local fixture repository built by the git CLI.
@@ -77,7 +77,7 @@ func manager(t *testing.T, remote string, opts ...Option) *Manager {
 // fetched, not re-cloned, afterwards.
 //
 // This is the defect the package exists for: there was no `git fetch` anywhere
-// in Responder, so "current repository content" — second in the evidence
+// in Ryker, so "current repository content" — second in the evidence
 // hierarchy, above config and confirmed memory — meant whatever a human last
 // pulled.
 func TestASlugRepositoryIsClonedOnceAndFetchedAfterwards(t *testing.T) {
@@ -92,7 +92,7 @@ func TestASlugRepositoryIsClonedOnceAndFetchedAfterwards(t *testing.T) {
 	if !first.Present || first.Revision == "" {
 		t.Fatalf("first clone = %+v", first)
 	}
-	marker := filepath.Join(first.Path, ".responder-clone-identity")
+	marker := filepath.Join(first.Path, ".ryker-clone-identity")
 	if err := os.WriteFile(marker, []byte("same directory"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -138,7 +138,7 @@ func TestAnUpdateWithNothingNewIsNotAFailure(t *testing.T) {
 	}
 }
 
-// Responder never modifies the work tree Coop forks from.
+// Ryker never modifies the work tree Coop forks from.
 //
 // A managed clone should never be dirty, but if it is — an operator poking
 // around, a half-finished repair — the answer is stale evidence that says so,
@@ -168,7 +168,7 @@ func TestADirtyManagedCloneIsReportedRatherThanReset(t *testing.T) {
 	}
 	body, readErr := os.ReadFile(uncommitted)
 	if readErr != nil || string(body) != "edited by someone\n" {
-		t.Fatalf("Responder overwrote the work tree: %q, %v", string(body), readErr)
+		t.Fatalf("Ryker overwrote the work tree: %q, %v", string(body), readErr)
 	}
 }
 
@@ -317,7 +317,7 @@ func TestAnUnreachableRemoteLeavesTheCloneReadableAndRecordsStaleness(t *testing
 // is the only place in the product that turns a repository name into a path, so
 // it is the only place a traversal could turn into one.
 func TestASlugOnlyEverBecomesADirectoryUnderTheRoot(t *testing.T) {
-	root := "/var/lib/responder/repos"
+	root := "/var/lib/ryker/repos"
 	if path, err := Path(root, "example/backend"); err != nil ||
 		path != filepath.Join(root, "example", "backend") {
 		t.Fatalf("path = %q, %v", path, err)
@@ -376,7 +376,7 @@ func TestAManagedRepositoryPolicyPathIsTheRealPath(t *testing.T) {
 }
 
 // Freshness is read from the clone, not remembered in this process, so a second
-// process — `responder doctor` beside a serving instance — answers the same
+// process — `ryker doctor` beside a serving instance — answers the same
 // question rather than reporting everything as never fetched.
 func TestFreshnessIsReadableFromASecondProcess(t *testing.T) {
 	remote := origin(t)

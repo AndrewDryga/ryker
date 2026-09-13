@@ -10,11 +10,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/coop"
-	"github.com/AndrewDryga/responder/internal/core"
-	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
-	"github.com/AndrewDryga/responder/internal/slackui"
-	"github.com/AndrewDryga/responder/internal/store"
+	"github.com/AndrewDryga/ryker/internal/coop"
+	"github.com/AndrewDryga/ryker/internal/core"
+	decisionpkg "github.com/AndrewDryga/ryker/internal/decision"
+	"github.com/AndrewDryga/ryker/internal/slackui"
+	"github.com/AndrewDryga/ryker/internal/store"
 )
 
 func TestLostValidationResponseDoesNotStrandTheRun(t *testing.T) {
@@ -164,7 +164,7 @@ func TestAnIncidentMayCiteEvidenceCarriedByItsCurrentRun(t *testing.T) {
 		t.Fatal(err)
 	}
 	if unchangedState.StructuredCorrections != 0 {
-		t.Fatalf("pre-completion rejection spent Responder's old correction budget: %+v", unchangedState)
+		t.Fatalf("pre-completion rejection spent Ryker's old correction budget: %+v", unchangedState)
 	}
 	handled, err := svc.stageTriageTerminal(ctx, run, coop.Turn{
 		ID: "turn-linked-ads", State: "completed", AssistantMessage: result,

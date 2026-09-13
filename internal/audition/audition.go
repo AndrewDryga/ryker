@@ -20,8 +20,8 @@ import (
 	"sort"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/config"
-	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/ryker/internal/config"
+	"github.com/AndrewDryga/ryker/internal/core"
 )
 
 // Lane is one (case class x requested profile x effective model) row of live

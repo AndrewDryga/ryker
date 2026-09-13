@@ -4,8 +4,8 @@ package resultwire
 import (
 	"encoding/json"
 
-	"github.com/AndrewDryga/responder/internal/decision"
-	"github.com/AndrewDryga/responder/internal/investigation"
+	"github.com/AndrewDryga/ryker/internal/decision"
+	"github.com/AndrewDryga/ryker/internal/investigation"
 )
 
 // AgentReport persists typed operations without the legacy projections derived

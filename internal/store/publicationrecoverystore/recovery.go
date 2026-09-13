@@ -7,7 +7,7 @@ import (
 	"database/sql"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/ryker/internal/core"
 )
 
 type Repository struct {
@@ -65,8 +65,8 @@ func (r *Repository) RecoverInterrupted(ctx context.Context) error {
 		      AND input.id = publication.attempt_input_id
 		      AND input.action_id = 'responder_publish_pr'
 		      AND input.action_value = publication.incident_id
-		  ) THEN 'Responder restarted during draft PR work; retry is scheduled'
-		  ELSE 'Responder stopped during draft PR work; retry it from the task card' END,
+		  ) THEN 'Ryker restarted during draft PR work; retry is scheduled'
+		  ELSE 'Ryker stopped during draft PR work; retry it from the task card' END,
 		  updated_at = ?
 		WHERE state IN ('reviewing', 'publishing')
 		  AND NOT EXISTS (

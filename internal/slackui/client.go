@@ -308,7 +308,7 @@ func dialSocketMode(ctx context.Context, websocketURL string) error {
 	return nil
 }
 
-// requiredBotScopes are the scopes Responder cannot run without. Preflight
+// requiredBotScopes are the scopes Ryker cannot run without. Preflight
 // refuses to report a healthy Slack integration when one is absent.
 var requiredBotScopes = []string{
 	"app_mentions:read",
@@ -339,7 +339,7 @@ var requiredBotScopes = []string{
 // older grant. Making channels:join required would turn that ordinary window
 // into "Slack: broken" on a deployment where every other Slack capability
 // works, which is a false report in the opposite direction. What the absence
-// actually costs is one thing — Responder cannot add itself to a public
+// actually costs is one thing — Ryker cannot add itself to a public
 // channel an operator configured — and the join path says exactly that when it
 // happens instead of pretending the room is simply unreachable.
 // canvases:write is optional for the same reason and at a smaller cost: a
@@ -703,7 +703,7 @@ func (c *Client) Update(ctx context.Context, channel, timestamp string, message 
 	return err
 }
 
-// Delete removes a message Responder posted.
+// Delete removes a message Ryker posted.
 //
 // It exists for one control — Close diff — and it is deliberately not on the
 // API interface: every test fake would have to grow a method for a capability
@@ -920,7 +920,7 @@ func (c *Client) UserTimezone(ctx context.Context, userID string) (string, error
 	return user.TZ, nil
 }
 
-// UserNames returns the workspace's current human-readable labels. Responder
+// UserNames returns the workspace's current human-readable labels. Ryker
 // snapshots them for local diagnostics; dashboard requests never call Slack.
 func (c *Client) UserNames(ctx context.Context) (map[string]string, error) {
 	users, err := c.api.GetUsersContext(ctx)

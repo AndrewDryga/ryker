@@ -1,7 +1,7 @@
 // Package turndelta decides whether a follow-up attempt may speak into the Coop
 // session that already holds its briefing, instead of restating that briefing.
 //
-// Every Responder prompt restates its durable context so a turn survives session
+// Every Ryker prompt restates its durable context so a turn survives session
 // rotation, Coop restarts and fresh-session replay. That invariant is right and
 // nothing here weakens it — but its granularity was wrong. Self-containment is
 // needed per SESSION-OPENING turn, not per turn, and the host already knows

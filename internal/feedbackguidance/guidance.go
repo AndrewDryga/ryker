@@ -5,8 +5,8 @@ package feedbackguidance
 import (
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/core"
-	memorypkg "github.com/AndrewDryga/responder/internal/memory"
+	"github.com/AndrewDryga/ryker/internal/core"
+	memorypkg "github.com/AndrewDryga/ryker/internal/memory"
 )
 
 // Entry preserves distinct rules in their original channel. Category alone is

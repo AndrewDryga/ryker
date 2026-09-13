@@ -13,15 +13,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/config"
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/slackui"
-	"github.com/AndrewDryga/responder/internal/store"
+	"github.com/AndrewDryga/ryker/internal/config"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/slackui"
+	"github.com/AndrewDryga/ryker/internal/store"
 )
 
 func TestBootstrapCoopWritesPrivateFilesWithoutPrintingSecret(t *testing.T) {
 	root := t.TempDir()
-	configPath := filepath.Join(root, "responder.yaml")
+	configPath := filepath.Join(root, "ryker.yaml")
 	bootstrapDir := filepath.Join(root, "coop", "agents")
 	body := `version: 1
 state_dir: ` + filepath.Join(root, "state") + `
@@ -83,7 +83,7 @@ webhooks:
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(envData) != "EMISAR_API_KEY=emk-test-observe-token\nEMISAR_CLIENT=responder\n" {
+	if string(envData) != "EMISAR_API_KEY=emk-test-observe-token\nEMISAR_CLIENT=ryker\n" {
 		t.Fatalf("Coop environment = %q", envData)
 	}
 	instructionsData, err := os.ReadFile(filepath.Join(bootstrapDir, "INSTRUCTIONS.md"))
@@ -170,7 +170,7 @@ func TestBootstrapFilesMergeAdditionalPrivateMCPAndEnvironment(t *testing.T) {
 		t.Fatalf("merged MCP config = %s", files["mcp.json"])
 	}
 	wantEnvironment := "EMISAR_API_KEY=emk-test-observe-token\n" +
-		"EMISAR_CLIENT=responder\nLOGS_TOKEN=logs-test-token\n"
+		"EMISAR_CLIENT=ryker\nLOGS_TOKEN=logs-test-token\n"
 	if string(files["env"]) != wantEnvironment {
 		t.Fatalf("merged Coop environment = %q", files["env"])
 	}
@@ -252,7 +252,7 @@ func TestBootstrapCoopRefusesToRewriteLiveControllerConfig(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer listener.Close()
-	configPath := filepath.Join(root, "responder.yaml")
+	configPath := filepath.Join(root, "ryker.yaml")
 	bootstrapDir := filepath.Join(root, "agents")
 	body := `version: 1
 state_dir: ` + filepath.Join(root, "state") + `
@@ -290,7 +290,7 @@ webhooks:
 
 func TestFailedWorkRetryRequiresExclusiveProcessOwnership(t *testing.T) {
 	root := t.TempDir()
-	configPath := filepath.Join(root, "responder.yaml")
+	configPath := filepath.Join(root, "ryker.yaml")
 	stateDir := filepath.Join(root, "state")
 	body := `version: 1
 state_dir: ` + stateDir + `
@@ -351,7 +351,7 @@ webhooks:
 		&stdout, &stderr, "test",
 	)
 	releaseProcessLock(lock)
-	if err == nil || !strings.Contains(err.Error(), "stop Responder") {
+	if err == nil || !strings.Contains(err.Error(), "stop Ryker") {
 		t.Fatalf("retry under live process lock = %v", err)
 	}
 
@@ -376,7 +376,7 @@ webhooks:
 
 func TestStatusJSONIncludesLifecycleMetricsAndIncidents(t *testing.T) {
 	root := t.TempDir()
-	configPath := filepath.Join(root, "responder.yaml")
+	configPath := filepath.Join(root, "ryker.yaml")
 	stateDir := filepath.Join(root, "state")
 	body := `version: 1
 state_dir: ` + stateDir + `

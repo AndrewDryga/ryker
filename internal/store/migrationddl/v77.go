@@ -31,7 +31,7 @@ package migrationddl
 // which needs no one's permission and must leave a trail anyway.
 //
 // Rows are kept after they lapse. A grant that quietly disappeared would make
-// "why did Responder stop offering this" unanswerable, and the volume is one
+// "why did Ryker stop offering this" unanswerable, and the volume is one
 // row per alert-and-action pair a person deliberately confirmed.
 const V77 = `
 CREATE TABLE remediation_grants (

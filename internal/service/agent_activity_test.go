@@ -6,10 +6,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/coop"
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/slackui"
-	"github.com/AndrewDryga/responder/internal/store"
+	"github.com/AndrewDryga/ryker/internal/coop"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/slackui"
+	"github.com/AndrewDryga/ryker/internal/store"
 )
 
 // activityRunFixture drives one incident run up to the point where it is
@@ -107,7 +107,7 @@ func TestPollRecordsActivityDeliveredAlongsideTheTerminalEvent(t *testing.T) {
 // A daily-health request on 2026-08-25 completed seventeen tool calls and
 // produced three progressively better structured candidates. The third still
 // needed one semantic repair, so Coop exhausted its local candidate budget and
-// Responder discarded the whole investigation as terminal. The Slack reply
+// Ryker discarded the whole investigation as terminal. The Slack reply
 // then falsely said no model turn had started. Semantic exhaustion is another
 // correction round, not loss of the accepted work.
 func TestSemanticCandidateExhaustionContinuesTheAcceptedWork(t *testing.T) {

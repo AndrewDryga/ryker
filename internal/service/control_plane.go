@@ -7,9 +7,9 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/AndrewDryga/responder/internal/channelparticipation"
-	"github.com/AndrewDryga/responder/internal/coop"
-	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/ryker/internal/channelparticipation"
+	"github.com/AndrewDryga/ryker/internal/coop"
+	"github.com/AndrewDryga/ryker/internal/core"
 )
 
 // ControlPlaneAct runs one incident-scoped operator action for the local web
@@ -171,7 +171,7 @@ func (s *Service) ControlPlaneDiscardSession(ctx context.Context, sessionID, act
 		)
 	}
 	plan, _, err := s.coop.PlanDiscard(
-		ctx, "responder:discard-plan:"+inputID, session.ID, session.Revision, false, false,
+		ctx, "ryker:discard-plan:"+inputID, session.ID, session.Revision, false, false,
 	)
 	if err != nil {
 		return err
@@ -184,7 +184,7 @@ func (s *Service) ControlPlaneDiscardSession(ctx context.Context, sessionID, act
 	}
 	if plan.Plan.Workspace.Unmerged {
 		plan, _, err = s.coop.PlanDiscard(
-			ctx, "responder:discard-plan-unpublished:"+inputID,
+			ctx, "ryker:discard-plan-unpublished:"+inputID,
 			session.ID, session.Revision, false, true,
 		)
 		if err != nil {
@@ -195,7 +195,7 @@ func (s *Service) ControlPlaneDiscardSession(ctx context.Context, sessionID, act
 		}
 	}
 	if _, _, err := s.coop.Discard(
-		ctx, "responder:discard:"+inputID, session.ID, plan.OperationID,
+		ctx, "ryker:discard:"+inputID, session.ID, plan.OperationID,
 	); err != nil {
 		return err
 	}

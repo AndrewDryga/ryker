@@ -17,7 +17,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/ryker/internal/core"
 )
 
 // The bounded kind vocabulary. It is closed on purpose: the prompt explains
@@ -115,7 +115,7 @@ func EventID(source, identity string) string {
 // opens to check the claim. Nothing here is re-derived from run output, which
 // is untrusted data.
 //
-// The scope is the channel's repository, because that is what Responder
+// The scope is the channel's repository, because that is what Ryker
 // actually knows. A run's action names an operation, not a service, and
 // inventing a service name from it would put a confident wrong scope into the
 // one query this feature is built around.

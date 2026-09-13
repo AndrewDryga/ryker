@@ -6,11 +6,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/AndrewDryga/responder/internal/config"
-	"github.com/AndrewDryga/responder/internal/coop"
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/slackui"
-	"github.com/AndrewDryga/responder/internal/store"
+	"github.com/AndrewDryga/ryker/internal/config"
+	"github.com/AndrewDryga/ryker/internal/coop"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/slackui"
+	"github.com/AndrewDryga/ryker/internal/store"
 )
 
 // cyclingCorrectionFixture drives one mention against a model that returns the
@@ -265,7 +265,7 @@ func TestAFloorLimitedEscalationDegradesOnceWithoutForgettingItsFloor(t *testing
 	}
 }
 
-// A refused rung is the only reading Responder gets of where the ladder ends.
+// A refused rung is the only reading Ryker gets of where the ladder ends.
 //
 // Coop publishes the session's current target but not the policy's list of
 // them, so the floor was computed as repeats-1 with no ceiling at all. Rungs

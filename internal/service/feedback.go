@@ -8,15 +8,15 @@ import (
 	"errors"
 	"strings"
 
-	"github.com/AndrewDryga/responder/internal/core"
-	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
-	"github.com/AndrewDryga/responder/internal/feedbackguidance"
-	"github.com/AndrewDryga/responder/internal/investigation"
-	"github.com/AndrewDryga/responder/internal/slackui"
-	"github.com/AndrewDryga/responder/internal/store"
+	"github.com/AndrewDryga/ryker/internal/core"
+	decisionpkg "github.com/AndrewDryga/ryker/internal/decision"
+	"github.com/AndrewDryga/ryker/internal/feedbackguidance"
+	"github.com/AndrewDryga/ryker/internal/investigation"
+	"github.com/AndrewDryga/ryker/internal/slackui"
+	"github.com/AndrewDryga/ryker/internal/store"
 )
 
-// A reaction on a Responder message is the cheapest feedback Slack offers, and
+// A reaction on a Ryker message is the cheapest feedback Slack offers, and
 // half of it was being discarded.
 //
 // Only the six negative emoji counted. A thumbs-up on a reply the operator
@@ -72,7 +72,7 @@ func (s *Service) recordReactionFeedback(ctx context.Context, input core.SlackIn
 	if !graded {
 		return nil
 	}
-	// The delivery was already read to prove this is a Responder message and then
+	// The delivery was already read to prove this is a Ryker message and then
 	// thrown away, which cost the one join that makes a reaction usable. It knows
 	// the episode that posted the message, so praise stops being a floating
 	// "someone liked something" and becomes "this answer, to this question, was
@@ -94,9 +94,9 @@ func (s *Service) recordReactionFeedback(ctx context.Context, input core.SlackIn
 	if err != nil {
 		return err
 	}
-	summary, status := "User reacted negatively to a Responder message", ""
+	summary, status := "User reacted negatively to a Ryker message", ""
 	if sentiment == "positive" {
-		summary, status = "User reacted positively to a Responder message", "noted"
+		summary, status = "User reacted positively to a Ryker message", "noted"
 	}
 	item := store.FeedbackItem{
 		ID: id, WorkspaceID: input.TeamID, ChannelID: input.ChannelID,
@@ -350,7 +350,7 @@ func (s *Service) handleConvertFeedback(ctx context.Context, input core.SlackInp
 		return s.memoryActionFeedback(
 			ctx, input,
 			"*This feedback cannot become guidance as written.* "+err.Error()+
-				" Ask Responder to remember the behaviour you want in your own words instead.",
+				" Ask Ryker to remember the behaviour you want in your own words instead.",
 		)
 	}
 	saved, _, err := s.store.Memory.UpsertMemoryEntry(

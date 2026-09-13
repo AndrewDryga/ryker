@@ -9,8 +9,8 @@ import (
 	"io"
 	"path/filepath"
 
-	"github.com/AndrewDryga/responder/internal/config"
-	"github.com/AndrewDryga/responder/internal/store/lifecyclecheck"
+	"github.com/AndrewDryga/ryker/internal/config"
+	"github.com/AndrewDryga/ryker/internal/store/lifecyclecheck"
 
 	_ "modernc.org/sqlite"
 )

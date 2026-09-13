@@ -7,10 +7,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/core"
-	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
-	"github.com/AndrewDryga/responder/internal/slackui"
-	"github.com/AndrewDryga/responder/internal/store"
+	"github.com/AndrewDryga/ryker/internal/core"
+	decisionpkg "github.com/AndrewDryga/ryker/internal/decision"
+	"github.com/AndrewDryga/ryker/internal/slackui"
+	"github.com/AndrewDryga/ryker/internal/store"
 )
 
 func TestMergeSlackContextCentersTargetAndExcludesOtherThreads(t *testing.T) {
@@ -384,7 +384,7 @@ func TestTheChannelAroundTheRootIsDroppedBeforeAnyThreadMessage(t *testing.T) {
 // The assembler loaded the channel situation and then, twenty lines later,
 // zeroed it for any target carrying a thread timestamp with no conversation
 // memory of its own — which is every thread on its first reply. So the one turn
-// most likely to be a follow-up to work Responder had just done in that channel
+// most likely to be a follow-up to work Ryker had just done in that channel
 // was also the only turn that started with nothing.
 func TestANewThreadKeepsTheChannelSituationItHasNoMemoryOf(t *testing.T) {
 	ctx := context.Background()
@@ -510,7 +510,7 @@ func TestAssembleAgentContextUsesConversationSummaryAsThreadCursor(t *testing.T)
 	// The second read is the channel around the thread's root, and the cursor
 	// does not travel with it: "the last message this thread saw" says nothing
 	// about the channel above it, and applying it there would return an empty
-	// surround for every thread Responder has already answered in.
+	// surround for every thread Ryker has already answered in.
 	surround := slack.historyRequests[1]
 	if surround.thread != "" || surround.target != target.ThreadTS ||
 		surround.since != "" {

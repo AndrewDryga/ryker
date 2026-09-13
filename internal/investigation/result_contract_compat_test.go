@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/AndrewDryga/responder/internal/resultcontract"
+	"github.com/AndrewDryga/ryker/internal/resultcontract"
 )
 
 func TestPublishedSchemaMatchesEveryCanonicalResultOperation(t *testing.T) {

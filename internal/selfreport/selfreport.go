@@ -1,4 +1,4 @@
-// Package selfreport composes the weekly digest Responder posts about its own
+// Package selfreport composes the weekly digest Ryker posts about its own
 // week.
 //
 // The instruments already existed and nobody read them on a schedule: the
@@ -23,7 +23,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/ryker/internal/core"
 )
 
 // maxDigestBytes keeps the digest inside one Slack markdown block, which Slack
@@ -168,7 +168,7 @@ func Render(week Week) string {
 }
 
 // correctionLead is the first line, and it is the correction rate because that
-// is the closest thing Responder has to a measure of whether it is getting
+// is the closest thing Ryker has to a measure of whether it is getting
 // better.
 func correctionLead(week Week) string {
 	window := windowLabel(week.Start, week.End)

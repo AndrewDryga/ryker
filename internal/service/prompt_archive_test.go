@@ -5,10 +5,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/promptarchive"
-	"github.com/AndrewDryga/responder/internal/slackui"
-	"github.com/AndrewDryga/responder/internal/store"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/promptarchive"
+	"github.com/AndrewDryga/ryker/internal/slackui"
+	"github.com/AndrewDryga/ryker/internal/store"
 )
 
 // The archive keeps the conversation and forgets the instructions.
@@ -97,9 +97,9 @@ func TestTheArchiveKeepsTheEnvelopeAndElidesTheInstructions(t *testing.T) {
 		t.Fatal("the archive wrote a marker and kept the instruction paragraph beside it")
 	}
 	for _, marker := range markers {
-		if marker.Version != responderPromptVersion {
+		if marker.Version != rykerPromptVersion {
 			t.Fatalf("marker %q names prompt version %q, not the version that assembled it (%q)",
-				marker.Block, marker.Version, responderPromptVersion)
+				marker.Block, marker.Version, rykerPromptVersion)
 		}
 		if marker.Block == "" || marker.Bytes <= 0 || marker.Digest == "" {
 			t.Fatalf("a marker cannot say what it stands for: %+v", marker)
@@ -137,7 +137,7 @@ func TestTheArchiveKeepsTheEnvelopeAndElidesTheInstructions(t *testing.T) {
 func TestNoElidedInstructionBlockSwallowsAStructuralTag(t *testing.T) {
 	structural := []string{
 		"<untrusted-slack-context>", "</untrusted-slack-context>",
-		"<trusted-responder-context>", "<trusted-responder-configuration>",
+		"<trusted-responder-context>", "<trusted-ryker-configuration>",
 		"\nUSER:",
 	}
 	for _, block := range instructionBlocks() {

@@ -70,7 +70,7 @@ var noOpPhrases = []string{
 // Six of those went out in two minutes when an operator cleared workspaces from
 // the dashboard, in rooms where nobody had asked for anything, and not one
 // carried news. The messages were individually defensible and collectively the
-// reason a room learns to tune Responder out. Anything in this class belongs to
+// reason a room learns to tune Ryker out. Anything in this class belongs to
 // the person who asked — ephemeral, or an error on the surface they asked from
 // — and the audit row is the durable half.
 //

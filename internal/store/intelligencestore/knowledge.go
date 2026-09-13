@@ -6,9 +6,9 @@ import (
 	"encoding/json"
 	"errors"
 
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/knowledgeoffer"
-	"github.com/AndrewDryga/responder/internal/remediation"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/knowledgeoffer"
+	"github.com/AndrewDryga/ryker/internal/remediation"
 )
 
 // EpisodeKnowledgeEvidence is everything the host knows about a finished

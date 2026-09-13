@@ -9,7 +9,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/ryker/internal/core"
 )
 
 // Reader is the narrow query surface shared by a database and a transaction.

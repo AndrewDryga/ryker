@@ -13,9 +13,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/config"
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/store"
+	"github.com/AndrewDryga/ryker/internal/config"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/store"
 )
 
 // episodesByID answers for a whole queue of candidates, each with its own
@@ -420,7 +420,7 @@ func TestAnEpisodeThatCannotBeRebuiltIsQuarantined(t *testing.T) {
 
 // The drain installs itself only where it could actually write.
 //
-// The corpus is a file in Responder's own checkout, not a configured path, so a
+// The corpus is a file in Ryker's own checkout, not a configured path, so a
 // deployment either has that repository configured or has no business promoting
 // anything. Getting this wrong in the other direction would be worse than the
 // manual step it replaces: a drain pointed at a path that happens to exist
@@ -438,7 +438,7 @@ func TestTheDrainOnlyRunsWhereTheCorpusLives(t *testing.T) {
 	cfg.Limits.MaxAutoPromotedFixturesPerWeek = 5
 	cfg.Repositories = map[string]config.Repository{
 		"elsewhere": {Path: t.TempDir()},
-		"responder": {Path: checkout},
+		"ryker":     {Path: checkout},
 	}
 	if promoter := newFixturePromoter(cfg, st, logger); promoter != nil {
 		t.Fatalf("the drain installed itself with no corpus anywhere: %s", promoter.corpus)

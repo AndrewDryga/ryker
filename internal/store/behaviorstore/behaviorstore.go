@@ -1,15 +1,15 @@
 // Package behaviorstore owns the durable behaviour an operator has taught
-// Responder: preferences and standing rules.
+// Ryker: preferences and standing rules.
 //
 // These are the offers a reply can carry, and what makes them different from
-// memory is that they change what Responder does rather than what it knows.
+// memory is that they change what Ryker does rather than what it knows.
 package behaviorstore
 
 import (
 	"database/sql"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/ryker/internal/core"
 )
 
 // Repository reads and writes taught behaviour.

@@ -25,9 +25,9 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/AndrewDryga/responder/internal/coop"
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/slackui"
+	"github.com/AndrewDryga/ryker/internal/coop"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/slackui"
 )
 
 // WindowLines is what the card shows. The renderer keeps three; reading more
@@ -279,7 +279,7 @@ func isEdit(kind string) bool {
 // execToolKinds are the tool kinds that run a shell command.
 //
 // Same shape as core.EditToolKinds and for the same reason — the vocabulary is
-// each runtime's own, not Responder's — but it stays here because only this
+// each runtime's own, not Ryker's — but it stays here because only this
 // package asks the question: it decides whether a payload's `command` is a
 // command, and nothing counts exec calls in SQL.
 var execToolKinds = []string{

@@ -8,11 +8,11 @@ import (
 	"testing"
 	"time"
 
-	attentionpkg "github.com/AndrewDryga/responder/internal/attention"
-	"github.com/AndrewDryga/responder/internal/core"
-	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
-	"github.com/AndrewDryga/responder/internal/slackui"
-	"github.com/AndrewDryga/responder/internal/store"
+	attentionpkg "github.com/AndrewDryga/ryker/internal/attention"
+	"github.com/AndrewDryga/ryker/internal/core"
+	decisionpkg "github.com/AndrewDryga/ryker/internal/decision"
+	"github.com/AndrewDryga/ryker/internal/slackui"
+	"github.com/AndrewDryga/ryker/internal/store"
 )
 
 func TestAlertToSlackAndCompletedCoopTurn(t *testing.T) {
@@ -174,7 +174,7 @@ func TestTriageFinalizationExhaustionUsesFrozenSlackDestination(t *testing.T) {
 		t.Fatalf("terminal triage run = %+v, %v", stored, err)
 	}
 	drainSlackDeliveries(t, ctx, svc)
-	// Nothing is posted. A failure Responder cannot explain is not something a
+	// Nothing is posted. A failure Ryker cannot explain is not something a
 	// channel can act on, so the targeted work fails with a bounded notice.
 	if len(slack.posts) != 0 {
 		t.Fatalf("a terminal triage failure posted to Slack: %+v", slack.posts)

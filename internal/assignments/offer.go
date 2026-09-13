@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/ryker/internal/core"
 )
 
 // The bounds an offer is measured against.
@@ -40,7 +40,7 @@ const (
 // ConfirmationMaxAge is how long an assignment offer stays clickable — the same
 // twenty-four hours the memory, knowledge and promotion cards use.
 //
-// The reason here is the strongest of the four. Confirming grants Responder
+// The reason here is the strongest of the four. Confirming grants Ryker
 // scoped authority over a repository for weeks, and the sentence that justified
 // it was said in a channel that has moved on. A button pressed a day later is a
 // grant made against a conversation nobody in the room still remembers.
@@ -84,7 +84,7 @@ func ValidateOffer(operationID string, offer *core.StandingAssignmentOffer) erro
 	) {
 		return fmt.Errorf(
 			"result operation %q proposes change class %q, which is not one of: %s. "+
-				"The set is closed because free text means Responder may change anything",
+				"The set is closed because free text means Ryker may change anything",
 			operationID, offer.ChangeClass,
 			strings.Join(core.StandingAssignmentChangeClasses, ", "),
 		)
@@ -197,7 +197,7 @@ func ExpiryDays(offer core.StandingAssignmentOffer) int {
 // "dependency upgrade", "Dependency Upgrade" and "dependency_upgrade" are the
 // same class, and only the last one is storable. Refusing the first two would
 // be refusing a model for transcribing a human sentence accurately, which is
-// the opposite of what the closed set is for: the set exists to stop Responder
+// the opposite of what the closed set is for: the set exists to stop Ryker
 // being granted a class nobody named, not to test spelling.
 func NormalizeChangeClass(class string) string {
 	folded := strings.ToLower(strings.TrimSpace(class))

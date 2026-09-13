@@ -3,9 +3,9 @@ package service
 import (
 	"context"
 
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/slackui"
-	"github.com/AndrewDryga/responder/internal/turnreceipt"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/slackui"
+	"github.com/AndrewDryga/ryker/internal/turnreceipt"
 )
 
 // turnReceipt answers what the latest finished turn did. The reading of the

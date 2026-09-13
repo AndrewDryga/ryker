@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/ryker/internal/core"
 )
 
 // finishKernelEpisode makes an episode and its run terminal and ages both past
@@ -671,7 +671,7 @@ func TestPruneEmptiesOnlySpentAgentRunContext(t *testing.T) {
 			item := FeedbackItem{
 				ID: "fb_praise", WorkspaceID: "T1", ChannelID: "C1", UserID: "U1",
 				Source: "positive_reaction", Category: "other", Sentiment: "positive",
-				Summary: "User reacted positively to a Responder message",
+				Summary: "User reacted positively to a Ryker message",
 				Status:  "noted", EpisodeID: episode.ID,
 			}
 			if praise.byRun {

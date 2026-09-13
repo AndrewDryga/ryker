@@ -9,10 +9,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/coop"
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/slackui"
-	"github.com/AndrewDryga/responder/internal/store"
+	"github.com/AndrewDryga/ryker/internal/coop"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/slackui"
+	"github.com/AndrewDryga/ryker/internal/store"
 )
 
 func TestProductJourneyChannelSetupCanMoveRestartAndCancelWithoutPartialSave(
@@ -306,13 +306,13 @@ func TestATaskThreadMessageIsAConversationNotAControl(t *testing.T) {
 	}
 }
 
-// A mistyped setup answer is between Responder and the person who typed it.
+// A mistyped setup answer is between Ryker and the person who typed it.
 //
 // The refusal used to be a channel post, so one operator fumbling an answer put
 // "I could not map that answer to a safe typed setting" in front of the whole
 // room, once per attempt. It has exactly one useful reader, nobody else can act
-// on it, and a channel that learns Responder posts its errors there is a
-// channel that starts tuning Responder out.
+// on it, and a channel that learns Ryker posts its errors there is a
+// channel that starts tuning Ryker out.
 func TestAMistypedSetupAnswerIsNotPostedToTheChannel(t *testing.T) {
 	ctx := context.Background()
 	cfg := serviceConfig(t)
@@ -392,7 +392,7 @@ func TestAMistypedSetupAnswerIsNotPostedToTheChannel(t *testing.T) {
 	}
 }
 
-// Being refused is between Responder and the person refused.
+// Being refused is between Ryker and the person refused.
 //
 // Both denials name one Slack account and nothing else: this person is not a
 // configured operator, or this person is a guest. Nobody else in the incident
@@ -551,9 +551,9 @@ func TestAnAddressedSentenceIsNeverRoutedToACommand(t *testing.T) {
 	}
 }
 
-// A request that Responder gave up on is news to the person who made it.
+// A request that Ryker gave up on is news to the person who made it.
 //
-// "Responder could not complete that request after retrying", the raw error
+// "Ryker could not complete that request after retrying", the raw error
 // Slack or Coop returned, and an invitation to run the command again: only the
 // person who pressed the button can do that. To everyone else it is a stack
 // trace addressed to nobody, arriving in their room after up to twelve silent

@@ -9,15 +9,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/config"
-	"github.com/AndrewDryga/responder/internal/coop"
-	"github.com/AndrewDryga/responder/internal/core"
-	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
-	"github.com/AndrewDryga/responder/internal/publicationcontext"
-	publicationreview "github.com/AndrewDryga/responder/internal/publicationreview"
-	"github.com/AndrewDryga/responder/internal/publisher"
-	"github.com/AndrewDryga/responder/internal/slackui"
-	"github.com/AndrewDryga/responder/internal/store"
+	"github.com/AndrewDryga/ryker/internal/config"
+	"github.com/AndrewDryga/ryker/internal/coop"
+	"github.com/AndrewDryga/ryker/internal/core"
+	decisionpkg "github.com/AndrewDryga/ryker/internal/decision"
+	"github.com/AndrewDryga/ryker/internal/publicationcontext"
+	publicationreview "github.com/AndrewDryga/ryker/internal/publicationreview"
+	"github.com/AndrewDryga/ryker/internal/publisher"
+	"github.com/AndrewDryga/ryker/internal/slackui"
+	"github.com/AndrewDryga/ryker/internal/store"
 )
 
 func TestReviewSummaryTreatsMissingGateAsRecommendation(t *testing.T) {
@@ -155,7 +155,7 @@ func TestPublicationReferenceMatchingIsExact(t *testing.T) {
 	context := core.PublicationContext{
 		IncidentID: "incident-493", Repository: "org/repo",
 		PRNumber: 493, PRURL: "https://github.com/org/repo/pull/493",
-		HeadBranch: "responder/reduce-redis", HeadSHA: "0123456789abcdef",
+		HeadBranch: "ryker/reduce-redis", HeadSHA: "0123456789abcdef",
 		MergeSHA: "abcdef0123456789",
 	}
 	if !publicationcontext.ReferenceMatches(
@@ -229,7 +229,7 @@ func TestChangedEngineeringTaskInvalidatesPublishedDraftPR(t *testing.T) {
 	}
 	publication := core.Publication{
 		IncidentID: task.ID, Repository: "owner/repo", BaseBranch: "main",
-		HeadBranch: "responder/change-terraform", ParentHead: "parent",
+		HeadBranch: "ryker/change-terraform", ParentHead: "parent",
 		CandidateTree: "old-tree", CommitSHA: "old-commit", RemoteSHA: "old-commit",
 		PRNumber: 29, PRURL: "https://github.com/owner/repo/pull/29",
 		State: "published", PublishedAt: time.Now().UTC(),
@@ -428,7 +428,7 @@ func TestButtonPublicationRetryRetainsAttemptOwnership(t *testing.T) {
 	)
 	svc.SetClock(func() time.Time { return now })
 	svc.SetPublisher(&recordingPublisher{result: publisher.Result{
-		HeadBranch: "responder/button-retry", CommitSHA: "commit",
+		HeadBranch: "ryker/button-retry", CommitSHA: "commit",
 		RemoteSHA: "commit", PRNumber: 43,
 		PRURL: "https://github.example/owner/repo/pull/43",
 	}})
@@ -514,7 +514,7 @@ func TestPublicationPersistsRemoteReceiptAfterWorkerCancellation(t *testing.T) {
 	}
 	publisherClient := &recordingPublisher{
 		result: publisher.Result{
-			HeadBranch: "responder/receipt", CommitSHA: "commit",
+			HeadBranch: "ryker/receipt", CommitSHA: "commit",
 			RemoteSHA: "remote-after-push", PRNumber: 91,
 			PRURL: "https://github.com/owner/repo/pull/91",
 		},
@@ -689,7 +689,7 @@ func TestDraftPRMergeDuringReviewStopsBeforePublisher(t *testing.T) {
 	}
 	publication := core.Publication{
 		IncidentID: task.ID, Repository: "owner/repo", BaseBranch: "main",
-		HeadBranch: "responder/task", ParentHead: "old-parent", CandidateTree: "old-tree",
+		HeadBranch: "ryker/task", ParentHead: "old-parent", CandidateTree: "old-tree",
 		CommitSHA: "old-commit", RemoteSHA: "old-remote", PRNumber: 529,
 		PRURL: "https://github.com/owner/repo/pull/529",
 		State: core.PublicationPublished, PublishedAt: time.Now().UTC(),
@@ -776,7 +776,7 @@ func TestTerminalObservationAfterBeginPublishingPreservesPriorReceipt(t *testing
 	}
 	prior := core.Publication{
 		IncidentID: task.ID, AttemptInputID: "publish-race", Repository: "owner/repo",
-		BaseBranch: "main", HeadBranch: "responder/task", ParentHead: "old-parent",
+		BaseBranch: "main", HeadBranch: "ryker/task", ParentHead: "old-parent",
 		CandidateTree: "old-tree", CommitSHA: "old-commit", RemoteSHA: "old-remote",
 		PRNumber: 529, PRURL: "https://github.com/owner/repo/pull/529",
 		State: core.PublicationPublished, PublishedAt: time.Now().UTC(),
@@ -886,7 +886,7 @@ func TestTerminalPublicationCardsUseDurableStateWithoutCoop(t *testing.T) {
 	stale := createTask("stale-terminal", "session-stale")
 	publication := core.Publication{
 		IncidentID: stale.ID, Generation: 1, Repository: "owner/repo", BaseBranch: "main",
-		HeadBranch: "responder/stale", ParentHead: "parent", CandidateTree: "tree",
+		HeadBranch: "ryker/stale", ParentHead: "parent", CandidateTree: "tree",
 		CommitSHA: "commit", RemoteSHA: "commit", PRNumber: 42,
 		PRURL: "https://github.example/owner/repo/pull/42",
 		State: core.PublicationPublished, PublishedAt: time.Now().UTC(),
@@ -1091,7 +1091,7 @@ func TestPublicationBindingDriftEndsAutomaticRetryWithoutCrossWiringPR(t *testin
 	}
 	publication := core.Publication{
 		IncidentID: task.ID, Repository: "old-owner/old-repo", BaseBranch: "main",
-		HeadBranch: "responder/task", ParentHead: "parent", CandidateTree: "tree",
+		HeadBranch: "ryker/task", ParentHead: "parent", CandidateTree: "tree",
 		CommitSHA: "commit", RemoteSHA: "commit", PRNumber: 42,
 		PRURL: "https://github.example/old-owner/old-repo/pull/42",
 		State: "retrying", PublishedAt: time.Now().UTC(),
@@ -1147,7 +1147,7 @@ func TestPublicationUpdateReturnsToOriginalTaskThreadAndDeduplicates(t *testing.
 	}
 	publication := core.Publication{
 		IncidentID: incident.ID, Repository: "owner/repository", BaseBranch: "main",
-		HeadBranch: "responder/reduce-redis", ParentHead: "parent", CandidateTree: "tree",
+		HeadBranch: "ryker/reduce-redis", ParentHead: "parent", CandidateTree: "tree",
 		CommitSHA: "commit", RemoteSHA: "0123456789abcdef", PRNumber: 493,
 		PRURL: "https://github.com/owner/repository/pull/493", State: "published",
 		PublishedAt: time.Now().UTC(),

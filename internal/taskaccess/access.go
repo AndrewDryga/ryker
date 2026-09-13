@@ -6,12 +6,12 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/AndrewDryga/responder/internal/agentprompt"
-	"github.com/AndrewDryga/responder/internal/config"
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/slackui"
-	"github.com/AndrewDryga/responder/internal/store"
-	"github.com/AndrewDryga/responder/internal/taskprompt"
+	"github.com/AndrewDryga/ryker/internal/agentprompt"
+	"github.com/AndrewDryga/ryker/internal/config"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/slackui"
+	"github.com/AndrewDryga/ryker/internal/store"
+	"github.com/AndrewDryga/ryker/internal/taskprompt"
 )
 
 type Repository struct {
@@ -49,13 +49,13 @@ func MemberCreationFailure(err error) (CreationFailure, bool) {
 	case errors.Is(err, store.ErrMemberTaskCapacity):
 		return CreationFailure{
 			Outcome: "capacity",
-			Message: "*Responder did not start another engineering task.* You already have the configured " +
+			Message: "*Ryker did not start another engineering task.* You already have the configured " +
 				"number of open tasks. Finish or ask an operator to close one, then try again.",
 		}, true
 	case errors.Is(err, store.ErrMemberTaskRateLimit):
 		return CreationFailure{
 			Outcome: "rate_limited",
-			Message: "*Responder did not start another engineering task yet.* Wait briefly before starting " +
+			Message: "*Ryker did not start another engineering task yet.* Wait briefly before starting " +
 				"another writable task. No session or working copy was created.",
 		}, true
 	default:
@@ -264,7 +264,7 @@ func ValidateMemberStart(
 // SingleChoice names the only repository an offer could mean, when the
 // configuration leaves exactly one.
 //
-// A question with one answer is not a question. On 2026-08-16 Responder asked
+// A question with one answer is not a question. On 2026-08-16 Ryker asked
 // five times, of a Grafana bot, which repository to use out of a list holding
 // only `blitz-platform`; every one of those replies could have carried a task
 // button instead.

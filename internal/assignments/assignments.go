@@ -21,8 +21,8 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/store/standingassignmentstore"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/store/standingassignmentstore"
 )
 
 // Objective is the brief the engineering task works from.
@@ -109,7 +109,7 @@ func Task(assignment core.StandingAssignment, conclusion string) (string, string
 //
 // One constructor rather than a helper on the service, so the kind, the actor
 // and the shape of the detail are written once. An operator reading back "why
-// did Responder do nothing" is reading this, and a second spelling of the same
+// did Ryker do nothing" is reading this, and a second spelling of the same
 // event is a second thing to search for.
 func AuditEvent(assignmentID, inputID, outcome, detail string) core.AuditEvent {
 	return core.AuditEvent{
@@ -121,7 +121,7 @@ func AuditEvent(assignmentID, inputID, outcome, detail string) core.AuditEvent {
 
 // EpisodeEvent puts the gate's decision on the episode's own event stream.
 //
-// This is what makes a shadow period recordable. `responder record-episode`
+// This is what makes a shadow period recordable. `ryker record-episode`
 // builds a replay fixture out of an episode's events and its evidence, and
 // nothing else — a decision that lives only in a side table is a decision no
 // harvested fixture can ever contain, and the standing-assignments capability
@@ -191,6 +191,6 @@ func Usage() string {
 // further than the grammar did. Every bound the command took is in the example,
 // so the pointer doubles as the documentation the key list used to be.
 const CreationPointer = "*Ask for it in the channel instead.* Say what you want watched and " +
-	"what may change — \"review every terraform plan in AndrewDryga/responder and open PRs " +
-	"for drift, 2 a day, for 30 days\" — and Responder shows you the exact normalized " +
+	"what may change — \"review every terraform plan in AndrewDryga/ryker and open PRs " +
+	"for drift, 2 a day, for 30 days\" — and Ryker shows you the exact normalized " +
 	"bounds on a confirmation card before anything is granted."

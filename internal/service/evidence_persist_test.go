@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
+	decisionpkg "github.com/AndrewDryga/ryker/internal/decision"
 )
 
 // A watch result that records evidence through typed operations must end up

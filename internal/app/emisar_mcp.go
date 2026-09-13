@@ -63,7 +63,7 @@ func preflightEmisarMCP(
 				"protocolVersion": emisarMCPProtocolVersion,
 				"capabilities":    map[string]any{},
 				"clientInfo": map[string]string{
-					"name":    "responder",
+					"name":    "ryker",
 					"version": "dev",
 				},
 			},
@@ -143,7 +143,7 @@ func callEmisarMCP(
 	request.Header.Set("Authorization", "Bearer "+token)
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Accept", "application/json, text/event-stream")
-	request.Header.Set("User-Agent", "responder")
+	request.Header.Set("User-Agent", "ryker")
 	if protocolVersion != "" {
 		request.Header.Set("MCP-Protocol-Version", protocolVersion)
 	}

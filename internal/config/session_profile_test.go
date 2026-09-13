@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/ryker/internal/core"
 )
 
 // The routing table is decided before any model runs and must stay decidable
@@ -14,7 +14,7 @@ import (
 //
 // Every case here is a shape the host already tells apart: the effort contract
 // it committed the turn to, the authority that turn may use, and whether
-// anybody addressed Responder. Nothing in it consults a model, because a
+// anybody addressed Ryker. Nothing in it consults a model, because a
 // routing key that did would leave "why did this run on that rung" answerable
 // only by re-reading the answer that rung gave.
 func TestEveryShapeOfWorkRoutesToTheProfileThatNamesIt(t *testing.T) {
@@ -71,7 +71,7 @@ func TestEveryShapeOfWorkRoutesToTheProfileThatNamesIt(t *testing.T) {
 	}
 }
 
-// A profile an operator writes has to be one Responder routes to, and has to
+// A profile an operator writes has to be one Ryker routes to, and has to
 // name a policy.
 //
 // Both refusals exist because the alternative is silent. A misspelled profile
@@ -80,7 +80,7 @@ func TestEveryShapeOfWorkRoutesToTheProfileThatNamesIt(t *testing.T) {
 // rung would keep paying for the old one and never hear about it.
 func TestExecutionProfilesAreRefusedUnlessTheyCanRouteAnything(t *testing.T) {
 	base := `version: 1
-state_dir: /tmp/responder-profile-config-test
+state_dir: /tmp/ryker-profile-config-test
 slack:
   team_id: T123ABC
   default_repository: emisar
@@ -126,7 +126,7 @@ webhooks:
 			profiles: "    profiles:\n      watch: {}",
 		},
 	} {
-		path := filepath.Join(t.TempDir(), "responder.yaml")
+		path := filepath.Join(t.TempDir(), "ryker.yaml")
 		if err := os.WriteFile(
 			path, fmt.Appendf(nil, base, testCase.profiles), 0o600,
 		); err != nil {

@@ -4,12 +4,12 @@ import (
 	"context"
 	"encoding/json"
 
-	"github.com/AndrewDryga/responder/internal/core"
-	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
-	episodepkg "github.com/AndrewDryga/responder/internal/episode"
-	"github.com/AndrewDryga/responder/internal/investigation"
-	"github.com/AndrewDryga/responder/internal/knowledgeoffer"
-	"github.com/AndrewDryga/responder/internal/slackui"
+	"github.com/AndrewDryga/ryker/internal/core"
+	decisionpkg "github.com/AndrewDryga/ryker/internal/decision"
+	episodepkg "github.com/AndrewDryga/ryker/internal/episode"
+	"github.com/AndrewDryga/ryker/internal/investigation"
+	"github.com/AndrewDryga/ryker/internal/knowledgeoffer"
+	"github.com/AndrewDryga/ryker/internal/slackui"
 )
 
 // offerEpisodeKnowledge posts a confirmation card for each artefact a finished
@@ -170,7 +170,7 @@ func (s *Service) recordedKnowledgeOffer(
 //
 // A runbook becomes an unpublished draft Emisar holds; a card becomes an
 // engineering task that ends at a draft pull request. Both are somebody else's
-// decision to finish, which is the whole shape of this feature: Responder
+// decision to finish, which is the whole shape of this feature: Ryker
 // proposes durable knowledge and never publishes it.
 func (s *Service) createConfirmedKnowledge(
 	ctx context.Context, input core.SlackInput,

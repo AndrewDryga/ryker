@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/config"
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/store"
+	"github.com/AndrewDryga/ryker/internal/config"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/store"
 )
 
 // parkedTraefikTask is the real one, reconstructed: an operator-approved
@@ -69,7 +69,7 @@ func parkedTraefikTaskCommittedAs(
 	return stored
 }
 
-// Responder wrote this fix, committed it, and then could not remember it.
+// Ryker wrote this fix, committed it, and then could not remember it.
 //
 // On 2026-08-13 an investigation in the blitz alert channel produced an
 // approved engineering task, "VA1: prevent reload-driven Traefik OOM
@@ -300,7 +300,7 @@ func relatedTaskFor(t *testing.T, svc *Service, ctx context.Context, id string) 
 	return assembled.RelatedTasks[0]
 }
 
-// On 2026-08-16 Responder told an operator to publish a commit that had been on
+// On 2026-08-16 Ryker told an operator to publish a commit that had been on
 // main for three days; what was actually missing was the rollout.
 //
 // The 21:09Z alert episode ended blocked on "The accepted profile check cannot
@@ -402,7 +402,7 @@ func TestAnUnreadableRepositoryIsUnknownNotMerged(t *testing.T) {
 // Merged is not deployed, and the layer has to say which question is still
 // open.
 //
-// Responder reads a git checkout; a checkout cannot see what the cluster is
+// Ryker reads a git checkout; a checkout cannot see what the cluster is
 // running. So the host asserts the half it can prove — the commit is on the
 // default branch — and hands the model the half only live evidence answers.
 // Without that sentence, "merged" would be read as "done", and the 2026-08-16

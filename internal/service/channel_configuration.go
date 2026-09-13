@@ -8,11 +8,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/channelsetup"
-	"github.com/AndrewDryga/responder/internal/core"
-	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
-	"github.com/AndrewDryga/responder/internal/slackui"
-	"github.com/AndrewDryga/responder/internal/store"
+	"github.com/AndrewDryga/ryker/internal/channelsetup"
+	"github.com/AndrewDryga/ryker/internal/core"
+	decisionpkg "github.com/AndrewDryga/ryker/internal/decision"
+	"github.com/AndrewDryga/ryker/internal/slackui"
+	"github.com/AndrewDryga/ryker/internal/store"
 )
 
 const (
@@ -204,14 +204,14 @@ func (s *Service) processConfigurationReply(
 	if answerErr != nil {
 		// An operator who asked to move the conversation gets the question
 		// again, where they asked for it. Everyone else mistyped an answer, and
-		// that is between Responder and them.
+		// that is between Ryker and them.
 		//
 		// It used to be a channel post. So one person fumbling a setup answer
 		// put "I could not map that answer to a safe typed setting" in front of
 		// everyone in the room, repeated once per attempt — a message with
 		// exactly one useful reader and an audience of dozens. Nobody else can
-		// act on it, and a channel that learns Responder posts its errors there
-		// is a channel that starts tuning Responder out.
+		// act on it, and a channel that learns Ryker posts its errors there
+		// is a channel that starts tuning Ryker out.
 		//
 		// Ephemeral needs no bookkeeping — it has no timestamp of its own to
 		// record — but it does need to land where the question did, which is

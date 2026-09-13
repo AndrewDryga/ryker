@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/ryker/internal/core"
 )
 
 // AssignmentDirectoryMessage lists the standing assignments in a channel and
@@ -25,7 +25,7 @@ func AssignmentDirectoryMessage(
 	tallies map[string]core.StandingAssignmentTally,
 ) Message {
 	message := Message{
-		Text: "Responder has " +
+		Text: "Ryker has " +
 			countLabel(len(assignmentList), "standing assignment") + " in this channel.",
 		Header:    "Standing assignments for this channel",
 		Temporary: true,
@@ -36,7 +36,7 @@ func AssignmentDirectoryMessage(
 			"A standing assignment is scoped authority to open a pull request without a " +
 				"per-action click: one signal, one repository, one class of change, a daily " +
 				"budget and an expiry. Ask for one in your own words — \"watch for renovate " +
-				"failures here and open dependency PRs, 2 a day, for 30 days\" — and Responder " +
+				"failures here and open dependency PRs, 2 a day, for 30 days\" — and Ryker " +
 				"will show you the exact normalized bounds to confirm.",
 		}
 		message.Context = []string{"New assignments start in shadow mode and record proposed PRs for review."}
@@ -152,7 +152,7 @@ func AssignmentSavedMessage(assignment core.StandingAssignment) Message {
 		"Standing assignment saved for "+assignment.SignalPattern+".",
 		"Saved, in shadow.",
 		"When a signal matching *"+assignment.SignalPattern+"* concludes an investigation in "+
-			"this channel, Responder will decide whether it would open a "+
+			"this channel, Ryker will decide whether it would open a "+
 			strings.ReplaceAll(assignment.ChangeClass, "_", " ")+
 			" pull request in `"+assignment.Repository+"` — and record the answer without "+
 			"opening anything.",
@@ -167,7 +167,7 @@ func AssignmentSavedMessage(assignment core.StandingAssignment) Message {
 }
 
 // AssignmentOperatorOnly refuses an actor outside the configured operator list.
-const AssignmentOperatorOnly = "*A configured Responder operator must grant standing assignments.*"
+const AssignmentOperatorOnly = "*A configured Ryker operator must grant standing assignments.*"
 
 // AssignmentMembershipRequired refuses an operator whose Slack account is not
 // an active full workspace member and names that distinct remedy.
@@ -180,7 +180,7 @@ const AssignmentConfirmationStale = "*This confirmation expired; ask again and u
 // a class or a range this one no longer allows.
 const AssignmentRefusedNotice = "*The offered bounds expired; ask again and confirm the new card.*"
 
-const AssignmentGrantFailed = "*Responder could not create this standing assignment.* "
+const AssignmentGrantFailed = "*Ryker could not create this standing assignment.* "
 
 // AssignmentChangedMessage is the receipt for pausing, resuming or deleting
 // one.

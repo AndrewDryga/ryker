@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/config"
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/store"
+	"github.com/AndrewDryga/ryker/internal/config"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/store"
 )
 
 // creationFixture builds a task whose creator is exactly who the caller says,
@@ -238,7 +238,7 @@ func seedPublishedPR(t *testing.T, st *store.Store, incidentID string) {
 	now := time.Now().UTC()
 	if err := st.SavePublication(ctx, core.Publication{
 		IncidentID: incidentID, Repository: "owner/repo", BaseBranch: "main",
-		HeadBranch: "responder/change", ParentHead: "parent", CandidateTree: "tree",
+		HeadBranch: "ryker/change", ParentHead: "parent", CandidateTree: "tree",
 		CommitSHA: "commit", RemoteSHA: "0123456789abcdef", PRNumber: 6,
 		PRURL: "https://github.test/owner/repo/pull/6",
 		State: "published", PublishedAt: now,

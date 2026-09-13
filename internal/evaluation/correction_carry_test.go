@@ -20,7 +20,7 @@ import (
 // which is a complaint round 1 had already answered. Three cases flapped on it
 // for a day ("alert triage returns an alert assessment", "coverage statuses come
 // from the allowed set", sometimes "asserted cause"); the run recorded at
-// ~/.local/state/responder/eval-history/prompts-20260815T103843Z.json failed
+// ~/.local/state/ryker/eval-history/prompts-20260815T103843Z.json failed
 // results 0 and 8 with that exact detail and nothing else wrong.
 //
 // Both rounds below are verbatim: round 1 from Coop turn

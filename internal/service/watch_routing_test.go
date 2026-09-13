@@ -9,14 +9,14 @@ import (
 	"testing"
 	"time"
 
-	attentionpkg "github.com/AndrewDryga/responder/internal/attention"
-	"github.com/AndrewDryga/responder/internal/config"
-	"github.com/AndrewDryga/responder/internal/core"
-	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
-	"github.com/AndrewDryga/responder/internal/investigation"
-	"github.com/AndrewDryga/responder/internal/slackui"
-	"github.com/AndrewDryga/responder/internal/store"
-	"github.com/AndrewDryga/responder/internal/taskaccess"
+	attentionpkg "github.com/AndrewDryga/ryker/internal/attention"
+	"github.com/AndrewDryga/ryker/internal/config"
+	"github.com/AndrewDryga/ryker/internal/core"
+	decisionpkg "github.com/AndrewDryga/ryker/internal/decision"
+	"github.com/AndrewDryga/ryker/internal/investigation"
+	"github.com/AndrewDryga/ryker/internal/slackui"
+	"github.com/AndrewDryga/ryker/internal/store"
+	"github.com/AndrewDryga/ryker/internal/taskaccess"
 )
 
 func TestWatchedEngineeringRequestRequiresRepositoryWhenSeveralAreConfigured(t *testing.T) {
@@ -143,7 +143,7 @@ func TestUnconfiguredChannelExplainsContributorBoundaryInsteadOfAskingForReposit
 
 // A question with one answer is not a question.
 //
-// On 2026-08-16 Responder answered five alert investigations with "Which
+// On 2026-08-16 Ryker answered five alert investigations with "Which
 // configured repository should I use for this engineering task: All Blitz
 // repositories (`blitz-platform`)?" — a list of one, addressed to a Grafana
 // bot. Nobody could answer it and no task button was rendered all day. When the
@@ -470,7 +470,7 @@ func TestWatchedDecisionReceivesFreshChronologicalChannelContext(t *testing.T) {
 		}
 	}
 	if !evidence.RecentMessages[0].Target ||
-		evidence.RecentMessages[1].MentionsResponder ||
+		evidence.RecentMessages[1].MentionsRyker ||
 		!strings.Contains(prompt, "people are talking to each other") ||
 		!strings.Contains(prompt, "newer human message already answers the target") {
 		t.Fatalf("conversation targeting guidance = %+v", evidence)
@@ -1146,9 +1146,9 @@ func TestAttentionPolicySuppressesAmbientReplyInHumanDirectedThread(t *testing.T
 		Text:      "I don't have permission to create apps",
 	}
 	state := decisionpkg.WatchTurnState{
-		// The existing continuity heuristic may recognize a recent Responder
+		// The existing continuity heuristic may recognize a recent Ryker
 		// session in the thread. The human-addressed root still wins unless the
-		// current message explicitly addresses Responder.
+		// current message explicitly addresses Ryker.
 		ConversationFollowup: true,
 		RecentMessages: []decisionpkg.WatchContextMessage{
 			{
@@ -1259,8 +1259,8 @@ func TestEvidenceBackedConversationReplyCorrectsHumanAddressee(t *testing.T) {
 	correction := decisionpkg.WatchDecisionCorrectionAt(
 		input, state, decision, now, OperationalCorrelationKey,
 	)
-	if correction == "" || !strings.Contains(correction, "attention.addressee=responder") {
-		t.Fatalf("correction = %q, want responder-addressee correction", correction)
+	if correction == "" || !strings.Contains(correction, "attention.addressee=ryker") {
+		t.Fatalf("correction = %q, want ryker-addressee correction", correction)
 	}
 
 	decision.Attention.Addressee = "responder"
@@ -1385,7 +1385,7 @@ func TestAttentionPolicyDeliversMaterialCorrectionInHumanDirectedThread(t *testi
 		Text: "so we can go ahead and drop the replica tonight",
 	}
 	// A thread one person opened by addressing another. Ambient by every
-	// signal Responder has.
+	// signal Ryker has.
 	state := decisionpkg.WatchTurnState{RecentMessages: []decisionpkg.WatchContextMessage{{
 		MessageTS: "1700.100", SenderID: "U111", SenderType: "human",
 		Text: "<@U222> can you confirm the replica is idle?",
@@ -1414,7 +1414,7 @@ func TestAttentionPolicyDeliversMaterialCorrectionInHumanDirectedThread(t *testi
 	}
 
 	// New evidence that has not reached a decision is not an interruption
-	// either: it may be new to Responder and useless to the people talking.
+	// either: it may be new to Ryker and useless to the people talking.
 	evidence := correction
 	evidence.Attention.Contribution = "new_evidence"
 	if filtered := attentionpkg.Enforce(input, state, evidence, 7, 4); filtered.Action != "ignore" {

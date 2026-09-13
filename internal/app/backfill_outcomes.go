@@ -10,9 +10,9 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/AndrewDryga/responder/internal/config"
-	"github.com/AndrewDryga/responder/internal/store"
-	"github.com/AndrewDryga/responder/internal/store/intelligencestore"
+	"github.com/AndrewDryga/ryker/internal/config"
+	"github.com/AndrewDryga/ryker/internal/store"
+	"github.com/AndrewDryga/ryker/internal/store/intelligencestore"
 )
 
 // backfillOutcomesFailureExamples bounds the ids the report carries. A backfill
@@ -70,7 +70,7 @@ var backfillFingerprintSources = []struct {
 // be begins at whatever happened to finish after the deploy.
 //
 // It opens the store rather than a read-only handle, which means it migrates
-// the database and writes to it. Responder must be stopped first: the command
+// the database and writes to it. Ryker must be stopped first: the command
 // takes the same process lock serve does rather than racing a live writer
 // through a schema change.
 //
@@ -113,7 +113,7 @@ func runBackfillOutcomes(args []string, stdout, stderr io.Writer) error {
 	}
 	lock, err := acquireProcessLock(cfg.StateDir)
 	if err != nil {
-		return fmt.Errorf("stop Responder before backfilling outcomes: %w", err)
+		return fmt.Errorf("stop Ryker before backfilling outcomes: %w", err)
 	}
 	defer releaseProcessLock(lock)
 
@@ -124,7 +124,7 @@ func runBackfillOutcomes(args []string, stdout, stderr io.Writer) error {
 		// copy of the policy in the CLI, and the moment the two disagreed the
 		// preview would be confidently wrong about the only number anybody
 		// reads it for.
-		temporary, err := os.MkdirTemp("", "responder-backfill-outcomes-")
+		temporary, err := os.MkdirTemp("", "ryker-backfill-outcomes-")
 		if err != nil {
 			return err
 		}

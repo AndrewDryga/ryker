@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/changeledger"
-	"github.com/AndrewDryga/responder/internal/config"
-	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/ryker/internal/changeledger"
+	"github.com/AndrewDryga/ryker/internal/config"
+	"github.com/AndrewDryga/ryker/internal/core"
 )
 
 // NormalizeChange reads a kind: change delivery into one ledger row.
@@ -111,7 +111,7 @@ func NormalizeChange(
 // prompt explains.
 //
 // The aliases exist because real payloads say "release", "rollout" and
-// "terraform" and none of them is going to change its wording for Responder.
+// "terraform" and none of them is going to change its wording for Ryker.
 // An unmapped path means deploy, which is what a change webhook almost always
 // is; the other members of the vocabulary mostly arrive from the publication
 // and Emisar adapters, which do not go through a route at all.

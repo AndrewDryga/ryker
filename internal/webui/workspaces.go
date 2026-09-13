@@ -13,7 +13,7 @@ import (
 )
 
 // Workspace is one Coop session: a checkout on disk with a turn budget, held
-// for some piece of Responder's work.
+// for some piece of Ryker's work.
 type Workspace struct {
 	ID, Kind, Detail   string
 	Policy, Repository string
@@ -48,7 +48,7 @@ func (r *Reader) LiveWorkspaces(ctx context.Context) ([]Workspace, bool, error) 
 		return nil, false, nil
 	}
 	// Queried through r.coop, not the collect helper: that helper is bound to
-	// the Responder database and would run this against the wrong file.
+	// the Ryker database and would run this against the wrong file.
 	rows, err := r.coop.QueryContext(ctx, `
 	  SELECT id, COALESCE(external_ref,''), COALESCE(policy,''), COALESCE(repository,''),
 	         COALESCE(state,''), COALESCE(activity,''), COALESCE(turns_used,0),
@@ -81,7 +81,7 @@ func (r *Reader) LiveWorkspaces(ctx context.Context) ([]Workspace, bool, error) 
 		item.Kind, item.Detail, item.Href, item.HrefLabel, channel = describeWorkspace(reference)
 		// An engineering task's reference carries only the incident id, so three
 		// of them render as three rows reading "Engineering task" and nothing
-		// else. The title is what tells them apart, and it lives in Responder's
+		// else. The title is what tells them apart, and it lives in Ryker's
 		// own tables rather than in Coop's.
 		if item.Kind == "Engineering task" {
 			if title, found := strings.CutPrefix(item.Href, "/incidents/"); found {
@@ -103,7 +103,7 @@ func (r *Reader) LiveWorkspaces(ctx context.Context) ([]Workspace, bool, error) 
 }
 
 // coopStamp reads one of Coop's timestamps. Coop stores them as Unix
-// nanoseconds rather than the RFC 3339 text Responder writes, so parseStamp
+// nanoseconds rather than the RFC 3339 text Ryker writes, so parseStamp
 // cannot be reused; text is still accepted so an older store still renders.
 func coopStamp(value any) time.Time {
 	switch stamp := value.(type) {
@@ -132,8 +132,8 @@ func companionCount(raw string) int {
 }
 
 // describeWorkspace names what a session is holding, from the reference
-// Responder wrote when it created it. Parsing that string beats joining
-// Responder's tables: the reference is written at creation and survives
+// Ryker wrote when it created it. Parsing that string beats joining
+// Ryker's tables: the reference is written at creation and survives
 // whatever happens to the work afterwards, and an evaluation session has no
 // row in those tables at all.
 //
@@ -157,7 +157,7 @@ func describeWorkspace(externalRef string) (kind, detail, href, hrefLabel, chann
 		}
 		return "Channel watch", generation, "/episodes?channel=" + token, "its episodes →", token
 	}
-	if name, ok := strings.CutPrefix(externalRef, "Responder live model evaluation: "); ok {
+	if name, ok := strings.CutPrefix(externalRef, "Ryker live model evaluation: "); ok {
 		return "Model evaluation", truncate(name, 80), "", "", ""
 	}
 	return "Other", truncate(externalRef, 80), "", "", ""

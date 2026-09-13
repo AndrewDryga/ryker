@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/ryker/internal/core"
 )
 
 // publications.incident_id is the table's PRIMARY KEY, which says something

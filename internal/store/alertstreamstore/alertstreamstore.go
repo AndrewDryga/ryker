@@ -18,9 +18,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/alertstream"
-	"github.com/AndrewDryga/responder/internal/core"
-	episodepkg "github.com/AndrewDryga/responder/internal/episode"
+	"github.com/AndrewDryga/ryker/internal/alertstream"
+	"github.com/AndrewDryga/ryker/internal/core"
+	episodepkg "github.com/AndrewDryga/ryker/internal/episode"
 )
 
 type Repository struct{ db *sql.DB }

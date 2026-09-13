@@ -5,9 +5,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/AndrewDryga/responder/internal/coop"
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/slackui"
+	"github.com/AndrewDryga/ryker/internal/coop"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/slackui"
 )
 
 // The rows in these tests are copied from responder.db as they are stored, not
@@ -623,7 +623,7 @@ func TestShortenPathKeepsTheEndThatNamesTheFile(t *testing.T) {
 			want: "src/games/tft/api.ts",
 		},
 		"outside any workspace": {
-			in:   "/Users/andrewdryga/Projects/os/responder/internal/liveturn/liveturn.go",
+			in:   "/Users/andrewdryga/Projects/os/ryker/internal/liveturn/liveturn.go",
 			want: "…/internal/liveturn/liveturn.go",
 		},
 		// Nothing to drop off the front, so nothing claims to have been dropped.

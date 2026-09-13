@@ -2,7 +2,7 @@ package migrationddl
 
 // V75 adds the projection that lets one episode inform another.
 //
-// Responder held hundreds of fully traced episodes — evidence, verdicts,
+// Ryker held hundreds of fully traced episodes — evidence, verdicts,
 // verified fixes — and every new incident still started from zero, because the
 // facts were spread across six tables keyed three different ways: evidence by
 // source_input, usage by attempt_id, incidents by their own id. Nothing could

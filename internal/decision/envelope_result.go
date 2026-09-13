@@ -3,7 +3,7 @@ package decision
 import (
 	"strings"
 
-	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/ryker/internal/core"
 )
 
 // envelopeOwnedWatchFields names the members of WatchDecisionPayload that
@@ -104,7 +104,7 @@ func UnreadableEnvelopeResult(decision WatchDecision) string {
 		// ignore that also recorded evidence has nowhere to put it: two
 		// operations fail that check, and evidence alone falls through to the
 		// projection below it, which rewrites the action to reply. Rejecting
-		// one would make Responder speak in a conversation it had decided to
+		// one would make Ryker speak in a conversation it had decided to
 		// stay out of, or block it over a shape it cannot fix.
 		if len(fields) != 1 || fields[0] != "memory" {
 			return ""

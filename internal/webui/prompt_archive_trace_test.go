@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/AndrewDryga/responder/internal/config"
-	"github.com/AndrewDryga/responder/internal/promptarchive"
+	"github.com/AndrewDryga/ryker/internal/config"
+	"github.com/AndrewDryga/ryker/internal/promptarchive"
 )
 
 func promptStepText(t *testing.T, page episodePage) string {
@@ -35,7 +35,7 @@ func promptStepText(t *testing.T, page episodePage) string {
 // have traded a storage bill for an operator quietly concluding the prompt was
 // truncated, which is the failure the original landing refused to risk.
 //
-// It is LABELLED rather than reconstructed on purpose. responder-prompt-v3 is
+// It is LABELLED rather than reconstructed on purpose. ryker-prompt-v3 is
 // bumped when the contract changes, not when a paragraph is reworded, and the
 // paragraphs are reworded most weeks — so rebuilding the block from today's
 // constants would show a reader words that model was never sent, under a
@@ -46,16 +46,16 @@ func TestTheTracePanelNamesTheInstructionBlockTheArchiveElided(t *testing.T) {
 		Name: "service.watchActionChoicePolicy",
 		Text: strings.Repeat("choose exactly one action. ", 64),
 	}
-	archived := promptarchive.Elide("responder-prompt-v3",
+	archived := promptarchive.Elide("ryker-prompt-v3",
 		"You are Emisar.\n"+block.Text+"\n<untrusted-slack-context>\n"+
 			`{"target_message":{"text":"did the deploy recover"}}`+
 			"\n</untrusted-slack-context>", []promptarchive.Block{block})
 
 	joined := promptStepText(t, episodePage{Manifest: ManifestRow{
-		Version: 1, PromptVersion: "responder-prompt-v3", RetainedPrompt: archived,
+		Version: 1, PromptVersion: "ryker-prompt-v3", RetainedPrompt: archived,
 	}})
 	for _, want := range []string{
-		"service.watchActionChoicePolicy", "1,728", "responder-prompt-v3",
+		"service.watchActionChoicePolicy", "1,728", "ryker-prompt-v3",
 	} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("the panel never says %q, so the reader cannot tell what is missing "+
@@ -79,7 +79,7 @@ func TestALegacyArchivedPromptRendersWithoutAnElisionNotice(t *testing.T) {
 		"</untrusted-slack-context>\nUSER: check this"
 
 	joined := promptStepText(t, episodePage{Manifest: ManifestRow{
-		Version: 1, PromptVersion: "responder-prompt-v3", RetainedPrompt: legacy,
+		Version: 1, PromptVersion: "ryker-prompt-v3", RetainedPrompt: legacy,
 	}})
 	if strings.Contains(strings.ToLower(joined), "elided") {
 		t.Fatalf("a row with nothing elided was labelled as though it had been:\n%s", joined)

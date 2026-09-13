@@ -8,12 +8,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/core"
-	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
-	schedulepkg "github.com/AndrewDryga/responder/internal/schedule"
-	"github.com/AndrewDryga/responder/internal/slackui"
-	"github.com/AndrewDryga/responder/internal/store"
-	"github.com/AndrewDryga/responder/internal/store/schedulestore"
+	"github.com/AndrewDryga/ryker/internal/core"
+	decisionpkg "github.com/AndrewDryga/ryker/internal/decision"
+	schedulepkg "github.com/AndrewDryga/ryker/internal/schedule"
+	"github.com/AndrewDryga/ryker/internal/slackui"
+	"github.com/AndrewDryga/ryker/internal/store"
+	"github.com/AndrewDryga/ryker/internal/store/schedulestore"
 )
 
 type scheduleSlack struct {
@@ -356,7 +356,7 @@ func TestScheduleIntentHandlesNaturalRelativeDurations(t *testing.T) {
 	}
 }
 
-// The live daily-runbook diagnosis had the schedule in Responder's database,
+// The live daily-runbook diagnosis had the schedule in Ryker's database,
 // but the turn could see only Slack and Emisar. It therefore claimed the last
 // scheduler record was unavailable and offered a duplicate schedule. Existing
 // task state must travel with the accepted turn so retries diagnose the task

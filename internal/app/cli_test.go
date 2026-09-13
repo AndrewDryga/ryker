@@ -10,9 +10,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/AndrewDryga/responder/internal/config"
-	"github.com/AndrewDryga/responder/internal/evaluation"
-	"github.com/AndrewDryga/responder/internal/store"
+	"github.com/AndrewDryga/ryker/internal/config"
+	"github.com/AndrewDryga/ryker/internal/evaluation"
+	"github.com/AndrewDryga/ryker/internal/store"
 )
 
 // Every secret the process needs is read once at startup and the process
@@ -238,7 +238,7 @@ func TestABaselineIsRecordedFromTheNewestCleanRun(t *testing.T) {
 	}
 }
 
-// Two Responder processes sharing a state directory would corrupt each other's
+// Two Ryker processes sharing a state directory would corrupt each other's
 // leases, so the lock is the thing that makes a single-writer design safe.
 func TestProcessLockIsExclusive(t *testing.T) {
 	dir := t.TempDir()
@@ -248,7 +248,7 @@ func TestProcessLockIsExclusive(t *testing.T) {
 	}
 	if _, err := acquireProcessLock(dir); err == nil {
 		t.Fatal("a second process acquired the same state directory lock")
-	} else if !strings.Contains(err.Error(), "another Responder process") &&
+	} else if !strings.Contains(err.Error(), "another Ryker process") &&
 		err != errProcessLocked {
 		t.Fatalf("unexpected lock error: %v", err)
 	}
@@ -265,7 +265,7 @@ func TestProcessLockIsExclusive(t *testing.T) {
 // "running but unhealthy", which are different problems with different fixes.
 func TestReadinessProbeReportsAnUnreachableService(t *testing.T) {
 	// Port 1 on loopback is reserved and never listening.
-	if err := probeResponderReady(context.Background(), "127.0.0.1:1"); err == nil {
+	if err := probeRykerReady(context.Background(), "127.0.0.1:1"); err == nil {
 		t.Fatal("the probe reported an unreachable service as ready")
 	}
 }
@@ -309,7 +309,7 @@ func TestSmallDisplayHelpers(t *testing.T) {
 func writeInspectionConfig(t *testing.T) (configPath string, stateDir string) {
 	t.Helper()
 	root := t.TempDir()
-	configPath = filepath.Join(root, "responder.yaml")
+	configPath = filepath.Join(root, "ryker.yaml")
 	stateDir = filepath.Join(root, "state")
 	body := `version: 1
 listen: 127.0.0.1:8080

@@ -12,10 +12,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/config"
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/slackui"
-	"github.com/AndrewDryga/responder/internal/store"
+	"github.com/AndrewDryga/ryker/internal/config"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/slackui"
+	"github.com/AndrewDryga/ryker/internal/store"
 	_ "modernc.org/sqlite"
 )
 
@@ -97,7 +97,7 @@ func TestFailingSurfaceRefreshGivesUpEarlyAndIsReported(t *testing.T) {
 // The Open button on the App Home is a link, and a link is finished when it is
 // acknowledged.
 //
-// This is the production row, reproduced: action responder_open_work_thread,
+// This is the production row, reproduced: action ryker_open_work_thread,
 // value commitment_episode_run_19664690e12b6af7e, channel_id empty. It was not
 // routed, so it fell through to the incident controls, which looked the
 // commitment up as an incident, failed to find one, and tried to say so in an
@@ -430,7 +430,7 @@ func configureChannelsAndReconcile(
 }
 
 // A public channel an operator configured but nobody invited the bot to is a
-// hole Responder is now allowed to close by itself.
+// hole Ryker is now allowed to close by itself.
 //
 // Reporting C091FK0HHAQ was only half an answer: an operator still had to read
 // the warning and go type /invite. conversations.join needs no one, so the

@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/ryker/internal/core"
 )
 
 func TestSchemaV63RepaintsPublicationLifecycleCards(t *testing.T) {
@@ -26,7 +26,7 @@ func TestSchemaV63RepaintsPublicationLifecycleCards(t *testing.T) {
 	}
 	if err := st.SavePublication(ctx, core.Publication{
 		IncidentID: incident.ID, Repository: "owner/repo", BaseBranch: "main",
-		HeadBranch: "responder/task", ParentHead: "parent", CandidateTree: "tree",
+		HeadBranch: "ryker/task", ParentHead: "parent", CandidateTree: "tree",
 		CommitSHA: "commit", RemoteSHA: "remote", PRNumber: 529,
 		PRURL: "https://github.example/owner/repo/pull/529",
 		State: core.PublicationStale, LastError: "follow-up changed after merge",

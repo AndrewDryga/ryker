@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/AndrewDryga/responder/internal/config"
+	"github.com/AndrewDryga/ryker/internal/config"
 )
 
 // The findings page is rendered with a finding in it.
@@ -20,7 +20,7 @@ import (
 // is the part worth executing.
 func TestFindingsPageShowsTheDefectAndItsChallenge(t *testing.T) {
 	reader := seededReader(t)
-	handler, err := NewHandler(reader, "test", "54", "responder-abc", nil, config.Pricing{}, nil, nil)
+	handler, err := NewHandler(reader, "test", "54", "ryker-abc", nil, config.Pricing{}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

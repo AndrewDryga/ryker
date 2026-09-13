@@ -6,13 +6,13 @@ import (
 	"strings"
 	"time"
 
-	behaviorofferpkg "github.com/AndrewDryga/responder/internal/behavioroffer"
-	"github.com/AndrewDryga/responder/internal/core"
-	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
-	"github.com/AndrewDryga/responder/internal/offerreason"
-	schedulepkg "github.com/AndrewDryga/responder/internal/schedule"
-	"github.com/AndrewDryga/responder/internal/scheduletext"
-	"github.com/AndrewDryga/responder/internal/taskofferrejection"
+	behaviorofferpkg "github.com/AndrewDryga/ryker/internal/behavioroffer"
+	"github.com/AndrewDryga/ryker/internal/core"
+	decisionpkg "github.com/AndrewDryga/ryker/internal/decision"
+	"github.com/AndrewDryga/ryker/internal/offerreason"
+	schedulepkg "github.com/AndrewDryga/ryker/internal/schedule"
+	"github.com/AndrewDryga/ryker/internal/scheduletext"
+	"github.com/AndrewDryga/ryker/internal/taskofferrejection"
 )
 
 // offerCheck is one offer the host will not accept, paired with the reason and

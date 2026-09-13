@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/core"
-	episodepkg "github.com/AndrewDryga/responder/internal/episode"
+	"github.com/AndrewDryga/ryker/internal/core"
+	episodepkg "github.com/AndrewDryga/ryker/internal/episode"
 )
 
 func TestEpisodeIdentityMigrationMergesSplitHistoryAndEnforcesIdentity(t *testing.T) {

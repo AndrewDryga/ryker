@@ -6,11 +6,11 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/AndrewDryga/responder/internal/assignments"
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/knowledgeoffer"
-	"github.com/AndrewDryga/responder/internal/operationalscope"
-	"github.com/AndrewDryga/responder/internal/resultcontract"
+	"github.com/AndrewDryga/ryker/internal/assignments"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/knowledgeoffer"
+	"github.com/AndrewDryga/ryker/internal/operationalscope"
+	"github.com/AndrewDryga/ryker/internal/resultcontract"
 )
 
 type CompletionAssessment struct {
@@ -197,7 +197,7 @@ func validateExternalWaitOperation(operation ResultOperation) error {
 	return nil
 }
 
-// FeedbackOperation records product feedback about Responder itself. It is
+// FeedbackOperation records product feedback about Ryker itself. It is
 // deliberately separate from operational evidence: frustration with an
 // incident, provider, or repository is not automatically criticism of the
 // assistant.
@@ -238,7 +238,7 @@ const MaxRepositoryContentsBytes = 240
 
 // RepositoryContentsOperation revises which part of the product a repository
 // holds. It carries no version, health, or ownership claim — those change
-// without telling Responder, and this row never expires.
+// without telling Ryker, and this row never expires.
 type RepositoryContentsOperation struct {
 	Repository string `json:"repository"`
 	Contents   string `json:"contents"`
@@ -916,7 +916,7 @@ Final shape check, before returning:
 
 func WatchEnvelopePrompt() string {
 	return `The final watch response uses this outer envelope:
-{"action":"ignore|react|reply|incident|escalate","reaction":"eyes for react only","title":"incident title for incident only","attention":{"addressee":"responder|channel|human|unclear","urgency":0,"confidence":0,"novelty":0,"ownership":0,"contribution":"none|material_correction|new_evidence|decision|completed_action|necessary_question","material":false},"reason":"concise classification reason","task_pull_request":"exact existing PR URL only","publication_updates":[],"operations":[]}
+{"action":"ignore|react|reply|incident|escalate","reaction":"eyes for react only","title":"incident title for incident only","attention":{"addressee":"ryker|channel|human|unclear","urgency":0,"confidence":0,"novelty":0,"ownership":0,"contribution":"none|material_correction|new_evidence|decision|completed_action|necessary_question","material":false},"reason":"concise classification reason","task_pull_request":"exact existing PR URL only","publication_updates":[],"operations":[]}
 
 Every attention score is an integer from 0 through 3 inclusive. For ambient messages, name the
 contribution and set material=true only when speaking changes understanding, a decision, or the next

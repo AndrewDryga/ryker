@@ -10,11 +10,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/config"
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/evaluation"
-	"github.com/AndrewDryga/responder/internal/slackui"
-	"github.com/AndrewDryga/responder/internal/store"
+	"github.com/AndrewDryga/ryker/internal/config"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/evaluation"
+	"github.com/AndrewDryga/ryker/internal/slackui"
+	"github.com/AndrewDryga/ryker/internal/store"
 )
 
 // recordEpisodeMaxEvents bounds one fixture. An episode with more events than
@@ -305,7 +305,7 @@ func recordEpisodeFixture(
 		},
 		Kind:                      "watch",
 		Input:                     sanitizer.Text(trigger),
-		MentionsResponder:         true,
+		MentionsRyker:             true,
 		RecordedEvents:            recorded,
 		RecordedToolResults:       results,
 		RecordedExecutionProfiles: executionProfiles,

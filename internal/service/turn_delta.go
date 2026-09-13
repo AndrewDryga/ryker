@@ -4,13 +4,13 @@ import (
 	"context"
 	"strings"
 
-	"github.com/AndrewDryga/responder/internal/agentprompt"
-	"github.com/AndrewDryga/responder/internal/alertstream"
-	"github.com/AndrewDryga/responder/internal/coop"
-	"github.com/AndrewDryga/responder/internal/core"
-	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
-	"github.com/AndrewDryga/responder/internal/publicationcontext"
-	"github.com/AndrewDryga/responder/internal/turndelta"
+	"github.com/AndrewDryga/ryker/internal/agentprompt"
+	"github.com/AndrewDryga/ryker/internal/alertstream"
+	"github.com/AndrewDryga/ryker/internal/coop"
+	"github.com/AndrewDryga/ryker/internal/core"
+	decisionpkg "github.com/AndrewDryga/ryker/internal/decision"
+	"github.com/AndrewDryga/ryker/internal/publicationcontext"
+	"github.com/AndrewDryga/ryker/internal/turndelta"
 )
 
 // standingBriefing asks whether this attempt may lean on the briefing already in
@@ -82,7 +82,7 @@ func (s *Service) standingBriefing(
 			Delivered: strings.TrimSpace(previous.SubmittedPrompt) != "",
 		},
 		turndelta.Contract{
-			Prompt:        responderPromptVersion,
+			Prompt:        rykerPromptVersion,
 			Investigation: investigationContractVersion,
 			ToolSchema:    resultOperationsVersion,
 		},

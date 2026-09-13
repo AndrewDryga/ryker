@@ -17,9 +17,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/config"
-	"github.com/AndrewDryga/responder/internal/service"
-	"github.com/AndrewDryga/responder/internal/store"
+	"github.com/AndrewDryga/ryker/internal/config"
+	"github.com/AndrewDryga/ryker/internal/service"
+	"github.com/AndrewDryga/ryker/internal/store"
 )
 
 func runBootstrap(args []string, stdout, stderr io.Writer) error {
@@ -177,7 +177,7 @@ func bootstrapEnvironment(cfg config.Config, token string) ([]byte, error) {
 		return nil, err
 	}
 	values[cfg.Coop.EmisarTokenEnv] = token
-	values["EMISAR_CLIENT"] = "responder"
+	values["EMISAR_CLIENT"] = "ryker"
 	names := make([]string, 0, len(values))
 	for name := range values {
 		names = append(names, name)
@@ -327,7 +327,7 @@ func checkPrivateCoopConfig(path string, expected map[string][]byte) error {
 				return fmt.Errorf("read Coop %s: %w", name, err)
 			}
 			if !bytes.Equal(actual, expected[name]) {
-				return fmt.Errorf("Coop %s is stale; rerun responder bootstrap-coop", name)
+				return fmt.Errorf("Coop %s is stale; rerun ryker bootstrap-coop", name)
 			}
 		}
 	}

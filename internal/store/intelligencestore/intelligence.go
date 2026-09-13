@@ -11,9 +11,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/memorydiff"
-	"github.com/AndrewDryga/responder/internal/store/sqlutil"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/memorydiff"
+	"github.com/AndrewDryga/ryker/internal/store/sqlutil"
 )
 
 func (r *Repository) GetChannelMemory(ctx context.Context, channelID string) (core.ChannelMemory, error) {

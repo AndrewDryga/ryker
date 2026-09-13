@@ -19,7 +19,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/ryker/internal/core"
 )
 
 // FieldError is a refusal that knows which field it refused.
@@ -100,7 +100,7 @@ type Cause string
 const (
 	// Unreadable covers a payload that will not decode and one from an older
 	// version of the host. Both mean the same thing to the person clicking:
-	// this button is not one this Responder can act on.
+	// this button is not one this Ryker can act on.
 	Unreadable Cause = "unreadable"
 	// OtherChannel is a button whose payload names a different conversation.
 	OtherChannel Cause = "other_channel"
@@ -168,23 +168,23 @@ type control struct{ actor, effect, repair string }
 
 var controls = map[Control]control{
 	PreferenceConfirmation: {
-		"Responder", "Nothing was saved",
-		"ask Responder to apply the preference again and use the new button",
+		"Ryker", "Nothing was saved",
+		"ask Ryker to apply the preference again and use the new button",
 	},
 	RuleConfirmation: {
-		"Responder", "Nothing was saved",
-		"ask Responder to set the rule up again and use the new button",
+		"Ryker", "Nothing was saved",
+		"ask Ryker to set the rule up again and use the new button",
 	},
 	MemoryConfirmation: {
-		"Responder", "Nothing was saved",
-		"ask Responder to propose it again and use the new button",
+		"Ryker", "Nothing was saved",
+		"ask Ryker to propose it again and use the new button",
 	},
 	ScheduleConfirmation: {
 		"Emisar", "Nothing was saved",
 		"ask Emisar to schedule it again and use the new button",
 	},
 	PreferenceSwitch: {
-		"Responder", "Nothing changed",
+		"Ryker", "Nothing changed",
 		"open the preference list again and use the switch there",
 	},
 	ScheduleSwitch: {
@@ -201,7 +201,7 @@ var controls = map[Control]control{
 func Stale(name Control, cause Cause) string {
 	words, known := controls[name]
 	if !known {
-		words = control{"Responder", "Nothing changed", "try again from the current message"}
+		words = control{"Ryker", "Nothing changed", "try again from the current message"}
 	}
 	headline := "This " + string(name) + " is no longer usable."
 	switch cause {

@@ -13,17 +13,17 @@ import (
 	"strings"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/agentprompt"
-	"github.com/AndrewDryga/responder/internal/alertstream"
-	"github.com/AndrewDryga/responder/internal/config"
-	"github.com/AndrewDryga/responder/internal/coop"
-	"github.com/AndrewDryga/responder/internal/core"
-	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
-	"github.com/AndrewDryga/responder/internal/evalsession"
-	"github.com/AndrewDryga/responder/internal/investigation"
-	"github.com/AndrewDryga/responder/internal/service"
-	"github.com/AndrewDryga/responder/internal/serviceport"
-	"github.com/AndrewDryga/responder/internal/slackui"
+	"github.com/AndrewDryga/ryker/internal/agentprompt"
+	"github.com/AndrewDryga/ryker/internal/alertstream"
+	"github.com/AndrewDryga/ryker/internal/config"
+	"github.com/AndrewDryga/ryker/internal/coop"
+	"github.com/AndrewDryga/ryker/internal/core"
+	decisionpkg "github.com/AndrewDryga/ryker/internal/decision"
+	"github.com/AndrewDryga/ryker/internal/evalsession"
+	"github.com/AndrewDryga/ryker/internal/investigation"
+	"github.com/AndrewDryga/ryker/internal/service"
+	"github.com/AndrewDryga/ryker/internal/serviceport"
+	"github.com/AndrewDryga/ryker/internal/slackui"
 )
 
 type LiveEvaluationOptions struct {
@@ -515,7 +515,7 @@ func collectEvaluationArtifacts(
 	}
 	review, _, err := client.Review(
 		ctx,
-		"responder:live-eval-review:"+caseID,
+		"ryker:live-eval-review:"+caseID,
 		sessionID,
 		session.Revision,
 	)
@@ -755,9 +755,9 @@ func runAuxiliaryEvaluation(
 	session, _, err := evalsession.Create(
 		ctx,
 		client,
-		"responder:live-eval-aux-session:"+caseID,
+		"ryker:live-eval-aux-session:"+caseID,
 		repository.CoopPolicy,
-		"Responder evaluation verifier: "+service.TruncateWatchText(testCase.Name, 160),
+		"Ryker evaluation verifier: "+service.TruncateWatchText(testCase.Name, 160),
 		options.PollInterval,
 	)
 	if err != nil {
@@ -770,7 +770,7 @@ func runAuxiliaryEvaluation(
 	if runErr == nil {
 		turn, _, submitErr := client.SubmitTurn(
 			ctx,
-			"responder:live-eval-aux-turn:"+caseID,
+			"ryker:live-eval-aux-turn:"+caseID,
 			sessionID,
 			session.Revision,
 			prompt,
@@ -915,9 +915,9 @@ func runLiveEvaluationCase(
 	session, _, err := evalsession.Create(
 		ctx,
 		client,
-		"responder:live-eval-session:"+caseID,
+		"ryker:live-eval-session:"+caseID,
 		policy,
-		"Responder live model evaluation: "+service.TruncateWatchText(testCase.Name, 160),
+		"Ryker live model evaluation: "+service.TruncateWatchText(testCase.Name, 160),
 		pollInterval,
 	)
 	if err != nil {
@@ -941,7 +941,7 @@ func runLiveEvaluationCase(
 	if testCase.Lane == "conversation" {
 		session, err = client.PrepareSession(
 			ctx,
-			"responder:live-eval-prepare:"+caseID,
+			"ryker:live-eval-prepare:"+caseID,
 			sessionID,
 			session.Revision,
 		)
@@ -971,7 +971,7 @@ func runLiveEvaluationCase(
 		ctx,
 		client,
 		sessionID,
-		"responder:live-eval-turn:"+caseID,
+		"ryker:live-eval-turn:"+caseID,
 		prompt,
 		pollInterval,
 	)
@@ -1009,7 +1009,7 @@ typed operations and contract fields exactly. Do not describe this correction pr
 			ctx,
 			client,
 			sessionID,
-			fmt.Sprintf("responder:live-eval-correction:%s:%d", caseID, correctionIndex),
+			fmt.Sprintf("ryker:live-eval-correction:%s:%d", caseID, correctionIndex),
 			correctionPrompt,
 			pollInterval,
 		)
@@ -1391,7 +1391,7 @@ func liveEvaluationWatchContext(
 				testCase.SenderRole,
 			)
 		}
-		if testCase.MentionsResponder {
+		if testCase.MentionsRyker {
 			kind = "mention"
 		}
 	case "external_app":
@@ -1405,7 +1405,7 @@ func liveEvaluationWatchContext(
 		)
 	}
 	text := agentprompt.BoundedOperatorText(testCase.Input)
-	if testCase.MentionsResponder && !strings.Contains(text, "<@UEVALBOT>") {
+	if testCase.MentionsRyker && !strings.Contains(text, "<@UEVALBOT>") {
 		text = "<@UEVALBOT> " + text
 	}
 	input := core.SlackInput{
@@ -1538,11 +1538,11 @@ func liveEvaluationContextMessage(
 		)
 	}
 	return decisionpkg.WatchContextMessage{
-		MessageTS:         fmt.Sprintf("1700.%06d", ordinal),
-		SenderID:          senderID,
-		SenderType:        senderType,
-		Text:              agentprompt.BoundedOperatorText(message.Text),
-		MentionsResponder: message.MentionsResponder,
+		MessageTS:     fmt.Sprintf("1700.%06d", ordinal),
+		SenderID:      senderID,
+		SenderType:    senderType,
+		Text:          agentprompt.BoundedOperatorText(message.Text),
+		MentionsRyker: message.MentionsRyker,
 	}, nil
 }
 
@@ -1585,7 +1585,7 @@ func cleanupLiveEvaluationSession(
 	if session.ActiveTurnID != "" {
 		if _, _, err := client.Cancel(
 			ctx,
-			"responder:live-eval-cancel:"+caseID,
+			"ryker:live-eval-cancel:"+caseID,
 			session.ID,
 			session.ActiveTurnID,
 			session.Revision,
@@ -1609,7 +1609,7 @@ func cleanupLiveEvaluationSession(
 	if session.State != "closed" {
 		session, _, err = client.Close(
 			ctx,
-			"responder:live-eval-close:"+caseID,
+			"ryker:live-eval-close:"+caseID,
 			session.ID,
 			session.Revision,
 		)
@@ -1622,7 +1622,7 @@ func cleanupLiveEvaluationSession(
 	}
 	plan, _, err := client.PlanDiscard(
 		ctx,
-		"responder:live-eval-discard-plan:"+caseID,
+		"ryker:live-eval-discard-plan:"+caseID,
 		session.ID,
 		session.Revision,
 		acceptEvaluatorChanges,
@@ -1647,7 +1647,7 @@ func cleanupLiveEvaluationSession(
 	}
 	if _, _, err := client.Discard(
 		ctx,
-		"responder:live-eval-discard:"+caseID,
+		"ryker:live-eval-discard:"+caseID,
 		session.ID,
 		plan.OperationID,
 	); err != nil {

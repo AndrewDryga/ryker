@@ -20,9 +20,9 @@ import (
 	"errors"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/remediation"
-	"github.com/AndrewDryga/responder/internal/store/sqlutil"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/remediation"
+	"github.com/AndrewDryga/ryker/internal/store/sqlutil"
 )
 
 // ErrNotFound is no grant on file for that identity.

@@ -9,11 +9,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/coop"
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/sessioncreate"
-	"github.com/AndrewDryga/responder/internal/slackui"
-	"github.com/AndrewDryga/responder/internal/store"
+	"github.com/AndrewDryga/ryker/internal/coop"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/sessioncreate"
+	"github.com/AndrewDryga/ryker/internal/slackui"
+	"github.com/AndrewDryga/ryker/internal/store"
 	"github.com/slack-go/slack"
 	"github.com/slack-go/slack/slackevents"
 	"github.com/slack-go/slack/socketmode"
@@ -33,7 +33,7 @@ func TestWatchedStructuredReportPersistsEvidenceCoverageAndMemory(t *testing.T) 
 	coopClient.completeOnSubmit = `{
 		  "action":"reply",
 		  "attention":{"addressee":"responder","urgency":2,"confidence":3,"novelty":2,"ownership":3,"contribution":"decision","material":true},
-		  "reason":"The operator asked Responder for a health assessment.",
+		  "reason":"The operator asked Ryker for a health assessment.",
 	  "operations":[
 	    {"id":"declared-capacity","type":"record_evidence","evidence":{
 	      "claim_id":"scheduler.desired_state",
@@ -331,7 +331,7 @@ func TestWatchSessionRotatesAndCarriesDurableMemory(t *testing.T) {
 	}
 	defer st.Close()
 	coopClient := newFakeCoop()
-	coopClient.openAfterCreateKey = "responder:watch-session:CWATCH:2"
+	coopClient.openAfterCreateKey = "ryker:watch-session:CWATCH:2"
 	svc := New(
 		cfg, st, coopClient, &fakeSlack{}, nil,
 		slackui.NewSanitizer(12000), nil,
@@ -356,8 +356,8 @@ func TestWatchSessionRotatesAndCarriesDurableMemory(t *testing.T) {
 	if memory.Generation != 1 || rotated.Generation != 2 ||
 		rotated.State.Goal != "Track production health" ||
 		len(coopClient.createKeys) != 2 ||
-		coopClient.createKeys[0] != "responder:watch-session:CWATCH" ||
-		coopClient.createKeys[1] != "responder:watch-session:CWATCH:2" {
+		coopClient.createKeys[0] != "ryker:watch-session:CWATCH" ||
+		coopClient.createKeys[1] != "ryker:watch-session:CWATCH:2" {
 		t.Fatalf(
 			"rotation = before=%+v after=%+v keys=%v",
 			memory, rotated, coopClient.createKeys,
@@ -407,8 +407,8 @@ func TestFailedWatchSessionCreateAdvancesDurableGeneration(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []string{
-		"responder:watch-session:CWATCH",
-		"responder:watch-session:CWATCH:2",
+		"ryker:watch-session:CWATCH",
+		"ryker:watch-session:CWATCH:2",
 	}
 	if !slices.Equal(coopClient.createKeys, want) {
 		t.Fatalf("watch session create keys = %v, want %v", coopClient.createKeys, want)
@@ -608,8 +608,8 @@ func TestWatchSessionRecoversLegacyGenerationOneIdempotencyRequest(t *testing.T)
 		memory.SessionID != session.ID ||
 		memory.Generation != 1 ||
 		len(coopClient.createKeys) != 2 ||
-		coopClient.createKeys[0] != "responder:watch-session:CWATCH" ||
-		coopClient.createKeys[1] != "responder:watch-session:CWATCH" ||
+		coopClient.createKeys[0] != "ryker:watch-session:CWATCH" ||
+		coopClient.createKeys[1] != "ryker:watch-session:CWATCH" ||
 		coopClient.createTasks[0] != "Slack operations channel CWATCH generation 1" ||
 		coopClient.createTasks[1] != "Slack alert triage channel CWATCH" {
 		t.Fatalf(
@@ -641,7 +641,7 @@ func TestWatchSessionSearchesPastHistoricalCollisionWindow(t *testing.T) {
 			session, generation, len(coopClient.createKeys),
 		)
 	}
-	if got := coopClient.createKeys[len(coopClient.createKeys)-1]; got != "responder:watch-session:CHISTORY:22" {
+	if got := coopClient.createKeys[len(coopClient.createKeys)-1]; got != "ryker:watch-session:CHISTORY:22" {
 		t.Fatalf("last create key = %q", got)
 	}
 }
@@ -687,7 +687,7 @@ func TestConversationSessionSearchesPastHistoricalTerminalSessions(t *testing.T)
 	coopClient.operations = map[string]coop.Operation{}
 	for generation := 12; generation <= 19; generation++ {
 		key := sessioncreate.Key(
-			"responder:conversation-session:CHISTORYTERMINAL", generation,
+			"ryker:conversation-session:CHISTORYTERMINAL", generation,
 		)
 		coopClient.operations[key] = coop.Operation{
 			ID: "op_historical_terminal", Method: "CreateRemoteSession",
@@ -696,7 +696,7 @@ func TestConversationSessionSearchesPastHistoricalTerminalSessions(t *testing.T)
 		}
 	}
 	coopClient.openAfterCreateKey = sessioncreate.Key(
-		"responder:conversation-session:CHISTORYTERMINAL", 20,
+		"ryker:conversation-session:CHISTORYTERMINAL", 20,
 	)
 	svc := New(
 		cfg, st, coopClient, &fakeSlack{}, nil,
@@ -726,7 +726,7 @@ func TestWatchSessionSearchesPastHistoricalFailedCreateOperations(t *testing.T) 
 	coopClient := newFakeCoop()
 	coopClient.operations = map[string]coop.Operation{}
 	for generation := 2; generation <= 21; generation++ {
-		key := sessioncreate.Key("responder:watch-session:CHISTORYFAILED", generation)
+		key := sessioncreate.Key("ryker:watch-session:CHISTORYFAILED", generation)
 		coopClient.createErrors = append(coopClient.createErrors, &coop.APIError{
 			Status: 500, Code: "internal_error", OperationID: "op_failed",
 		})
@@ -899,7 +899,7 @@ func TestReadOnlyAuthorityFailurePostsOneVisibleStatusAndParksTheRun(t *testing.
 //
 // The prompts above the Messages tab are declared statically in
 // deploy/slack-app-manifest.yaml under features.agent_view.suggested_prompts.
-// Responder used to answer the same event by calling
+// Ryker used to answer the same event by calling
 // assistant.threads.setSuggestedPrompts with a near-identical list, which Slack
 // refused with internal_error on every attempt either deployment ever made.
 // Queueing work for these events is therefore not a smaller failure than

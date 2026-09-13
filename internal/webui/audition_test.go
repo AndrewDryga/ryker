@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/config"
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/store"
+	"github.com/AndrewDryga/ryker/internal/config"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/store"
 )
 
 type auditionAttempt struct {
@@ -89,7 +89,7 @@ func seedAudition(t *testing.T, attempts ...auditionAttempt) *Reader {
 		for index := 0; index < item.corrections; index++ {
 			exec(`INSERT INTO audit_events
 			  (id, incident_id, kind, actor_id, object_id, outcome, detail, created_at)
-			  VALUES (?,'','result.correction','responder',?,'unreadable','',?)`,
+			  VALUES (?,'','result.correction','ryker',?,'unreadable','',?)`,
 				"aud_"+item.id+"_"+string(rune('a'+index)), run, stamp)
 		}
 	}
@@ -245,7 +245,7 @@ func TestTheDecisionsPageShowsTheAuditionWithBothCostFiguresApart(t *testing.T) 
 	}
 	// The panel must say where the half it does not carry lives, rather than
 	// rendering an empty gate-pass column that reads as broken.
-	if !strings.Contains(body, "responder audition") {
+	if !strings.Contains(body, "ryker audition") {
 		t.Fatal("the panel does not name the command that prints the gate-pass and judge halves")
 	}
 }

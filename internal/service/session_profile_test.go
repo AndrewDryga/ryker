@@ -9,13 +9,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/config"
-	"github.com/AndrewDryga/responder/internal/coop"
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/sessioncreate"
-	"github.com/AndrewDryga/responder/internal/slackui"
-	"github.com/AndrewDryga/responder/internal/store"
-	"github.com/AndrewDryga/responder/internal/store/storetest"
+	"github.com/AndrewDryga/ryker/internal/config"
+	"github.com/AndrewDryga/ryker/internal/coop"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/sessioncreate"
+	"github.com/AndrewDryga/ryker/internal/slackui"
+	"github.com/AndrewDryga/ryker/internal/store"
+	"github.com/AndrewDryga/ryker/internal/store/storetest"
 )
 
 // routedTurn is what one proactively watched message asked Coop for.
@@ -459,10 +459,10 @@ func TestAnIncidentAdvancesPastACreateSessionIdempotencyCollision(t *testing.T) 
 	t.Cleanup(func() { st.Close() })
 	coopClient := newFakeCoop()
 	coopClient.createErrors = []error{&coop.APIError{Status: 409, Code: "idempotency_conflict"}}
-	coopClient.openAfterCreateKey = "responder:session:placeholder:2"
+	coopClient.openAfterCreateKey = "ryker:session:placeholder:2"
 	svc := New(cfg, st, coopClient, &fakeSlack{}, nil, slackui.NewSanitizer(12000), nil)
 	incident := workRoom(t, ctx, st, cfg, "collision", "CCOLLISION", "U123ABC", false)
-	coopClient.openAfterCreateKey = sessioncreate.Key("responder:session:"+incident.ID, 2)
+	coopClient.openAfterCreateKey = sessioncreate.Key("ryker:session:"+incident.ID, 2)
 	if err := svc.processSessionIncident(ctx, incident.ID); err != nil {
 		t.Fatal(err)
 	}

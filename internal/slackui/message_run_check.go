@@ -18,7 +18,7 @@ const (
 //
 // Every field is host-derived or host-typed. Nothing here is model prose, and
 // that is the entire point of the card: the most frequent operator-visible
-// message Responder sends is a Terraform run check — six of the last twelve
+// message Ryker sends is a Terraform run check — six of the last twelve
 // episodes on the live instance — and it ships today as a paragraph the model
 // wrote about a notification it read. A paragraph can be right, and it can also
 // be confident and wrong, and neither reads differently.

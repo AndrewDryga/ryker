@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/ryker/internal/core"
 )
 
 // DefaultBranchLimit caps a single fan-out.

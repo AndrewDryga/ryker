@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 
-	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/ryker/internal/core"
 )
 
 // LoadRemediationRecord assembles one incident's canonical records without

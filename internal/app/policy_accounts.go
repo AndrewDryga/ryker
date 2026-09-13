@@ -11,7 +11,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/AndrewDryga/responder/internal/config"
+	"github.com/AndrewDryga/ryker/internal/config"
 	"gopkg.in/yaml.v3"
 )
 
@@ -50,7 +50,7 @@ var policyTargetPattern = regexp.MustCompile(`^([a-z0-9_-]+)[^@\s]*@([a-z0-9_-]+
 // to prevent, one level up.
 //
 // Only the one field is read, loosely: Coop's parser owns that file's schema,
-// and a field added there must not stop Responder from starting.
+// and a field added there must not stop Ryker from starting.
 func policyTargets(data []byte) (map[string]map[string]bool, error) {
 	var file struct {
 		Policies map[string]struct {
@@ -98,7 +98,7 @@ func policyTargetRungs(node *yaml.Node) ([]string, error) {
 		}
 		return rungs, nil
 	case 0:
-		// Coop requires a target and rejects the file without one. Responder
+		// Coop requires a target and rejects the file without one. Ryker
 		// does not re-litigate its schema.
 		return nil, nil
 	default:

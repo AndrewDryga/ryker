@@ -7,14 +7,14 @@ import (
 	"fmt"
 	"time"
 
-	behaviorofferpkg "github.com/AndrewDryga/responder/internal/behavioroffer"
-	"github.com/AndrewDryga/responder/internal/core"
-	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
-	memorypkg "github.com/AndrewDryga/responder/internal/memory"
-	"github.com/AndrewDryga/responder/internal/offerreason"
-	"github.com/AndrewDryga/responder/internal/recall"
-	"github.com/AndrewDryga/responder/internal/slackui"
-	"github.com/AndrewDryga/responder/internal/store"
+	behaviorofferpkg "github.com/AndrewDryga/ryker/internal/behavioroffer"
+	"github.com/AndrewDryga/ryker/internal/core"
+	decisionpkg "github.com/AndrewDryga/ryker/internal/decision"
+	memorypkg "github.com/AndrewDryga/ryker/internal/memory"
+	"github.com/AndrewDryga/ryker/internal/offerreason"
+	"github.com/AndrewDryga/ryker/internal/recall"
+	"github.com/AndrewDryga/ryker/internal/slackui"
+	"github.com/AndrewDryga/ryker/internal/store"
 )
 
 type memoryRememberResult struct {
@@ -23,7 +23,7 @@ type memoryRememberResult struct {
 }
 
 const operationalMemoryPolicy = `Fresh live evidence takes precedence over saved memory and prior
-evidence, followed by current repository content and Responder configuration. When those sources do
+evidence, followed by current repository content and Ryker configuration. When those sources do
 not conflict, operator-confirmed memory may guide routing before older evidence.
 
 An entry with predicate guidance is operator-authored advice about how to collaborate. Apply it
@@ -270,7 +270,7 @@ func (s *Service) handleRememberMemory(
 		if err != nil {
 			return s.finishSlashInput(
 				ctx, input,
-				"*Responder refused this memory entry.* "+err.Error()+" Nothing was saved.",
+				"*Ryker refused this memory entry.* "+err.Error()+" Nothing was saved.",
 			)
 		}
 		entry.SourceRef = payload.SourceRef
@@ -284,7 +284,7 @@ func (s *Service) handleRememberMemory(
 		if err != nil {
 			return s.finishSlashInput(
 				ctx, input,
-				"*Responder could not save this memory.* "+err.Error()+" Nothing was changed.",
+				"*Ryker could not save this memory.* "+err.Error()+" Nothing was changed.",
 			)
 		}
 		result.EntryID = entry.ID
@@ -307,8 +307,8 @@ func (s *Service) handleRememberMemory(
 		return s.finishSlashInput(
 			ctx,
 			input,
-			"*This saved memory was removed before Responder could post its receipt.* Nothing "+
-				"remains stored. Ask Responder to remember it again if it is still needed.",
+			"*This saved memory was removed before Ryker could post its receipt.* Nothing "+
+				"remains stored. Ask Ryker to remember it again if it is still needed.",
 		)
 	}
 	if err != nil {
@@ -402,7 +402,7 @@ func (s *Service) authorizeMemoryAction(
 	if !s.cfg.IsOperator(input.UserID) {
 		return false, s.memoryActionFeedback(
 			ctx, input,
-			"*A configured Responder operator must manage saved memory.*",
+			"*A configured Ryker operator must manage saved memory.*",
 		)
 	}
 	allowed, err := s.slack.UserAllowed(ctx, input.UserID, s.cfg.Slack.TeamID)

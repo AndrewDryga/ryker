@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/AndrewDryga/responder/internal/coop"
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/turncapacity"
+	"github.com/AndrewDryga/ryker/internal/coop"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/turncapacity"
 )
 
 func (s *Service) ensureTurnCapacity(
@@ -28,7 +28,7 @@ func (s *Service) ensureTurnCapacity(
 	additional := min(s.cfg.Coop.ExtendTurns, limit-session.MaxTurns)
 	extended, _, err := s.coop.Extend(
 		ctx,
-		fmt.Sprintf("responder:auto-extend:%s:%d", session.ID, session.MaxTurns),
+		fmt.Sprintf("ryker:auto-extend:%s:%d", session.ID, session.MaxTurns),
 		session.ID,
 		session.Revision,
 		additional,

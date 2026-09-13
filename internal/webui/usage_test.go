@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/config"
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/store"
+	"github.com/AndrewDryga/ryker/internal/config"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/store"
 )
 
 // attempt is one frozen piece of work to render a Usage page from.
@@ -95,7 +95,7 @@ func seedUsage(t *testing.T, attempts ...attempt) *Reader {
 
 func servePage(t *testing.T, reader *Reader, target string) string {
 	t.Helper()
-	handler, err := NewHandler(reader, "test", "48", "responder-abc", nil, config.Pricing{}, nil, nil)
+	handler, err := NewHandler(reader, "test", "48", "ryker-abc", nil, config.Pricing{}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

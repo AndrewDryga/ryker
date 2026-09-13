@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/ryker/internal/core"
 )
 
 // The tally sentence has to say when a shadow period has proved nothing.
@@ -53,7 +53,7 @@ func TestTheWorthSentenceSaysWhenNothingWasProved(t *testing.T) {
 // The offer card carries one control, and the dialog on it names what is being
 // agreed to rather than asking "are you sure".
 //
-// This is the moment an operator hands Responder the authority to open pull
+// This is the moment an operator hands Ryker the authority to open pull
 // requests without being asked again, and it is the only moment they see the
 // bounds. So the button is a confirmation with a dialog, the dialog states the
 // class and the repository in the same sentence as the word "without asking
@@ -62,7 +62,7 @@ func TestTheWorthSentenceSaysWhenNothingWasProved(t *testing.T) {
 // control in this product where a mis-click costs the most.
 func TestTheAssignmentOfferCardConfirmsWhatIsBeingGranted(t *testing.T) {
 	message := WithAssignmentOffer(Message{}, core.StandingAssignment{
-		Repository: "AndrewDryga/responder", ChangeClass: "dependency_upgrade",
+		Repository: "AndrewDryga/ryker", ChangeClass: "dependency_upgrade",
 		SignalPattern: "renovate failure", DailyBudget: 2,
 		PathGlobs: []string{"go.mod"}, ExpiresAt: time.Now().Add(720 * time.Hour),
 	}, 30, `{"version":1}`, "")

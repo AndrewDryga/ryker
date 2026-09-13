@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/store/memorystore"
-	"github.com/AndrewDryga/responder/internal/store/storetest"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/store/memorystore"
+	"github.com/AndrewDryga/ryker/internal/store/storetest"
 )
 
 func TestMemoryEntryReplacementScopeVisibilityAndForget(t *testing.T) {
@@ -172,7 +172,7 @@ func TestMemoryHomePrivacyRepositoryBindingAndOrphanPrune(t *testing.T) {
 // The operator asked for a communication preference to be remembered "forever"
 // and was correctly told the control only offered thirty days. Guidance is
 // advice about how to answer and does not rot. A predicate like alias_of or
-// evidence_route describes a system that can change without telling Responder,
+// evidence_route describes a system that can change without telling Ryker,
 // so a permanent one would quietly become a lie — the refusal names the way out
 // so a model reading it can fix its own offer.
 func TestOnlyGuidanceMayBeRememberedForever(t *testing.T) {

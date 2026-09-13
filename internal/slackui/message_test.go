@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/ryker/internal/core"
 	"github.com/slack-go/slack"
 )
 
@@ -101,7 +101,7 @@ func TestIncidentCardHasVisibleStateAndDeterministicControls(t *testing.T) {
 		t.Fatalf("fallback does not lead with the state word: %q", card.Text)
 	}
 	if !strings.Contains(card.Text, "Severity critical") ||
-		!strings.Contains(card.Text, "Responder Investigating") ||
+		!strings.Contains(card.Text, "Ryker Investigating") ||
 		!strings.Contains(card.Text, "2 of 3 signals firing") {
 		t.Fatalf("fallback omits incident state: %q", card.Text)
 	}
@@ -149,7 +149,7 @@ func TestIncidentCardHasVisibleStateAndDeterministicControls(t *testing.T) {
 	}
 }
 
-func TestIncidentWorkspacePreparationRemainsResponderOwned(t *testing.T) {
+func TestIncidentWorkspacePreparationRemainsRykerOwned(t *testing.T) {
 	incident := core.Incident{
 		ID: "incident_preparing", Title: "Scrape target down", Severity: "critical",
 		Status: core.IncidentActive, Workflow: core.WorkflowHolding,
@@ -166,7 +166,7 @@ func TestIncidentWorkspacePreparationRemainsResponderOwned(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := string(body)
-	for _, want := range []string{"Workspace preparation", "nothing needed from you", "Responder will retry automatically"} {
+	for _, want := range []string{"Workspace preparation", "nothing needed from you", "Ryker will retry automatically"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("preparation card lost %q: %s", want, text)
 		}
@@ -186,7 +186,7 @@ func TestReadOnlyWorkspaceNoticeNamesItsAutomaticRetryTime(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := string(body)
-	if !strings.Contains(text, "Responder will retry automatically at 16:05 UTC") ||
+	if !strings.Contains(text, "Ryker will retry automatically at 16:05 UTC") ||
 		strings.Contains(text, "circuit breaker") {
 		t.Fatalf("read-only preparation notice = %s", text)
 	}
@@ -200,7 +200,7 @@ func TestHistoricalWorkspaceNoticeNamesItsAutomaticRetryTime(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := string(body)
-	for _, want := range []string{"finish workspace preparation", "Responder will retry automatically at 16:05 UTC"} {
+	for _, want := range []string{"finish workspace preparation", "Ryker will retry automatically at 16:05 UTC"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("historical preparation notice lost %q: %s", want, text)
 		}
@@ -316,7 +316,7 @@ func TestIncidentCardControlsExplainTheirEffects(t *testing.T) {
 		{
 			ID: ActionUpdate, Label: "Ask agent for update", Value: incident.ID,
 			Style:   "primary",
-			Confirm: "Ask Responder to inspect current evidence and post a concise update?",
+			Confirm: "Ask Ryker to inspect current evidence and post a concise update?",
 		},
 		{ID: ActionChanges, Label: "View diff", Value: incident.ID},
 		{
@@ -562,7 +562,7 @@ func TestEngineeringTaskOfferAndCardDoNotMislabelWorkAsIncident(t *testing.T) {
 		Status: core.SignalFiring, Summary: "Update infra/ with required packs.",
 	}}, false)
 	content := cardText(card)
-	// "*Engineering task: Open | Responder: Waiting for input*" and the full
+	// "*Engineering task: Open | Ryker: Waiting for input*" and the full
 	// "Requested change" dump are both gone. The fallback leads with the state
 	// word, and the ask is a two-line quote with a way to read the rest —
 	// the request is reference material and was the tallest block on the card.
@@ -1091,7 +1091,7 @@ func TestHelpIsOneClearInstructionAndOneDismissButton(t *testing.T) {
 			for _, dead := range []string{
 				"Lifecycle controls", "Automatic capacity", "Thread scope",
 				"Read-only inspection", "Channel behavior", "!respond",
-				"turn-limit", "How to work with Responder",
+				"turn-limit", "How to work with Ryker",
 			} {
 				if strings.Contains(content, dead) {
 					t.Errorf("the wall grew back — help still says %q:\n%s", dead, content)
@@ -1495,7 +1495,7 @@ func TestEvidenceSummaryUsesNaturalCoveragePlural(t *testing.T) {
 	}
 }
 
-// What an operator sees when Responder could not read its own model's result.
+// What an operator sees when Ryker could not read its own model's result.
 //
 // The rule this pins: a person waiting on an incident is never shown an
 // internal error or internal vocabulary. They did not ask about a JSON envelope
@@ -1503,7 +1503,7 @@ func TestEvidenceSummaryUsesNaturalCoveragePlural(t *testing.T) {
 // and what to do next.
 //
 // This replaced a test that required the phrases "Coop completed the agent
-// turn" and "Result needs a clean summary" — both of which describe Responder's
+// turn" and "Result needs a clean summary" — both of which describe Ryker's
 // plumbing rather than the operator's situation.
 func TestAgentReportFailureSpeaksToTheOperatorNotAboutTheParser(t *testing.T) {
 	message := AgentReportFailureMessage(core.Incident{})
@@ -1890,7 +1890,7 @@ func TestMemoryHealthAndReviewCardsAreExplicit(t *testing.T) {
 
 func TestBehaviorOfferCardsAndDirectoriesExplainScopeAndSafety(t *testing.T) {
 	now := time.Date(2026, 8, 27, 12, 0, 0, 0, time.UTC)
-	preference := core.ResponderPreference{
+	preference := core.RykerPreference{
 		ID: "pref_1", ScopeKind: "operator", ScopeKey: "UOPERATOR",
 		Name: "health_check_depth", Value: "deep", Enabled: true,
 		ExpiresAt: now,
@@ -1945,7 +1945,7 @@ func TestBehaviorOfferCardsAndDirectoriesExplainScopeAndSafety(t *testing.T) {
 		t.Fatalf("preference offer action = %+v", preferenceActions)
 	}
 	preferenceDirectory := PreferenceDirectoryMessage(
-		[]core.ResponderPreference{preference},
+		[]core.RykerPreference{preference},
 	)
 	preferenceSaved := PreferenceSavedMessage(preference, false)
 	preferenceSurface := cardText(preferenceDirectory) + "\n" + cardText(preferenceSaved)

@@ -3,10 +3,10 @@ package service
 import (
 	"context"
 
-	"github.com/AndrewDryga/responder/internal/config"
-	"github.com/AndrewDryga/responder/internal/core"
-	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
-	"github.com/AndrewDryga/responder/internal/store"
+	"github.com/AndrewDryga/ryker/internal/config"
+	"github.com/AndrewDryga/ryker/internal/core"
+	decisionpkg "github.com/AndrewDryga/ryker/internal/decision"
+	"github.com/AndrewDryga/ryker/internal/store"
 )
 
 // Evaluator is the seam the offline evaluation harness replays prompts,
@@ -117,7 +117,7 @@ func (e *Evaluator) PrepareMemoryOfferAction(
 func (e *Evaluator) PreparePreferenceOfferAction(
 	input core.SlackInput,
 	offer *core.PreferenceOffer,
-) (string, core.ResponderPreference, string, bool) {
+) (string, core.RykerPreference, string, bool) {
 	return e.service.preparePreferenceOfferAction(input, offer)
 }
 

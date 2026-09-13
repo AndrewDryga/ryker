@@ -4,13 +4,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/investigation"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/investigation"
 )
 
 // ProactiveEligibility is why an assignment may or may not act on a signal.
 //
-// It carries a reason even when the answer is no, because "Responder did
+// It carries a reason even when the answer is no, because "Ryker did
 // nothing" is the hardest behaviour to debug: without a stated reason, a
 // misconfigured scope and a working system look identical from Slack.
 type ProactiveEligibility struct {
@@ -23,7 +23,7 @@ func ineligible(reason string) ProactiveEligibility {
 }
 
 // minimumRecurrences is how many times a signal must have been seen before
-// Responder will open a pull request about it.
+// Ryker will open a pull request about it.
 //
 // One occurrence is not a pattern. A transient error during a deploy, a
 // one-off timeout, an alert that resolved itself — each looks exactly like a
@@ -36,7 +36,7 @@ const minimumRecurrences = 3
 //
 // The checks are ordered cheapest-first and every one of them is a way this
 // feature could become intolerable rather than useful: acting outside the
-// granted scope, acting on noise, or acting on a conclusion Responder could
+// granted scope, acting on noise, or acting on a conclusion Ryker could
 // not actually support.
 func ProactiveEligible(
 	assignment core.StandingAssignment,
@@ -58,7 +58,7 @@ func ProactiveEligible(
 	if recurrences < minimumRecurrences {
 		return ineligible("this has not happened often enough to be a pattern yet")
 	}
-	// The completion gate. A pull request asserts that Responder understood the
+	// The completion gate. A pull request asserts that Ryker understood the
 	// problem; a completion that is blocked, or decision-ready without
 	// evidence, asserts the opposite. Opening one anyway spends a reviewer's
 	// attention on a guess.

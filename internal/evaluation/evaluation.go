@@ -10,15 +10,15 @@ import (
 	"strings"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/alertstream"
-	attentionpkg "github.com/AndrewDryga/responder/internal/attention"
-	"github.com/AndrewDryga/responder/internal/config"
-	"github.com/AndrewDryga/responder/internal/core"
-	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
-	"github.com/AndrewDryga/responder/internal/investigation"
-	"github.com/AndrewDryga/responder/internal/service"
-	"github.com/AndrewDryga/responder/internal/slackui"
-	"github.com/AndrewDryga/responder/internal/taskaccess"
+	"github.com/AndrewDryga/ryker/internal/alertstream"
+	attentionpkg "github.com/AndrewDryga/ryker/internal/attention"
+	"github.com/AndrewDryga/ryker/internal/config"
+	"github.com/AndrewDryga/ryker/internal/core"
+	decisionpkg "github.com/AndrewDryga/ryker/internal/decision"
+	"github.com/AndrewDryga/ryker/internal/investigation"
+	"github.com/AndrewDryga/ryker/internal/service"
+	"github.com/AndrewDryga/ryker/internal/slackui"
+	"github.com/AndrewDryga/ryker/internal/taskaccess"
 )
 
 type EvaluationCase struct {
@@ -30,7 +30,7 @@ type EvaluationCase struct {
 	Repository        string              `json:"repository,omitempty"`
 	SenderType        string              `json:"sender_type,omitempty"`
 	SenderRole        string              `json:"sender_role,omitempty"`
-	MentionsResponder bool                `json:"mentions_responder,omitempty"`
+	MentionsRyker     bool                `json:"mentions_responder,omitempty"`
 	RecentMessages    []EvaluationMessage `json:"recent_messages,omitempty"`
 	FollowingMessages []EvaluationMessage `json:"following_messages,omitempty"`
 	// ChannelAroundRoot stages the case as a turn inside a thread, with these
@@ -138,10 +138,10 @@ type EvaluationToolResult struct {
 }
 
 type EvaluationMessage struct {
-	SenderType        string `json:"sender_type"`
-	SenderRole        string `json:"sender_role,omitempty"`
-	Text              string `json:"text"`
-	MentionsResponder bool   `json:"mentions_responder,omitempty"`
+	SenderType    string `json:"sender_type"`
+	SenderRole    string `json:"sender_role,omitempty"`
+	Text          string `json:"text"`
+	MentionsRyker bool   `json:"mentions_responder,omitempty"`
 }
 
 type EvaluationPreference struct {

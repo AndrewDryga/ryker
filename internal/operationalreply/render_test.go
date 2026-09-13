@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/operationalscope"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/operationalscope"
 )
 
 // The reply that prompted this: a healthy-CDN assessment whose two cited

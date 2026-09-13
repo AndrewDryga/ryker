@@ -7,15 +7,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/coop"
-	"github.com/AndrewDryga/responder/internal/core"
-	episodepkg "github.com/AndrewDryga/responder/internal/episode"
-	"github.com/AndrewDryga/responder/internal/fanout"
-	"github.com/AndrewDryga/responder/internal/investigation"
-	"github.com/AndrewDryga/responder/internal/sessioncreate"
-	"github.com/AndrewDryga/responder/internal/slackui"
-	"github.com/AndrewDryga/responder/internal/store"
-	"github.com/AndrewDryga/responder/internal/store/fanoutstore"
+	"github.com/AndrewDryga/ryker/internal/coop"
+	"github.com/AndrewDryga/ryker/internal/core"
+	episodepkg "github.com/AndrewDryga/ryker/internal/episode"
+	"github.com/AndrewDryga/ryker/internal/fanout"
+	"github.com/AndrewDryga/ryker/internal/investigation"
+	"github.com/AndrewDryga/ryker/internal/sessioncreate"
+	"github.com/AndrewDryga/ryker/internal/slackui"
+	"github.com/AndrewDryga/ryker/internal/store"
+	"github.com/AndrewDryga/ryker/internal/store/fanoutstore"
 )
 
 // fanOutHarness is a lead investigation that has finished one sweep and left
@@ -219,7 +219,7 @@ func TestABranchReplacesALegacyWritableSessionBeforeSubmitting(t *testing.T) {
 		ID: "turn_legacy_branch", SessionID: run.SessionID, Ordinal: 1, State: "running",
 	}}
 	coopClient.openAfterCreateKey = sessioncreate.Key(
-		"responder:session:"+h.incident.ID+fanout.BranchMarker+goalID, 2,
+		"ryker:session:"+h.incident.ID+fanout.BranchMarker+goalID, 2,
 	)
 
 	session, generation, err := h.svc.branches.Session(ctx, run, h.incident)
@@ -259,7 +259,7 @@ func TestABranchAdvancesPastAnIdempotencyConflict(t *testing.T) {
 	coopClient := h.svc.coop.(*fakeCoop)
 	coopClient.createErrors = []error{&coop.APIError{Status: 409, Code: "idempotency_conflict"}}
 	coopClient.openAfterCreateKey = sessioncreate.Key(
-		"responder:session:"+h.incident.ID+fanout.BranchMarker+goalID, 2,
+		"ryker:session:"+h.incident.ID+fanout.BranchMarker+goalID, 2,
 	)
 
 	session, generation, err := h.svc.branches.Session(ctx, run, h.incident)

@@ -9,14 +9,14 @@ import (
 )
 
 // These three moved here with the runner they cover. They were written for the
-// publication checkout, which holds the only GitHub push credential Responder
+// publication checkout, which holds the only GitHub push credential Ryker
 // has; internal/repomirror now fetches with the same credential through the
 // same runner, so the rules have two callers and one place that proves them.
 
 // Nothing from the service environment may reach a git subprocess.
 func TestGitEnvWithholdsTheServiceEnvironment(t *testing.T) {
 	t.Setenv("SLACK_BOT_TOKEN", "xoxb-not-for-git")
-	t.Setenv("RESPONDER_WEBHOOK_SECRET", "hook-secret-not-for-git")
+	t.Setenv("RYKER_WEBHOOK_SECRET", "hook-secret-not-for-git")
 	t.Setenv("PATH", os.Getenv("PATH"))
 
 	env := Env("/tmp/work")
@@ -26,7 +26,7 @@ func TestGitEnvWithholdsTheServiceEnvironment(t *testing.T) {
 			t.Fatalf("git environment leaked %q:\n%s", secret, joined)
 		}
 	}
-	for _, name := range []string{"SLACK_BOT_TOKEN=", "RESPONDER_WEBHOOK_SECRET="} {
+	for _, name := range []string{"SLACK_BOT_TOKEN=", "RYKER_WEBHOOK_SECRET="} {
 		if strings.Contains(joined, name) {
 			t.Fatalf("git environment carried %s:\n%s", name, joined)
 		}
@@ -92,7 +92,7 @@ func TestRunGitBoundsOutputWhileTheProcessRuns(t *testing.T) {
 	}
 }
 
-// A managed clone hands git a HOME outside the work tree, because Responder
+// A managed clone hands git a HOME outside the work tree, because Ryker
 // promises never to dirty a repository Coop is about to fork from. Passing the
 // work tree as HOME — the throwaway-checkout default — would let anything git
 // writes to a dotfile land in `git status`.

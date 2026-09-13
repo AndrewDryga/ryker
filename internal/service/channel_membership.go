@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/slackui"
-	"github.com/AndrewDryga/responder/internal/store"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/slackui"
+	"github.com/AndrewDryga/ryker/internal/store"
 )
 
 type slackChannelLister interface {
@@ -79,7 +79,7 @@ func (s *Service) reportChannelCoverageGaps(ctx context.Context) {
 // describe is probably a stale configuration row, and a missing_scope refusal
 // means this binary is newer than the installation it is running against.
 // Every one of those is audited under its own outcome so the answer to "why is
-// Responder still not in that room" is a row rather than an investigation.
+// Ryker still not in that room" is a row rather than an investigation.
 func (s *Service) joinConfiguredChannel(ctx context.Context, channelID string) {
 	channel, err := s.slack.GetChannel(ctx, channelID)
 	switch {

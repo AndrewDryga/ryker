@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/store/publicationstore"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/store/publicationstore"
 )
 
 func TestPublicationCanRecoverBeforeBranchIdentityIsKnown(t *testing.T) {
@@ -50,7 +50,7 @@ func TestPublicationCanRecoverBeforeBranchIdentityIsKnown(t *testing.T) {
 	if err := st.SavePublication(ctx, publication); err == nil {
 		t.Fatal("published record without remote proof was accepted")
 	}
-	publication.HeadBranch = "responder/fix"
+	publication.HeadBranch = "ryker/fix"
 	publication.CommitSHA = "commit"
 	publication.RemoteSHA = "commit"
 	publication.PRNumber = 12
@@ -114,7 +114,7 @@ func TestPublicationReviewClaimIsExclusiveAndKeepsPRBinding(t *testing.T) {
 		t.Fatal(err)
 	}
 	claimed.State = core.PublicationPublished
-	claimed.HeadBranch = "responder/task"
+	claimed.HeadBranch = "ryker/task"
 	claimed.CommitSHA = "commit"
 	claimed.RemoteSHA = "commit"
 	claimed.PRNumber = 42
@@ -209,7 +209,7 @@ func TestPublicationReviewClaimPreservesPushedBranchWithoutPullRequestReceipt(t 
 		t.Fatal(err)
 	}
 	claimed.State = core.PublicationFailed
-	claimed.HeadBranch = "responder/pushed"
+	claimed.HeadBranch = "ryker/pushed"
 	claimed.RemoteSHA = strings.Repeat("b", 40)
 	claimed.LastError = "GitHub response was lost after the push"
 	if err := st.SavePublication(ctx, claimed); err != nil {
@@ -307,7 +307,7 @@ func TestPublicationLateDuplicateCoalescesAndOldAttemptCannotOverwriteNewerClaim
 	second := admit("slack-late-second", time.Now().Add(-time.Second))
 	claimed.ParentHead = "parent"
 	claimed.CandidateTree = "tree"
-	claimed.HeadBranch = "responder/task"
+	claimed.HeadBranch = "ryker/task"
 	claimed.CommitSHA = "commit"
 	claimed.RemoteSHA = "commit"
 	claimed.PRNumber = 42
@@ -467,7 +467,7 @@ func TestRecoverInterruptedPublicationProgressUpdatesTaskCards(t *testing.T) {
 			publication.CandidateTree = "tree"
 		}
 		if withPR {
-			publication.HeadBranch = "responder/existing"
+			publication.HeadBranch = "ryker/existing"
 			publication.CommitSHA = "commit"
 			publication.RemoteSHA = "commit"
 			publication.PRNumber = 42
@@ -708,7 +708,7 @@ func TestPublicationFollowupPersistsLifecycleAndActiveContext(t *testing.T) {
 	now := time.Now().UTC()
 	publication := core.Publication{
 		IncidentID: incident.ID, Repository: "owner/blitz-infra", BaseBranch: "main",
-		HeadBranch: "responder/reduce-redis", ParentHead: "parent", CandidateTree: "tree",
+		HeadBranch: "ryker/reduce-redis", ParentHead: "parent", CandidateTree: "tree",
 		CommitSHA: "commit", RemoteSHA: "0123456789abcdef", PRNumber: 493,
 		PRURL: "https://github.example/owner/blitz-infra/pull/493",
 		State: "published", PublishedAt: now,
@@ -796,7 +796,7 @@ func TestTerminalPublicationFollowupRejectsReviewAndStaleness(t *testing.T) {
 	now := time.Now().UTC()
 	publication := core.Publication{
 		IncidentID: incident.ID, Repository: "owner/repo", BaseBranch: "main",
-		HeadBranch: "responder/task", ParentHead: "parent", CandidateTree: "tree",
+		HeadBranch: "ryker/task", ParentHead: "parent", CandidateTree: "tree",
 		CommitSHA: "commit", RemoteSHA: "remote", PRNumber: 529,
 		PRURL: "https://github.example/owner/repo/pull/529",
 		State: core.PublicationPublished, PublishedAt: now,

@@ -7,9 +7,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/store/changestore"
-	"github.com/AndrewDryga/responder/internal/store/sqlutil"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/store/changestore"
+	"github.com/AndrewDryga/ryker/internal/store/sqlutil"
 )
 
 type Repository struct {

@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/ryker/internal/core"
 )
 
 func TestRetryAgentRunIfOwnedRequeuesCurrentOwner(t *testing.T) {
@@ -44,7 +44,7 @@ func TestRetryAgentRunIfOwnedRequeuesCurrentOwner(t *testing.T) {
 // A timed-out repository refresh left a Blitz run in preparing for eleven
 // hours. Same-conversation serialization then correctly refused to lease every
 // newer message, but nothing reclaimed the abandoned pre-submission lease
-// until Responder restarted.
+// until Ryker restarted.
 func TestAbandonedPreparationIsRequeuedDuringNormalOperation(t *testing.T) {
 	ctx := context.Background()
 	st, err := Open(t.TempDir())

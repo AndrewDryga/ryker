@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/ryker/internal/core"
 )
 
 // dumpSchema returns every user-defined object in the database, ordered so two
@@ -694,7 +694,7 @@ func seedDeferredEventHistory(t *testing.T, path string) {
 			) VALUES (?, 'triage', 'C1', 'watch', ?, ?, 'completed',
 			  '2026-08-06T00:00:00.000000000Z', '2026-08-06T00:00:00.000000000Z',
 			  '2026-08-06T00:00:00.000000000Z')`,
-			run, "input_"+run, "responder:run:"+run,
+			run, "input_"+run, "ryker:run:"+run,
 		); err != nil {
 			t.Fatal(err)
 		}

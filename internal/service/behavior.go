@@ -8,18 +8,18 @@ import (
 	"strings"
 	"time"
 
-	behaviorofferpkg "github.com/AndrewDryga/responder/internal/behavioroffer"
-	"github.com/AndrewDryga/responder/internal/config"
-	"github.com/AndrewDryga/responder/internal/core"
-	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
-	memorypkg "github.com/AndrewDryga/responder/internal/memory"
-	"github.com/AndrewDryga/responder/internal/offerreason"
-	schedulepkg "github.com/AndrewDryga/responder/internal/schedule"
-	"github.com/AndrewDryga/responder/internal/slackui"
-	"github.com/AndrewDryga/responder/internal/standingrule"
-	"github.com/AndrewDryga/responder/internal/store"
-	"github.com/AndrewDryga/responder/internal/store/schedulestore"
-	"github.com/AndrewDryga/responder/internal/watchpresence"
+	behaviorofferpkg "github.com/AndrewDryga/ryker/internal/behavioroffer"
+	"github.com/AndrewDryga/ryker/internal/config"
+	"github.com/AndrewDryga/ryker/internal/core"
+	decisionpkg "github.com/AndrewDryga/ryker/internal/decision"
+	memorypkg "github.com/AndrewDryga/ryker/internal/memory"
+	"github.com/AndrewDryga/ryker/internal/offerreason"
+	schedulepkg "github.com/AndrewDryga/ryker/internal/schedule"
+	"github.com/AndrewDryga/ryker/internal/slackui"
+	"github.com/AndrewDryga/ryker/internal/standingrule"
+	"github.com/AndrewDryga/ryker/internal/store"
+	"github.com/AndrewDryga/ryker/internal/store/schedulestore"
+	"github.com/AndrewDryga/ryker/internal/watchpresence"
 )
 
 // repositoryCatalog answers the two questions internal/behavioroffer asks of
@@ -153,9 +153,9 @@ it in prose:
   in a thread.
 The latest explicit location request in a conversation overrides the remembered default.
 
-<trusted-responder-preferences>
+<trusted-ryker-preferences>
 ` + string(data) + `
-</trusted-responder-preferences>`
+</trusted-ryker-preferences>`
 }
 
 func standingRulePrompt(rules []core.StandingRule) string {
@@ -224,13 +224,13 @@ Step meanings:
   and intermediate progress. Return the same result with the
   record_alert_assessment operation. Apply the shared operational-alert writing policy to the Slack message. Choose
   reply after useful investigation and add an incident offer_task only when coordination is warranted; never
-  choose incident for a matched rule. Responder owns the temporary eyes reaction and channel policy.
+  choose incident for a matched rule. Ryker owns the temporary eyes reaction and channel policy.
 - suggest_remediation: for a confirmed issue, give the safest immediate mitigation, durable fix, and
   exact verification. Do not repeat facts already obvious in the triggering Slack card.
 
-<trusted-responder-standing-rules>
+<trusted-ryker-standing-rules>
 ` + string(data) + `
-</trusted-responder-standing-rules>`
+</trusted-ryker-standing-rules>`
 }
 
 const behaviorOfferPolicy = `Configured operators may request typed lasting behavior in natural
@@ -238,7 +238,7 @@ language. Reply in one short sentence; the host renders details and safety. Neve
 fields or claim an offer is saved. Preserve every configurable clause in a compound request using
 inert typed offers. If a clause has no safe type, state the gap or ask one concise question:
 
-- preference_offer is for how Responder should handle future requests. Supported names and values:
+- preference_offer is for how Ryker should handle future requests. Supported names and values:
   health_check_depth=quick|standard|deep, response_detail=concise|standard|detailed, and
   response_location=follow_context|prefer_thread|prefer_channel. Scope is operator, channel,
   repository, or workspace, except response_location uses operator, channel, or workspace only.
@@ -442,14 +442,14 @@ func (s *Service) recordStandingRuleEvaluation(
 func (s *Service) preparePreferenceOfferAction(
 	input core.SlackInput,
 	offer *core.PreferenceOffer,
-) (string, core.ResponderPreference, string, bool) {
+) (string, core.RykerPreference, string, bool) {
 	if offer == nil || !s.preferenceOfferInScope(input) {
-		return "", core.ResponderPreference{}, "", false
+		return "", core.RykerPreference{}, "", false
 	}
 	preference, ttl, err := s.preferenceFromOffer(input, *offer, s.now().UTC())
 	if err != nil {
 		s.recordDiscardedOffer(input, "preference", err)
-		return "", core.ResponderPreference{}, "", false
+		return "", core.RykerPreference{}, "", false
 	}
 	offer.Scope = preference.ScopeKind
 	offer.Name = preference.Name
@@ -462,7 +462,7 @@ func (s *Service) preparePreferenceOfferAction(
 	}
 	payload, ok := behaviorofferpkg.EncodePreference(s.offerIssue(input), *offer)
 	if !ok {
-		return "", core.ResponderPreference{}, "", false
+		return "", core.RykerPreference{}, "", false
 	}
 	return payload, preference, memorypkg.FormatMemoryTTL(ttl), true
 }
@@ -471,7 +471,7 @@ func (s *Service) preferenceFromOffer(
 	input core.SlackInput,
 	offer core.PreferenceOffer,
 	now time.Time,
-) (core.ResponderPreference, time.Duration, error) {
+) (core.RykerPreference, time.Duration, error) {
 	return behaviorofferpkg.Preference(offer, s.offerContext(input, now))
 }
 
@@ -539,7 +539,7 @@ func (s *Service) handleRememberPreference(
 		if err != nil {
 			return s.behaviorActionFeedback(
 				ctx, input,
-				"*Responder refused this preference.* "+err.Error()+" Nothing was saved.",
+				"*Ryker refused this preference.* "+err.Error()+" Nothing was saved.",
 			)
 		}
 		preference.SourceRef = payload.SourceRef
@@ -552,7 +552,7 @@ func (s *Service) handleRememberPreference(
 		if err != nil {
 			return s.behaviorActionFeedback(
 				ctx, input,
-				"*Responder could not save this preference.* "+err.Error()+
+				"*Ryker could not save this preference.* "+err.Error()+
 					" Nothing was changed.",
 			)
 		}
@@ -598,7 +598,7 @@ func (s *Service) handleRememberRule(
 		if err != nil {
 			return s.behaviorActionFeedback(
 				ctx, input,
-				"*Responder refused this standing rule.* "+err.Error()+" Nothing was saved.",
+				"*Ryker refused this standing rule.* "+err.Error()+" Nothing was saved.",
 			)
 		}
 		rule.SourceRef = payload.SourceRef
@@ -611,7 +611,7 @@ func (s *Service) handleRememberRule(
 		if err != nil {
 			return s.behaviorActionFeedback(
 				ctx, input,
-				"*Responder could not save this standing rule.* "+err.Error()+
+				"*Ryker could not save this standing rule.* "+err.Error()+
 					" Nothing was changed.",
 			)
 		}
@@ -810,7 +810,7 @@ func (s *Service) handleEditPreference(
 		fmt.Sprintf(
 			"*Replace `%s` with a new confirmed value.*\n\nMention Emisar in this channel "+
 				"with, for example, `@Emisar from now on set %s to <value> for this %s`. "+
-				"Responder will show the normalized replacement before saving it. The existing "+
+				"Ryker will show the normalized replacement before saving it. The existing "+
 				"value remains active until you confirm the replacement.",
 			preference.Name, preference.Name, preference.ScopeKind,
 		),
@@ -839,8 +839,8 @@ func (s *Service) handleEditRule(
 	return s.behaviorActionFeedback(
 		ctx, input,
 		fmt.Sprintf(
-			"*Replace `%s` / `%s` with a new confirmed rule.*\n\nMention Responder in "+
-				"this channel with the new `when ... do ...` behavior. Responder will show "+
+			"*Replace `%s` / `%s` with a new confirmed rule.*\n\nMention Ryker in "+
+				"this channel with the new `when ... do ...` behavior. Ryker will show "+
 				"the normalized trigger, action, repository, expiry, and read-only boundary "+
 				"before saving it. The existing rule remains active until replacement.",
 			rule.Trigger, rule.Action,
@@ -862,7 +862,7 @@ func (s *Service) freezeBehaviorResult(
 }
 
 func preferenceVisibleForAction(
-	preference core.ResponderPreference,
+	preference core.RykerPreference,
 	input core.SlackInput,
 ) bool {
 	if input.ChannelID == "" {

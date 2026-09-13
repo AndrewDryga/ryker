@@ -477,7 +477,7 @@ func TestNoNewCorpusFixtureAsksATruncatedQuestion(t *testing.T) {
 				t.Errorf(
 					"%s: case %q asks a truncated question. Its input is the 180-byte "+
 						"objective headline, not the text that triggered the episode, so "+
-						"nothing can answer it. Re-record it with responder record-episode.",
+						"nothing can answer it. Re-record it with ryker record-episode.",
 					path, testCase.Name,
 				)
 				continue

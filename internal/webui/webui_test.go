@@ -10,14 +10,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/config"
+	"github.com/AndrewDryga/ryker/internal/config"
 )
 
 // Every page renders, and an unwired panel says so rather than showing a zero.
 // A dashboard that half-renders is indistinguishable from a system with missing
 // data, which is the confusion this package exists to end.
 func TestEveryPageRendersAndUnwiredPanelsSayWhyTheyAreEmpty(t *testing.T) {
-	handler, err := NewHandler(&Reader{}, "test", "47", "responder-abc1234",
+	handler, err := NewHandler(&Reader{}, "test", "47", "ryker-abc1234",
 		func() (bool, string) { return true, "" },
 		config.Pricing{}, nil, nil)
 	if err != nil {
@@ -71,7 +71,7 @@ func TestEveryPageRendersAndUnwiredPanelsSayWhyTheyAreEmpty(t *testing.T) {
 	// report from the missing fallback estimate and point at the documented
 	// shape — never render either absence as zero money.
 	if !strings.Contains(body, "No provider-reported cost or price table") ||
-		!strings.Contains(body, "config/responder.example.yaml") {
+		!strings.Contains(body, "config/ryker.example.yaml") {
 		t.Error("the cost panel does not say the price table is missing or where the shape lives")
 	}
 	// Wall clock reads the timing columns now; with nothing timed it must say
@@ -139,7 +139,7 @@ func TestShellUsesEmisarContentWidthTiers(t *testing.T) {
 	}
 }
 
-// The first redesign copied Emisar's colors but kept Responder's old dashboard
+// The first redesign copied Emisar's colors but kept Ryker's old dashboard
 // composition: a subtitle under every title, an overloaded dashboard rail,
 // duplicate summaries, and a card around every trace step. These invariants
 // keep the control plane on Emisar's actual hierarchy even when fixtures have
@@ -241,7 +241,7 @@ func TestTablesKeepACompactScanPath(t *testing.T) {
 }
 
 func TestShellExposesKeyboardLocationAndSkipNavigation(t *testing.T) {
-	handler, err := NewHandler(&Reader{}, "test", "47", "responder-abc1234",
+	handler, err := NewHandler(&Reader{}, "test", "47", "ryker-abc1234",
 		func() (bool, string) { return true, "" }, config.Pricing{}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -671,7 +671,7 @@ func TestAuditActorsAreClassifiedNotInvented(t *testing.T) {
 	for actor, want := range map[string]string{
 		"U089UCBNT38":           "person",
 		"B08N64XSHNU":           "app",
-		"responder":             "responder",
+		"responder":             "ryker",
 		dashboardActor:          "this dashboard",
 		"":                      "unattributed",
 		"scheduled-task-runner": "host",

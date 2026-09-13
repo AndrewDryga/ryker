@@ -1,4 +1,4 @@
-// Package webui serves the Responder control plane.
+// Package webui serves the Ryker control plane.
 //
 // The Slack App Home answers "does anything need me right now?" and is good at
 // it. It cannot answer "what happened, why, and what do I do about it", because
@@ -21,7 +21,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/ryker/internal/core"
 )
 
 //go:embed templates/*.html static/*
@@ -42,11 +42,11 @@ var pages = []Page{
 	{"", "Overview", "What is happening right now?", "Operate"},
 	{"episodes", "Episodes", "What did it do, and why?", "Operate"},
 	{"schedules", "Schedules", "What runs on its own, and did it?", "Operate"},
-	{"channels", "Channels", "Where is Responder, and what is set up there?", "Operate"},
+	{"channels", "Channels", "Where is Ryker, and what is set up there?", "Operate"},
 	{"failures", "Failures", "What is broken, and can I retry it?", "Operate"},
 	{"workspaces", "Workspaces", "What is still held, and why?", "Operate"},
 	{"decisions", "Decisions", "What did it choose, and was it right?", "Improve"},
-	{"findings", "Findings", "What is wrong with Responder itself?", "Improve"},
+	{"findings", "Findings", "What is wrong with Ryker itself?", "Improve"},
 	{"memory", "Memory", "What does it believe, and where did that come from?", "Improve"},
 	{"audit", "Audit", "Who did what, and what came of it?", "System"},
 	{"configuration", "Configuration", "How is it set up?", "System"},
@@ -356,7 +356,7 @@ func (s Shell) HeadTitle() string {
 	if len(title) > 60 {
 		title = truncate(title, 60)
 	}
-	return title + " · " + s.Deploy + " · Responder"
+	return title + " · " + s.Deploy + " · Ryker"
 }
 
 func NewShell(active, deployment string, content any) Shell {

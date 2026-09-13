@@ -9,11 +9,11 @@ import (
 	"context"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/core"
-	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
-	publicationpkg "github.com/AndrewDryga/responder/internal/publication"
-	"github.com/AndrewDryga/responder/internal/publicationcontext"
-	"github.com/AndrewDryga/responder/internal/slackui"
+	"github.com/AndrewDryga/ryker/internal/core"
+	decisionpkg "github.com/AndrewDryga/ryker/internal/decision"
+	publicationpkg "github.com/AndrewDryga/ryker/internal/publication"
+	"github.com/AndrewDryga/ryker/internal/publicationcontext"
+	"github.com/AndrewDryga/ryker/internal/slackui"
 )
 
 func (s *Service) inputReferencesActivePublication(

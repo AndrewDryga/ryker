@@ -2,9 +2,9 @@ package service
 
 import (
 	"errors"
-	"github.com/AndrewDryga/responder/internal/core"
-	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
-	"github.com/AndrewDryga/responder/internal/promptbudget"
+	"github.com/AndrewDryga/ryker/internal/core"
+	decisionpkg "github.com/AndrewDryga/ryker/internal/decision"
+	"github.com/AndrewDryga/ryker/internal/promptbudget"
 )
 
 var errRequiredPromptTooLarge = errors.New("required prompt sections exceed the Coop turn limit")

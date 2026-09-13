@@ -1,4 +1,4 @@
-// Package remediation is the trust ladder: which exact Emisar action Responder
+// Package remediation is the trust ladder: which exact Emisar action Ryker
 // may offer for which exact trigger, how a rung is earned, and how it is taken
 // away.
 //

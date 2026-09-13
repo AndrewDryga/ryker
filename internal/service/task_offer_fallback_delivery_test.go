@@ -5,11 +5,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/ryker/internal/core"
 )
 
 // The 2026-08-20 Better Stack Fortnite incident spent its report-repair budget
-// on one optional engineering offer, then Responder suppressed the valid
+// on one optional engineering offer, then Ryker suppressed the valid
 // diagnosis as ambient chatter. The exact alert received no reply after a
 // nine-minute investigation. A rejected button must never eat the answer.
 func TestARejectedTaskOfferCannotSilenceAnOperationalInvestigation(t *testing.T) {

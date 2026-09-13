@@ -3,7 +3,7 @@ package fanout
 import (
 	"strings"
 
-	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/ryker/internal/core"
 )
 
 // BranchAttemptLimit is a branch's own correction budget, deliberately smaller

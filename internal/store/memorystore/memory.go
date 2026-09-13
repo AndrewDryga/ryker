@@ -10,8 +10,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/store/sqlutil"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/store/sqlutil"
 )
 
 func (r *Repository) UpsertMemoryEntry(
@@ -161,7 +161,7 @@ func validateMemoryEntry(entry core.MemoryEntry) error {
 	if core.IsPermanentExpiry(entry.ExpiresAt) && !core.PredicateMayBePermanent(entry.Predicate) {
 		return fmt.Errorf(
 			"memory predicate %q cannot be permanent because it describes a system that can "+
-				"change without telling Responder; give it 7d, 30d, 90d, or 365d, or offer it "+
+				"change without telling Ryker; give it 7d, 30d, 90d, or 365d, or offer it "+
 				"as guidance if it is advice rather than a fact",
 			entry.Predicate,
 		)

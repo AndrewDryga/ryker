@@ -7,8 +7,8 @@ import (
 	"encoding/json"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/core"
-	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
+	"github.com/AndrewDryga/ryker/internal/core"
+	decisionpkg "github.com/AndrewDryga/ryker/internal/decision"
 )
 
 const (
@@ -104,7 +104,7 @@ type Turn struct {
 	Repository string
 	Signals    []core.Signal
 	// Evidence arrives as the prompt entries the turn already loaded, because
-	// the target identity an operation recorded is the sharpest scope Responder
+	// the target identity an operation recorded is the sharpest scope Ryker
 	// ever has and it costs nothing to read here.
 	Evidence []decisionpkg.EvidencePromptEntry
 	Effort   core.EffortContract

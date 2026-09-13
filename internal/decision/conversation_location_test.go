@@ -3,7 +3,7 @@ package decision_test
 import (
 	"testing"
 
-	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
+	decisionpkg "github.com/AndrewDryga/ryker/internal/decision"
 )
 
 // Every phrasing the literal-phrase list got wrong, plus the ones it got

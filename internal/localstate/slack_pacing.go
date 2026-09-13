@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/slackui"
+	"github.com/AndrewDryga/ryker/internal/slackui"
 )
 
 // PaceChannelWrites wraps a Slack client so that every call spending a

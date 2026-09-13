@@ -3,7 +3,7 @@ package taskoffercarry
 import (
 	"testing"
 
-	"github.com/AndrewDryga/responder/internal/investigation"
+	"github.com/AndrewDryga/ryker/internal/investigation"
 )
 
 func TestATitleOnlyEngineeringOfferStillUsesTheOfferContract(t *testing.T) {

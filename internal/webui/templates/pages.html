@@ -41,7 +41,7 @@
 {{if .Recent}}
 {{template "episoderows" .Recent}}
 <p class="note"><a href="/episodes">every episode →</a></p>
-{{else}}<p class="empty-state">No episodes yet. One appears the first time Responder accepts work
+{{else}}<p class="empty-state">No episodes yet. One appears the first time Ryker accepts work
 from Slack or a webhook.</p>{{end}}
 </div>
 
@@ -63,7 +63,7 @@ from Slack or a webhook.</p>{{end}}
   {{end}}
 </div>
 <p class="note"><a href="/schedules">every schedule →</a></p>
-{{else}}<p class="empty-state">Nothing is scheduled. Ask Responder in Slack to check something on a
+{{else}}<p class="empty-state">Nothing is scheduled. Ask Ryker in Slack to check something on a
 cadence and it will appear here.</p>{{end}}
 </aside>
 </div>
@@ -118,7 +118,7 @@ cadence and it will appear here.</p>{{end}}
 
 {{if .Tasks}}
 <h2>Engineering tasks <span class="note">{{len .Tasks}}</span></h2>
-<p class="note">Work someone asked Responder to carry out in a repository. Each one runs in its own
+<p class="note">Work someone asked Ryker to carry out in a repository. Each one runs in its own
 workspace and ends in a pull request; the episodes below are its individual turns.</p>
 {{template "roomtable" .Tasks}}
 {{end}}
@@ -132,7 +132,7 @@ workspace and ends in a pull request; the episodes below are its individual turn
 <h2>Episodes <span class="note">{{.Total}} recorded{{if .Episodes}}, showing {{.From}}–{{.To}}{{end}}</span></h2>
 {{if .Episodes}}
 {{template "episoderows" .Episodes}}
-{{else}}<p class="empty-state">No episodes yet. One appears the first time Responder accepts work
+{{else}}<p class="empty-state">No episodes yet. One appears the first time Ryker accepts work
 from Slack or a webhook.</p>{{end}}
 {{template "pager" .}}
 {{end}}
@@ -185,7 +185,7 @@ from Slack or a webhook.</p>{{end}}
 
 {{define "schedules"}}
 {{template "problems" .Errs}}
-<p class="note">Work Responder starts on its own, without anybody asking. Open one to see every
+<p class="note">Work Ryker starts on its own, without anybody asking. Open one to see every
 time it fired and what came of it.</p>
 {{if .Schedules}}
 <div class="rows">
@@ -204,13 +204,13 @@ time it fired and what came of it.</p>
   </a>
   {{end}}
 </div>
-{{else}}<p class="empty-state">Nothing is scheduled. Ask Responder in Slack to check something on a
+{{else}}<p class="empty-state">Nothing is scheduled. Ask Ryker in Slack to check something on a
 cadence — <span class="mono">/responder schedules</span> — and it will appear here.</p>{{end}}
 {{end}}
 
 {{define "channels"}}
 {{template "problems" .Errs}}
-<p class="note">Every channel Responder has a footprint in — configured, worked in, opened for an
+<p class="note">Every channel Ryker has a footprint in — configured, worked in, opened for an
 incident, or currently joined. The {{.Total}} here are not the whole workspace; a channel it has
 never been in is not its business.</p>
 {{range .Groups}}
@@ -250,7 +250,7 @@ never been in is not its business.</p>
   {{end}}
 </div>
 {{end}}
-{{if not .Groups}}<p class="empty-state">No channel has any Responder footprint yet.</p>{{end}}
+{{if not .Groups}}<p class="empty-state">No channel has any Ryker footprint yet.</p>{{end}}
 {{end}}
 
 {{define "failures"}}
@@ -369,9 +369,9 @@ never added together: one is an invoice and the other is arithmetic.</p>
   </div>
   {{end}}
 </div>
-{{else}}<p class="empty-state">No one has told Responder it got something wrong yet.</p>{{end}}
+{{else}}<p class="empty-state">No one has told Ryker it got something wrong yet.</p>{{end}}
 
-<h2>What Responder got right <span class="note">{{len .Praise}}</span></h2>
+<h2>What Ryker got right <span class="note">{{len .Praise}}</span></h2>
 {{if .Reacted}}
 <p class="note">{{.Praised}} of {{.Reacted}} graded reactions were praise ({{.PraisedPercent}}%).
 Each row links to the episode that earned it, kept whole as an example worth copying.</p>
@@ -389,7 +389,7 @@ Each row links to the episode that earned it, kept whole as an example worth cop
   </div>
   {{end}}
 </div>
-{{else}}<p class="empty-state">No positive reactions yet. A 👍, 🎉, ❤️ or 🔥 on a Responder reply
+{{else}}<p class="empty-state">No positive reactions yet. A 👍, 🎉, ❤️ or 🔥 on a Ryker reply
 lands here as an example of the target behaviour.</p>{{end}}
 
 <h2>Corrections waiting to become tests <span class="note">{{len .Corrections}} to decide{{if ne .Waiting (len .Corrections)}}, {{.Waiting}} recorded{{end}}</span></h2>
@@ -449,7 +449,7 @@ memory to prune — except the repository map, which every cross-repository turn
 which is pruned only by being rewritten.</p>
 
 <h2>Repository map <span class="note">{{len .Repositories}}</span></h2>
-<p class="note">Which part of the product lives in each repository. Responder maintains this
+<p class="note">Which part of the product lives in each repository. Ryker maintains this
 itself: an agent that reads a repository records what it found, replacing the sentence
 configuration started with. Mounts and pins are not shown here because they are not stored —
 they come from the session's own pins each turn, so the map cannot disagree with them.
@@ -460,7 +460,7 @@ fill it in.{{end}}</p>
 	  <tr><th>Repository</th><th>Source</th><th>Memory activity</th><th>Updated</th></tr>
 	  {{range .Repositories}}
 	  <tr><td><span class="cell-main mono id">{{.Repository}}</span><span class="cell-sub">{{if .Described}}{{.Contents}}{{else}}Not described yet{{end}}</span></td>
-	      <td class="note">{{if eq .Source "agent"}}Responder{{else if eq .Source "configured"}}Configuration{{else}}—{{end}}</td>
+	      <td class="note">{{if eq .Source "agent"}}Ryker{{else if eq .Source "configured"}}Configuration{{else}}—{{end}}</td>
 	      <td>{{if eq .Source "agent"}}<span class="cell-main mono">{{.Recalls}} recalled</span><span class="cell-sub">{{if .Rewrites}}{{.Rewrites}} revised{{else}}never revised{{end}}</span>{{else}}<span class="note">Not tracked</span>{{end}}</td>
 	      <td class="note">{{if eq .Source "agent"}}{{since .Updated}}{{else}}<span class="note">—</span>{{end}}</td></tr>
   {{end}}
@@ -477,7 +477,7 @@ fill it in.{{end}}</p>
 	      <td class="note">{{.Scope}}</td>
 	      <td><span class="cell-main mono">{{.Recalls}} recalled</span><span class="cell-sub">{{if .Recalls}}last {{since .LastRecalled}} · {{end}}{{if .Rewrites}}{{.Rewrites}} rewritten · {{.LastRewrite}}{{else}}never rewritten{{end}}</span></td>
 	      <td class="note">{{stamp .Expires}}</td>
-	      {{if $act}}<td class="cell-action">{{template "confirm" confirm "Forget" "The entry is deleted and the removal audited. Responder stops recalling it immediately." "Yes, forget it" "/actions/memory/forget" .ID}}</td>{{end}}</tr>
+	      {{if $act}}<td class="cell-action">{{template "confirm" confirm "Forget" "The entry is deleted and the removal audited. Ryker stops recalling it immediately." "Yes, forget it" "/actions/memory/forget" .ID}}</td>{{end}}</tr>
   {{end}}
 </table></div>
 {{else}}<p class="empty-state">Nothing saved.</p>{{end}}
@@ -543,7 +543,7 @@ individual conversations age out.</p>{{end}}
 {{template "problems" .Errs}}
 <p class="note">Everything here was asked for once, in Slack, and keeps applying to every turn
 after. None of it can be edited on this page: a standing instruction is changed by asking
-Responder for the replacement in the channel it belongs to, so a half-changed setting can never
+Ryker for the replacement in the channel it belongs to, so a half-changed setting can never
 be what runs tonight.</p>
 
 <div class="set-grid">
@@ -641,7 +641,7 @@ configuration file and never reached is a plan, so it is not listed here.</p>
 
 {{define "preferences"}}
 {{template "problems" .Errs}}
-<p class="note">How Responder answers, where it has been told to differ from the default.
+<p class="note">How Ryker answers, where it has been told to differ from the default.
 Each one was set by asking in Slack, and is changed the same way.</p>
 
 {{if .Preferences}}
@@ -666,14 +666,14 @@ without anything being deleted, which is why one that matters has to be renewed 
 assumed permanent.</p>
 {{else}}
 <p class="empty-state">No preference is set, so every channel uses the defaults: answer where the
-message was, at standard detail, with a standard health check. Ask Responder in a channel to
+message was, at standard detail, with a standard health check. Ask Ryker in a channel to
 change one there.</p>
 {{end}}
 {{end}}
 
 {{define "rules"}}
 {{template "problems" .Errs}}
-<p class="note">Work Responder starts without being addressed. A rule watches one channel for
+<p class="note">Work Ryker starts without being addressed. A rule watches one channel for
 one kind of event and responds to every match, which makes it the configuration that costs the
 most and is read the least.</p>
 
@@ -698,7 +698,7 @@ most and is read the least.</p>
 and returning silence. Open it to see what it decided each time, then either sharpen what it
 matches or remove it.</p>
 {{else}}
-<p class="empty-state">No standing rule is set, so Responder starts nothing on its own in any
+<p class="empty-state">No standing rule is set, so Ryker starts nothing on its own in any
 channel. Ask it in a channel to watch for something there.</p>
 {{end}}
 {{end}}
@@ -735,7 +735,7 @@ it. Clearing the shadow flag is not a control on this page, and not a Slack butt
 Create, pause and delete one with <span class="mono">/responder assignments</span> in its
 channel.</p>
 {{else}}
-<p class="empty-state">No standing assignment exists, so Responder opens no pull request anywhere
+<p class="empty-state">No standing assignment exists, so Ryker opens no pull request anywhere
 without being asked for that one. Create one with <span class="mono">/responder assignments
 create</span> in the channel it should watch.</p>
 {{end}}
@@ -755,7 +755,7 @@ create</span> in the channel it should watch.</p>
   {{if .Actor}}<div class="meta-field"><span>Set up by</span><strong>{{.Actor}}{{if not .Created.IsZero}} · {{since .Created}}{{end}}</strong></div>{{end}}
 </section>
 
-<p class="note">To change what this matches or remove it, ask Responder in {{.Channel}}. A rule
+<p class="note">To change what this matches or remove it, ask Ryker in {{.Channel}}. A rule
 has no edit in place: a replacement is proposed, you confirm it, and this one is removed.</p>
 
 <h2>Firings <span class="note">{{len .Firings}}</span></h2>
@@ -883,7 +883,7 @@ amounts are never added together.{{end}}</p>
   <div class="metric"><div class="n">{{.Host}}</div><div class="k">host noticing it finished</div></div>
 </div>
 <p class="note">{{exact .TimedTurns}} timed turns, {{.Total}} of wall clock in all. Queued means
-a busy session or an exhausted ladder, provider is the model working, and host is Responder's own
+a busy session or an exhausted ladder, provider is the model working, and host is Ryker's own
 polling gap — the one span it can fix alone.</p>
 {{else}}{{template "unwired" $.Latency}}{{end}}
 {{end}}

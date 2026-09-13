@@ -28,8 +28,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/store/sqlutil"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/store/sqlutil"
 )
 
 // auditKind is the kind every receipt carries. The Decisions page reads it back
@@ -142,7 +142,7 @@ func (r *Repository) Record(
 	_, err := r.db.ExecContext(ctx, `
 		INSERT INTO audit_events
 		  (id, kind, actor_id, object_id, outcome, detail, created_at)
-		VALUES ('fixpromo_' || ?, ?, 'responder', ?, ?, ?, ?)
+		VALUES ('fixpromo_' || ?, ?, 'ryker', ?, ?, ?, ?)
 		ON CONFLICT(id) DO NOTHING`,
 		candidateID, auditKind, candidateID, outcome,
 		sqlutil.BoundedError(episodeID+": "+detail), sqlutil.TimeText(now),

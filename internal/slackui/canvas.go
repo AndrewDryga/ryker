@@ -9,7 +9,7 @@ import (
 )
 
 // canvasTitleLimit bounds the document's name. Slack states no limit for it,
-// and the titles Responder generates carry an incident title a person typed —
+// and the titles Ryker generates carry an incident title a person typed —
 // which is unbounded. 250 is the length past which no title is being read.
 const canvasTitleLimit = 250
 
@@ -23,7 +23,7 @@ const canvasTitleLimit = 250
 //   - files.info is the only place the canvas's URL is stated. A canvas is a
 //     file — canvases.create answers with a file id — and no Slack
 //     documentation gives a permalink that could be assembled from that id, so
-//     Responder asks for the URL rather than guessing at one. A guessed link
+//     Ryker asks for the URL rather than guessing at one. A guessed link
 //     that 404s is worse than no canvas at all, because the card would still
 //     claim the report is over there.
 //   - canvases.access.set is what makes the document readable by the room that

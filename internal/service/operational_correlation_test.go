@@ -12,12 +12,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/config"
-	"github.com/AndrewDryga/responder/internal/core"
-	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
-	episodepkg "github.com/AndrewDryga/responder/internal/episode"
-	"github.com/AndrewDryga/responder/internal/slackui"
-	"github.com/AndrewDryga/responder/internal/store"
+	"github.com/AndrewDryga/ryker/internal/config"
+	"github.com/AndrewDryga/ryker/internal/core"
+	decisionpkg "github.com/AndrewDryga/ryker/internal/decision"
+	episodepkg "github.com/AndrewDryga/ryker/internal/episode"
+	"github.com/AndrewDryga/ryker/internal/slackui"
+	"github.com/AndrewDryga/ryker/internal/store"
 )
 
 func TestOperationalCorrelationKeyTracksAlertLifecycle(t *testing.T) {
@@ -153,7 +153,7 @@ func TestQueuedOperationalRunAdoptsTheWatchSessionPoolBeforeSubmission(t *testin
 		t.Fatalf("legacy queued run session channel = %q", state.SessionChannelID)
 	}
 	if len(coopClient.createKeys) != 1 ||
-		!strings.HasPrefix(coopClient.createKeys[0], "responder:watch-session:watch-shard:CWATCH:") {
+		!strings.HasPrefix(coopClient.createKeys[0], "ryker:watch-session:watch-shard:CWATCH:") {
 		t.Fatalf("legacy queued run create keys = %v", coopClient.createKeys)
 	}
 }
@@ -2334,7 +2334,7 @@ func TestARecoveredStreamStaysOpenForItsWindow(t *testing.T) {
 
 // The hold is for streams that were live, not for every recovery card.
 //
-// A RESOLVED notice for something Responder never investigated is the end of a
+// A RESOLVED notice for something Ryker never investigated is the end of a
 // conversation it was not having. Holding an episode open for it would keep a
 // wakeup, a session and an episode alive for six hours over a card that said
 // nothing was wrong.

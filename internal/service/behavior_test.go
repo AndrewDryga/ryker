@@ -9,16 +9,16 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/alertstream"
-	behaviorofferpkg "github.com/AndrewDryga/responder/internal/behavioroffer"
-	"github.com/AndrewDryga/responder/internal/core"
-	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
-	"github.com/AndrewDryga/responder/internal/offerreason"
-	operatorofferspkg "github.com/AndrewDryga/responder/internal/operatoroffers"
-	"github.com/AndrewDryga/responder/internal/sessioncreate"
-	"github.com/AndrewDryga/responder/internal/slackui"
-	"github.com/AndrewDryga/responder/internal/standingrule"
-	"github.com/AndrewDryga/responder/internal/store"
+	"github.com/AndrewDryga/ryker/internal/alertstream"
+	behaviorofferpkg "github.com/AndrewDryga/ryker/internal/behavioroffer"
+	"github.com/AndrewDryga/ryker/internal/core"
+	decisionpkg "github.com/AndrewDryga/ryker/internal/decision"
+	"github.com/AndrewDryga/ryker/internal/offerreason"
+	operatorofferspkg "github.com/AndrewDryga/ryker/internal/operatoroffers"
+	"github.com/AndrewDryga/ryker/internal/sessioncreate"
+	"github.com/AndrewDryga/ryker/internal/slackui"
+	"github.com/AndrewDryga/ryker/internal/standingrule"
+	"github.com/AndrewDryga/ryker/internal/store"
 )
 
 func TestBehaviorOffersRequireExplicitTypedOperatorIntent(t *testing.T) {
@@ -140,7 +140,7 @@ func TestNaturalThreadPreferenceOverridesUnsupportedModelReplyAndRoutesFutureTur
 	slackClient := &fakeSlack{}
 	coopClient := newFakeCoop()
 	coopClient.completeQueue = []string{
-		`{"action":"reply","attention":{"addressee":"responder","confidence":3,"ownership":2,"contribution":"decision","material":true},"reason":"direct preference request","operations":[{"id":"ev-1","type":"record_evidence","evidence":{"claim_id":"task.requested_outcome","claim":"preference unsupported","observation":"no setting exists","source_type":"other","source_name":"model","target":"Responder","confidence":"low"}},{"id":"complete","type":"complete_episode","completion":{"message":"That durable setting is not supported."}}]}`,
+		`{"action":"reply","attention":{"addressee":"responder","confidence":3,"ownership":2,"contribution":"decision","material":true},"reason":"direct preference request","operations":[{"id":"ev-1","type":"record_evidence","evidence":{"claim_id":"task.requested_outcome","claim":"preference unsupported","observation":"no setting exists","source_type":"other","source_name":"model","target":"Ryker","confidence":"low"}},{"id":"complete","type":"complete_episode","completion":{"message":"That durable setting is not supported."}}]}`,
 		`{"action":"reply","attention":{"addressee":"responder","confidence":3,"ownership":2,"contribution":"decision","material":true},"reason":"direct follow-up","operations":[{"id":"complete","type":"complete_episode","completion":{"message":"I remembered the thread preference."}}]}`,
 	}
 	svc := New(
@@ -1010,7 +1010,7 @@ func TestDiscardedPersistedWatchSessionRotatesWithoutFailureNotice(t *testing.T)
 	slackClient := &fakeSlack{}
 	coopClient := newFakeCoop()
 	coopClient.session.State = "discarded"
-	coopClient.openAfterCreateKey = "responder:watch-session:COPS:2"
+	coopClient.openAfterCreateKey = "ryker:watch-session:COPS:2"
 	svc := New(
 		cfg, st, coopClient, slackClient, nil,
 		slackui.NewSanitizer(12000), nil,
@@ -1046,7 +1046,7 @@ func TestCreateWatchSessionRefreshesStaleCreateReplay(t *testing.T) {
 	coopClient := newFakeCoop()
 	coopClient.session.State = "discarded"
 	coopClient.createResultState = "open"
-	coopClient.openAfterCreateKey = "responder:watch-session:COPS:2"
+	coopClient.openAfterCreateKey = "ryker:watch-session:COPS:2"
 	svc := New(cfg, st, coopClient, &fakeSlack{}, nil, slackui.NewSanitizer(12000), nil)
 
 	session, generation, err := svc.createWatchSession(
@@ -1059,8 +1059,8 @@ func TestCreateWatchSessionRefreshesStaleCreateReplay(t *testing.T) {
 		t.Fatalf("refreshed session = %+v generation=%d", session, generation)
 	}
 	if len(coopClient.createKeys) != 2 ||
-		coopClient.createKeys[0] != "responder:watch-session:COPS" ||
-		coopClient.createKeys[1] != "responder:watch-session:COPS:2" {
+		coopClient.createKeys[0] != "ryker:watch-session:COPS" ||
+		coopClient.createKeys[1] != "ryker:watch-session:COPS:2" {
 		t.Fatalf("create keys = %v", coopClient.createKeys)
 	}
 }
@@ -1121,10 +1121,10 @@ func TestMentionOnlyFollowupNudgesExistingWork(t *testing.T) {
 
 func TestWatchTurnIdempotencyKeyTracksReplacementGeneration(t *testing.T) {
 	const inputID = "slack_once"
-	if got := watchTurnIdempotencyKey(inputID, 1); got != "responder:watch-turn:"+inputID {
+	if got := watchTurnIdempotencyKey(inputID, 1); got != "ryker:watch-turn:"+inputID {
 		t.Fatalf("generation one key = %q", got)
 	}
-	if got := watchTurnIdempotencyKey(inputID, 2); got != "responder:watch-turn:"+inputID+":2" {
+	if got := watchTurnIdempotencyKey(inputID, 2); got != "ryker:watch-turn:"+inputID+":2" {
 		t.Fatalf("generation two key = %q", got)
 	}
 }
@@ -1226,7 +1226,7 @@ func TestConfirmedPreferenceReachesFutureHealthPrompt(t *testing.T) {
 	finishQueuedAgentRun(t, ctx, svc)
 	prompt := coopClient.submitPrompts[len(coopClient.submitPrompts)-1]
 	for _, expected := range []string{
-		"<trusted-responder-preferences>",
+		"<trusted-ryker-preferences>",
 		`"name":"health_check_depth"`,
 		`"value":"deep"`,
 		"Do not stop after an easy healthy",
@@ -1430,7 +1430,7 @@ func TestStandingRuleRunsWithProactiveOffAndRecordsOneExecution(t *testing.T) {
 	}
 	lastPrompt := coopClient.submitPrompts[len(coopClient.submitPrompts)-1]
 	for _, expected := range []string{
-		"<trusted-responder-standing-rules>",
+		"<trusted-ryker-standing-rules>",
 		rule.ID,
 		"review_terraform_plan",
 		"read_only",
@@ -1966,7 +1966,7 @@ func TestWatchedAppCardShowsEyesThenCheckWithoutStandingRule(t *testing.T) {
 	}
 }
 
-// Internal Utils was genuinely down for eight minutes. Responder found the
+// Internal Utils was genuinely down for eight minutes. Ryker found the
 // deregistered Nomad job and recorded the decision, but a stale shadow row won
 // over the channel's confirmed proactive + reply setup and no Slack message
 // was delivered. This exercises the whole input -> model result -> Slack reply

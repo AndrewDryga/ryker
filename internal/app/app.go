@@ -19,19 +19,19 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/config"
-	"github.com/AndrewDryga/responder/internal/coop"
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/emisar"
-	"github.com/AndrewDryga/responder/internal/httpapi"
-	"github.com/AndrewDryga/responder/internal/publisher"
-	"github.com/AndrewDryga/responder/internal/repomirror"
-	"github.com/AndrewDryga/responder/internal/service"
-	"github.com/AndrewDryga/responder/internal/slackui"
-	"github.com/AndrewDryga/responder/internal/store"
+	"github.com/AndrewDryga/ryker/internal/config"
+	"github.com/AndrewDryga/ryker/internal/coop"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/emisar"
+	"github.com/AndrewDryga/ryker/internal/httpapi"
+	"github.com/AndrewDryga/ryker/internal/publisher"
+	"github.com/AndrewDryga/ryker/internal/repomirror"
+	"github.com/AndrewDryga/ryker/internal/service"
+	"github.com/AndrewDryga/ryker/internal/slackui"
+	"github.com/AndrewDryga/ryker/internal/store"
 )
 
-var errProcessLocked = errors.New("another Responder process owns this state directory")
+var errProcessLocked = errors.New("another Ryker process owns this state directory")
 
 // shutdownGrace bounds the whole ordered shutdown: drain HTTP, then drain the
 // service workers before the deferred store and Coop teardown runs.
@@ -84,7 +84,7 @@ func Run(args []string, stdout, stderr io.Writer, buildVersion string) error {
 		printHelp(stdout)
 		return nil
 	default:
-		return fmt.Errorf("unknown command %q (run responder help)", args[0])
+		return fmt.Errorf("unknown command %q (run ryker help)", args[0])
 	}
 }
 
@@ -203,7 +203,7 @@ func runServe(args []string, stdout, stderr io.Writer) (resultErr error) {
 	serverStopped := make(chan error, 1)
 	go func() { serviceStopped <- svc.Run(ctx) }()
 	go func() { serverStopped <- server.Serve(listener) }()
-	fmt.Fprintf(stdout, "Responder listening on http://%s\n", listener.Addr())
+	fmt.Fprintf(stdout, "Ryker listening on http://%s\n", listener.Addr())
 
 	select {
 	case <-ctx.Done():
@@ -262,7 +262,7 @@ func runDoctor(args []string, stdout, stderr io.Writer) (resultErr error) {
 		return err
 	}
 	checks := map[string]string{"config": "ok"}
-	// Doctor verifies the bootstrap files whether or not Responder supervises
+	// Doctor verifies the bootstrap files whether or not Ryker supervises
 	// Coop, and proves a box can actually start. Serve does neither: it repairs
 	// a missing image on demand instead of refusing to start over it.
 	pre := newPreflight(cfg)
@@ -277,23 +277,23 @@ func runDoctor(args []string, stdout, stderr io.Writer) (resultErr error) {
 	logger := newLogger(stderr, cfg.LogLevel)
 	lock, lockErr := acquireProcessLock(cfg.StateDir)
 	var st *store.Store
-	responderStatus := "not running (configuration checks only)"
+	rykerStatus := "not running (configuration checks only)"
 	switch {
 	case lockErr == nil:
 		st, err = store.Open(cfg.StateDir)
 	case errors.Is(lockErr, errProcessLocked):
 		st, err = store.OpenCurrent(cfg.StateDir)
 		readyCtx, readyCancel := context.WithTimeout(context.Background(), 3*time.Second)
-		readyErr := probeResponderReady(readyCtx, cfg.Listen)
+		readyErr := probeRykerReady(readyCtx, cfg.Listen)
 		readyCancel()
 		if readyErr != nil {
 			return fmt.Errorf(
-				"Responder owns the state directory but is not serving on %s: %w",
+				"Ryker owns the state directory but is not serving on %s: %w",
 				cfg.Listen,
 				readyErr,
 			)
 		}
-		responderStatus = "serving"
+		rykerStatus = "serving"
 	default:
 		err = lockErr
 	}
@@ -308,7 +308,7 @@ func runDoctor(args []string, stdout, stderr io.Writer) (resultErr error) {
 	}
 	releaseProcessLock(lock)
 	checks["database"] = "ok"
-	checks["responder"] = responderStatus
+	checks["ryker"] = rykerStatus
 	coopClient := coop.New(cfg.Coop.Socket, cfg.Coop.RequestTimeout.Duration)
 	supervisor, supervision, err := startDoctorCoop(
 		cfg, stderr, logger, coopClient,
@@ -357,7 +357,7 @@ func runDoctor(args []string, stdout, stderr io.Writer) (resultErr error) {
 	}
 	fmt.Fprintln(stdout, "config          ok")
 	fmt.Fprintln(stdout, "database        ok")
-	fmt.Fprintf(stdout, "Responder       %s\n", responderStatus)
+	fmt.Fprintf(stdout, "Ryker       %s\n", rykerStatus)
 	fmt.Fprintf(stdout, "Coop            ready (%s)\n", checks["coop_supervision"])
 	fmt.Fprintln(stdout, "Slack           authenticated; scopes and Socket Mode ready")
 	fmt.Fprintf(stdout, "Operators       %d full workspace members\n", slackReport.OperatorCount)
@@ -392,7 +392,7 @@ func runDoctor(args []string, stdout, stderr io.Writer) (resultErr error) {
 }
 
 // managedRepositoryReport is doctor's answer to "how old is the code the model
-// reads, and could Responder refresh it if it had to".
+// reads, and could Ryker refresh it if it had to".
 //
 // Three facts per repository, because three different things go wrong and they
 // look identical from outside: the clone may not be there, it may be there and
@@ -422,7 +422,7 @@ func managedRepositoryReport(
 		switch {
 		case !status.Present:
 			lines = append(lines, fmt.Sprintf(
-				"%s NOT CLONED — run `responder bootstrap-coop`", slug,
+				"%s NOT CLONED — run `ryker bootstrap-coop`", slug,
 			))
 			continue
 		case status.Stale:
@@ -470,7 +470,7 @@ func fetchAge(at time.Time) string {
 	return time.Since(at).Round(time.Second).String()
 }
 
-func probeResponderReady(ctx context.Context, listen string) error {
+func probeRykerReady(ctx context.Context, listen string) error {
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+listen+"/readyz", nil)
 	if err != nil {
 		return err
@@ -626,7 +626,7 @@ func runRetry(args []string, stdout, stderr io.Writer) error {
 	}
 	if flags.NArg() != 2 {
 		return errors.New(
-			"usage: responder retry [--config path] " +
+			"usage: ryker retry [--config path] " +
 				"<webhook|slack|delivery|agent_run> <id>",
 		)
 	}
@@ -639,7 +639,7 @@ func runRetry(args []string, stdout, stderr io.Writer) error {
 	}
 	lock, err := acquireProcessLock(cfg.StateDir)
 	if err != nil {
-		return fmt.Errorf("stop Responder before retrying work: %w", err)
+		return fmt.Errorf("stop Ryker before retrying work: %w", err)
 	}
 	defer releaseProcessLock(lock)
 	st, err := store.Open(cfg.StateDir)
@@ -677,7 +677,7 @@ func runtimeSecrets(cfg config.Config) (map[string]string, string, string, error
 }
 
 func acquireProcessLock(stateDir string) (*os.File, error) {
-	path := filepath.Join(stateDir, "responder.lock")
+	path := filepath.Join(stateDir, "ryker.lock")
 	file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {
 		return nil, fmt.Errorf("open process lock: %w", err)
@@ -704,9 +704,9 @@ func releaseProcessLock(file *os.File) {
 func defaultConfigPath() string {
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return "responder.yaml"
+		return "ryker.yaml"
 	}
-	return filepath.Join(home, ".config", "responder", "responder.yaml")
+	return filepath.Join(home, ".config", "ryker", "ryker.yaml")
 }
 
 func newLogger(output io.Writer, level string) *slog.Logger {
@@ -730,35 +730,35 @@ func yesNo(value bool) string {
 }
 
 func printHelp(output io.Writer) {
-	fmt.Fprintln(output, `Responder is a Slack-native engineering and operations teammate backed by isolated Coop sessions and governed Emisar access.
+	fmt.Fprintln(output, `Ryker is a Slack-native engineering and operations teammate backed by isolated Coop sessions and governed Emisar access.
 
 Usage:
-  responder serve          Run Slack, webhook, and Coop reconciliation
-  responder doctor         Verify local state, Coop, Slack, and the Emisar MCP tool catalog
-  responder bootstrap-coop Write private Coop MCP, environment, and instruction files
-  responder status         List durable incidents
-  responder failures       List terminal durable work
-  responder retry          Requeue one failed work item while Responder is stopped
-  responder replay slack   Privately reprocess a saved Slack message; --publish sends the result
-  responder eval           Run the real configured model against the evaluation corpus
-  responder eval-baseline  Record a committed quality baseline from a run that already happened
-  responder record-episode Turn a completed episode into a sanitized replay fixture
-  responder promote-fixtures
+  ryker serve          Run Slack, webhook, and Coop reconciliation
+  ryker doctor         Verify local state, Coop, Slack, and the Emisar MCP tool catalog
+  ryker bootstrap-coop Write private Coop MCP, environment, and instruction files
+  ryker status         List durable incidents
+  ryker failures       List terminal durable work
+  ryker retry          Requeue one failed work item while Ryker is stopped
+  ryker replay slack   Privately reprocess a saved Slack message; --publish sends the result
+  ryker eval           Run the real configured model against the evaluation corpus
+  ryker eval-baseline  Record a committed quality baseline from a run that already happened
+  ryker record-episode Turn a completed episode into a sanitized replay fixture
+  ryker promote-fixtures
                            Write approved corrections into the regression corpus
-  responder migration-check
-  responder correction-rate
-  responder lifecycle-divergence
+  ryker migration-check
+  ryker correction-rate
+  ryker lifecycle-divergence
                            Report how often the host had to correct the model
-  responder audition       Report which model earned which lane: correction rate and cost
+  ryker audition       Report which model earned which lane: correction rate and cost
                            from live traffic, gate-pass and judge score from recorded runs
-  responder audit-result-protocol
+  ryker audit-result-protocol
                            Replay stored results to measure the legacy fallback path
-  responder backfill-outcomes
+  ryker backfill-outcomes
                            Project finished episodes that predate the recall corpus into it.
-                           Migrates and writes, so stop Responder first; --dry-run previews
+                           Migrates and writes, so stop Ryker first; --dry-run previews
                            against a copy and reports how many rows fall back to a weaker
                            symptom than the operator's own words
-  responder version        Print the build version
+  ryker version        Print the build version
 
-Every command accepts --help. The default config is ~/.config/responder/responder.yaml.`)
+Every command accepts --help. The default config is ~/.config/ryker/ryker.yaml.`)
 }

@@ -3,7 +3,7 @@ package alertstream
 import (
 	"strings"
 
-	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
+	decisionpkg "github.com/AndrewDryga/ryker/internal/decision"
 )
 
 // AnsweredPrompt tells the model what this stream has already been told, so
@@ -31,7 +31,7 @@ func AnsweredPrompt(state decisionpkg.WatchTurnState) string {
 		action = "none recorded"
 	}
 	return "\n\n<host-stream-answered>\n" +
-		"Responder already answered this alert stream in this thread at " + at +
+		"Ryker already answered this alert stream in this thread at " + at +
 		": verdict " + verdict + "; recommended action: " + action + ".\n" +
 		"Reply only if the verdict, the impact, or the recommended action has changed since " +
 		"then, and lead with the change. A card that restates the same condition — a threshold " +

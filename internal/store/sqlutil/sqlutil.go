@@ -16,7 +16,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/ryker/internal/core"
 )
 
 // ParseTime reads a stored timestamp, returning the zero time for anything

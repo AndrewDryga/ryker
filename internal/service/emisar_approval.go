@@ -7,14 +7,14 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/changeledger"
-	"github.com/AndrewDryga/responder/internal/core"
-	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
-	"github.com/AndrewDryga/responder/internal/emisar"
-	"github.com/AndrewDryga/responder/internal/remediation"
-	"github.com/AndrewDryga/responder/internal/slackui"
-	"github.com/AndrewDryga/responder/internal/store"
-	"github.com/AndrewDryga/responder/internal/store/approvalstore"
+	"github.com/AndrewDryga/ryker/internal/changeledger"
+	"github.com/AndrewDryga/ryker/internal/core"
+	decisionpkg "github.com/AndrewDryga/ryker/internal/decision"
+	"github.com/AndrewDryga/ryker/internal/emisar"
+	"github.com/AndrewDryga/ryker/internal/remediation"
+	"github.com/AndrewDryga/ryker/internal/slackui"
+	"github.com/AndrewDryga/ryker/internal/store"
+	"github.com/AndrewDryga/ryker/internal/store/approvalstore"
 )
 
 func (s *Service) seedEmisarApprovalWork(ctx context.Context) error {
@@ -192,7 +192,7 @@ func (s *Service) finishTerminalEmisarApproval(
 	); err != nil {
 		return err
 	}
-	// A mutation Responder itself supervised to terminal success is a change,
+	// A mutation Ryker itself supervised to terminal success is a change,
 	// and the ledger is the only place that fact survives the approval row.
 	// Logged rather than returned on failure: the ledger is an addition to work
 	// that has already happened, so losing a row must not strand a completed

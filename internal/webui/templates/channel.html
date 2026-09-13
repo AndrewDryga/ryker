@@ -115,7 +115,7 @@ configuration. Clearing an override restores whatever it was hiding.</p>
   {{end}}
 </div>
 <p class="note"><a href="/episodes?channel={{.ID}}">every episode in this channel →</a></p>
-{{else}}<p class="empty-state">No recorded work. Responder writes an episode here the first time it
+{{else}}<p class="empty-state">No recorded work. Ryker writes an episode here the first time it
 answers, reacts to an alert, or runs a scheduled task in this channel.</p>{{end}}
 
 {{if .Tasks}}
@@ -138,7 +138,7 @@ answers, reacts to an alert, or runs a scheduled task in this channel.</p>{{end}
 
 {{if .Threads}}
 <h2>Conversations it remembers <span class="note">{{len .Threads}}</span></h2>
-<p class="note">One memory per thread, plus the channel's own. Each is what Responder would carry
+<p class="note">One memory per thread, plus the channel's own. Each is what Ryker would carry
 into the next turn there.</p>
 <div class="rows">
   {{range .Threads}}

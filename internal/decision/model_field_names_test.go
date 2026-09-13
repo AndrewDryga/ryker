@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
-	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
-	"github.com/AndrewDryga/responder/internal/evidencepolicy"
+	decisionpkg "github.com/AndrewDryga/ryker/internal/decision"
+	"github.com/AndrewDryga/ryker/internal/evidencepolicy"
 )
 
 // Both of these are the exact shapes a real model returned on the promoted

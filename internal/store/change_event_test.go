@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/ryker/internal/core"
 )
 
 // publishedTask sets up an incident with a published pull request and a
@@ -24,7 +24,7 @@ func publishedTask(t *testing.T, st *Store, now time.Time) (core.Incident, core.
 	}
 	if err := st.SavePublication(ctx, core.Publication{
 		IncidentID: incident.ID, Repository: "owner/blitz-infra", BaseBranch: "main",
-		HeadBranch: "responder/reduce-redis", ParentHead: "parent", CandidateTree: "tree",
+		HeadBranch: "ryker/reduce-redis", ParentHead: "parent", CandidateTree: "tree",
 		CommitSHA: "commit", RemoteSHA: "0123456789abcdef", PRNumber: 493,
 		PRURL: "https://github.example/owner/blitz-infra/pull/493",
 		State: "published", PublishedAt: now,
@@ -41,7 +41,7 @@ func publishedTask(t *testing.T, st *Store, now time.Time) (core.Incident, core.
 	return incident, followup
 }
 
-// A merge Responder itself published is a change, and it is ledgered by the
+// A merge Ryker itself published is a change, and it is ledgered by the
 // transaction that records the merge rather than by a caller remembering to.
 //
 // Written afterwards the change event could simply be absent, and that failure

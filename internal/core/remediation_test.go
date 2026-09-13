@@ -38,7 +38,7 @@ func TestRemediationTimelineProjectsCanonicalLifecycleOnce(t *testing.T) {
 			CreatedAt:   at(12), TerminalAt: at(20),
 		}},
 		Publication: Publication{
-			IncidentID: "inc_1", Repository: "infra", HeadBranch: "responder/fix",
+			IncidentID: "inc_1", Repository: "infra", HeadBranch: "ryker/fix",
 			State: "published", PRNumber: 42, PRURL: "https://github.example/pull/42",
 			CommitSHA: "abc123", CreatedAt: at(35), PublishedAt: at(40),
 		},

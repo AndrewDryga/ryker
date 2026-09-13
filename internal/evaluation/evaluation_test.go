@@ -10,11 +10,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/agentprompt"
-	"github.com/AndrewDryga/responder/internal/alertstream"
-	"github.com/AndrewDryga/responder/internal/coop"
-	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
-	"github.com/AndrewDryga/responder/internal/slackui"
+	"github.com/AndrewDryga/ryker/internal/agentprompt"
+	"github.com/AndrewDryga/ryker/internal/alertstream"
+	"github.com/AndrewDryga/ryker/internal/coop"
+	decisionpkg "github.com/AndrewDryga/ryker/internal/decision"
+	"github.com/AndrewDryga/ryker/internal/slackui"
 )
 
 func TestGoldenEvaluationCorpus(t *testing.T) {
@@ -51,7 +51,7 @@ func TestEvaluationRendersEmisarRunbookResultAndScheduleSurface(t *testing.T) {
 	}`
 	message, action, err := renderEvaluationMessage(cfg, EvaluationCase{
 		Kind: "watch", Input: "Schedule a daily deep health review around 9 am and create a reusable runbook.",
-		MentionsResponder: true, Repository: "repo",
+		MentionsRyker: true, Repository: "repo",
 	}, output)
 	// Supersedes the flat-Actions form: the schedule's confirmation is attached
 	// to the proposal row it confirms.
@@ -168,7 +168,7 @@ func TestEvaluationRejectsPrematureDeepCompletion(t *testing.T) {
 	cfg := serviceConfig(t)
 	base := EvaluationCase{
 		Name: "deep completion", Kind: "watch",
-		Input: "Give me a deep production health assessment", MentionsResponder: true,
+		Input: "Give me a deep production health assessment", MentionsRyker: true,
 		RequireCompletion:    true,
 		WantCompletionStatus: "decision_ready",
 		Output: `{
@@ -205,7 +205,7 @@ func TestEvaluationRejectsUnsubstantiatedDeepWorkBlocker(t *testing.T) {
 	cfg := serviceConfig(t)
 	testCase := EvaluationCase{
 		Name: "unfinished investigation", Kind: "watch",
-		Input: "Give me a deep production health assessment", MentionsResponder: true,
+		Input: "Give me a deep production health assessment", MentionsRyker: true,
 		Output: `{
 			"action":"reply",
 			"message":"Application health still needs investigation.",
@@ -263,7 +263,7 @@ func TestLiveEvaluationPromptCarriesProductionWorkContract(t *testing.T) {
 	cfg := serviceConfig(t)
 	prompt, err := liveEvaluationPrompt(cfg, EvaluationCase{
 		Name: "deep health", Kind: "watch", Repository: "repo",
-		Input: "Give me a deep production health assessment", MentionsResponder: true,
+		Input: "Give me a deep production health assessment", MentionsRyker: true,
 	}, "repo", "eval_contract")
 	if err != nil {
 		t.Fatal(err)
@@ -616,7 +616,7 @@ func TestLiveEvaluationContextPreservesMessagesAfterTarget(t *testing.T) {
 func TestAThreadSurroundCaseReachesThePromptAsAThreadTurn(t *testing.T) {
 	cfg := serviceConfig(t)
 	testCase := EvaluationCase{
-		Kind: "watch", Input: "see in the channel above", MentionsResponder: true,
+		Kind: "watch", Input: "see in the channel above", MentionsRyker: true,
 		RecentMessages: []EvaluationMessage{{
 			SenderType: "human", SenderRole: "operator", Text: "<@UEVALBOT>",
 		}},
@@ -649,7 +649,7 @@ func TestAThreadSurroundCaseReachesThePromptAsAThreadTurn(t *testing.T) {
 	}
 }
 
-func TestLiveEvaluationContextPreservesResponderMessages(t *testing.T) {
+func TestLiveEvaluationContextPreservesRykerMessages(t *testing.T) {
 	cfg := serviceConfig(t)
 	_, recent, _, err := liveEvaluationWatchContext(
 		EvaluationCase{
@@ -659,7 +659,7 @@ func TestLiveEvaluationContextPreservesResponderMessages(t *testing.T) {
 				Text:       "I fixed the formatting and reran the check.",
 			}},
 		},
-		"eval_responder_context",
+		"eval_ryker_context",
 		cfg.Slack.Operators[0],
 	)
 	if err != nil {
@@ -667,18 +667,18 @@ func TestLiveEvaluationContextPreservesResponderMessages(t *testing.T) {
 	}
 	if len(recent) != 2 || recent[0].SenderType != "responder" ||
 		recent[0].SenderID != "UEVALBOT" || recent[0].Target {
-		t.Fatalf("responder evaluation context = %+v", recent)
+		t.Fatalf("ryker evaluation context = %+v", recent)
 	}
 }
 
 func TestLiveEvaluationScoresHostValidatedEvidenceAndOffers(t *testing.T) {
 	cfg := serviceConfig(t)
 	memberPreference := EvaluationCase{
-		Name:              "member preference",
-		Kind:              "watch",
-		Input:             "Remember that health checks should be deep.",
-		SenderRole:        "member",
-		MentionsResponder: true,
+		Name:          "member preference",
+		Kind:          "watch",
+		Input:         "Remember that health checks should be deep.",
+		SenderRole:    "member",
+		MentionsRyker: true,
 		Output: `{
 		  "action":"reply",
 		  "message":"I can save that.",
@@ -748,10 +748,10 @@ func TestLiveEvaluationPromptIncludesConfirmedBehaviorContext(t *testing.T) {
 	prompt, err := liveEvaluationPrompt(
 		cfg,
 		EvaluationCase{
-			Name:              "trusted behavior",
-			Kind:              "watch",
-			Input:             "Check this Terraform plan.",
-			MentionsResponder: true,
+			Name:          "trusted behavior",
+			Kind:          "watch",
+			Input:         "Check this Terraform plan.",
+			MentionsRyker: true,
 			Memories: []EvaluationMemory{{
 				Scope: "workspace:TWORKSPACE", Subject: "fix_explanation_style",
 				Predicate: "guidance",
@@ -777,9 +777,9 @@ func TestLiveEvaluationPromptIncludesConfirmedBehaviorContext(t *testing.T) {
 	for _, expected := range []string{
 		`"predicate":"guidance"`,
 		"Start fix explanations with a plain-language summary.",
-		"<trusted-responder-preferences>",
+		"<trusted-ryker-preferences>",
 		`"name":"response_detail"`,
-		"<trusted-responder-standing-rules>",
+		"<trusted-ryker-standing-rules>",
 		`"id":"rule_eval"`,
 		`"repository":"repo"`,
 		`"safety":"read_only"`,
@@ -1292,7 +1292,7 @@ func TestEvaluationStructuredCorrectionUsesProductionContract(t *testing.T) {
 	cfg := serviceConfig(t)
 	testCase := EvaluationCase{
 		Name: "typed evidence", Kind: "watch", Input: "Check whether CI is green",
-		MentionsResponder: true, WantAction: "reply",
+		MentionsRyker: true, WantAction: "reply",
 	}
 	response := `{"action":"reply","operations":[{"id":"complete-1","type":"complete_episode","completion":{"message":"CI is green.","coverage":[{"layer":"change","claim_ids":[],"status":"healthy","detail":"checks passed"}],"completion":{"status":"decision_ready","summary":"CI is green"}}}]}`
 	correction := evaluationStructuredCorrection(

@@ -8,10 +8,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/coop"
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/slackui"
-	"github.com/AndrewDryga/responder/internal/store"
+	"github.com/AndrewDryga/ryker/internal/coop"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/slackui"
+	"github.com/AndrewDryga/ryker/internal/store"
 )
 
 // A turn that answers and remembers nothing. The Coop transcript is the only
@@ -47,7 +47,7 @@ const handoffMemoryResult = `{
 		"decisions":["Keep watching checkout p99 for the next deploy."]}}]
 }`
 
-// Covers: a rotated session's transcript is the richest continuity Responder
+// Covers: a rotated session's transcript is the richest continuity Ryker
 // has, and it evaporates at the rotation boundary. A model that spent thirty
 // turns investigating and never emitted update_memory used to hand its
 // successor a stale or empty summary, so the first post-rotation turn re-derived
@@ -83,7 +83,7 @@ func TestARotatedSessionHandsItsMemoryForward(t *testing.T) {
 	firstSession := coopClient.session.ID
 
 	// The next request rotates: one turn was taken and the cap is one.
-	coopClient.openAfterCreateKey = "responder:watch-session:CHANDOFF:2"
+	coopClient.openAfterCreateKey = "ryker:watch-session:CHANDOFF:2"
 	admitWatchedMention(t, ctx, st, cfg.Slack.TeamID, "handoff-2", "1700.802",
 		"CHANDOFF", "<@U999BOT> and now?")
 	if err := svc.processSlackInput(ctx); err != nil {
@@ -182,7 +182,7 @@ func TestAFreshlyRememberedSessionRotatesWithoutAHandoffTurn(t *testing.T) {
 	runWatchedMention(t, ctx, svc, st, "fresh-1", "1700.811", "CFRESH",
 		"<@U999BOT> is checkout latency still bad?")
 	firstSession := coopClient.session.ID
-	coopClient.openAfterCreateKey = "responder:watch-session:CFRESH:2"
+	coopClient.openAfterCreateKey = "ryker:watch-session:CFRESH:2"
 	runWatchedMention(t, ctx, svc, st, "fresh-2", "1700.812", "CFRESH",
 		"<@U999BOT> and now?")
 

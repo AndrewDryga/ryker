@@ -142,7 +142,7 @@ func TestClientHandsLongSessionCreationBackWithDurableOperation(t *testing.T) {
 
 // A repository refresh failed before any model turn for twenty consecutive attempts in production.
 // Coop's durable async failure must retain its retryable service-unavailable classification so
-// Responder can both show the preparation blocker and retry it.
+// Ryker can both show the preparation blocker and retry it.
 func TestRepositoryPreparationFailureRemainsRetryableAfterAsyncPolling(t *testing.T) {
 	socket := shortSocket(t)
 	listener, err := net.Listen("unix", socket)
@@ -256,14 +256,14 @@ func TestClientRecoversOperationByExactIdempotencyKey(t *testing.T) {
 	defer listener.Close()
 	server := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet || r.URL.Path != "/v1/operations" ||
-			r.URL.Query().Get("key") != "responder:run/with spaces" {
+			r.URL.Query().Get("key") != "ryker:run/with spaces" {
 			t.Fatalf("request = %s %s query=%q", r.Method, r.URL.Path, r.URL.RawQuery)
 		}
 		_, _ = w.Write([]byte(`{"id":"op_1","method":"SubmitTurn","state":"succeeded","resource_type":"turn","resource_id":"turn_1"}`))
 	})}
 	go server.Serve(listener)
 	defer server.Shutdown(context.Background())
-	op, err := New(socket, time.Second).OperationByKey(context.Background(), "responder:run/with spaces")
+	op, err := New(socket, time.Second).OperationByKey(context.Background(), "ryker:run/with spaces")
 	if err != nil || op.ResourceID != "turn_1" || op.ResourceType != "turn" {
 		t.Fatalf("operation = %+v, %v", op, err)
 	}
@@ -455,7 +455,7 @@ func TestClientBoundsTurnPromptAndPreservesInstructionsAndTarget(t *testing.T) {
 	}
 	for _, required := range []string{
 		"GOVERNING INSTRUCTIONS",
-		"<responder-context-elided>",
+		"<ryker-context-elided>",
 		"CURRENT TARGET: investigate the memory alert",
 	} {
 		if !strings.Contains(bounded, required) {
@@ -666,7 +666,7 @@ func shortSocket(t *testing.T) string {
 	return filepath.Join(dir, "c.sock")
 }
 
-// Retry classification decides whether Responder replays a Coop mutation, so
+// Retry classification decides whether Ryker replays a Coop mutation, so
 // it must not depend on matching an error message. A transport failure is
 // always retryable; an API error follows its status; anything else is not.
 func TestRetryableClassifiesByType(t *testing.T) {
@@ -754,16 +754,16 @@ func TestRevisionBearingMutationsFreezeTheirRequest(t *testing.T) {
 
 	client := New(socket, 5*time.Second)
 	ctx := context.Background()
-	if _, _, err := client.Cancel(ctx, "responder:stop:in_1", "s1", "turn_1", 7); err != nil {
+	if _, _, err := client.Cancel(ctx, "ryker:stop:in_1", "s1", "turn_1", 7); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := client.Extend(ctx, "responder:extend:in_1", "s1", 7, 3); err != nil {
+	if _, _, err := client.Extend(ctx, "ryker:extend:in_1", "s1", 7, 3); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := client.Close(ctx, "responder:close:in_1", "s1", 7); err != nil {
+	if _, _, err := client.Close(ctx, "ryker:close:in_1", "s1", 7); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := client.PlanDiscard(ctx, "responder:gc-plan:s1:7", "s1", 7, false, false); err != nil {
+	if _, _, err := client.PlanDiscard(ctx, "ryker:gc-plan:s1:7", "s1", 7, false, false); err != nil {
 		t.Fatal(err)
 	}
 	if len(requests) != 4 {
@@ -850,7 +850,7 @@ func TestReadPathsCarryCursorsAndRevisions(t *testing.T) {
 		t.Fatalf("changes page query = %q", queries[len(queries)-1])
 	}
 
-	review, operation, err := client.Review(ctx, "responder:review:in_1", "s1", 4)
+	review, operation, err := client.Review(ctx, "ryker:review:in_1", "s1", 4)
 	if err != nil || !review.Publishable || operation.ID != "op_r" {
 		t.Fatalf("review = %+v op=%+v err=%v", review, operation, err)
 	}
@@ -944,7 +944,7 @@ func TestOversizedPromptIsReportedAndBounded(t *testing.T) {
 // A throttled turn is narration, not silence.
 //
 // During the 2026-08-15 rate-limit storm a turn crawling through provider 429
-// backoff produced no events Responder recognised, so the timeline showed a gap
+// backoff produced no events Ryker recognised, so the timeline showed a gap
 // and the silent-turn deadline cancel-replayed work that was making progress
 // into a fresh session that inherited the same throttle. Coop now says both
 // halves out loud — `provider.backoff` when its own ladder acts on a limit and

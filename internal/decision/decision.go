@@ -24,17 +24,17 @@ import (
 	"strings"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/evidencepolicy"
-	"github.com/AndrewDryga/responder/internal/investigation"
-	"github.com/AndrewDryga/responder/internal/operationalscope"
-	"github.com/AndrewDryga/responder/internal/taskpr"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/evidencepolicy"
+	"github.com/AndrewDryga/ryker/internal/investigation"
+	"github.com/AndrewDryga/ryker/internal/operationalscope"
+	"github.com/AndrewDryga/ryker/internal/taskpr"
 )
 
 // NoConversationReply is the sentinel a model emits to say a human teammate
 // would reasonably stay silent here. It lives with the decision shapes because
 // reading it is part of reading a result, not part of building a prompt.
-const NoConversationReply = "<responder-no-reply/>"
+const NoConversationReply = "<ryker-no-reply/>"
 
 // Reply bounds. A Slack message has hard limits and a reply sequence that
 // exceeds them is rejected at delivery, after the work is done.
@@ -476,7 +476,7 @@ func BoundReplyDecisionFields(d *WatchDecision) error {
 //
 // The rule is about what a person can actually answer. "Should I open an
 // incident, and also should I remember that you prefer thread replies?" has one
-// button and two questions, so whichever they press means something Responder
+// button and two questions, so whichever they press means something Ryker
 // cannot determine. A pending approval is the strictest case: it is a governed
 // action waiting on a decision, and nothing else belongs in that message.
 
@@ -485,7 +485,7 @@ func BoundReplyDecisionFields(d *WatchDecision) error {
 //
 // The rule is about what a person can actually answer. "Should I open an
 // incident, and also should I remember that you prefer thread replies?" has one
-// button and two questions, so whichever they press means something Responder
+// button and two questions, so whichever they press means something Ryker
 // cannot determine. A pending approval is the strictest case: it is a governed
 // action waiting on a decision, and nothing else belongs in that message.
 func ValidateReplyOfferExclusivity(d *WatchDecision) error {

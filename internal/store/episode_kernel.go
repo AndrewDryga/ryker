@@ -10,10 +10,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/core"
-	episodepkg "github.com/AndrewDryga/responder/internal/episode"
-	"github.com/AndrewDryga/responder/internal/store/lifecyclecheck"
-	"github.com/AndrewDryga/responder/internal/store/sqlutil"
+	"github.com/AndrewDryga/ryker/internal/core"
+	episodepkg "github.com/AndrewDryga/ryker/internal/episode"
+	"github.com/AndrewDryga/ryker/internal/store/lifecyclecheck"
+	"github.com/AndrewDryga/ryker/internal/store/sqlutil"
 )
 
 // SumEpisodeStructuredCorrections totals the host corrections every run of an

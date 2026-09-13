@@ -589,7 +589,7 @@ func TestStoredCardsDecodeAcrossCardGenerations(t *testing.T) {
 	}
 }
 
-// Responder runs in UTC and the people reading it do not. Slack converts this
+// Ryker runs in UTC and the people reading it do not. Slack converts this
 // token client-side; the fallback after the pipe is what a client that cannot
 // renders, and what an export or a log keeps.
 func TestSlackDateRendersLocalTimeWithAUTCFallback(t *testing.T) {

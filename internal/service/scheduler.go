@@ -8,9 +8,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/retrydelay"
-	"github.com/AndrewDryga/responder/internal/slackui"
-	"github.com/AndrewDryga/responder/internal/store"
+	"github.com/AndrewDryga/ryker/internal/retrydelay"
+	"github.com/AndrewDryga/ryker/internal/slackui"
+	"github.com/AndrewDryga/ryker/internal/store"
 )
 
 const (
@@ -356,8 +356,8 @@ func (s *Service) runScheduledWork(
 		// ErrNotFound, never an error, whatever the fetches did. A failed fetch
 		// is degraded evidence, not stalled work: returning an error here would
 		// retry the item on the failure schedule, count against
-		// responder_work_failed, and make a GitHub outage look — to the
-		// watchdog that reads work movement — exactly like Responder's
+		// ryker_work_failed, and make a GitHub outage look — to the
+		// watchdog that reads work movement — exactly like Ryker's
 		// scheduler having stopped.
 		return store.ErrNotFound
 	case workLegacyPause:

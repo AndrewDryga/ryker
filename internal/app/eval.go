@@ -13,10 +13,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/config"
-	"github.com/AndrewDryga/responder/internal/coop"
-	"github.com/AndrewDryga/responder/internal/evaluation"
-	"github.com/AndrewDryga/responder/internal/slackui"
+	"github.com/AndrewDryga/ryker/internal/config"
+	"github.com/AndrewDryga/ryker/internal/coop"
+	"github.com/AndrewDryga/ryker/internal/evaluation"
+	"github.com/AndrewDryga/ryker/internal/slackui"
 )
 
 // evalOptions collects the eval command's flags.
@@ -595,7 +595,7 @@ func writeEvaluationSummary(path string, summary evaluation.EvaluationSummary) e
 
 func writePrivateEvaluationFile(path string, data []byte, label string) error {
 	dir := filepath.Dir(path)
-	file, err := os.CreateTemp(dir, ".responder-eval-*.json")
+	file, err := os.CreateTemp(dir, ".ryker-eval-*.json")
 	if err != nil {
 		return fmt.Errorf("create evaluation %s: %w", label, err)
 	}

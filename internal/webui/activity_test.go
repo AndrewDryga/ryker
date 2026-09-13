@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/config"
+	"github.com/AndrewDryga/ryker/internal/config"
 )
 
 // Coop narrates a tool call as two events — it started, it finished — because
@@ -580,7 +580,7 @@ func TestPermissionCardNamesTheActionAndTheDecision(t *testing.T) {
 		title:   "Asked to run a command — policy answered",
 		summary: "Coop answered this request, but the record does not say which way.",
 	}, {
-		// The kinds are the agent's, not Responder's. One this page has never
+		// The kinds are the agent's, not Ryker's. One this page has never
 		// seen is reported as exactly that, beside the value it was given.
 		name: "a decision this page cannot name", toolKind: "execute",
 		outcome: "selected", decision: "escalate_to_owner",

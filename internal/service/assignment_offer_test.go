@@ -8,13 +8,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/assignments"
-	"github.com/AndrewDryga/responder/internal/config"
-	"github.com/AndrewDryga/responder/internal/core"
-	episodepkg "github.com/AndrewDryga/responder/internal/episode"
-	"github.com/AndrewDryga/responder/internal/investigation"
-	"github.com/AndrewDryga/responder/internal/slackui"
-	"github.com/AndrewDryga/responder/internal/store"
+	"github.com/AndrewDryga/ryker/internal/assignments"
+	"github.com/AndrewDryga/ryker/internal/config"
+	"github.com/AndrewDryga/ryker/internal/core"
+	episodepkg "github.com/AndrewDryga/ryker/internal/episode"
+	"github.com/AndrewDryga/ryker/internal/investigation"
+	"github.com/AndrewDryga/ryker/internal/slackui"
+	"github.com/AndrewDryga/ryker/internal/store"
 )
 
 const assignmentEpisode = "episode_assignment"
@@ -57,7 +57,7 @@ func assignmentOperation() investigation.ResultOperation {
 	return investigation.ResultOperation{
 		ID: "assign-1", Type: "offer_assignment",
 		AssignmentOffer: &core.StandingAssignmentOffer{
-			Repository: " AndrewDryga/responder ", ChangeClass: "Dependency Upgrade",
+			Repository: " AndrewDryga/ryker ", ChangeClass: "Dependency Upgrade",
 			SignalPattern: "terraform  plan\ndrift",
 			PathGlobs:     []string{"infra/**", "infra/**", " "},
 			DailyBudget:   2, ExpiryDays: 30,
@@ -152,7 +152,7 @@ func TestAnUnconfirmedAssignmentOfferGrantsNothingAndShowsNormalizedBounds(t *te
 		t.Fatalf("no assignment offer card was posted: %v", err)
 	}
 	for _, want := range []string{
-		"AndrewDryga/responder",          // repository, trimmed
+		"AndrewDryga/ryker",              // repository, trimmed
 		"dependency upgrade",             // change class, off the allowlist
 		"up to 2 a day",                  // daily budget
 		"expires 30 days after confirm",  // expiry, as the span that was agreed
@@ -298,7 +298,7 @@ func TestAConfirmedAssignmentIsCreatedInShadowWithTheRecordedBounds(t *testing.T
 	if !granted.Shadow {
 		t.Fatal("a confirmed offer granted authority to open pull requests unattended")
 	}
-	if granted.Repository != "AndrewDryga/responder" ||
+	if granted.Repository != "AndrewDryga/ryker" ||
 		granted.ChangeClass != "dependency_upgrade" ||
 		granted.SignalPattern != "terraform plan drift" || granted.DailyBudget != 2 ||
 		len(granted.PathGlobs) != 1 || granted.PathGlobs[0] != "infra/**" {
@@ -377,7 +377,7 @@ func TestTheRetiredAssignmentCreateVerbAnswersWithTheConversation(t *testing.T) 
 		EventID: "event-slash-asg-create", Kind: "slash",
 		TeamID: cfg.Slack.TeamID, ChannelID: "CRETIRED",
 		UserID: cfg.Slack.Operators[0], ActionID: "/responder",
-		Text: "assignments create repo=AndrewDryga/responder class=observability signal=drift",
+		Text: "assignments create repo=AndrewDryga/ryker class=observability signal=drift",
 	}
 	if created, err := st.AdmitSlackInput(ctx, input); err != nil || !created {
 		t.Fatalf("admit = %v, %v", created, err)

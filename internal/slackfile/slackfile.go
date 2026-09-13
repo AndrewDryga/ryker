@@ -1,4 +1,4 @@
-// Package slackfile decides what Responder will accept as a Slack file, what
+// Package slackfile decides what Ryker will accept as a Slack file, what
 // it will call one, and how much of one it will read.
 //
 // Every rule here is a refusal, and every refusal is about a byte string
@@ -25,8 +25,8 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/slackui"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/slackui"
 )
 
 // Merge fills an attachment's gaps from the resolved history entry.

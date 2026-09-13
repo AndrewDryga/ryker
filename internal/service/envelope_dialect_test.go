@@ -5,9 +5,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/slackui"
-	"github.com/AndrewDryga/responder/internal/store"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/slackui"
+	"github.com/AndrewDryga/ryker/internal/store"
 )
 
 // legacyWatchReply is a real answer in the retired dialect: the result sits in
@@ -146,7 +146,7 @@ func TestLegacyEnvelopeReplyIsRejectedAsUnreadable(t *testing.T) {
 // something and put it in the envelope's memory field instead of an
 // update_memory operation. Nobody is waiting on an ignore, so this is the
 // cheapest place to hold the line — and the rejection has to reach the silent
-// path intact, because a rejection that made Responder speak in a conversation
+// path intact, because a rejection that made Ryker speak in a conversation
 // it had decided to stay out of would be worse than the shape it refused.
 func TestLegacyEnvelopeIgnoreThatLearnedSomethingIsRejectedAsUnreadable(t *testing.T) {
 	ctx := context.Background()
@@ -180,7 +180,7 @@ func TestLegacyEnvelopeIgnoreThatLearnedSomethingIsRejectedAsUnreadable(t *testi
 			coopClient.submitPrompts[1])
 	}
 	if len(slackClient.posts) != 0 {
-		t.Fatalf("rejecting an ignore made Responder speak: %+v", slackClient.posts)
+		t.Fatalf("rejecting an ignore made Ryker speak: %+v", slackClient.posts)
 	}
 }
 
@@ -252,7 +252,7 @@ func TestTypedWatchResultDrawsNoCorrection(t *testing.T) {
 }
 
 // Three production turns repeated the same one-character closing-delimiter
-// mistake. Responder discarded the valid acknowledgment and accepted memory
+// mistake. Ryker discarded the valid acknowledgment and accepted memory
 // each time, then told the operator it could not finish. A syntactically
 // impossible extra close must not cost the whole result when deleting that one
 // byte produces a result that still passes the complete strict contract.

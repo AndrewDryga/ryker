@@ -7,7 +7,7 @@ package slackui
 import (
 	"strings"
 
-	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/ryker/internal/core"
 )
 
 // cardText is everything on a card a person reads as words, including the row
@@ -100,7 +100,7 @@ func AssistantResponse(text string, sanitizer *Sanitizer) Message {
 		Text:     truncateUTF8("Investigation update: "+text, 4000),
 		Header:   "Investigation update",
 		Markdown: truncateMarkdown(text, 12000),
-		Context:  []string{"Responder reply. Internal tool output and hidden reasoning are omitted."},
+		Context:  []string{"Ryker reply. Internal tool output and hidden reasoning are omitted."},
 	}
 }
 

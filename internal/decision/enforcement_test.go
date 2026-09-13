@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/investigation"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/investigation"
 )
 
 func TestStandingRuleReplyDoesNotGuessTitlePresenceFromAProseSubstring(t *testing.T) {
@@ -49,8 +49,8 @@ func TestWatchDecisionCorrectionAllowsSilentHostRecheck(t *testing.T) {
 		t.Fatalf("a silent recheck was corrected: %q", correction)
 	}
 
-	// A real conversation follow-up addressed to Responder still has to be
-	// answered. The exemption is for the timer Responder set itself, not for
+	// A real conversation follow-up addressed to Ryker still has to be
+	// answered. The exemption is for the timer Ryker set itself, not for
 	// ignoring people.
 	human := input
 	human.Kind = "message"
@@ -288,7 +288,7 @@ func TestFiringAlertCannotDismissItselfWithModelAttestedExactDimensions(t *testi
 // that the problem is still happening, and the two were conflated: the recovery
 // check only ever ran when the model had already said not_issue, so a
 // confirmed_issue verdict on a cleared alert went straight through and
-// Responder recommended halting a rollout for a condition that had recovered.
+// Ryker recommended halting a rollout for a condition that had recovered.
 // Covers: TestResolvedAlertRejectsActiveAssessmentWithHealthyCompletion
 // Covers: TestResolvedAlertRejectsHistoricalWindowAsCurrentDegradation
 // Covers: TestRecoveredAlertCannotBeKeptDegradedByUnrelatedFreshFailure
@@ -354,7 +354,7 @@ func TestResolvedAlertCannotClaimActiveDegradationWithoutSeeingIt(t *testing.T) 
 	}
 
 	// An observation that actually finds the cited failure still present
-	// carries the claim. Freshness says when Responder looked; the health effect
+	// carries the claim. Freshness says when Ryker looked; the health effect
 	// says what it saw, and the assessment link says which alert it supports.
 	seen := claiming
 	assessment := *claiming.AlertAssessment
@@ -556,7 +556,7 @@ func terraformRunAppliedCard() core.SlackInput {
 // correction for it that only knew the failure vocabulary.
 // ExternalAppEventRequiresDecision matched errored, failed, failure, firing,
 // critical and warning, so a terminal APPLY — the most common terminal card
-// Responder sees — was the one terminal event whose reply could be posted with
+// Ryker sees — was the one terminal event whose reply could be posted with
 // no verdict behind it at all, and production posted them.
 func TestAReplyToATerminalSuccessEventCarriesACompletion(t *testing.T) {
 	input := terraformRunAppliedCard()

@@ -12,7 +12,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/AndrewDryga/responder/internal/evaluation"
+	"github.com/AndrewDryga/ryker/internal/evaluation"
 )
 
 // runEvalBaseline records what a corpus achieved, from a run that already

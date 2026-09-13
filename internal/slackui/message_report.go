@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/ryker/internal/core"
 )
 
 // Report is a long-form document plus the three things a card has to say about
@@ -69,7 +69,7 @@ func HandoffReport(record core.RemediationRecord) Report {
 	// alert: it read "0 of 0 signals firing, severity unclassified", which is a
 	// recovered outage rather than a change nobody paged for.
 	headline := fmt.Sprintf(
-		"%s, Responder %s — %d of %d signals firing, severity %s.",
+		"%s, Ryker %s — %d of %d signals firing, severity %s.",
 		incidentStatusLabel(incident.Status),
 		workActivityLabel(incident),
 		incident.FiringCount, incident.SignalCount,
@@ -77,7 +77,7 @@ func HandoffReport(record core.RemediationRecord) Report {
 	)
 	if incident.IsEngineeringTask() {
 		headline = fmt.Sprintf(
-			"%s, Responder %s.",
+			"%s, Ryker %s.",
 			incidentStatusLabel(incident.Status),
 			workActivityLabel(incident),
 		)

@@ -63,7 +63,7 @@ func (offer *RunbookDraftOffer) UnmarshalJSON(data []byte) error {
 // migration and the nightly export overlap" is not a runbook step, and today it
 // survives only as prose in a Slack thread nobody will search.
 //
-// The card is a draft pull request and never anything else. Responder opens it;
+// The card is a draft pull request and never anything else. Ryker opens it;
 // a person reads the diff and merges it, or does not. Body is model prose about
 // content that arrived from Slack and an alert, so it lands in a file a reviewer
 // reads before it lands anywhere a prompt reads.

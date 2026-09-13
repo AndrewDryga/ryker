@@ -10,11 +10,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/config"
-	"github.com/AndrewDryga/responder/internal/coop"
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/slackui"
-	"github.com/AndrewDryga/responder/internal/store"
+	"github.com/AndrewDryga/ryker/internal/config"
+	"github.com/AndrewDryga/ryker/internal/coop"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/slackui"
+	"github.com/AndrewDryga/ryker/internal/store"
 )
 
 const liveAcceptanceTimeout = 8 * time.Minute
@@ -23,10 +23,10 @@ const liveAcceptanceTimeout = 8 * time.Minute
 // repository, and configured MCP boundaries. It is opt-in so ordinary tests
 // cannot spend model budget or write to a workspace.
 func TestLiveSlackAcceptance(t *testing.T) {
-	configPath := os.Getenv("RESPONDER_LIVE_CONFIG")
-	channelID := os.Getenv("RESPONDER_LIVE_CHANNEL")
+	configPath := os.Getenv("RYKER_LIVE_CONFIG")
+	channelID := os.Getenv("RYKER_LIVE_CHANNEL")
 	if configPath == "" || channelID == "" {
-		t.Skip("set RESPONDER_LIVE_CONFIG and RESPONDER_LIVE_CHANNEL to run live acceptance")
+		t.Skip("set RYKER_LIVE_CONFIG and RYKER_LIVE_CHANNEL to run live acceptance")
 	}
 
 	cfg, err := config.Load(configPath)
@@ -229,7 +229,7 @@ func liveAcceptanceInputID(runID, label string, sequence int) string {
 	return fmt.Sprintf("%s_%s_%d", runID, label, sequence)
 }
 
-// Coop retains operation idempotency beyond the temporary Responder store. A
+// Coop retains operation idempotency beyond the temporary Ryker store. A
 // second live acceptance run reused live_reply_1 on 2026-08-18 and replayed a
 // failed workspace preparation from August 12 instead of exercising this run.
 func TestEveryLiveAcceptanceRunOwnsFreshInputIDs(t *testing.T) {
