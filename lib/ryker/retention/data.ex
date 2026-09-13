@@ -578,6 +578,22 @@ defmodule Ryker.Retention.Data do
     episode_predicate = terminal_episode_predicate("episode")
     cutoff = settings.closed_work_seconds
 
+    room_owners_finished = """
+    NOT EXISTS (
+      SELECT 1 FROM episode_kernel_episodes AS owner
+      WHERE owner.id IN (room.source_episode_id, room.episode_id)
+        AND (
+          NOT #{terminal_episode_predicate("owner")}
+          OR EXISTS (
+            SELECT 1 FROM episode_work_sessions session
+            WHERE session.episode_id = owner.id AND session.cleanup_status <> 'discarded'
+          )
+        )
+    )
+    """
+
+    # A room is owned by the thread episode that offered it and by the incident
+    # episode that ran in it; both must be finished, like the history pin.
     room_events =
       execute_count(
         """
@@ -585,15 +601,9 @@ defmodule Ryker.Retention.Data do
           SELECT event.id
           FROM slack_incident_room_lifecycle_events AS event
           JOIN slack_incident_rooms AS room ON room.id = event.room_id
-          JOIN episode_kernel_episodes AS episode
-            ON episode.id = COALESCE(room.episode_id, room.source_episode_id)
           WHERE room.status = 'closed'
             AND room.updated_at < clock_timestamp() - ($1 * interval '1 second')
-            AND #{episode_predicate}
-            AND NOT EXISTS (
-              SELECT 1 FROM episode_work_sessions session
-              WHERE session.episode_id = episode.id AND session.cleanup_status <> 'discarded'
-            )
+            AND #{room_owners_finished}
           ORDER BY event.inserted_at, event.id
           LIMIT 100
           FOR UPDATE OF event SKIP LOCKED
@@ -611,15 +621,9 @@ defmodule Ryker.Retention.Data do
         WITH candidates AS (
           SELECT room.id
           FROM slack_incident_rooms AS room
-          JOIN episode_kernel_episodes AS episode
-            ON episode.id = COALESCE(room.episode_id, room.source_episode_id)
           WHERE room.status = 'closed'
             AND room.updated_at < clock_timestamp() - ($1 * interval '1 second')
-            AND #{episode_predicate}
-            AND NOT EXISTS (
-              SELECT 1 FROM episode_work_sessions session
-              WHERE session.episode_id = episode.id AND session.cleanup_status <> 'discarded'
-            )
+            AND #{room_owners_finished}
           ORDER BY room.updated_at, room.id
           LIMIT 100
           FOR UPDATE OF room SKIP LOCKED
