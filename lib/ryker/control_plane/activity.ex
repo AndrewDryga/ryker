@@ -1,7 +1,15 @@
 defmodule Ryker.ControlPlane.Activity do
   @moduledoc "A bounded conversation-first inbox, including work not yet admitted."
   import Ecto.Query
-  alias Ryker.ControlPlane.{CurrentInputs, InspectionRedactor, SlackNames, UsageProjection}
+
+  alias Ryker.ControlPlane.{
+    CurrentInputs,
+    InspectionRedactor,
+    SlackMarkdown,
+    SlackNames,
+    UsageProjection
+  }
+
   alias Ryker.Episodes.Episode
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Repo
@@ -27,7 +35,7 @@ defmodule Ryker.ControlPlane.Activity do
     |> Enum.map(fn row ->
       label =
         if row.source == "control_plane",
-          do: "Lab · " <> present(row, secrets).title,
+          do: "Direct conversation · " <> present(row, secrets).title,
           else: SlackNames.destination(row.conversation)
 
       %{
@@ -207,7 +215,10 @@ defmodule Ryker.ControlPlane.Activity do
     title =
       if text in [nil, ""],
         do: "#{source} conversation · source content unavailable",
-        else: String.slice(text, 0, 200)
+        else:
+          text
+          |> SlackMarkdown.plain(SlackNames.workspace_from_destination(row.conversation))
+          |> String.slice(0, 200)
 
     row
     |> Map.drop([:text, :ref, :conversation, :episode_state])
