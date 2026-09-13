@@ -358,40 +358,79 @@ defmodule Responder.ControlPlane.HTML do
     ]
   end
 
+  @schedule_statuses ~w(active paused completed expired deleted)
+  @subscription_statuses ~w(active resolved timed_out cancelled)
+
+  # One comparison table: the schedule's name and where it posts, its status as
+  # a word, the next occurrence as a readable time with its zone, and the exact
+  # reference kept secondary. The shell owns the title and description.
   def schedules(items, params \\ %{}) do
     rows =
       Enum.map(items, fn item ->
+        {label, tone} = schedule_status(item.status)
+
         [
-          "<tr><td><a href=\"/schedules/",
-          segment(item.ref),
-          "\">",
-          escape(item.title),
-          "</a><br><code>",
-          escape(item.ref),
-          "</code></td><td>",
-          escape(item.status),
-          "</td><td>",
-          timestamp(item.next_occurrence_at),
-          "</td><td>",
-          escape(item.timezone),
-          "</td><td>",
-          escape(item.repository || "none"),
-          "</td><td>",
-          integer(item.failures),
-          "</td></tr>"
+          [
+            "<a href=\"/schedules/",
+            segment(item.ref),
+            "\">",
+            escape(item.title),
+            "</a><span class=\"row-secondary\">",
+            schedule_destination(item),
+            "<code>",
+            escape(item.ref),
+            "</code></span>"
+          ],
+          dot_status(label, tone),
+          schedule_next(item),
+          escape(item.repository || "None"),
+          integer(item.failures)
         ]
       end)
 
     [
-      search_form(
-        "/schedules",
-        "Title, repository or destination",
-        params,
-        ~w(active paused completed expired deleted)
-      ),
-      table(["Schedule", "Status", "Next", "Timezone", "Repository", "Failures"], rows)
+      "<div class=\"schedules-page\">",
+      search_form("/schedules", "Title, repository or destination", params, @schedule_statuses),
+      cond do
+        rows != [] ->
+          [
+            result_count(length(rows), "schedule", "schedules"),
+            data_table(["Schedule", "Status", "Next occurrence", "Repository", "Failures"], rows)
+          ]
+
+        filtered?(params, @schedule_statuses) ->
+          empty_state("No schedules match these filters.")
+
+        true ->
+          empty_state(
+            "No schedules yet. A schedule is proposed and confirmed in a conversation; once confirmed it appears here with every dispatched or missed occurrence."
+          )
+      end,
+      "</div>"
     ]
   end
+
+  defp schedule_status(:active), do: {"Active", "active"}
+  defp schedule_status(:paused), do: {"Paused", "quiet"}
+  defp schedule_status(:completed), do: {"Completed", "done"}
+  defp schedule_status(:expired), do: {"Expired", "quiet"}
+  defp schedule_status(:deleted), do: {"Deleted", "quiet"}
+  defp schedule_status(status), do: {Components.label(status), "quiet"}
+
+  defp schedule_destination(%{destination_conversation_ref: ref}) when is_binary(ref),
+    do: [escape(SlackNames.destination(ref)), " · "]
+
+  defp schedule_destination(_item), do: []
+
+  defp schedule_next(%{next_occurrence_at: %DateTime{} = at} = item),
+    do: [
+      readable_time(at),
+      "<span class=\"row-secondary\">",
+      escape(item.timezone || "UTC"),
+      "</span>"
+    ]
+
+  defp schedule_next(_item), do: "None scheduled"
 
   def schedule(%{schedule: schedule, occurrences: occurrences}) do
     rows =
@@ -494,13 +533,20 @@ defmodule Responder.ControlPlane.HTML do
     ]
   end
 
+  # Waits keep their row layout (purpose, timing, collapsed technical details);
+  # the shell adds the help, the one toolbar and the quiet count around it.
   def subscriptions(items, params \\ %{}) do
     [
+      "<div class=\"subscriptions-page\">",
+      page_help("waits-help", "How waits are listed and searched", [
+        "<p>A wait is work that paused for a timer or for the next matching update from Slack, GitHub, Emisar or another source. Only that update, the timer or the wait’s own deadline resumes it; nothing here predicts what the source will report.</p>",
+        "<p>This list shows up to 100 waits in the selected status, active waits first. Search narrows what is shown; an exact subscription reference finds that wait across all history within the status.</p>"
+      ]),
       search_form(
         "/subscriptions",
         "Request, target, source or reference",
         params,
-        ~w(active resolved timed_out cancelled),
+        @subscription_statuses,
         fn status ->
           {label, _tone} =
             SubscriptionPresentation.status(%{status: String.to_existing_atom(status)})
@@ -508,7 +554,15 @@ defmodule Responder.ControlPlane.HTML do
           label
         end
       ),
-      Safe.to_iodata(SubscriptionsPage.render(%{__changed__: nil, items: items}))
+      if(items == [], do: [], else: result_count(length(items), "wait", "waits")),
+      Safe.to_iodata(
+        SubscriptionsPage.render(%{
+          __changed__: nil,
+          items: items,
+          filtered: filtered?(params, @subscription_statuses)
+        })
+      ),
+      "</div>"
     ]
   end
 
@@ -1577,6 +1631,95 @@ defmodule Responder.ControlPlane.HTML do
     |> Components.filter_toolbar()
     |> Safe.to_iodata()
   end
+
+  # Whether the toolbar is narrowing the list. An empty page must first say
+  # which it is: nothing matches, or nothing exists.
+  defp filtered?(params, statuses) do
+    params = UsageProjection.link_params(params)
+    params["q"] not in [nil, ""] or params["status"] in statuses
+  end
+
+  # The shared help disclosure and quiet count, rendered through the same
+  # components the HEEx pages use, so there is one markup contract to style.
+  defp page_help(id, label, body) do
+    body = IO.iodata_to_binary(body)
+
+    %{
+      __changed__: nil,
+      id: id,
+      label: label,
+      inner_block: [
+        %{__slot__: :inner_block, inner_block: fn _, _ -> Phoenix.HTML.raw(body) end}
+      ]
+    }
+    |> Components.page_help()
+    |> Safe.to_iodata()
+  end
+
+  defp result_count(count, one, many) do
+    %{__changed__: nil, count: count, one: one, many: many}
+    |> Components.result_count()
+    |> Safe.to_iodata()
+  end
+
+  defp empty_state(text), do: ["<p class=\"empty-state\">", escape(text), "</p>"]
+
+  # Dot plus word: the state reads without relying on colour.
+  defp dot_status(label, tone),
+    do: [
+      "<span class=\"ui-status status-",
+      tone,
+      "\"><i aria-hidden=\"true\"></i>",
+      escape(label),
+      "</span>"
+    ]
+
+  # A comparison table whose every cell names its column, so a narrow screen
+  # can stack a row into label/value pairs without hiding the row's identity
+  # (its first cell) or its action. A row is a list of cells; a cell is iodata
+  # or {class, iodata}. {:details, iodata} is a full-width row of details on
+  # demand belonging to the row above it.
+  defp data_table(headings, rows) do
+    span = Integer.to_string(length(headings))
+
+    [
+      "<table class=\"data-table\"><thead><tr>",
+      Enum.map(headings, &["<th scope=\"col\">", escape(&1), "</th>"]),
+      "</tr></thead><tbody>",
+      Enum.map(rows, &data_row(&1, headings, span)),
+      "</tbody></table>"
+    ]
+  end
+
+  defp data_row({:details, body}, _headings, span),
+    do: ["<tr class=\"row-details\"><td colspan=\"", span, "\">", body, "</td></tr>"]
+
+  defp data_row(cells, headings, _span) do
+    cells =
+      cells
+      |> Enum.zip(headings)
+      |> Enum.with_index()
+      |> Enum.map(fn {{cell, heading}, index} ->
+        {class, body} = data_cell(cell)
+        classes = Enum.reject([if(index == 0, do: "row-identity"), class], &is_nil/1)
+
+        # The value wrapper is what a stacked row places beside the label.
+        [
+          "<td data-label=\"",
+          escape(heading),
+          "\"",
+          if(classes == [], do: [], else: [" class=\"", Enum.join(classes, " "), "\""]),
+          "><div class=\"cell-value\">",
+          body,
+          "</div></td>"
+        ]
+      end)
+
+    ["<tr>", cells, "</tr>"]
+  end
+
+  defp data_cell({class, body}) when is_binary(class), do: {class, body}
+  defp data_cell(body), do: {nil, body}
 
   defp recovery_label("delivery"), do: "Retry delivery"
   defp recovery_label("admission"), do: "Retry routing"
