@@ -11,31 +11,7 @@ defmodule Responder.ControlPlane.SubscriptionsPageTest do
     # The live page reduced exact Terraform-run waits to nine columns of IDs and
     # digests. These presentation fields come from the saved run matcher, not a
     # claim that the run has been approved or has finished.
-    item = %{
-      ref: "event-subscription:9751a3c9-bc54-4d81-8b2d-173ed92fb54c",
-      episode_ref: "episode:run-monitor",
-      episode_title: "Review the portal deployment",
-      episode_href: "/timeline/episode%3Arun-monitor",
-      context_label: "Slack · #infra",
-      title: "Run run-t2W6yCNeLUU9xFso",
-      condition: "Next matching Slack update",
-      target_url: nil,
-      source_label: "Slack",
-      matcher_digest: String.duplicate("a", 64),
-      cursor_digest: nil,
-      last_observation_digest: nil,
-      last_observed_at: nil,
-      poll_after: nil,
-      deadline_at: nil,
-      resolution_kind: nil,
-      revision: 1,
-      source_kind: "slack",
-      status: :active,
-      trigger_type: "source_event",
-      updated_at: ~U[2026-09-10 09:00:00Z]
-    }
-
-    %{item: item}
+    %{item: item_fixture()}
   end
 
   test "waits lead with their purpose and keep internal identities in collapsed details", %{
@@ -114,11 +90,57 @@ defmodule Responder.ControlPlane.SubscriptionsPageTest do
     assert LazyHTML.query(document, "summary") |> LazyHTML.attribute("aria-label") ==
              ["Technical details for #{title}"]
 
-    html = HTML.subscriptions([]) |> IO.iodata_to_binary()
+    html = HTML.subscriptions([], %{"q" => "absent"}) |> IO.iodata_to_binary()
     assert html =~ "No waits match these filters"
-    assert html =~ "Showing up to 100 waits in the selected status, with active waits first."
     assert LazyHTML.from_document(html) |> LazyHTML.query(".subscription-list") |> Enum.empty?()
-    assert html =~ "Exact subscription references search all history"
+  end
+
+  test "the waits page is help, one toolbar, one quiet count and the rows in that order, without a panel",
+       %{item: item} do
+    # Before 2026-09-13 the body repeated "Waits" as an intro heading under the
+    # shell's own, the window explanation sat as a loose paragraph above the
+    # rows, and the whole list was boxed twice: the secondary-page section rule
+    # drew a bordered panel around a list that draws its own border.
+    document = HTML.subscriptions([item]) |> IO.iodata_to_binary() |> LazyHTML.from_fragment()
+
+    assert outline(document, "div.subscriptions-page > *") == [
+             "details.page-help",
+             "form.filter-toolbar",
+             "p.result-count",
+             "div.subscriptions-view"
+           ]
+
+    assert LazyHTML.query(document, "p.result-count") |> LazyHTML.text() == "1 wait"
+
+    assert Enum.empty?(
+             LazyHTML.query(document, "section, h1, .page-description, .subscription-window")
+           )
+
+    help = LazyHTML.query(document, "details.page-help#waits-help:not([open])")
+
+    assert LazyHTML.query(help, "summary") |> LazyHTML.text() ==
+             "How waits are listed and searched"
+
+    assert LazyHTML.text(help) =~ "up to 100 waits"
+    assert LazyHTML.text(help) =~ "active waits first"
+    assert LazyHTML.text(help) =~ "exact subscription reference"
+    assert LazyHTML.text(help) =~ "all history"
+
+    assert LazyHTML.query(document, "div.subscriptions-view[aria-label=Waits]") |> Enum.count() ==
+             1
+  end
+
+  test "an empty waits list tells a filtered miss from an installation with nothing waiting" do
+    filtered = HTML.subscriptions([], %{"status" => "timed_out"}) |> IO.iodata_to_binary()
+    assert filtered =~ "No waits match these filters"
+    refute filtered =~ "result-count"
+
+    bare = HTML.subscriptions([]) |> IO.iodata_to_binary() |> LazyHTML.from_fragment()
+    text = LazyHTML.query(bare, "p.empty-state") |> LazyHTML.text()
+    assert text =~ "No waits right now"
+    assert text =~ "timer or an external event"
+    refute text =~ "match these filters"
+    assert Enum.empty?(LazyHTML.query(bare, "p.result-count"))
   end
 
   test "wait page titles and navigation use the same name", %{item: item} do
@@ -161,5 +183,46 @@ defmodule Responder.ControlPlane.SubscriptionsPageTest do
       assert LazyHTML.query(document, ".subscription-timing .ui-status") |> LazyHTML.text() ==
                label
     end
+  end
+
+  defp item_fixture do
+    %{
+      ref: "event-subscription:9751a3c9-bc54-4d81-8b2d-173ed92fb54c",
+      episode_ref: "episode:run-monitor",
+      episode_title: "Review the portal deployment",
+      episode_href: "/timeline/episode%3Arun-monitor",
+      context_label: "Slack · #infra",
+      title: "Run run-t2W6yCNeLUU9xFso",
+      condition: "Next matching Slack update",
+      target_url: nil,
+      source_label: "Slack",
+      matcher_digest: String.duplicate("a", 64),
+      cursor_digest: nil,
+      last_observation_digest: nil,
+      last_observed_at: nil,
+      poll_after: nil,
+      deadline_at: nil,
+      resolution_kind: nil,
+      revision: 1,
+      source_kind: "slack",
+      status: :active,
+      trigger_type: "source_event",
+      updated_at: ~U[2026-09-10 09:00:00Z]
+    }
+  end
+
+  # "tag.first-class" for each matched element, in document order.
+  defp outline(document, selector) do
+    nodes = LazyHTML.query(document, selector)
+
+    nodes
+    |> LazyHTML.tag()
+    |> Enum.zip(LazyHTML.attributes(nodes))
+    |> Enum.map(fn {tag, attributes} ->
+      case List.keyfind(attributes, "class", 0) do
+        {"class", class} -> tag <> "." <> hd(String.split(class))
+        nil -> tag
+      end
+    end)
   end
 end

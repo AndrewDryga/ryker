@@ -1414,3 +1414,49 @@ details.measurement-notes > summary { cursor:pointer; font-weight:600; color:var
   .channel-page .channel-facts dt { padding-bottom:0; border-bottom:0; }
   .channel-page .channel-entry > header { display:block; }
 }
+
+/* Configuration pages */
+/* The eight remaining Configuration pages (approved 2026-09-09, slice 3) compose the shared shell — help, one toolbar, quiet count, content, related history — down one left edge with 24px between sections. Each body has one wrapper, which keeps the old secondary-page panel rule and its 20px boxes off these pages. Comparison tables are unframed: a 13px/18px header row, 15px cells, row lines only. */
+.schedules-page, .subscriptions-page, .channels-page, .repositories-page, .workspaces-page, .memory-page, .findings-view, .configuration-evidence { max-width:1160px; min-width:0; }
+.responder-app .empty-state { margin:0 0 24px; max-width:70ch; font-size:16px; line-height:1.5; color:var(--secondary); }
+.responder-app .data-table { width:100%; margin:0 0 24px; border-collapse:collapse; background:none; font-size:15px; }
+.responder-app .data-table th { padding:0 16px 10px 0; border-bottom:1px solid var(--stroke); background:none; text-align:left; vertical-align:bottom; font-size:13px; line-height:18px; font-weight:600; letter-spacing:0; text-transform:none; color:var(--secondary); white-space:nowrap; }
+.responder-app .data-table td { padding:12px 16px 12px 0; border-bottom:1px solid var(--stroke); vertical-align:top; font-size:15px; line-height:1.5; color:var(--ink); font-variant-numeric:tabular-nums; overflow-wrap:anywhere; }
+.responder-app .data-table th:last-child, .responder-app .data-table td:last-child { padding-right:0; }
+.responder-app .data-table tbody tr:hover { background:none; }
+.responder-app .data-table .row-identity { min-width:180px; }
+.responder-app .data-table .row-identity .cell-value > a, .responder-app .data-table .row-identity .cell-value > strong { font-weight:600; color:var(--green); }
+.responder-app .data-table .row-identity .cell-value > strong { color:var(--ink); }
+.responder-app .data-table .row-secondary { display:block; margin-top:2px; font-size:13px; line-height:18px; color:var(--secondary); font-variant-numeric:normal; }
+.responder-app .data-table .row-secondary a { color:var(--green); }
+.responder-app .data-table code { font-size:13px; color:inherit; overflow-wrap:anywhere; }
+.responder-app .data-table td.row-number { text-align:right; white-space:nowrap; }
+.responder-app .data-table th.row-number { text-align:right; }
+.responder-app .data-table td.row-action { white-space:nowrap; }
+.responder-app .data-table .row-details > td { padding:0 0 12px; font-size:14px; color:var(--secondary); }
+.responder-app .data-table .row-details details { margin:6px 0 0; }
+.responder-app .data-table .row-details summary { padding:6px 0; font-size:14px; color:var(--green); cursor:pointer; }
+.responder-app .data-table .row-details details > p { margin:6px 0; max-width:80ch; color:var(--ink); }
+.responder-app .data-table .row-details dl { margin:4px 0 8px; font-size:14px; }
+.responder-app .data-table .row-details .data-table { margin:8px 0; }
+.responder-app .data-table .row-details .empty-state { margin:6px 0; font-size:14px; }
+/* Section headings inside a page body: smaller than the 28px title, 24px above, no panel. */
+.workspaces-page > section > h2, .memory-page > section > h2, .configuration-evidence > section > h2 { font-size:20px; line-height:1.3; letter-spacing:-.3px; margin:0 0 8px; color:var(--ink); }
+.workspaces-page section, .memory-page section, .configuration-evidence section { margin:24px 0 0; }
+.workspaces-page section > p:first-of-type, .configuration-evidence section > p.section-description { margin:0 0 12px; max-width:76ch; color:var(--secondary); line-height:1.5; }
+.responder-app .subscriptions-page .subscription-list { margin:0 0 24px; }
+/* Narrow screens keep every row readable: the header row is read to assistive technology only, each row becomes a block, each cell a label/value pair, and the identity cell stays first, label-free and full width. Nothing scrolls sideways. */
+@media (max-width:760px) {
+  .responder-app .data-table, .responder-app .data-table tbody, .responder-app .data-table tr, .responder-app .data-table td { display:block; }
+  .responder-app .data-table thead { position:absolute; width:1px; height:1px; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; }
+  .responder-app .data-table tbody tr { padding:12px 0; border-bottom:1px solid var(--stroke); }
+  .responder-app .data-table tbody tr.row-details { padding:0 0 12px; border-bottom:1px solid var(--stroke); }
+  .responder-app .data-table td { display:grid; grid-template-columns:minmax(96px,34%) minmax(0,1fr); gap:2px 12px; padding:4px 0; border:0; }
+  .responder-app .data-table td::before { content:attr(data-label); font-size:13px; line-height:20px; color:var(--secondary); }
+  .responder-app .data-table td > .cell-value { min-width:0; }
+  .responder-app .data-table td.row-identity { display:block; min-width:0; padding:0 0 6px; font-size:16px; }
+  .responder-app .data-table td.row-identity::before, .responder-app .data-table .row-details > td::before { content:none; }
+  .responder-app .data-table .row-details > td { display:block; padding:0; }
+  .responder-app .data-table td.row-number { text-align:left; }
+  .responder-app .data-table td.row-action { white-space:normal; }
+}

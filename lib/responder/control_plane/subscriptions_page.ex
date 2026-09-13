@@ -4,15 +4,24 @@ defmodule Responder.ControlPlane.SubscriptionsPage do
 
   alias Responder.ControlPlane.SubscriptionPresentation, as: Presentation
 
+  # The rows only; the window and search semantics live in the page help, and
+  # the shell renders the title, description, toolbar and count around this.
+  # `filtered` says whether the toolbar is narrowing the list, which decides
+  # what an empty list means.
   def render(assigns) do
-    assigns = assign_new(assigns, :now, &DateTime.utc_now/0)
+    assigns =
+      assigns
+      |> assign_new(:filtered, fn -> false end)
+      |> assign_new(:now, &DateTime.utc_now/0)
 
     ~H"""
-    <section class="subscriptions-view" aria-label="Waits">
-      <p class="subscription-window">
-        Showing up to 100 waits in the selected status, with active waits first. Search filters this list. Exact subscription references search all history within that status.
+    <div class="subscriptions-view" role="region" aria-label="Waits">
+      <p :if={@items == []} class="empty-state">
+        {if @filtered,
+          do: "No waits match these filters.",
+          else:
+            "No waits right now. Work that pauses for a timer or an external event appears here while it waits."}
       </p>
-      <p :if={@items == []} class="empty-state">No waits match these filters.</p>
       <div :if={@items != []} class="subscription-list">
         <article :for={item <- @items} class="subscription-row" id={"wait-#{item.ref}"}>
           <div class="subscription-purpose">
@@ -67,7 +76,7 @@ defmodule Responder.ControlPlane.SubscriptionsPage do
           </details>
         </article>
       </div>
-    </section>
+    </div>
     """
   end
 
