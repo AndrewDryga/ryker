@@ -24,7 +24,7 @@ webhooks, and token rotation.
    Invite `@Emisar` to every configured summon and watch channel.
 7. Enroll the reviewed remote Coop workers, install the Slack tokens in the owner-only service
    environment, start `responder.service`, and require both `/healthz` and `/readyz` before running
-   the Slack journeys at `/manual-tests`.
+   the Slack qualification journeys in `docs/testing.md`.
 
 When updating an existing app, apply the new manifest. This changes the app and bot display names
 to `Emisar`; it does not rename the `/responder` command or any durable internal identifiers.

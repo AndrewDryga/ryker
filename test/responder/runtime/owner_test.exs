@@ -159,6 +159,25 @@ defmodule Responder.Runtime.OwnerTest do
     assert is_pid(Process.whereis(Responder.ControlPlane.SlackNames))
   end
 
+  # The Card Lab delivery worker polled card_lab_posts every second beside the
+  # console. It was retired on 2026-09-13 with its page; a worker that outlived
+  # the page would be a Slack send path with nothing left to queue for it and
+  # no way for an operator to see what it was draining.
+  test "the retired Card Lab worker does not start beside the control plane", context do
+    owner = start_owner(context)
+    {:ok, _saved} = initialize()
+
+    assert Owner.reconcile(owner) == {:ok, :applied}
+
+    companions =
+      DynamicSupervisor.which_children(context.supervisor)
+      |> Enum.flat_map(fn {_id, _pid, _type, modules} -> List.wrap(modules) end)
+
+    assert Responder.ControlPlane.Updates in companions
+    refute Responder.ControlPlane.CardLabWorker in companions
+    refute Enum.any?(companions, &(&1 |> inspect() |> String.contains?("CardLab")))
+  end
+
   defp start_owner(context) do
     owner =
       start_supervised!(

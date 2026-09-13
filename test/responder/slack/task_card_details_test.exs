@@ -3,7 +3,7 @@ defmodule Responder.Slack.TaskCardDetailsTest do
 
   alias Responder.Slack.Renderer
 
-  @records Jason.decode!(File.read!("priv/card_lab/legacy_task_records.json"))
+  @records Jason.decode!(File.read!("testdata/slack/legacy_task_records.json"))
   @stages ~w(workspace_setup planning implementation self_review draft_pr ci review_and_merge)
 
   test "task cards keep all seven stages visible, bold the current work and mark the human handoff" do

@@ -32,7 +32,7 @@ defmodule Responder.Slack.TaskEndToEndTest do
   @github_secret String.duplicate("s", 32)
   @read_policy_digest String.duplicate("a", 64)
   @write_policy_digest String.duplicate("b", 64)
-  @retained Jason.decode!(File.read!("priv/card_lab/legacy_task_records.json"))
+  @retained Jason.decode!(File.read!("testdata/slack/legacy_task_records.json"))
 
   defmodule Directory do
     @behaviour Responder.Slack.MemberDirectory

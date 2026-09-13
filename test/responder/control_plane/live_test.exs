@@ -3,7 +3,7 @@ defmodule Responder.ControlPlane.LiveTest do
 
   import Phoenix.ConnTest
   import Phoenix.LiveViewTest
-  alias Responder.ControlPlane.{CardLab, ConversationLab, LiveSocket, Projection}
+  alias Responder.ControlPlane.{ConversationLab, LiveSocket, Projection}
   alias Responder.ControlPlane.LabPage
   alias Responder.ControlPlane.WorkbenchLive
   alias Responder.Fixtures.SavedEntities
@@ -316,40 +316,45 @@ defmodule Responder.ControlPlane.LiveTest do
     assert has_element?(view, ".lab-start-notes a[href='/configuration']")
     assert has_element?(view, ".lab-start a[href='/lab/new']")
     refute has_element?(view, ".lab-directory a[href='/lab/new']")
-    view |> element(".app-sidebar a", "Slack Card Lab") |> render_click()
-    assert_redirect(view, "/card-lab")
-    {:ok, cards, _} = live(conn, "/card-lab")
-    assert has_element?(cards, ".specimen-workbench")
 
     for path <- [
           "/timeline/missing",
-          "/card-lab/missing/state",
           "/timeline/ingress-input%3A#{Ecto.UUID.generate()}"
         ] do
       {:ok, missing, _} = live(conn, path)
       assert has_element?(missing, "a", "Back to activity")
     end
-
-    {:ok, secondary, _} = live(conn, "/manual-tests")
-    assert has_element?(secondary, ".secondary-page", "Manual")
-    send(secondary.pid, :reconcile)
-    assert render(secondary) =~ "secondary-page"
   end
 
-  test "native card previews explain which material is retained and which state is simulated" do
+  test "retired Card Lab and Test journeys routes cannot mount a live page or redirect" do
+    # Retired 2026-09-13 as a clean cut. The live router used to own
+    # /card-lab, /card-lab/:card/:state and /manual-tests; a compatibility
+    # route here would quietly keep the specimen workbench and the
+    # qualification checklist alive behind their old links.
+    for path <- ["/card-lab", "/card-lab/task-card/working", "/manual-tests"] do
+      conn = build_conn() |> Map.put(:host, "localhost") |> get(path)
+      assert conn.status == 404, path
+      assert Plug.Conn.get_resp_header(conn, "location") == []
+      refute conn.resp_body =~ "data-phx-main"
+      refute conn.resp_body =~ "specimen"
+    end
+  end
+
+  test "the workspace offers no card catalog, previews or specimen events" do
+    # WorkflowGuide's ten workflows linked eighteen /card-lab previews and the
+    # workbench answered card-family/card-state/card-transition events. None of
+    # that may survive as a hidden catalog behind the surviving conversation page.
     conn = build_conn() |> Map.put(:host, "localhost")
-    {:ok, view, _} = live(conn, "/card-lab/task-card/working")
-    assert has_element?(view, "[aria-label='Example provenance']", "Retained progress")
-    assert has_element?(view, ".specimen-provenance", "not an archived Slack payload")
-    view |> element("button[phx-value-id=next-recorded]") |> render_click()
-    assert_patch(view, "/card-lab/task-card/working-validation")
-    assert has_element?(view, ".specimen-provenance", "2026-08-14T05:51:23.132457Z")
-
-    {:ok, simulated, _} = live(conn, "/card-lab/task-card/waiting-for-input")
-    assert has_element?(simulated, ".specimen-provenance", "State simulation")
-
-    {:ok, goals, _} = live(conn, "/card-lab/task-card/recorded-goals")
-    assert has_element?(goals, ".specimen-provenance", "not a captured engineering task")
+    {:ok, view, html} = live(conn, "/lab")
+    refute html =~ "/card-lab"
+    refute html =~ "What you can do"
+    refute html =~ "Card previews"
+    refute has_element?(view, "[phx-click=card-transition]")
+    refute has_element?(view, "[phx-change=card-family]")
+    refute has_element?(view, "#card-state-picker")
+    refute has_element?(view, ".app-sidebar a[href='/card-lab']")
+    refute has_element?(view, ".app-sidebar a[href='/manual-tests']")
+    refute has_element?(view, ".app-sidebar .nav-caption", "Testing")
   end
 
   test "populated usage connects and refreshes without rendering the execution ledger" do
@@ -376,59 +381,6 @@ defmodule Responder.ControlPlane.LiveTest do
     refute has_element?(view, "#execution-ledger")
     send(view.pid, :reconcile)
     refute render(view) =~ source
-  end
-
-  test "card families stay in the side rail with compact navigation for small screens" do
-    # A desktop dropdown hid all 18 families; the old expanded catalog also
-    # buried the preview on phones. Both layouts must retain every destination.
-    {:ok, view, _} =
-      live(
-        build_conn() |> Map.put(:host, "localhost"),
-        "/card-lab/task-card/working?width=compact"
-      )
-
-    for card <- CardLab.catalog() do
-      assert has_element?(view, "#card-family option[value='#{card.id}']", card.title)
-
-      assert has_element?(
-               view,
-               ".specimen-catalog nav a[href='/card-lab/#{card.id}/#{hd(card.states).id}?width=compact']",
-               card.title
-             )
-    end
-
-    assert has_element?(view, ".specimen-catalog a[aria-current=page]", "Task card")
-    assert has_element?(view, ".specimen-family-mobile #card-family-form")
-
-    {:ok, snapshot} = CardLab.fetch("task-card", "working")
-
-    for state <- snapshot.card.states do
-      assert has_element?(view, "#card-state-picker a[data-state='#{state.id}']", state.label)
-    end
-
-    view |> element("#card-state-picker a[data-state='recorded-goals']") |> render_click()
-    assert_patch(view, "/card-lab/task-card/recorded-goals?width=compact")
-    assert has_element?(view, ".specimen-canvas.compact", "Other subtasks")
-
-    render_change(view, "card-state", %{"state" => "missing"})
-    refute_patched(view)
-
-    assert has_element?(
-             view,
-             "#card-state-picker a[aria-current=page]",
-             "Real goals · layout study"
-           )
-
-    view |> element(".specimen-catalog a", "Incident room") |> render_click()
-    assert_patch(view, "/card-lab/incident-room/provisioning?width=compact")
-    assert has_element?(view, ".specimen-catalog a[aria-current=page]", "Incident room")
-    assert has_element?(view, "#card-state-picker a[aria-current=page]", "Provisioning")
-
-    view |> form("#card-family-form", %{card: "task-card"}) |> render_change()
-    assert_patch(view, "/card-lab/task-card/queued?width=compact")
-    assert has_element?(view, ".specimen-catalog a[aria-current=page]", "Task card")
-    render_change(view, "card-family", %{"card" => "https://attacker.example"})
-    refute_patched(view)
   end
 
   test "an episode has one continuous execution document and preserves exact request links" do
@@ -705,10 +657,15 @@ defmodule Responder.ControlPlane.LiveTest do
     {:ok, view, _} = live(build_conn() |> Map.put(:host, "localhost"), "/")
     assert has_element?(view, "details.mobile-manage summary", "More")
 
-    for path <-
-          ~w(memory findings repositories channels subscriptions lab card-lab manual-tests) do
+    for path <- ~w(memory findings repositories channels subscriptions) do
       assert has_element?(view, ".mobile-manage a[href='/#{path}']")
     end
+
+    for retired <- ~w(card-lab manual-tests) do
+      refute has_element?(view, "a[href='/#{retired}']")
+    end
+
+    refute has_element?(view, ".mobile-manage strong", "Testing")
 
     assert has_element?(
              view,
@@ -765,32 +722,6 @@ defmodule Responder.ControlPlane.LiveTest do
     id = Ecto.UUID.generate()
     {:ok, %{entry: entry}} = ConversationLab.send_message(id, "Investigate admission", profile)
     {entry, id}
-  end
-
-  test "the native Card Lab navigates specimens and transitions without external actions" do
-    {:ok, view, _} =
-      live(build_conn() |> Map.put(:host, "localhost"), "/card-lab/incident-room/provisioning")
-
-    assert has_element?(view, ".specimen-workbench .slack-canvas.surface-message")
-    assert has_element?(view, ".specimen-review", "Post to Slack")
-    assert has_element?(view, ".specimen-feedback form[phx-update=ignore]")
-    view |> element(".preview-width a", "Compact") |> render_click()
-    assert has_element?(view, ".specimen-canvas.compact")
-    view |> element(".specimen-preview-toolbar a", "Block Kit payload") |> render_click()
-    assert has_element?(view, ".specimen-payload", "blocks")
-
-    transition =
-      hd(
-        CardLab.fetch("incident-room", "provisioning")
-        |> elem(1)
-        |> Map.fetch!(:state)
-        |> Map.fetch!(:transitions)
-      )
-
-    view |> element("button[phx-value-id='#{transition.id}']") |> render_click()
-    assert_patch(view, "/card-lab/incident-room/#{transition.to}")
-    assert has_element?(view, ".specimen-canvas")
-    refute has_element?(view, ".legacy-surface")
   end
 
   # "tag.first-class" for each matched element, in document order.

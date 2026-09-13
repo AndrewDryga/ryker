@@ -65,7 +65,6 @@ defmodule Responder.ControlPlane.Updates do
   def domain("/"), do: "activity"
   def domain(path), do: path |> String.split("/", trim: true) |> List.first()
 
-  defp domains("card_lab_" <> _), do: ["card-lab"]
   defp domains("execution_usage"), do: ~w(activity admission timeline lab usage)
   defp domains("episode_operator_reviews"), do: ~w(activity timeline findings)
   defp domains("episode_schedule" <> _), do: ~w(activity schedules channels timeline lab)

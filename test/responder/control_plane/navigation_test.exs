@@ -53,7 +53,6 @@ defmodule Responder.ControlPlane.NavigationTest do
       refute html =~ "Loopback access only"
       refute html =~ "operator-identity"
       assert html =~ "Execution"
-      assert html =~ "Testing"
       assert html =~ "Activity"
 
       document = LazyHTML.from_document(html)
@@ -63,22 +62,52 @@ defmodule Responder.ControlPlane.NavigationTest do
              ]
 
       for path <-
-            ~w(/ /incident-rooms /failures /usage /lab /card-lab /manual-tests /schedules /subscriptions /memory /findings /configuration /channels /repositories /workspaces) do
+            ~w(/ /incident-rooms /failures /usage /lab /schedules /subscriptions /memory /findings /configuration /channels /repositories /workspaces) do
         assert path in (document |> LazyHTML.query("a") |> LazyHTML.attribute("href"))
       end
 
-      for removed <- ["/decisions", "/calibration"] do
+      for removed <- ["/decisions", "/calibration", "/card-lab", "/manual-tests"] do
         refute removed in (document |> LazyHTML.query("a") |> LazyHTML.attribute("href"))
       end
     end
   end
 
-  test "mobile navigation retains testing and setup tools without profile controls" do
-    html = render_component(&Navigation.mobile/1, path: "/card-lab", live: true)
+  test "the Testing group is gone from desktop and mobile navigation" do
+    # Slack Card Lab and Test journeys were retired on 2026-09-13; the group
+    # that held them must not survive as an empty header or a replacement
+    # catalog. The conversation page moves into the primary navigation so it
+    # stays reachable on the compact mobile row as well as the desktop rail.
+    for live <- [true, false] do
+      sidebar = render_component(&Navigation.sidebar/1, path: "/lab", live: live)
+      document = LazyHTML.from_document(sidebar)
+      assert LazyHTML.query(document, ".nav-caption") |> LazyHTML.text() |> String.trim() != ""
+      refute LazyHTML.query(document, ".nav-caption") |> LazyHTML.text() =~ "Testing"
+      refute LazyHTML.query(document, "nav[aria-label='Testing']") |> Enum.any?()
+      refute sidebar =~ "testing-nav"
+
+      assert document
+             |> LazyHTML.query(
+               "nav[aria-label='Main navigation'] a[href='/lab'][aria-current=page]"
+             )
+             |> Enum.any?()
+
+      mobile = render_component(&Navigation.mobile/1, path: "/lab", live: live)
+      mobile_document = LazyHTML.from_document(mobile)
+      refute LazyHTML.query(mobile_document, "section strong") |> LazyHTML.text() =~ "Testing"
+
+      for retired <- ["/card-lab", "/manual-tests"] do
+        refute retired in (document |> LazyHTML.query("a") |> LazyHTML.attribute("href"))
+        refute retired in (mobile_document |> LazyHTML.query("a") |> LazyHTML.attribute("href"))
+      end
+    end
+  end
+
+  test "mobile navigation retains setup tools without profile controls" do
+    html = render_component(&Navigation.mobile/1, path: "/configuration", live: true)
     links = html |> LazyHTML.from_document() |> LazyHTML.query("a") |> LazyHTML.attribute("href")
 
     for path <-
-          ~w(/lab /card-lab /manual-tests /configuration /channels /repositories /memory /schedules /subscriptions /workspaces) do
+          ~w(/configuration /channels /repositories /memory /schedules /subscriptions /workspaces) do
       assert path in links
     end
 

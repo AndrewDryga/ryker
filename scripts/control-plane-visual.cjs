@@ -1,7 +1,7 @@
 // Read-only browser acceptance. Screenshots contain local organization data;
 // keep the output private and outside the repository. No writes or model calls.
 // Configured display names can refresh using read-only Slack directory calls.
-// Usage: node scripts/control-plane-visual.cjs http://127.0.0.1:4321 OUTPUT [--cards|--filters]
+// Usage: node scripts/control-plane-visual.cjs http://127.0.0.1:4321 OUTPUT [--filters]
 // Install Playwright separately, or set RESPONDER_PLAYWRIGHT_MODULE to its path.
 const { chromium } = require(process.env.RESPONDER_PLAYWRIGHT_MODULE || 'playwright');
 const fs = require('node:fs/promises');
@@ -16,7 +16,6 @@ assert(process.argv[3], 'Supply a private output directory outside the repositor
 let output = path.resolve(process.argv[3]);
 const repository = path.resolve(__dirname, '..');
 assert(output !== repository && !output.startsWith(repository + path.sep), 'Do not commit organization screenshots');
-const allCards = process.argv.includes('--cards');
 const filtersOnly = process.argv.includes('--filters');
 const routes = filtersOnly ? [['activity-root', '/'], ['episodes', '/activity?state=complete']] : [
   ['activity-root', '/'], ['lab', '/lab'], ['activity', '/activity'],
@@ -26,9 +25,11 @@ const routes = filtersOnly ? [['activity-root', '/'], ['episodes', '/activity?st
   ['memory', '/memory'], ['decisions', '/decisions'], ['findings', '/findings'],
   ['calibration', '/calibration'], ['configuration', '/configuration'],
   ['channels', '/channels'], ['repositories', '/repositories'], ['workspaces', '/workspaces'],
-  ['journeys', '/manual-tests'], ['task-working', '/card-lab/task-card/working'],
-  ['task-goals', '/card-lab/task-card/recorded-goals'], ['missing-episode', '/timeline/missing']
+  ['journeys', '/manual-tests'], ['card-lab', '/card-lab'],
+  ['card-lab-state', '/card-lab/task-card/working'], ['missing-episode', '/timeline/missing']
 ];
+// Pages removed as clean cuts. They must answer 404 without a redirect.
+const removedPages = ['decisions', 'calibration', 'journeys', 'card-lab', 'card-lab-state'];
 
 async function connected(page) {
   await page.locator('[data-connection-state="connected"]').waitFor({timeout: 5000});
@@ -80,53 +81,14 @@ async function discover(page) {
       if (name === 'episode-detail') routes.push(['request-detail', href + '/model-calls']);
     } else absent.push(name);
   }
-  if (allCards) {
-    await page.goto(new URL('/card-lab/task-card/working', origin).href);
-    await connected(page);
-    const families = await page.locator('.specimen-catalog a[data-family]').evaluateAll(es => es.map(e => e.dataset.family));
-    for (const family of families) {
-      await page.locator(`.specimen-catalog a[data-family="${family}"]`).click();
-      await page.waitForURL(url => url.pathname.split('/')[2] === family);
-      const states = await page.locator('#card-state-picker a').evaluateAll(es => es.map(e => e.dataset.state));
-      for (const state of states) routes.push([`card-${family}-${state}`, `/card-lab/${family}/${state}`]);
-    }
-  }
   return absent;
-}
-
-async function interactions(page) {
-  await page.goto(new URL('/card-lab/task-card/working', origin).href);
-  await connected(page);
-  await page.locator('#card-state-picker > summary').click();
-  await page.locator('#card-state-picker a[data-state="recorded-goals"]').click();
-  await page.waitForURL('**/card-lab/task-card/recorded-goals');
-  await page.locator('.preview-width a', {hasText: 'Compact'}).click();
-  await page.locator('.specimen-canvas.compact').waitFor();
-  await page.locator('#card-state-picker > summary').click();
-  await page.locator('#card-state-picker a[data-state="working"]').click();
-  await page.waitForURL('**/working?width=compact');
-  await page.locator('button[phx-value-id="next-recorded"]').click();
-  await page.waitForURL('**/working-validation');
-  await page.locator('.specimen-provenance summary').click();
-  await page.locator('.specimen-provenance details[open]').waitFor();
-  const updatedAt = await page.locator('#responder-shell').getAttribute('data-updated-at');
-  await page.waitForFunction(previous => document.querySelector('#responder-shell')?.dataset.updatedAt !== previous, updatedAt, {timeout: 12000});
-  // The automatic projection update must preserve the open disclosure.
-  await page.locator('.specimen-provenance details[open]').waitFor();
-  await page.locator('a', {hasText: 'Block Kit payload'}).click();
-  await page.locator('.specimen-payload').waitFor();
-  await page.screenshot({path: path.join(output, 'interaction-payload.png')});
-  await page.locator('.specimen-catalog a[data-family="incident-room"]').click();
-  await page.waitForURL(url => url.pathname === '/card-lab/incident-room/provisioning');
-  await page.locator('.specimen-catalog a[aria-current="page"]').focus();
-  await page.screenshot({path: path.join(output, 'interaction-keyboard-focus.png')});
 }
 
 (async () => {
   output = await createCaptureDirectory(output, repository);
   console.log(`Private capture directory: ${output}`);
   const browser = await chromium.launch({headless: true});
-  const report = {origin: origin.origin, capturedAt: new Date().toISOString(), absent: [], captures: [], interactionError: null};
+  const report = {origin: origin.origin, capturedAt: new Date().toISOString(), absent: [], captures: []};
   try {
     const discovery = await browser.newPage();
     if (!filtersOnly) report.absent = await discover(discovery);
@@ -147,7 +109,7 @@ async function interactions(page) {
           const response = await page.goto(new URL(route, origin).href, {waitUntil: 'domcontentloaded'});
           result.status = response.status();
           result.version = response.headers()['x-responder-version'];
-          if (['decisions', 'calibration'].includes(name)) {
+          if (removedPages.includes(name)) {
             assert.equal(result.status, 404, 'Removed pages must return a real 404');
             assert.equal(response.request().redirectedFrom(), null, 'Removed pages must not acquire compatibility redirects');
           } else {
@@ -156,7 +118,6 @@ async function interactions(page) {
             result.layout = await page.evaluate(() => ({
               width: document.documentElement.clientWidth,
               scrollWidth: document.documentElement.scrollWidth,
-              previewTop: document.querySelector('.specimen-canvas')?.getBoundingClientRect().top,
               composerTop: document.querySelector('.lab-native-composer')?.getBoundingClientRect().top,
               transcriptBottom: document.querySelector('.lab-transcript')?.getBoundingClientRect().bottom
             }));
@@ -168,17 +129,8 @@ async function interactions(page) {
             }
             assert(result.layout.scrollWidth <= width, 'Page overflows horizontally');
             if (name === 'activity-root' || name === 'activity') await checkFilterAlignment(page);
-            if (name === 'task-working') {
-              assert(result.layout.previewTop < height - 120, 'Card preview is buried below the first screen');
-              if (width > 1000) {
-                assert(await page.locator('.specimen-catalog').isVisible(), 'Card families belong in the desktop side rail');
-                assert(!await page.locator('#card-family').isVisible(), 'The family dropdown is only for narrow screens');
-                const edges = await page.locator('.specimen-catalog nav small').evaluateAll(es => es.map(e => e.getBoundingClientRect().right));
-                assert(edges.every(x => Math.abs(x - edges[0]) < 1), 'State counts must align in one column');
-              } else {
-                assert(await page.locator('#card-family').isVisible(), 'Keep a compact family picker on narrow screens');
-              }
-            }
+            assert.equal(await page.locator('a[href^="/card-lab"], a[href="/manual-tests"]').count(), 0, 'Retired testing pages must not return to navigation');
+            assert.equal(await page.locator('.nav-caption', {hasText: 'Testing'}).count(), 0, 'The Testing navigation group was removed');
             if (name === 'lab-chat' && width === 390) assert(result.layout.composerTop >= result.layout.transcriptBottom, 'Composer obscures the conversation');
             if (name === 'repositories') {
               const panels = await page.locator('.repository-card > header').evaluateAll(es => es.map(e => getComputedStyle(e).backgroundColor));
@@ -203,10 +155,6 @@ async function interactions(page) {
         page.off('console', onConsole);
         console.log(`${name} ${width}: ${result.failure || 'PASS'}`);
       }
-      if (width === 1440 && !filtersOnly) {
-        try { await interactions(page); }
-        catch (error) { report.interactionError = error.message; }
-      }
       await context.close();
     }
   } finally {
@@ -214,6 +162,6 @@ async function interactions(page) {
     await fs.writeFile(path.join(output, 'manifest.json'), JSON.stringify(report, null, 2), {mode: 0o600});
   }
   const failed = report.captures.filter(capture => capture.failure);
-  console.log(`${report.captures.length} captures; ${failed.length} failures; interactions: ${report.interactionError || 'PASS'}`);
-  if (failed.length || report.interactionError) process.exitCode = 1;
+  console.log(`${report.captures.length} captures; ${failed.length} failures`);
+  if (failed.length) process.exitCode = 1;
 })().catch(error => {console.error(error.message); process.exitCode = 1;});

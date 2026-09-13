@@ -209,7 +209,7 @@ defmodule Responder.Slack.TaskCardSourcesTest do
              })
 
     goal =
-      "priv/card_lab/legacy_task_records.json"
+      "testdata/slack/legacy_task_records.json"
       |> File.read!()
       |> Jason.decode!()
       |> get_in(["portal_goals", "goals"])

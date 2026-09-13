@@ -110,14 +110,7 @@ assert(process.argv[3], 'Provide a private output directory');
             }
           }
           if (route === '/lab') {
-            assert.equal(await page.locator('.workflow-list > article').count(), 10);
-            const links = await page.locator('.workflow-list details a').evaluateAll(es => es.map(e => e.getAttribute('href')));
-            assert.equal(links.length, 18);
-            if (width === 1440) for (const href of links) {
-              assert.equal((await page.request.get(new URL(href, origin).href)).status(), 200, href);
-            }
-            await page.locator('#workflows').scrollIntoViewIfNeeded();
-            await page.screenshot({path: path.join(output, `workflows-${width}.png`)});
+            assert.equal(await page.locator('.workflow-list, #workflows, a[href^="/card-lab/"]').count(), 0, 'The retired card catalog must not come back');
           }
           assert.equal(errors.length, 0, 'Browser errors');
         } catch (error) {

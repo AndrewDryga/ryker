@@ -11,8 +11,6 @@ defmodule Responder.ControlPlane.Router do
   alias Responder.ControlPlane.{
     BehaviorLibrary,
     BehaviorPage,
-    CardLab,
-    CardLabSlackHTML,
     CSRF,
     HTML,
     LearningActivity,
@@ -35,10 +33,6 @@ defmodule Responder.ControlPlane.Router do
   @lab_message_action "conversation_lab:message"
   @lab_reaction_action "conversation_lab:reaction"
   @lab_record_action "conversation_lab:record"
-  @card_lab_transition_action "card_lab:transition"
-  @card_lab_feedback_action "card_lab:feedback"
-  @card_slack_prepare "card_lab:prepare_slack"
-  @card_slack_post "card_lab:post_slack"
 
   @impl Plug
   def init(options) do
@@ -95,11 +89,11 @@ defmodule Responder.ControlPlane.Router do
 
   defp snapshot_path?([page]),
     do:
-      page in ~w(lab card-lab incident-rooms schedules subscriptions channels repositories failures workspaces findings memory rules preferences guidance usage configuration manual-tests)
+      page in ~w(lab incident-rooms schedules subscriptions channels repositories failures workspaces findings memory rules preferences guidance usage configuration)
 
   defp snapshot_path?(["lab", "new"]), do: false
   defp snapshot_path?([page, _ref]), do: page in ~w(lab incident-rooms schedules)
-  defp snapshot_path?([page, _, _]), do: page in ~w(card-lab channels failures)
+  defp snapshot_path?([page, _, _]), do: page in ~w(channels failures)
   defp snapshot_path?(_path), do: false
 
   defp release_version do
@@ -138,229 +132,6 @@ defmodule Responder.ControlPlane.Router do
 
       {:error, _reason} ->
         text(conn, 503, "metrics unavailable\n")
-    end
-  end
-
-  defp route(%Plug.Conn{method: "GET", path_info: ["card-lab"]} = conn, options) do
-    render_card_lab(conn, options, CardLab.default())
-  end
-
-  defp route(
-         %Plug.Conn{method: "POST", path_info: ["card-lab", card, state, "slack", "preview"]} =
-           conn,
-         options
-       ) do
-    with {:ok, snapshot} <- CardLab.fetch(card, state),
-         true <- snapshot.card.surface == :message,
-         {:ok, form, conn} <- card_slack_form(conn, ~w(_token channel_ref workspace_ref)),
-         true <-
-           CSRF.valid?(
-             options.csrf_secret,
-             @card_slack_prepare,
-             card_lab_feedback_resource(card, state),
-             form["_token"]
-           ),
-         {:ok, target} <-
-           options.actions.describe_card_slack_target.(form["workspace_ref"], form["channel_ref"]) do
-      fields = %{
-        "workspace_ref" => target.workspace_ref,
-        "channel_ref" => target.channel_ref,
-        "request_id" => Ecto.UUID.generate()
-      }
-
-      token =
-        CSRF.token(
-          options.csrf_secret,
-          @card_slack_post,
-          card_slack_resource(card, state, fields)
-        )
-
-      html(
-        conn,
-        200,
-        "Confirm Slack specimen",
-        CardLabSlackHTML.confirm(
-          snapshot,
-          target,
-          card_lab_path(card, state) <> "/slack/post",
-          Map.put(fields, "_token", token),
-          "Post test message"
-        )
-      )
-    else
-      false -> text(conn, 403, "Invalid confirmation or unsupported Slack surface")
-      {:error, :form} -> text(conn, 400, "Invalid form")
-      {:error, _} -> text(conn, 409, "Slack destination is unavailable or not eligible")
-    end
-  end
-
-  defp route(
-         %Plug.Conn{method: "POST", path_info: ["card-lab", card, state, "slack", "post"]} = conn,
-         options
-       ) do
-    with {:ok, _snapshot} <- CardLab.fetch(card, state),
-         {:ok, form, conn} <-
-           card_slack_form(conn, ~w(_token channel_ref request_id workspace_ref)),
-         true <-
-           CSRF.valid?(
-             options.csrf_secret,
-             @card_slack_post,
-             card_slack_resource(card, state, Map.delete(form, "_token")),
-             form["_token"]
-           ),
-         {:ok, _post} <-
-           options.actions.post_card_to_slack.(
-             card,
-             state,
-             form["workspace_ref"],
-             form["channel_ref"],
-             form["request_id"]
-           ) do
-      card_slack_redirect(conn, card, state)
-    else
-      false ->
-        text(conn, 403, "Invalid destination confirmation")
-
-      {:error, :form} ->
-        text(conn, 400, "Invalid form")
-
-      {:error, _} ->
-        text(conn, 409, "Specimen could not be queued; review the destination and try again")
-    end
-  end
-
-  defp route(
-         %Plug.Conn{method: "GET", path_info: ["card-lab", card, state, "slack", id, action]} =
-           conn,
-         options
-       )
-       when action in ["update", "retry"] do
-    with {:ok, snapshot} <- CardLab.fetch(card, state),
-         {:ok, post} <- options.projection.card_lab_post.(id),
-         true <- post.card_id == card,
-         {:ok, confirmed_snapshot} <- confirmed_card_snapshot(action, snapshot, post),
-         {:ok, target} <-
-           options.actions.describe_card_slack_target.(post.workspace_ref, post.channel_ref) do
-      fields = %{"post_id" => post.id, "revision" => to_string(post.revision)}
-
-      token =
-        CSRF.token(
-          options.csrf_secret,
-          "card_lab:slack_#{action}",
-          card_slack_resource(card, state, fields)
-        )
-
-      label = if action == "update", do: "Update test message", else: "Retry test delivery"
-
-      html(
-        conn,
-        200,
-        "Confirm Slack specimen",
-        CardLabSlackHTML.confirm(
-          confirmed_snapshot,
-          target,
-          card_lab_path(card, state) <> "/slack/#{id}/#{action}",
-          Map.put(fields, "_token", token),
-          label
-        )
-      )
-    else
-      _error -> text(conn, 404, "Slack specimen is unavailable")
-    end
-  end
-
-  defp route(
-         %Plug.Conn{method: "POST", path_info: ["card-lab", card, state, "slack", id, action]} =
-           conn,
-         options
-       )
-       when action in ["update", "retry"] do
-    with {:ok, _snapshot} <- CardLab.fetch(card, state),
-         {:ok, form, conn} <- card_slack_form(conn, ~w(_token post_id revision)),
-         true <- form["post_id"] == id,
-         true <-
-           CSRF.valid?(
-             options.csrf_secret,
-             "card_lab:slack_#{action}",
-             card_slack_resource(card, state, Map.delete(form, "_token")),
-             form["_token"]
-           ),
-         {revision, ""} <- Integer.parse(form["revision"]),
-         {:ok, post} <- options.projection.card_lab_post.(id),
-         true <- post.card_id == card and post.revision == revision,
-         {:ok, _updated} <- card_slack_action(action, post, state, options) do
-      card_slack_redirect(conn, card, state)
-    else
-      false -> text(conn, 403, "Invalid or stale specimen confirmation")
-      {:error, :form} -> text(conn, 400, "Invalid form")
-      _error -> text(conn, 409, "Specimen changed or delivery is busy; refresh and review again")
-    end
-  end
-
-  defp route(
-         %Plug.Conn{method: "GET", path_info: ["card-lab", card_id, state_id]} = conn,
-         options
-       ) do
-    with {:ok, card_id} <- path_ref(card_id),
-         {:ok, state_id} <- path_ref(state_id),
-         {:ok, snapshot} <- CardLab.fetch(card_id, state_id) do
-      render_card_lab(conn, options, snapshot)
-    else
-      _not_found -> html(conn, 404, "Not found", HTML.generic("Card Lab specimen", []))
-    end
-  end
-
-  defp route(
-         %Plug.Conn{
-           method: "POST",
-           path_info: ["card-lab", card_id, state_id, "transitions", transition_id]
-         } = conn,
-         options
-       ) do
-    with {:ok, card_id} <- path_ref(card_id),
-         {:ok, state_id} <- path_ref(state_id),
-         {:ok, transition_id} <- path_ref(transition_id),
-         {:ok, token, conn} <- form_token(conn),
-         resource <- card_lab_transition_resource(card_id, state_id, transition_id),
-         true <- CSRF.valid?(options.csrf_secret, @card_lab_transition_action, resource, token),
-         {:ok, snapshot} <- CardLab.transition(card_id, state_id, transition_id) do
-      conn
-      |> put_resp_header(
-        "location",
-        card_lab_path(snapshot.card.id, snapshot.state.id)
-      )
-      |> send_resp(303, "")
-      |> halt()
-    else
-      false -> text(conn, 403, "Invalid confirmation token")
-      {:error, :form} -> text(conn, 400, "Invalid form")
-      {:error, :card_lab_transition_not_found} -> text(conn, 404, "Transition not found")
-      _not_found -> text(conn, 404, "Card Lab specimen not found")
-    end
-  end
-
-  defp route(
-         %Plug.Conn{method: "POST", path_info: ["card-lab", card_id, state_id, "feedback"]} =
-           conn,
-         options
-       ) do
-    with {:ok, card_id} <- path_ref(card_id),
-         {:ok, state_id} <- path_ref(state_id),
-         {:ok, token, verdict, note, conn} <- card_lab_feedback_form(conn),
-         resource <- card_lab_feedback_resource(card_id, state_id),
-         true <- CSRF.valid?(options.csrf_secret, @card_lab_feedback_action, resource, token),
-         {:ok, _feedback} <-
-           options.actions.record_card_feedback.(card_id, state_id, verdict, note) do
-      conn
-      |> put_resp_header("location", card_lab_path(card_id, state_id) <> "#feedback")
-      |> send_resp(303, "")
-      |> halt()
-    else
-      false -> text(conn, 403, "Invalid confirmation token")
-      {:error, :form} -> text(conn, 400, "Invalid form")
-      {:error, :card_lab_specimen_not_found} -> text(conn, 404, "Card Lab specimen not found")
-      {:error, %Ecto.Changeset{}} -> text(conn, 422, "Invalid feedback")
-      {:error, _reason} -> text(conn, 409, "Feedback could not be recorded")
     end
   end
 
@@ -574,15 +345,6 @@ defmodule Responder.ControlPlane.Router do
       {:error, :form} -> text(conn, 400, "Invalid form")
       {:error, _reason} -> text(conn, 409, "Record action is no longer available")
     end
-  end
-
-  defp route(%Plug.Conn{method: "GET", path_info: ["manual-tests"]} = conn, options) do
-    html(
-      conn,
-      200,
-      "Manual product journeys",
-      HTML.manual_tests(options.projection.configuration.())
-    )
   end
 
   defp route(%Plug.Conn{method: "GET", path_info: ["incident-rooms"]} = conn, options) do
@@ -1822,21 +1584,6 @@ defmodule Responder.ControlPlane.Router do
     end
   end
 
-  defp card_lab_feedback_form(conn) do
-    with [content_type] <- get_req_header(conn, "content-type"),
-         true <-
-           String.starts_with?(String.downcase(content_type), "application/x-www-form-urlencoded"),
-         {:ok, body, conn} <- read_memory_form(conn),
-         %{"_token" => token, "note" => note, "verdict" => verdict} = form <-
-           Query.decode(body),
-         true <- Enum.sort(Map.keys(form)) == ["_token", "note", "verdict"],
-         true <- is_binary(token) and is_binary(note) and is_binary(verdict) do
-      {:ok, token, verdict, note, conn}
-    else
-      _invalid -> {:error, :form}
-    end
-  end
-
   defp lab_form(conn) do
     case get_req_header(conn, "content-type") do
       [content_type] -> lab_form(conn, String.downcase(content_type))
@@ -2058,110 +1805,6 @@ defmodule Responder.ControlPlane.Router do
   defp lab_reaction_action("add"), do: {:ok, :add}
   defp lab_reaction_action("remove"), do: {:ok, :remove}
   defp lab_reaction_action(_action), do: {:error, :form}
-
-  defp render_card_lab(conn, options, snapshot) do
-    view = card_lab_snapshot(snapshot, options)
-
-    html(
-      conn,
-      200,
-      "Slack Card Lab",
-      HTML.card_lab(
-        snapshot,
-        view.feedback,
-        view.transition_tokens,
-        view.feedback_token,
-        view.slack_panel
-      )
-    )
-  end
-
-  defp confirmed_card_snapshot("retry", _snapshot, post),
-    do: CardLab.fetch(post.card_id, post.state_id)
-
-  defp confirmed_card_snapshot("update", snapshot, _post), do: {:ok, snapshot}
-
-  @doc false
-  def card_lab_snapshot(snapshot, options) do
-    feedback = options.projection.card_lab_feedback.(snapshot.card.id, snapshot.state.id)
-
-    slack =
-      case options.projection[:card_lab_slack] do
-        callback when is_function(callback, 1) -> callback.(snapshot.card.id)
-        _missing -> %{available: false, posts: [], channels: [], workspace_ref: nil}
-      end
-
-    slack_token =
-      CSRF.token(
-        options.csrf_secret,
-        @card_slack_prepare,
-        card_lab_feedback_resource(snapshot.card.id, snapshot.state.id)
-      )
-
-    slack_panel = CardLabSlackHTML.panel(snapshot, slack, slack_token)
-
-    transition_tokens =
-      Map.new(snapshot.state.transitions, fn transition ->
-        resource =
-          card_lab_transition_resource(snapshot.card.id, snapshot.state.id, transition.id)
-
-        {transition.id, CSRF.token(options.csrf_secret, @card_lab_transition_action, resource)}
-      end)
-
-    feedback_token =
-      CSRF.token(
-        options.csrf_secret,
-        @card_lab_feedback_action,
-        card_lab_feedback_resource(snapshot.card.id, snapshot.state.id)
-      )
-
-    %{
-      snapshot: snapshot,
-      feedback: feedback,
-      transition_tokens: transition_tokens,
-      feedback_token: feedback_token,
-      slack_panel: slack_panel
-    }
-  end
-
-  defp card_lab_path(card_id, state_id),
-    do:
-      "/card-lab/#{URI.encode(card_id, &URI.char_unreserved?/1)}/#{URI.encode(state_id, &URI.char_unreserved?/1)}"
-
-  defp card_lab_transition_resource(card_id, state_id, transition_id),
-    do: Enum.join([card_id, state_id, transition_id], ":")
-
-  defp card_lab_feedback_resource(card_id, state_id), do: "#{card_id}:#{state_id}"
-
-  defp card_slack_resource(card, state, fields),
-    do: CanonicalJSON.digest([card, state, fields])
-
-  defp card_slack_form(conn, keys) do
-    with [content_type] <- get_req_header(conn, "content-type"),
-         true <-
-           String.starts_with?(String.downcase(content_type), "application/x-www-form-urlencoded"),
-         {:ok, body, conn} <- read_form(conn),
-         form when is_map(form) <- Query.decode(body),
-         true <- Enum.sort(Map.keys(form)) == Enum.sort(keys),
-         true <- Enum.all?(Map.values(form), &is_binary/1) do
-      {:ok, form, conn}
-    else
-      _error -> {:error, :form}
-    end
-  end
-
-  defp card_slack_redirect(conn, card, state) do
-    conn
-    |> put_resp_header("location", card_lab_path(card, state) <> "#slack-delivery")
-    |> send_resp(303, "")
-    |> halt()
-  end
-
-  defp card_slack_action("update", post, state, options),
-    do: options.actions.transition_card_slack_post.(post.id, state, post.revision)
-
-  defp card_slack_action("retry", post, _state, options),
-    do: options.actions.retry_card_slack_post.(post.id, post.revision)
 
   defp action_path(kind, resource_ref, action),
     do: "/actions/#{kind}/#{URI.encode(resource_ref, &URI.char_unreserved?/1)}/#{action}"

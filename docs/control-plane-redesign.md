@@ -2,7 +2,12 @@
 
 Status: primary workspace implemented; remaining stages are tracked below.
 Deployment identity is the running process's x-responder-version header, not this plan.
-Updated: 2026-09-05.
+Updated: 2026-09-13. The runtime Slack Card Lab (`/card-lab`) and the Test
+journeys page (`/manual-tests`) described in the dated sections below were
+retired on 2026-09-13 as a clean cut: no redirects, no replacement catalog.
+Their history tables remain; native Slack card design is reviewed offline
+through `.agent/kb/rules/slack-card-design-workflow.md`, and the manual
+qualification journeys live in `docs/testing.md`.
 
 ## Current execution: performance and three design passes
 
@@ -169,28 +174,8 @@ An operator should be able to open a conversation and immediately understand:
 Slack, GitHub, and Conversation Lab use the same durable processing pipeline.
 The Lab has the same configured model and governed tool capabilities as its
 selected repository context, including Emisar. Testing must not require sending
-messages to Slack. Card Lab remains a separate, exhaustive card-state workbench.
-
-### Card Lab must render in real Slack too
-
-Every message specimen, including `/card-lab/incident-room/provisioning`, needs
-an explicit **Post to Slack** action with a workspace/channel confirmation and
-a link to the posted message. Use the configured Emisar workspace, never the
-Blitz workspace. Selecting or browsing a specimen never posts automatically.
-Retain delivery state and the exact payload revision; offer updating the same
-posted specimen through its states, not a new message for every transition.
-Reconcile uncertain delivery outcomes without duplicate posts. Mark specimens
-as test content and isolate their controls from real incident/task actions.
-
-The in-browser preview should follow Slack Block Kit typography, spacing,
-fields, sections, context, buttons, and overflow behavior. Clearly label it an
-approximation; actual Slack is the rendering authority. Message, App Home,
-modal, and thread-status specimens must use their correct Slack surface rather
-than pretending every payload is a chat message. Explain prerequisites and
-unsupported surface actions honestly. Preserve state-specific feedback and link
-it to the specimen revision and posted receipt when present. Verify posting,
-in-place transitions, authorization/CSRF, unsafe-action isolation, retries, and
-native Slack rendering before calling the workbench complete.
+messages to Slack. The runtime Card Lab that used to preview and post card
+specimens was retired on 2026-09-13; card design is reviewed offline.
 
 Speed is an end-to-end requirement. Reliability includes semantic quality as
 well as crash recovery: a fast, schema-valid answer that silently ignores an
@@ -253,7 +238,7 @@ Do not broaden network exposure as part of this migration.
 
 Coverage includes Overview, episodes, incidents, failures, decisions, schedules,
 subscriptions, channels, repositories, workspaces, memory, usage,
-Usage, Configuration, Conversation Lab, Card Lab, feedback, and test journeys.
+Usage, Configuration, and Conversation Lab.
 "Real time" means changes appear as they are committed or observed; an external
 service with no push signal must display the age of its last observation.
 

@@ -36,7 +36,6 @@ defmodule Responder.ControlPlane.LabPage do
           Slack effects are emulated here. Repository and Emisar actions still use their configured authority.
           <a href="/configuration">Inspect configuration</a>
         </p>
-        <Responder.ControlPlane.WorkflowGuide.render />
       </div>
       <section :if={@snapshot} class="lab-chat" aria-label="Conversation">
         <div class="lab-chat-header">
@@ -55,7 +54,6 @@ defmodule Responder.ControlPlane.LabPage do
           </h3><p>
             Ask a question, investigate an issue, or try a feature. Your first message starts the conversation.
           </p>
-          <a href="/lab#workflows">Explore available workflows →</a>
         </div>
         <p id="lab-announcement" class="sr-only" role="status" aria-live="polite" aria-atomic="true">
           {@announcement}

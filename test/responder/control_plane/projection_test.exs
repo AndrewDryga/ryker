@@ -1621,7 +1621,7 @@ defmodule Responder.ControlPlane.ProjectionTest do
     assert Projection.episode("missing") == :not_found
 
     assert Projection.findings(%{}) == %{items: [], total: 0, page: 1, pages: 1}
-    assert map_size(Projection.callbacks()) == 40
+    assert map_size(Projection.callbacks()) == 37
     assert is_function(Projection.callbacks().instructions, 1)
     assert is_function(Projection.callbacks().settings, 0)
     refute Map.has_key?(Projection.callbacks(), :episodes)
@@ -1631,8 +1631,11 @@ defmodule Responder.ControlPlane.ProjectionTest do
     assert is_function(Projection.callbacks().usage_filter_options, 0)
     assert is_function(Projection.callbacks().model_timeline, 2)
     assert is_function(Projection.callbacks().activity, 1)
-    assert is_function(Projection.callbacks().card_lab_slack, 1)
-    assert is_function(Projection.callbacks().card_lab_post, 1)
+    # The Card Lab catalog was retired on 2026-09-13; its feedback, Slack
+    # panel and post readers must not linger as callable projections.
+    refute Map.has_key?(Projection.callbacks(), :card_lab_feedback)
+    refute Map.has_key?(Projection.callbacks(), :card_lab_slack)
+    refute Map.has_key?(Projection.callbacks(), :card_lab_post)
     assert is_function(Projection.callbacks().model_requests, 2)
     assert is_function(Projection.callbacks().admission_request, 2)
   end

@@ -97,9 +97,9 @@ scripts/check-running-elixir-release.sh http://127.0.0.1:4321 EXPECTED_VERSION
 curl --fail http://127.0.0.1:4321/metrics
 ```
 
-Then execute the authorized live journeys in `docs/testing.md` and the guided
-checklist at `http://127.0.0.1:4321/manual-tests`. Test results, installed
-version, running version, and live platform receipts are separate evidence.
+Then execute the authorized live journeys and the manual qualification
+journeys in `docs/testing.md`. Test results, installed version, running
+version, and live platform receipts are separate evidence.
 
 ## Health and readiness
 
@@ -286,9 +286,8 @@ The loopback control plane provides:
 - overview and effective configuration;
 - episode, decision, finding, delivery, approval, publication, schedule,
   retention, and fleet views;
-- failure drill-down and typed retry controls;
-- Conversation Lab at `/lab`; and
-- the guided manual matrix at `/manual-tests`.
+- failure drill-down and typed retry controls; and
+- Conversation Lab at `/lab`.
 
 Conversation Lab enters the same durable generic ingress, admission, episode,
 Work, semantic-validation, and delivery pipeline as Slack, GitHub, and

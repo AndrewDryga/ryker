@@ -19,7 +19,7 @@ defmodule Responder.ControlPlane.Projection do
   alias Responder.ControlPlane.WorkRecovery
 
   alias Responder.Artifacts.OutputArtifact
-  alias Responder.ControlPlane.{Card, CardLabDelivery, CardLabFeedback, EpisodeTrace}
+  alias Responder.ControlPlane.{Card, EpisodeTrace}
   alias Responder.CoopFleet.Worker, as: FleetWorker
   alias Responder.Delivery.Operator, as: DeliveryOperator
   alias Responder.Delivery.PlatformAction
@@ -51,9 +51,6 @@ defmodule Responder.ControlPlane.Projection do
       behavior: &BehaviorLibrary.fetch/1,
       behaviors: &BehaviorLibrary.list/2,
       admission: &admission/1,
-      card_lab_feedback: &CardLabFeedback.list/2,
-      card_lab_slack: &CardLabDelivery.snapshot/1,
-      card_lab_post: &CardLabDelivery.fetch/1,
       channel: &channel/2,
       channels: &channels/1,
       instructions: &InstructionSettings.fetch/1,

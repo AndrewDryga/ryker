@@ -41,11 +41,7 @@ defmodule Responder.Runtime.Owner do
     {:webhooks, Responder.Webhooks.Server},
     {:control_plane, Responder.ControlPlane.Server}
   ]
-  @control_plane_companions [
-    Responder.ControlPlane.Updates,
-    SlackNames,
-    Responder.ControlPlane.CardLabWorker
-  ]
+  @control_plane_companions [Responder.ControlPlane.Updates, SlackNames]
 
   @spec child_spec(keyword()) :: Supervisor.child_spec()
   def child_spec(options) do

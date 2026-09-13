@@ -24,6 +24,23 @@ defmodule Responder.ControlPlane.ActionsTest do
     assert configured.run_schedule.("missing-schedule") == {:error, :schedule_not_found}
   end
 
+  test "no retired Card Lab action can queue a Slack specimen or record catalog feedback" do
+    # Retired 2026-09-13. The confirmed HTTP router used to reach these five
+    # callbacks; a surviving callback would be a send path with no page, no
+    # confirmation step and no worker draining what it queued.
+    callbacks = Actions.callbacks()
+
+    for retired <- [
+          :record_card_feedback,
+          :describe_card_slack_target,
+          :post_card_to_slack,
+          :transition_card_slack_post,
+          :retry_card_slack_post
+        ] do
+      refute Map.has_key?(callbacks, retired), "#{retired} must not survive the Card Lab"
+    end
+  end
+
   test "episode controls resolve waits and review the exact terminal semantic version" do
     callbacks = Actions.callbacks()
     waiting = start_episode!("resolve")
