@@ -488,6 +488,21 @@ defmodule Ryker.ControlPlane.LiveTest do
       |> get("/")
 
     assert conn.status == 403
+
+    # One guard for both paths: a live page and an HTTP-router answer carry
+    # the same boundary headers. Until 2026-09-13 the HTTP router added
+    # cross-origin-resource-policy from a header list of its own and the live
+    # pages went without it.
+    live = build_conn() |> Map.put(:host, "localhost") |> get("/")
+    http = build_conn() |> Map.put(:host, "localhost") |> get("/never-a-page")
+    assert live.status == 200
+    assert http.status == 404
+
+    for header <-
+          ~w(cache-control content-security-policy cross-origin-resource-policy referrer-policy x-content-type-options x-ryker-version) do
+      assert Plug.Conn.get_resp_header(live, header) != [], header
+      assert Plug.Conn.get_resp_header(live, header) == Plug.Conn.get_resp_header(http, header)
+    end
   end
 
   test "editing search preserves pending criteria but clearing all resets them" do

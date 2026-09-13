@@ -5,7 +5,7 @@ defmodule Ryker.ControlPlane.RouterTest do
   import Plug.Test
   import Phoenix.LiveViewTest
 
-  alias Ryker.ControlPlane.{CSRF, EpisodePage, HTML, LabPage, Pages, Router}
+  alias Ryker.ControlPlane.{CSRF, EpisodePage, HTML, LabControls, LabPage, Pages, Router}
   alias Ryker.Fixtures.ControlPlaneOptions
 
   @secret ControlPlaneOptions.secret()
@@ -127,7 +127,7 @@ defmodule Ryker.ControlPlane.RouterTest do
 
     unsent = Ecto.UUID.generate()
     assert request(:get, "/conversations/#{unsent}").status == 404
-    {:ok, snapshot, _token} = Router.lab_snapshot(unsent, options())
+    {:ok, snapshot, _token} = LabControls.snapshot(unsent, options())
     assert snapshot.messages == []
     assert conversation_html(unsent) =~ "action=\"/conversations/#{unsent}/messages\""
     refute_received {:lab_message, _conversation, _message}
@@ -616,7 +616,7 @@ defmodule Ryker.ControlPlane.RouterTest do
     empty_id = "018f3ef7-1f62-7ee0-a83c-0c12f21d83ff"
 
     assert {:ok, %{conversation_id: ^empty_id, messages: []}, _token} =
-             Router.lab_snapshot(empty_id, options())
+             LabControls.snapshot(empty_id, options())
 
     assert conversation_html(empty_id) =~ empty_id
     assert request(:get, "/conversations/not-a-uuid").status == 404
@@ -645,10 +645,10 @@ defmodule Ryker.ControlPlane.RouterTest do
       |> put_in([:projection, :lab_conversation], fn _id ->
         {:error, :database_unavailable}
       end)
-      |> then(&Router.lab_snapshot(empty_id, &1))
+      |> then(&LabControls.snapshot(empty_id, &1))
 
     assert unavailable_projection == {:error, :projection_unavailable}
-    assert Router.lab_snapshot("not-a-uuid", options()) == {:error, :path_ref}
+    assert LabControls.snapshot("not-a-uuid", options()) == {:error, :path_ref}
 
     message_token = CSRF.token(@secret, "conversation_lab:send", empty_id)
 
@@ -1531,7 +1531,7 @@ defmodule Ryker.ControlPlane.RouterTest do
   # with the exact edit, reaction and record controls the HTTP router accepts.
   defp conversation_html(conversation_id) do
     options = options()
-    {:ok, snapshot, token} = Router.lab_snapshot(conversation_id, options)
+    {:ok, snapshot, token} = LabControls.snapshot(conversation_id, options)
 
     render_component(&LabPage.render/1,
       snapshot: snapshot,
