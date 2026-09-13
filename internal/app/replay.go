@@ -13,12 +13,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/config"
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/decision"
-	"github.com/AndrewDryga/responder/internal/evaluation"
-	"github.com/AndrewDryga/responder/internal/slackui"
-	"github.com/AndrewDryga/responder/internal/store"
+	"github.com/AndrewDryga/ryker/internal/config"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/decision"
+	"github.com/AndrewDryga/ryker/internal/evaluation"
+	"github.com/AndrewDryga/ryker/internal/slackui"
+	"github.com/AndrewDryga/ryker/internal/store"
 )
 
 const slackReplayPollInterval = 250 * time.Millisecond
@@ -49,7 +49,7 @@ type slackReplayDelivery struct {
 
 func runReplay(args []string, stdout, stderr io.Writer) error {
 	if len(args) == 0 || args[0] != "slack" {
-		return errors.New("usage: responder replay slack [options]")
+		return errors.New("usage: ryker replay slack [options]")
 	}
 	flags := flag.NewFlagSet("replay slack", flag.ContinueOnError)
 	flags.SetOutput(stderr)
@@ -105,7 +105,7 @@ func runReplay(args []string, stdout, stderr io.Writer) error {
 	if err != nil {
 		return err
 	}
-	if err := requireRunningResponder(cfg.StateDir); err != nil {
+	if err := requireRunningRyker(cfg.StateDir); err != nil {
 		return err
 	}
 	st, err := store.OpenLive(cfg.StateDir)
@@ -142,7 +142,7 @@ func runReplay(args []string, stdout, stderr io.Writer) error {
 	if !*jsonOutput {
 		fmt.Fprintf(
 			stdout,
-			"Reprocessing Slack input %s as %s through the running Responder in %s mode; waiting for %s.\n",
+			"Reprocessing Slack input %s as %s through the running Ryker in %s mode; waiting for %s.\n",
 			source.ID,
 			replay.ID,
 			replayModeName(*publish),
@@ -236,21 +236,21 @@ func requestSlackReplayCancellation(ctx context.Context, listen, replayID, expec
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusSeeOther {
-		return fmt.Errorf("Responder cancellation returned HTTP %d", response.StatusCode)
+		return fmt.Errorf("Ryker cancellation returned HTTP %d", response.StatusCode)
 	}
 	return nil
 }
 
-func requireRunningResponder(stateDir string) error {
+func requireRunningRyker(stateDir string) error {
 	lock, err := acquireProcessLock(stateDir)
 	if err == nil {
 		releaseProcessLock(lock)
-		return errors.New("Responder is not running; start serve before replaying Slack input")
+		return errors.New("Ryker is not running; start serve before replaying Slack input")
 	}
 	if errors.Is(err, errProcessLocked) {
 		return nil
 	}
-	return fmt.Errorf("verify running Responder: %w", err)
+	return fmt.Errorf("verify running Ryker: %w", err)
 }
 
 func findSlackReplaySource(

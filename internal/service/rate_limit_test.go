@@ -7,10 +7,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/provider"
-	"github.com/AndrewDryga/responder/internal/slackui"
-	"github.com/AndrewDryga/responder/internal/store"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/provider"
+	"github.com/AndrewDryga/ryker/internal/slackui"
+	"github.com/AndrewDryga/ryker/internal/store"
 )
 
 // The wording providers actually use. Classify has to recognise all of these,
@@ -315,12 +315,12 @@ func seedPreparingRun(t *testing.T, st *store.Store) core.AgentRun {
 	return leased
 }
 
-// The string Responder actually receives must be recognised.
+// The string Ryker actually receives must be recognised.
 //
 // The classifier matched "acl request was rejected" while the transport emits
 // "ACP request was rejected" — one letter apart, and the reason nothing
 // downstream ever handled it. Every such refusal fell through to the default
-// and failed the run, which is how a spent quota reached Slack as "Responder
+// and failed the run, which is how a spent quota reached Slack as "Ryker
 // could not complete this check" for four days.
 func TestUnexplainedACPRefusalWaitsRatherThanFailing(t *testing.T) {
 	if kind := provider.Classify("ACP request was rejected").Kind; kind != provider.KindProviderRefused {

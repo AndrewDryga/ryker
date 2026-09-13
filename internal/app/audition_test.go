@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/audition"
-	"github.com/AndrewDryga/responder/internal/config"
+	"github.com/AndrewDryga/ryker/internal/audition"
+	"github.com/AndrewDryga/ryker/internal/config"
 )
 
 func writeHistory(t *testing.T, dir, name, body string) {

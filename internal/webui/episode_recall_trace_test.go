@@ -410,7 +410,7 @@ func TestAFocusedCheckTraceSaysRecallWasNotSearched(t *testing.T) {
 	  (id, episode_id, attempt_id, version, provider, model, reasoning_effort,
 	   prompt_version, contract_version, tool_schema_version, preset, submitted_prompt, created_at)
 	  VALUES ('manifest-1','episode-1','attempt-1',1,'claude','opus','high',
-	          'responder-prompt-v2','investigation-contract-v1','result-operations-v2',
+	          'ryker-prompt-v2','investigation-contract-v1','result-operations-v2',
 	          'emisar-conversation',?,?)`, recallPrompt(""), stamp)
 	reader := fixture.reader()
 	defer reader.Close()
@@ -453,7 +453,7 @@ func recalledEpisodeFixture(t *testing.T) *Reader {
 	  (id, episode_id, attempt_id, version, provider, model, reasoning_effort,
 	   prompt_version, contract_version, tool_schema_version, preset, submitted_prompt, created_at)
 	  VALUES ('manifest-1','episode-1','attempt-1',1,'claude','opus','high',
-	          'responder-prompt-v2','investigation-contract-v1','result-operations-v2',
+	          'ryker-prompt-v2','investigation-contract-v1','result-operations-v2',
 	          'emisar-conversation','',?)`, stamp)
 	for ordinal, recalled := range []struct{ id, state, objective, rootCause string }{
 		{"episode-past", "completed", "Zot registry returned 500s after an image push",

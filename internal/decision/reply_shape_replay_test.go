@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
+	decisionpkg "github.com/AndrewDryga/ryker/internal/decision"
 )
 
 // replayReply is one posted reply as scripts/reply-shape-replay.sh recovers it
@@ -38,9 +38,9 @@ type replayReply struct {
 // fifth of production is one nobody will leave switched on, and a validator
 // that rejects nothing has stopped being a validator.
 func TestReplyShapeReplay(t *testing.T) {
-	path := os.Getenv("RESPONDER_REPLY_SHAPE_CORPUS")
+	path := os.Getenv("RYKER_REPLY_SHAPE_CORPUS")
 	if path == "" {
-		t.Skip("set RESPONDER_REPLY_SHAPE_CORPUS, or run scripts/reply-shape-replay.sh")
+		t.Skip("set RYKER_REPLY_SHAPE_CORPUS, or run scripts/reply-shape-replay.sh")
 	}
 	raw, err := os.ReadFile(path)
 	if err != nil {

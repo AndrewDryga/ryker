@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/store/alertstreamstore"
-	"github.com/AndrewDryga/responder/internal/store/storetest"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/store/alertstreamstore"
+	"github.com/AndrewDryga/ryker/internal/store/storetest"
 )
 
 // What a channel has already offered is read from the channel, not from one

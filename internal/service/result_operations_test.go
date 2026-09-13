@@ -9,10 +9,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/core"
-	episodepkg "github.com/AndrewDryga/responder/internal/episode"
-	"github.com/AndrewDryga/responder/internal/investigation"
-	"github.com/AndrewDryga/responder/internal/store"
+	"github.com/AndrewDryga/ryker/internal/core"
+	episodepkg "github.com/AndrewDryga/ryker/internal/episode"
+	"github.com/AndrewDryga/ryker/internal/investigation"
+	"github.com/AndrewDryga/ryker/internal/store"
 )
 
 // A goal the episode never planned must not be able to withhold the answer

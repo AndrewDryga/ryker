@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/ryker/internal/core"
 )
 
 func pendingCandidate(episode, class string) core.FixtureCandidate {

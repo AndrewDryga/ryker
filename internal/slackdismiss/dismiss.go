@@ -5,9 +5,9 @@ import (
 	"errors"
 	"strings"
 
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/preparationnotice"
-	"github.com/AndrewDryga/responder/internal/store"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/preparationnotice"
+	"github.com/AndrewDryga/ryker/internal/store"
 )
 
 type Membership interface {
@@ -50,7 +50,7 @@ func HandleEphemeral(ctx context.Context, candidate any, responseURL string) (Re
 	if err := deleter.DeleteResponse(ctx, responseURL); err != nil {
 		return Result{}, err
 	}
-	return Result{AuditDetail: "private temporary Responder message removed"}, nil
+	return Result{AuditDetail: "private temporary Ryker message removed"}, nil
 }
 
 // Handle removes only the clicked Slack surface. Mutable preparation notices
@@ -64,14 +64,14 @@ func Handle(
 	request Request,
 ) (Result, error) {
 	if !request.Operator {
-		return Result{Denial: "Only a configured operator can dismiss shared Responder messages. Nothing was removed."}, nil
+		return Result{Denial: "Only a configured operator can dismiss shared Ryker messages. Nothing was removed."}, nil
 	}
 	allowed, err := membership.UserAllowed(ctx, request.UserID, request.TeamID)
 	if err != nil {
 		return Result{}, err
 	}
 	if !allowed {
-		return Result{Denial: "Only active full workspace members can dismiss shared Responder messages. Nothing was removed."}, nil
+		return Result{Denial: "Only active full workspace members can dismiss shared Ryker messages. Nothing was removed."}, nil
 	}
 	if request.ChannelID == "" || request.MessageTS == "" {
 		return Result{}, errors.New("dismiss message interaction has no Slack target")
@@ -93,5 +93,5 @@ func Handle(
 		!strings.Contains(strings.ToLower(strings.TrimSpace(err.Error())), "message_not_found") {
 		return Result{}, err
 	}
-	return Result{AuditDetail: "temporary Responder message removed"}, nil
+	return Result{AuditDetail: "temporary Ryker message removed"}, nil
 }

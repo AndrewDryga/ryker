@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/slackui"
-	"github.com/AndrewDryga/responder/internal/store"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/slackui"
+	"github.com/AndrewDryga/ryker/internal/store"
 	"github.com/slack-go/slack"
 	"github.com/slack-go/slack/socketmode"
 )
@@ -183,7 +183,7 @@ func TestSecondOverflowMenuOnASurfaceStillRoutes(t *testing.T) {
 // An option value this renderer did not write has no action in it, so there is
 // nothing to route and nothing to guess. It is dropped at admission rather than
 // admitted and refused later: an input with no action id would otherwise travel
-// the whole control lane to arrive at "unknown Responder control".
+// the whole control lane to arrive at "unknown Ryker control".
 func TestUndecodableOverflowSelectionIsAcknowledgedAndDropped(t *testing.T) {
 	ctx := context.Background()
 	st, svc, _, socket, incident := overflowFixture(t, ctx)

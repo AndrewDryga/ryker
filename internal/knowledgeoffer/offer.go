@@ -23,8 +23,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/remediation"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/remediation"
 )
 
 // The two kinds, as they appear in a confirmation payload and an audit row.
@@ -37,7 +37,7 @@ const (
 // twenty-four hours the behaviour offers and the promotion card use.
 //
 // The reason is the same and one more. Confirming creates something outside
-// Responder: a draft in Emisar, or an engineering task that will open a pull
+// Ryker: a draft in Emisar, or an engineering task that will open a pull
 // request. A button pressed a week later would be acting on an episode whose
 // verification has long since stopped being the newest thing known about the
 // system it describes.
@@ -57,7 +57,7 @@ var (
 // before it is sent rather than rejected after.
 //
 // Refused rather than repaired, deliberately. A pack id that does not match is
-// not a spelling Responder may guess at: it means the recorded pack ref is not
+// not a spelling Ryker may guess at: it means the recorded pack ref is not
 // shaped the way this builder assumes, and the honest answer is to say so and
 // create nothing. A runbook that quietly points at a slightly different pack is
 // the exact failure this whole path exists to prevent.
@@ -359,7 +359,7 @@ func RunbookArguments(draft RunbookDraft) (map[string]any, error) {
 // sentence in this block came from one investigation, and it is named.
 func draftContext(draft RunbookDraft) string {
 	var body strings.Builder
-	body.WriteString("Drafted by Emisar Responder from a verified remediation. Nothing here has ")
+	body.WriteString("Drafted by Emisar Ryker from a verified remediation. Nothing here has ")
 	body.WriteString("been published; review every step before releasing this runbook.\n\n")
 	body.WriteString("- Source episode: `" + draft.EpisodeID + "`\n")
 	body.WriteString("- Action id: `" + draft.Action.ActionID + "`\n")
@@ -374,7 +374,7 @@ func draftContext(draft RunbookDraft) string {
 	body.WriteString("\n## Summary\n\n" + draft.Summary + "\n")
 	body.WriteString("\nThe step below carries no arguments. The recorded run's arguments are not ")
 	body.WriteString("part of the remediation record, so a reviewer supplies them rather than ")
-	body.WriteString("Responder guessing them.\n")
+	body.WriteString("Ryker guessing them.\n")
 	return body.String()
 }
 
@@ -432,7 +432,7 @@ func (c Card) Document(recorded time.Time) string {
 		body.WriteString("\n")
 	}
 	body.WriteString("\n## Provenance\n\n")
-	body.WriteString("Recorded by Emisar Responder from episode `" + c.EpisodeID + "` on " +
+	body.WriteString("Recorded by Emisar Ryker from episode `" + c.EpisodeID + "` on " +
 		recorded.UTC().Format("2006-01-02") + ".\n")
 	if c.RootCause != "" {
 		body.WriteString("\n- Root cause: " + c.RootCause + "\n")
@@ -451,7 +451,7 @@ func (c Card) Document(recorded time.Time) string {
 // hashed, so there is no host-side affordance for "here is a file, commit it"
 // and inventing one would mean a second way to reach the default branch. The
 // existing route — engineering task, Coop fork, review, operator-gated publish,
-// draft pull request — already ends where this needs to end, and Responder
+// draft pull request — already ends where this needs to end, and Ryker
 // still never merges anything.
 func (c Card) TaskTitle() string {
 	return core.BoundedText("Add knowledge card: "+c.Title, 200)

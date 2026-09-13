@@ -6,7 +6,7 @@ import (
 	"encoding/json"
 	"slices"
 
-	"github.com/AndrewDryga/responder/internal/coop"
+	"github.com/AndrewDryga/ryker/internal/coop"
 )
 
 // This file is the other half of a control: the renderer writes an action's

@@ -11,9 +11,9 @@ func TestEveryAgentCanValidateItsResultAgainstTheAttachedSchema(t *testing.T) {
 	// contract and a validator must be told to use both before it returns.
 	prompt := StructuredResponseInstructions()
 	for _, required := range []string{
-		"responder-result.schema.json",
+		"ryker-result.schema.json",
 		"jv --assert-format --output detailed",
-		"/tmp/responder-result.json",
+		"/tmp/ryker-result.json",
 	} {
 		if !strings.Contains(prompt, required) {
 			t.Fatalf("structured result instructions do not tell the model to use %q", required)

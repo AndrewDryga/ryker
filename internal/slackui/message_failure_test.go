@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/ryker/internal/core"
 )
 
 // routedActionIDs is every action id internal/service will actually answer.
@@ -47,7 +47,7 @@ var routedActionIDs = map[string]bool{
 	// nothing would leave the work parked on a question the operator believes
 	// they have already answered.
 	ActionOperatorChoice: true,
-	// The one click that grants Responder authority to offer an action. Routed
+	// The one click that grants Ryker authority to offer an action. Routed
 	// like any other control, and refused by the handler unless the presser is a
 	// configured operator with active full workspace membership.
 	ActionConfirmGrantPromotion: true,

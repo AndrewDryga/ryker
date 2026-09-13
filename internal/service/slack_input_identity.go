@@ -5,7 +5,7 @@ import (
 	"encoding/hex"
 	"strings"
 
-	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/ryker/internal/core"
 )
 
 // canonicalSlackMessageInputID identifies one visible version of a Slack message.

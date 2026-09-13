@@ -12,10 +12,10 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/AndrewDryga/responder/internal/config"
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/evaluation"
-	"github.com/AndrewDryga/responder/internal/store"
+	"github.com/AndrewDryga/ryker/internal/config"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/evaluation"
+	"github.com/AndrewDryga/ryker/internal/store"
 )
 
 // regressionCorpusPath is where promoted corrections land.
@@ -112,7 +112,7 @@ func runPromoteFixtures(args []string, stdout, stderr io.Writer) error {
 	}
 	fmt.Fprintf(stdout,
 		"Promoted %d correction(s) into %s.\nReview the diff before committing: "+
-			"a fixture is a claim about what Responder must always do.\n", written, *corpusPath)
+			"a fixture is a claim about what Ryker must always do.\n", written, *corpusPath)
 	return nil
 }
 

@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/investigation"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/investigation"
 )
 
 // Found in the 2026-08-16 audit: the host knew exactly which field failed and

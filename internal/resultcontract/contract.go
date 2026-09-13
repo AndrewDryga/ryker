@@ -12,13 +12,13 @@ import (
 	"io"
 	"sync"
 
-	"github.com/AndrewDryga/responder/internal/coop"
+	"github.com/AndrewDryga/ryker/internal/coop"
 	jsonschema "github.com/santhosh-tekuri/jsonschema/v6"
 )
 
-const FileName = "responder-result.schema.json"
+const FileName = "ryker-result.schema.json"
 
-//go:embed responder-result.schema.json
+//go:embed ryker-result.schema.json
 var schemaBytes []byte
 
 var (
@@ -69,14 +69,14 @@ func AppendArtifact(artifacts []coop.InputArtifact, limit int) ([]coop.InputArti
 // exact schema attached to its turn. The attached file arrives as a text block,
 // so the agent first saves the bytes between its attached-file tags.
 func SelfValidationPrompt() string {
-	return `The attached-file block named responder-result.schema.json is the source of truth for the
+	return `The attached-file block named ryker-result.schema.json is the source of truth for the
 result's JSON shape: field names, required fields, enums, bounds, and operation/payload pairs.
 Before returning:
 1. Save the exact contents between that attached-file block's tags to
-   /tmp/responder-result.schema.json.
-2. Write the final candidate JSON object to /tmp/responder-result.json.
+   /tmp/ryker-result.schema.json.
+2. Write the final candidate JSON object to /tmp/ryker-result.json.
 3. Run:
-   jv --assert-format --output detailed /tmp/responder-result.schema.json /tmp/responder-result.json
+   jv --assert-format --output detailed /tmp/ryker-result.schema.json /tmp/ryker-result.json
 4. Fix every reported error and run the command again. Return the exact candidate file only after
    jv exits successfully. The schema checks local JSON shape; the host additionally checks evidence
    references, exact targets, claim joins, authority, and lifecycle facts against the episode record.`

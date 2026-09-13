@@ -91,7 +91,7 @@
   <div class="trace-heading">
     <div>
       <h2>Execution trace</h2>
-      <p class="trace-lede">Everything Responder recorded while handling this, in order.</p>
+      <p class="trace-lede">Everything Ryker recorded while handling this, in order.</p>
     </div>
     <div class="trace-summary" aria-label="Trace summary">
       {{range .Trace.Stats}}
@@ -117,7 +117,7 @@
           <header class="trace-step-header">
             <h4>{{if .Href}}<a href="{{.Href}}">{{.Title}}</a>{{else}}{{.Title}}{{end}}{{if .Chip}}<span class="trace-chip">{{.Chip}}</span>{{end}}</h4>
             <div class="trace-step-side">
-              {{if and .Actor (ne .Actor "Responder") (ne .Actor "responder") (ne .Actor "host") (ne .Actor "unattributed")}}<span class="trace-actor" data-actor="{{.Actor}}">{{.Actor}}</span>{{end}}
+              {{if and .Actor (ne .Actor "Ryker") (ne .Actor "responder") (ne .Actor "host") (ne .Actor "unattributed")}}<span class="trace-actor" data-actor="{{.Actor}}">{{.Actor}}</span>{{end}}
               <span class="trace-time">
                 {{if .Relative}}<strong>{{.Relative}}</strong>{{end}}
                 {{if .Duration}}<em>{{.Duration}}</em>{{end}}

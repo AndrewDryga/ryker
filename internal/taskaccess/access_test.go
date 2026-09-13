@@ -5,9 +5,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/AndrewDryga/responder/internal/config"
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/store"
+	"github.com/AndrewDryga/ryker/internal/config"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/store"
 )
 
 // accessConfig is the shape the 2026-08-16 refusals happened in: a channel

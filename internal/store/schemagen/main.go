@@ -17,7 +17,7 @@ import (
 	"path/filepath"
 	"sort"
 
-	"github.com/AndrewDryga/responder/internal/store"
+	"github.com/AndrewDryga/ryker/internal/store"
 	_ "modernc.org/sqlite"
 )
 

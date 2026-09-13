@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/store/sqlutil"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/store/sqlutil"
 )
 
 // RequeueRateLimitedFinalization puts a run whose finalization the provider
@@ -50,7 +50,7 @@ func (s *Store) RequeueRateLimitedFinalization(
 // that path stages a terminal failure without going through any retry function.
 // It is the reason a refused run showed state 'failed' with failure_count 0.
 //
-// last_error still records the detail: `responder status` and the logs should
+// last_error still records the detail: `ryker status` and the logs should
 // show why a run is waiting, even though Slack does not. When the complete
 // ladder above an escalation floor was limited, degradedFallback also arms one
 // floor-zero admission in context. It lives there rather than only in
@@ -87,7 +87,7 @@ func (s *Store) RequeueRateLimitedAgentRun(
 		SET state = 'pending', coop_turn_id = '', idempotency_key = ?,
 		    last_error = ?, next_attempt_at = ?, context_json = CASE WHEN ? THEN json_set(context_json, '$.`+degradedFallbackKey+`', json('true')) ELSE context_json END, updated_at = ?
 		WHERE id = ? AND state IN ('preparing', 'running', 'finalizing')`,
-		"responder:run:"+id+":"+recoveryID,
+		"ryker:run:"+id+":"+recoveryID,
 		sqlutil.BoundedError(detail), next.UTC().Format(timestampFormat),
 		degradedFallback, s.nowText(), id,
 	)

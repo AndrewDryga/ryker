@@ -5,7 +5,7 @@ import (
 	"errors"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/ryker/internal/core"
 )
 
 // ListOpenEngineeringTasksForChannel names the engineering work this channel

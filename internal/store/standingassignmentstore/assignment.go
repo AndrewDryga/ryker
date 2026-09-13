@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/store/sqlutil"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/store/sqlutil"
 )
 
 // maxPathGlobs bounds how many paths one assignment covers. An assignment

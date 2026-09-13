@@ -18,8 +18,8 @@ import (
 	"encoding/json"
 	"strings"
 
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/store/sqlutil"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/store/sqlutil"
 )
 
 type Repository struct {

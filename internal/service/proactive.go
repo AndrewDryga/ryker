@@ -4,10 +4,10 @@ import (
 	"context"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/assignments"
-	"github.com/AndrewDryga/responder/internal/core"
-	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
-	"github.com/AndrewDryga/responder/internal/investigation"
+	"github.com/AndrewDryga/ryker/internal/assignments"
+	"github.com/AndrewDryga/ryker/internal/core"
+	decisionpkg "github.com/AndrewDryga/ryker/internal/decision"
+	"github.com/AndrewDryga/ryker/internal/investigation"
 )
 
 // proactiveRecurrenceWindow is how far back a signal counts as recurring.
@@ -20,7 +20,7 @@ const proactiveRecurrenceWindow = 14 * 24 * time.Hour
 // covers a recurring, evidence-backed problem.
 //
 // It runs after an investigation concludes rather than when the signal arrives,
-// because the decision needs the conclusion: whether Responder actually
+// because the decision needs the conclusion: whether Ryker actually
 // understood the problem is the difference between a useful pull request and a
 // guess in someone's review queue.
 //
@@ -110,7 +110,7 @@ func (s *Service) startProactiveWork(
 // recordProactiveEvaluation writes what the gate decided, twice over.
 //
 // The durable row is the shadow period's evidence and outlives the audit
-// horizon; the audit event is where an operator already looks when Responder
+// horizon; the audit event is where an operator already looks when Ryker
 // did nothing. The reason is stored exactly as the gate produced it, not
 // annotated with the shadow state, because the tally groups refusals by that
 // string to find the one that repeats — and a reason decorated per assignment

@@ -6,11 +6,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/config"
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/operatorchoice"
-	"github.com/AndrewDryga/responder/internal/slackui"
-	"github.com/AndrewDryga/responder/internal/store"
+	"github.com/AndrewDryga/ryker/internal/config"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/operatorchoice"
+	"github.com/AndrewDryga/ryker/internal/slackui"
+	"github.com/AndrewDryga/ryker/internal/store"
 )
 
 // A question the model asked with two choices, in the shape production sends

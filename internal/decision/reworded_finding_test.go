@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/investigation"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/investigation"
 )
 
 // liveCarriedFindings is the carried_findings list out of the context envelope

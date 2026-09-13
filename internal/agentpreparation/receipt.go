@@ -8,12 +8,12 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/coop"
-	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
-	"github.com/AndrewDryga/responder/internal/retrydelay"
-	"github.com/AndrewDryga/responder/internal/sessioncreate"
-	"github.com/AndrewDryga/responder/internal/store"
-	"github.com/AndrewDryga/responder/internal/turncapacity"
+	"github.com/AndrewDryga/ryker/internal/coop"
+	decisionpkg "github.com/AndrewDryga/ryker/internal/decision"
+	"github.com/AndrewDryga/ryker/internal/retrydelay"
+	"github.com/AndrewDryga/ryker/internal/sessioncreate"
+	"github.com/AndrewDryga/ryker/internal/store"
+	"github.com/AndrewDryga/ryker/internal/turncapacity"
 )
 
 const receiptTimeout = 5 * time.Second

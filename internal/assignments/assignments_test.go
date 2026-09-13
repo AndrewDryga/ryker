@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/ryker/internal/core"
 )
 
 // The brief an unattended task works from must state its boundary, not suggest

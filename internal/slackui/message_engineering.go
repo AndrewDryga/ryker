@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/ryker/internal/core"
 )
 
 type ChangesNavigation struct {
@@ -731,7 +731,7 @@ func taskActions(
 	default: // Parked
 		actions = append(actions, Action{
 			ID: ActionUpdate, Label: "Ask agent for update", Value: task.ID,
-			Confirm: "Ask Responder to inspect current evidence and post a concise update?",
+			Confirm: "Ask Ryker to inspect current evidence and post a concise update?",
 		})
 	}
 	if publication.HasPR() && !containsAction(actions, ActionViewPR) {
@@ -874,10 +874,10 @@ func MemoryReviewCompleteMessage(action string, remaining int) Message {
 // A receipt, because that is the whole event: the branch is pushed, the PR is
 // open, and nothing is waiting on anyone here. It used to spend a header, a
 // linked line, a paragraph about lease protection and a boundary line saying
-// four separate things Responder had not done — most of a screen to report one
+// four separate things Ryker had not done — most of a screen to report one
 // state change. The state change is the first line, and now it is the only
 // line. The context line that survived that compression — "Lease-protected
-// publication: Responder refuses to overwrite an unexpected remote change, and
+// publication: Ryker refuses to overwrite an unexpected remote change, and
 // did not merge, deploy, sign, or change review state" — is gone too, because
 // it was the third statement of the same boundary in one flow: the publish
 // control confirms with it before the press, the draft PR body carries it on
@@ -891,7 +891,7 @@ func PublicationMessage(publication core.Publication, updated bool) Message {
 	}
 	return Message{
 		Text: fmt.Sprintf(
-			"Done — Responder %s draft PR #%d for this engineering task: %s",
+			"Done — Ryker %s draft PR #%d for this engineering task: %s",
 			action, publication.PRNumber, publication.PRURL,
 		),
 		Stripe: StripeDone,
@@ -924,7 +924,7 @@ func PublicationMessage(publication core.Publication, updated bool) Message {
 // rule as everything else instead of a default.
 //
 // Nothing here is amber. A lifecycle notification reports something that has
-// already happened on GitHub — Responder is not working on it and no turn is
+// already happened on GitHub — Ryker is not working on it and no turn is
 // running behind it — and amber would claim custody nobody holds.
 func publicationLifecycleState(kind, state string, status core.PublicationLifecycleStatus) cardState {
 	switch kind {

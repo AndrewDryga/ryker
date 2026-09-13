@@ -3,8 +3,8 @@ package attention
 import (
 	"strings"
 
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/decision"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/decision"
 )
 
 const AmbientContributionPrompt = `
@@ -106,7 +106,7 @@ func supportsHumanThreadInterruption(result decision.WatchDecision) bool {
 	case "material_correction":
 		return true
 	case "new_evidence":
-		// A tool or access blocker may be new to Responder, but it does not help
+		// A tool or access blocker may be new to Ryker, but it does not help
 		// people already collaborating in a thread. Only interrupt when the new
 		// evidence actually resolves the question or changes the decision.
 		return result.Completion != nil && result.Completion.Status == "decision_ready"
@@ -117,25 +117,25 @@ func supportsHumanThreadInterruption(result decision.WatchDecision) bool {
 
 // ambientHumanDirectedThread catches a common Slack shape before trusting a
 // model's addressee guess: a human starts a thread by mentioning another human,
-// and later replies continue that conversation without addressing Responder.
+// and later replies continue that conversation without addressing Ryker.
 // In that case an ambient bot reply needs a stronger reason than general
 // channel participation: genuinely new evidence or a material correction.
 func ambientHumanDirectedThread(input core.SlackInput, state decision.WatchTurnState) bool {
 	if input.Kind != "message" || input.ThreadTS == "" ||
-		inputDirectlyAddressesResponder(input) {
+		inputDirectlyAddressesRyker(input) {
 		return false
 	}
 	for _, message := range state.RecentMessages {
 		if message.MessageTS != input.ThreadTS {
 			continue
 		}
-		return message.SenderType == "human" && !message.MentionsResponder &&
+		return message.SenderType == "human" && !message.MentionsRyker &&
 			containsSlackUserMention(message.Text)
 	}
 	return false
 }
 
-func inputDirectlyAddressesResponder(input core.SlackInput) bool {
+func inputDirectlyAddressesRyker(input core.SlackInput) bool {
 	switch input.Kind {
 	case "direct", "mention", "shortcut":
 		return true

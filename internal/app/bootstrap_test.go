@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/AndrewDryga/responder/internal/config"
+	"github.com/AndrewDryga/ryker/internal/config"
 )
 
 // bootstrapConfig is the minimum configuration these tests need: the service

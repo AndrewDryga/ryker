@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/ryker/internal/core"
 )
 
 // The generic Host OOM Grafana rule fired for a website worker at 04:44 and

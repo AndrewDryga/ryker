@@ -8,12 +8,12 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/AndrewDryga/responder/internal/coop"
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/resultcontract"
-	"github.com/AndrewDryga/responder/internal/slackfile"
-	"github.com/AndrewDryga/responder/internal/slackui"
-	"github.com/AndrewDryga/responder/internal/taskpr"
+	"github.com/AndrewDryga/ryker/internal/coop"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/resultcontract"
+	"github.com/AndrewDryga/ryker/internal/slackfile"
+	"github.com/AndrewDryga/ryker/internal/slackui"
+	"github.com/AndrewDryga/ryker/internal/taskpr"
 )
 
 const maxAgentInputArtifacts = 5

@@ -8,10 +8,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/config"
-	"github.com/AndrewDryga/responder/internal/core"
-	memorypkg "github.com/AndrewDryga/responder/internal/memory"
-	"github.com/AndrewDryga/responder/internal/store"
+	"github.com/AndrewDryga/ryker/internal/config"
+	"github.com/AndrewDryga/ryker/internal/core"
+	memorypkg "github.com/AndrewDryga/ryker/internal/memory"
+	"github.com/AndrewDryga/ryker/internal/store"
 	_ "modernc.org/sqlite"
 )
 

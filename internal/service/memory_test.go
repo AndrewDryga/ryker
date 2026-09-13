@@ -6,12 +6,12 @@ import (
 	"testing"
 	"time"
 
-	behaviorofferpkg "github.com/AndrewDryga/responder/internal/behavioroffer"
-	"github.com/AndrewDryga/responder/internal/core"
-	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
-	"github.com/AndrewDryga/responder/internal/investigation"
-	"github.com/AndrewDryga/responder/internal/slackui"
-	"github.com/AndrewDryga/responder/internal/store"
+	behaviorofferpkg "github.com/AndrewDryga/ryker/internal/behavioroffer"
+	"github.com/AndrewDryga/ryker/internal/core"
+	decisionpkg "github.com/AndrewDryga/ryker/internal/decision"
+	"github.com/AndrewDryga/ryker/internal/investigation"
+	"github.com/AndrewDryga/ryker/internal/slackui"
+	"github.com/AndrewDryga/ryker/internal/store"
 )
 
 func TestMemoryOfferRequiresExplicitOperatorRequestAndStrictValue(t *testing.T) {

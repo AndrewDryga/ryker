@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/hermeticgit"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/hermeticgit"
 )
 
 const (
@@ -188,7 +188,7 @@ func (s *Service) commitMergeState(ctx context.Context, name, sha string) core.M
 // the default branch.
 //
 // Both copies of that branch are consulted, and either one carrying the commit
-// settles it. A Responder-managed clone is fast-forwarded to origin/<branch> so
+// settles it. A Ryker-managed clone is fast-forwarded to origin/<branch> so
 // the two agree; an operator-maintained checkout may have a local branch its
 // remote-tracking ref has not seen in months, or the other way round. Taking
 // the most current view available is what keeps a just-merged change from

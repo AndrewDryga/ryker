@@ -5,8 +5,8 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/AndrewDryga/responder/internal/coop"
-	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/ryker/internal/coop"
+	"github.com/AndrewDryga/ryker/internal/core"
 )
 
 type fakeCoop struct {
@@ -40,7 +40,7 @@ func (f *fakeActive) Cancel(runID, runKey string) { f.runID, f.runKey = runID, r
 
 func TestCancelInterruptsTheExactActiveRunAndRemoteTurn(t *testing.T) {
 	run := core.AgentRun{
-		ID: "run_1", IdempotencyKey: "responder:run:1", SessionID: "ses_1",
+		ID: "run_1", IdempotencyKey: "ryker:run:1", SessionID: "ses_1",
 		CoopTurnID: "turn_1", ExpectedRevision: 3,
 	}
 	var audit core.AuditEvent

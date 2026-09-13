@@ -21,7 +21,7 @@ var exampleOmissions = map[string]string{
 // setting exists. It drifted to roughly 109 of 150 keys before this test,
 // which meant the entire memory, dreaming and feedback surface was invisible.
 func TestExampleConfigurationDocumentsEverySetting(t *testing.T) {
-	body, err := os.ReadFile(filepath.Join("..", "..", "config", "responder.example.yaml"))
+	body, err := os.ReadFile(filepath.Join("..", "..", "config", "ryker.example.yaml"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -39,7 +39,7 @@ func TestExampleConfigurationDocumentsEverySetting(t *testing.T) {
 	sort.Strings(missing)
 	if len(missing) > 0 {
 		t.Errorf(
-			"config/responder.example.yaml does not document %d setting(s):\n  %s\n"+
+			"config/ryker.example.yaml does not document %d setting(s):\n  %s\n"+
 				"Add each with a short comment, or list it in exampleOmissions with a reason.",
 			len(missing), strings.Join(missing, "\n  "),
 		)

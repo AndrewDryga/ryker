@@ -150,7 +150,7 @@ func TestAWellFormedFindingIsAccepted(t *testing.T) {
 		},
 		{
 			What: "a partner API returned 500", Status: "out_of_scope",
-			Reason: "the partner owns that endpoint and Responder has no read access to it.",
+			Reason: "the partner owns that endpoint and Ryker has no read access to it.",
 		},
 	} {
 		finding.Key = "finding-1"

@@ -10,12 +10,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/config"
-	"github.com/AndrewDryga/responder/internal/core"
-	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
-	scheduleofferpkg "github.com/AndrewDryga/responder/internal/scheduleoffer"
-	"github.com/AndrewDryga/responder/internal/service"
-	"github.com/AndrewDryga/responder/internal/slackui"
+	"github.com/AndrewDryga/ryker/internal/config"
+	"github.com/AndrewDryga/ryker/internal/core"
+	decisionpkg "github.com/AndrewDryga/ryker/internal/decision"
+	scheduleofferpkg "github.com/AndrewDryga/ryker/internal/scheduleoffer"
+	"github.com/AndrewDryga/ryker/internal/service"
+	"github.com/AndrewDryga/ryker/internal/slackui"
 )
 
 // QualityAssessment is produced by a separate model turn over the exact Slack

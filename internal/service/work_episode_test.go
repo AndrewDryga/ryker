@@ -9,14 +9,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/completionpolicy"
-	"github.com/AndrewDryga/responder/internal/coop"
-	"github.com/AndrewDryga/responder/internal/core"
-	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
-	"github.com/AndrewDryga/responder/internal/investigation"
-	"github.com/AndrewDryga/responder/internal/slackui"
-	"github.com/AndrewDryga/responder/internal/store"
-	"github.com/AndrewDryga/responder/internal/taskofferclaims"
+	"github.com/AndrewDryga/ryker/internal/completionpolicy"
+	"github.com/AndrewDryga/ryker/internal/coop"
+	"github.com/AndrewDryga/ryker/internal/core"
+	decisionpkg "github.com/AndrewDryga/ryker/internal/decision"
+	"github.com/AndrewDryga/ryker/internal/investigation"
+	"github.com/AndrewDryga/ryker/internal/slackui"
+	"github.com/AndrewDryga/ryker/internal/store"
+	"github.com/AndrewDryga/ryker/internal/taskofferclaims"
 )
 
 func TestWatchedInputEffortAndAuthorityAreIndependent(t *testing.T) {
@@ -1006,7 +1006,7 @@ func TestAnEngineeringOfferStillNeedsTypedEvidenceAndCoverage(t *testing.T) {
 		Detail: "The exact candidate revision was inspected.", CreatedAt: now,
 	}}
 	if got := taskofferclaims.Correction(
-		episode, nil, coverage, "responder", now, now,
+		episode, nil, coverage, "ryker", now, now,
 	); !strings.Contains(got, "no typed evidence") {
 		t.Fatalf("ungrounded task offer correction = %q", got)
 	}
@@ -1014,11 +1014,11 @@ func TestAnEngineeringOfferStillNeedsTypedEvidenceAndCoverage(t *testing.T) {
 		ClaimID: "change.recent", Relation: "supports", ObservedAt: now,
 		SourceType: "repository", SourceName: "candidate checkout",
 		Dimensions: map[string]string{
-			"repository": "responder", "environment": "candidate", "revision": "abc123",
+			"repository": "ryker", "environment": "candidate", "revision": "abc123",
 		},
 	}}
 	if got := taskofferclaims.Correction(
-		episode, evidence, coverage, "responder", now, now,
+		episode, evidence, coverage, "ryker", now, now,
 	); got != "" {
 		t.Fatalf("evidence-backed task offer rejected = %q", got)
 	}
@@ -1124,7 +1124,7 @@ func TestABlockedTaskOfferStillNeedsCurrentClaimEvidence(t *testing.T) {
 		[]core.Evidence{{
 			ClaimID: "change.recent", Relation: "contradicts", ObservedAt: now,
 			Dimensions: map[string]string{
-				"repository": "responder", "environment": "candidate", "revision": "abc123",
+				"repository": "ryker", "environment": "candidate", "revision": "abc123",
 			},
 		}},
 		[]core.Coverage{{

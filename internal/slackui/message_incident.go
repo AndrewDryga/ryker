@@ -7,7 +7,7 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/ryker/internal/core"
 )
 
 func IncidentCardWithPublication(
@@ -39,7 +39,7 @@ func IncidentCardWithPublication(
 		incident, hasCodeChanges, codeChangesKnown, publication, followup,
 	))
 	fallback := fmt.Sprintf(
-		"%s — %s. Severity %s. Incident %s; Responder %s. %d of %d signals firing in %s.",
+		"%s — %s. Severity %s. Incident %s; Ryker %s. %d of %d signals firing in %s.",
 		state.Word, escapeSlackText(incident.Title), escapeSlackText(severity),
 		ShortID(incident.ID), workflowStateLabel(incident.Workflow),
 		incident.FiringCount, incident.SignalCount, escapeSlackText(repositoryName),
@@ -75,7 +75,7 @@ func IncidentCardWithPublication(
 		detail := truncateUTF8(escapeSlackText(incident.LastError), 800)
 		if incidentPreparationOwned(incident) {
 			title = "*Workspace preparation*\n"
-			detail += "\nResponder will retry automatically."
+			detail += "\nRyker will retry automatically."
 		}
 		message.Sections = append(
 			message.Sections,
@@ -96,7 +96,7 @@ func IncidentCardWithPublication(
 			label = "investigation branch"
 		}
 		message.Sections = append(message.Sections, fmt.Sprintf(
-			"*Parallel checks*\n%d %s queued for workspace preparation; Responder will retry automatically.",
+			"*Parallel checks*\n%d %s queued for workspace preparation; Ryker will retry automatically.",
 			turn.QueuedBranches, label,
 		))
 	}
@@ -603,7 +603,7 @@ func HandoffMessage(
 	var body strings.Builder
 	fmt.Fprintf(
 		&body,
-		"## Shift handoff: %s\n\n**State:** %s, Responder %s",
+		"## Shift handoff: %s\n\n**State:** %s, Ryker %s",
 		escapeSlackText(incident.Title),
 		incidentStatusLabel(incident.Status),
 		workActivityLabel(incident),
@@ -802,7 +802,7 @@ func EngineeringTaskHandoff(channelID string) Message {
 func handoffMessage(channelID, header, room, workspace, boundary string) Message {
 	mention := "<#" + channelID + ">"
 	return Message{
-		Text:   "Responder created " + room + " " + mention + ".",
+		Text:   "Ryker created " + room + " " + mention + ".",
 		Header: header,
 		Stripe: StripeIdle,
 		Sections: []string{
@@ -944,7 +944,7 @@ func incidentActions(
 	if incident.Workflow != core.WorkflowBlocked {
 		actions = append(actions, Action{
 			ID: ActionUpdate, Label: "Ask agent for update", Value: incident.ID, Style: "primary",
-			Confirm: "Ask Responder to inspect current evidence and post a concise update?",
+			Confirm: "Ask Ryker to inspect current evidence and post a concise update?",
 		})
 	}
 	if hasCodeChanges {
@@ -1027,22 +1027,22 @@ func incidentStatusLabel(status core.IncidentStatus) string {
 func IncidentStatusMessage(incident core.Incident) Message {
 	status := incidentStatusLabel(incident.Status)
 	activity := workActivityLabel(incident)
-	next := "Reply normally in this incident channel to give Responder its next request."
+	next := "Reply normally in this incident channel to give Ryker its next request."
 	noun := "Incident"
 	stateLabel := "Alert state"
 	if incident.IsEngineeringTask() {
 		noun = "Engineering task"
 		stateLabel = "Task state"
-		next = "Reply normally in this thread to give Responder its next request."
+		next = "Reply normally in this thread to give Ryker its next request."
 	}
 	switch incident.Workflow {
 	case core.WorkflowProvisioningChannel, core.WorkflowProvisioningSession:
 		next = "Wait for preparation to finish. The work card will update automatically."
 	case core.WorkflowHolding:
 		if incident.LastError != "" {
-			next = "Workspace preparation is queued. Responder will retry automatically."
+			next = "Workspace preparation is queued. Ryker will retry automatically."
 		} else {
-			next = "Responder will start automatically when capacity is available."
+			next = "Ryker will start automatically when capacity is available."
 		}
 	case core.WorkflowInvestigating:
 		next = "An agent turn is running or queued. Wait for its update, or press Stop on the card to cancel it."

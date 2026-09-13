@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/AndrewDryga/responder/internal/config"
+	"github.com/AndrewDryga/ryker/internal/config"
 )
 
 // The exact output shape coop produces, so the parser is tested against the

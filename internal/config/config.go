@@ -15,7 +15,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/ryker/internal/core"
 	"gopkg.in/yaml.v3"
 )
 
@@ -239,7 +239,7 @@ type Repository struct {
 	ContributorPolicy  string `yaml:"contributor_policy"`
 	ConversationPolicy string `yaml:"conversation_policy"`
 	Path               string `yaml:"path"`
-	// GitHub declares a repository by slug and hands the checkout to Responder.
+	// GitHub declares a repository by slug and hands the checkout to Ryker.
 	//
 	// The alternative — and what every deployment did before this — is `path:`,
 	// an operator-maintained clone that nothing ever fetched. Evidence
@@ -260,13 +260,13 @@ type Repository struct {
 	Profiles map[string]SessionProfile `yaml:"profiles"`
 }
 
-// Managed reports whether Responder owns this repository's checkout.
+// Managed reports whether Ryker owns this repository's checkout.
 func (r Repository) Managed() bool { return strings.TrimSpace(r.GitHub) != "" }
 
 // SessionProfile binds one named execution profile to the Coop session policy
 // that runs it.
 //
-// Responder names no provider and no model, here or anywhere: a profile names a
+// Ryker names no provider and no model, here or anywhere: a profile names a
 // policy, and the policy owns the ladder, the reasoning effort and the budget.
 // That is what keeps routing something an operator can read and change without
 // a deployment, and what stops a second routing brain growing beside Coop's.
@@ -287,20 +287,20 @@ type SessionProfile struct {
 // apart before any model runs.
 const (
 	// ProfileChat is conversation and small focused checks addressed to
-	// Responder.
+	// Ryker.
 	ProfileChat = "chat"
 	// ProfileInvestigate is deep read-only operational work with tools.
 	ProfileInvestigate = "investigate"
 	// ProfileEngineer is writable repository work in an isolated fork.
 	ProfileEngineer = "engineer"
 	// ProfileWatch is the attention decision on a message nobody addressed to
-	// Responder. It is its own profile because it is the only lane whose cost
-	// scales with how much Responder watches rather than with how much work it
+	// Ryker. It is its own profile because it is the only lane whose cost
+	// scales with how much Ryker watches rather than with how much work it
 	// is asked to do.
 	ProfileWatch = "watch"
 )
 
-// KnownSessionProfile reports whether name is a profile Responder routes to.
+// KnownSessionProfile reports whether name is a profile Ryker routes to.
 //
 // A misspelled profile configures nothing and says nothing, which is the shape
 // of a setting an operator can write and reasonably believe in.
@@ -316,7 +316,7 @@ func KnownSessionProfile(name string) bool {
 // SessionProfileFor is the execution profile a turn asks for, decided from what
 // the host already knew before any model ran: the effort contract it committed
 // to, the authority boundary it may use, and whether anybody addressed
-// Responder at all.
+// Ryker at all.
 //
 // The lane enters through addressed. The bounded conversation lane only ever
 // accepts targeted input, so it is addressed by construction; an unaddressed
@@ -375,7 +375,7 @@ func (r Repository) SessionProfilePolicies() []string {
 }
 
 // RepositorySet is a Slack-visible repository context. Primary identifies the only repository
-// whose changes Responder may review or publish. The resolved Coop policy owns any companion host
+// whose changes Ryker may review or publish. The resolved Coop policy owns any companion host
 // paths and mounts; Slack and model output cannot provide them.
 type RepositorySet struct {
 	DisplayName        string `yaml:"display_name"`
@@ -431,7 +431,7 @@ func (c Config) RepositoryContext(name string) (Repository, bool) {
 //
 // A set's companions are deliberately outside the boundary. The set resolves to
 // exactly one primary and that primary is the only repository whose changes
-// Responder may review or publish, so authorizing a companion here would
+// Ryker may review or publish, so authorizing a companion here would
 // authorize work no later step can carry out.
 func (c Config) RepositoryWithinContext(context, repository string) bool {
 	context = strings.TrimSpace(context)
@@ -549,7 +549,7 @@ type MemoryConfig struct {
 	MinRollupSources         int      `yaml:"min_rollup_sources"`
 }
 
-// ReportConfig holds the digests Responder posts about itself rather than
+// ReportConfig holds the digests Ryker posts about itself rather than
 // about the team's systems.
 type ReportConfig struct {
 	WeeklySelfReport WeeklySelfReportConfig `yaml:"weekly_self_report"`
@@ -603,7 +603,7 @@ type ChangeMapping struct {
 	// arrive from the publication and Emisar adapters, which do not go through
 	// a route.
 	Kind string `yaml:"kind"`
-	// OccurredAt is RFC3339. Unmapped means when Responder received it, which
+	// OccurredAt is RFC3339. Unmapped means when Ryker received it, which
 	// is honest and usually within a second.
 	OccurredAt string `yaml:"occurred_at"`
 	Summary    string `yaml:"summary"`
@@ -670,7 +670,7 @@ type Limits struct {
 	WorkLease                        Duration `yaml:"work_lease"`
 	WorkerStallAfter                 Duration `yaml:"worker_stall_after"`
 	// RepositoryFetchInterval is how often the maintenance lane refreshes every
-	// Responder-managed clone, and how long a clone may go unfetched before the
+	// Ryker-managed clone, and how long a clone may go unfetched before the
 	// prepare path pays for a fetch itself.
 	RepositoryFetchInterval Duration `yaml:"repository_fetch_interval"`
 	// MaxAutoPromotedFixturesPerWeek bounds how many corrections an operator
@@ -730,14 +730,14 @@ func defaults() Config {
 				"Use the repository and every relevant available tool, favoring Emisar for live infrastructure checks. Never claim an action succeeded without authoritative evidence. " +
 				"Run independent read-only repository, Emisar, CI, and observability checks concurrently when tool contracts allow; preserve returned continuation ordering and never parallelize dependent or mutating work. " +
 				"Alerts, ambient conversation, and inferred intent are read-only. A configured operator may request one exact operational action in any Slack conversation; use Emisar directly and keep its policy and approval authoritative without requiring an incident. " +
-				"When repository changes are justified, explain the change and let Responder offer a workspace-member-confirmed engineering task. Ask a concise question when operator input is required.",
+				"When repository changes are justified, explain the change and let Ryker offer a workspace-member-confirmed engineering task. Ask a concise question when operator input is required.",
 		},
 		GitHub: GitHubConfig{
 			APIURL:                    "https://api.github.com",
 			TokenEnv:                  "GITHUB_TOKEN",
-			BranchPrefix:              "responder",
-			CommitName:                "Emisar Responder",
-			CommitEmail:               "responder@emisar.dev",
+			BranchPrefix:              "ryker",
+			CommitName:                "Emisar Ryker",
+			CommitEmail:               "ryker@emisar.dev",
 			FollowupInterval:          Duration{2 * time.Minute},
 			DeliveryCorrelationWindow: Duration{14 * 24 * time.Hour},
 			AutomaticDraftPRCreation:  AutomaticDraftPROperatorTasks,
@@ -837,7 +837,7 @@ func Load(path string) (Config, error) {
 		if err != nil {
 			return Config{}, errors.New("state_dir is required when the home directory is unavailable")
 		}
-		cfg.StateDir = filepath.Join(home, ".local", "state", "responder")
+		cfg.StateDir = filepath.Join(home, ".local", "state", "ryker")
 	}
 	if !filepath.IsAbs(cfg.StateDir) {
 		base, err := filepath.Abs(filepath.Dir(path))
@@ -1007,7 +1007,7 @@ func (c Config) validateRepositories() error {
 			)
 		case repo.Path == "" && !repo.Managed():
 			return fmt.Errorf(
-				"repository %q must declare either github: owner/name for a Responder-managed "+
+				"repository %q must declare either github: owner/name for a Ryker-managed "+
 					"clone or path: for an operator-maintained checkout",
 				name,
 			)
@@ -1021,7 +1021,7 @@ func (c Config) validateRepositories() error {
 			repo.GitHubBaseBranch = "main"
 		}
 		if c.GitHub.Enabled {
-			// A managed repository has a checkout by construction — Responder's
+			// A managed repository has a checkout by construction — Ryker's
 			// own clone — so it needs no configured path to publish from.
 			if repo.Path == "" && !repo.Managed() {
 				return fmt.Errorf("repository %q path is required when GitHub publishing is enabled", name)
@@ -1069,7 +1069,7 @@ func (c Config) validateRepositories() error {
 	return nil
 }
 
-// validateSessionProfiles refuses a profile Responder would never route to and
+// validateSessionProfiles refuses a profile Ryker would never route to and
 // a binding that names no policy.
 //
 // Both are settings an operator writes, believes, and never hears about again:
@@ -1597,7 +1597,7 @@ func validateSlack(c SlackConfig) error {
 	return nil
 }
 
-// validateCoop rejects a Coop configuration Responder could not run against.
+// validateCoop rejects a Coop configuration Ryker could not run against.
 //
 // The path, duration and range rules are tables rather than cases because they
 // are the same rule repeated: every path must be absolute and clean, or a

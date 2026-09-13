@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/config"
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/slackui"
+	"github.com/AndrewDryga/ryker/internal/config"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/slackui"
 )
 
 // The two titles the same fix was offered under on 2026-08-16: the alert

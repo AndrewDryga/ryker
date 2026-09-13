@@ -8,15 +8,18 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/AndrewDryga/responder/internal/changeledger"
-	"github.com/AndrewDryga/responder/internal/coop"
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/store"
-	"github.com/AndrewDryga/responder/internal/taskpr"
+	"github.com/AndrewDryga/ryker/internal/changeledger"
+	"github.com/AndrewDryga/ryker/internal/coop"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/store"
+	"github.com/AndrewDryga/ryker/internal/taskpr"
 )
 
 const (
-	responderPromptVersion       = "responder-prompt-v4"
+	// Bumped from responder-prompt-v4 with the Ryker rename: every instruction
+	// block names the product, so the archived-prompt markers written under the
+	// old version must not be reconstructed from the renamed block text.
+	rykerPromptVersion           = "ryker-prompt-v5"
 	investigationContractVersion = "investigation-contract-v1"
 	resultOperationsVersion      = "result-operations-v2"
 	// executionProfileKind carries the requested profile on a reference row
@@ -74,7 +77,7 @@ func (s *Service) ensureAttemptContextManifest(
 	manifest := core.ContextManifest{
 		EpisodeID:         run.EpisodeID,
 		AttemptID:         run.AttemptID,
-		PromptVersion:     responderPromptVersion,
+		PromptVersion:     rykerPromptVersion,
 		ContractVersion:   investigationContractVersion,
 		ToolSchemaVersion: resultOperationsVersion,
 		Preset:            session.Policy,
@@ -117,7 +120,7 @@ func (s *Service) ensureAttemptContextManifest(
 			// How old the code the model read actually was. The revision alone
 			// never answered that: a commit id looks equally current whether
 			// the checkout behind it was refreshed a minute ago or last month,
-			// and until Responder owned the clone nothing anywhere knew which.
+			// and until Ryker owned the clone nothing anywhere knew which.
 			// Recorded on the reference that already exists rather than in a
 			// new column, so the trace page's manifest panel gains an answer
 			// without the schema gaining a table.

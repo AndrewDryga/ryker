@@ -9,12 +9,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/coop"
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/slackui"
-	"github.com/AndrewDryga/responder/internal/store"
-	"github.com/AndrewDryga/responder/internal/taskpr"
-	"github.com/AndrewDryga/responder/internal/taskpublication"
+	"github.com/AndrewDryga/ryker/internal/coop"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/slackui"
+	"github.com/AndrewDryga/ryker/internal/store"
+	"github.com/AndrewDryga/ryker/internal/taskpr"
+	"github.com/AndrewDryga/ryker/internal/taskpublication"
 )
 
 const cleanupRetryLimit = 12
@@ -55,7 +55,7 @@ func (s *Service) maintainLifecycle(ctx context.Context) {
 		s.log.Warn("close tasks whose PR merged", "error", err)
 	}
 	grace := s.cfg.Retention.ClosedSessionGrace.Duration
-	if err := s.reconcileOrphanedResponderSessions(ctx, now.Add(-grace), now); err != nil &&
+	if err := s.reconcileOrphanedRykerSessions(ctx, now.Add(-grace), now); err != nil &&
 		ctx.Err() == nil {
 		s.log.Warn("orphaned Coop session reconciliation failed", "error", err)
 	}
@@ -127,10 +127,10 @@ func (s *Service) maintainLifecycle(ctx context.Context) {
 	}
 	if preferences, rules, err := s.store.Behavior.PruneOrphanBehavior(ctx, repositories); err != nil &&
 		ctx.Err() == nil {
-		s.log.Warn("orphaned Responder behavior pruning failed", "error", err)
+		s.log.Warn("orphaned Ryker behavior pruning failed", "error", err)
 	} else if preferences+rules > 0 {
 		s.log.Info(
-			"pruned orphaned Responder behavior",
+			"pruned orphaned Ryker behavior",
 			"preferences", preferences,
 			"rules", rules,
 		)
@@ -150,13 +150,13 @@ func (s *Service) maintainLifecycle(ctx context.Context) {
 	)
 	if err != nil {
 		if ctx.Err() == nil {
-			s.log.Warn("Responder state pruning failed", "error", err)
+			s.log.Warn("Ryker state pruning failed", "error", err)
 		}
 		return
 	}
 	if pruneResultWorthLogging(result) {
 		s.log.Info(
-			"pruned expired Responder state",
+			"pruned expired Ryker state",
 			"records", result.Total(),
 			"slack_inputs", result.SlackInputs,
 			"webhooks", result.WebhookEvents,
@@ -201,7 +201,7 @@ func pruneResultWorthLogging(result core.PruneResult) bool {
 		result.Episodes+result.AgentRunContexts > 0
 }
 
-func (s *Service) reconcileOrphanedResponderSessions(
+func (s *Service) reconcileOrphanedRykerSessions(
 	ctx context.Context,
 	staleBefore time.Time,
 	eligibleAt time.Time,
@@ -234,10 +234,10 @@ func (s *Service) reconcileOrphanedResponderSessions(
 			continue
 		}
 		if session.UpdatedAt.After(staleBefore) ||
-			!isResponderManagedSession(session) {
+			!isRykerManagedSession(session) {
 			continue
 		}
-		known, err := s.store.ResponderSessionKnown(ctx, session.ID)
+		known, err := s.store.RykerSessionKnown(ctx, session.ID)
 		if err != nil {
 			return err
 		}
@@ -248,14 +248,14 @@ func (s *Service) reconcileOrphanedResponderSessions(
 			ctx,
 			session.ID,
 			"",
-			"orphaned Responder session",
+			"orphaned Ryker session",
 			false,
 			eligibleAt,
 		); err != nil {
 			return err
 		}
 		s.log.Info(
-			"scheduled orphaned Responder session cleanup",
+			"scheduled orphaned Ryker session cleanup",
 			"session_id", session.ID,
 			"fork", session.ForkName,
 			"updated_at", session.UpdatedAt,
@@ -264,9 +264,9 @@ func (s *Service) reconcileOrphanedResponderSessions(
 	return nil
 }
 
-func isResponderManagedSession(session coop.Session) bool {
+func isRykerManagedSession(session coop.Session) bool {
 	return strings.HasPrefix(session.ExternalRef, "incident:") || strings.HasPrefix(session.ExternalRef, "engineering-task:") ||
-		strings.HasPrefix(session.ExternalRef, "Responder live model evaluation:") ||
+		strings.HasPrefix(session.ExternalRef, "Ryker live model evaluation:") ||
 		strings.HasPrefix(session.ExternalRef, "Slack bounded conversation ") ||
 		strings.HasPrefix(session.ExternalRef, "Slack operations channel ") ||
 		strings.HasPrefix(session.ExternalRef, "Slack alert triage channel ")
@@ -293,7 +293,7 @@ func (s *Service) processCleanup(ctx context.Context, now time.Time) error {
 	if session.State != "closed" {
 		session, _, err = s.coop.Close(
 			ctx,
-			"responder:gc-close:"+item.SessionID,
+			"ryker:gc-close:"+item.SessionID,
 			item.SessionID,
 			session.Revision,
 		)
@@ -304,7 +304,7 @@ func (s *Service) processCleanup(ctx context.Context, now time.Time) error {
 	plan, _, err := s.coop.PlanDiscard(
 		ctx,
 		fmt.Sprintf(
-			"responder:gc-plan:%s:%d:%d",
+			"ryker:gc-plan:%s:%d:%d",
 			item.SessionID, session.Revision, item.Attempts,
 		),
 		item.SessionID,
@@ -343,7 +343,7 @@ func (s *Service) processCleanup(ctx context.Context, now time.Time) error {
 		}
 		plan, _, err = s.coop.PlanDiscard(
 			ctx, fmt.Sprintf(
-				"responder:gc-plan-accept-unmerged:%s:%d:%d",
+				"ryker:gc-plan-accept-unmerged:%s:%d:%d",
 				item.SessionID, session.Revision, item.Attempts,
 			),
 			item.SessionID,
@@ -376,7 +376,7 @@ func (s *Service) processCleanup(ctx context.Context, now time.Time) error {
 	}
 	_, _, err = s.coop.Discard(
 		ctx,
-		"responder:gc-discard:"+item.SessionID+":"+plan.OperationID,
+		"ryker:gc-discard:"+item.SessionID+":"+plan.OperationID,
 		item.SessionID,
 		plan.OperationID,
 	)
@@ -392,7 +392,7 @@ func (s *Service) verifyPublishedCleanupTree(
 	plan coop.DiscardPlan,
 ) error {
 	if item.IncidentID == "" {
-		return errors.New("unmerged cleanup has no Responder work record")
+		return errors.New("unmerged cleanup has no Ryker work record")
 	}
 	incident, err := s.store.GetIncident(ctx, item.IncidentID)
 	if err != nil {
@@ -495,7 +495,7 @@ func (s *Service) discardRetainedWork(
 				"idle.* No files or commits were deleted.")
 	}
 	plan, _, err := s.coop.PlanDiscard(
-		ctx, "responder:discard-plan:"+input.ID,
+		ctx, "ryker:discard-plan:"+input.ID,
 		session.ID, session.Revision, false, false,
 	)
 	if err != nil {
@@ -509,7 +509,7 @@ func (s *Service) discardRetainedWork(
 	}
 	if plan.Plan.Workspace.Unmerged {
 		plan, _, err = s.coop.PlanDiscard(
-			ctx, "responder:discard-plan-unpublished:"+input.ID,
+			ctx, "ryker:discard-plan-unpublished:"+input.ID,
 			session.ID, session.Revision, false, true,
 		)
 		if err != nil {
@@ -520,7 +520,7 @@ func (s *Service) discardRetainedWork(
 		}
 	}
 	if _, _, err := s.coop.Discard(
-		ctx, "responder:discard:"+input.ID, session.ID, plan.OperationID,
+		ctx, "ryker:discard:"+input.ID, session.ID, plan.OperationID,
 	); err != nil {
 		return err
 	}

@@ -12,7 +12,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/ryker/internal/core"
 	"github.com/slack-go/slack"
 )
 
@@ -28,7 +28,7 @@ const (
 	// ever post another one, so a task checked four times left four diffs of
 	// the same fork stacked in the thread with the oldest one wrong.
 	ActionCloseDiff = "responder_close_diff"
-	// ActionDismissMessage removes one Responder-owned temporary Slack message.
+	// ActionDismissMessage removes one Ryker-owned temporary Slack message.
 	// The interaction callback supplies the exact channel and timestamp; the
 	// value stays empty so it cannot name or mutate any underlying work.
 	ActionDismissMessage = "responder_dismiss_message"
@@ -51,7 +51,7 @@ const (
 	ActionOpenApproval      = "responder_open_emisar_approval"
 	ActionRememberMemory    = "responder_remember_memory"
 	// ActionConfirmGrantPromotion confirms one rung of the remediation trust
-	// ladder. It grants Responder permission to OFFER an action; it is not an
+	// ladder. It grants Ryker permission to OFFER an action; it is not an
 	// approval of any run, and Emisar remains the only thing that approves.
 	ActionConfirmGrantPromotion = "responder_confirm_grant_promotion"
 	// ActionConfirmKnowledgeOffer confirms that a verified remediation should
@@ -80,7 +80,7 @@ const (
 	// the suffix without knowing which action it is looking at.
 	ActionInstanceSeparator = "__i"
 
-	// Reviewing a correction that Responder was told was wrong, and deciding
+	// Reviewing a correction that Ryker was told was wrong, and deciding
 	// whether the lesson is worth keeping as a regression fixture.
 	ActionKeepFixtureCandidate    = "responder_keep_fixture_candidate"
 	ActionDiscardFixtureCandidate = "responder_discard_fixture_candidate"
@@ -159,7 +159,7 @@ const (
 	// ActionOperatorChoice answers one of the model's own questions with the
 	// text written on the button.
 	//
-	// The model asks through request_operator_input and Responder owns the
+	// The model asks through request_operator_input and Ryker owns the
 	// controls, so the choices it supplied become buttons here rather than
 	// Block Kit it was never allowed to emit. Pressing one says the same thing
 	// typing it would have said, and typing it still works.
@@ -412,7 +412,7 @@ func (l LiveTurn) Recorded() bool {
 // After records how many Sections existed when the row was appended, so rows
 // render in the position they were added rather than after every section. A
 // heading is a section and its items are rows; without this the App Home
-// stacked "Responder preferences", "Standing rules" and "Corrections worth
+// stacked "Ryker preferences", "Standing rules" and "Corrections worth
 // keeping?" together and then listed every row beneath all three.
 type Row struct {
 	Text    string   `json:"text"`
@@ -1218,7 +1218,7 @@ func correlationExplanation(incident core.Incident, signals []core.Signal) strin
 	if len(labels) > 0 {
 		reason += " Shared topology labels: " + strings.Join(labels, ", ") + "."
 	}
-	reason += " This groups alert signals only; Responder still verifies whether they share a runtime cause."
+	reason += " This groups alert signals only; Ryker still verifies whether they share a runtime cause."
 	return reason
 }
 
@@ -1276,7 +1276,7 @@ func shortSHA(value string) string {
 
 // slackDate renders a wall time in the reader's own timezone.
 //
-// Responder runs in UTC and the people reading it do not, so every absolute
+// Ryker runs in UTC and the people reading it do not, so every absolute
 // time in a card body has been asking its reader to do arithmetic. Slack does
 // that conversion client-side from this token; the fallback after the pipe is
 // what a client that cannot renders instead, and it stays UTC because it is
@@ -1649,7 +1649,7 @@ func TurnFailureMessage(incident core.Incident, state, detail string) Message {
 	return message
 }
 
-// AgentReportFailureMessage is what an operator sees when Responder exhausted
+// AgentReportFailureMessage is what an operator sees when Ryker exhausted
 // its corrections and still could not read its own model's result.
 //
 // It takes no detail argument on purpose. An earlier version accepted one "for
@@ -1692,7 +1692,7 @@ func TriageFailureMessage(afterTurn bool) Message {
 		return failureCard(
 			StripeFailed,
 			"🛑 Investigation needs another pass",
-			"The investigation ran, but Responder could not produce a valid final answer after automatic retries.",
+			"The investigation ran, but Ryker could not produce a valid final answer after automatic retries.",
 			"The saved work and evidence are preserved.",
 			"Reply in this thread to continue from the saved work.",
 		)
@@ -1855,7 +1855,7 @@ func workflowStateDescription(incident core.Incident) string {
 	switch incident.Workflow {
 	case core.WorkflowProvisioningChannel:
 		if incident.IsThreadScoped() {
-			return "Responder is attaching a task card and isolated work session to this Slack thread."
+			return "Ryker is attaching a task card and isolated work session to this Slack thread."
 		}
 		if incident.IsEngineeringTask() {
 			return "Slack is creating and preparing the dedicated engineering room."
@@ -1863,9 +1863,9 @@ func workflowStateDescription(incident core.Incident) string {
 		return "Slack is creating and preparing the dedicated incident room."
 	case core.WorkflowProvisioningSession:
 		if incident.IsEngineeringTask() {
-			return "Responder is creating an isolated Coop session and writable task copy. Engineering work has not started yet."
+			return "Ryker is creating an isolated Coop session and writable task copy. Engineering work has not started yet."
 		}
-		return "Responder is creating an isolated Coop session and working copy. Investigation has not started yet."
+		return "Ryker is creating an isolated Coop session and working copy. Investigation has not started yet."
 	case core.WorkflowHolding:
 		if incident.IsEngineeringTask() {
 			return "The engineering task is queued because the configured active-agent capacity is currently full."
@@ -1878,21 +1878,21 @@ func workflowStateDescription(incident core.Incident) string {
 		return "An agent turn is running or waiting to run against the isolated incident context."
 	case core.WorkflowParked:
 		if incident.IsEngineeringTask() {
-			return "No agent turn is running. The engineering task remains open and Responder is waiting for teammate input."
+			return "No agent turn is running. The engineering task remains open and Ryker is waiting for teammate input."
 		}
-		return "No agent turn is running. The incident remains open and Responder is waiting for operator input."
+		return "No agent turn is running. The incident remains open and Ryker is waiting for operator input."
 	case core.WorkflowBlocked:
 		if incident.IsEngineeringTask() {
-			return "Responder cannot continue until a workspace teammate addresses the blocker shown on the task card."
+			return "Ryker cannot continue until a workspace teammate addresses the blocker shown on the task card."
 		}
-		return "Responder cannot continue until an operator addresses the blocker shown on the pinned card."
+		return "Ryker cannot continue until an operator addresses the blocker shown on the pinned card."
 	case core.WorkflowClosed:
 		if incident.IsEngineeringTask() {
 			return "The engineering task session is closed. Unpublished changes remain preserved for operator action."
 		}
 		return "The incident session is closed. Its isolated working copy remains preserved."
 	default:
-		return "Responder reported a state it cannot yet describe. Check the pinned card and service logs before taking action."
+		return "Ryker reported a state it cannot yet describe. Check the pinned card and service logs before taking action."
 	}
 }
 
@@ -1906,10 +1906,10 @@ func signalStateSummary(incident core.Incident) string {
 	switch incident.Status {
 	case core.IncidentMonitoring:
 		if !incident.ResolveDueAt.IsZero() {
-			return "All signals recovered. Responder is monitoring until " +
+			return "All signals recovered. Ryker is monitoring until " +
 				incident.ResolveDueAt.UTC().Format("2006-01-02 15:04 UTC") + "."
 		}
-		return "All signals recovered. Responder is monitoring for a stable recovery."
+		return "All signals recovered. Ryker is monitoring for a stable recovery."
 	case core.IncidentResolved:
 		return "All alert signals have recovered."
 	case core.IncidentClosed:
@@ -2008,7 +2008,7 @@ func RepositoryPreparationBlocked(repository string) Message {
 		repository = "`" + repository + "`"
 	}
 	summary := "Investigation queued, but workspace preparation is blocked while refreshing " + repository + "."
-	retry := "Responder will keep retrying this investigation automatically."
+	retry := "Ryker will keep retrying this investigation automatically."
 	message := Message{
 		Text: summary + " " + retry,
 		Sections: []string{
@@ -2044,7 +2044,7 @@ func workspacePreparationBlocked(repository, reason string, retryAt time.Time) M
 		repository = "`" + repository + "`"
 	}
 	summary := "Investigation queued, but " + reason + repository + "."
-	retry := "Responder will retry automatically"
+	retry := "Ryker will retry automatically"
 	if !retryAt.IsZero() {
 		retry += " at " + retryAt.UTC().Format("15:04 UTC")
 	}
@@ -2117,7 +2117,7 @@ func ChannelName(prefix string, incident core.Incident) string {
 // CommitmentOverdueMessage tells a thread that accepted work has stopped
 // reporting progress.
 //
-// The tone matters here: this is Responder admitting it has not delivered
+// The tone matters here: this is Ryker admitting it has not delivered
 // something it took on, so it states the fact and what the operator can do,
 // without apologising at length or implying the work is lost.
 //

@@ -1,7 +1,7 @@
 /* The console wears Emisar's own design system — ported component for
    component from portal/apps/emisar_web (tailwind.config.js's brand scale,
    core_components' button/chip/status vocabulary, live_table's unframed
-   table) so Responder's control plane and the Emisar portal read as one
+   table) so Ryker's control plane and the Emisar portal read as one
    product family. One hand-written stylesheet, vendored — no framework, no
    CDN: the dashboard must render with the network off.
 

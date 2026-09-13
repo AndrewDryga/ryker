@@ -1,4 +1,4 @@
-module github.com/AndrewDryga/responder
+module github.com/AndrewDryga/ryker
 
 go 1.26.6
 

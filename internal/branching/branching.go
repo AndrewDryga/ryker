@@ -27,16 +27,16 @@ import (
 
 	"log/slog"
 
-	"github.com/AndrewDryga/responder/internal/config"
-	"github.com/AndrewDryga/responder/internal/coop"
-	"github.com/AndrewDryga/responder/internal/core"
-	episodepkg "github.com/AndrewDryga/responder/internal/episode"
-	"github.com/AndrewDryga/responder/internal/fanout"
-	"github.com/AndrewDryga/responder/internal/investigation"
-	"github.com/AndrewDryga/responder/internal/sessionauthority"
-	"github.com/AndrewDryga/responder/internal/sessioncreate"
-	"github.com/AndrewDryga/responder/internal/store"
-	"github.com/AndrewDryga/responder/internal/store/fanoutstore"
+	"github.com/AndrewDryga/ryker/internal/config"
+	"github.com/AndrewDryga/ryker/internal/coop"
+	"github.com/AndrewDryga/ryker/internal/core"
+	episodepkg "github.com/AndrewDryga/ryker/internal/episode"
+	"github.com/AndrewDryga/ryker/internal/fanout"
+	"github.com/AndrewDryga/ryker/internal/investigation"
+	"github.com/AndrewDryga/ryker/internal/sessionauthority"
+	"github.com/AndrewDryga/ryker/internal/sessioncreate"
+	"github.com/AndrewDryga/ryker/internal/store"
+	"github.com/AndrewDryga/ryker/internal/store/fanoutstore"
 )
 
 // branchSourceKind files a branch run under something that is not a Slack
@@ -185,7 +185,7 @@ func (r *Runner) Session(
 	policy := repository.SessionProfilePolicy(
 		config.ProfileInvestigate, repository.CoopPolicy,
 	)
-	baseKey := "responder:session:" + incident.ID + fanout.BranchMarker + goalID
+	baseKey := "ryker:session:" + incident.ID + fanout.BranchMarker + goalID
 	return sessioncreate.ResolveCandidates(ctx, sessioncreate.CandidateRequest{
 		Lane: "branch", Generation: generation, RepositoryReadOnly: true,
 		BaseKey: baseKey, AttemptStarted: r.now().UTC(), Lookup: r.coop,

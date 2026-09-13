@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/slackui"
-	"github.com/AndrewDryga/responder/internal/store"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/slackui"
+	"github.com/AndrewDryga/ryker/internal/store"
 )
 
 // Free text is never a command.
@@ -20,7 +20,7 @@ import (
 // enable shadow deploys next week" turned it silent again, "hey bob what are
 // you working on?" posted the commitment card at the room, and a bare "close"
 // tried to end whatever was attached to the channel. Nobody addressed
-// Responder in any of them.
+// Ryker in any of them.
 //
 // It never fired in production only because the single operator knew which
 // phrases to avoid, which is not a property of the code. A second operator

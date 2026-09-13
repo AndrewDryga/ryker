@@ -1,5 +1,5 @@
 // Package schedule owns when recurring work should next happen, and whether a
-// requested schedule is one Responder can honour.
+// requested schedule is one Ryker can honour.
 //
 // Recurrence is arithmetic over a wall clock in someone's timezone, which is
 // the kind of thing that looks obvious and is not: a daily 09:00 job across a
@@ -16,8 +16,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/decision"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/decision"
 )
 
 func Offers(primary *core.ScheduleOffer, additional []*core.ScheduleOffer) []*core.ScheduleOffer {

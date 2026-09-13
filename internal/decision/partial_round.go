@@ -5,8 +5,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/investigation"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/investigation"
 )
 
 // A correction round returns what it is changing. This file puts the rest back.

@@ -3,7 +3,7 @@ package investigation
 import (
 	"strings"
 
-	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/ryker/internal/core"
 )
 
 // OpenRequiredGoalCorrection reports a completion that would leave a required

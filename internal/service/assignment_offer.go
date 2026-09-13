@@ -4,12 +4,12 @@ import (
 	"context"
 	"encoding/json"
 
-	"github.com/AndrewDryga/responder/internal/assignments"
-	"github.com/AndrewDryga/responder/internal/core"
-	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
-	episodepkg "github.com/AndrewDryga/responder/internal/episode"
-	"github.com/AndrewDryga/responder/internal/investigation"
-	"github.com/AndrewDryga/responder/internal/slackui"
+	"github.com/AndrewDryga/ryker/internal/assignments"
+	"github.com/AndrewDryga/ryker/internal/core"
+	decisionpkg "github.com/AndrewDryga/ryker/internal/decision"
+	episodepkg "github.com/AndrewDryga/ryker/internal/episode"
+	"github.com/AndrewDryga/ryker/internal/investigation"
+	"github.com/AndrewDryga/ryker/internal/slackui"
 )
 
 // offerStandingAssignment posts a confirmation card for each standing
@@ -93,7 +93,7 @@ func (s *Service) postAssignmentOffer(
 // accepted it, and normalized again — so a payload edited in transit can change
 // which offer is confirmed at most, and never what it grants. That is the
 // memory confirmation's discipline applied to the widest authority in the
-// product: an assignment lets Responder open pull requests without anyone
+// product: an assignment lets Ryker open pull requests without anyone
 // clicking again.
 func (s *Service) handleConfirmAssignmentOffer(ctx context.Context, input core.SlackInput) error {
 	if !s.cfg.IsOperator(input.UserID) {

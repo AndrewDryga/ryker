@@ -23,13 +23,13 @@ func TestAnUnaddressedSentenceNeverOpensTheChannelWizard(t *testing.T) {
 		}
 		if ExplicitChannelConfigurationRequest(text, false) {
 			t.Errorf(
-				"%q opened the wizard without being addressed to Responder", text,
+				"%q opened the wizard without being addressed to Ryker", text,
 			)
 		}
 	}
 
 	// Ordinary conversation must not be mistaken for a request, even when it is
-	// addressed. Responder is in these channels to talk.
+	// addressed. Ryker is in these channels to talk.
 	for _, text := range []string{
 		"", "can you look at the deploy", "the proactive approach worked well",
 		"shadow traffic is on the new cluster, ignore it",

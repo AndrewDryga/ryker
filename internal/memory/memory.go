@@ -1,4 +1,4 @@
-// Package memory owns what Responder is allowed to remember, for how long, and
+// Package memory owns what Ryker is allowed to remember, for how long, and
 // who may see it.
 //
 // The visibility rule is the reason this is a package rather than a file. A
@@ -16,10 +16,10 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/decision"
-	"github.com/AndrewDryga/responder/internal/recall"
-	"github.com/AndrewDryga/responder/internal/store/memorystore"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/decision"
+	"github.com/AndrewDryga/ryker/internal/recall"
+	"github.com/AndrewDryga/ryker/internal/store/memorystore"
 )
 
 // boundedStrings bounds a list and each of its entries.
@@ -39,7 +39,7 @@ func boundedStrings(values []string, limit int, fieldLimit int) []string {
 // Both halves of that were written about facts, and both are true about facts.
 // Neither is true about guidance. "Always tell me the version delta" describes
 // no system, so it cannot come to describe a system that no longer exists, and
-// the operator who asked for it revisits it every time Responder obeys it. The
+// the operator who asked for it revisits it every time Ryker obeys it. The
 // thirty-day clock was not protecting them from a stale fact — it was deleting
 // an instruction, on a schedule, without saying so.
 //

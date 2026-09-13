@@ -10,14 +10,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/coop"
-	"github.com/AndrewDryga/responder/internal/core"
-	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
-	"github.com/AndrewDryga/responder/internal/publisher"
-	"github.com/AndrewDryga/responder/internal/slackui"
-	"github.com/AndrewDryga/responder/internal/store"
-	"github.com/AndrewDryga/responder/internal/taskpr"
-	"github.com/AndrewDryga/responder/internal/taskpublication"
+	"github.com/AndrewDryga/ryker/internal/coop"
+	"github.com/AndrewDryga/ryker/internal/core"
+	decisionpkg "github.com/AndrewDryga/ryker/internal/decision"
+	"github.com/AndrewDryga/ryker/internal/publisher"
+	"github.com/AndrewDryga/ryker/internal/slackui"
+	"github.com/AndrewDryga/ryker/internal/store"
+	"github.com/AndrewDryga/ryker/internal/taskpr"
+	"github.com/AndrewDryga/ryker/internal/taskpublication"
 )
 
 func (s *Service) engineeringTaskPullRequestTarget(
@@ -804,7 +804,7 @@ func TestEngineeringTaskSessionUsesApprovedExistingPullRequestHead(t *testing.T)
 }
 
 // A live feedback decision already resumed the Rivals task and passed thirty
-// tests, yet Responder stopped at a manual Update PR button. The operator then
+// tests, yet Ryker stopped at a manual Update PR button. The operator then
 // hit Coop's clean-workspace guard. A completed committed feedback turn must
 // carry itself through review and update the existing PR without another click.
 func TestCommittedEngineeringFeedbackAutomaticallyUpdatesTheExistingPullRequest(t *testing.T) {
@@ -823,7 +823,7 @@ func TestCommittedEngineeringFeedbackAutomaticallyUpdatesTheExistingPullRequest(
 	target := core.PullRequestTarget{
 		Repository: "owner/repo", Number: 20,
 		URL:        "https://github.com/owner/repo/pull/20",
-		BaseBranch: "main", HeadBranch: "responder/rivals-logs",
+		BaseBranch: "main", HeadBranch: "ryker/rivals-logs",
 		HeadCommit: strings.Repeat("a", 40),
 	}
 	task, created, err := st.CreateEngineeringTask(
@@ -946,7 +946,7 @@ func TestRestartQueuesLegacyDirtyWorkspacePublicationAfterTheCommitAppears(t *te
 	target := core.PullRequestTarget{
 		Repository: "owner/repo", Number: 20,
 		URL: "https://github.com/owner/repo/pull/20", BaseBranch: "main",
-		HeadBranch: "responder/rivals-logs", HeadCommit: strings.Repeat("a", 40),
+		HeadBranch: "ryker/rivals-logs", HeadCommit: strings.Repeat("a", 40),
 	}
 	task, _, err := st.CreateEngineeringTask(
 		ctx, "repo", "recover-dirty-publication", "Update failure aggregation", "summary",

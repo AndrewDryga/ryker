@@ -5,10 +5,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/ryker/internal/core"
 )
 
-// internalVocabulary is language that describes Responder's plumbing rather
+// internalVocabulary is language that describes Ryker's plumbing rather
 // than the operator's situation.
 //
 // A person waiting on an outage did not ask about a JSON envelope, a Coop turn,
@@ -44,7 +44,7 @@ func TestOperatorMessagesCarryNoInternalVocabulary(t *testing.T) {
 			ID: "ep_1", Objective: "Verify the rollout",
 		}, 90*time.Minute, 0),
 		// The memory, preference, rule and schedule cards write their own copy
-		// too, and they are where an operator meets Responder most often.
+		// too, and they are where an operator meets Ryker most often.
 		"MemorySavedMessage":           MemorySavedMessage(shapeGuidanceEntry(), false),
 		"MemoryForgottenMessage":       MemoryForgottenMessage(),
 		"MemoryRollupForgottenMessage": MemoryRollupForgottenMessage(),

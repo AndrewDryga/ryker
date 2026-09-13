@@ -187,7 +187,7 @@ func recallProjectionStep(outcome OutcomeRow, present func(string) string) Trace
 		stats = append(stats, TraceStat{"Time to decision", compactDuration(outcome.TimeToDecision)})
 	}
 	return TraceStep{
-		ID: "recall-projection", Stage: "Outcome", Actor: "Responder", State: "recorded",
+		ID: "recall-projection", Stage: "Outcome", Actor: "Ryker", State: "recorded",
 		Icon: "db", Tone: tone, At: outcome.TerminalAt,
 		Title:   "Recorded for future recall",
 		Summary: present(fallback(outcome.RootCause, fallback(outcome.Objective, "This episode was projected with no cause recorded."))),

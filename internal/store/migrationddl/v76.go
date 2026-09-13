@@ -2,11 +2,11 @@ package migrationddl
 
 // V76 adds the ledger that answers "what changed?".
 //
-// It is the first question of every real incident and Responder could not
+// It is the first question of every real incident and Ryker could not
 // answer it deterministically. The facts were already passing through the
 // process and being thrown away: a deploy notification arriving on a webhook
 // became a signal or nothing at all, the publication follower watched
-// Responder's own pull requests merge without ledgering the merge, and the
+// Ryker's own pull requests merge without ledgering the merge, and the
 // approval watcher read mutating Emisar runs to terminal state and kept only
 // the approval row. Three sources already in hand, and nowhere to ask what
 // happened in the last six hours.

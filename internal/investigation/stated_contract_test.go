@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/ryker/internal/core"
 )
 
 // The contract's own operation list is an allowlist as far as the model is

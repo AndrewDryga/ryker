@@ -5,8 +5,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/AndrewDryga/responder/internal/config"
-	"github.com/AndrewDryga/responder/internal/coop"
+	"github.com/AndrewDryga/ryker/internal/config"
+	"github.com/AndrewDryga/ryker/internal/coop"
 )
 
 type AccessMode string
@@ -80,15 +80,15 @@ func Build(
 func Prompt(manifest Manifest) string {
 	payload, _ := json.Marshal(manifest)
 	return `Trusted repository capabilities for this turn:
-- configured: registered by Responder, but not proof that this Coop session can read it.
+- configured: registered by Ryker, but not proof that this Coop session can read it.
 - pinned_read_only: this Coop session has an immutable checkout and may read it; it may not edit or publish it.
 - isolated_write: only an approved engineering task's primary checkout may be edited, tested, and committed; it may not be published.
 - No access mode grants publication. Publication requires a separate host-verified workflow.
 
 For repository-access questions, use this manifest instead of nearby conversation evidence. A pinned_read_only repository has verified read access. Treat configured repositories as unverified and use the tool-enabled investigation lane before claiming access. A repository absent from the manifest is not configured; do not claim that an absent repository was tested or denied.
-<trusted-responder-repository-capabilities>
+<trusted-ryker-repository-capabilities>
 ` + string(payload) + `
-</trusted-responder-repository-capabilities>`
+</trusted-ryker-repository-capabilities>`
 }
 
 func AccessQuestion(message string) bool {

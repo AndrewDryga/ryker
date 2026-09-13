@@ -5,8 +5,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/config"
-	"github.com/AndrewDryga/responder/internal/repomirror"
+	"github.com/AndrewDryga/ryker/internal/config"
+	"github.com/AndrewDryga/ryker/internal/repomirror"
 )
 
 // prepareFetchTimeout bounds the on-demand fetch a turn pays for.
@@ -22,7 +22,7 @@ const prepareFetchTimeout = 8 * time.Second
 // it, and degrades rather than blocks.
 //
 // A fetch failure is recorded staleness, never a blocked turn. GitHub being
-// unreachable is not Responder failing to work, and an incident answered from
+// unreachable is not Ryker failing to work, and an incident answered from
 // twenty-minute-old code with the age written down is worth more than an
 // incident not answered at all. Nothing here returns an error for that reason:
 // there is no caller that should stop.
@@ -80,7 +80,7 @@ func (s *Service) repositoryFreshness(
 //
 // Errors are swallowed on purpose, and this is the one place that decision has
 // to be stated. The watchdog pages when due work stops moving; if a fetch
-// failure retried the work item, a GitHub outage would present as Responder's
+// failure retried the work item, a GitHub outage would present as Ryker's
 // scheduler failing and page a person at three in the morning about somebody
 // else's incident. The failure is real and is reported — as a gauge on
 // /metrics, a line in doctor, a warning in the log, and recorded staleness on
@@ -137,7 +137,7 @@ const maintenanceFetchTimeout = time.Minute
 // The single resolution point for the whole product: config declares either a
 // path or a slug, and this turns whichever it is into a directory. Nothing
 // outside config and internal/repomirror constructs one, which is what keeps
-// "Responder never accepts host paths from Slack or model output" true by
+// "Ryker never accepts host paths from Slack or model output" true by
 // construction rather than by review.
 func ManagedRepositoryPath(cfg config.Config, repo config.Repository) (string, error) {
 	return repomirror.RepositoryPath(cfg.StateDir, repo)

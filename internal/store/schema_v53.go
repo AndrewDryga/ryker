@@ -21,7 +21,7 @@ package store
 //
 // Quiet is 'ignore' and 'shadowed'. Ignore is the rule matching a message and
 // deciding it was not worth answering; shadowed is a channel being watched
-// before Responder is allowed to speak in it, so the fire is silent by design.
+// before Ryker is allowed to speak in it, so the fire is silent by design.
 // Everything else — reply, react, incident, engineering_task — put something in
 // front of a person, which is the only thing a standing rule exists to do.
 //

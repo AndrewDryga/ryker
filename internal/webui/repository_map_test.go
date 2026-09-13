@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/AndrewDryga/responder/internal/config"
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/store"
+	"github.com/AndrewDryga/ryker/internal/config"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/store"
 )
 
 // The repository map is the one page an operator can act on by noticing an
@@ -60,7 +60,7 @@ func TestMemoryPageShowsDescribedAndUndescribedRepositories(t *testing.T) {
 		"undescribed-repo": {DisplayName: "Undescribed"},
 	}
 	handler, err := NewHandler(
-		reader, "test", "47", "responder-abc", nil, config.Pricing{}, repositories, nil,
+		reader, "test", "47", "ryker-abc", nil, config.Pricing{}, repositories, nil,
 	)
 	if err != nil {
 		t.Fatal(err)

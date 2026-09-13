@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/store/sqlutil"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/store/sqlutil"
 )
 
 // Repository owns the durable Slack card used to present a unit of work, and

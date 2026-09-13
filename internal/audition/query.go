@@ -5,7 +5,7 @@ import (
 	"database/sql"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/ryker/internal/core"
 )
 
 // LanesQuery is the live half of the report, and every clause in it is load

@@ -65,7 +65,7 @@ func TurnReceiptMessage(receipt TurnReceipt) Message {
 		message.Sections = []string{
 			"*This turn narrated nothing.* No tool call, file change, or reasoning " +
 				"summary was recorded against it — the turn either did none of those " +
-				"things or finished before Responder was watching it.",
+				"things or finished before Ryker was watching it.",
 		}
 	}
 	if source := turnReceiptSource(receipt); source != "" {

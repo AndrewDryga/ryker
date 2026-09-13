@@ -3,14 +3,14 @@ package service
 import (
 	"context"
 
-	"github.com/AndrewDryga/responder/internal/coop"
-	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/ryker/internal/coop"
+	"github.com/AndrewDryga/ryker/internal/core"
 )
 
 // recordAgentActivity stores one narrated moment from inside a turn.
 //
 // It never fails the poll. The turn still has to reach its terminal state and
-// the answer still has to be delivered; a moment Responder could not store
+// the answer still has to be delivered; a moment Ryker could not store
 // costs a line in a trace, and trading the answer for the story of the answer
 // would be the wrong way round. Failures are logged and the poll continues.
 //
@@ -65,7 +65,7 @@ func (s *Service) recordAgentActivity(
 //
 // It never fails the poll, for the same reason recording never does. The turn
 // still has to reach its terminal state and the answer still has to be
-// delivered; a refresh Responder could not request costs a card that is fifteen
+// delivered; a refresh Ryker could not request costs a card that is fifteen
 // seconds staler than it might have been, and it will be requested again on the
 // next narrated moment anyway.
 func (s *Service) refreshCardForActivity(ctx context.Context, run core.AgentRun) {

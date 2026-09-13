@@ -6,9 +6,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/core"
-	episodepkg "github.com/AndrewDryga/responder/internal/episode"
-	"github.com/AndrewDryga/responder/internal/slackui"
+	"github.com/AndrewDryga/ryker/internal/core"
+	episodepkg "github.com/AndrewDryga/ryker/internal/episode"
+	"github.com/AndrewDryga/ryker/internal/slackui"
 )
 
 // overdueBatch bounds one maintenance pass. Surfacing is cheap, but a backlog
@@ -215,5 +215,5 @@ func stalledEpisodeNextAction(base, detail string) string {
 	if detail == "" {
 		return base
 	}
-	return base + "; Responder could not advance it: " + detail
+	return base + "; Ryker could not advance it: " + detail
 }

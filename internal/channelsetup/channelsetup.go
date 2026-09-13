@@ -19,7 +19,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/AndrewDryga/responder/internal/slackui"
+	"github.com/AndrewDryga/ryker/internal/slackui"
 )
 
 func ChannelSetupChoice(actionID string) (string, string, bool) {
@@ -102,7 +102,7 @@ func UniqueSorted(values []string) []string {
 // say "we should reconfigure this channel next sprint" to a colleague, and a
 // sentence aimed at the room must never open a settings wizard on the strength
 // of the words in it. Only a mention or a direct message is aimed at
-// Responder, so only those may match, and a caller has to say which it has.
+// Ryker, so only those may match, and a caller has to say which it has.
 func ExplicitChannelConfigurationRequest(text string, addressed bool) bool {
 	if !addressed {
 		return false

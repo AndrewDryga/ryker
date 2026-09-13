@@ -1,4 +1,4 @@
-// Package repomirror keeps the repositories Responder reads from current.
+// Package repomirror keeps the repositories Ryker reads from current.
 //
 // Before it existed there was no `git fetch` anywhere in this product — not in
 // Go, not in a script. Every policy repository was a directory an operator had
@@ -19,7 +19,7 @@
 // repository with realGitRepository: the EvalSymlinks-real path must equal
 // `rev-parse --show-toplevel`. A bare repository has no work tree and fails
 // that, and companion snapshots assume a work tree too. So these are ordinary
-// clones — just Responder-owned and Responder-fetched.
+// clones — just Ryker-owned and Ryker-fetched.
 //
 // Full clones, not --filter=blob:none. A partial clone needs network and
 // credentials at read time, inside the box, which is precisely the property
@@ -37,9 +37,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/config"
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/hermeticgit"
+	"github.com/AndrewDryga/ryker/internal/config"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/hermeticgit"
 )
 
 // FailureClass names why an update did not happen, because the four answers
@@ -55,7 +55,7 @@ const (
 	FailureMissing FailureClass = "missing"
 	FailureCorrupt FailureClass = "corrupt"
 	// FailureLocal is the clone itself refusing: a dirty work tree, a
-	// non-fast-forward, a permission problem. Responder never resolves one of
+	// non-fast-forward, a permission problem. Ryker never resolves one of
 	// these by writing to the work tree.
 	FailureLocal FailureClass = "local"
 )
@@ -81,9 +81,9 @@ func Classify(err error) FailureClass {
 	return FailureNone
 }
 
-// Status is everything Responder knows about one managed clone.
+// Status is everything Ryker knows about one managed clone.
 //
-// FetchedAt comes from the clone itself rather than from memory, so `responder
+// FetchedAt comes from the clone itself rather than from memory, so `ryker
 // doctor` in a second process answers the same question the serving process
 // would. git writes FETCH_HEAD on every fetch and on clone, whether or not any
 // object moved, which is exactly the "we asked the remote at this time" fact
@@ -109,7 +109,7 @@ type Status struct {
 //
 // The revision alone was never enough. A commit id looks equally current
 // whether the checkout behind it was refreshed a minute ago or last month, and
-// before Responder owned the clone nothing anywhere knew which — so "how old
+// before Ryker owned the clone nothing anywhere knew which — so "how old
 // was the code the model read" was unanswerable on every trace ever recorded.
 func (s Status) Metadata() map[string]string {
 	metadata := map[string]string{
@@ -192,7 +192,7 @@ func WithLogger(log *slog.Logger) Option {
 	}
 }
 
-// Root is the directory Responder keeps managed clones in.
+// Root is the directory Ryker keeps managed clones in.
 func Root(stateDir string) string { return filepath.Join(stateDir, "repos") }
 
 // New builds the manager for one configuration.
@@ -316,7 +316,7 @@ func (m *Manager) Last(slug string) (Status, bool) {
 //
 // A gauge, not a counter, and deliberately kept out of anything that reads as
 // work movement: the watchdog pages when due work stops moving, and a GitHub
-// outage is not Responder failing to work. A failed fetch degrades an
+// outage is not Ryker failing to work. A failed fetch degrades an
 // attempt's evidence to "stale, recorded" and shows up here and in doctor.
 func (m *Manager) FetchFailures() int {
 	m.mu.Lock()
@@ -390,7 +390,7 @@ func (m *Manager) ensureLocked(ctx context.Context, slug string) (Status, error)
 
 // Update brings a clone level with its remote's default branch.
 //
-// Fetch and fast-forward only. Responder never modifies the work tree and never
+// Fetch and fast-forward only. Ryker never modifies the work tree and never
 // discards anything found in it: a dirty clone is reported as a local failure
 // and left exactly as it is, because the one thing worse than stale evidence is
 // destroying work while trying to freshen it.
@@ -437,7 +437,7 @@ func (m *Manager) Update(ctx context.Context, slug string) (Status, error) {
 	if dirty, err := m.git(
 		ctx, path, false, "status", "--porcelain", "--untracked-files=no",
 	); err != nil || strings.TrimSpace(dirty) != "" {
-		detail := "the managed clone has uncommitted changes; Responder will not touch them"
+		detail := "the managed clone has uncommitted changes; Ryker will not touch them"
 		if err != nil {
 			detail = err.Error()
 		}
@@ -456,7 +456,7 @@ func (m *Manager) Update(ctx context.Context, slug string) (Status, error) {
 	return m.record(m.Inspect(ctx, slug)), nil
 }
 
-// DryRunFetch asks the remote whether Responder could fetch, without writing
+// DryRunFetch asks the remote whether Ryker could fetch, without writing
 // anything. Doctor uses it so a token that has expired is found before the next
 // incident does.
 func (m *Manager) DryRunFetch(ctx context.Context, slug string) error {
@@ -567,7 +567,7 @@ func (m *Manager) ensureRoot() error {
 // git runs one hermetic invocation, injecting the credential only when the
 // command talks to a remote.
 //
-// HOME is the root rather than the clone: Responder promises never to dirty a
+// HOME is the root rather than the clone: Ryker promises never to dirty a
 // work tree Coop forks from, and anything git might write to a dotfile would
 // otherwise land inside one and show up in `git status`.
 func (m *Manager) git(
@@ -615,7 +615,7 @@ func (m *Manager) branch(ctx context.Context, path string) string {
 //
 // From FETCH_HEAD's mtime, which git rewrites on every fetch and on clone
 // whether or not an object moved. Read from the filesystem rather than
-// remembered in this process so `responder doctor`, which runs beside a serving
+// remembered in this process so `ryker doctor`, which runs beside a serving
 // instance and cannot see its memory, answers the same question.
 func fetchedAt(path string) time.Time {
 	for _, name := range []string{"FETCH_HEAD", "HEAD"} {

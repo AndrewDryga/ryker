@@ -8,10 +8,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/investigation"
-	"github.com/AndrewDryga/responder/internal/slackui"
-	"github.com/AndrewDryga/responder/internal/store"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/investigation"
+	"github.com/AndrewDryga/ryker/internal/slackui"
+	"github.com/AndrewDryga/ryker/internal/store"
 )
 
 // proactiveFixture builds a channel where one standing assignment is one
@@ -111,7 +111,7 @@ func (f *proactiveFixture) count(t *testing.T, query string) int {
 // halves that fail in opposite directions. If the gate is skipped, the recorded
 // verdicts are not the decisions the live feature would have made and the
 // evidence the grant will be argued from is worthless. If the action is not
-// skipped, Responder is opening pull requests unattended on a completion
+// skipped, Ryker is opening pull requests unattended on a completion
 // contract that was the largest single source of defects on 2026-08-09 — the
 // exact grant this task exists to withhold.
 //
@@ -177,7 +177,7 @@ func TestAShadowedAssignmentRunsTheGateAndOpensNothing(t *testing.T) {
 
 // The declines are recorded too, and they are the interesting half.
 //
-// "Responder did nothing" is the hardest behaviour to debug from Slack: a
+// "Ryker did nothing" is the hardest behaviour to debug from Slack: a
 // misconfigured scope and a working system look identical. After a shadow
 // period the audit has to answer how many of the signals this assignment saw
 // deserved a pull request, and a ledger holding only the passes cannot — two
@@ -186,7 +186,7 @@ func TestARefusedSignalIsRecordedWithItsReason(t *testing.T) {
 	ctx := context.Background()
 	fixture := newProactiveFixture(t)
 
-	// The one thing the gate will refuse: a conclusion Responder could not
+	// The one thing the gate will refuse: a conclusion Ryker could not
 	// actually support. Everything else about the signal still matches.
 	if err := fixture.svc.considerProactiveWork(
 		ctx, fixture.input, "ep_watch",
@@ -253,7 +253,7 @@ func TestProactiveIsInertWithoutAnAssignment(t *testing.T) {
 //
 // It runs after the reply is delivered, and a standing assignment that fails
 // must not fail the turn that already answered. The ordering is the whole
-// point: an operator asked a question, and Responder deciding to also open a
+// point: an operator asked a question, and Ryker deciding to also open a
 // pull request is not their problem.
 func TestProactiveFailureDoesNotFailTheAnsweredTurn(t *testing.T) {
 	ctx := context.Background()

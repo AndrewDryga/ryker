@@ -4,7 +4,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/ryker/internal/core"
 )
 
 // approvalBlastRadius is what a paused action would touch, as a label/value
@@ -90,7 +90,7 @@ func WithEmisarApproval(message Message, approval core.EmisarApproval) Message {
 	// One section, not three. It used to say that Emisar paused the action,
 	// then restate the action id the header now carries, then promise to watch
 	// the request — three blocks between the reply and the button, two of which
-	// were about Responder rather than about the decision.
+	// were about Ryker rather than about the decision.
 	message.Sections = append(message.Sections,
 		"Review the exact target, arguments, evidence, blast radius, and policy decision in Emisar.")
 	message.Ledger = append(message.Ledger, approvalBlastRadius(approval)...)

@@ -22,7 +22,7 @@ import (
 	"testing"
 )
 
-const modulePath = "github.com/AndrewDryga/responder/"
+const modulePath = "github.com/AndrewDryga/ryker/"
 
 // methodBudget caps the *exported* receiver-method count of the two broad
 // types. Exported methods are the surface other packages depend on, and that
@@ -227,10 +227,10 @@ var lineBudget = map[string]int{
 	// for, and it is the same reasoning that moved store off 11000.
 	//
 	// Raised to 25260 on 2026-08-09 to stop this package shouting at rooms. An
-	// operator watched Responder post one person's mistyped setup answer to a
+	// operator watched Ryker post one person's mistyped setup answer to a
 	// shared channel and said never to do that again; the audit that followed
 	// found three more of the same shape. A colleague who is not an operator was
-	// refused in public, once per message they sent. A request Responder gave up
+	// refused in public, once per message they sent. A request Ryker gave up
 	// on after twelve silent attempts put its raw error in front of the room and
 	// told everyone to retry a command only one person could run. And the same
 	// permission refusal was private through /responder and public through
@@ -239,7 +239,7 @@ var lineBudget = map[string]int{
 	// Fifty-three lines: three routing branches, one shared helper, one extracted
 	// reportAbandonedInput, and the log call that keeps a failed ephemeral from
 	// being the silence this file's previous entry was written to prevent. It
-	// buys back rooms that were learning to tune Responder out, which costs more
+	// buys back rooms that were learning to tune Ryker out, which costs more
 	// than any of the messages were worth. The extraction two entries up is still
 	// the only thing that brings this number down, and it is still next.
 	//
@@ -442,7 +442,7 @@ var lineBudget = map[string]int{
 	// Phase 9 — extracting mid-cutover would preserve the bugs the cutover
 	// exists to delete.
 	//
-	// Raised to 22700 on 2026-08-14 for repositories Responder keeps current.
+	// Raised to 22700 on 2026-08-14 for repositories Ryker keeps current.
 	// There was no `git fetch` anywhere in this product — not in Go, not in a
 	// script — so "current repository content", which the evidence hierarchy
 	// ranks above configuration and confirmed memory, meant whatever a human
@@ -464,7 +464,7 @@ var lineBudget = map[string]int{
 	// that actually exists.
 	//
 	// Raised to 22780 on 2026-08-14 so one episode can finally inform another.
-	// Responder held hundreds of fully traced episodes and every new incident
+	// Ryker held hundreds of fully traced episodes and every new incident
 	// still started from zero; the single highest-value senior-SRE behaviour —
 	// "this is the July checkout episode, the cause was pool exhaustion, the
 	// fix took ten minutes" — was structurally impossible.
@@ -496,7 +496,7 @@ var lineBudget = map[string]int{
 	//
 	// Raised to 22930 on 2026-08-14 for the change ledger: an incident can now
 	// be told what changed. It is the first question of every real outage and
-	// Responder could not answer it, while the facts went past its own hands
+	// Ryker could not answer it, while the facts went past its own hands
 	// three times a day — a deploy webhook became a signal or nothing, the
 	// publication follower watched its own pull requests merge without
 	// ledgering the merge, and the approval watcher read mutating Emisar runs
@@ -572,7 +572,7 @@ var lineBudget = map[string]int{
 	// in a while this number has gone down while a feature landed, which is the
 	// only way it was allowed to land at all. The package had one line of
 	// headroom, so 186 lines left first: everything in this package that decided
-	// what Responder will accept as a Slack file, how it names one and how much
+	// what Ryker will accept as a Slack file, how it names one and how much
 	// of one it reads went to internal/slackfile, unchanged, as pure functions
 	// that never needed the coordinator. The 175 that arrived are the two
 	// knowledge offers' host half — post the card, read the offer back,
@@ -1401,7 +1401,7 @@ var lineBudget = map[string]int{
 	"schemaassets":       1050,
 	// Raised from 50 to 70 on 2026-08-16, eleven lines measured. A failure now
 	// asks a second question before it chooses silence — did this message say
-	// Responder's name, whatever kind of event Slack called it — because a
+	// Ryker's name, whatever kind of event Slack called it — because a
 	// payments report that typed "@Emisar" produced no app_mention, read as room
 	// chatter, and was audited failed_silent with nothing posted. Both halves of
 	// the rule live here so there is one place to read what earns an answer.
@@ -1413,12 +1413,12 @@ var lineBudget = map[string]int{
 	// gaining the ability to look one up.
 	"turndelta": 160,
 	// hermeticgit is the git-subprocess discipline internal/publisher grew
-	// around the only GitHub push credential Responder has, extracted the day
+	// around the only GitHub push credential Ryker has, extracted the day
 	// it gained a second caller. It should stay this size: a second copy of an
 	// environment scrub is a second place for one of its rules to stop
 	// applying, and that is the whole reason it is a package.
 	"hermeticgit": 110,
-	// repomirror owns every Responder-managed clone: where a slug becomes a
+	// repomirror owns every Ryker-managed clone: where a slug becomes a
 	// directory, what a fetch failure means, and when a clone is too old to be
 	// called current. It is a package rather than a corner of the service
 	// because none of that needs a database, a Slack client or a Coop session,
@@ -1468,7 +1468,7 @@ var lineBudget = map[string]int{
 	// entrances are all lines the service never had to write down, because it had
 	// the whole of Service to reach through instead.
 	"behavioroffer": 560,
-	// slackfile owns what Responder will accept as a Slack file, what it will
+	// slackfile owns what Ryker will accept as a Slack file, what it will
 	// call one, and how much of one it will read. Extracted whole from
 	// internal/service on 2026-08-15; every rule in it is a refusal about bytes
 	// somebody else controls, and none of them ever needed the coordinator.
@@ -1574,7 +1574,7 @@ var forbiddenImports = map[string][]string{
 	// time we said something". It takes a decision and returns what that
 	// decision decides, and it must stay unable to reach anything that would
 	// make a suppression depend on where it ran: no store, no Slack, no config
-	// and no clock. A reply Responder did not send is exactly the kind of thing
+	// and no clock. A reply Ryker did not send is exactly the kind of thing
 	// an operator asks about a day later, and the answer has to be reproducible
 	// from the two results alone.
 	"alertstream": {

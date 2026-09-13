@@ -6,9 +6,9 @@ import (
 	"errors"
 	"strings"
 
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/episode"
-	"github.com/AndrewDryga/responder/internal/store/sqlutil"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/episode"
+	"github.com/AndrewDryga/ryker/internal/store/sqlutil"
 )
 
 const commitmentProjectionColumns = `

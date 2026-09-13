@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/coop"
-	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/ryker/internal/coop"
+	"github.com/AndrewDryga/ryker/internal/core"
 )
 
 // A correction that repeats is a routing decision, not a wording problem.
@@ -39,7 +39,7 @@ func correctionEscalates(class correctionClass) bool {
 // moves up one: repeat two asks for rung 1, repeat three for rung 2.
 //
 // It is a floor above the rung THIS RUN has been escalated to, not a reading of
-// where the session actually sits. Responder cannot see the ladder — Coop
+// where the session actually sits. Ryker cannot see the ladder — Coop
 // publishes the session's current `target` string but not the policy's list of
 // them, and there is no endpoint that would resolve one against the other — so
 // the honest number is the one the host itself asked for and can count. A

@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/AndrewDryga/responder/internal/evaluation"
+	"github.com/AndrewDryga/ryker/internal/evaluation"
 )
 
 // The correction class becomes an assertion; the correction text does not.

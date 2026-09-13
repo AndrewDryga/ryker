@@ -4,9 +4,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/AndrewDryga/responder/internal/core"
-	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
-	"github.com/AndrewDryga/responder/internal/investigation"
+	"github.com/AndrewDryga/ryker/internal/core"
+	decisionpkg "github.com/AndrewDryga/ryker/internal/decision"
+	"github.com/AndrewDryga/ryker/internal/investigation"
 )
 
 func TestASecondSchemaFailureStillReturnsTheModelsBoundedReply(t *testing.T) {
@@ -45,7 +45,7 @@ func TestReplyFallbackNeverTurnsSilenceOrAmbiguityIntoSpeech(t *testing.T) {
 			{"id":"complete-1","type":"complete_episode","completion":{"message":"First.","completion":{"status":"decision_ready","summary":"first"}}},
 			{"id":"complete-2","type":"complete_episode","completion":{"message":"Second.","completion":{"status":"decision_ready","summary":"second"}}}
 		]}`,
-		"no reply": `{"action":"reply","operations":[{"id":"complete-1","type":"complete_episode","completion":{"message":"<responder-no-reply/>","completion":{"status":"decision_ready","summary":"quiet"}}}]}`,
+		"no reply": `{"action":"reply","operations":[{"id":"complete-1","type":"complete_episode","completion":{"message":"<ryker-no-reply/>","completion":{"status":"decision_ready","summary":"quiet"}}}]}`,
 		"oversized": `{"action":"reply","operations":[{"id":"complete-1","type":"complete_episode","completion":{"message":"` +
 			strings.Repeat("x", 13<<10) +
 			`","completion":{"status":"decision_ready","summary":"large"}}}]}`,

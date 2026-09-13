@@ -19,11 +19,11 @@ func longBlock(word string, bytes int) string {
 func TestAPromptArchivedBeforeTheMarkerReadsBackUnchanged(t *testing.T) {
 	legacy := "You are Emisar.\n<untrusted-slack-context>\n{\"target_message\":{}}\n" +
 		"</untrusted-slack-context>\nUSER: check the api"
-	if got := Elide("responder-prompt-v3", legacy, nil); got != legacy {
+	if got := Elide("ryker-prompt-v3", legacy, nil); got != legacy {
 		t.Fatalf("an archive with no blocks to elide was rewritten:\n%q", got)
 	}
 	unrelated := []Block{{Name: "other", Text: longBlock("unrelated", 900)}}
-	if got := Elide("responder-prompt-v3", legacy, unrelated); got != legacy {
+	if got := Elide("ryker-prompt-v3", legacy, unrelated); got != legacy {
 		t.Fatalf("a prompt that carries none of the blocks was rewritten:\n%q", got)
 	}
 	if markers := Markers(legacy); len(markers) != 0 {
@@ -45,7 +45,7 @@ func TestTheOuterInstructionBlockIsElidedBeforeTheOneNestedInsideIt(t *testing.T
 	outer := "opening\n" + inner + "\nclosing " + longBlock("outer", 600)
 	prompt := "head\n" + outer + "\nSlack said something"
 
-	got := Elide("responder-prompt-v3", prompt, []Block{
+	got := Elide("ryker-prompt-v3", prompt, []Block{
 		{Name: "inner", Text: inner},
 		{Name: "outer", Text: outer},
 	})
@@ -68,7 +68,7 @@ func TestTheOuterInstructionBlockIsElidedBeforeTheOneNestedInsideIt(t *testing.T
 // A block small enough to appear inside the conversation is never elided.
 //
 // The archive replaces text by exact match, and an operator quoting a line of
-// the prompt back at Responder is a thing that happens. Eliding a short block
+// the prompt back at Ryker is a thing that happens. Eliding a short block
 // would delete the operator's message and report it as an instruction, which is
 // a far worse outcome than storing a couple of hundred bytes.
 func TestAShortBlockIsLeftAloneRatherThanCutOutOfSomebodysMessage(t *testing.T) {
@@ -79,7 +79,7 @@ func TestAShortBlockIsLeftAloneRatherThanCutOutOfSomebodysMessage(t *testing.T) 
 	prompt := "instructions\n<untrusted-slack-context>\n" +
 		`{"target_message":{"text":"you told it: ` + short + `"}}` +
 		"\n</untrusted-slack-context>"
-	got := Elide("responder-prompt-v3", prompt, []Block{{Name: "short", Text: short}})
+	got := Elide("ryker-prompt-v3", prompt, []Block{{Name: "short", Text: short}})
 	if got != prompt {
 		t.Fatalf("a short block was cut out of a Slack message:\n%q", got)
 	}
@@ -91,7 +91,7 @@ func TestAShortBlockIsLeftAloneRatherThanCutOutOfSomebodysMessage(t *testing.T) 
 func TestAMarkerNamesTheVersionBlockSizeAndDigestItStandsFor(t *testing.T) {
 	text := longBlock("instruction", 1200)
 	prompt := "head\n" + text + "\ntail"
-	got := Elide("responder-prompt-v42", prompt, []Block{{Name: "pkg.Symbol", Text: text}})
+	got := Elide("ryker-prompt-v42", prompt, []Block{{Name: "pkg.Symbol", Text: text}})
 
 	markers := Markers(got)
 	if len(markers) != 1 {
@@ -99,7 +99,7 @@ func TestAMarkerNamesTheVersionBlockSizeAndDigestItStandsFor(t *testing.T) {
 	}
 	marker := markers[0]
 	switch {
-	case marker.Version != "responder-prompt-v42":
+	case marker.Version != "ryker-prompt-v42":
 		t.Fatalf("marker version = %q", marker.Version)
 	case marker.Block != "pkg.Symbol":
 		t.Fatalf("marker block = %q", marker.Block)
@@ -115,7 +115,7 @@ func TestAMarkerNamesTheVersionBlockSizeAndDigestItStandsFor(t *testing.T) {
 	// the digest is decoration. prompt_version is bumped for contract changes,
 	// not for the weekly rewording, so the name and the version together do not
 	// pin the text; the digest is what does.
-	other := Elide("responder-prompt-v42", "head\n"+longBlock("reworded", 1200)+"\ntail",
+	other := Elide("ryker-prompt-v42", "head\n"+longBlock("reworded", 1200)+"\ntail",
 		[]Block{{Name: "pkg.Symbol", Text: longBlock("reworded", 1200)}})
 	if Markers(other)[0].Digest == marker.Digest {
 		t.Fatal("two different instruction texts archived under the same digest")

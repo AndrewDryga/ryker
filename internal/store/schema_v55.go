@@ -12,7 +12,7 @@ package store
 //
 // Dropped rather than left standing. An empty table is cheap, but it is not
 // free: it appears in the schema dump, in every backup, in the ER diagram, and
-// in the list anyone reads to learn what Responder stores — where it describes a
+// in the list anyone reads to learn what Ryker stores — where it describes a
 // capability the binary does not have. The previous commit removed every line of
 // Go that could read or write either table, so leaving them would be leaving two
 // tables with no reader, no writer, and no retention policy, which is the

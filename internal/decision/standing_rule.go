@@ -4,8 +4,8 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/standingrule"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/standingrule"
 )
 
 var (

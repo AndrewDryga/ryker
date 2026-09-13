@@ -18,10 +18,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/config"
-	"github.com/AndrewDryga/responder/internal/coop"
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/hermeticgit"
+	"github.com/AndrewDryga/ryker/internal/config"
+	"github.com/AndrewDryga/ryker/internal/coop"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/hermeticgit"
 )
 
 const maxCommandOutput = hermeticgit.MaxOutput
@@ -57,7 +57,7 @@ type Result struct {
 }
 
 // PullRequestContext is an authenticated, immutable snapshot of the material a
-// reviewer needs. It deliberately excludes mutable controls: Responder may read
+// reviewer needs. It deliberately excludes mutable controls: Ryker may read
 // private PRs without gaining permission to comment, approve, merge, or push.
 type PullRequestContext struct {
 	Repository     string
@@ -402,7 +402,7 @@ func (g *GitHub) Publish(ctx context.Context, request Request) (Result, error) {
 		"GIT_COMMITTER_DATE=" + request.Incident.CreatedAt.UTC().Format(time.RFC3339),
 	}
 	message := safeTitle(request.Incident.Title) + "\n\n" +
-		"Prepared by Emisar Responder from Coop review " + request.Review.OperationID + "."
+		"Prepared by Emisar Ryker from Coop review " + request.Review.OperationID + "."
 	if _, err := hermeticgit.Run(
 		ctx, work, "", commitEnv, nil, "commit", "--quiet", "-m", message,
 	); err != nil {
@@ -436,7 +436,7 @@ func (g *GitHub) Publish(ctx context.Context, request Request) (Result, error) {
 		)
 	case request.Existing.RemoteSHA != "" && remoteSHA != request.Existing.RemoteSHA:
 		return result, fmt.Errorf(
-			"publication branch %q changed outside Responder; expected %s, found %s",
+			"publication branch %q changed outside Ryker; expected %s, found %s",
 			branch, request.Existing.RemoteSHA, remoteSHA,
 		)
 	default:
@@ -857,7 +857,7 @@ func (g *GitHub) existingPullRequest(
 
 func publicationBody(request Request, result Result) string {
 	return fmt.Sprintf(
-		"## Responder task\n\n%s\n\n## Publication proof\n\n"+
+		"## Ryker task\n\n%s\n\n## Publication proof\n\n"+
 			"- Coop session: `%s`\n- Reviewed parent: `%s`\n- Reviewed tree: `%s`\n"+
 			"- Publication commit: `%s`\n- Gate: `%s`\n- Rebase: `%s`\n",
 		safeTitle(request.Incident.Title),
@@ -886,7 +886,7 @@ func safeTitle(value string) string {
 		value = strings.TrimSpace(string(runes[:200]))
 	}
 	if value == "" {
-		return "Responder engineering task"
+		return "Ryker engineering task"
 	}
 	return value
 }

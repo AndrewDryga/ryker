@@ -8,8 +8,8 @@ import (
 	"errors"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/store/sqlutil"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/store/sqlutil"
 )
 
 const timestampFormat = core.TimestampFormat
@@ -50,7 +50,7 @@ func Defer(
 	if preparingWorkspace {
 		projection.EpisodeState = core.EpisodeRetrying
 		projection.Phase = "preparing_workspace"
-		projection.NextAction = "Responder will retry this investigation branch automatically"
+		projection.NextAction = "Ryker will retry this investigation branch automatically"
 		projection.ProgressDue = next
 		projection.EventSuffix = "deferred:preparing_workspace"
 	}

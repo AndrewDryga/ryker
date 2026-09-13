@@ -16,7 +16,7 @@ func TestProviderFailureClassificationGivesOperatorNextStep(t *testing.T) {
 		{"HTTP 429 too many requests", "rate_limit", "Wait"},
 		{"watch triage failed: ACL request was rejected", "authorization", "Sign in"},
 		{"provider credential needs sign-in or renewal", "authorization", "Sign in"},
-		{"configured model does not exist", "model", "restart Responder"},
+		{"configured model does not exist", "model", "restart Ryker"},
 		{"ACP transcript exceeded its bound", "transcript_limit", "paginated"},
 		{"worker disconnected", "agent", "Coop service"},
 	}

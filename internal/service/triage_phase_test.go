@@ -4,13 +4,13 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/AndrewDryga/responder/internal/config"
-	"github.com/AndrewDryga/responder/internal/coop"
-	"github.com/AndrewDryga/responder/internal/core"
-	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
-	"github.com/AndrewDryga/responder/internal/retrydelay"
-	"github.com/AndrewDryga/responder/internal/sessioncreate"
-	"github.com/AndrewDryga/responder/internal/triageoutcome"
+	"github.com/AndrewDryga/ryker/internal/config"
+	"github.com/AndrewDryga/ryker/internal/coop"
+	"github.com/AndrewDryga/ryker/internal/core"
+	decisionpkg "github.com/AndrewDryga/ryker/internal/decision"
+	"github.com/AndrewDryga/ryker/internal/retrydelay"
+	"github.com/AndrewDryga/ryker/internal/sessioncreate"
+	"github.com/AndrewDryga/ryker/internal/triageoutcome"
 )
 
 // Lane selection used to be five conditions buried in the middle of a
@@ -68,7 +68,7 @@ func TestTriageLaneChoosesConversationOnlyWhenEverythingAllowsIt(t *testing.T) {
 			repository: repository,
 		},
 		{
-			name:       "an untargeted channel message is not addressed to Responder",
+			name:       "an untargeted channel message is not addressed to Ryker",
 			input:      core.SlackInput{Kind: "message"},
 			repository: repository,
 		},

@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/ryker/internal/core"
 )
 
 // A run whose episode a newer attempt already closed cannot be replayed —

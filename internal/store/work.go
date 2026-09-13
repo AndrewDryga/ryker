@@ -1,7 +1,7 @@
 package store
 
 import (
-	"github.com/AndrewDryga/responder/internal/store/sqlutil"
+	"github.com/AndrewDryga/ryker/internal/store/sqlutil"
 
 	"context"
 	"crypto/rand"
@@ -412,7 +412,7 @@ func (s *Store) RecoverWorkLeases(ctx context.Context, now time.Time) error {
 		    lease_token = '',
 		    rerun_at = NULL,
 		    last_error = CASE
-		      WHEN last_error = '' THEN 'Responder stopped during scheduled work'
+		      WHEN last_error = '' THEN 'Ryker stopped during scheduled work'
 		      ELSE last_error
 		    END,
 		    updated_at = ?

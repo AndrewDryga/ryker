@@ -9,9 +9,9 @@ import (
 	"io"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/config"
-	"github.com/AndrewDryga/responder/internal/service"
-	"github.com/AndrewDryga/responder/internal/store"
+	"github.com/AndrewDryga/ryker/internal/config"
+	"github.com/AndrewDryga/ryker/internal/service"
+	"github.com/AndrewDryga/ryker/internal/store"
 )
 
 // runAuditResultProtocol replays stored model results and reports how many
@@ -25,7 +25,7 @@ import (
 // runCorrectionRate reports how often the host had to send a result back to
 // the model, and for what.
 //
-// This is the closest thing Responder has to a measure of whether it is getting
+// This is the closest thing Ryker has to a measure of whether it is getting
 // better. Pass rates on a fixed corpus say whether it still does what it did;
 // the correction rate over real traffic says whether it is doing it well, and
 // the trend is what matters rather than any single number.

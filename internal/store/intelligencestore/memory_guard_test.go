@@ -5,9 +5,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/store/intelligencestore"
-	"github.com/AndrewDryga/responder/internal/store/storetest"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/store/intelligencestore"
+	"github.com/AndrewDryga/ryker/internal/store/storetest"
 )
 
 // An empty memory update must not erase the channel's situation.

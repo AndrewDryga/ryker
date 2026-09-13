@@ -90,7 +90,7 @@ func branchesStep(branches []BranchRow) TraceStep {
 		state = "running"
 	}
 	return TraceStep{
-		ID: "branches", Stage: "Investigation", Actor: "Responder", State: state,
+		ID: "branches", Stage: "Investigation", Actor: "Ryker", State: state,
 		Icon:  "split",
 		Title: "Fanned out into parallel branches",
 		Summary: countedBranches(len(branches)) +

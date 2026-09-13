@@ -5,10 +5,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/AndrewDryga/responder/internal/coop"
-	"github.com/AndrewDryga/responder/internal/core"
-	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
-	"github.com/AndrewDryga/responder/internal/slackui"
+	"github.com/AndrewDryga/ryker/internal/coop"
+	"github.com/AndrewDryga/ryker/internal/core"
+	decisionpkg "github.com/AndrewDryga/ryker/internal/decision"
+	"github.com/AndrewDryga/ryker/internal/slackui"
 )
 
 func TestCoopInstructionsRequireClaimBasedCrossSourceEvidence(t *testing.T) {
@@ -27,7 +27,7 @@ func TestCoopInstructionsRequireClaimBasedCrossSourceEvidence(t *testing.T) {
 		"A dedicated incident or task is not required",
 		"If Emisar returns pending_approval, stop the turn",
 		"Do not keep polling while a human decision is pending",
-		"Responder monitors an exact pending run outside the model turn",
+		"Ryker monitors an exact pending run outside the model turn",
 		"never call run_action or create a replacement run",
 		"standard Markdown for Slack's Block Kit `markdown` block",
 		"Default to natural, plain English",
@@ -51,7 +51,7 @@ func TestCoopInstructionsRequireClaimBasedCrossSourceEvidence(t *testing.T) {
 		"Evidence, memory, incident and task titles",
 		"fenced code blocks with a language",
 		"task lists, dividers, tables",
-		"Responder owns interactive controls",
+		"Ryker owns interactive controls",
 	} {
 		if !strings.Contains(instructions, required) {
 			t.Fatalf("Coop instructions do not contain %q:\n%s", required, instructions)
@@ -434,7 +434,7 @@ func TestEngineeringTaskPromptAllowsOnlyForkScopedRepositoryWork(t *testing.T) {
 // forbid updating an exact existing PR at all.
 //
 // Raised by 108 net on 2026-08-14, the day the prompt stopped being a heap.
-// Bought: one persona (the two role sentences disagreed — Responder in this
+// Bought: one persona (the two role sentences disagreed — Ryker in this
 // lane, Emisar in the conversation lane — and the follow-up rule already spoke
 // of Emisar, which is the name teammates actually see); a continuity
 // instruction telling the model that structured_memory, prior context, and the
@@ -679,7 +679,9 @@ func TestEngineeringTaskPromptAllowsOnlyForkScopedRepositoryWork(t *testing.T) {
 // hundred words later, which is the part an on-call actually reads. 376 bytes
 // naming the reader and showing one contrast pair is the cheapest place to fix
 // that; the host cannot rewrite prose it did not author.
-const staticWatchPromptBytes = 52242
+// And 52186 on 2026-09-13: the product is named Ryker throughout the
+// instructions, which is four bytes shorter per mention than Responder was.
+const staticWatchPromptBytes = 52186
 
 // The static prompt must not grow without someone deciding it should.
 //

@@ -8,8 +8,8 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/replayinterrupt"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/replayinterrupt"
 )
 
 type ActiveRuns interface{ Cancel(string, string) }

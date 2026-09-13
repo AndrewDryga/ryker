@@ -9,10 +9,10 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/AndrewDryga/responder/internal/coop"
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/slackfile"
-	"github.com/AndrewDryga/responder/internal/slackui"
+	"github.com/AndrewDryga/ryker/internal/coop"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/slackfile"
+	"github.com/AndrewDryga/ryker/internal/slackui"
 )
 
 func (s *Service) enqueueGeneratedVisuals(

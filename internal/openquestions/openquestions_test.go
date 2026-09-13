@@ -6,10 +6,10 @@ import (
 	"testing"
 	"time"
 
-	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
-	"github.com/AndrewDryga/responder/internal/investigation"
-	"github.com/AndrewDryga/responder/internal/openquestions"
-	"github.com/AndrewDryga/responder/internal/slackui"
+	decisionpkg "github.com/AndrewDryga/ryker/internal/decision"
+	"github.com/AndrewDryga/ryker/internal/investigation"
+	"github.com/AndrewDryga/ryker/internal/openquestions"
+	"github.com/AndrewDryga/ryker/internal/slackui"
 )
 
 // An open question the host has agreed to leave open still has to say why.
@@ -113,7 +113,7 @@ func TestTheSameUnexplainedFindingRendersOnlyOnce(t *testing.T) {
 	}
 }
 
-// The typed wait is what Responder actually scheduled. A vague freeform next
+// The typed wait is what Ryker actually scheduled. A vague freeform next
 // action must not hide it, and an already-imperative verification must not
 // render as "verify verify".
 func TestScheduledVerificationOutranksVagueNextActionAndRendersOnce(t *testing.T) {

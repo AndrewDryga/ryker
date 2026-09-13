@@ -5,9 +5,9 @@ package sourcecausepolicy
 import (
 	"strings"
 
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/evidencepolicy"
-	"github.com/AndrewDryga/responder/internal/investigation"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/evidencepolicy"
+	"github.com/AndrewDryga/ryker/internal/investigation"
 )
 
 func Correction(

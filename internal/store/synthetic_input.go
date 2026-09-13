@@ -3,11 +3,11 @@ package store
 import (
 	"context"
 
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/store/slackinputstore"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/store/slackinputstore"
 )
 
-// AdmitSyntheticSlackInput queues an input Responder generated for itself.
+// AdmitSyntheticSlackInput queues an input Ryker generated for itself.
 //
 // It belongs with the input queue rather than with schedules, even though a
 // scheduled run is what usually produces one: it shares the queue's admission

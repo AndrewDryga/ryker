@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/slackui"
+	"github.com/AndrewDryga/ryker/internal/slackui"
 )
 
 var base = time.Date(2026, 8, 1, 12, 0, 0, 0, time.UTC)

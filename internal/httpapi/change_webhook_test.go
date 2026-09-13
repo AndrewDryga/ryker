@@ -10,15 +10,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/config"
-	"github.com/AndrewDryga/responder/internal/service"
-	"github.com/AndrewDryga/responder/internal/store"
+	"github.com/AndrewDryga/ryker/internal/config"
+	"github.com/AndrewDryga/ryker/internal/service"
+	"github.com/AndrewDryga/ryker/internal/store"
 )
 
 func changeRouteConfig(t *testing.T) config.Config {
 	t.Helper()
 	root := t.TempDir()
-	path := filepath.Join(root, "responder.yaml")
+	path := filepath.Join(root, "ryker.yaml")
 	body := `version: 1
 state_dir: ` + filepath.Join(root, "state") + `
 slack:

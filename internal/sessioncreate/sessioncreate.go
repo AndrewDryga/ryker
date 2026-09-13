@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/coop"
-	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/ryker/internal/coop"
+	"github.com/AndrewDryga/ryker/internal/core"
 )
 
 type GenerationAdvancer interface {
@@ -319,8 +319,8 @@ func Status(repository string, err error) string {
 	var apiErr *coop.APIError
 	if errors.As(err, &apiErr) && apiErr.Code == "repository_unavailable" {
 		return "Investigation queued, but workspace preparation could not refresh " + repository + ". " +
-			"No model turn has started; Responder will retry."
+			"No model turn has started; Ryker will retry."
 	}
 	return "Investigation queued, but Coop could not finish workspace preparation. " +
-		"No model turn has started; Responder will retry."
+		"No model turn has started; Ryker will retry."
 }

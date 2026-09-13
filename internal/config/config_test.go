@@ -9,12 +9,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/ryker/internal/core"
 	"gopkg.in/yaml.v3"
 )
 
 func TestLoadStrictDefaultsAndRoutes(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "responder.yaml")
+	path := filepath.Join(t.TempDir(), "ryker.yaml")
 	body := `version: 1
 listen: 127.0.0.1:8080
 state_dir: state
@@ -107,7 +107,7 @@ webhooks:
 }
 
 func TestRepositorySetResolvesPrimaryAndOwnPolicy(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "responder.yaml")
+	path := filepath.Join(t.TempDir(), "ryker.yaml")
 	body := `version: 1
 state_dir: state
 slack:
@@ -163,7 +163,7 @@ webhooks:
 
 func TestRepositorySetRejectsUnknownPrimaryAndNameCollision(t *testing.T) {
 	base := `version: 1
-state_dir: /tmp/responder-repository-set-test
+state_dir: /tmp/ryker-repository-set-test
 slack:
   team_id: T123ABC
   default_repository: emisar
@@ -194,7 +194,7 @@ webhooks:
 		),
 	} {
 		t.Run(name, func(t *testing.T) {
-			path := filepath.Join(t.TempDir(), "responder.yaml")
+			path := filepath.Join(t.TempDir(), "ryker.yaml")
 			if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
 				t.Fatal(err)
 			}
@@ -275,7 +275,7 @@ func TestLegacyOutboxLimitSeedsOnlyUnspecifiedFailureBudgets(t *testing.T) {
 
 func TestLoadRejectsUnknownAndUnsafeConfig(t *testing.T) {
 	base := `version: 1
-state_dir: /tmp/responder-test
+state_dir: /tmp/ryker-test
 slack:
   team_id: T123ABC
   default_repository: emisar
@@ -403,7 +403,7 @@ webhooks:
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
-			path := filepath.Join(t.TempDir(), "responder.yaml")
+			path := filepath.Join(t.TempDir(), "ryker.yaml")
 			if err := os.WriteFile(path, []byte(mutate(base)), 0o600); err != nil {
 				t.Fatal(err)
 			}
@@ -416,7 +416,7 @@ webhooks:
 
 func TestActionPoliciesAreRejectedUntilRequestsAreHostBound(t *testing.T) {
 	base := `version: 1
-state_dir: /tmp/responder-action-test
+state_dir: /tmp/ryker-action-test
 slack:
   team_id: T123ABC
   default_repository: emisar
@@ -441,7 +441,7 @@ webhooks:
 `
 	write := func(t *testing.T, body string) string {
 		t.Helper()
-		path := filepath.Join(t.TempDir(), "responder.yaml")
+		path := filepath.Join(t.TempDir(), "ryker.yaml")
 		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
 			t.Fatal(err)
 		}
@@ -470,7 +470,7 @@ func TestGenericMappingRequiresOnlyBoringDotPaths(t *testing.T) {
 }
 
 func TestExampleConfigurationStaysValid(t *testing.T) {
-	cfg, err := Load(filepath.Join("..", "..", "config", "responder.example.yaml"))
+	cfg, err := Load(filepath.Join("..", "..", "config", "ryker.example.yaml"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -503,7 +503,7 @@ func TestSecretRequiresNontrivialSingleLineValue(t *testing.T) {
 // follow-ups without another mention, which is per-workspace product behaviour
 // rather than a constant.
 func TestContinuationWindowIsConfigurable(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "responder.yaml")
+	path := filepath.Join(t.TempDir(), "ryker.yaml")
 	body := `version: 1
 listen: 127.0.0.1:8080
 state_dir: state
@@ -642,7 +642,7 @@ func TestPriceTableIsRejectedWhenItCannotBeTrusted(t *testing.T) {
 // how a host path arrives from somewhere that is not this file.
 func TestRepositoryDeclaresItsHostPathExactlyOnce(t *testing.T) {
 	base := `version: 1
-state_dir: /tmp/responder-repository-declaration-test
+state_dir: /tmp/ryker-repository-declaration-test
 slack:
   team_id: T123ABC
   default_repository: emisar
@@ -676,7 +676,7 @@ webhooks:
 		"a slug naming the parent":    {declaration: "    github: ../emisar"},
 		"an absolute slug":            {declaration: "    github: /srv/repos/emisar"},
 	} {
-		path := filepath.Join(t.TempDir(), "responder.yaml")
+		path := filepath.Join(t.TempDir(), "ryker.yaml")
 		if err := os.WriteFile(
 			path, fmt.Appendf(nil, base, testCase.declaration), 0o600,
 		); err != nil {
@@ -698,13 +698,13 @@ webhooks:
 // github_repository stays writable because a fork may publish elsewhere, but an
 // operator made to spell the same "org/name" twice is how the two drift — and
 // the failure that produces is a draft PR pushed to a repository the agent
-// never read. The path requirement is satisfied the same way: Responder's own
+// never read. The path requirement is satisfied the same way: Ryker's own
 // clone is the checkout the publication commit is built from, which is the
 // whole point of managing one.
 func TestSlugRepositoryDefaultsItsPublishingBinding(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "responder.yaml")
+	path := filepath.Join(t.TempDir(), "ryker.yaml")
 	body := `version: 1
-state_dir: /tmp/responder-slug-publishing-test
+state_dir: /tmp/ryker-slug-publishing-test
 slack:
   team_id: T123ABC
   default_repository: emisar
@@ -780,7 +780,7 @@ func TestRepositoryFetchIntervalIsBounded(t *testing.T) {
 // operator. Silently falling back to a default here would mean a config that
 // says "off" and a host that publishes.
 func TestAutomaticDraftPRCreationIsConfigurableAndDefaultsToOperatorTasks(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "responder.yaml")
+	path := filepath.Join(t.TempDir(), "ryker.yaml")
 	body := `version: 1
 listen: 127.0.0.1:8080
 state_dir: state

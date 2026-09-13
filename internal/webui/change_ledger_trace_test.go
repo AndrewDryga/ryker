@@ -87,7 +87,7 @@ func recordedChangeFixture(t *testing.T) *Reader {
 	  (id, episode_id, attempt_id, version, provider, model, reasoning_effort,
 	   prompt_version, contract_version, tool_schema_version, preset, submitted_prompt, created_at)
 	  VALUES ('manifest-1','episode-1','attempt-1',1,'claude','opus','high',
-	          'responder-prompt-v3','investigation-contract-v1','result-operations-v2',
+	          'ryker-prompt-v3','investigation-contract-v1','result-operations-v2',
 	          'emisar-conversation','',?)`, stamp)
 	for ordinal, recorded := range []struct{ id, kind, summary, revision string }{
 		{"chg_deploy", "deploy", "checkout v41 rolled out", "9f21c0a"},

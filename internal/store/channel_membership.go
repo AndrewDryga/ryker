@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/store/slackinputstore"
-	"github.com/AndrewDryga/responder/internal/store/sqlutil"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/store/slackinputstore"
+	"github.com/AndrewDryga/ryker/internal/store/sqlutil"
 )
 
 type SlackChannelMembershipObservation struct {
@@ -264,7 +264,7 @@ func (s *Store) ListPresentSlackChannelIDs(ctx context.Context, limit int) ([]st
 		LIMIT ?`, boundedChannelLimit(limit)))
 }
 
-// SlackChannelName is the readable name of one channel, empty when Responder
+// SlackChannelName is the readable name of one channel, empty when Ryker
 // has never seen it. An id tells a model a transcript came from somewhere else
 // and not where; the name is the part a person can check.
 func (s *Store) SlackChannelName(ctx context.Context, channelID string) (string, error) {

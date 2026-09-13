@@ -11,13 +11,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/fanout"
-	"github.com/AndrewDryga/responder/internal/store/agentpreparationstore"
-	"github.com/AndrewDryga/responder/internal/store/lifecyclecheck"
-	"github.com/AndrewDryga/responder/internal/store/preparationstore"
-	"github.com/AndrewDryga/responder/internal/store/slackinputstore"
-	"github.com/AndrewDryga/responder/internal/store/sqlutil"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/fanout"
+	"github.com/AndrewDryga/ryker/internal/store/agentpreparationstore"
+	"github.com/AndrewDryga/ryker/internal/store/lifecyclecheck"
+	"github.com/AndrewDryga/ryker/internal/store/preparationstore"
+	"github.com/AndrewDryga/ryker/internal/store/slackinputstore"
+	"github.com/AndrewDryga/ryker/internal/store/sqlutil"
 )
 
 const agentRunColumns = `
@@ -65,7 +65,7 @@ func (s *Store) queueAgentRun(
 		run.AttemptID = "attempt_" + run.ID
 	}
 	if run.IdempotencyKey == "" {
-		run.IdempotencyKey = "responder:run:" + run.ID
+		run.IdempotencyKey = "ryker:run:" + run.ID
 	}
 	if run.State == "" {
 		run.State = core.AgentRunPending
@@ -242,7 +242,7 @@ func (s *Store) queueAgentRun(
 		); err != nil {
 			return core.AgentRun{}, false, err
 		}
-		// Accepted engineering feedback is already work in Responder's custody,
+		// Accepted engineering feedback is already work in Ryker's custody,
 		// even before Coop starts the next model turn. Project that state in the
 		// same transaction as the new attempt so the task card cannot remain
 		// parked with answered controls while the run waits in the queue.
@@ -1134,7 +1134,7 @@ const requeueRunColumns = `expected_revision = 0, coop_turn_id = '', result_json
 func (s *Store) ReleaseAgentRunRevision(ctx context.Context, id string) error {
 	_, err := s.db.ExecContext(ctx, `
 		UPDATE agent_runs SET expected_revision = 0, coop_turn_id = '',
-		  idempotency_key = 'responder:run:' || id || ':revision:' || lower(hex(randomblob(16))), updated_at = ?
+		  idempotency_key = 'ryker:run:' || id || ':revision:' || lower(hex(randomblob(16))), updated_at = ?
 		WHERE id = ? AND state = 'preparing'`, s.nowText(), id)
 	return err
 }
@@ -1420,7 +1420,7 @@ func (s *Store) RetryAgentRun(
 		    next_attempt_at = ?, completed_at = ?, updated_at = ?
 		WHERE id = ? AND state IN ('preparing', 'finalizing')`,
 		state, sqlutil.BoundedError(detail),
-		"responder:run:"+id+":"+retryID,
+		"ryker:run:"+id+":"+retryID,
 		next.UTC().Format(timestampFormat),
 		completedAt, s.nowText(), id)
 	if err := sqlutil.ExpectOne(result, err, "retry agent run"); err != nil {
@@ -1719,7 +1719,7 @@ func (s *Store) RequeueAgentRun(
 		    last_error = ?, next_attempt_at = ?, updated_at = ?
 		WHERE id = ? AND state IN ('running', 'finalizing')`,
 		attempt,
-		fmt.Sprintf("responder:run:%s:%s", id, recoveryID),
+		fmt.Sprintf("ryker:run:%s:%s", id, recoveryID),
 		eventSequence,
 		// The correction bound, not the error bound. On this one path last_error
 		// is not a record of what went wrong — it is the question the next
@@ -1860,7 +1860,7 @@ func (s *Store) RequeueFailedAgentRun(ctx context.Context, id, detail string) er
 		return errors.New("the episode completed on a later attempt; there is nothing left to retry")
 	}
 	now := s.nowText()
-	newRunKey := fmt.Sprintf("responder:run:%s:%s", id, recoveryID)
+	newRunKey := fmt.Sprintf("ryker:run:%s:%s", id, recoveryID)
 	result, err := tx.ExecContext(ctx, `
 		UPDATE agent_runs
 		SET state = 'pending', idempotency_key = ?,
@@ -1930,7 +1930,7 @@ func (s *Store) DeferRunningAgentRun(
 		    coop_event_sequence = MAX(coop_event_sequence, ?),
 		    last_error = ?, next_attempt_at = ?, updated_at = ?
 		WHERE id = ? AND state = 'running'`,
-		fmt.Sprintf("responder:run:%s:dependency:%d", id, s.now().UnixNano()),
+		fmt.Sprintf("ryker:run:%s:dependency:%d", id, s.now().UnixNano()),
 		eventSequence,
 		sqlutil.BoundedError(detail),
 		next.UTC().Format(timestampFormat),
@@ -1999,7 +1999,7 @@ func (s *Store) EscalateAgentRun(
 		    completed_at = NULL,
 		    updated_at = ?
 		WHERE id = ? AND state = 'running'`,
-		"responder:run:"+id+":investigation",
+		"ryker:run:"+id+":investigation",
 		contextJSON,
 		sqlutil.BoundedError(detail),
 		next.UTC().Format(timestampFormat),
@@ -2189,7 +2189,7 @@ func (s *Store) FinishAgentRunFailure(
 	return finalState, true, nil
 }
 
-const responderFailureReaction = "warning"
+const rykerFailureReaction = "warning"
 
 func failureMarkerDeliveryID(action string, run core.AgentRun) string {
 	digest := sha256.Sum256([]byte(run.IdempotencyKey))
@@ -2220,7 +2220,7 @@ func (s *Store) setFailureMarkerTx(
 	if strings.HasPrefix(envelopeID, "replay-private:") {
 		return nil
 	}
-	coalesceKey := "reaction:" + channelID + ":" + messageTS + ":" + responderFailureReaction
+	coalesceKey := "reaction:" + channelID + ":" + messageTS + ":" + rykerFailureReaction
 	if _, err := tx.ExecContext(ctx, `
 		UPDATE slack_deliveries
 		SET state = 'superseded', last_error = 'newer reaction intent', updated_at = ?
@@ -2235,7 +2235,7 @@ func (s *Store) setFailureMarkerTx(
 		ID: failureMarkerDeliveryID(action, run), IncidentID: run.IncidentID,
 		EpisodeID: run.EpisodeID, AgentRunID: run.ID, AgentRunKey: run.IdempotencyKey,
 		SourceInputID: sourceInputID, Operation: "reaction", Kind: action,
-		ChannelID: channelID, MessageTS: messageTS, Status: responderFailureReaction,
+		ChannelID: channelID, MessageTS: messageTS, Status: rykerFailureReaction,
 		CoalesceKey: coalesceKey,
 	}, now)
 }

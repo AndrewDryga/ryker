@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/store"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/store"
 )
 
 // Memory is only useful if operators can trust where it goes. These assert the
@@ -110,7 +110,7 @@ func TestMemoryVisibilityBoundaries(t *testing.T) {
 
 // Cross-channel recall is what lets the agent carry context between rooms, and
 // it is exactly where a private conversation could leak. Only channels
-// Responder is present in and that are not private may contribute.
+// Ryker is present in and that are not private may contribute.
 func TestRelatedConversationRecallExcludesPrivateAndAbsentChannels(t *testing.T) {
 	ctx := context.Background()
 	cfg := serviceConfig(t)
@@ -134,7 +134,7 @@ func TestRelatedConversationRecallExcludesPrivateAndAbsentChannels(t *testing.T)
 	summary(home, "home channel situation")
 	summary("CPUBLIC", "public channel situation")
 	summary("CPRIVATE", "private channel situation")
-	summary("CABSENT", "channel responder has left")
+	summary("CABSENT", "channel ryker has left")
 
 	if err := st.ReconcileSlackChannelMemberships(ctx, []store.SlackChannelMembershipObservation{
 		{ChannelID: home, ChannelName: "home", Present: true, Private: false},
@@ -157,10 +157,10 @@ func TestRelatedConversationRecallExcludesPrivateAndAbsentChannels(t *testing.T)
 	if seen["private channel situation"] {
 		t.Error("a private channel's conversation leaked into cross-channel recall")
 	}
-	if seen["channel responder has left"] {
-		t.Error("a channel Responder is not present in leaked into cross-channel recall")
+	if seen["channel ryker has left"] {
+		t.Error("a channel Ryker is not present in leaked into cross-channel recall")
 	}
 	if !seen["public channel situation"] {
-		t.Errorf("a public channel Responder is in did not contribute: %+v", seen)
+		t.Errorf("a public channel Ryker is in did not contribute: %+v", seen)
 	}
 }

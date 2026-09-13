@@ -6,13 +6,13 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/AndrewDryga/responder/internal/core"
-	episodepkg "github.com/AndrewDryga/responder/internal/episode"
-	"github.com/AndrewDryga/responder/internal/store"
-	"github.com/AndrewDryga/responder/internal/terraformwakeup"
+	"github.com/AndrewDryga/ryker/internal/core"
+	episodepkg "github.com/AndrewDryga/ryker/internal/episode"
+	"github.com/AndrewDryga/ryker/internal/store"
+	"github.com/AndrewDryga/ryker/internal/terraformwakeup"
 )
 
-const episodeWakeupLeaseOwner = "responder:episode-wakeup"
+const episodeWakeupLeaseOwner = "ryker:episode-wakeup"
 
 func (s *Service) processEpisodeWakeup(ctx context.Context) error {
 	wakeup, err := s.store.LeaseDueEpisodeWakeup(

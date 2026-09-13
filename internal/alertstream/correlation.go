@@ -1,9 +1,9 @@
 package alertstream
 
 import (
-	"github.com/AndrewDryga/responder/internal/core"
-	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
-	"github.com/AndrewDryga/responder/internal/operationalkey"
+	"github.com/AndrewDryga/ryker/internal/core"
+	decisionpkg "github.com/AndrewDryga/ryker/internal/decision"
+	"github.com/AndrewDryga/ryker/internal/operationalkey"
 )
 
 // PriorFiringMessageLink returns the latest firing card from the same

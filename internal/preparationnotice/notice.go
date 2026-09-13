@@ -10,10 +10,10 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/coop"
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/sessioncreate"
-	"github.com/AndrewDryga/responder/internal/slackui"
+	"github.com/AndrewDryga/ryker/internal/coop"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/sessioncreate"
+	"github.com/AndrewDryga/ryker/internal/slackui"
 )
 
 type Ledger interface {

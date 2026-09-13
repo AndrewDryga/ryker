@@ -8,7 +8,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/ryker/internal/core"
 )
 
 // rememberPhrase reads the duration into the sentence a button and its
@@ -123,7 +123,7 @@ func WithMemoryOffer(
 func WithPreferenceOffer(
 	message Message,
 	offer core.PreferenceOffer,
-	preference core.ResponderPreference,
+	preference core.RykerPreference,
 	actionValue string,
 	expiresLabel string,
 ) Message {
@@ -261,7 +261,7 @@ func scheduleDestination(task core.ScheduledTask) string {
 
 func conditionalScheduleOfferLead(value string) string {
 	if match := scheduleCommitmentPattern.FindStringIndex(value); match != nil {
-		return "Confirm the schedule below to have Responder " +
+		return "Confirm the schedule below to have Ryker " +
 			strings.TrimSpace(value[match[1]:])
 	}
 	lower := strings.ToLower(value)
@@ -505,7 +505,7 @@ func ScheduleDirectoryMessage(tasks []core.ScheduledTask) Message {
 }
 
 func PreferenceSavedMessage(
-	preference core.ResponderPreference,
+	preference core.RykerPreference,
 	replaced bool,
 ) Message {
 	title, description := preferenceDescription(preference)
@@ -527,7 +527,7 @@ func PreferenceSavedMessage(
 	)
 }
 
-func PreferenceStateMessage(preference core.ResponderPreference) Message {
+func PreferenceStateMessage(preference core.RykerPreference) Message {
 	title, description := preferenceDescription(preference)
 	if preference.Enabled {
 		return stateChangeCard(
@@ -554,11 +554,11 @@ func PreferenceDeletedMessage() Message {
 }
 
 func PreferenceDirectoryMessage(
-	preferences []core.ResponderPreference,
+	preferences []core.RykerPreference,
 ) Message {
 	message := Message{
-		Text:      "Responder has " + countLabel(len(preferences), "unexpired preference") + " visible here.",
-		Header:    "Responder preferences",
+		Text:      "Ryker has " + countLabel(len(preferences), "unexpired preference") + " visible here.",
+		Header:    "Ryker preferences",
 		Temporary: true,
 	}
 	if len(preferences) == 0 {
@@ -589,7 +589,7 @@ func PreferenceDirectoryMessage(
 	return directoryCard(message, entries, "highest precedence first.")
 }
 
-func preferenceDescription(preference core.ResponderPreference) (string, string) {
+func preferenceDescription(preference core.RykerPreference) (string, string) {
 	switch preference.Name {
 	case "health_check_depth":
 		return "Health-check depth", "Use " + preference.Value + " infrastructure health checks."
@@ -670,7 +670,7 @@ func RuleDeletedMessage() Message {
 
 func RuleDirectoryMessage(rules []core.StandingRule) Message {
 	message := Message{
-		Text:      "Responder has " + countLabel(len(rules), "unexpired standing rule") + " in this channel.",
+		Text:      "Ryker has " + countLabel(len(rules), "unexpired standing rule") + " in this channel.",
 		Header:    "Standing rules for this channel",
 		Temporary: true,
 	}
@@ -746,7 +746,7 @@ func standingRuleSourceDescription(source string) string {
 //
 // The recorded total is stated separately from the fire count whenever they
 // differ, because they mean different things and collapsing them would be a
-// claim rather than a report. Fires from before Responder started recording
+// claim rather than a report. Fires from before Ryker started recording
 // outcomes are fires nobody observed; describing them as quiet would invent the
 // observation, and leaving them out of the denominator without saying so would
 // hide that most of the rule's history is unaccounted for.
@@ -776,7 +776,7 @@ func StandingRuleWorth(rule core.StandingRule) string {
 	return worth
 }
 
-func preferenceScopeLabel(preference core.ResponderPreference) string {
+func preferenceScopeLabel(preference core.RykerPreference) string {
 	switch preference.ScopeKind {
 	case "operator":
 		return "You (operator preference)"
@@ -791,7 +791,7 @@ func preferenceScopeLabel(preference core.ResponderPreference) string {
 	}
 }
 
-func preferencePrecedenceText(preference core.ResponderPreference) string {
+func preferencePrecedenceText(preference core.RykerPreference) string {
 	switch preference.ScopeKind {
 	case "operator":
 		return "The preference is enabled and has the highest precedence for your requests."
@@ -810,7 +810,7 @@ func preferencePrecedenceText(preference core.ResponderPreference) string {
 // act on. "Disable preference 3" was a button label on a card that already had
 // the preference written directly above it, twice — once in the row and once in
 // the number.
-func preferenceToggleAction(preference core.ResponderPreference) Action {
+func preferenceToggleAction(preference core.RykerPreference) Action {
 	label := "Disable"
 	if !preference.Enabled {
 		label = "Enable"
@@ -821,14 +821,14 @@ func preferenceToggleAction(preference core.ResponderPreference) Action {
 	}
 }
 
-func preferenceRowActions(preference core.ResponderPreference) []Action {
+func preferenceRowActions(preference core.RykerPreference) []Action {
 	return []Action{
 		preferenceToggleAction(preference),
 		{ID: ActionEditPreference, Label: "Edit", Value: preference.ID},
 		{
 			ID: ActionDeletePreference, Label: "Delete",
 			Value: preference.ID, Style: "danger",
-			Confirm: "Permanently delete this Responder preference? It will stop affecting future investigations.",
+			Confirm: "Permanently delete this Ryker preference? It will stop affecting future investigations.",
 		},
 	}
 }
@@ -869,7 +869,7 @@ func MemorySavedMessage(entry core.MemoryEntry, replaced bool) Message {
 			[]string{
 				"Applies to " + guidanceEntryScopeLabel(entry),
 				expiryFact(entry.ExpiresAt),
-				"It steers future replies when relevant; your current request and Responder's safety policy take precedence.",
+				"It steers future replies when relevant; your current request and Ryker's safety policy take precedence.",
 			},
 			undoAction(ActionForgetMemory, entry.ID),
 		)
@@ -947,15 +947,15 @@ func memoryDirectoryEntry(entry core.MemoryEntry) directoryEntry {
 
 func MemoryDirectoryMessage(entries []core.MemoryEntry) Message {
 	message := Message{
-		Text:      "Responder has " + countLabel(len(entries), "active memory entry", "active memory entries") + " visible here.",
-		Header:    "What Responder remembers here",
+		Text:      "Ryker has " + countLabel(len(entries), "active memory entry", "active memory entries") + " visible here.",
+		Header:    "What Ryker remembers here",
 		Temporary: true,
 	}
 	if len(entries) == 0 {
 		message.Context = []string{"Saved memory guides investigations; current evidence decides health."}
 		message.Sections = []string{
 			"No active memory matches this channel, its configured repository, and your visibility.",
-			"Tell Responder to remember guidance, an alias, a repository binding, an evidence route, or an entity relationship correction. It will show exactly what it plans to remember before anything is saved.",
+			"Tell Ryker to remember guidance, an alias, a repository binding, an evidence route, or an entity relationship correction. It will show exactly what it plans to remember before anything is saved.",
 		}
 		return message
 	}
@@ -1161,12 +1161,12 @@ type FixtureCandidateSummary struct {
 
 // AppendFixtureReview adds corrections awaiting review to the App Home.
 //
-// These are the moments Responder was told it got something wrong. Keeping one
+// These are the moments Ryker was told it got something wrong. Keeping one
 // turns it into a regression test so the same mistake cannot come back;
 // discarding says the correction was situational and not worth pinning.
 //
 // The framing matters. An operator reading this is being asked to judge a
-// lesson, not to triage an error — so the section leads with what Responder was
+// lesson, not to triage an error — so the section leads with what Ryker was
 // told, not with which internal check produced it.
 func AppendFixtureReview(message Message, items []FixtureCandidateSummary) Message {
 	if len(items) == 0 {
@@ -1174,10 +1174,10 @@ func AppendFixtureReview(message Message, items []FixtureCandidateSummary) Messa
 	}
 	// Honest about where these came from. "A moment I was told I got something
 	// wrong" describes human feedback, and four of the five on the page were
-	// the host's own validator rejecting Responder's output. Both are worth
+	// the host's own validator rejecting Ryker's output. Both are worth
 	// pinning as tests; only one of them is somebody telling you off.
 	message.Sections = append(message.Sections,
-		"*Improve Responder* — corrections waiting to become tests\nEach is a time an "+
+		"*Improve Ryker* — corrections waiting to become tests\nEach is a time an "+
 			"answer was rejected, by the host's checks or by a person. Keep one and it "+
 			"becomes a regression test so the mistake cannot return. Discard it if it "+
 			"was situational.",

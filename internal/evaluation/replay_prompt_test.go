@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/coop"
+	"github.com/AndrewDryga/ryker/internal/coop"
 )
 
 // A replayed episode must not push the contract it is graded against out of
@@ -106,7 +106,7 @@ func TestEvaluationTurnCleanupRetryIsBoundedAndRecovers(t *testing.T) {
 		context.Background(),
 		client,
 		client.session.ID,
-		"responder:test-eval-turn",
+		"ryker:test-eval-turn",
 		"evaluate",
 		time.Millisecond,
 	)
@@ -122,9 +122,9 @@ func TestEvaluationTurnCleanupRetryIsBoundedAndRecovers(t *testing.T) {
 		)
 	}
 	if want := []string{
-		"responder:test-eval-turn",
-		"responder:test-eval-turn:cleanup-retry:1",
-		"responder:test-eval-turn:cleanup-retry:2",
+		"ryker:test-eval-turn",
+		"ryker:test-eval-turn:cleanup-retry:1",
+		"ryker:test-eval-turn:cleanup-retry:2",
 	}; !slices.Equal(client.submitKeys, want) {
 		t.Fatalf("retry keys = %v, want %v", client.submitKeys, want)
 	}

@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/ryker/internal/core"
 )
 
 // A successful Coop submission and its recovery intent were once two commits.

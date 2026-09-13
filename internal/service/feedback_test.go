@@ -6,12 +6,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/config"
-	"github.com/AndrewDryga/responder/internal/core"
-	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
-	"github.com/AndrewDryga/responder/internal/investigation"
-	"github.com/AndrewDryga/responder/internal/slackui"
-	"github.com/AndrewDryga/responder/internal/store"
+	"github.com/AndrewDryga/ryker/internal/config"
+	"github.com/AndrewDryga/ryker/internal/core"
+	decisionpkg "github.com/AndrewDryga/ryker/internal/decision"
+	"github.com/AndrewDryga/ryker/internal/investigation"
+	"github.com/AndrewDryga/ryker/internal/slackui"
+	"github.com/AndrewDryga/ryker/internal/store"
 )
 
 func TestNegativeReactionFeedbackIsRecordedAndRemovalWithdrawsIt(t *testing.T) {
@@ -66,7 +66,7 @@ func TestNegativeReactionFeedbackIsRecordedAndRemovalWithdrawsIt(t *testing.T) {
 
 // Praise is kept, and kept out of the queue that means somebody must act.
 //
-// A thumbs-up on a Responder reply used to record nothing, so every example of
+// A thumbs-up on a Ryker reply used to record nothing, so every example of
 // the target behaviour had to come from a complaint. It is recorded as noted
 // rather than open: the App Home list it would otherwise join is titled
 // "awaiting a decision", and the only decision available for praise is to
@@ -207,7 +207,7 @@ func TestFeedbackOperationPersistsBoundedConversationContext(t *testing.T) {
 	}
 }
 
-func TestWatchPromptSeparatesResponderFeedbackFromOperationalFrustration(t *testing.T) {
+func TestWatchPromptSeparatesRykerFeedbackFromOperationalFrustration(t *testing.T) {
 	prompt := (&Service{}).unboundedWatchPrompt(
 		core.SlackInput{TeamID: "T123ABC", ChannelID: "C123ABC", UserID: "U123ABC", Text: "This answer is not useful"},
 		"U999BOT", false, nil, nil, core.AgentMemory{}, nil, nil,

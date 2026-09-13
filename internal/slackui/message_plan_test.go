@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/ryker/internal/core"
 )
 
 // Every state the store can hold gets a glyph, and only one of them is a tick.

@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/AndrewDryga/responder/internal/config"
+	"github.com/AndrewDryga/ryker/internal/config"
 )
 
 // preflightConfig is a configuration that passes every check whose dependency
@@ -144,7 +144,7 @@ func TestPreflightRedactsEverySecretItLoads(t *testing.T) {
 
 // Serve and doctor deliberately differ, and the difference is worth pinning:
 // doctor proves a box can start and checks the projected bootstrap files even
-// when Responder does not supervise Coop, while serve repairs a missing image
+// when Ryker does not supervise Coop, while serve repairs a missing image
 // rather than refusing to start over something it can fix. Anything else they
 // disagree on is drift.
 func TestServeAndDoctorShareTheSameCoreChecks(t *testing.T) {

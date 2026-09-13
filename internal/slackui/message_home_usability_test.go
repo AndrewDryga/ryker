@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/ryker/internal/core"
 )
 
 func homeContent(message Message) string {
@@ -165,7 +165,7 @@ func TestSecondaryNumbersAreOneLineNotAGridOfTiles(t *testing.T) {
 //
 // The router is a closed handful now, and the removed twenty-six each have
 // somewhere else to be: the App Home, a button on a pinned card, the web
-// control plane, responder.yaml, or a sentence said to Responder. A surface
+// control plane, ryker.yaml, or a sentence said to Ryker. A surface
 // that prints one of them is telling an operator to use a surface the product
 // deliberately retired, and it lies silently — they type it and are told the
 // subcommand is unknown, which reads as their mistake. So the assertion is
@@ -187,7 +187,7 @@ func TestNoSurfacePrintsASlashSpellingBeyondTheKeptKit(t *testing.T) {
 		homeContent(empty)+"\n"+strings.Join(empty.Context, "\n"),
 	)
 	saved := AssignmentSavedMessage(core.StandingAssignment{
-		ID: "asg_1", Repository: "AndrewDryga/responder", ChangeClass: "dependency_bump",
+		ID: "asg_1", Repository: "AndrewDryga/ryker", ChangeClass: "dependency_bump",
 		SignalPattern: "renovate", DailyBudget: 2, Shadow: true,
 	})
 	assertOnlyRealSubcommands(
@@ -232,14 +232,14 @@ func assertOnlyRealSubcommands(t *testing.T, surfaceName, content string) {
 }
 
 // Headings must keep their items. Rendering every row after every section put
-// "Responder preferences", "Standing rules" and "Corrections worth keeping?"
+// "Ryker preferences", "Standing rules" and "Corrections worth keeping?"
 // in a stack with all of their rows below all three, so no heading described
 // what followed it.
 func TestHomeHeadingsKeepTheirRows(t *testing.T) {
 	expires := time.Now().Add(720 * time.Hour)
 	message := OperationsHome(
 		0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, nil, nil, nil, nil,
-		[]core.ResponderPreference{{
+		[]core.RykerPreference{{
 			ID: "pref_1", Name: "response_location", Value: "prefer_thread",
 			ScopeKind: "channel", ScopeKey: "CBACKEND", Enabled: true, ExpiresAt: expires,
 		}},
@@ -276,7 +276,7 @@ func TestHomeHeadingsKeepTheirRows(t *testing.T) {
 	for _, pair := range [][2]string{
 		{"*Settings*", "response_location"},
 		{"*Standing rules*", "operational_alert"},
-		{"*Improve Responder*", "correction to judge"},
+		{"*Improve Ryker*", "correction to judge"},
 	} {
 		found := false
 		for index, text := range order {
@@ -522,9 +522,9 @@ func busiestHome() Message {
 			ScopeKind: "workspace", ExpiresAt: expires,
 		})
 	}
-	preferences := make([]core.ResponderPreference, 0, 3)
+	preferences := make([]core.RykerPreference, 0, 3)
 	for index := 0; index < 3; index++ {
-		preferences = append(preferences, core.ResponderPreference{
+		preferences = append(preferences, core.RykerPreference{
 			ID: "pref_" + string(rune('a'+index)), Name: "response_location",
 			Value: "prefer_thread", ScopeKind: "channel", ScopeKey: "CBACKEND",
 			Enabled: true, ExpiresAt: expires,

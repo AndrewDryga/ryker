@@ -1,4 +1,4 @@
-// Package retention records, for every table Responder writes, how long its
+// Package retention records, for every table Ryker writes, how long its
 // rows are kept and why.
 //
 // The policy used to exist only as the body of Store.Prune, which meant a new
@@ -21,7 +21,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/ryker/internal/core"
 )
 
 // Class is what kind of thing a table holds, which is what decides how long it
@@ -38,7 +38,7 @@ const (
 	History Class = "episode_history"
 	// Audit is the ledger of decisions and their reviews.
 	Audit Class = "audit"
-	// Memory is what Responder knows about a conversation.
+	// Memory is what Ryker knows about a conversation.
 	Memory Class = "conversation_memory"
 	// ClosedWork is an incident or task that finished, kept briefly so the
 	// close can be inspected.
@@ -72,16 +72,16 @@ var Policies = []Policy{
 			"operational horizon once no episode or attempt still points at it, and with its " +
 			"incident when closed work is swept"},
 	{"audit_events", Audit,
-		"the ledger of what Responder decided, who asked for it and who approved it"},
+		"the ledger of what Ryker decided, who asked for it and who approved it"},
 	{"change_events", History,
-		"one recorded change to the systems Responder watches — a deploy, a merge, an apply. It " +
+		"one recorded change to the systems Ryker watches — a deploy, a merge, an apply. It " +
 			"is the account of what happened rather than the transport that carried it, so it " +
 			"outlives the webhook body or the poll that noticed it and expires on the " +
 			"episode-history horizon. Cheap rows, and the six-hour recall window is not the only " +
 			"thing they are for: the ledger is also what an operator reads back afterwards to " +
 			"check a correlation the model drew"},
 	{"channel_configurations", Kept,
-		"operator configuration: which repository a channel maps to, how Responder participates " +
+		"operator configuration: which repository a channel maps to, how Ryker participates " +
 			"there and who it invites. It changes when an operator changes it and goes when they " +
 			"forget the channel"},
 	{"channel_memories", Operational,
@@ -118,7 +118,7 @@ var Policies = []Policy{
 		"the before-and-after of one memory write, keyed to the episode that caused it and " +
 			"rendered on that episode's page; it expires with the account it belongs to"},
 	{"conversation_routes", Memory,
-		"where a channel's replies belong — thread or channel — which is part of what Responder " +
+		"where a channel's replies belong — thread or channel — which is part of what Ryker " +
 			"knows about the conversation and expires with it"},
 	{"conversation_sessions", Operational,
 		"the Coop session backing a live channel conversation; swept on the operational horizon " +
@@ -168,7 +168,7 @@ var Policies = []Policy{
 		"the incident itself, deleted on the closed-work horizon once it is closed, its Coop " +
 			"workspace reclaimed and no episode of it still pinned by a review"},
 	{"memory_entries", Memory,
-		"one durable thing Responder knows about a channel, repository or person, deleted when " +
+		"one durable thing Ryker knows about a channel, repository or person, deleted when " +
 			"the expiry written on the row itself passes rather than on a sweep horizon"},
 	{"memory_review_items", Audit,
 		"a memory write queued for a person to confirm. A reviewed one is a decision record on " +
@@ -186,13 +186,13 @@ var Policies = []Policy{
 		"the pull request an incident produced, deleted with that incident on the closed-work " +
 			"horizon"},
 	{"quality_findings", Audit,
-		"a confirmed or rejected finding about Responder's own answers, with what was done about " +
+		"a confirmed or rejected finding about Ryker's own answers, with what was done about " +
 			"it. scripts/quality-watch.sh writes these and expires them on its own retention_days " +
 			"window, so Prune does not touch them"},
 	{"remediation_grants", Kept,
-		"which exact Emisar action an operator confirmed Responder may offer for which exact " +
+		"which exact Emisar action an operator confirmed Ryker may offer for which exact " +
 			"alert, and until when. Kept rather than swept even once it lapses: the row IS the " +
-			"authority record, an expired one is what makes \"why did Responder stop offering " +
+			"authority record, an expired one is what makes \"why did Ryker stop offering " +
 			"this\" answerable, and the volume is one row per alert-and-action pair a person " +
 			"deliberately confirmed. Expiry is enforced by the matcher reading expires_at, never " +
 			"by deleting the evidence that the grant existed"},
@@ -225,11 +225,11 @@ var Policies = []Policy{
 	{"signals", ClosedWork,
 		"the alerts and events that opened an incident, deleted with it on the closed-work horizon"},
 	{"slack_channel_memberships", Kept,
-		"one row per Slack channel Responder can see, mirroring whether it is a member and " +
+		"one row per Slack channel Ryker can see, mirroring whether it is a member and " +
 			"whether onboarding finished. Bounded by the workspace rather than by traffic, and " +
 			"removed when an operator forgets the channel"},
 	{"slack_deliveries", Operational,
-		"one message Responder sent or tried to send — the transport of a reply, expiring on the " +
+		"one message Ryker sent or tried to send — the transport of a reply, expiring on the " +
 			"operational horizon once it is sent, failed or superseded"},
 	{"slack_inputs", Operational,
 		"one inbound Slack event queued for handling, spent as soon as the turn it started is " +

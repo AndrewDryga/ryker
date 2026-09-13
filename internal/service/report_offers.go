@@ -3,8 +3,8 @@ package service
 import (
 	"context"
 
-	"github.com/AndrewDryga/responder/internal/core"
-	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
+	"github.com/AndrewDryga/ryker/internal/core"
+	decisionpkg "github.com/AndrewDryga/ryker/internal/decision"
 )
 
 // The conversation lane's offers, read through the traversal the watch lane

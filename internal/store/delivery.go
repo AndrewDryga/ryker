@@ -10,12 +10,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/core"
-	episodepkg "github.com/AndrewDryga/responder/internal/episode"
-	"github.com/AndrewDryga/responder/internal/store/deliveryretrystore"
-	"github.com/AndrewDryga/responder/internal/store/preparationstore"
-	"github.com/AndrewDryga/responder/internal/store/slackinputstore"
-	"github.com/AndrewDryga/responder/internal/store/sqlutil"
+	"github.com/AndrewDryga/ryker/internal/core"
+	episodepkg "github.com/AndrewDryga/ryker/internal/episode"
+	"github.com/AndrewDryga/ryker/internal/store/deliveryretrystore"
+	"github.com/AndrewDryga/ryker/internal/store/preparationstore"
+	"github.com/AndrewDryga/ryker/internal/store/slackinputstore"
+	"github.com/AndrewDryga/ryker/internal/store/sqlutil"
 )
 
 const slackDeliveryColumns = `

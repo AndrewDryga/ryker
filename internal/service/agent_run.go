@@ -9,63 +9,63 @@ import (
 	"strings"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/agentcontext"
-	"github.com/AndrewDryga/responder/internal/agentpreparation"
-	"github.com/AndrewDryga/responder/internal/agentprompt"
-	"github.com/AndrewDryga/responder/internal/alertstream"
-	attentionpkg "github.com/AndrewDryga/responder/internal/attention"
-	"github.com/AndrewDryga/responder/internal/behaviorrequired"
-	"github.com/AndrewDryga/responder/internal/changeledger"
-	"github.com/AndrewDryga/responder/internal/channelparticipation"
-	"github.com/AndrewDryga/responder/internal/completionpolicy"
-	"github.com/AndrewDryga/responder/internal/config"
-	"github.com/AndrewDryga/responder/internal/coop"
-	"github.com/AndrewDryga/responder/internal/core"
-	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
-	episodepkg "github.com/AndrewDryga/responder/internal/episode"
-	"github.com/AndrewDryga/responder/internal/fanout"
-	"github.com/AndrewDryga/responder/internal/incidentrun"
-	"github.com/AndrewDryga/responder/internal/investigation"
-	"github.com/AndrewDryga/responder/internal/lifecycle"
-	"github.com/AndrewDryga/responder/internal/liveturn"
-	memorypkg "github.com/AndrewDryga/responder/internal/memory"
-	"github.com/AndrewDryga/responder/internal/mentioncontext"
-	"github.com/AndrewDryga/responder/internal/openquestions"
-	"github.com/AndrewDryga/responder/internal/operatorchoice"
-	operatorofferspkg "github.com/AndrewDryga/responder/internal/operatoroffers"
-	"github.com/AndrewDryga/responder/internal/preparationnotice"
-	"github.com/AndrewDryga/responder/internal/promptbudget"
-	"github.com/AndrewDryga/responder/internal/provider"
-	"github.com/AndrewDryga/responder/internal/publicationcontext"
-	"github.com/AndrewDryga/responder/internal/recall"
-	"github.com/AndrewDryga/responder/internal/recheckorigin"
-	"github.com/AndrewDryga/responder/internal/remediation"
-	"github.com/AndrewDryga/responder/internal/repositorycapability"
-	"github.com/AndrewDryga/responder/internal/resultrecovery"
-	"github.com/AndrewDryga/responder/internal/resultwire"
-	"github.com/AndrewDryga/responder/internal/retrydelay"
-	"github.com/AndrewDryga/responder/internal/runreplay"
-	schedulepkg "github.com/AndrewDryga/responder/internal/schedule"
-	"github.com/AndrewDryga/responder/internal/schedulecontext"
-	scheduleofferpkg "github.com/AndrewDryga/responder/internal/scheduleoffer"
-	"github.com/AndrewDryga/responder/internal/semanticvalidation"
-	"github.com/AndrewDryga/responder/internal/sessionauthority"
-	"github.com/AndrewDryga/responder/internal/sessioncreate"
-	"github.com/AndrewDryga/responder/internal/slackfile"
-	"github.com/AndrewDryga/responder/internal/slackui"
-	"github.com/AndrewDryga/responder/internal/standingrule"
-	"github.com/AndrewDryga/responder/internal/store"
-	"github.com/AndrewDryga/responder/internal/taskcard"
-	"github.com/AndrewDryga/responder/internal/taskcompletion"
-	"github.com/AndrewDryga/responder/internal/taskcontract"
-	"github.com/AndrewDryga/responder/internal/taskofferrejection"
-	"github.com/AndrewDryga/responder/internal/taskpr"
-	"github.com/AndrewDryga/responder/internal/taskpublication"
-	"github.com/AndrewDryga/responder/internal/terraformwakeup"
-	"github.com/AndrewDryga/responder/internal/triageoutcome"
-	"github.com/AndrewDryga/responder/internal/turncapacity"
-	"github.com/AndrewDryga/responder/internal/turndelta"
-	"github.com/AndrewDryga/responder/internal/watchpresence"
+	"github.com/AndrewDryga/ryker/internal/agentcontext"
+	"github.com/AndrewDryga/ryker/internal/agentpreparation"
+	"github.com/AndrewDryga/ryker/internal/agentprompt"
+	"github.com/AndrewDryga/ryker/internal/alertstream"
+	attentionpkg "github.com/AndrewDryga/ryker/internal/attention"
+	"github.com/AndrewDryga/ryker/internal/behaviorrequired"
+	"github.com/AndrewDryga/ryker/internal/changeledger"
+	"github.com/AndrewDryga/ryker/internal/channelparticipation"
+	"github.com/AndrewDryga/ryker/internal/completionpolicy"
+	"github.com/AndrewDryga/ryker/internal/config"
+	"github.com/AndrewDryga/ryker/internal/coop"
+	"github.com/AndrewDryga/ryker/internal/core"
+	decisionpkg "github.com/AndrewDryga/ryker/internal/decision"
+	episodepkg "github.com/AndrewDryga/ryker/internal/episode"
+	"github.com/AndrewDryga/ryker/internal/fanout"
+	"github.com/AndrewDryga/ryker/internal/incidentrun"
+	"github.com/AndrewDryga/ryker/internal/investigation"
+	"github.com/AndrewDryga/ryker/internal/lifecycle"
+	"github.com/AndrewDryga/ryker/internal/liveturn"
+	memorypkg "github.com/AndrewDryga/ryker/internal/memory"
+	"github.com/AndrewDryga/ryker/internal/mentioncontext"
+	"github.com/AndrewDryga/ryker/internal/openquestions"
+	"github.com/AndrewDryga/ryker/internal/operatorchoice"
+	operatorofferspkg "github.com/AndrewDryga/ryker/internal/operatoroffers"
+	"github.com/AndrewDryga/ryker/internal/preparationnotice"
+	"github.com/AndrewDryga/ryker/internal/promptbudget"
+	"github.com/AndrewDryga/ryker/internal/provider"
+	"github.com/AndrewDryga/ryker/internal/publicationcontext"
+	"github.com/AndrewDryga/ryker/internal/recall"
+	"github.com/AndrewDryga/ryker/internal/recheckorigin"
+	"github.com/AndrewDryga/ryker/internal/remediation"
+	"github.com/AndrewDryga/ryker/internal/repositorycapability"
+	"github.com/AndrewDryga/ryker/internal/resultrecovery"
+	"github.com/AndrewDryga/ryker/internal/resultwire"
+	"github.com/AndrewDryga/ryker/internal/retrydelay"
+	"github.com/AndrewDryga/ryker/internal/runreplay"
+	schedulepkg "github.com/AndrewDryga/ryker/internal/schedule"
+	"github.com/AndrewDryga/ryker/internal/schedulecontext"
+	scheduleofferpkg "github.com/AndrewDryga/ryker/internal/scheduleoffer"
+	"github.com/AndrewDryga/ryker/internal/semanticvalidation"
+	"github.com/AndrewDryga/ryker/internal/sessionauthority"
+	"github.com/AndrewDryga/ryker/internal/sessioncreate"
+	"github.com/AndrewDryga/ryker/internal/slackfile"
+	"github.com/AndrewDryga/ryker/internal/slackui"
+	"github.com/AndrewDryga/ryker/internal/standingrule"
+	"github.com/AndrewDryga/ryker/internal/store"
+	"github.com/AndrewDryga/ryker/internal/taskcard"
+	"github.com/AndrewDryga/ryker/internal/taskcompletion"
+	"github.com/AndrewDryga/ryker/internal/taskcontract"
+	"github.com/AndrewDryga/ryker/internal/taskofferrejection"
+	"github.com/AndrewDryga/ryker/internal/taskpr"
+	"github.com/AndrewDryga/ryker/internal/taskpublication"
+	"github.com/AndrewDryga/ryker/internal/terraformwakeup"
+	"github.com/AndrewDryga/ryker/internal/triageoutcome"
+	"github.com/AndrewDryga/ryker/internal/turncapacity"
+	"github.com/AndrewDryga/ryker/internal/turndelta"
+	"github.com/AndrewDryga/ryker/internal/watchpresence"
 )
 
 func (s *Service) queueIncidentAgentRun(
@@ -334,7 +334,7 @@ func (s *Service) resumeLegacyWatchedTurn(
 //
 // They are captured rather than recomputed because a retry minutes later sees a
 // different channel. Recomputing would let a run change its mind about what it
-// is responding to partway through, which reads to an operator as Responder
+// is responding to partway through, which reads to an operator as Ryker
 // contradicting itself.
 func (s *Service) captureWatchTurnState(
 	ctx context.Context,
@@ -407,7 +407,7 @@ func (s *Service) captureWatchTurnState(
 }
 
 // watchRunReadyAt returns when this run should first be attempted. The settle
-// delay lets a person finish a thought before Responder answers half of it.
+// delay lets a person finish a thought before Ryker answers half of it.
 func (s *Service) watchRunReadyAt(
 	ctx context.Context,
 	input core.SlackInput,
@@ -805,9 +805,9 @@ func (s *Service) prepareIncidentAgentRun(
 				ctx, run.ID, detail, s.now().Add(30*time.Second),
 			)
 		}
-		detail := "Responder could not allocate additional automatic session capacity: " +
+		detail := "Ryker could not allocate additional automatic session capacity: " +
 			trimError(err) + ". The pending request and Coop session are preserved; " +
-			"Responder will retry after the Coop limit or service error is corrected."
+			"Ryker will retry after the Coop limit or service error is corrected."
 		s.setIncidentError(ctx, incident.ID, core.WorkflowParked, detail)
 		return s.store.DeferAgentRun(
 			ctx, run.ID, detail, s.queueDelay(run.Failures),
@@ -951,7 +951,7 @@ func (s *Service) prepareIncidentAgentRun(
 			fmt.Errorf("assemble complete engineering prompt: %w", err), true)
 	}
 	// Addressed by construction: an incident room and an engineering task are
-	// work somebody opened, never a message Responder noticed going past.
+	// work somebody opened, never a message Ryker noticed going past.
 	if _, err := s.ensureAttemptContextManifest(
 		ctx, run, session, config.SessionProfileFor(episode.Effort, episode.Authority, true),
 		submissionPrompt, artifacts, omissions,
@@ -1491,7 +1491,7 @@ func (s *Service) prepareTriageAgentRun(ctx context.Context, run core.AgentRun) 
 	if len(prompt) > coop.MaxPromptBytes {
 		return s.retryAgentRun(ctx, run, errRequiredPromptTooLarge)
 	}
-	// Whether anyone addressed Responder is the same question the conversation
+	// Whether anyone addressed Ryker is the same question the conversation
 	// lane was chosen on, asked again here because it is half the routing key:
 	// an unaddressed turn is the watch lane, whichever lane record carries it.
 	profile := config.SessionProfileFor(
@@ -1554,7 +1554,7 @@ func (s *Service) prepareTriageAgentRun(ctx context.Context, run core.AgentRun) 
 // turnBoundToRunKey resolves an idempotency conflict on turn submission by
 // asking Coop what that key already owns.
 //
-// A 409 is not retryable, and Responder read "not retryable" as "this work is
+// A 409 is not retryable, and Ryker read "not retryable" as "this work is
 // finished" — it retired the session and failed the run without ever asking
 // what the conflict referred to. But an idempotency conflict on a key the run
 // owns has one likely cause: the submission reached Coop and its response did
@@ -1564,7 +1564,7 @@ func (s *Service) prepareTriageAgentRun(ctx context.Context, run core.AgentRun) 
 // Only a conflict that resolves to this session's own submitted turn is
 // recovered. An absent, failed, or mismatched operation falls through to the
 // original error, because those are the cases where the key means something
-// Responder does not understand and guessing would bind the run to a stranger's
+// Ryker does not understand and guessing would bind the run to a stranger's
 // turn.
 func (s *Service) turnBoundToRunKey(
 	ctx context.Context,
@@ -2238,7 +2238,7 @@ func (s *Service) pollAgentRunOnce(ctx context.Context, run core.AgentRun) error
 		}
 		switch event.Type {
 		// session.target_rotated needs no handling: Coop rotated the ladder
-		// mid-turn and re-delivered the prompt itself, and every Responder
+		// mid-turn and re-delivered the prompt itself, and every Ryker
 		// prompt restates its own durable context, so the run depends on
 		// nothing the hop dropped. Coop logs it and the event is durable.
 		case "turn.awaiting_validation":
@@ -2410,7 +2410,7 @@ func (s *stagedTurn) setResult(result []byte, err error) error {
 // The class matters more than the text. Correction text quotes model output and
 // is unbounded prose; the class is a small vocabulary you can count, which is
 // what turns corrections from noise into the one signal that says whether
-// Responder is getting better.
+// Ryker is getting better.
 type correctionClass string
 
 type semanticCandidateViolation struct{ detail string }
@@ -2580,7 +2580,7 @@ func (s *Service) appendAlertStreamWait(
 	//
 	// So a stream that WAS live is held open for one more window after it
 	// recovers. Only a stream that was live: a RESOLVED card for something
-	// Responder never investigated is the end of a conversation it was not
+	// Ryker never investigated is the end of a conversation it was not
 	// having, and holding an episode open for it would keep a wakeup, a session
 	// and an episode alive for six hours over a card that said nothing is wrong.
 	hold := false
@@ -3409,7 +3409,7 @@ func (s *Service) engineeringWorkspaceCompletionCorrection(
 // statistic could not be written would trade the product for the statistic.
 //
 // s.now() is the fourth timestamp and it is the host's own. Coop reports when
-// the turn was queued, started and finished; only Responder knows when it got
+// the turn was queued, started and finished; only Ryker knows when it got
 // round to noticing, and that gap is the part of a slow reply this repository
 // can actually do something about.
 //
@@ -3604,7 +3604,7 @@ func (s *Service) parkWatchRunPendingStatus(
 //
 // It returns false only once the correction budget is spent, which is the point
 // at which a person has to be told something. Until then the operator sees
-// nothing: they asked a question, and Responder failing to parse its own
+// nothing: they asked a question, and Ryker failing to parse its own
 // model's answer is not news to them.
 func (s *Service) retryMalformedIncidentReport(
 	ctx context.Context,
@@ -3942,7 +3942,7 @@ func (s *Service) stageTerminalFinalizationFailure(
 	run core.AgentRun,
 	cause error,
 ) error {
-	detail := "Responder could not finalize this agent result after the configured retry limit. " +
+	detail := "Ryker could not finalize this agent result after the configured retry limit. " +
 		"The run and collected state are preserved for operator inspection.\n\n" +
 		"Reported detail: `" + decisionpkg.BoundedField(trimError(cause), 1200) + "`"
 	switch run.Mode {
@@ -4199,7 +4199,7 @@ func (s *Service) reportTurnFailure(
 			// something an operator can act on. Appending the raw detail after
 			// it undoes that work — the classification exists precisely because
 			// the raw text is not actionable. It stays in the log and the audit
-			// event, where whoever is debugging Responder will look for it.
+			// event, where whoever is debugging Ryker will look for it.
 			failure.Summary+"\n\n"+failure.OperatorFix,
 		)
 	}
@@ -4334,8 +4334,8 @@ func (s *Service) finalizeIncidentAgentRun(
 				ObjectID: run.CoopTurnID, Outcome: "malformed",
 				Detail: trimError(reportErr),
 			})
-			// Tell the model, not the operator. A result Responder cannot read
-			// is Responder's problem: the person asked a question and a schema
+			// Tell the model, not the operator. A result Ryker cannot read
+			// is Ryker's problem: the person asked a question and a schema
 			// mismatch is not an answer to it. The watch path has always
 			// corrected and retried here; this one used to post the parse error
 			// to Slack and stop.

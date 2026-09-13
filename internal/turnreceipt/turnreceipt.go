@@ -11,7 +11,7 @@
 // So the receipt is assembled from records rather than from prose, and from
 // four of them, because no single one holds the whole answer:
 //
-//   - the run row, which is Responder's own and outlives everything else here,
+//   - the run row, which is Ryker's own and outlives everything else here,
 //     for identity and for how long the turn took;
 //   - the activity ledger, for what the turn did, counted against the turn id
 //     Coop stamped on each narrated moment;
@@ -30,9 +30,9 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/coop"
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/slackui"
+	"github.com/AndrewDryga/ryker/internal/coop"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/slackui"
 )
 
 // NoFinishedTurn is the answer when nothing has stopped yet.

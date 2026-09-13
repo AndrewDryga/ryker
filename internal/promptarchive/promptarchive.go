@@ -33,7 +33,7 @@ import (
 // Two reasons, and the second is the important one. A marker costs about 130
 // bytes, so a block worth eliding has to be worth clearly more than that. And a
 // short block is a short string that could occur inside the conversation itself
-// — an operator quoting a line of the prompt back at Responder is a thing that
+// — an operator quoting a line of the prompt back at Ryker is a thing that
 // happens — and replacing THAT would delete a message rather than an
 // instruction. A quarter kilobyte of specific prose is not something a Slack
 // message contains by accident.
@@ -60,7 +60,7 @@ type Marker struct {
 
 // The marker is a self-closing host tag. The prefix matches the host's other
 // prompt tags (<host-investigation-contract>, <host-tool-transport>) because a
-// reader already knows that spelling means "Responder wrote this"; the self-
+// reader already knows that spelling means "Ryker wrote this"; the self-
 // closing form distinguishes it from those, which are open/close pairs holding
 // content. Nothing a model writes and nothing Slack carries looks like this.
 const (

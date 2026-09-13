@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/store/sqlutil"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/store/sqlutil"
 )
 
 func (s *Store) CreateConfigurationSession(
@@ -303,7 +303,7 @@ func (s *Store) GetChannelConfiguration(
 }
 
 // ListConfiguredChannelIDs returns the channels an operator has configured
-// Responder into, newest decision first.
+// Ryker into, newest decision first.
 //
 // This is the control plane. A deployment that onboards channels by inviting
 // the bot and answering its questions has every one of them here and none of
@@ -321,7 +321,7 @@ func (s *Store) ListConfiguredChannelIDs(ctx context.Context, limit int) ([]stri
 // ListConfiguredChannelsMissingMembership returns channels an operator
 // configured that the bot is not currently in.
 //
-// Each one is a coverage hole: the configuration says Responder is watching,
+// Each one is a coverage hole: the configuration says Ryker is watching,
 // and Slack says it cannot see the room. Alerts posted there reach nobody and
 // nothing about the arrangement looks wrong from either side on its own.
 func (s *Store) ListConfiguredChannelsMissingMembership(

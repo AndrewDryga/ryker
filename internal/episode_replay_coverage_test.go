@@ -26,7 +26,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/ryker/internal/core"
 )
 
 // acknowledgedCoverageGaps are capabilities from the matrix with no replay
@@ -55,7 +55,7 @@ var acknowledgedCoverageGaps = map[string]string{
 	// reads — so the recording is possible now rather than merely wanted.
 	// It stays listed because fixtures are harvested and not invented: this
 	// closes when a real assignment has run through pause and expiry on a
-	// deployment and `responder record-episode --capability
+	// deployment and `ryker record-episode --capability
 	// standing-assignments` has captured it.
 	"standing-assignments":                    "needs a recorded assignment through pause and expiry",
 	"diff-and-draft-pr-controls":              "needs recorded revision-bound controls",

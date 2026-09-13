@@ -9,15 +9,15 @@ import (
 	"strings"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/agentcontext"
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/slackui"
-	"github.com/AndrewDryga/responder/internal/standingrule"
-	"github.com/AndrewDryga/responder/internal/store"
+	"github.com/AndrewDryga/ryker/internal/agentcontext"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/slackui"
+	"github.com/AndrewDryga/ryker/internal/standingrule"
+	"github.com/AndrewDryga/ryker/internal/store"
 )
 
 // catchUpSlackAppMessages closes the bounded delivery gap left by Socket Mode,
-// which does not replay events emitted while Responder is disconnected. Only
+// which does not replay events emitted while Ryker is disconnected. Only
 // external-app messages are recovered; human conversation is never replayed.
 func (s *Service) catchUpSlackAppMessages(ctx context.Context) error {
 	window := s.cfg.Slack.StartupHistoryWindow.Duration

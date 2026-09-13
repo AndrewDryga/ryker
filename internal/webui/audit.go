@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/ryker/internal/core"
 )
 
 // AuditRow is one thing that was done, by whom, and what came of it.
@@ -94,7 +94,7 @@ func whom(actor string) string {
 	case actor == "":
 		return "unattributed"
 	case actor == "responder":
-		return "responder"
+		return "ryker"
 	case actor == dashboardActor:
 		return "this dashboard"
 	case strings.HasPrefix(actor, "U"):

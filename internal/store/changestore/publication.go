@@ -6,8 +6,8 @@ import (
 	"errors"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/changeledger"
-	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/ryker/internal/changeledger"
+	"github.com/AndrewDryga/ryker/internal/core"
 )
 
 // publicationChangeKind maps a lifecycle transition onto the change ledger's
@@ -53,7 +53,7 @@ func publicationChangeKind(kind, state string) string {
 // — puts that knowledge in the caller instead, where the next writer will get
 // it slightly different.
 //
-// The scope is the repository and nothing else. Responder knows which
+// The scope is the repository and nothing else. Ryker knows which
 // repository merged; it does not know which services that repository runs as,
 // and inventing a service name here would put a confident wrong scope into the
 // one query this feature is built around.

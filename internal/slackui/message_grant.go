@@ -4,11 +4,11 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/remediation"
+	"github.com/AndrewDryga/ryker/internal/remediation"
 )
 
 // GrantConfirmationStale tells an operator how to get a fresh offer.
-const GrantConfirmationStale = "*This promotion expired; ask Responder for a new one.*"
+const GrantConfirmationStale = "*This promotion expired; ask Ryker for a new one.*"
 
 // GrantRefusedNotice is the refusal an operator reads when the host can no
 // longer reproduce the evidence the card was composed on.
@@ -86,7 +86,7 @@ func WithGrantPromotionOffer(
 			"Runner `" + safeInlineCode(grant.Action.RunnerRef) + "`",
 			"Pack `" + safeInlineCode(grant.Action.PackRef) + "`",
 			"Alert `" + safeInlineCode(grant.Trigger.AlertGroupKey) + "`",
-			strconv.Itoa(verifiedSuccesses) + " verified successes, counted by Responder",
+			strconv.Itoa(verifiedSuccesses) + " verified successes, counted by Ryker",
 			expiryTerm(expiresLabel),
 		}),
 		Actions: []Action{{
@@ -94,7 +94,7 @@ func WithGrantPromotionOffer(
 			Label: "Allow this action here",
 			Value: actionValue,
 			Style: "primary",
-			Confirm: "Let Responder offer " + grant.Action.ActionID + " for this alert " +
+			Confirm: "Let Ryker offer " + grant.Action.ActionID + " for this alert " +
 				rememberPhrase(expiresLabel) + " while Emisar decides whether each run can execute?",
 		}},
 	})

@@ -8,13 +8,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/core"
-	episodepkg "github.com/AndrewDryga/responder/internal/episode"
-	"github.com/AndrewDryga/responder/internal/fanout"
-	"github.com/AndrewDryga/responder/internal/investigation"
-	"github.com/AndrewDryga/responder/internal/reportcanvas"
-	schedulepkg "github.com/AndrewDryga/responder/internal/schedule"
-	"github.com/AndrewDryga/responder/internal/store"
+	"github.com/AndrewDryga/ryker/internal/core"
+	episodepkg "github.com/AndrewDryga/ryker/internal/episode"
+	"github.com/AndrewDryga/ryker/internal/fanout"
+	"github.com/AndrewDryga/ryker/internal/investigation"
+	"github.com/AndrewDryga/ryker/internal/reportcanvas"
+	schedulepkg "github.com/AndrewDryga/ryker/internal/schedule"
+	"github.com/AndrewDryga/ryker/internal/store"
 )
 
 // unappliableOperation reports whether an operation failed for a reason that

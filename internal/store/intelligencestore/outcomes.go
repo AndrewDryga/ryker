@@ -8,10 +8,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/operationalkey"
-	"github.com/AndrewDryga/responder/internal/recall"
-	"github.com/AndrewDryga/responder/internal/store/sqlutil"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/operationalkey"
+	"github.com/AndrewDryga/ryker/internal/recall"
+	"github.com/AndrewDryga/ryker/internal/store/sqlutil"
 )
 
 // Fingerprint sources, recorded per row so a recall can never quietly rank a
@@ -491,7 +491,7 @@ func (r *Repository) ListEpisodesAwaitingOutcome(
 // from: recent finished episodes this conversation is allowed to see.
 //
 // The visibility rule is the one conversation summaries already use — this
-// channel always, and another channel only when Responder is present in it and
+// channel always, and another channel only when Ryker is present in it and
 // it is public. A private-channel incident must never surface its symptom, its
 // cause or its remediation in a room whose members were not in it, and the
 // LEFT JOIN's missing row reads as private rather than as public.

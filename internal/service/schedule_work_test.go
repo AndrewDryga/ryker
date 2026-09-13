@@ -8,12 +8,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/coop"
-	"github.com/AndrewDryga/responder/internal/core"
-	episodepkg "github.com/AndrewDryga/responder/internal/episode"
-	"github.com/AndrewDryga/responder/internal/retrydelay"
-	"github.com/AndrewDryga/responder/internal/slackui"
-	"github.com/AndrewDryga/responder/internal/store"
+	"github.com/AndrewDryga/ryker/internal/coop"
+	"github.com/AndrewDryga/ryker/internal/core"
+	episodepkg "github.com/AndrewDryga/ryker/internal/episode"
+	"github.com/AndrewDryga/ryker/internal/retrydelay"
+	"github.com/AndrewDryga/ryker/internal/slackui"
+	"github.com/AndrewDryga/ryker/internal/store"
 	"github.com/slack-go/slack"
 )
 
@@ -265,7 +265,7 @@ func TestCleanupRetainsCleanSessionWithUnpublishedCommit(t *testing.T) {
 	}
 }
 
-func TestOrphanReconciliationSchedulesOnlyResponderManagedSessions(t *testing.T) {
+func TestOrphanReconciliationSchedulesOnlyRykerManagedSessions(t *testing.T) {
 	ctx := context.Background()
 	cfg := serviceConfig(t)
 	st, err := store.Open(cfg.StateDir)
@@ -282,7 +282,7 @@ func TestOrphanReconciliationSchedulesOnlyResponderManagedSessions(t *testing.T)
 		},
 		{
 			ID:          "ses_evaluation_orphan",
-			ExternalRef: "Responder live model evaluation: OOM investigation",
+			ExternalRef: "Ryker live model evaluation: OOM investigation",
 			ForkName:    "remote-evaluation-orphan", State: "closed", UpdatedAt: now.Add(-time.Hour),
 		},
 		{
@@ -299,7 +299,7 @@ func TestOrphanReconciliationSchedulesOnlyResponderManagedSessions(t *testing.T)
 		},
 	}
 	svc := New(cfg, st, coopClient, &fakeSlack{}, nil, slackui.NewSanitizer(12000), nil)
-	if err := svc.reconcileOrphanedResponderSessions(
+	if err := svc.reconcileOrphanedRykerSessions(
 		ctx, now.Add(-cfg.Retention.ClosedSessionGrace.Duration), now,
 	); err != nil {
 		t.Fatal(err)
@@ -308,24 +308,24 @@ func TestOrphanReconciliationSchedulesOnlyResponderManagedSessions(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if item.SessionID != "ses_orphan" || item.Reason != "orphaned Responder session" {
+	if item.SessionID != "ses_orphan" || item.Reason != "orphaned Ryker session" {
 		t.Fatalf("scheduled cleanup = %+v", item)
 	}
-	known, err := st.ResponderSessionKnown(ctx, "ses_evaluation_orphan")
+	known, err := st.RykerSessionKnown(ctx, "ses_evaluation_orphan")
 	if err != nil || !known {
 		t.Fatalf("live evaluation session was orphaned outside cleanup: known=%t err=%v", known, err)
 	}
-	known, err = st.ResponderSessionKnown(ctx, "ses_bounded_orphan")
+	known, err = st.RykerSessionKnown(ctx, "ses_bounded_orphan")
 	if err != nil || !known {
 		t.Fatalf("bounded conversation session was orphaned outside cleanup: known=%t err=%v", known, err)
 	}
 	for _, sessionID := range []string{"ses_unrelated", "ses_fresh"} {
-		known, err := st.ResponderSessionKnown(ctx, sessionID)
+		known, err := st.RykerSessionKnown(ctx, sessionID)
 		if err != nil {
 			t.Fatal(err)
 		}
 		if known {
-			t.Fatalf("session %s was incorrectly claimed by Responder", sessionID)
+			t.Fatalf("session %s was incorrectly claimed by Ryker", sessionID)
 		}
 	}
 }
@@ -354,7 +354,7 @@ func TestOrphanReconciliationClosesDiscardedCleanupProjection(t *testing.T) {
 		t.Fatal(err)
 	}
 	svc := New(cfg, st, coopClient, &fakeSlack{}, nil, slackui.NewSanitizer(12000), nil)
-	if err := svc.reconcileOrphanedResponderSessions(ctx, now.Add(-time.Hour), now); err != nil {
+	if err := svc.reconcileOrphanedRykerSessions(ctx, now.Add(-time.Hour), now); err != nil {
 		t.Fatal(err)
 	}
 	cleanup, err := st.GetCoopCleanup(ctx, "ses_discarded")

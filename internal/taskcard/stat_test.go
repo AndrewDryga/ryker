@@ -3,7 +3,7 @@ package taskcard
 import (
 	"testing"
 
-	"github.com/AndrewDryga/responder/internal/coop"
+	"github.com/AndrewDryga/ryker/internal/coop"
 )
 
 // A patch with everything awkward in it: an ordinary edit, a rename that

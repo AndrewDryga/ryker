@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/AndrewDryga/responder/internal/config"
-	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/ryker/internal/config"
+	"github.com/AndrewDryga/ryker/internal/core"
 )
 
 func fakeGitHub(t *testing.T, handler http.HandlerFunc) (*GitHub, *httptest.Server) {
@@ -21,13 +21,13 @@ func fakeGitHub(t *testing.T, handler http.HandlerFunc) (*GitHub, *httptest.Serv
 		Enabled:      true,
 		APIURL:       server.URL,
 		TokenEnv:     "TEST_GITHUB_TOKEN",
-		BranchPrefix: "responder",
-		CommitName:   "Responder",
-		CommitEmail:  "responder@example.test",
+		BranchPrefix: "ryker",
+		CommitName:   "Ryker",
+		CommitEmail:  "ryker@example.test",
 	}), server
 }
 
-// Ready is the startup check that decides whether Responder will accept
+// Ready is the startup check that decides whether Ryker will accept
 // publication work at all. Accepting work it cannot finish is worse than
 // refusing it, so a bad credential has to fail at startup, not at push time.
 func TestReadyRejectsABadCredential(t *testing.T) {
@@ -38,7 +38,7 @@ func TestReadyRejectsABadCredential(t *testing.T) {
 			t.Errorf("unexpected path %q", r.URL.Path)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, `{"login":"responder-bot"}`)
+		fmt.Fprint(w, `{"login":"ryker-bot"}`)
 	})
 	if err := github.Ready(context.Background()); err != nil {
 		t.Fatalf("a working credential was rejected: %v", err)
@@ -65,11 +65,11 @@ func TestReadyRejectsABadCredential(t *testing.T) {
 	}
 }
 
-// A publication branch is Responder-owned. Adopting one it did not create, or
+// A publication branch is Ryker-owned. Adopting one it did not create, or
 // one that moved underneath it, would overwrite work nobody asked it to touch.
 func TestVerifyPublicationRefusesAMovedBranch(t *testing.T) {
 	publication := core.Publication{
-		IncidentID: "inc_1", HeadBranch: "responder/inc-1",
+		IncidentID: "inc_1", HeadBranch: "ryker/inc-1",
 		RemoteSHA: strings.Repeat("a", 40), PRNumber: 7,
 	}
 	github, _ := fakeGitHub(t, func(w http.ResponseWriter, r *http.Request) {
@@ -77,13 +77,13 @@ func TestVerifyPublicationRefusesAMovedBranch(t *testing.T) {
 		switch {
 		case strings.Contains(r.URL.Path, "/pulls/"):
 			fmt.Fprintf(w, `{"number":7,"state":"open","draft":true,
-			  "head":{"ref":"responder/inc-1","sha":%q}}`, strings.Repeat("b", 40))
+			  "head":{"ref":"ryker/inc-1","sha":%q}}`, strings.Repeat("b", 40))
 		default:
 			fmt.Fprint(w, `{}`)
 		}
 	})
 	if err := github.VerifyPublication(context.Background(), publication); err == nil {
-		t.Fatal("a branch that moved outside Responder was accepted as current")
+		t.Fatal("a branch that moved outside Ryker was accepted as current")
 	}
 }
 

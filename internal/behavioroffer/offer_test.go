@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/offerreason"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/offerreason"
 )
 
 // catalog is the two configuration questions a validator asks, answered from a
@@ -43,7 +43,7 @@ func testContext() Context {
 // These payloads are not ours to change: every button posted in the last day is
 // sitting in Slack carrying the old encoding, and the host decodes strictly. A
 // reordered or renamed field would turn every live preference, rule and memory
-// button into "Responder could not read this confirmation" — which is the exact
+// button into "Ryker could not read this confirmation" — which is the exact
 // silence internal/offerreason was written to end. The struct literals below
 // are the pre-extraction declarations, kept verbatim so the comparison is
 // against what was really on the wire rather than against the new code.

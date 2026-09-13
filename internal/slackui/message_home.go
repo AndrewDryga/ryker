@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/ryker/internal/core"
 )
 
 func OperationsHome(
@@ -25,13 +25,13 @@ func OperationsHome(
 	commitments []core.Commitment,
 	situations []core.ChannelMemory,
 	memories []core.MemoryEntry,
-	preferences []core.ResponderPreference,
+	preferences []core.RykerPreference,
 	rules []core.StandingRule,
 ) Message {
 	// This page answers one question: what needs me?
 	//
 	// It used to answer four at once — what needs you, a cleanup chore, how the
-	// workspace is configured, and which of Responder's own mistakes to pin as
+	// workspace is configured, and which of Ryker's own mistakes to pin as
 	// tests — with nothing marking where one ended and the next began. Four
 	// jobs in one scroll reads as a mess of text and buttons no matter how well
 	// each line is written, so the page now leads with the answer and every
@@ -108,8 +108,8 @@ func OperationsHome(
 		if commitment.ChannelID != "" {
 			line += " · <#" + commitment.ChannelID + ">"
 		}
-		// What to do, not why Responder stopped. The status paragraph is
-		// Responder reasoning about itself; five of them made a wall to mine
+		// What to do, not why Ryker stopped. The status paragraph is
+		// Ryker reasoning about itself; five of them made a wall to mine
 		// for the one line that was an instruction. It stays in the thread,
 		// and is used here only when there is no next action to show.
 		switch {
@@ -128,7 +128,7 @@ func OperationsHome(
 			fmt.Sprintf("%d more need you — scroll for the rest", extra))
 	}
 
-	// In flight: what Responder is carrying, so the reader can tell an idle
+	// In flight: what Ryker is carrying, so the reader can tell an idle
 	// system from a busy one without opening anything. One line per task —
 	// glyph, title, room, age — and the whole strip is one section block, which
 	// is the difference between eight blocks and one on a page with a ceiling.
@@ -201,7 +201,7 @@ func OperationsHome(
 		message.Sections = append(message.Sections, current.String())
 	}
 	if len(preferences) > 0 {
-		message.Sections = append(message.Sections, "*Settings* — how Responder behaves here")
+		message.Sections = append(message.Sections, "*Settings* — how Ryker behaves here")
 		for _, preference := range preferences[:min(len(preferences), 3)] {
 			state := "disabled"
 			if preference.Enabled {
@@ -225,7 +225,7 @@ func OperationsHome(
 		}
 	}
 	if len(rules) > 0 {
-		message.Sections = append(message.Sections, "*Standing rules* — what Responder does automatically")
+		message.Sections = append(message.Sections, "*Standing rules* — what Ryker does automatically")
 		for _, rule := range rules[:min(len(rules), 3)] {
 			state := "disabled"
 			if rule.Enabled {
@@ -339,12 +339,12 @@ func OperationsHomeRestricted() Message {
 		Header: "Operations access is restricted",
 		Sections: []string{
 			"Incident titles, active work, failures, and session state are visible only to " +
-				"configured Responder operators.\n" +
-				"You can still ask Responder read-only operational questions in a channel or " +
+				"configured Ryker operators.\n" +
+				"You can still ask Ryker read-only operational questions in a channel or " +
 				"direct message where the app is available.",
 		},
 		Context: []string{
-			"An administrator can grant access by adding your Slack user ID to `slack.operators` and restarting Responder.",
+			"An administrator can grant access by adding your Slack user ID to `slack.operators` and restarting Ryker.",
 		},
 	}
 }
@@ -413,7 +413,7 @@ func genericProgressText(value string) bool {
 // operatorActionable reports whether a work item is waiting on a person.
 //
 // A failed run is not a promise owed to the team; it is a run that died, and
-// the retry is Responder's job. Listing failures as owed work is what put a
+// the retry is Ryker's job. Listing failures as owed work is what put a
 // Coop idempotency conflict in front of an operator as something to do.
 func operatorActionable(state core.CommitmentState) bool {
 	switch state {
@@ -467,16 +467,16 @@ func shortInstruction(value string) string {
 	return "→ " + trimmed
 }
 
-// AppendCoverageGaps names channels Responder is configured for but cannot see.
+// AppendCoverageGaps names channels Ryker is configured for but cannot see.
 //
-// This is the quietest kind of broken. The configuration says Responder is
+// This is the quietest kind of broken. The configuration says Ryker is
 // participating in a channel; Slack says the bot is not a member. Neither
 // record looks wrong on its own, nothing fails, no error is raised, and every
 // alert posted in that room reaches nobody. One channel sat in exactly this
 // state for two days — configured proactive, absent, and invisible from both
 // sides.
 //
-// It outranks everything else the page reports, because it says Responder is
+// It outranks everything else the page reports, because it says Ryker is
 // not doing what the operator believes it is doing — a whole channel's worth of
 // alerts reaching nobody outranks any single one of them. The one thing it does
 // not outrank is the direct ask: a named decision with somebody waiting on it is
@@ -509,7 +509,7 @@ func AppendCoverageGaps(message Message, channelIDs []string) Message {
 	}
 	message.Sections = append([]string{fmt.Sprintf(
 		"*:warning: Configured but not joined (%d)*\n%s\n"+
-			"Responder is configured to participate in %s but is not a member, so nothing "+
+			"Ryker is configured to participate in %s but is not a member, so nothing "+
 			"posted there is seen. Invite the bot to close the gap, or remove the "+
 			"configuration if the channel is no longer wanted.",
 		len(rooms),

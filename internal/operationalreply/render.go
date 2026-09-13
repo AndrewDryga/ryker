@@ -7,8 +7,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/operationalscope"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/operationalscope"
 )
 
 func Render(assessment *operationalscope.Assessment, evidence []core.Evidence) (string, bool) {

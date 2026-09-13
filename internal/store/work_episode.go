@@ -11,12 +11,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/core"
-	episodepkg "github.com/AndrewDryga/responder/internal/episode"
-	"github.com/AndrewDryga/responder/internal/store/attemptstore"
-	"github.com/AndrewDryga/responder/internal/store/intelligencestore"
-	"github.com/AndrewDryga/responder/internal/store/lifecyclecheck"
-	"github.com/AndrewDryga/responder/internal/store/sqlutil"
+	"github.com/AndrewDryga/ryker/internal/core"
+	episodepkg "github.com/AndrewDryga/ryker/internal/episode"
+	"github.com/AndrewDryga/ryker/internal/store/attemptstore"
+	"github.com/AndrewDryga/ryker/internal/store/intelligencestore"
+	"github.com/AndrewDryga/ryker/internal/store/lifecyclecheck"
+	"github.com/AndrewDryga/ryker/internal/store/sqlutil"
 )
 
 const workEpisodeColumns = `

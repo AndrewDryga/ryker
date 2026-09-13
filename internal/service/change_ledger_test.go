@@ -5,11 +5,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/config"
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/emisar"
-	"github.com/AndrewDryga/responder/internal/slackui"
-	"github.com/AndrewDryga/responder/internal/store"
+	"github.com/AndrewDryga/ryker/internal/config"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/emisar"
+	"github.com/AndrewDryga/ryker/internal/slackui"
+	"github.com/AndrewDryga/ryker/internal/store"
 )
 
 // approvalReachingStatus drives one approval to a terminal Emisar status
@@ -49,11 +49,11 @@ func approvalReachingStatus(
 	}
 }
 
-// A mutation Responder itself supervised to terminal success is a change, and
+// A mutation Ryker itself supervised to terminal success is a change, and
 // the ledger is the only place that fact survives the approval row.
 //
 // emisar_approvals expires on the operational horizon, so without this write
-// the single most authoritative change Responder can possibly know about — one
+// the single most authoritative change Ryker can possibly know about — one
 // it requested, watched to terminal state, and holds an immutable run reference
 // for — is the one it forgets first. A failed run is not a change and must not
 // be recorded: listing an action that changed nothing under "what changed"

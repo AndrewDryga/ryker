@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/slackui"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/slackui"
 )
 
 // trimError bounds an error for storage beside the followup row.
@@ -76,7 +76,7 @@ func (f *Follower) refresh(
 		_, err := f.publications.MarkStale(
 			ctx,
 			publication.IncidentID,
-			"The draft PR head changed after Responder's last verified publication. "+
+			"The draft PR head changed after Ryker's last verified publication. "+
 				"Run Update draft PR to review and bind the current task tree.",
 		)
 		return err

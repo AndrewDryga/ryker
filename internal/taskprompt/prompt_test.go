@@ -18,7 +18,7 @@ func TestEngineeringFeedbackCommitsItsIntendedChangesBeforeCompletion(t *testing
 			for _, want := range []string{
 				"commit all intended repository changes",
 				"Do not push",
-				"Responder updates the existing draft PR",
+				"Ryker updates the existing draft PR",
 			} {
 				if !strings.Contains(prompt, want) {
 					t.Fatalf("engineering feedback prompt lacks %q:\n%s", want, prompt)

@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/AndrewDryga/responder/internal/investigation"
+	"github.com/AndrewDryga/ryker/internal/investigation"
 )
 
 // Identity names the model-visible finding and its stable replacement key.

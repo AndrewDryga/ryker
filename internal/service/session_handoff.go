@@ -6,13 +6,13 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/agentprompt"
-	"github.com/AndrewDryga/responder/internal/config"
-	"github.com/AndrewDryga/responder/internal/coop"
-	"github.com/AndrewDryga/responder/internal/core"
-	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
-	"github.com/AndrewDryga/responder/internal/retrydelay"
-	"github.com/AndrewDryga/responder/internal/sessionretirement"
+	"github.com/AndrewDryga/ryker/internal/agentprompt"
+	"github.com/AndrewDryga/ryker/internal/config"
+	"github.com/AndrewDryga/ryker/internal/coop"
+	"github.com/AndrewDryga/ryker/internal/core"
+	decisionpkg "github.com/AndrewDryga/ryker/internal/decision"
+	"github.com/AndrewDryga/ryker/internal/retrydelay"
+	"github.com/AndrewDryga/ryker/internal/sessionretirement"
 )
 
 // handoffSourceKind marks the one agent run nobody in Slack is waiting for.
@@ -262,7 +262,7 @@ func (s *Service) abandonSessionHandoff(
 func (s *Service) retireHandedOffSession(ctx context.Context, run core.AgentRun) error {
 	return sessionretirement.Retire(
 		ctx, s.coop, s.store, run.SessionID,
-		"responder:handoff-close:"+run.SessionID,
+		"ryker:handoff-close:"+run.SessionID,
 		"session retired after its memory handoff", s.now(), nil,
 	)
 }

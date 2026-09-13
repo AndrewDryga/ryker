@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/ryker/internal/core"
 )
 
 func activityFixture(t *testing.T) *Store {
@@ -446,7 +446,7 @@ func TestEngineeringTaskMilestonesUseDurableHostTimestamps(t *testing.T) {
 		  incident_id, repository, base_branch, head_branch, parent_head,
 		  candidate_tree, state, created_at, updated_at
 		) VALUES (
-		  'task_milestones','repo','main','responder/task','parent','candidate',
+		  'task_milestones','repo','main','ryker/task','parent','candidate',
 		  'reviewing','2026-08-07T11:05:00.000000000Z','2026-08-07T11:05:00.000000000Z'
 		)`); err != nil {
 		t.Fatal(err)

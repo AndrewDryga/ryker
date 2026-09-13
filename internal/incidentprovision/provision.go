@@ -6,10 +6,10 @@ import (
 	"context"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/coop"
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/sessionauthority"
-	"github.com/AndrewDryga/responder/internal/sessioncreate"
+	"github.com/AndrewDryga/ryker/internal/coop"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/sessionauthority"
+	"github.com/AndrewDryga/ryker/internal/sessioncreate"
 )
 
 type Client interface {
@@ -35,7 +35,7 @@ func Resolve(
 	}
 	return sessioncreate.ResolveCandidates(ctx, sessioncreate.CandidateRequest{
 		Lane: lane, Generation: incident.CoopSessionGeneration,
-		RepositoryReadOnly: readOnly, BaseKey: "responder:session:" + incident.ID,
+		RepositoryReadOnly: readOnly, BaseKey: "ryker:session:" + incident.ID,
 		AttemptStarted: now.UTC(), Lookup: client,
 		Create: func(ctx context.Context, key string, _ int) (coop.Session, error) {
 			session, _, err := client.CreateSession(ctx, key, policy, label, sources...)

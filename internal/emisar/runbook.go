@@ -8,12 +8,12 @@ import (
 	"strings"
 )
 
-// DraftState is the intentionally small projection Responder keeps after
+// DraftState is the intentionally small projection Ryker keeps after
 // asking Emisar to hold a runbook draft.
 //
 // Small for the same reason RunState is. The draft's definition lives in
 // Emisar, a person reviews it there, and Emisar alone decides whether it is
-// ever published. What Responder needs back is proof that the draft exists and
+// ever published. What Ryker needs back is proof that the draft exists and
 // enough of an identity to say so in a Slack receipt.
 type DraftState struct {
 	Slug             string
@@ -31,7 +31,7 @@ type DraftState struct {
 //
 // A slug the server did not echo back is accepted, and a slug it echoed back
 // DIFFERENTLY is refused. Emisar may normalize or assign one, and a draft
-// created under a name Responder does not know about is a draft Responder will
+// created under a name Ryker does not know about is a draft Ryker will
 // later tell an operator the wrong thing about — the receipt would name a
 // document nobody can find.
 func (c *Client) CreateRunbookDraft(

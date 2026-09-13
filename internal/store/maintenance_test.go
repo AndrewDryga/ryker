@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/ryker/internal/core"
 )
 
 func maintenanceStore(t *testing.T) *Store {
@@ -27,7 +27,7 @@ func TestPruneOrphanBehaviorFollowsTheConfiguration(t *testing.T) {
 	expires := time.Now().UTC().Add(24 * time.Hour)
 
 	for _, repository := range []string{"kept", "removed"} {
-		if _, _, err := st.Behavior.UpsertPreference(ctx, core.ResponderPreference{
+		if _, _, err := st.Behavior.UpsertPreference(ctx, core.RykerPreference{
 			ScopeKind: "repository", ScopeKey: repository,
 			Name: "health_check_depth", Value: "deep",
 			SourceRef: "slack_1", ActorID: "U1", ExpiresAt: expires,
@@ -67,7 +67,7 @@ func TestPruneOrphanBehaviorFollowsTheConfiguration(t *testing.T) {
 	}
 }
 
-// Cleanup is ownership-based: Responder records the exact session it owns
+// Cleanup is ownership-based: Ryker records the exact session it owns
 // before asking Coop to discard anything, so an unrelated fork is never in its
 // cleanup set.
 func TestScheduleCleanupRecordsOwnershipAndIsIdempotent(t *testing.T) {

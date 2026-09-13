@@ -4,10 +4,10 @@ import (
 	"strings"
 	"testing"
 
-	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
+	decisionpkg "github.com/AndrewDryga/ryker/internal/decision"
 )
 
-// The calibration corpus: sixteen replies Responder actually posted, with the
+// The calibration corpus: sixteen replies Ryker actually posted, with the
 // verdict a reader gave each one after reading it.
 //
 // scripts/reply-shape-replay.sh replays every posted reply in the live state
@@ -74,7 +74,7 @@ var postedReplies = []postedReply{
 	{
 		name:    "two-part question answered with structured evidence",
 		lane:    "investigation",
-		trigger: "<@responder> why you did not comment on this one? how is health?",
+		trigger: "<@ryker> why you did not comment on this one? how is health?",
 		reply:   "I did not comment because `Run Applying` is an intermediate notification; the standing behavior waits for a terminal event or a reviewable plan to avoid noisy lifecycle narration. In this case, staying silent hid a useful distinction: **production is serving normally, but the rollout is not converged**.\n\nFresh checks show:\n\n- Both expected Portal backends are `HEALTHY` and `RUNNING`.\n- Cloud SQL is `RUNNABLE`.\n- Successful 2xx traffic continued through 20:44 UTC, with no 5xx series observed in the preceding 30-minute query.\n- The MIG is still unstable because creation of replacement instance `emisar-fc99` hit `ZONE_RESOURCE_POOL_EXHAUSTED` for `e2-small` capacity in `us-central1-f`.\n- Availability is currently preserved: two healthy instances remain serving and the rollout policy allows zero unavailable instances.\n\nSo the current assessment is: **service health is good; rollout health is degraded/stalled by zonal capacity**. The safest immediate course is to leave the healthy instances serving while the MIG retries. Escalate to a deliberate zone or machine-shape change only if the capacity error persists.\n\nOne gap remains: I could not independently read HCP’s terminal run state because the governed Terraform inspection action still fails on the runner’s jq/Oniguruma compatibility issue. That gap does not overturn the live serving-health evidence above.",
 		expect:  "",
 	},
@@ -146,7 +146,7 @@ var postedReplies = []postedReply{
 	{
 		name:    "245 words to the word hi",
 		lane:    "investigation",
-		trigger: "hi <@responder>",
+		trigger: "hi <@ryker>",
 		reply:   "Still no change to the account, and nothing deployed. The conversion code is committed as `ea94ab72`, but only inside task fork `remote-4e2814e2b71e285012054c2d`. I'm in a different fork right now (`remote-0db8890588b42a7a54404e04`), where that commit isn't reachable — so I couldn't re-run its gate.\n\n**Readiness has two blockers, not one.** We diagnosed the missing `tflint`. But every readiness card also flagged that validation \"changed tracked files,\" and that half is still unaddressed — it's the sandbox, not the gate. Ten tracked files with secret-shaped names (5 `*.key`, 5 `*.tfstate` pack fixtures) get swapped for empty read-only decoys in any agent box: 0 bytes in the tree against 86–1704 bytes in `HEAD`, and those ten are exactly the files git reports as modified. The tree is dirty before a gate ever runs, so retrying will keep failing that check even once tflint is installed.\n\nSupporting detail: this box *does* have tflint v0.64.0, matching both `.tool-versions` and the CI checksum pin — so provisioning works in a normal box; the readiness runner just didn't get it. `refs/coop/session-parent` is missing here too, and `./run gate review` requires it (`tools/internal/devtool/gates.go:676`).\n\nSo the readiness environment needs tflint v0.64.0 plus that pinned ref. I've also prepared an optional repo change to rename those fixtures so agent boxes stop shadowing them — that's the durable fix for the dirty-tree half. One gap worth naming: no Emisar tool is exposed in this session, so I couldn't check the live account or whether anything has deployed.",
 		expect:  "length",
 	},

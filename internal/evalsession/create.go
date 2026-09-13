@@ -8,8 +8,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/coop"
-	"github.com/AndrewDryga/responder/internal/serviceport"
+	"github.com/AndrewDryga/ryker/internal/coop"
+	"github.com/AndrewDryga/ryker/internal/serviceport"
 )
 
 // Create resumes the same durable create after Coop's transport handoff. Live

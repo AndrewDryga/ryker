@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/coop"
+	"github.com/AndrewDryga/ryker/internal/coop"
 )
 
 // TurnBudget is what the assembled prompts actually measured, against the cap

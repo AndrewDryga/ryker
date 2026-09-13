@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/AndrewDryga/responder/internal/evaluation"
+	"github.com/AndrewDryga/ryker/internal/evaluation"
 )
 
 func TestEvalCommandReportsGoldenCorpusAndFailures(t *testing.T) {

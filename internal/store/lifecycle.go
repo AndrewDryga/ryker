@@ -7,11 +7,11 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/store/artifactstore"
-	"github.com/AndrewDryga/responder/internal/store/publicationstore"
-	"github.com/AndrewDryga/responder/internal/store/retention"
-	"github.com/AndrewDryga/responder/internal/store/sqlutil"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/store/artifactstore"
+	"github.com/AndrewDryga/ryker/internal/store/publicationstore"
+	"github.com/AndrewDryga/ryker/internal/store/retention"
+	"github.com/AndrewDryga/ryker/internal/store/sqlutil"
 )
 
 func (s *Store) GetPublication(ctx context.Context, incidentID string) (core.Publication, error) {
@@ -195,7 +195,7 @@ func (s *Store) ScheduleExpiredChannelMemoryCleanup(
 	return channelCount + conversationCount, err
 }
 
-func (s *Store) ResponderSessionKnown(ctx context.Context, sessionID string) (bool, error) {
+func (s *Store) RykerSessionKnown(ctx context.Context, sessionID string) (bool, error) {
 	if sessionID == "" {
 		return false, errors.New("session ID is required")
 	}

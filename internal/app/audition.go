@@ -13,10 +13,10 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/audition"
-	"github.com/AndrewDryga/responder/internal/config"
-	"github.com/AndrewDryga/responder/internal/evaluation"
-	"github.com/AndrewDryga/responder/internal/webui"
+	"github.com/AndrewDryga/ryker/internal/audition"
+	"github.com/AndrewDryga/ryker/internal/config"
+	"github.com/AndrewDryga/ryker/internal/evaluation"
+	"github.com/AndrewDryga/ryker/internal/webui"
 )
 
 // runAudition reports which model has earned which lane.
@@ -85,7 +85,7 @@ func defaultEvalHistoryDir() string {
 	if err != nil {
 		return ""
 	}
-	return filepath.Join(home, ".local", "state", "responder", "eval-history")
+	return filepath.Join(home, ".local", "state", "ryker", "eval-history")
 }
 
 // recordedCorpora reads the newest run of each corpus in the history directory.

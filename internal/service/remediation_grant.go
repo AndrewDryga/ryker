@@ -7,11 +7,11 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/core"
-	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
-	"github.com/AndrewDryga/responder/internal/remediation"
-	"github.com/AndrewDryga/responder/internal/slackui"
-	"github.com/AndrewDryga/responder/internal/store/grantstore"
+	"github.com/AndrewDryga/ryker/internal/core"
+	decisionpkg "github.com/AndrewDryga/ryker/internal/decision"
+	"github.com/AndrewDryga/ryker/internal/remediation"
+	"github.com/AndrewDryga/ryker/internal/slackui"
+	"github.com/AndrewDryga/ryker/internal/store/grantstore"
 )
 
 // grantTriggerClass is the scope a promotion would be granted in.
@@ -198,7 +198,7 @@ func (s *Service) demoteGrantsForRun(ctx context.Context, approval core.EmisarAp
 // all derived again at this moment: the button value made a round trip through a
 // Slack client, and a tampered one must not be able to buy authority. That is
 // the same discipline the memory confirmation follows, applied to the one
-// confirmation in the product where the stake is what Responder may do rather
+// confirmation in the product where the stake is what Ryker may do rather
 // than what it may say.
 func (s *Service) handleConfirmGrantPromotion(
 	ctx context.Context,
@@ -234,7 +234,7 @@ func (s *Service) handleConfirmGrantPromotion(
 	if err != nil {
 		return s.finishSlashInput(
 			ctx, input,
-			"*Responder could not record this grant.* "+err.Error(),
+			"*Ryker could not record this grant.* "+err.Error(),
 		)
 	}
 	s.audit(ctx, core.AuditEvent{
@@ -248,7 +248,7 @@ func (s *Service) handleConfirmGrantPromotion(
 }
 
 // authorizeGrantAction is stricter in intent than the memory equivalent even
-// though it runs the same two checks: this click decides what Responder is
+// though it runs the same two checks: this click decides what Ryker is
 // allowed to DO, not what it is allowed to remember.
 func (s *Service) authorizeGrantAction(
 	ctx context.Context,
@@ -257,7 +257,7 @@ func (s *Service) authorizeGrantAction(
 	if !s.cfg.IsOperator(input.UserID) {
 		return false, s.finishSlashInput(
 			ctx, input,
-			"*A configured Responder operator must grant remediation authority.*",
+			"*A configured Ryker operator must grant remediation authority.*",
 		)
 	}
 	allowed, err := s.slack.UserAllowed(ctx, input.UserID, s.cfg.Slack.TeamID)

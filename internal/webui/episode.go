@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/decision"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/decision"
 )
 
 // collect runs one presentation query.
@@ -1142,7 +1142,7 @@ func (r *Reader) Artifacts(ctx context.Context, episodeID string) ([]EpisodeArti
 		var at string
 		err := rows.Scan(&item.ID, &item.Title, &at)
 		item.Kind, item.State, item.At = "commitment", "accepted", parseStamp(at)
-		item.Summary = "Responder accepted responsibility for this work."
+		item.Summary = "Ryker accepted responsibility for this work."
 		item.Stats = []ArtifactStat{{"Episode", item.ID}}
 		return item, err
 	}, episodeID)
@@ -1239,7 +1239,7 @@ func (r *Reader) Artifacts(ctx context.Context, episodeID string) ([]EpisodeArti
 		item.Kind, item.Title, item.At = "standing_rule_run", "Standing rule ran", parseStamp(at)
 		// The trigger and action are the rule's own identifiers, so they stay
 		// exact; the sentence around them says what the run decided.
-		item.Summary = "This channel's " + trigger + " rule matched, so Responder ran its " +
+		item.Summary = "This channel's " + trigger + " rule matched, so Ryker ran its " +
 			action + " workflow" + standingRuleOutcomePhrase(item.State)
 		item.Stats = []ArtifactStat{{"Rule", ruleID}, {"Source input", sourceInput},
 			{"Event", eventID}, {"Outcome", item.State}}
@@ -1585,7 +1585,7 @@ type SourceInput struct {
 // only the channel and the timestamp, both of which the page already has, and
 // Slack resolves the workspace itself. Blocked work is unblocked by answering
 // in the thread, and a page that says what is missing while offering no way to
-// go and supply it makes the reader hunt for a conversation Responder already
+// go and supply it makes the reader hunt for a conversation Ryker already
 // knows the address of.
 func (s SourceInput) SlackHref() string {
 	if s.ChannelID == "" || s.MessageTS == "" {
@@ -1599,7 +1599,7 @@ func (s SourceInput) SlackHref() string {
 	return href
 }
 
-// Wakeup is the durable subscription that let Responder release a worker and
+// Wakeup is the durable subscription that let Ryker release a worker and
 // resume after an external object changed. It is read by trigger ID instead of
 // episode ID because recovered follow-up episodes can be created after the
 // subscription was stored on the episode that originally began the work.
@@ -1738,7 +1738,7 @@ func (r *Reader) SourceInput(ctx context.Context, episodeID string) (SourceInput
 	}
 
 	// Synthetic wake-ups have no Slack message timestamp. Their thread_ts is
-	// the durable link back to the root Slack message that caused Responder to
+	// the durable link back to the root Slack message that caused Ryker to
 	// wait for the external event in the first place.
 	var root SourceInput
 	err = r.scanSourceInput(ctx, r.db.QueryRowContext(ctx, `

@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/remediation"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/remediation"
 )
 
 var recordedAction = remediation.ActionRef{
@@ -45,7 +45,7 @@ func runbookOffer() core.RunbookDraftOffer {
 // claimed identity through — it matches against its record and uses the record.
 //
 // The cost of not having this: a plausible runbook naming an action nobody has
-// ever run, published by an operator who reasonably assumed Responder only
+// ever run, published by an operator who reasonably assumed Ryker only
 // drafts what it did.
 func TestARunbookDraftRefusesAnActionTheEpisodeNeverRan(t *testing.T) {
 	for _, invented := range []struct {

@@ -3,8 +3,8 @@ package triageoutcome
 import (
 	"testing"
 
-	"github.com/AndrewDryga/responder/internal/core"
-	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
+	"github.com/AndrewDryga/ryker/internal/core"
+	decisionpkg "github.com/AndrewDryga/ryker/internal/decision"
 )
 
 func TestFailureReplyOnlyTargetsAcceptedHumanConversation(t *testing.T) {
@@ -33,7 +33,7 @@ func TestFailureReplyOnlyTargetsAcceptedHumanConversation(t *testing.T) {
 // than picking the completion, so Slack sent a plain channel message and the
 // targeting rule above read it as chatter. Nothing was posted to that channel
 // all day.
-func TestAFailureNeverSwallowsAMessageThatSaidResponderName(t *testing.T) {
+func TestAFailureNeverSwallowsAMessageThatSaidRykerName(t *testing.T) {
 	for _, test := range []struct {
 		name  string
 		input core.SlackInput

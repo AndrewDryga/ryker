@@ -3,7 +3,7 @@ package turncapacity
 
 import "fmt"
 
-const reachedPrefix = "Responder reached this channel's automatic safety ceiling"
+const reachedPrefix = "Ryker reached this channel's automatic safety ceiling"
 
 type LimitError struct {
 	Limit int
@@ -11,7 +11,7 @@ type LimitError struct {
 
 func (e *LimitError) Error() string {
 	return fmt.Sprintf(
-		"automatic turn ceiling %d reached; raise coop.turn_limit in responder.yaml to continue",
+		"automatic turn ceiling %d reached; raise coop.turn_limit in ryker.yaml to continue",
 		e.Limit,
 	)
 }
@@ -20,7 +20,7 @@ func Message(limit int) string {
 	return fmt.Sprintf(
 		reachedPrefix+" of %d agent requests. "+
 			"The pending request and Coop session are preserved. The ceiling is "+
-			"`coop.turn_limit` in responder.yaml; raising it needs a deployment change, "+
+			"`coop.turn_limit` in ryker.yaml; raising it needs a deployment change, "+
 			"because a session that has spent %d accepted requests is usually looping "+
 			"rather than short of room. This counts accepted requests, not tool calls or "+
 			"investigation steps within a request.",

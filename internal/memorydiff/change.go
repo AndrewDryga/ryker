@@ -3,8 +3,8 @@ package memorydiff
 import (
 	"strings"
 
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/memory"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/memory"
 )
 
 // Change is one field that a committed agent-memory write created, updated, or

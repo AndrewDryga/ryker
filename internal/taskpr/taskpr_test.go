@@ -3,7 +3,7 @@ package taskpr
 import (
 	"testing"
 
-	"github.com/AndrewDryga/responder/internal/coop"
+	"github.com/AndrewDryga/ryker/internal/coop"
 )
 
 func TestChangesPresentRejectsEmptyCommitOnExistingPullRequest(t *testing.T) {

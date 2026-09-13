@@ -4,8 +4,8 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/AndrewDryga/responder/internal/completionpolicy"
-	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/ryker/internal/completionpolicy"
+	"github.com/AndrewDryga/ryker/internal/core"
 )
 
 // Publication intent is classified once from the operator request and stored

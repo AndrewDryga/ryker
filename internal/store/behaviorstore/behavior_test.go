@@ -5,9 +5,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/store/behaviorstore"
-	"github.com/AndrewDryga/responder/internal/store/storetest"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/store/behaviorstore"
+	"github.com/AndrewDryga/ryker/internal/store/storetest"
 )
 
 func TestPreferencesReplaceResolveByScopeAndToggle(t *testing.T) {
@@ -15,10 +15,10 @@ func TestPreferencesReplaceResolveByScopeAndToggle(t *testing.T) {
 	db := storetest.DB(t)
 	repo := behaviorstore.New(db, time.Now)
 	now := time.Now().UTC()
-	add := func(scope, key, value string) core.ResponderPreference {
+	add := func(scope, key, value string) core.RykerPreference {
 		preference, replaced, saveErr := repo.UpsertPreference(
 			ctx,
-			core.ResponderPreference{
+			core.RykerPreference{
 				ScopeKind: scope, ScopeKey: key,
 				Name: "health_check_depth", Value: value,
 				SourceRef: "slack_" + scope, ActorID: "UOPERATOR",
@@ -53,7 +53,7 @@ func TestPreferencesReplaceResolveByScopeAndToggle(t *testing.T) {
 
 	replacement, replaced, err := repo.UpsertPreference(
 		ctx,
-		core.ResponderPreference{
+		core.RykerPreference{
 			ScopeKind: "channel", ScopeKey: "COPS",
 			Name: "health_check_depth", Value: "standard",
 			SourceRef: "slack_replacement", ActorID: "UOPERATOR",
@@ -89,7 +89,7 @@ func TestResponseLocationPreferenceIsTypedAndRejectsRepositoryScope(t *testing.T
 	ctx := context.Background()
 	db := storetest.DB(t)
 	repo := behaviorstore.New(db, time.Now)
-	preference := core.ResponderPreference{
+	preference := core.RykerPreference{
 		ScopeKind: "operator", ScopeKey: "UOPERATOR",
 		Name: "response_location", Value: "prefer_thread",
 		SourceRef: "slack_location", ActorID: "UOPERATOR",
@@ -232,7 +232,7 @@ func TestStandingRulesDeduplicateRunsAndCleanUpWithChannel(t *testing.T) {
 	}
 	preference, _, err := repo.UpsertPreference(
 		ctx,
-		core.ResponderPreference{
+		core.RykerPreference{
 			ScopeKind: "channel", ScopeKey: "COPS",
 			Name: "response_detail", Value: "detailed",
 			SourceRef: "slack_pref", ActorID: "UOPERATOR",
@@ -297,7 +297,7 @@ func TestBehaviorCapacityAllowsReplacementButRejectsNewEntries(t *testing.T) {
 	ctx := context.Background()
 	db := storetest.DB(t)
 	repo := behaviorstore.New(db, time.Now)
-	preference := core.ResponderPreference{
+	preference := core.RykerPreference{
 		ScopeKind: "workspace", ScopeKey: "TWORKSPACE",
 		Name: "health_check_depth", Value: "standard",
 		SourceRef: "slack_1", ActorID: "UOPERATOR",

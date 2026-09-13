@@ -16,9 +16,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/coop"
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/sessioncreate"
+	"github.com/AndrewDryga/ryker/internal/coop"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/sessioncreate"
 	"github.com/gorilla/websocket"
 	"github.com/slack-go/slack"
 	"gopkg.in/yaml.v3"
@@ -547,7 +547,7 @@ func TestShippedManifestDescribesSupportedSlackApp(t *testing.T) {
 		!*manifest.Features.AppHome.MessagesTabEnabled {
 		t.Fatal("manifest must enable the operations Home and agent Messages tabs")
 	}
-	// These three prompts are the only prompts. Responder also installed them
+	// These three prompts are the only prompts. Ryker also installed them
 	// at runtime through assistant.threads.setSuggestedPrompts until that call
 	// was deleted for never once having succeeded, so the manifest is no longer
 	// a duplicate of a code path — it is the code path, and deleting an entry
@@ -684,18 +684,18 @@ func TestJoinChannelRefusesAnEmptyChannel(t *testing.T) {
 }
 
 func TestSummonChannelMembershipErrorIsActionable(t *testing.T) {
-	err := summonChannelMembershipError("responder", "C123ABC", "infra-alerts")
-	want := "@responder is not a member of summon channel #infra-alerts (C123ABC); " +
-		"in that Slack channel, run: /invite @responder"
+	err := summonChannelMembershipError("ryker", "C123ABC", "infra-alerts")
+	want := "@ryker is not a member of summon channel #infra-alerts (C123ABC); " +
+		"in that Slack channel, run: /invite @ryker"
 	if err.Error() != want {
 		t.Fatalf("membership error = %q; want %q", err, want)
 	}
 }
 
 func TestWatchChannelMembershipErrorIsActionable(t *testing.T) {
-	err := channelMembershipError("responder", "watch", "C456DEF", "deploy-alerts")
-	want := "@responder is not a member of watch channel #deploy-alerts (C456DEF); " +
-		"in that Slack channel, run: /invite @responder"
+	err := channelMembershipError("ryker", "watch", "C456DEF", "deploy-alerts")
+	want := "@ryker is not a member of watch channel #deploy-alerts (C456DEF); " +
+		"in that Slack channel, run: /invite @ryker"
 	if err.Error() != want {
 		t.Fatalf("membership error = %q; want %q", err, want)
 	}
@@ -880,10 +880,10 @@ func TestEngineeringTaskUpdateDeliversVisiblePlumbingAndOnlyFoldsTheRequest(t *t
 	}
 }
 
-// Workspace preparation is Responder-owned even when the durable incident has
+// Workspace preparation is Ryker-owned even when the durable incident has
 // a LastError. This crosses the Slack update boundary so a future renderer or
 // transport change cannot turn an automatic retry into operator action.
-func TestIncidentUpdateDeliversResponderOwnedWorkspacePreparation(t *testing.T) {
+func TestIncidentUpdateDeliversRykerOwnedWorkspacePreparation(t *testing.T) {
 	var form url.Values
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if err := r.ParseForm(); err != nil {
@@ -915,7 +915,7 @@ func TestIncidentUpdateDeliversResponderOwnedWorkspacePreparation(t *testing.T) 
 		t.Fatal(err)
 	}
 	blocks := form.Get("blocks") + form.Get("attachments")
-	for _, want := range []string{"Workspace preparation", "nothing needed from you", "Responder will retry automatically"} {
+	for _, want := range []string{"Workspace preparation", "nothing needed from you", "Ryker will retry automatically"} {
 		if !strings.Contains(blocks, want) {
 			t.Fatalf("delivered incident lost %q: %s", want, blocks)
 		}

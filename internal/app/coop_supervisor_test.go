@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/config"
+	"github.com/AndrewDryga/ryker/internal/config"
 )
 
 type fakeCoopReadiness struct {
@@ -120,7 +120,7 @@ exit 1
 	cfg.Slack.DefaultRepository = "repo"
 	cfg.Repositories = map[string]config.Repository{"repo": {Path: repository}}
 	err := checkManagedCoopImage(cfg)
-	if err == nil || !strings.Contains(err.Error(), "Responder cannot execute agent turns") ||
+	if err == nil || !strings.Contains(err.Error(), "Ryker cannot execute agent turns") ||
 		!strings.Contains(err.Error(), "build") {
 		t.Fatalf("missing image remediation = %v", err)
 	}
@@ -320,7 +320,7 @@ policies:
 	for _, want := range []string{
 		"managed Coop target codex@personal is not authenticated",
 		wantCommand,
-		"then retry Responder",
+		"then retry Ryker",
 		"exit status 1",
 	} {
 		if !strings.Contains(err.Error(), want) {

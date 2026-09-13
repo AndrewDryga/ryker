@@ -8,20 +8,20 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/config"
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/hermeticgit"
-	"github.com/AndrewDryga/responder/internal/repomirror"
-	"github.com/AndrewDryga/responder/internal/slackui"
-	"github.com/AndrewDryga/responder/internal/store"
+	"github.com/AndrewDryga/ryker/internal/config"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/hermeticgit"
+	"github.com/AndrewDryga/ryker/internal/repomirror"
+	"github.com/AndrewDryga/ryker/internal/slackui"
+	"github.com/AndrewDryga/ryker/internal/store"
 )
 
 // managedSlugConfig is serviceConfig's repository declared by slug instead of
-// path, so the turn runs against a clone Responder owns.
+// path, so the turn runs against a clone Ryker owns.
 func managedSlugConfig(t *testing.T) config.Config {
 	t.Helper()
 	root := t.TempDir()
-	path := filepath.Join(root, "responder.yaml")
+	path := filepath.Join(root, "ryker.yaml")
 	body := `version: 1
 state_dir: ` + filepath.Join(root, "state") + `
 slack:
@@ -162,7 +162,7 @@ func runTriageTurnAgainst(
 //
 // The manifest has always carried the revision Coop forked from, and a
 // revision alone answers nothing: a commit id looks equally current whether the
-// checkout behind it was refreshed a minute ago or last month. Until Responder
+// checkout behind it was refreshed a minute ago or last month. Until Ryker
 // owned the clone nothing knew which — there was no `git fetch` anywhere in
 // this product — so "how old was the code the model read" was unanswerable on
 // every trace ever recorded.
@@ -196,7 +196,7 @@ func TestATurnRecordsTheAgeOfTheCodeItRead(t *testing.T) {
 // turn.
 //
 // This is the rule the whole freshness path is built around and the one worth
-// holding shut. GitHub being unreachable is not Responder failing to work: an
+// holding shut. GitHub being unreachable is not Ryker failing to work: an
 // incident answered from older code, with the age written down, is worth more
 // than an incident not answered at all. The failure has to be visible — on the
 // manifest, in the gauge — and it must not reach the turn.
@@ -251,7 +251,7 @@ func TestAnUnreachableRemoteDegradesTheTurnRatherThanBlockingIt(t *testing.T) {
 }
 
 // A repository nobody declared by slug records nothing at all, rather than
-// recording a confident "fresh" about a directory Responder does not own and
+// recording a confident "fresh" about a directory Ryker does not own and
 // has never fetched.
 func TestAnOperatorMaintainedCheckoutClaimsNoFreshness(t *testing.T) {
 	cfg := serviceConfig(t)

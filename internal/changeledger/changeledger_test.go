@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/changeledger"
-	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/ryker/internal/changeledger"
+	"github.com/AndrewDryga/ryker/internal/core"
 )
 
 func at(minutesAgo int) time.Time {

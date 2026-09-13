@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/slackui"
-	"github.com/AndrewDryga/responder/internal/store"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/slackui"
+	"github.com/AndrewDryga/ryker/internal/store"
 	"github.com/slack-go/slack"
 	"github.com/slack-go/slack/socketmode"
 )
@@ -21,7 +21,7 @@ import (
 // observation, which is the least durable record that gives all four reports
 // something to say, plus a service whose Slack can hold canvases.
 //
-// The logger is a parameter because one of these tests is about what Responder
+// The logger is a parameter because one of these tests is about what Ryker
 // says to its operator when Slack refuses, and a warning nobody can read is the
 // same as no warning at all.
 func reportFixture(

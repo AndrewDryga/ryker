@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/config"
+	"github.com/AndrewDryga/ryker/internal/config"
 	"sort"
 )
 
@@ -180,7 +180,7 @@ func (h *Handler) shell(r *http.Request, slug string, content any) Shell {
 	// work — "Coop unavailable", "Slack disconnected" — and this threw the
 	// string away and printed a bare red "not ready", so an operator watching
 	// alerts arrive and nothing happen had no way to tell a stopped execution
-	// environment from a Responder that had decided to stay quiet.
+	// environment from a Ryker that had decided to stay quiet.
 	shell.Ready, shell.NotReady = h.ready()
 	ctx := r.Context()
 	// A few tiny counts per render, against a local SQLite. The alternative —
@@ -971,7 +971,7 @@ func (h *Handler) workspaces(w http.ResponseWriter, r *http.Request) {
 }
 
 // conversation unpacks the state blob a list can only count. The goal, open
-// loops and learned knowledge are the substance of what Responder believes
+// loops and learned knowledge are the substance of what Ryker believes
 // about a channel, stored as one opaque column that nothing rendered.
 func (h *Handler) conversation(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
@@ -1019,7 +1019,7 @@ func (h *Handler) decisions(w http.ResponseWriter, r *http.Request) {
 		rates = append(rates, rate{class, count, total, percent(count, total)})
 	}
 	// The standing answer to "which model deserves which lane", on the page
-	// where the other verdicts about Responder's own behaviour already are. It
+	// where the other verdicts about Ryker's own behaviour already are. It
 	// carries the live half only; the panel says where the recorded half lives
 	// rather than showing an empty column that reads as broken.
 	auditionPanel, err := h.reader.AuditionPanel(ctx, h.pricing, auditionWindowDays)
@@ -1029,7 +1029,7 @@ func (h *Handler) decisions(w http.ResponseWriter, r *http.Request) {
 	// Praise is separated from the complaints rather than mixed in with them.
 	//
 	// Positive reactions have been captured for a while and read by nothing: they
-	// landed in the same list, under a heading about being told Responder got
+	// landed in the same list, under a heading about being told Ryker got
 	// something wrong, with no way to tell how many there were relative to the
 	// complaints. Two lists and one ratio is the difference between a table that
 	// accumulates and a page that says whether people are happy — and the praised
@@ -1099,7 +1099,7 @@ func (h *Handler) memory(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// channels is the roster: every channel Responder has a footprint in, grouped
+// channels is the roster: every channel Ryker has a footprint in, grouped
 // by what the channel is rather than by how busy it is.
 func (h *Handler) channels(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
@@ -1132,17 +1132,17 @@ type channelGroup struct {
 }
 
 // Lede says what the heading means, because "incident room" and "shared
-// channel" look alike in a grid and behave nothing alike: one Responder opened
+// channel" look alike in a grid and behave nothing alike: one Ryker opened
 // and will close, the other belongs to people who invited it in.
 func (g channelGroup) Lede() string {
 	switch g.Kind {
 	case "shared channel":
-		return "Channels a person invited Responder into. It only replies where its " +
+		return "Channels a person invited Ryker into. It only replies where its " +
 			"participation setting says it may."
 	case "incident room":
-		return "Channels Responder opened itself to work an incident in. They close with the work."
+		return "Channels Ryker opened itself to work an incident in. They close with the work."
 	case "direct message":
-		return "One-to-one conversations. Everything said here is meant for Responder."
+		return "One-to-one conversations. Everything said here is meant for Ryker."
 	}
 	return ""
 }
@@ -1150,7 +1150,7 @@ func (g channelGroup) Lede() string {
 // channel is the hub every other page's channel name now points at.
 //
 // Configuration listed channels and stopped there, so the question "how does
-// Responder behave here, and what has it done here" had no page: participation
+// Ryker behave here, and what has it done here" had no page: participation
 // lived in a slash command, memory on another page, work on a third, and
 // nothing tied them to the channel they belonged to.
 func (h *Handler) channel(w http.ResponseWriter, r *http.Request) {
@@ -1158,7 +1158,7 @@ func (h *Handler) channel(w http.ResponseWriter, r *http.Request) {
 	detail, found, err := h.reader.Channel(ctx, r.PathValue("id"))
 	if err != nil || !found {
 		h.trouble(w, r, http.StatusNotFound, "No such channel",
-			"Responder has never seen this channel: it is not a member, nothing is configured for it, and no work is recorded in it.")
+			"Ryker has never seen this channel: it is not a member, nothing is configured for it, and no work is recorded in it.")
 		return
 	}
 	var failed problems
@@ -1178,7 +1178,7 @@ func (h *Handler) channel(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// configuration is the index of everything that has been told to Responder and
+// configuration is the index of everything that has been told to Ryker and
 // keeps applying: where it works, when it runs on its own, how it answers, and
 // what it reacts to without being asked.
 //
@@ -1259,7 +1259,7 @@ func (h *Handler) configuration(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// preferences is how Responder answers, as opposed to what it answers.
+// preferences is how Ryker answers, as opposed to what it answers.
 func (h *Handler) preferences(w http.ResponseWriter, r *http.Request) {
 	var failed problems
 	items, err := h.reader.PreferenceDetails(r.Context())
@@ -1270,7 +1270,7 @@ func (h *Handler) preferences(w http.ResponseWriter, r *http.Request) {
 	}{items, failed})
 }
 
-// rules lists the standing rules: the work Responder starts without being
+// rules lists the standing rules: the work Ryker starts without being
 // asked, which is the configuration most worth reading and least visible.
 func (h *Handler) rules(w http.ResponseWriter, r *http.Request) {
 	var failed problems
@@ -1386,7 +1386,7 @@ func costUnwired(cost UsageCost) Unwired {
 	case !cost.Configured:
 		return Unwired{Tag: "No provider-reported cost or price table",
 			Needs: "No turn in this window carried provider-reported USD cost, and this deployment " +
-				"has no configured token prices for an estimate. config/responder.example.yaml " +
+				"has no configured token prices for an estimate. config/ryker.example.yaml " +
 				"shows the fallback price-table shape."}
 	case cost.MeasuredRows == 0:
 		return Unwired{Tag: "Nothing measured to price",

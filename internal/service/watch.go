@@ -9,28 +9,28 @@ import (
 	"strings"
 	"time"
 
-	attentionpkg "github.com/AndrewDryga/responder/internal/attention"
-	behaviorofferpkg "github.com/AndrewDryga/responder/internal/behavioroffer"
-	"github.com/AndrewDryga/responder/internal/changeledger"
-	"github.com/AndrewDryga/responder/internal/config"
-	"github.com/AndrewDryga/responder/internal/coop"
-	"github.com/AndrewDryga/responder/internal/core"
-	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
-	"github.com/AndrewDryga/responder/internal/investigation"
-	"github.com/AndrewDryga/responder/internal/openquestions"
-	"github.com/AndrewDryga/responder/internal/operatorchoice"
-	operatorofferspkg "github.com/AndrewDryga/responder/internal/operatoroffers"
-	"github.com/AndrewDryga/responder/internal/promptscope"
-	schedulepkg "github.com/AndrewDryga/responder/internal/schedule"
-	scheduleofferpkg "github.com/AndrewDryga/responder/internal/scheduleoffer"
-	"github.com/AndrewDryga/responder/internal/sessionauthority"
-	"github.com/AndrewDryga/responder/internal/sessioncreate"
-	"github.com/AndrewDryga/responder/internal/slackfile"
-	"github.com/AndrewDryga/responder/internal/slackui"
-	"github.com/AndrewDryga/responder/internal/store"
-	"github.com/AndrewDryga/responder/internal/taskaccess"
-	"github.com/AndrewDryga/responder/internal/taskpr"
-	"github.com/AndrewDryga/responder/internal/watchpresence"
+	attentionpkg "github.com/AndrewDryga/ryker/internal/attention"
+	behaviorofferpkg "github.com/AndrewDryga/ryker/internal/behavioroffer"
+	"github.com/AndrewDryga/ryker/internal/changeledger"
+	"github.com/AndrewDryga/ryker/internal/config"
+	"github.com/AndrewDryga/ryker/internal/coop"
+	"github.com/AndrewDryga/ryker/internal/core"
+	decisionpkg "github.com/AndrewDryga/ryker/internal/decision"
+	"github.com/AndrewDryga/ryker/internal/investigation"
+	"github.com/AndrewDryga/ryker/internal/openquestions"
+	"github.com/AndrewDryga/ryker/internal/operatorchoice"
+	operatorofferspkg "github.com/AndrewDryga/ryker/internal/operatoroffers"
+	"github.com/AndrewDryga/ryker/internal/promptscope"
+	schedulepkg "github.com/AndrewDryga/ryker/internal/schedule"
+	scheduleofferpkg "github.com/AndrewDryga/ryker/internal/scheduleoffer"
+	"github.com/AndrewDryga/ryker/internal/sessionauthority"
+	"github.com/AndrewDryga/ryker/internal/sessioncreate"
+	"github.com/AndrewDryga/ryker/internal/slackfile"
+	"github.com/AndrewDryga/ryker/internal/slackui"
+	"github.com/AndrewDryga/ryker/internal/store"
+	"github.com/AndrewDryga/ryker/internal/taskaccess"
+	"github.com/AndrewDryga/ryker/internal/taskpr"
+	"github.com/AndrewDryga/ryker/internal/watchpresence"
 )
 
 // WatchContextTextLimit caps how much of any one message body the watch
@@ -91,7 +91,7 @@ func (s *Service) ensureWatchSessionForRepositoryAtGeneration(
 		if err := s.retireRotatedSession(
 			ctx,
 			memory.SessionID,
-			fmt.Sprintf("responder:watch-rotate:%s:%d", channelID, generation),
+			fmt.Sprintf("ryker:watch-rotate:%s:%d", channelID, generation),
 			"rotated Slack channel memory",
 			outgoingSession{
 				memoryChannelID: channelID, repository: memory.Repository,
@@ -209,7 +209,7 @@ func (s *Service) ensureConversationSessionAtGeneration(
 		if err := s.retireRotatedSession(
 			ctx,
 			memory.SessionID,
-			fmt.Sprintf("responder:conversation-rotate:%s:%d", channelID, generation),
+			fmt.Sprintf("ryker:conversation-rotate:%s:%d", channelID, generation),
 			"rotated Slack conversation session",
 			outgoingSession{
 				memoryChannelID: channelID, repository: memory.Repository,
@@ -266,7 +266,7 @@ func (s *Service) createConversationSession(
 ) (coop.Session, int, error) {
 	return sessioncreate.ResolveCandidates(ctx, sessioncreate.CandidateRequest{
 		Lane: "conversation", Generation: generation, RepositoryReadOnly: true,
-		BaseKey:        "responder:conversation-session:" + channelID,
+		BaseKey:        "ryker:conversation-session:" + channelID,
 		AttemptStarted: s.now().UTC(), Lookup: s.coop,
 		Create: func(ctx context.Context, key string, candidate int) (coop.Session, error) {
 			session, _, err := s.coop.CreateSession(ctx, key, policy, fmt.Sprintf(
@@ -296,7 +296,7 @@ func (s *Service) createWatchSession(
 ) (coop.Session, int, error) {
 	return sessioncreate.ResolveCandidates(ctx, sessioncreate.CandidateRequest{
 		Lane: "watch", Generation: generation, RepositoryReadOnly: true,
-		BaseKey:        "responder:watch-session:" + channelID,
+		BaseKey:        "ryker:watch-session:" + channelID,
 		AttemptStarted: s.now().UTC(), Lookup: s.coop,
 		Create: func(ctx context.Context, key string, candidate int) (coop.Session, error) {
 			session, _, err := s.coop.CreateSession(ctx, key, policy, fmt.Sprintf(
@@ -326,7 +326,7 @@ func (s *Service) createWatchSession(
 }
 
 func watchTurnIdempotencyKey(inputID string, generation int) string {
-	key := "responder:watch-turn:" + inputID
+	key := "ryker:watch-turn:" + inputID
 	if generation > 1 {
 		return fmt.Sprintf("%s:%d", key, generation)
 	}
@@ -694,7 +694,7 @@ func watchDecisionCanActivateSchedule(decision decisionpkg.WatchDecision) bool {
 // decision is recorded and the standing rules are marked as having run, but
 // nothing is posted.
 //
-// Shadow mode exists so a channel can be watched for a while before Responder
+// Shadow mode exists so a channel can be watched for a while before Ryker
 // speaks in it. Recording the run against each matched rule matters even here —
 // it is what lets an operator see what the rule would have done before turning
 // it live.
@@ -1033,7 +1033,7 @@ func (s *Service) applyWatchDecision(
 	}
 	// After the answer is delivered, not before. A standing assignment acts on
 	// what the investigation concluded, and it must never delay or replace the
-	// reply someone is waiting for — proactive work is what Responder does with
+	// reply someone is waiting for — proactive work is what Ryker does with
 	// the conclusion afterwards.
 	if err := s.considerProactiveWork(
 		ctx, input, episodeID, decision.Completion, decision.Evidence,
@@ -1201,7 +1201,7 @@ func (s *Service) watchReplyMessage(
 ) slackui.Message {
 	if input.Kind == "bot_message" {
 		// Evidence remains in the ledger. App-alert replies should read like a teammate's
-		// update, not expose Responder's internal bookkeeping count in the channel.
+		// update, not expose Ryker's internal bookkeeping count in the channel.
 		return slackui.EvidenceResponse(text, nil, nil, s.sanitizer)
 	}
 	return slackui.ConciseEvidenceResponse(
@@ -1224,7 +1224,7 @@ func watchDecisionCorrectionPrompt(detail string) string {
 	return `
 
 <host-decision-correction>
-Responder rejected your previous result, not your work: ` + detail + `.
+Ryker rejected your previous result, not your work: ` + detail + `.
 The investigation you already did stands — its tool results are in this conversation, and
 re-running them is waste. Fix exactly what the rejection names, changing the decision itself only
 when the rejection is about the decision. Return only what changes: your one complete_episode with
@@ -1355,10 +1355,10 @@ func (s *Service) createWatchedWork(
 		if !errors.Is(err, store.ErrCapacity) {
 			return err
 		}
-		capacityMessage := "This needs investigation, but Responder is at its open incident limit. " +
+		capacityMessage := "This needs investigation, but Ryker is at its open incident limit. " +
 			"Close an existing incident or raise limits.max_open_incidents, then try again."
 		if engineeringTask {
-			capacityMessage = "Responder cannot start this engineering task because the configured " +
+			capacityMessage = "Ryker cannot start this engineering task because the configured " +
 				"open work limit is full. Close an existing incident or task, or raise " +
 				"`limits.max_open_incidents`, then try again."
 		}
@@ -1514,7 +1514,7 @@ func (s *Service) handleWatchIncidentOfferAction(
 			input,
 			"denied",
 			"actor is not a configured incident operator",
-			"*Responder did not open an incident.* Only a configured incident operator can "+
+			"*Ryker did not open an incident.* Only a configured incident operator can "+
 				"approve a dedicated room and isolated working copy. No action was taken.",
 		)
 	}
@@ -1528,7 +1528,7 @@ func (s *Service) handleWatchIncidentOfferAction(
 			input,
 			"denied",
 			"actor is not an active full workspace member",
-			"*Responder did not open an incident.* Slack guests, bots, and external workspace "+
+			"*Ryker did not open an incident.* Slack guests, bots, and external workspace "+
 				"members cannot approve incident creation. No action was taken.",
 		)
 	}
@@ -1610,7 +1610,7 @@ func (s *Service) handleWatchTaskOfferAction(
 			input,
 			"denied",
 			"actor is not an active full workspace member",
-			"*Responder did not start an engineering task.* Only active full members of this "+
+			"*Ryker did not start an engineering task.* Only active full members of this "+
 				"Slack workspace can start writable repository work. No action was taken.",
 		)
 	}
@@ -1678,7 +1678,7 @@ func (s *Service) handleWatchTaskOfferAction(
 			input,
 			"invalid",
 			"source Slack input has no valid repository binding",
-			"*This engineering task offer has no valid repository binding.* Ask Responder to "+
+			"*This engineering task offer has no valid repository binding.* Ask Ryker to "+
 				"prepare the task again. No task session or working copy was created.",
 		)
 	}
@@ -1688,7 +1688,7 @@ func (s *Service) handleWatchTaskOfferAction(
 		); err != nil {
 			return s.finishWatchTaskOffer(
 				ctx, input, "denied", trimError(err),
-				"*Responder did not start this engineering task.* Workspace members may start work only "+
+				"*Ryker did not start this engineering task.* Workspace members may start work only "+
 					"for a contributor-enabled repository assigned to this channel. Ask an operator to update "+
 					"the channel configuration, then prepare a new task offer. No session or working copy was created.",
 			)
@@ -1935,7 +1935,7 @@ func WatchPromptMessage(
 	} else if input.Kind == "recheck" {
 		senderType = "host_recheck"
 	}
-	mentionsResponder := botUserID != "" &&
+	mentionsRyker := botUserID != "" &&
 		strings.Contains(input.Text, "<@"+botUserID+">")
 	// Marked, not silent: a model cannot tell a message the host shortened from
 	// a message the person actually ended mid-sentence, and it answers the
@@ -1988,8 +1988,8 @@ func WatchPromptMessage(
 		MessageTS: input.MessageTS, ThreadTS: input.ThreadTS,
 		MessageLink: SlackMessageLink(input),
 		SenderID:    senderID, SenderType: senderType, Text: text, Attachments: attachments,
-		Reactions:         reactions,
-		MentionsResponder: mentionsResponder, RequestedBy: requestedBy, Target: target,
+		Reactions:     reactions,
+		MentionsRyker: mentionsRyker, RequestedBy: requestedBy, Target: target,
 	}
 }
 
@@ -2259,7 +2259,7 @@ also invite a relevant meme, but do not send unsolicited visual noise. Never cre
 an incident, outage, security or privacy event, approval, failed change, or customer-impacting event
 unless the user explicitly asks and the result cannot trivialize the situation or blame a person.
 Never inline image bytes, base64, data URLs, or local paths. Describe the result without claiming
-that a file is attached or uploaded; Responder owns Slack delivery and reports any upload failure.
+that a file is attached or uploaded; Ryker owns Slack delivery and reports any upload failure.
 For charts, use verified data, label axes and units, and explain the source, time range, freshness,
 and gaps in message/evidence; the chart itself is not evidence. Creative images and memes may omit
 evidence but still need accurate, useful alt text. If no capable tool is available, say so plainly
@@ -2461,7 +2461,7 @@ Incident admission is classification, not the investigation itself. When an unma
 external_app alert or an explicit configured-operator request already authorizes action=incident,
 decide from the supplied Slack context without repository or MCP tool calls. A matched standing
 rule is different: perform its bounded read-only work now and return reply, never incident. The
-dedicated incident session will investigate only after Responder actually creates an incident. Use
+dedicated incident session will investigate only after Ryker actually creates an incident. Use
 tools in this shared-channel turn only when they are needed to produce a substantive reply.
 
 Return one typed watch envelope with an honest attention assessment. A proactive reply should
@@ -2616,9 +2616,9 @@ context for comparison only; they must not cause action=ignore or replace the re
 ` + watchEvidenceRefreshPolicy + `
 
 ` + compoundRequests + `Configured repository bindings:
-<trusted-responder-configuration>
+<trusted-ryker-configuration>
 ` + string(repositoryCatalog) + `
-</trusted-responder-configuration>
+</trusted-ryker-configuration>
 
 ` + publicationCorrelationPolicy + watchDurableBehaviorPolicy + `
 

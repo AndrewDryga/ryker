@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/ryker/internal/core"
 )
 
 func queueKernelEpisodeForConversation(t *testing.T, st *Store, source string, conversation string) (core.AgentRun, core.WorkEpisode) {
@@ -805,7 +805,7 @@ func TestEpisodeCorrectionTotalCountsCorrectionsNotAttempts(t *testing.T) {
 // A live OOM replay completed a three-minute investigation, then never got the
 // one correction its result needed. Two older runs in the same alert episode
 // predated structured contexts and stored an empty context blob; json_extract
-// failed on that legacy row, so Responder discarded the useful result before
+// failed on that legacy row, so Ryker discarded the useful result before
 // it could ask the model to repair it.
 func TestEpisodeCorrectionTotalTreatsLegacyInvalidContextsAsZero(t *testing.T) {
 	ctx := context.Background()

@@ -14,8 +14,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/config"
-	"github.com/AndrewDryga/responder/internal/repomirror"
+	"github.com/AndrewDryga/ryker/internal/config"
+	"github.com/AndrewDryga/ryker/internal/repomirror"
 	"gopkg.in/yaml.v3"
 )
 
@@ -43,7 +43,7 @@ type coopSupervisor struct {
 
 // coopRuntimeRepairGate prevents a missing Docker daemon or broken image build
 // from turning an alert burst into one expensive build attempt per message.
-// Responder remains online, keeps the work queued, and retries the shared
+// Ryker remains online, keeps the work queued, and retries the shared
 // dependency on an exponential schedule.
 type coopRuntimeRepairGate struct {
 	mu       sync.Mutex
@@ -225,7 +225,7 @@ func checkManagedCoopImage(cfg config.Config) error {
 		return nil
 	}
 	return fmt.Errorf(
-		"managed Coop box image is missing; Responder cannot execute agent turns; run:\n  cd %s && COOP_CONFIG_DIR=%s %s build\nthen retry Responder",
+		"managed Coop box image is missing; Ryker cannot execute agent turns; run:\n  cd %s && COOP_CONFIG_DIR=%s %s build\nthen retry Ryker",
 		shellWord(managedCoopRepository(cfg)),
 		shellWord(cfg.Coop.BootstrapDir),
 		shellWord(cfg.Coop.Binary),
@@ -280,7 +280,7 @@ func managedCoopCommand(cfg config.Config, args ...string) (*exec.Cmd, error) {
 // managedCoopRepository is the checkout the box-image preflight runs in.
 //
 // Through the one resolution point, so a repository declared by slug — which
-// has no configured path at all — resolves to Responder's own clone instead of
+// has no configured path at all — resolves to Ryker's own clone instead of
 // the empty string, which reached the operator as "default repository has no
 // path" and named nothing they could act on.
 func managedCoopRepository(cfg config.Config) string {
@@ -329,7 +329,7 @@ func startManagedCoop(
 }
 
 // monitorAttached adopts a healthy Coop process left behind by an interrupted
-// Responder restart. If that process later disappears, this Responder starts a
+// Ryker restart. If that process later disappears, this Ryker starts a
 // replacement and resumes ordinary child-process supervision.
 func (s *coopSupervisor) monitorAttached(client coopReadiness) {
 	delay := s.cfg.Coop.RestartDelay.Duration
@@ -759,7 +759,7 @@ func coopAuthenticationRemediation(cfg config.Config, output string) string {
 	}
 	loginTarget := provider + "@" + account
 	return fmt.Sprintf(
-		"managed Coop target %s is not authenticated; run:\n  COOP_CONFIG_DIR=%s %s login %s\nthen retry Responder",
+		"managed Coop target %s is not authenticated; run:\n  COOP_CONFIG_DIR=%s %s login %s\nthen retry Ryker",
 		loginTarget,
 		shellWord(cfg.Coop.BootstrapDir),
 		shellWord(cfg.Coop.Binary),

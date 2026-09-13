@@ -9,11 +9,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/config"
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/remediation"
-	"github.com/AndrewDryga/responder/internal/slackui"
-	"github.com/AndrewDryga/responder/internal/store"
+	"github.com/AndrewDryga/ryker/internal/config"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/remediation"
+	"github.com/AndrewDryga/ryker/internal/slackui"
+	"github.com/AndrewDryga/ryker/internal/store"
 )
 
 var grantAction = remediation.ActionRef{
@@ -204,7 +204,7 @@ func TestARedeliveredPromotionClickGrantsTheSameRungOnce(t *testing.T) {
 
 // TestOnlyAnOperatorCanGrantRemediationAuthority is the check the memory
 // confirmation never got its own test for, on the click where it matters most:
-// this one decides what Responder may DO.
+// this one decides what Ryker may DO.
 func TestOnlyAnOperatorCanGrantRemediationAuthority(t *testing.T) {
 	ctx := context.Background()
 	svc, st, raw, cfg := grantService(t)
@@ -277,7 +277,7 @@ func TestAPromotionClickCannotWidenItsOwnScope(t *testing.T) {
 //
 // Demotion asks nobody and waits for nothing. A run that failed is evidence
 // about the action, and the grant that offered it drops a rung the moment
-// Responder learns of it.
+// Ryker learns of it.
 func TestAFailedRunDemotesEveryGrantThatOfferedTheAction(t *testing.T) {
 	ctx := context.Background()
 	svc, st, _, cfg := grantService(t)

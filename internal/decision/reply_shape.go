@@ -1,6 +1,6 @@
 package decision
 
-import "github.com/AndrewDryga/responder/internal/replypolicy"
+import "github.com/AndrewDryga/ryker/internal/replypolicy"
 
 const handBackFloor = replypolicy.HandBackFloor
 

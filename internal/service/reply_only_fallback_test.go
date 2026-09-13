@@ -3,9 +3,9 @@ package service
 import (
 	"testing"
 
-	"github.com/AndrewDryga/responder/internal/core"
-	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
-	"github.com/AndrewDryga/responder/internal/resultrecovery"
+	"github.com/AndrewDryga/ryker/internal/core"
+	decisionpkg "github.com/AndrewDryga/ryker/internal/decision"
+	"github.com/AndrewDryga/ryker/internal/resultrecovery"
 )
 
 func TestARepeatedSchemaFailureAnswersWithoutApplyingInvalidOperations(t *testing.T) {

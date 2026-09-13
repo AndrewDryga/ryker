@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/investigation"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/investigation"
 )
 
 // The rule must not fire on an answer that has nothing to move.
@@ -129,7 +129,7 @@ func TestUnreadableEnvelopeNamesTheOperationsThatCarryTheResult(t *testing.T) {
 // operations to reply, and the silent ignore path accepts exactly one
 // update_memory and nothing else. So for these decisions the typed shape does
 // not express what the model decided: obeying would open no incident, or would
-// make Responder speak in a conversation it had chosen to stay out of. The old
+// make Ryker speak in a conversation it had chosen to stay out of. The old
 // shape is read instead — that is a host bug avoided, not a tolerance kept.
 func TestTheEnvelopeIsReadWhereTheTypedShapeChangesTheDecision(t *testing.T) {
 	for name, decision := range map[string]WatchDecision{

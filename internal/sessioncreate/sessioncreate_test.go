@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/AndrewDryga/responder/internal/coop"
+	"github.com/AndrewDryga/ryker/internal/coop"
 )
 
 // Coop detail may contain operation IDs, refs, and local checkout paths. The
@@ -18,7 +18,7 @@ func TestRepositoryPreparationStatusDoesNotExposeCoopDetail(t *testing.T) {
 	if strings.Contains(status, secret) || strings.Contains(status, "op_secret_123") {
 		t.Fatalf("workspace status exposed Coop detail: %q", status)
 	}
-	for _, want := range []string{"Investigation queued", "No model turn has started", "Responder will retry"} {
+	for _, want := range []string{"Investigation queued", "No model turn has started", "Ryker will retry"} {
 		if !strings.Contains(status, want) {
 			t.Fatalf("workspace status lost %q: %q", want, status)
 		}

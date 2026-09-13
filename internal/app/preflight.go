@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"os"
 
-	"github.com/AndrewDryga/responder/internal/config"
-	"github.com/AndrewDryga/responder/internal/publisher"
+	"github.com/AndrewDryga/ryker/internal/config"
+	"github.com/AndrewDryga/ryker/internal/publisher"
 )
 
 // preflight is the set of readiness checks serve, doctor and eval run before
@@ -136,7 +136,7 @@ func (p *preflight) checkEmisarMCP(ctx context.Context) error {
 }
 
 // checkGitHubPublisher proves the push credential works before any work is
-// accepted that would need it. Accepting work Responder cannot finish is worse
+// accepted that would need it. Accepting work Ryker cannot finish is worse
 // than refusing it up front.
 func (p *preflight) checkGitHubPublisher(ctx context.Context) error {
 	return p.publisher().Ready(ctx)

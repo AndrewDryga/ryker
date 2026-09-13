@@ -7,9 +7,9 @@ import (
 	"slices"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/core"
-	memorypkg "github.com/AndrewDryga/responder/internal/memory"
-	"github.com/AndrewDryga/responder/internal/store"
+	"github.com/AndrewDryga/ryker/internal/core"
+	memorypkg "github.com/AndrewDryga/ryker/internal/memory"
+	"github.com/AndrewDryga/ryker/internal/store"
 )
 
 func (s *Service) maintainMemory(ctx context.Context, now time.Time) error {

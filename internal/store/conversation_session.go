@@ -6,8 +6,8 @@ import (
 	"errors"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/store/sqlutil"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/store/sqlutil"
 )
 
 func (s *Store) GetConversationSession(
@@ -48,7 +48,7 @@ func (s *Store) GetConversationSession(
 }
 
 // ListRecentConversationChannels returns durable conversation lanes in activity order.
-// Responder uses this to restore warm model sessions for dynamically joined Slack channels.
+// Ryker uses this to restore warm model sessions for dynamically joined Slack channels.
 func (s *Store) ListRecentConversationChannels(
 	ctx context.Context,
 	limit int,

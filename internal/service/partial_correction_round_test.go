@@ -10,11 +10,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/coop"
-	"github.com/AndrewDryga/responder/internal/core"
-	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
-	"github.com/AndrewDryga/responder/internal/slackui"
-	"github.com/AndrewDryga/responder/internal/store"
+	"github.com/AndrewDryga/ryker/internal/coop"
+	"github.com/AndrewDryga/ryker/internal/core"
+	decisionpkg "github.com/AndrewDryga/ryker/internal/decision"
+	"github.com/AndrewDryga/ryker/internal/slackui"
+	"github.com/AndrewDryga/ryker/internal/store"
 )
 
 // A partial correction must preserve the typed evidence that an earlier round
@@ -22,7 +22,7 @@ import (
 // current workload and application evidence in round one, then spent six
 // correction turns until the host incorrectly asked for those exact records
 // again. Besides delaying the requested answer, the loop consumed more than
-// 200k input tokens for evidence Responder already held.
+// 200k input tokens for evidence Ryker already held.
 func TestPartialCorrectionNeverForgetsRequiredTypedEvidence(t *testing.T) {
 	ctx := context.Background()
 	cfg := serviceConfig(t)
@@ -121,7 +121,7 @@ func freshenLiveRivalsRound(round string) string {
 
 // The same retention guarantee applies to engineering reports. The harvested
 // release-manager report put four valid evidence rows before an invalid task
-// offer projection. Responder correctly rejected the offer stream, but used to
+// offer projection. Ryker correctly rejected the offer stream, but used to
 // persist no evidence for the correction, making its "host still holds it"
 // instruction false and inviting the same expensive evidence loop.
 func TestInvalidEngineeringReportCarriesValidEvidenceIntoCorrection(t *testing.T) {

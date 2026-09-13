@@ -1,8 +1,8 @@
 package service
 
 import (
-	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
-	"github.com/AndrewDryga/responder/internal/resultrecovery"
+	decisionpkg "github.com/AndrewDryga/ryker/internal/decision"
+	"github.com/AndrewDryga/ryker/internal/resultrecovery"
 )
 
 func terminalStructuredCorrection(attempt, episodeCorrections, maximum int) bool {

@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/AndrewDryga/responder/internal/operationalkey"
+	"github.com/AndrewDryga/ryker/internal/operationalkey"
 )
 
 // The projection has never stored an alert identity for an alert delivered as

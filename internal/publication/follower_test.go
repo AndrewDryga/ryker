@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/slackui"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/slackui"
 )
 
 type orderingFollowups struct {
@@ -100,7 +100,7 @@ func (orderingReporter) RecordTimeline(context.Context, core.TimelineEvent) {}
 
 // A transition is what turns "the forge says something changed" into a message
 // an operator sees. The cases that must NOT emit one matter most: a stale
-// publication and an unverified PR head both mean Responder is looking at
+// publication and an unverified PR head both mean Ryker is looking at
 // something other than what it published, and reporting on it would attribute
 // someone else's change to this task.
 func TestPublicationTransitions(t *testing.T) {

@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/ryker/internal/core"
 )
 
 func failKernelEpisode(t *testing.T, st *Store, source string) core.AgentRun {

@@ -10,18 +10,18 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/agentprompt"
-	"github.com/AndrewDryga/responder/internal/coop"
-	"github.com/AndrewDryga/responder/internal/core"
-	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
-	"github.com/AndrewDryga/responder/internal/emisar"
-	"github.com/AndrewDryga/responder/internal/provider"
-	"github.com/AndrewDryga/responder/internal/runreplay"
-	"github.com/AndrewDryga/responder/internal/slackui"
-	"github.com/AndrewDryga/responder/internal/store"
-	"github.com/AndrewDryga/responder/internal/store/storetest"
-	"github.com/AndrewDryga/responder/internal/taskcard"
-	"github.com/AndrewDryga/responder/internal/turncapacity"
+	"github.com/AndrewDryga/ryker/internal/agentprompt"
+	"github.com/AndrewDryga/ryker/internal/coop"
+	"github.com/AndrewDryga/ryker/internal/core"
+	decisionpkg "github.com/AndrewDryga/ryker/internal/decision"
+	"github.com/AndrewDryga/ryker/internal/emisar"
+	"github.com/AndrewDryga/ryker/internal/provider"
+	"github.com/AndrewDryga/ryker/internal/runreplay"
+	"github.com/AndrewDryga/ryker/internal/slackui"
+	"github.com/AndrewDryga/ryker/internal/store"
+	"github.com/AndrewDryga/ryker/internal/store/storetest"
+	"github.com/AndrewDryga/ryker/internal/taskcard"
+	"github.com/AndrewDryga/ryker/internal/turncapacity"
 )
 
 func TestEmisarApprovalMonitorUpdatesCardAndQueuesOneContinuation(t *testing.T) {
@@ -245,7 +245,7 @@ func TestEmisarApprovalSchedulerRecoversPersistedTerminalRun(t *testing.T) {
 	}
 }
 
-func TestAgentRunInterruptedByResponderShutdownIsReplayed(t *testing.T) {
+func TestAgentRunInterruptedByRykerShutdownIsReplayed(t *testing.T) {
 	ctx := context.Background()
 	cfg := serviceConfig(t)
 	st, err := store.Open(cfg.StateDir)
@@ -675,7 +675,7 @@ func TestAgentRunACPProcessFailureRotatesSlackInvestigationSession(t *testing.T)
 		t.Fatalf("requeued process failure = %+v, %v", requeued, err)
 	}
 	firstSession := requeued.SessionID
-	coopClient.openAfterCreateKey = "responder:watch-session:CPROCESS:2"
+	coopClient.openAfterCreateKey = "ryker:watch-session:CPROCESS:2"
 	if err := svc.processAgentRun(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -702,7 +702,7 @@ func TestAgentRunACPProcessFailureRotatesSlackInvestigationSession(t *testing.T)
 }
 
 // The 2026-08-18 ingress alert reached a valid read-only session, then Coop's
-// runtime cleanup timed out while the host was under test load. Responder
+// runtime cleanup timed out while the host was under test load. Ryker
 // treated session_cleanup_error as the investigation's answer, failed the run,
 // and left only a warning reaction. Infrastructure cleanup must instead rotate
 // the disposable session and deliver the accepted alert investigation.
@@ -770,7 +770,7 @@ func TestRuntimeCleanupTimeoutRecoversTheAlertInAFreshSession(t *testing.T) {
 	if state.RuntimeCleanupReplays != 1 {
 		t.Fatalf("runtime cleanup replay marker = %d, want 1", state.RuntimeCleanupReplays)
 	}
-	coopClient.openAfterCreateKey = "responder:watch-session:" + state.SessionChannelID + ":2"
+	coopClient.openAfterCreateKey = "ryker:watch-session:" + state.SessionChannelID + ":2"
 	if err := svc.processAgentRun(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -847,7 +847,7 @@ func TestACPInternalErrorRecoversTheAlertInAFreshSession(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	coopClient.openAfterCreateKey = "responder:watch-session:" + state.SessionChannelID + ":2"
+	coopClient.openAfterCreateKey = "ryker:watch-session:" + state.SessionChannelID + ":2"
 	if err := svc.processAgentRun(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -868,7 +868,7 @@ func TestACPInternalErrorRecoversTheAlertInAFreshSession(t *testing.T) {
 }
 
 // Five accepted alerts were parked on a poisoned session at revision 32. Once
-// that session was retired, Responder correctly created generation 2 at
+// that session was retired, Ryker correctly created generation 2 at
 // revision 1 but submitted its first turn with the old frozen revision. Every
 // replacement therefore began with an impossible 409 before any model turn.
 func TestFreshAlertSessionDoesNotInheritTheRetiredSessionsRevision(t *testing.T) {
@@ -942,7 +942,7 @@ func TestFreshAlertSessionDoesNotInheritTheRetiredSessionsRevision(t *testing.T)
 
 	coopClient.session.State = "closed"
 	coopClient.session.Revision = 32
-	coopClient.openAfterCreateKey = "responder:watch-session:CSTALE-REVISION:2"
+	coopClient.openAfterCreateKey = "ryker:watch-session:CSTALE-REVISION:2"
 	coopClient.validateSubmitRevision = true
 	if err := svc.processAgentRun(ctx); err != nil {
 		t.Fatal(err)
@@ -1163,7 +1163,7 @@ func TestAgentRunTranscriptOverflowRotatesSlackSession(t *testing.T) {
 		t.Fatalf("requeued Slack run = %+v, %v", requeued, err)
 	}
 	firstSession := requeued.SessionID
-	coopClient.openAfterCreateKey = "responder:watch-session:COVERFLOW:2"
+	coopClient.openAfterCreateKey = "ryker:watch-session:COVERFLOW:2"
 	if err := svc.processAgentRun(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -1572,7 +1572,7 @@ func TestAnExhaustedWatchSessionStartsFreshWithoutSpendingAcceptedWork(t *testin
 	coopClient := newFakeCoop()
 	coopClient.session.State = "exhausted"
 	coopClient.session.MaxTurns = cfg.Coop.TurnLimit
-	coopClient.openAfterCreateKey = "responder:watch-session:CCEILING:2"
+	coopClient.openAfterCreateKey = "ryker:watch-session:CCEILING:2"
 	svc := New(
 		cfg, st, coopClient, &fakeSlack{}, nil,
 		slackui.NewSanitizer(12000), nil,
@@ -1759,7 +1759,7 @@ func TestRequiredPromptTooLargeIsTerminalOnFirstPreparationAttempt(t *testing.T)
 
 // An idempotency conflict on a key the run owns has one likely cause: the
 // submission reached Coop and its response did not reach us. The turn is
-// running. Responder read "409 is not retryable" as "this work is finished",
+// running. Ryker read "409 is not retryable" as "this work is finished",
 // retired the session and failed the run — dropping an alert whose
 // investigation was at that moment underway.
 // Covers finding: 20260813T033451Z-run_d2a8415466305a982ca258139dd34120
@@ -2626,7 +2626,7 @@ func TestFirstTurnTimeoutStillRetriesAfterPreparationFailures(t *testing.T) {
 
 // A Typesense investigation accumulated two session-revision conflicts before
 // its first runtime cleanup failure. The cleanup was real model work with its
-// own bounded recovery, but the shared failure counter made Responder abandon
+// own bounded recovery, but the shared failure counter made Ryker abandon
 // the alert without a reply.
 func TestFirstRuntimeCleanupFailureSurvivesEarlierRevisionConflicts(t *testing.T) {
 	run := core.AgentRun{Mode: core.AgentRunTriage, Failures: 7}

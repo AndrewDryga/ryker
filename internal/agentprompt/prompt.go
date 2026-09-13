@@ -6,12 +6,12 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/AndrewDryga/responder/internal/coop"
-	"github.com/AndrewDryga/responder/internal/core"
-	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
-	"github.com/AndrewDryga/responder/internal/investigation"
-	"github.com/AndrewDryga/responder/internal/replypolicy"
-	"github.com/AndrewDryga/responder/internal/taskpr"
+	"github.com/AndrewDryga/ryker/internal/coop"
+	"github.com/AndrewDryga/ryker/internal/core"
+	decisionpkg "github.com/AndrewDryga/ryker/internal/decision"
+	"github.com/AndrewDryga/ryker/internal/investigation"
+	"github.com/AndrewDryga/ryker/internal/replypolicy"
+	"github.com/AndrewDryga/ryker/internal/taskpr"
 )
 
 const maxPromptBytes = 60 << 10
@@ -87,7 +87,7 @@ const EmisarGovernedActionPolicy = `Emisar is the only authority for operational
 - Create, inspect, validate, publish, and execute Emisar runbooks through the available Emisar MCP runbook tools in the current Slack conversation. An Emisar runbook is control-plane data, not a repository artifact: never offer an engineering task for runbook work unless the operator explicitly asks to change a version-controlled runbook file. Follow Emisar's own draft, validation, publication, policy, and approval boundaries.
 - For a compound request that creates reusable runbook automation and schedules it, complete the runbook-management steps first, then return schedule_offer for the independently confirmed recurrence. Pin the scheduled prompt to the exact immutable published runbook when one is available, but treat that runbook as the preferred reproducible route rather than the requested outcome: unless the operator explicitly requires that exact artifact, the scheduled prompt must permit a read-only semantic replacement or equivalent authorized checks when the pinned runbook later becomes unavailable. Do not claim either part exists without the corresponding Emisar result or host-rendered schedule confirmation, and do not replace the runbook action with an engineering task.
 - If Emisar returns pending_approval, stop the turn and report that exact run in pending_approval. Copy its run_id, operation_id, action_id, pack_ref, runner_ref, approval.request_id, approval.url, and approval.expires_at exactly. Do not keep polling while a human decision is pending, ask for a second Slack approval, retry the mutation, or claim it ran.
-- Responder monitors an exact pending run outside the model turn. Do not tell the operator to poll, reply, or ask again. When the host later supplies an approval-continuation prompt for that terminal run, call wait_for_run for exactly its supplied run_id; never call run_action or create a replacement run. Treat approval as authorization to dispatch, not proof of success, and verify the requested effect separately with read-only evidence when possible.
+- Ryker monitors an exact pending run outside the model turn. Do not tell the operator to poll, reply, or ask again. When the host later supplies an approval-continuation prompt for that terminal run, call wait_for_run for exactly its supplied run_id; never call run_action or create a replacement run. Treat approval as authorization to dispatch, not proof of success, and verify the requested effect separately with read-only evidence when possible.
 - A denial, expiry, signature requirement, unavailable trusted action, or changed target contract is a control outcome. Report it without probing substitutes or falling back to an unsigned or less-governed path.`
 
 func CoopInstructions(configured string) string {
@@ -185,7 +185,7 @@ func Initial(
 	if incident.IsEngineeringTask() {
 		request = "Complete this configured-operator-confirmed engineering task in the isolated fork. Inspect the repository and relevant live evidence first, then make the smallest justified repository changes, run the appropriate validation, and commit the focused result. " + engineeringPlanPolicy + " File edits, tests, and commits are allowed in this dedicated task session under Coop policy. Do not merge, push, deploy, sign, or mutate infrastructure unless a configured operator later directly and explicitly requests one exact governed operational action."
 		if contributorTask {
-			request = "Complete this workspace-member-confirmed engineering task in the isolated fork. Inspect the repository and relevant evidence first, then make the smallest justified repository changes, run the appropriate validation, and commit the focused result. " + engineeringPlanPolicy + " Repository code and repository-owned configuration changes are allowed in this dedicated task session. The contributor policy does not provide shared operational MCP tools or environment secrets. Do not apply configuration, merge, push, deploy, sign, mutate live systems, or save durable Responder behavior."
+			request = "Complete this workspace-member-confirmed engineering task in the isolated fork. Inspect the repository and relevant evidence first, then make the smallest justified repository changes, run the appropriate validation, and commit the focused result. " + engineeringPlanPolicy + " Repository code and repository-owned configuration changes are allowed in this dedicated task session. The contributor policy does not provide shared operational MCP tools or environment secrets. Do not apply configuration, merge, push, deploy, sign, mutate live systems, or save durable Ryker behavior."
 		}
 	}
 	prompt := strings.TrimSpace(instructions) + "\n\n" + request +

@@ -21,8 +21,8 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/AndrewDryga/responder/internal/decision"
-	"github.com/AndrewDryga/responder/internal/replypolicy"
+	"github.com/AndrewDryga/ryker/internal/decision"
+	"github.com/AndrewDryga/ryker/internal/replypolicy"
 )
 
 // ReplyPolicy returns the reply rules this turn can use: the shape rules always,

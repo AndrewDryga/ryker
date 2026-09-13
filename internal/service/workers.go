@@ -7,22 +7,22 @@ import (
 	"strings"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/config"
-	"github.com/AndrewDryga/responder/internal/coop"
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/incidentauthority"
-	"github.com/AndrewDryga/responder/internal/incidentprovision"
-	"github.com/AndrewDryga/responder/internal/liveturn"
-	"github.com/AndrewDryga/responder/internal/retrydelay"
-	"github.com/AndrewDryga/responder/internal/sessioncreate"
-	"github.com/AndrewDryga/responder/internal/slackfile"
-	slackinputpkg "github.com/AndrewDryga/responder/internal/slackinput"
-	"github.com/AndrewDryga/responder/internal/slackui"
-	"github.com/AndrewDryga/responder/internal/store"
-	"github.com/AndrewDryga/responder/internal/store/deliveryretrystore"
-	"github.com/AndrewDryga/responder/internal/taskaccess"
-	"github.com/AndrewDryga/responder/internal/taskpr"
-	"github.com/AndrewDryga/responder/internal/turncapacity"
+	"github.com/AndrewDryga/ryker/internal/config"
+	"github.com/AndrewDryga/ryker/internal/coop"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/incidentauthority"
+	"github.com/AndrewDryga/ryker/internal/incidentprovision"
+	"github.com/AndrewDryga/ryker/internal/liveturn"
+	"github.com/AndrewDryga/ryker/internal/retrydelay"
+	"github.com/AndrewDryga/ryker/internal/sessioncreate"
+	"github.com/AndrewDryga/ryker/internal/slackfile"
+	slackinputpkg "github.com/AndrewDryga/ryker/internal/slackinput"
+	"github.com/AndrewDryga/ryker/internal/slackui"
+	"github.com/AndrewDryga/ryker/internal/store"
+	"github.com/AndrewDryga/ryker/internal/store/deliveryretrystore"
+	"github.com/AndrewDryga/ryker/internal/taskaccess"
+	"github.com/AndrewDryga/ryker/internal/taskpr"
+	"github.com/AndrewDryga/ryker/internal/turncapacity"
 )
 
 func (s *Service) processWebhook(ctx context.Context) error {
@@ -574,9 +574,9 @@ func (s *Service) processSessionIncident(ctx context.Context, incidentID string)
 		return err
 	}
 	if open >= s.cfg.Limits.MaxActiveIncidents {
-		detail := "Responder is at its configured active incident limit; this incident is queued."
+		detail := "Ryker is at its configured active incident limit; this incident is queued."
 		if incident.IsEngineeringTask() {
-			detail = "Responder is at its configured active work limit; this engineering task is queued."
+			detail = "Ryker is at its configured active work limit; this engineering task is queued."
 		}
 		s.setIncidentError(
 			ctx, incident.ID, core.WorkflowHolding,
@@ -694,7 +694,7 @@ func (s *Service) prepareChannel(ctx context.Context, incident core.Incident) er
 		workLabel = "Engineering task"
 	}
 	topic := s.sanitizer.Text(fmt.Sprintf(
-		"%s %s | %s | managed by Responder",
+		"%s %s | %s | managed by Ryker",
 		workLabel, slackui.ShortID(incident.ID), incident.Title,
 	))
 	if err := s.slack.SetTopic(ctx, incident.ChannelID, topic); err != nil {
@@ -900,7 +900,7 @@ func incidentChannelStateError(incident core.Incident) string {
 		case core.ChannelDeleted:
 			return "The Slack channel containing this task thread was deleted. The Coop session and isolated fork are preserved, but this thread can no longer continue."
 		default:
-			return "The Slack channel containing this task thread is unavailable to Responder. Restore channel access to continue; the Coop session and isolated fork are preserved."
+			return "The Slack channel containing this task thread is unavailable to Ryker. Restore channel access to continue; the Coop session and isolated fork are preserved."
 		}
 	}
 	switch incident.ChannelState {
@@ -909,7 +909,7 @@ func incidentChannelStateError(incident core.Incident) string {
 	case core.ChannelDeleted:
 		return "Slack incident room was deleted. The Coop session and isolated fork are preserved; create or rebind a room before continuing."
 	default:
-		return "Slack incident room is unavailable to Responder. The room may be inaccessible or deleted; restore access or rebind a room before continuing."
+		return "Slack incident room is unavailable to Ryker. The room may be inaccessible or deleted; restore access or rebind a room before continuing."
 	}
 }
 

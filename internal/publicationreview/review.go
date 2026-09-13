@@ -9,7 +9,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/AndrewDryga/responder/internal/coop"
+	"github.com/AndrewDryga/ryker/internal/coop"
 )
 
 // ReviewSummary renders Coop's machine review as operator-facing readiness evidence.
@@ -73,13 +73,13 @@ func ReviewSummary(review coop.Review) string {
 		lines = append(lines, "", "*Recommendation*")
 		lines = append(lines,
 			"• Add `gate:` to `.agent/project.yaml` for repeatable repository validation. "+
-				"Responder can still open a draft PR, but this review did not run a repository-defined gate.",
+				"Ryker can still open a draft PR, but this review did not run a repository-defined gate.",
 		)
 	}
 	if GateIncomplete(original) {
 		lines = append(lines, "", "*Validation warning*")
 		lines = append(lines,
-			"• The repository gate did not complete cleanly. Responder can still publish the exact "+
+			"• The repository gate did not complete cleanly. Ryker can still publish the exact "+
 				"reviewed tree as a draft PR; inspect its diff and GitHub checks before merging.",
 		)
 		if slices.Contains(original.NotPublishableReasons, "gate_modified_candidate") {

@@ -7,17 +7,17 @@ import (
 	"strings"
 	"time"
 
-	alertstreampkg "github.com/AndrewDryga/responder/internal/alertstream"
-	behaviorofferpkg "github.com/AndrewDryga/responder/internal/behavioroffer"
-	"github.com/AndrewDryga/responder/internal/core"
-	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
-	episodepkg "github.com/AndrewDryga/responder/internal/episode"
-	"github.com/AndrewDryga/responder/internal/episodeclaims"
-	"github.com/AndrewDryga/responder/internal/investigation"
-	"github.com/AndrewDryga/responder/internal/liveturn"
-	"github.com/AndrewDryga/responder/internal/resultrecovery"
-	schedulepkg "github.com/AndrewDryga/responder/internal/schedule"
-	"github.com/AndrewDryga/responder/internal/taskcontract"
+	alertstreampkg "github.com/AndrewDryga/ryker/internal/alertstream"
+	behaviorofferpkg "github.com/AndrewDryga/ryker/internal/behavioroffer"
+	"github.com/AndrewDryga/ryker/internal/core"
+	decisionpkg "github.com/AndrewDryga/ryker/internal/decision"
+	episodepkg "github.com/AndrewDryga/ryker/internal/episode"
+	"github.com/AndrewDryga/ryker/internal/episodeclaims"
+	"github.com/AndrewDryga/ryker/internal/investigation"
+	"github.com/AndrewDryga/ryker/internal/liveturn"
+	"github.com/AndrewDryga/ryker/internal/resultrecovery"
+	schedulepkg "github.com/AndrewDryga/ryker/internal/schedule"
+	"github.com/AndrewDryga/ryker/internal/taskcontract"
 )
 
 // CompletionAssessment is the model's own verdict on whether a turn finished.

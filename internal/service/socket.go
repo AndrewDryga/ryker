@@ -9,12 +9,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/core"
-	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
-	"github.com/AndrewDryga/responder/internal/reportcanvas"
-	"github.com/AndrewDryga/responder/internal/slackdismiss"
-	"github.com/AndrewDryga/responder/internal/slackui"
-	"github.com/AndrewDryga/responder/internal/store"
+	"github.com/AndrewDryga/ryker/internal/core"
+	decisionpkg "github.com/AndrewDryga/ryker/internal/decision"
+	"github.com/AndrewDryga/ryker/internal/reportcanvas"
+	"github.com/AndrewDryga/ryker/internal/slackdismiss"
+	"github.com/AndrewDryga/ryker/internal/slackui"
+	"github.com/AndrewDryga/ryker/internal/store"
 	"github.com/slack-go/slack"
 	"github.com/slack-go/slack/slackevents"
 	"github.com/slack-go/slack/socketmode"
@@ -135,7 +135,7 @@ func (s *Service) classifyEventsAPIInput(
 		//
 		// This app declares features.agent_view in
 		// deploy/slack-app-manifest.yaml, and that manifest already carries the
-		// three suggested prompts statically. Responder used to answer every
+		// three suggested prompts statically. Ryker used to answer every
 		// Messages tab open by calling assistant.threads.setSuggestedPrompts to
 		// install a near-identical list at runtime, and Slack answered
 		// internal_error every single time — 8 of 8 rows on one deployment, 4 of
@@ -231,7 +231,7 @@ func (s *Service) classifyReaction(
 // state rather than that something was said in it. They are grouped because
 // they are one shape — a channel, sometimes an actor, and a resulting state —
 // and because an unrecognized event lands here and is dropped, which is the
-// correct default for an event type Responder does not model.
+// correct default for an event type Ryker does not model.
 func classifyChannelLifecycleEvent(input *core.SlackInput, event any) messageOutcome {
 	switch inner := event.(type) {
 	case *slackevents.ChannelDeletedEvent:
@@ -277,7 +277,7 @@ const (
 	// admitMessage persists the input, then acknowledges.
 	admitMessage messageOutcome = iota
 	// dropMessage acknowledges without persisting: the message is genuinely
-	// not for Responder, so Slack should stop redelivering it.
+	// not for Ryker, so Slack should stop redelivering it.
 	dropMessage
 	// retryMessage returns without acknowledging because a lookup failed and
 	// the decision is unknown. Slack redelivers, and the durable event ID

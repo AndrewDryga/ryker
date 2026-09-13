@@ -1,7 +1,7 @@
 // Package activitystore owns what the model did inside a turn, as Coop
 // narrated it.
 //
-// Responder's trace could always say a turn ran and what it concluded. It
+// Ryker's trace could always say a turn ran and what it concluded. It
 // could not say anything about the minutes in between: the Emisar operations
 // an episode cited were visible only because the model happened to quote their
 // IDs in its evidence, and everything it read, searched, or tried and abandoned
@@ -22,8 +22,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/store/sqlutil"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/store/sqlutil"
 )
 
 const (

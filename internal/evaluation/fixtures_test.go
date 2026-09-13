@@ -8,14 +8,14 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/AndrewDryga/responder/internal/config"
-	"github.com/AndrewDryga/responder/internal/coop"
+	"github.com/AndrewDryga/ryker/internal/config"
+	"github.com/AndrewDryga/ryker/internal/coop"
 )
 
 func serviceConfig(t *testing.T) config.Config {
 	t.Helper()
 	root := t.TempDir()
-	path := filepath.Join(root, "responder.yaml")
+	path := filepath.Join(root, "ryker.yaml")
 	body := `version: 1
 state_dir: ` + filepath.Join(root, "state") + `
 slack:
@@ -73,7 +73,7 @@ type fakeCoop struct {
 
 func newFakeCoop() *fakeCoop {
 	return &fakeCoop{session: coop.Session{
-		ID: "ses_1", ForkName: "responder-api-unavailable",
+		ID: "ses_1", ForkName: "ryker-api-unavailable",
 		Revision: 1, State: "open", Activity: "parked", MaxTurns: 100,
 		RepositoryReadOnly: true,
 	}}

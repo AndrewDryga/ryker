@@ -11,9 +11,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/config"
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/store"
+	"github.com/AndrewDryga/ryker/internal/config"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/store"
 )
 
 // everyFilterTerm exercises every episode-list predicate at once, so a column
@@ -152,7 +152,7 @@ func TestEveryCounterRunsAgainstTheMigratedSchema(t *testing.T) {
 // no compile catches.
 func TestEveryPageRendersAgainstTheMigratedSchema(t *testing.T) {
 	reader := migratedReader(t)
-	handler, err := NewHandler(reader, "test", "47", "responder-abc", nil, config.Pricing{}, nil, nil)
+	handler, err := NewHandler(reader, "test", "47", "ryker-abc", nil, config.Pricing{}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -176,7 +176,7 @@ func TestEveryPageRendersAgainstTheMigratedSchema(t *testing.T) {
 
 // Recurring scheduler drains are infrastructure, not a backlog. They normally
 // wait in the pending state between polls, so presenting them as pending tasks
-// made an idle Responder look stuck. Finite work remains visible separately.
+// made an idle Ryker look stuck. Finite work remains visible separately.
 func TestLanesSeparatePollersFromActualWork(t *testing.T) {
 	dir := t.TempDir()
 	live, err := store.Open(dir)
@@ -238,7 +238,7 @@ func TestLanesSeparatePollersFromActualWork(t *testing.T) {
 		t.Errorf("lane status = %q, error = %q", lane.Status, lane.Error)
 	}
 
-	handler, err := NewHandler(reader, "test", "47", "responder-abc", nil, config.Pricing{}, nil, nil)
+	handler, err := NewHandler(reader, "test", "47", "ryker-abc", nil, config.Pricing{}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -295,7 +295,7 @@ func TestOverviewShowsScheduledTasksAsUpcomingWork(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer reader.Close()
-	handler, err := NewHandler(reader, "test", "47", "responder-abc", nil, config.Pricing{}, nil, nil)
+	handler, err := NewHandler(reader, "test", "47", "ryker-abc", nil, config.Pricing{}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -329,7 +329,7 @@ func TestOverviewShowsScheduledTasksAsUpcomingWork(t *testing.T) {
 // Configuration listed a standing rule's fire count and nothing else, which is
 // the number that cannot answer "should I keep this": emisar's Terraform rule
 // shows 64 fires and every outcome anyone kept was 'ignore'. Decisions listed
-// praise in among the complaints under a heading about being told Responder got
+// praise in among the complaints under a heading about being told Ryker got
 // something wrong, so the one signal saying an answer was worth copying was
 // invisible in the list that contained it.
 func TestConfigurationAndDecisionsReadWhatTheRuleAndThePraiseProduced(t *testing.T) {
@@ -361,16 +361,16 @@ func TestConfigurationAndDecisionsReadWhatTheRuleAndThePraiseProduced(t *testing
 		   summary, context_json, episode_id, status, created_at, updated_at)
 		VALUES
 		  ('fb_good', 'T1', 'C1', 'U1', 'positive_reaction', 'other', 'positive',
-		   'User reacted positively to a Responder message', ?, 'ep_praised',
+		   'User reacted positively to a Ryker message', ?, 'ep_praised',
 		   'noted', ?, ?),
 		  ('fb_bad', 'T1', 'C1', 'U1', 'model_sentiment', 'correctness', 'negative',
 		   'that was the wrong repository', ?, '', 'open', ?, ?);
 		INSERT INTO audit_events
 		  (id, kind, actor_id, object_id, outcome, detail, created_at)
 		VALUES
-		  ('fixpromo_fixcand_2', 'fixture.promotion', 'responder', 'fixcand_2',
+		  ('fixpromo_fixcand_2', 'fixture.promotion', 'ryker', 'fixcand_2',
 		   'promoted', 'ep_2: assess the checkout rollout', ?),
-		  ('fixpromo_fixcand_3', 'fixture.promotion', 'responder', 'fixcand_3',
+		  ('fixpromo_fixcand_3', 'fixture.promotion', 'ryker', 'fixcand_3',
 		   'quarantined',
 		   'ep_3: another case in the corpus already answers to this name', ?);`,
 		now, later, now, now, []byte("{}"), now, now, []byte("{}"), now, now,
@@ -386,7 +386,7 @@ func TestConfigurationAndDecisionsReadWhatTheRuleAndThePraiseProduced(t *testing
 		t.Fatal(err)
 	}
 	defer reader.Close()
-	handler, err := NewHandler(reader, "test", "53", "responder-abc", nil, config.Pricing{}, nil, nil)
+	handler, err := NewHandler(reader, "test", "53", "ryker-abc", nil, config.Pricing{}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -434,7 +434,7 @@ func TestConfigurationAndDecisionsReadWhatTheRuleAndThePraiseProduced(t *testing
 
 	decisions := render("/decisions")
 	for _, expected := range []string{
-		"What Responder got right",
+		"What Ryker got right",
 		"1 of 2 graded reactions were praise (50%)",
 		"the answer they liked",
 		"/episodes/ep_praised",
@@ -583,11 +583,11 @@ func seededReader(t *testing.T) *Reader {
 		// everywhere else.
 		{`INSERT INTO audit_events
 		    (id, kind, actor_id, object_id, outcome, detail, created_at)
-		  VALUES (?, 'fixture.promotion', 'responder', 'fixcand_2', 'promoted', ?, ?)`,
+		  VALUES (?, 'fixture.promotion', 'ryker', 'fixcand_2', 'promoted', ?, ?)`,
 			[]any{"fixpromo_fixcand_2", "ep_2: assess the checkout rollout", now}},
 		{`INSERT INTO audit_events
 		    (id, kind, actor_id, object_id, outcome, detail, created_at)
-		  VALUES (?, 'fixture.promotion', 'responder', 'fixcand_3', 'quarantined', ?, ?)`,
+		  VALUES (?, 'fixture.promotion', 'ryker', 'fixcand_3', 'quarantined', ?, ?)`,
 			[]any{"fixpromo_fixcand_3",
 				"ep_3: another case in the corpus already answers to this name", now}},
 		{`INSERT INTO feedback_items
@@ -665,7 +665,7 @@ func TestArtifactRouteServesRetainedBodiesAsInertText(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer reader.Close()
-	handler, err := NewHandler(reader, "test", "70", "responder-abc",
+	handler, err := NewHandler(reader, "test", "70", "ryker-abc",
 		func() (bool, string) { return true, "" }, config.Pricing{}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -768,7 +768,7 @@ func TestChannelIDsInFreeTextResolveToNames(t *testing.T) {
 // An operator watched alerts arrive and nothing happen. The machine knew
 // exactly why — its Docker daemon was down, so Coop could not build the box
 // image and every turn died before it started — and the page said "not ready"
-// in three-point type, which is indistinguishable from a Responder that had
+// in three-point type, which is indistinguishable from a Ryker that had
 // decided to stay quiet.
 func TestNotReadyStatesTheReasonItAlreadyKnows(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "responder.db")
@@ -785,7 +785,7 @@ func TestNotReadyStatesTheReasonItAlreadyKnows(t *testing.T) {
 	}
 	defer reader.Close()
 
-	stopped, err := NewHandler(reader, "test", "70", "responder-abc",
+	stopped, err := NewHandler(reader, "test", "70", "ryker-abc",
 		func() (bool, string) { return false, "Coop unavailable" },
 		config.Pricing{}, nil, nil)
 	if err != nil {
@@ -800,7 +800,7 @@ func TestNotReadyStatesTheReasonItAlreadyKnows(t *testing.T) {
 	}
 
 	// A reason nobody supplied still reads as a state rather than as a blank.
-	bare, err := NewHandler(reader, "test", "70", "responder-abc",
+	bare, err := NewHandler(reader, "test", "70", "ryker-abc",
 		func() (bool, string) { return false, "" }, config.Pricing{}, nil, nil)
 	if err != nil {
 		t.Fatal(err)

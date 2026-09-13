@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
+	decisionpkg "github.com/AndrewDryga/ryker/internal/decision"
 )
 
 // words builds a reply body of the requested length. The audit measured
@@ -92,7 +92,7 @@ func TestReplyShapeBoundsLengthAgainstTheTriggerAndLane(t *testing.T) {
 }
 
 // A table or a config listing is the one shape a long answer is allowed to
-// take, and word-counting it would reject the most useful replies Responder
+// take, and word-counting it would reject the most useful replies Ryker
 // produces.
 func TestReplyShapeDoesNotCountCodeOrTableRows(t *testing.T) {
 	reply := "Six runs are queued behind the lock:\n\n```\n" +

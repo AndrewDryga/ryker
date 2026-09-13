@@ -3,7 +3,7 @@ package episode
 import (
 	"strings"
 
-	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/ryker/internal/core"
 )
 
 // Projection is the operator-visible state derived from an episode. The event

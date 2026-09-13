@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/remediation"
+	"github.com/AndrewDryga/ryker/internal/remediation"
 )
 
 // A database migrated from v76 keeps what it holds and gains an empty ladder.

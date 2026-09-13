@@ -2,15 +2,15 @@ package core
 
 import "time"
 
-// ChangeEvent is one recorded change to the systems Responder watches.
+// ChangeEvent is one recorded change to the systems Ryker watches.
 //
-// "What changed?" is the first question of every real incident, and Responder
+// "What changed?" is the first question of every real incident, and Ryker
 // could not answer it. The facts were already passing through the process and
 // being dropped: a deploy notification arriving on a webhook became a signal or
-// nothing at all, the publication follower watched Responder's own pull
+// nothing at all, the publication follower watched Ryker's own pull
 // requests merge and deploy without ledgering either, and the approval watcher
 // read mutating Emisar runs to terminal state and kept only the approval row.
-// Three sources Responder already sees, and no table that could be asked what
+// Three sources Ryker already sees, and no table that could be asked what
 // happened in the last six hours.
 //
 // A change event is a HINT and never authority. It cannot trigger work, and it
@@ -55,7 +55,7 @@ type ChangeEvent struct {
 type RecentChange struct {
 	ChangeID string `json:"change_id"`
 	Kind     string `json:"kind"`
-	// Source is kept in the prompt because "an Emisar run Responder itself
+	// Source is kept in the prompt because "an Emisar run Ryker itself
 	// approved" and "a JSON body some deploy tool posted" are different degrees
 	// of confidence about the same sentence.
 	Source     string `json:"source"`

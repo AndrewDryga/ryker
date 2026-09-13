@@ -7,12 +7,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/core"
-	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
-	"github.com/AndrewDryga/responder/internal/investigation"
-	"github.com/AndrewDryga/responder/internal/resultrecovery"
-	"github.com/AndrewDryga/responder/internal/slackui"
-	"github.com/AndrewDryga/responder/internal/store"
+	"github.com/AndrewDryga/ryker/internal/core"
+	decisionpkg "github.com/AndrewDryga/ryker/internal/decision"
+	"github.com/AndrewDryga/ryker/internal/investigation"
+	"github.com/AndrewDryga/ryker/internal/resultrecovery"
+	"github.com/AndrewDryga/ryker/internal/slackui"
+	"github.com/AndrewDryga/ryker/internal/store"
 )
 
 func TestExternalLifecycleReconciliationAdmitsAttachmentOnlyTerminalEdit(t *testing.T) {
@@ -727,7 +727,7 @@ func TestExternalLifecycleCommunicationSuppressesOnlyNonActionablePhases(t *test
 
 // GitHub Actions formats its field label with Slack mrkdwn. The lifecycle
 // source still says success; the punctuation must not turn it into an unknown
-// event and allow Responder to narrate the green card without runtime proof.
+// event and allow Ryker to narrate the green card without runtime proof.
 // Covers: TestGitHubActionsSuccessWithoutFreshRuntimeEvidenceStaysSilent
 func TestGitHubActionsSuccessWithoutFreshRuntimeEvidenceStaysSilent(t *testing.T) {
 	input := core.SlackInput{

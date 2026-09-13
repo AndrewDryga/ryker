@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://responder.emisar.dev/schema/result-v1.json",
-  "title": "Responder model result",
-  "description": "The complete result returned by a Responder model turn. Return exactly one object and no surrounding prose.",
+  "$id": "https://ryker.emisar.dev/schema/result-v1.json",
+  "title": "Ryker model result",
+  "description": "The complete result returned by a Ryker model turn. Return exactly one object and no surrounding prose.",
   "type": "object",
   "if": { "required": ["action"] },
   "then": { "$ref": "#/$defs/watchEnvelope" },

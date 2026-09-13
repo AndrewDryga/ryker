@@ -9,11 +9,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/completionpolicy"
-	"github.com/AndrewDryga/responder/internal/core"
-	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
-	"github.com/AndrewDryga/responder/internal/investigation"
-	"github.com/AndrewDryga/responder/internal/retrydelay"
+	"github.com/AndrewDryga/ryker/internal/completionpolicy"
+	"github.com/AndrewDryga/ryker/internal/core"
+	decisionpkg "github.com/AndrewDryga/ryker/internal/decision"
+	"github.com/AndrewDryga/ryker/internal/investigation"
+	"github.com/AndrewDryga/ryker/internal/retrydelay"
 )
 
 // Records are the immutable episode-ledger rows a correction round retains.
@@ -184,7 +184,7 @@ func BlockedWatch(
 		Summary:      "The host could not validate the final structured result.",
 		MaterialGaps: []string{decisionpkg.BoundedField(reason, 500)},
 		BlockerKind:  "tool_failure",
-		Attempts:     []string{"Responder validated the result and requested a corrected completion."},
+		Attempts:     []string{"Ryker validated the result and requested a corrected completion."},
 		NextAction:   "Retry the same investigation from its saved evidence.",
 	}
 	if !finalAttempt {
@@ -207,7 +207,7 @@ func BlockedAgent(reason string, prior *decisionpkg.AgentReport) decisionpkg.Age
 			Summary:      "The host could not validate the final structured result.",
 			MaterialGaps: []string{decisionpkg.BoundedField(reason, 500)},
 			BlockerKind:  "tool_failure",
-			Attempts:     []string{"Responder validated the result and requested a corrected completion."},
+			Attempts:     []string{"Ryker validated the result and requested a corrected completion."},
 			NextAction:   "Continue the same task from its saved evidence.",
 		},
 	}

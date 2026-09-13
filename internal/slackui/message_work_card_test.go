@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/ryker/internal/core"
 	"github.com/slack-go/slack"
 )
 
@@ -914,7 +914,7 @@ func TestEverySurfaceLabelsTheDiffControlByWhetherOneIsOpen(t *testing.T) {
 //
 // The card used to state one in its footer while the publication receipt beside
 // it stated another and the confirmation on the button stated a third, all
-// saying that Responder could not merge or deploy. The card now states the
+// saying that Ryker could not merge or deploy. The card now states the
 // concrete result: create or update a draft PR from the approved tree.
 //
 // Run over every state, including the receipts a finished task shrinks to.

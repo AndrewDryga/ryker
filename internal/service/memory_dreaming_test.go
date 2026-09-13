@@ -9,10 +9,10 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/AndrewDryga/responder/internal/core"
-	memorypkg "github.com/AndrewDryga/responder/internal/memory"
-	"github.com/AndrewDryga/responder/internal/store"
-	"github.com/AndrewDryga/responder/internal/store/memorystore"
+	"github.com/AndrewDryga/ryker/internal/core"
+	memorypkg "github.com/AndrewDryga/ryker/internal/memory"
+	"github.com/AndrewDryga/ryker/internal/store"
+	"github.com/AndrewDryga/ryker/internal/store/memorystore"
 )
 
 func TestMaintainMemoryRunsDueConsolidationEndToEnd(t *testing.T) {

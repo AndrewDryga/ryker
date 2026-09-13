@@ -5,11 +5,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/selfreport"
-	"github.com/AndrewDryga/responder/internal/slackui"
+	"github.com/AndrewDryga/ryker/internal/selfreport"
+	"github.com/AndrewDryga/ryker/internal/slackui"
 )
 
-// postWeeklySelfReport posts one digest a week saying how Responder's own week
+// postWeeklySelfReport posts one digest a week saying how Ryker's own week
 // went, when the operator has asked for one.
 //
 // The instruments it reads all existed and nobody read them on a schedule: the

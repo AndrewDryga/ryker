@@ -25,7 +25,7 @@ import (
 // The first cut of those measurements then shipped unmeasured, and it was
 // wrong. The audit read a sample; scripts/reply-shape-replay.sh replays all 246
 // posted replies through this file, and the first ladder rejected 27 of them —
-// eleven percent of everything Responder has ever said — of which reading every
+// eleven percent of everything Ryker has ever said — of which reading every
 // one says eighteen were good answers. A rejection costs a whole extra model
 // turn, so a rule that is wrong two times in three does not survive contact
 // with an operator. It gets switched off, and then nothing bounds anything.

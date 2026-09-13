@@ -8,10 +8,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/core"
-	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
-	"github.com/AndrewDryga/responder/internal/slackui"
-	"github.com/AndrewDryga/responder/internal/store"
+	"github.com/AndrewDryga/ryker/internal/core"
+	decisionpkg "github.com/AndrewDryga/ryker/internal/decision"
+	"github.com/AndrewDryga/ryker/internal/slackui"
+	"github.com/AndrewDryga/ryker/internal/store"
 )
 
 // discardLog returns a service whose warnings are captured, so a test can read
@@ -214,7 +214,7 @@ func TestAStalePreferenceConfirmationSaysWhyItIsStale(t *testing.T) {
 		want    []string
 	}{
 		{
-			name:    "a button Responder cannot read",
+			name:    "a button Ryker cannot read",
 			payload: `{"version":1,"channel_id":"COPS","source_ref":"Ev1","not_a_field":true}`,
 			want:    []string{"preference", "could not read"},
 		},

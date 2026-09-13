@@ -3,7 +3,7 @@ package service
 import (
 	"testing"
 
-	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/ryker/internal/core"
 )
 
 func TestPruneLoggingSkipsTinyEphemeralBatches(t *testing.T) {

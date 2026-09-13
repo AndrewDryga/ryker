@@ -1,8 +1,8 @@
 package alertstream
 
 import (
-	"github.com/AndrewDryga/responder/internal/core"
-	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
+	"github.com/AndrewDryga/ryker/internal/core"
+	decisionpkg "github.com/AndrewDryga/ryker/internal/decision"
 )
 
 // WaitState says whether an answered alert remains active, has just recovered,

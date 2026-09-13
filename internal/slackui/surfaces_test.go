@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/ryker/internal/core"
 )
 
 // Slack rejects a payload whose blocks exceed its limits, and it does so at
@@ -25,7 +25,7 @@ func TestOperatorSurfacesRespectBlockKitBounds(t *testing.T) {
 		"scheduled run started": ScheduledRunStartedMessage(task, future),
 		"schedule state":        ScheduleStateMessage(task),
 		"schedule deleted":      ScheduleDeletedMessage(),
-		"preference state": PreferenceStateMessage(core.ResponderPreference{
+		"preference state": PreferenceStateMessage(core.RykerPreference{
 			ID: "pref_1", Name: "health_check_depth", Value: long,
 			ScopeKind: "channel", ScopeKey: "C1", ExpiresAt: future,
 		}),

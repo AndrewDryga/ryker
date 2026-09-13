@@ -13,9 +13,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/config"
-	"github.com/AndrewDryga/responder/internal/coop"
-	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/ryker/internal/config"
+	"github.com/AndrewDryga/ryker/internal/coop"
+	"github.com/AndrewDryga/ryker/internal/core"
 )
 
 func TestPublishRecoversAfterPullRequestCreationResponseIsLost(t *testing.T) {
@@ -47,7 +47,7 @@ func TestPublishRecoversAfterPullRequestCreationResponseIsLost(t *testing.T) {
 			if prCreated {
 				_, _ = w.Write([]byte(`[{
 					"number":41,"html_url":"https://github.example/pull/41",
-					"draft":true,"head":{"ref":"responder/inc-1234567890abcdef"}
+					"draft":true,"head":{"ref":"ryker/inc-1234567890abcdef"}
 				}]`))
 			} else {
 				_, _ = w.Write([]byte("[]"))
@@ -67,8 +67,8 @@ func TestPublishRecoversAfterPullRequestCreationResponseIsLost(t *testing.T) {
 
 	client := New(config.GitHubConfig{
 		Enabled: true, APIURL: server.URL, TokenEnv: "TEST_GITHUB_TOKEN",
-		BranchPrefix: "responder", CommitName: "Responder",
-		CommitEmail: "responder@example.com",
+		BranchPrefix: "ryker", CommitName: "Ryker",
+		CommitEmail: "ryker@example.com",
 	})
 	client.remoteURL = func(string) string { return remote }
 	incident := core.Incident{
@@ -115,7 +115,7 @@ func TestPublishRecoversAfterPullRequestCreationResponseIsLost(t *testing.T) {
 }
 
 // PR #20 was updated successfully, but GitHub's pull-request API still returned
-// the previous head during the immediate post-push check. Responder called the
+// the previous head during the immediate post-push check. Ryker called the
 // whole publication failed even though the branch and both checks were green.
 func TestExistingPullRequestUpdateSurvivesGitHubHeadLagAfterPush(t *testing.T) {
 	source := filepath.Join(t.TempDir(), "source")
@@ -156,8 +156,8 @@ func TestExistingPullRequestUpdateSurvivesGitHubHeadLagAfterPush(t *testing.T) {
 	t.Setenv("TEST_GITHUB_TOKEN", "test-token")
 	client := New(config.GitHubConfig{
 		Enabled: true, APIURL: server.URL, TokenEnv: "TEST_GITHUB_TOKEN",
-		BranchPrefix: "responder", CommitName: "Responder",
-		CommitEmail: "responder@example.com",
+		BranchPrefix: "ryker", CommitName: "Ryker",
+		CommitEmail: "ryker@example.com",
 	})
 	client.remoteURL = func(string) string { return remote }
 	request := Request{
@@ -295,7 +295,7 @@ func TestPublishRejectsConfiguredSecretAndInvalidObjectID(t *testing.T) {
 func TestHeadBranchIsDeterministicAndHonorsDurablePublicationState(t *testing.T) {
 	client := New(config.GitHubConfig{
 		Enabled:      true,
-		BranchPrefix: "responder",
+		BranchPrefix: "ryker",
 	})
 	incident := core.Incident{
 		ID:    "inc_1234567890abcdef",
@@ -306,10 +306,10 @@ func TestHeadBranchIsDeterministicAndHonorsDurablePublicationState(t *testing.T)
 		t.Fatal(err)
 	}
 	second, err := client.HeadBranch(incident, core.Publication{})
-	if err != nil || second != first || first != "responder/update-runtime-packs-7890abcdef" {
+	if err != nil || second != first || first != "ryker/update-runtime-packs-7890abcdef" {
 		t.Fatalf("planned branches = %q, %q, %v", first, second, err)
 	}
-	durable := "responder/existing-reviewed-branch"
+	durable := "ryker/existing-reviewed-branch"
 	got, err := client.HeadBranch(
 		incident,
 		core.Publication{HeadBranch: durable},
@@ -337,7 +337,7 @@ func TestVerifyPublicationRequiresExactCurrentPullRequestHead(t *testing.T) {
 			"html_url": "https://github.example/pull/41",
 			"draft": true,
 			"head": {
-				"ref": "responder/change-123",
+				"ref": "ryker/change-123",
 				"sha": "` + sha + `"
 			}
 		}`))
@@ -349,7 +349,7 @@ func TestVerifyPublicationRequiresExactCurrentPullRequestHead(t *testing.T) {
 	})
 	publication := core.Publication{
 		Repository: "owner/repository", PRNumber: 41,
-		HeadBranch: "responder/change-123", RemoteSHA: sha,
+		HeadBranch: "ryker/change-123", RemoteSHA: sha,
 	}
 	if err := client.VerifyPublication(context.Background(), publication); err != nil {
 		t.Fatal(err)
@@ -370,7 +370,7 @@ func TestPublicationStatusAggregatesChecksAndMergedState(t *testing.T) {
 				"number":41,"state":"closed","merged":true,"draft":false,
 				"merge_commit_sha":"abcdefabcdefabcdefabcdefabcdefabcdefabcd",
 				"merged_at":"2026-08-02T10:00:00Z",
-				"head":{"ref":"responder/change-123","sha":"` + sha + `"}
+				"head":{"ref":"ryker/change-123","sha":"` + sha + `"}
 			}`))
 		case "/repos/owner/repository/commits/" + sha + "/check-runs":
 			_, _ = w.Write([]byte(`{"check_runs":[

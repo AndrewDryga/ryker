@@ -1,8 +1,8 @@
 package store
 
 import (
-	"github.com/AndrewDryga/responder/internal/store/migrationddl"
-	"github.com/AndrewDryga/responder/internal/store/schemaassets"
+	"github.com/AndrewDryga/ryker/internal/store/migrationddl"
+	"github.com/AndrewDryga/ryker/internal/store/schemaassets"
 )
 
 const currentSchemaVersion = 90
@@ -17,7 +17,7 @@ PRAGMA journal_mode = WAL;
 PRAGMA synchronous = FULL;
 `
 
-// baselineSchema is the complete current schema. Responder collapsed its first
+// baselineSchema is the complete current schema. Ryker collapsed its first
 // forty incremental migrations into this single statement once every deployed
 // database had reached version 39: replaying four decades of table rebuilds on
 // every fresh install cost startup time and made the live shape of a table
@@ -85,12 +85,12 @@ ALTER TABLE commitments_by_episode RENAME TO commitments;
 
 const schemaV43 = `
 -- A standing assignment is how an operator grants scoped authority once instead
--- of confirming every action. It does not remove the confirmation Responder
+-- of confirming every action. It does not remove the confirmation Ryker
 -- relies on; it moves it earlier in time, which is the only way autonomous work
 -- can keep the invariant that nothing acts without someone having said yes.
 --
 -- Every column here is a bound. change_class is an allowlist rather than free
--- text because free text means "Responder may change anything"; path_globs
+-- text because free text means "Ryker may change anything"; path_globs
 -- narrows the repository because a repository is far too large a blast radius
 -- to grant in one click; daily_budget and expires_at mean a forgotten
 -- assignment decays instead of running forever.
@@ -433,7 +433,7 @@ var migrations = map[int]string{
 	// What changed recently, so an incident can be asked the first question
 	// anybody asks it. The DDL and its reasoning live in migrationddl.V76.
 	76: migrationddl.V76,
-	// Which exact Emisar action an operator has confirmed Responder may offer
+	// Which exact Emisar action an operator has confirmed Ryker may offer
 	// for which exact alert, until when. The DDL and its reasoning live in
 	// migrationddl.V77.
 	77: migrationddl.V77,

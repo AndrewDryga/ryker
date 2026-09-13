@@ -6,14 +6,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/changeledger"
-	"github.com/AndrewDryga/responder/internal/core"
-	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
-	"github.com/AndrewDryga/responder/internal/slackui"
-	"github.com/AndrewDryga/responder/internal/store"
+	"github.com/AndrewDryga/ryker/internal/changeledger"
+	"github.com/AndrewDryga/ryker/internal/core"
+	decisionpkg "github.com/AndrewDryga/ryker/internal/decision"
+	"github.com/AndrewDryga/ryker/internal/slackui"
+	"github.com/AndrewDryga/ryker/internal/store"
 )
 
-// "What changed?" is the first question of every real incident and Responder
+// "What changed?" is the first question of every real incident and Ryker
 // could not answer it. These tests close that, and the three ways of getting it
 // wrong are: not answering it at all, answering it in a turn that should not
 // have the section, and letting the answer be read as a cause.

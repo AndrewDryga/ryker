@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/ryker/internal/core"
 )
 
 // The delivery notification is coloured by what happened to the PR.
@@ -16,7 +16,7 @@ import (
 // emit one it inherits the same rule as everything else.
 //
 // Nothing here is amber. These report something that already happened on
-// GitHub; Responder is not working on any of it, and amber would claim a
+// GitHub; Ryker is not working on any of it, and amber would claim a
 // custody nobody holds.
 func TestPublicationLifecycleColoursFollowTheOutcome(t *testing.T) {
 	for _, testCase := range []struct {
@@ -97,7 +97,7 @@ func TestPublicationLifecycleColoursFollowTheOutcome(t *testing.T) {
 // The publication receipt is one line and two controls.
 //
 // It used to spend a header, a linked line, a paragraph about lease protection
-// and a boundary line listing four things Responder had not done — most of a
+// and a boundary line listing four things Ryker had not done — most of a
 // screen to report that a PR now exists.
 func TestPublicationReceiptStatesOneFactAndKeepsItsControls(t *testing.T) {
 	message := PublicationMessage(core.Publication{
@@ -134,7 +134,7 @@ func TestPublicationReceiptStatesOneFactAndKeepsItsControls(t *testing.T) {
 	}
 	updated := PublicationMessage(core.Publication{PRNumber: 91, PRURL: "https://github.example/pull/91"}, true)
 	if !strings.Contains(updated.Sections[0], "is updated") ||
-		!strings.HasPrefix(updated.Text, "Done — Responder updated") {
+		!strings.HasPrefix(updated.Text, "Done — Ryker updated") {
 		t.Fatalf("updated receipt = %+v", updated)
 	}
 }
@@ -172,7 +172,7 @@ func TestReviewVerdictColoursCustodyAndInventsNoChecklist(t *testing.T) {
 // The run-check verdict is host-typed all the way through.
 //
 // Every string on this card is composed here from a typed field. That is the
-// point of it: the most frequent operator-visible message Responder sends is a
+// point of it: the most frequent operator-visible message Ryker sends is a
 // run check, and it ships today as a paragraph the model wrote about a
 // notification it read.
 func TestRunCheckVerdictStatesOutcomeBasisAndBoundary(t *testing.T) {

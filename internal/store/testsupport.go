@@ -18,8 +18,8 @@ import (
 	"encoding/json"
 	"errors"
 
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/store/sqlutil"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/store/sqlutil"
 )
 
 func (s *Store) SetRoot(ctx context.Context, id, rootTS string) error {

@@ -1,26 +1,26 @@
 package slackui
 
 import (
-	"github.com/AndrewDryga/responder/internal/knowledgeoffer"
+	"github.com/AndrewDryga/ryker/internal/knowledgeoffer"
 )
 
 // KnowledgeConfirmationStale tells an operator how to get a fresh proposal.
-const KnowledgeConfirmationStale = "*This confirmation expired; ask Responder for a new proposal.*"
+const KnowledgeConfirmationStale = "*This confirmation expired; ask Ryker for a new proposal.*"
 
 // KnowledgeOperatorOnly refuses a knowledge confirmation from an actor who is
 // not on the configured operator list.
-const KnowledgeOperatorOnly = "*A configured Responder operator must keep episode knowledge.*"
+const KnowledgeOperatorOnly = "*A configured Ryker operator must keep episode knowledge.*"
 
 // KnowledgeMembershipRequired refuses an operator whose Slack account is not
 // an active full workspace member and names that distinct remedy.
 const KnowledgeMembershipRequired = "*Active full workspace membership is required to create this draft.*"
 
 // KnowledgeDraftFailed prefixes a runbook-draft failure with Emisar's reason.
-const KnowledgeDraftFailed = "*Responder could not create this runbook draft.* Emisar said: "
+const KnowledgeDraftFailed = "*Ryker could not create this runbook draft.* Emisar said: "
 
 // KnowledgeCardFailed prefixes a task-card failure with the fact that nothing
 // was started before appending the underlying reason.
-const KnowledgeCardFailed = "*Responder could not start the task that writes this card.* "
+const KnowledgeCardFailed = "*Ryker could not start the task that writes this card.* "
 
 // KnowledgeRefusedNotice is the refusal an operator reads when the host can no
 // longer reproduce the evidence the card was composed on.

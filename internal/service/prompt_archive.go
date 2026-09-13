@@ -3,11 +3,11 @@ package service
 import (
 	"sync"
 
-	"github.com/AndrewDryga/responder/internal/agentprompt"
-	"github.com/AndrewDryga/responder/internal/changeledger"
-	"github.com/AndrewDryga/responder/internal/investigation"
-	"github.com/AndrewDryga/responder/internal/investigationcontract"
-	"github.com/AndrewDryga/responder/internal/promptarchive"
+	"github.com/AndrewDryga/ryker/internal/agentprompt"
+	"github.com/AndrewDryga/ryker/internal/changeledger"
+	"github.com/AndrewDryga/ryker/internal/investigation"
+	"github.com/AndrewDryga/ryker/internal/investigationcontract"
+	"github.com/AndrewDryga/ryker/internal/promptarchive"
 )
 
 // archivedPrompt is the copy of a submitted prompt that outlives the turn.
@@ -26,7 +26,7 @@ import (
 // Nothing here changes what is SENT: the submitted prompt is passed in and
 // returned unmodified, and the caller archives the result.
 func archivedPrompt(prompt string) string {
-	return promptarchive.Elide(responderPromptVersion, prompt, instructionBlocks())
+	return promptarchive.Elide(rykerPromptVersion, prompt, instructionBlocks())
 }
 
 // instructionBlocks are the instruction texts the host assembles into prompts,

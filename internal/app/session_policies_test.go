@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/AndrewDryga/responder/internal/config"
-	"github.com/AndrewDryga/responder/internal/repomirror"
+	"github.com/AndrewDryga/ryker/internal/config"
+	"github.com/AndrewDryga/ryker/internal/repomirror"
 	"gopkg.in/yaml.v3"
 )
 
@@ -97,7 +97,7 @@ func TestGeneratedSessionPoliciesNameTheRealClonePath(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := validateConversationPrewarmPolicies(cfg); err != nil {
-		t.Fatalf("Responder's own generated policies fail its startup check: %v", err)
+		t.Fatalf("Ryker's own generated policies fail its startup check: %v", err)
 	}
 }
 
@@ -140,7 +140,7 @@ policies:
 		t.Fatal(err)
 	}
 	if string(after) != existing {
-		t.Fatalf("Responder rewrote an operator's policies file:\n%s", after)
+		t.Fatalf("Ryker rewrote an operator's policies file:\n%s", after)
 	}
 	report := stdout.String()
 	// The one that points at a hand-maintained checkout is named, with the
@@ -179,7 +179,7 @@ func TestNothingIsGeneratedForAPathOnlyDeployment(t *testing.T) {
 	}
 }
 
-// Generation runs once. Responder writes a starting file and then the file is
+// Generation runs once. Ryker writes a starting file and then the file is
 // the operator's; a later bootstrap that regenerated it would silently discard
 // whatever they had set since.
 func TestGenerationNeverOverwritesAFileItAlreadyWrote(t *testing.T) {

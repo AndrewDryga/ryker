@@ -10,7 +10,7 @@ package migrationddl
 // ListLiveStandingAssignments has always returned empty and the gate has never
 // run against real traffic. Both deployments hold zero rows.
 //
-// Adding the creation path alone would grant Responder authority to open pull
+// Adding the creation path alone would grant Ryker authority to open pull
 // requests unattended, gated on completion.status — the contract that was the
 // largest single source of defects on 2026-08-09, and whose corpus only reached
 // 9/9 that evening. The nearest comparable feature, the quality-watch fixer,

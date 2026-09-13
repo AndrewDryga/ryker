@@ -3,7 +3,7 @@ package service
 import (
 	"context"
 
-	"github.com/AndrewDryga/responder/internal/slackui"
+	"github.com/AndrewDryga/ryker/internal/slackui"
 )
 
 func (s *Service) publishOperationsHome(ctx context.Context, userID string) error {

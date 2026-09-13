@@ -7,16 +7,16 @@ import (
 	"strings"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/coop"
-	"github.com/AndrewDryga/responder/internal/core"
-	publicationreview "github.com/AndrewDryga/responder/internal/publicationreview"
-	"github.com/AndrewDryga/responder/internal/publisher"
-	"github.com/AndrewDryga/responder/internal/slackui"
-	"github.com/AndrewDryga/responder/internal/store"
-	"github.com/AndrewDryga/responder/internal/store/publicationstore"
-	"github.com/AndrewDryga/responder/internal/taskaccess"
-	"github.com/AndrewDryga/responder/internal/taskpr"
-	"github.com/AndrewDryga/responder/internal/taskpublication"
+	"github.com/AndrewDryga/ryker/internal/coop"
+	"github.com/AndrewDryga/ryker/internal/core"
+	publicationreview "github.com/AndrewDryga/ryker/internal/publicationreview"
+	"github.com/AndrewDryga/ryker/internal/publisher"
+	"github.com/AndrewDryga/ryker/internal/slackui"
+	"github.com/AndrewDryga/ryker/internal/store"
+	"github.com/AndrewDryga/ryker/internal/store/publicationstore"
+	"github.com/AndrewDryga/ryker/internal/taskaccess"
+	"github.com/AndrewDryga/ryker/internal/taskpr"
+	"github.com/AndrewDryga/ryker/internal/taskpublication"
 )
 
 func (s *Service) processAutomaticTaskPublication(
@@ -60,7 +60,7 @@ func (s *Service) publishDraftPR(
 		return s.refusePublicationControl(ctx, input, incident,
 			"*Draft PR publication is not configured.* Enable the `github` publisher and "+
 				"bind this repository to an absolute checkout, GitHub `owner/name`, and "+
-				"base branch. GitHub credentials stay in Responder and are never exposed "+
+				"base branch. GitHub credentials stay in Ryker and are never exposed "+
 				"to the agent.")
 	}
 	if incident.ActiveTurnID != "" {
@@ -71,7 +71,7 @@ func (s *Service) publishDraftPR(
 	}
 	if incident.CoopSessionID == "" {
 		return s.refusePublicationControl(ctx, input, incident,
-			"*The draft PR is not available yet.* Responder has not finished preparing "+
+			"*The draft PR is not available yet.* Ryker has not finished preparing "+
 				"the isolated task session.")
 	}
 	repository, ok := s.cfg.RepositoryContext(incident.Repository)
@@ -123,7 +123,7 @@ func (s *Service) publishDraftPR(
 		return s.refuseControl(ctx, input, incident,
 			"*Draft PR publication stopped because this task’s GitHub repository or base "+
 				"branch changed after the PR was created.* Restore the original binding or "+
-				"finish this PR manually; Responder will not cross-wire it to another repository.")
+				"finish this PR manually; Ryker will not cross-wire it to another repository.")
 	}
 	if errors.Is(err, publicationstore.ErrWorkUnavailable) {
 		return s.refuseControl(ctx, input, incident,
@@ -194,7 +194,7 @@ func (s *Service) publishDraftPR(
 		return err
 	}
 	rawReview, _, err := s.coop.Review(
-		ctx, "responder:publish-review:"+input.ID, action.SessionID, action.Revision,
+		ctx, "ryker:publish-review:"+input.ID, action.SessionID, action.Revision,
 	)
 	if err != nil {
 		s.clearNativeStatus(ctx, incident)
@@ -365,9 +365,9 @@ func (s *Service) refuseTerminalPullRequestControl(
 		return err
 	}
 	state := core.FirstNonempty(followup.PRState, "finished")
-	detail := "Responder did not run a readiness review, push a branch, or change the pull request."
+	detail := "Ryker did not run a readiness review, push a branch, or change the pull request."
 	if reviewed {
-		detail = "The readiness review completed, but Responder stopped before any branch push or pull-request change."
+		detail = "The readiness review completed, but Ryker stopped before any branch push or pull-request change."
 	}
 	return s.refuseControl(ctx, input, incident, fmt.Sprintf(
 		"*This pull request is already %s.* %s Start a new engineering task to "+
@@ -445,7 +445,7 @@ func (s *Service) markTaskPublicationStale(
 		return publication, err
 	}
 	reason := "The engineering task changed after this draft PR was published. " +
-		"Responder will review and update the draft PR automatically."
+		"Ryker will review and update the draft PR automatically."
 	changed, err := s.store.MarkPublicationStale(ctx, incident.ID, reason)
 	if err != nil {
 		return publication, err

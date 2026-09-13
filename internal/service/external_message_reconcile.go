@@ -8,12 +8,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/core"
-	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
-	"github.com/AndrewDryga/responder/internal/investigation"
-	"github.com/AndrewDryga/responder/internal/lifecycle"
-	"github.com/AndrewDryga/responder/internal/slackui"
-	"github.com/AndrewDryga/responder/internal/store"
+	"github.com/AndrewDryga/ryker/internal/core"
+	decisionpkg "github.com/AndrewDryga/ryker/internal/decision"
+	"github.com/AndrewDryga/ryker/internal/investigation"
+	"github.com/AndrewDryga/ryker/internal/lifecycle"
+	"github.com/AndrewDryga/ryker/internal/slackui"
+	"github.com/AndrewDryga/ryker/internal/store"
 )
 
 const workExternalMessageReconcile = "external_message_reconcile"
@@ -205,7 +205,7 @@ func ExternalLifecycleReplyLanguageCorrection(
 	return ""
 }
 
-// successfulExternalLifecycleReplyAddsValue prevents Responder from narrating
+// successfulExternalLifecycleReplyAddsValue prevents Ryker from narrating
 // a success state already visible in the source app message. A public reply is
 // useful only when the investigation also established a fresh result outside
 // the change pipeline, such as rollout, workload, dependency, or application

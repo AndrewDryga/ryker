@@ -13,7 +13,7 @@ import (
 // re-entered as an ordinary message — which worked, and cost a sentence of
 // typing for an answer the model had already written down twice.
 //
-// Responder owns interactive controls by contract, so this is the host's job
+// Ryker owns interactive controls by contract, so this is the host's job
 // and not the model's: it never emits Block Kit, it emits the answer set, and
 // what that looks like in Slack is decided here.
 
@@ -177,7 +177,7 @@ func removeExactString(values []string, target string) []string {
 // removeResolvedAssessmentContext removes only the host-owned footer grammar
 // emitted by WithBlockedAssessment. The text after these prefixes may be model
 // output, but the prefixes and the fact that the whole context entry is a
-// blocker are typed by Responder. That makes this safe for legacy cards whose
+// blocker are typed by Ryker. That makes this safe for legacy cards whose
 // construction-only exact marker did not survive durable encoding.
 func removeResolvedAssessmentContext(values []string) []string {
 	kept := make([]string, 0, len(values))

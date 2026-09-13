@@ -1,9 +1,9 @@
 package investigation
 
 import (
-	"github.com/AndrewDryga/responder/internal/completionpolicy"
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/investigationcontract"
+	"github.com/AndrewDryga/ryker/internal/completionpolicy"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/investigationcontract"
 )
 
 // PublishedArtifactCompletionCriterion is a host-authored machine marker on an

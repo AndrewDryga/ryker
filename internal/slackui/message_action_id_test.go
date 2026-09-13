@@ -145,7 +145,7 @@ func TestOverflowOptionValueRoundTrips(t *testing.T) {
 	// guess to make, so it reports failure and the socket drops the click.
 	for _, malformed := range []string{
 		"", "inc_01ce33abd2000000", "~opt~inc_01ce33abd2000000",
-		"responder_update~opt", "responder-update",
+		"responder_update~opt", "ryker-update",
 	} {
 		if id, value, ok := DecodeOverflowOptionValue(malformed); ok {
 			t.Errorf("DecodeOverflowOptionValue(%q) = %q/%q/true, want a refusal",

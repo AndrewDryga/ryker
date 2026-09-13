@@ -6,14 +6,14 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/AndrewDryga/responder/internal/core"
-	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
-	"github.com/AndrewDryga/responder/internal/slackref"
-	"github.com/AndrewDryga/responder/internal/store"
+	"github.com/AndrewDryga/ryker/internal/core"
+	decisionpkg "github.com/AndrewDryga/ryker/internal/decision"
+	"github.com/AndrewDryga/ryker/internal/slackref"
+	"github.com/AndrewDryga/ryker/internal/store"
 )
 
 // captureSlackPermalinkReference permits cross-channel hydration only for an
-// allowlisted operator linking a channel that Responder was explicitly
+// allowlisted operator linking a channel that Ryker was explicitly
 // configured to observe. Slack membership alone is not an audience boundary.
 func (s *Service) captureSlackPermalinkReference(
 	ctx context.Context,

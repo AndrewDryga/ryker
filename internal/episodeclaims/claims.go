@@ -6,12 +6,12 @@ import (
 	"context"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/completionpolicy"
-	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/investigation"
-	"github.com/AndrewDryga/responder/internal/taskoffercarry"
-	"github.com/AndrewDryga/responder/internal/taskofferclaims"
-	"github.com/AndrewDryga/responder/internal/wakeuppolicy"
+	"github.com/AndrewDryga/ryker/internal/completionpolicy"
+	"github.com/AndrewDryga/ryker/internal/core"
+	"github.com/AndrewDryga/ryker/internal/investigation"
+	"github.com/AndrewDryga/ryker/internal/taskoffercarry"
+	"github.com/AndrewDryga/ryker/internal/taskofferclaims"
+	"github.com/AndrewDryga/ryker/internal/wakeuppolicy"
 )
 
 type HistorySource interface {
