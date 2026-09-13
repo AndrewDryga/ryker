@@ -70,10 +70,12 @@ defmodule Responder.ControlPlane.UsageProjection do
   defp filter_dimension(query, _field, :error), do: query
   defp filter_dimension(query, _field, _invalid), do: from(e in query, where: false)
 
-  defp since("all"), do: nil
-  defp since("24h"), do: DateTime.add(DateTime.utc_now(), -24, :hour)
-  defp since("30d"), do: DateTime.add(DateTime.utc_now(), -30, :day)
-  defp since(_), do: DateTime.add(DateTime.utc_now(), -7, :day)
+  @doc "The start of a usage window, or nil for all time."
+  @spec since(String.t()) :: DateTime.t() | nil
+  def since("all"), do: nil
+  def since("24h"), do: DateTime.add(DateTime.utc_now(), -24, :hour)
+  def since("30d"), do: DateTime.add(DateTime.utc_now(), -30, :day)
+  def since(_), do: DateTime.add(DateTime.utc_now(), -7, :day)
 
   def snapshot(query) do
     query = dimensions(query)
