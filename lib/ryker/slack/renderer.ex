@@ -43,45 +43,6 @@ defmodule Ryker.Slack.Renderer do
   @setup_statuses ~w(asking confirming saved cancelled expired)
   @setup_steps ~w(participation repository alerts audience confirm)
 
-  @doc false
-  @spec presentation_contract() :: map()
-  def presentation_contract do
-    record_states =
-      [
-        "emisar_approval:open",
-        "task_offer:open",
-        "task_offer:confirmed",
-        "publication_offer:open",
-        "automation_change_offer:open",
-        "schedule_offer:open",
-        "memory_offer:open",
-        "slack_post_offer:open",
-        "slack_post_offer:confirmed",
-        "preference_offer:open",
-        "guidance_offer:open",
-        "standing_assignment_offer:open",
-        "input_request:open",
-        "input_request:answered",
-        "input_request:dismissed",
-        "input_request:superseded",
-        "event_wait:open",
-        "publication_review:open",
-        "publication_result:confirmed"
-      ] ++
-        Enum.map(@confirmation_kinds, &"#{&1}:confirmed") ++
-        Enum.flat_map(@investigation_kinds, fn kind ->
-          ["#{kind}:open", "#{kind}:confirmed"]
-        end)
-
-    %{
-      incident_statuses: @incident_statuses,
-      record_states: record_states,
-      setup_statuses: @setup_statuses,
-      setup_steps: @setup_steps,
-      task_statuses: @task_statuses
-    }
-  end
-
   @spec render(map()) :: {:ok, map()} | {:error, term()}
   def render(%{"emisar_approval_status" => status} = document) when map_size(document) == 1 do
     render_emisar_approval_status(status)

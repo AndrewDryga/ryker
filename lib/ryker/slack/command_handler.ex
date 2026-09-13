@@ -8,27 +8,6 @@ defmodule Ryker.Slack.CommandHandler do
 
   alias Ryker.Slack.{Command, Renderer}
 
-  @retired %{
-    "changes" => "Use the task card or ask in its thread.",
-    "close" => "Use the task or incident card, or ask in its thread.",
-    "commitments" => "Open App Home or ask in the channel.",
-    "evidence" => "Use the Record controls on the task or incident card.",
-    "feedback" => "Say the feedback in the conversation; it is recorded there.",
-    "handoff" => "Use the Record controls on the task or incident card.",
-    "incidents" => "Open App Home or the local control plane.",
-    "memory" => "Open App Home or the local control plane, or ask conversationally.",
-    "postmortem" => "Use the Record controls on the incident card.",
-    "preferences" => "Open App Home or ask conversationally and confirm the offer.",
-    "publish" => "Use the exact publication control on the task card.",
-    "review" => "Use the exact review control on the task card.",
-    "rules" => "Open App Home or ask conversationally and confirm the offer.",
-    "schedules" => "Open App Home or ask conversationally and confirm the offer.",
-    "stop" => "Use the exact task or incident control, or ask in its thread.",
-    "timeline" => "Use the Record controls on the task or incident card.",
-    "update" => "Ask in the exact task or incident thread.",
-    "work" => "Open App Home or ask in the channel."
-  }
-
   @sources [:channel, :incident_room, :installation]
 
   @spec handle(Command.t(), map()) :: {:ok, map()} | {:error, term()}
@@ -73,7 +52,7 @@ defmodule Ryker.Slack.CommandHandler do
         assignments(command, assignment_arguments(text), options)
 
       [name | _arguments] ->
-        retired_or_unknown(name)
+        {:ok, response("Unknown `/ryker` subcommand `#{name}`.\n\n#{help()}")}
     end
   end
 
@@ -185,13 +164,6 @@ defmodule Ryker.Slack.CommandHandler do
     {:ok, response(Enum.join(["Standing assignments" | lines], "\n"))}
   end
 
-  defp retired_or_unknown(name) do
-    case Map.fetch(@retired, name) do
-      {:ok, pointer} -> {:ok, response("`/ryker #{name}` moved. #{pointer}\n\n#{kit()}")}
-      :error -> {:ok, response("Unknown `/ryker` subcommand `#{name}`.\n\n#{help()}")}
-    end
-  end
-
   defp effective(command, options) do
     case options.effective_settings.(command.workspace_ref, conversation_ref(command)) do
       %{proactive: %{source: source1, value: value1}, shadow: %{source: source2, value: value2}} =
@@ -260,9 +232,6 @@ defmodule Ryker.Slack.CommandHandler do
   defp assignments_usage,
     do:
       "Use `/ryker assignments`, or `pause|resume|delete <assignment-ref>`. Creation is conversational and confirmation-backed."
-
-  defp kit,
-    do: "The emergency kit is `status`, `proactive`, `shadow`, `assignments`, and `help`."
 
   defp help do
     """

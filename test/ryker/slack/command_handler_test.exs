@@ -124,11 +124,15 @@ defmodule Ryker.Slack.CommandHandlerTest do
     refute_received {:setting_changed, _change}
   end
 
-  test "retired and malformed verbs point to the authoritative surface" do
-    assert {:ok, retired} =
-             CommandHandler.handle(command("incidents", "event:retired"), options())
+  test "unknown and malformed verbs answer with the emergency kit" do
+    # Retired subcommands used to get a per-verb pointer table; that was a
+    # compatibility shim for commands nobody can discover any more, so every
+    # verb outside the kit is simply unknown and gets the same help text.
+    assert {:ok, unknown} =
+             CommandHandler.handle(command("incidents", "event:unknown"), options())
 
-    assert retired["text"] =~ "App Home"
+    assert unknown["text"] =~ "Unknown `/ryker` subcommand `incidents`."
+    assert unknown["text"] =~ "Ryker emergency kit"
 
     assert {:ok, invalid} =
              CommandHandler.handle(command("proactive sometimes", "event:invalid"), options())
