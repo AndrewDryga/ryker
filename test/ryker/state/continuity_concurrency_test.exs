@@ -16,6 +16,7 @@ defmodule Ryker.State.ContinuityConcurrencyTest do
     ConversationSummaryDraft,
     KnowledgeExposure,
     KnowledgeSnapshot,
+    MemorySearchPage,
     Record,
     SourceExposure
   }
@@ -82,6 +83,79 @@ defmodule Ryker.State.ContinuityConcurrencyTest do
         assert summary.state["situation"] == "Race two"
         assert summary.source_episode_id == second.episode.id
         assert Repo.aggregate(ConversationSummaryDraft, :count) == 0
+      after
+        cleanup!([first, second], context.identity_key)
+      end
+    end)
+  end
+
+  # A search read its summary hit FOR SHARE and then counted the recall with an
+  # UPDATE. Two searches on the same summary from two episodes each held the
+  # share lock the other's UPDATE needed, and PostgreSQL aborted one of them —
+  # reported to the model as memory_search_budget_exceeded, which is not what
+  # happened. The search takes no lock now; the recall count is best effort and
+  # the visibility recheck locks the observations, not the summary.
+  test "two searches counting the same summary do not deadlock each other" do
+    Sandbox.unboxed_run(Repo, fn ->
+      suffix = Ecto.UUID.generate()
+      conversation_ref = "control-plane:lab:continuity-search-#{suffix}"
+      first = open_work!("search-one-#{suffix}", conversation_ref)
+      second = open_work!("search-two-#{suffix}", conversation_ref)
+      {:ok, context} = Continuity.destination_context(first.episode, nil)
+
+      try do
+        assert {:ok, _draft} = Continuity.stage(first.state_token, state("Search race"))
+        accept!(first)
+        summary = Repo.get_by!(ConversationSummary, identity_key: context.identity_key)
+        parent = self()
+
+        # Another episode's search, caught between reading the hit and
+        # counting the recall.
+        holder =
+          unboxed_task(fn ->
+            Repo.transaction(fn ->
+              Repo.one!(
+                from(row in ConversationSummary, where: row.id == ^summary.id, lock: "FOR SHARE")
+              )
+
+              send(parent, {:hit_read, backend_pid()})
+
+              receive do
+                :count -> :ok
+              end
+
+              Repo.update_all(from(row in ConversationSummary, where: row.id == ^summary.id),
+                inc: [recall_count: 1]
+              )
+
+              :counted
+            end)
+          end)
+
+        assert_receive {:hit_read, holder_backend}, 5_000
+
+        searcher =
+          unboxed_task(fn ->
+            send(parent, {:searching, backend_pid()})
+
+            Repo.transaction(fn ->
+              Continuity.search_page(
+                :summary,
+                second.claim.episode,
+                nil,
+                MemorySearchPage.first("Search race", "current_channel")
+              )
+            end)
+          end)
+
+        assert_receive {:searching, searcher_backend}, 5_000
+        await_blocked_by(searcher_backend, holder_backend)
+        send(holder.pid, :count)
+
+        assert {:ok, :counted} = Task.await(holder, 5_000)
+        assert {:ok, {:ok, document, _position}} = Task.await(searcher, 5_000)
+        assert document["state"]["situation"] == "Search race"
+        assert Repo.get!(ConversationSummary, summary.id).recall_count == 2
       after
         cleanup!([first, second], context.identity_key)
       end

@@ -273,15 +273,13 @@ defmodule Ryker.State.Continuity do
         do: searchable_summaries_query(context, page.scope),
         else: searchable_rollups_query(context, page.scope)
 
-    query =
-      query
-      |> LearningSources.sourced()
-      |> LearningSources.eligible(context)
-      |> MemorySearchPage.related_sources(page)
-
-    query = from(item in query, lock: "FOR SHARE")
-
+    # No row lock on the hit: two searches holding one summary FOR SHARE each
+    # blocked the other's recall count and PostgreSQL aborted one of them. The
+    # count is best effort, and the visibility recheck locks the observations.
     query
+    |> LearningSources.sourced()
+    |> LearningSources.eligible(context)
+    |> MemorySearchPage.related_sources(page)
     |> MemorySearchPage.one(
       page,
       dynamic([item], item.state),
