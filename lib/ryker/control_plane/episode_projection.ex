@@ -15,6 +15,14 @@ defmodule Ryker.ControlPlane.EpisodeProjection do
 
   @record_limit 500
 
+  @doc "The reader-facing key of an episode by id, or nil when there is no such episode."
+  @spec key(Ecto.UUID.t() | nil) :: String.t() | nil
+  def key(nil), do: nil
+
+  def key(id) do
+    Repo.one(from(episode in Episode, where: episode.id == ^id, select: episode.key, limit: 1))
+  end
+
   def fetch(ref, params \\ %{})
 
   def fetch(ref, params) when is_binary(ref) and byte_size(ref) <= 1_024 and is_map(params) do

@@ -6,7 +6,7 @@ defmodule Ryker.ControlPlane.SubscriptionProjectionTest do
   import Phoenix.LiveViewTest
 
   alias Ryker.CanonicalJSON
-  alias Ryker.ControlPlane.{Endpoint, OperatorProjection, Projection}
+  alias Ryker.ControlPlane.{Endpoint, Projection, SubscriptionProjection}
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Ingress.Inbox
@@ -113,7 +113,7 @@ defmodule Ryker.ControlPlane.SubscriptionProjectionTest do
           context.subscription.ref,
           context.episode.key
         ] do
-      assert [item] = OperatorProjection.subscriptions(%{"q" => query, "status" => "active"})
+      assert [item] = SubscriptionProjection.list(%{"q" => query, "status" => "active"})
       assert item.title == "Run run-k9CpPp3nWjQrkCMG"
       assert item.episode_title == item.title
       assert item.condition == "Next matching Slack update"
@@ -123,8 +123,8 @@ defmodule Ryker.ControlPlane.SubscriptionProjectionTest do
       refute inspect(item) =~ "never-display-this-body"
     end
 
-    assert OperatorProjection.subscriptions(%{"q" => "never-display-this-body"}) == []
-    assert OperatorProjection.subscriptions(%{"status" => "resolved"}) == []
+    assert SubscriptionProjection.list(%{"q" => "never-display-this-body"}) == []
+    assert SubscriptionProjection.list(%{"status" => "resolved"}) == []
     assert Repo.get!(EventSubscription, context.subscription.id) == context.subscription
   end
 
@@ -135,11 +135,11 @@ defmodule Ryker.ControlPlane.SubscriptionProjectionTest do
           [operational_pruned_at: nil, event_kind: :delete, content: %{}]
         ] do
       Repo.update_all(from(e in Entry, where: e.id == ^context.entry.id), set: changes)
-      assert [item] = OperatorProjection.subscriptions(%{})
+      assert [item] = SubscriptionProjection.list(%{})
       assert item.title == "Matching Slack update"
       assert item.target_url == nil
       assert item.context_label == "Source context unavailable"
-      assert OperatorProjection.subscriptions(%{"q" => "run-k9CpPp3nWjQrkCMG"}) == []
+      assert SubscriptionProjection.list(%{"q" => "run-k9CpPp3nWjQrkCMG"}) == []
       assert item.ref == context.subscription.ref
     end
   end
@@ -149,7 +149,7 @@ defmodule Ryker.ControlPlane.SubscriptionProjectionTest do
     # A busy channel can resolve 100 waits while one older deployment still needs
     # attention. The default list must not hide that live wait behind history.
     insert_resolved_history!(context)
-    items = OperatorProjection.subscriptions(%{})
+    items = SubscriptionProjection.list(%{})
     assert length(items) == 100
     assert hd(items).ref == context.subscription.ref
     assert hd(items).status == :active
@@ -162,13 +162,13 @@ defmodule Ryker.ControlPlane.SubscriptionProjectionTest do
     )
 
     insert_resolved_history!(context)
-    items = OperatorProjection.subscriptions(%{})
+    items = SubscriptionProjection.list(%{})
     assert length(items) == 100
     refute Enum.any?(items, &(&1.ref == context.subscription.ref))
-    assert [exact] = OperatorProjection.subscriptions(%{"q" => context.subscription.ref})
+    assert [exact] = SubscriptionProjection.list(%{"q" => context.subscription.ref})
     assert exact.ref == context.subscription.ref
 
-    assert OperatorProjection.subscriptions(%{
+    assert SubscriptionProjection.list(%{
              "q" => context.subscription.ref,
              "status" => "active"
            }) == []
@@ -215,7 +215,7 @@ defmodule Ryker.ControlPlane.SubscriptionProjectionTest do
       observability: %{},
       projection:
         Map.put(Projection.callbacks(), :subscriptions, fn params ->
-          result = OperatorProjection.subscriptions(params)
+          result = SubscriptionProjection.list(params)
           send(observer, {:subscriptions_projected, result})
           result
         end)

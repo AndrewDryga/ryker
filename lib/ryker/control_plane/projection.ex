@@ -11,16 +11,21 @@ defmodule Ryker.ControlPlane.Projection do
     Activity,
     BehaviorLibrary,
     ChannelDetail,
+    ChannelDirectory,
+    ConfigurationProjection,
     ConversationProjection,
     EpisodeProjection,
     FailureProjection,
     FindingsProjection,
+    IncidentProjection,
     InstructionSettings,
     MemoryProjection,
     ModelRequests,
-    OperatorProjection,
     OverviewProjection,
+    RepositoryProjection,
+    ScheduleProjection,
     SettingsView,
+    SubscriptionProjection,
     UsageProjection,
     WorkspaceProjection
   }
@@ -34,14 +39,14 @@ defmodule Ryker.ControlPlane.Projection do
       behavior: &BehaviorLibrary.fetch/1,
       behaviors: &BehaviorLibrary.list/2,
       channel: &ChannelDetail.fetch/3,
-      channels: &OperatorProjection.channels/1,
+      channels: &ChannelDirectory.list/1,
       delivery: &FailureProjection.delivery/1,
       emisar: &FailureProjection.emisar/1,
       episode: &EpisodeProjection.fetch/2,
       failures: &FailureProjection.list/1,
       findings: &FindingsProjection.list/1,
-      incident: &OperatorProjection.incident/1,
-      incidents: &OperatorProjection.incidents/1,
+      incident: &IncidentProjection.fetch/1,
+      incidents: &IncidentProjection.list/1,
       instructions: &InstructionSettings.fetch/1,
       lab_artifact: &ConversationProjection.artifact/3,
       lab_changes: &ConversationProjection.changes/3,
@@ -51,15 +56,15 @@ defmodule Ryker.ControlPlane.Projection do
       memory: &MemoryProjection.fetch/1,
       model_requests: &ModelRequests.project/2,
       model_timeline: &ModelRequests.timeline/2,
-      operator_configuration: &OperatorProjection.operator_configuration/0,
+      operator_configuration: &ConfigurationProjection.fetch/0,
       overview: &OverviewProjection.overview/0,
-      repositories: &OperatorProjection.repositories/1,
-      schedule: &OperatorProjection.schedule/1,
-      schedules: &OperatorProjection.schedules/1,
+      repositories: &RepositoryProjection.list/1,
+      schedule: &ScheduleProjection.fetch/1,
+      schedules: &ScheduleProjection.list/1,
       settings: &SettingsView.fetch/0,
       slack_incident: &FailureProjection.slack_incident/1,
       slack_interaction: &FailureProjection.slack_interaction/1,
-      subscriptions: &OperatorProjection.subscriptions/1,
+      subscriptions: &SubscriptionProjection.list/1,
       usage: &UsageProjection.page/1,
       usage_filter_options: &UsageProjection.filter_options/0,
       work: &FailureProjection.work/1,
@@ -71,14 +76,14 @@ defmodule Ryker.ControlPlane.Projection do
 
   defdelegate admission(ref), to: FailureProjection
   defdelegate channel(workspace_ref, channel_ref, params), to: ChannelDetail, as: :fetch
-  defdelegate channels(params), to: OperatorProjection
+  defdelegate channels(params), to: ChannelDirectory, as: :list
   defdelegate delivery(ref), to: FailureProjection
   defdelegate emisar(ref), to: FailureProjection
   defdelegate episode(ref, params \\ %{}), to: EpisodeProjection, as: :fetch
   defdelegate failures(params), to: FailureProjection, as: :list
   defdelegate findings(params), to: FindingsProjection, as: :list
-  defdelegate incident(ref), to: OperatorProjection
-  defdelegate incidents(params), to: OperatorProjection
+  defdelegate incident(ref), to: IncidentProjection, as: :fetch
+  defdelegate incidents(params), to: IncidentProjection, as: :list
 
   defdelegate lab_artifact(conversation_id, turn_id, artifact_ref),
     to: ConversationProjection,
@@ -96,14 +101,14 @@ defmodule Ryker.ControlPlane.Projection do
 
   defdelegate lab_index(), to: ConversationProjection, as: :index
   defdelegate memory(params \\ %{}), to: MemoryProjection, as: :fetch
-  defdelegate operator_configuration(), to: OperatorProjection
+  defdelegate operator_configuration(), to: ConfigurationProjection, as: :fetch
   defdelegate overview(), to: OverviewProjection
-  defdelegate repositories(params), to: OperatorProjection
-  defdelegate schedule(ref), to: OperatorProjection
-  defdelegate schedules(params), to: OperatorProjection
+  defdelegate repositories(params), to: RepositoryProjection, as: :list
+  defdelegate schedule(ref), to: ScheduleProjection, as: :fetch
+  defdelegate schedules(params), to: ScheduleProjection, as: :list
   defdelegate slack_incident(ref), to: FailureProjection
   defdelegate slack_interaction(ref), to: FailureProjection
-  defdelegate subscriptions(params), to: OperatorProjection
+  defdelegate subscriptions(params), to: SubscriptionProjection, as: :list
   defdelegate usage(params), to: UsageProjection, as: :page
   defdelegate work(ref), to: FailureProjection
   defdelegate workspace(ref), to: WorkspaceProjection, as: :fetch
