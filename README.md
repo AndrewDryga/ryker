@@ -4,8 +4,8 @@
 [![Release](https://img.shields.io/github/v/release/AndrewDryga/responder?sort=semver)](https://github.com/AndrewDryga/responder/releases/latest)
 
 Ryker is a persistent engineering and operations teammate backed by isolated
-[Coop](https://github.com/AndrewDryga/coop) sessions and governed Emisar access. Its replacement core
-is platform-neutral: Slack, GitHub comments and pull-request reviews, and authenticated webhooks are
+[Coop](https://github.com/AndrewDryga/coop) sessions and governed Emisar access. Its core is
+platform-neutral: Slack, GitHub comments and pull-request reviews, and authenticated webhooks are
 adapters over the same ingress, episode, Work, and Delivery contracts. It can answer, investigate,
 change code, and prepare reviewed work without turning every request into an incident.
 
