@@ -66,6 +66,7 @@ defmodule Ryker.Ingress.MigrationUpgradeTest do
   @slack_workspace_url_version 20_260_912_000_200
   @channel_invitations_version 20_260_912_000_300
   @schedule_catch_up_version 20_260_912_000_400
+  @rename_version 20_260_913_000_100
   # Cross-conversation routing migrations stay named as their own group so the
   # ladder can be reconciled with sibling work.
   @routing_versions [
@@ -101,7 +102,8 @@ defmodule Ryker.Ingress.MigrationUpgradeTest do
     @session_evidence_commands_version,
     @slack_workspace_url_version,
     @channel_invitations_version,
-    @schedule_catch_up_version
+    @schedule_catch_up_version,
+    @rename_version
   ]
   @memory_versions Enum.to_list(20_260_908_000_100..20_260_908_001_100//100) ++
                      [@bounded_sources_version]
@@ -201,7 +203,8 @@ defmodule Ryker.Ingress.MigrationUpgradeTest do
       assert table_exists?(repo, prefix, "slack_incident_room_lifecycle_events")
       assert table_exists?(repo, prefix, "slack_task_cards")
       assert table_exists?(repo, prefix, "slack_thread_statuses")
-      assert table_exists?(repo, prefix, "responder_operator_actions")
+      assert table_exists?(repo, prefix, "ryker_operator_actions")
+      refute table_exists?(repo, prefix, "responder_operator_actions")
       assert table_exists?(repo, prefix, "slack_interaction_audit")
       assert table_exists?(repo, prefix, "retention_operator_actions")
       assert table_exists?(repo, prefix, "episode_emisar_approvals")
@@ -220,9 +223,10 @@ defmodule Ryker.Ingress.MigrationUpgradeTest do
       assert column_exists?(repo, prefix, "episode_schedules", "revision")
       assert column_exists?(repo, prefix, "operator_behaviors", "revision")
       assert table_exists?(repo, prefix, "coop_worker_workspace_checkpoints")
-      assert table_exists?(repo, prefix, "responder_cutover_runs")
-      assert table_exists?(repo, prefix, "responder_cutover_items")
-      assert table_exists?(repo, prefix, "responder_runtime_progress")
+      assert table_exists?(repo, prefix, "ryker_cutover_runs")
+      assert table_exists?(repo, prefix, "ryker_cutover_items")
+      assert table_exists?(repo, prefix, "ryker_runtime_progress")
+      assert column_exists?(repo, prefix, "github_binding_settings", "ryker_actor_id")
       assert table_exists?(repo, prefix, "ingress_input_artifact_references")
       assert table_exists?(repo, prefix, "work_input_artifact_references")
       assert table_exists?(repo, prefix, "conversation_summary_drafts")
@@ -1638,11 +1642,12 @@ defmodule Ryker.Ingress.MigrationUpgradeTest do
       # evidence, the session-evidence command kind and the empty settings tables
       # are reversible on their own.
       assert Ecto.Migrator.run(repo, @migrations_path, :down,
-               step: 19 + length(@routing_versions),
+               step: 20 + length(@routing_versions),
                prefix: prefix,
                log: false
              ) ==
                [
+                 @rename_version,
                  @schedule_catch_up_version,
                  @channel_invitations_version,
                  @slack_workspace_url_version,
@@ -1746,8 +1751,9 @@ defmodule Ryker.Ingress.MigrationUpgradeTest do
       # The worker session evidence and the session-evidence command kind sit
       # above the learning rungs and are empty in this schema, so they roll back
       # on their own first.
-      assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 4, prefix: prefix, log: false) ==
+      assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 5, prefix: prefix, log: false) ==
                [
+                 @rename_version,
                  @schedule_catch_up_version,
                  @channel_invitations_version,
                  @slack_workspace_url_version,
@@ -2018,7 +2024,8 @@ defmodule Ryker.Ingress.MigrationUpgradeTest do
                  @session_evidence_commands_version,
                  @slack_workspace_url_version,
                  @channel_invitations_version,
-                 @schedule_catch_up_version
+                 @schedule_catch_up_version,
+                 @rename_version
                ]
 
       assert table_exists?(repo, prefix, "episode_routing_digests")
@@ -2033,11 +2040,12 @@ defmodule Ryker.Ingress.MigrationUpgradeTest do
       # in this schema, which recorded no worker evidence, no settings and no
       # metered learning execution.
       assert Ecto.Migrator.run(repo, @migrations_path, :down,
-               step: 12,
+               step: 13,
                prefix: prefix,
                log: false
              ) ==
                [
+                 @rename_version,
                  @schedule_catch_up_version,
                  @channel_invitations_version,
                  @slack_workspace_url_version,
@@ -2170,8 +2178,9 @@ defmodule Ryker.Ingress.MigrationUpgradeTest do
 
       # The review digests and the session-evidence command kind sit above this
       # table and hold nothing here.
-      assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 5, prefix: prefix, log: false) ==
+      assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 6, prefix: prefix, log: false) ==
                [
+                 @rename_version,
                  @schedule_catch_up_version,
                  @channel_invitations_version,
                  @slack_workspace_url_version,
@@ -2212,8 +2221,177 @@ defmodule Ryker.Ingress.MigrationUpgradeTest do
                  @session_evidence_commands_version,
                  @slack_workspace_url_version,
                  @channel_invitations_version,
-                 @schedule_catch_up_version
+                 @schedule_catch_up_version,
+                 @rename_version
                ]
+    after
+      SQL.query!(repo, "DROP SCHEMA IF EXISTS #{prefix} CASCADE", [])
+    end
+  end
+
+  # The product was renamed on 2026-09-13. The live database had 14 runtime
+  # progress rows, 53 operator actions, one publication_settings row and one
+  # GitHub binding under the old names; a migration that recreated instead of
+  # renamed would have dropped that custody, and one that rewrote the operator's
+  # branch prefix would have changed the names of branches it pushes. This holds
+  # the rename to exactly that: every object moves by name with its indexes and
+  # constraints, every row survives, the defaults change while the live row
+  # does not, the NOTIFY channel switches with the trigger on every table, and
+  # the whole step reverses.
+  test "the rename migration moves every object by name, keeps every row and reverses" do
+    repo = start_migration_repo!()
+    prefix = "rename_#{System.unique_integer([:positive])}"
+    SQL.query!(repo, "CREATE SCHEMA #{prefix}", [])
+
+    try do
+      Ecto.Migrator.run(repo, @migrations_path, :up,
+        to: @schedule_catch_up_version,
+        prefix: prefix,
+        log: false
+      )
+
+      insert_publication_recovery_action!(repo, prefix)
+
+      SQL.query!(
+        repo,
+        """
+        INSERT INTO #{prefix}.responder_runtime_progress
+          (lane, outcome, cycle_count, observed_at, inserted_at, updated_at)
+        VALUES ('work', 'cycle', 7, clock_timestamp(), clock_timestamp(), clock_timestamp())
+        """,
+        []
+      )
+
+      SQL.query!(
+        repo,
+        """
+        INSERT INTO #{prefix}.installation_settings
+          (host_ref, singleton, revision, applied_revision, saved_by, saved_at, inserted_at)
+        VALUES ('installation:test', TRUE, 1, 0, 'control-plane:local', now(), now())
+        """,
+        []
+      )
+
+      SQL.query!(
+        repo,
+        """
+        INSERT INTO #{prefix}.publication_settings (id, enabled, branch_prefix, commit_name, commit_email)
+        VALUES ('installation:test', TRUE, 'operator-chosen', 'Operator', 'operator@example.com')
+        """,
+        []
+      )
+
+      SQL.query!(
+        repo,
+        """
+        INSERT INTO #{prefix}.repository_settings (ref, inserted_at, updated_at)
+        VALUES ('ryker', clock_timestamp(), clock_timestamp())
+        """,
+        []
+      )
+
+      SQL.query!(
+        repo,
+        """
+        INSERT INTO #{prefix}.github_binding_settings
+          (name, repository_ref, installation_id, repository_id, responder_actor_id,
+           authorized_actor_ids, inserted_at, updated_at)
+        VALUES ('acme-app', 'ryker', 1, 2, 1877644, ARRAY[1877644]::bigint[],
+                clock_timestamp(), clock_timestamp())
+        """,
+        []
+      )
+
+      assert Ecto.Migrator.run(repo, @migrations_path, :up, step: 1, prefix: prefix, log: false) ==
+               [@rename_version]
+
+      for suffix <- ~w(runtime_progress operator_actions cutover_runs cutover_items) do
+        assert table_exists?(repo, prefix, "ryker_" <> suffix)
+        refute table_exists?(repo, prefix, "responder_" <> suffix)
+      end
+
+      assert named_objects(repo, prefix, "responder\\_%") == []
+
+      assert %{rows: [[7]]} =
+               SQL.query!(repo, "SELECT cycle_count FROM #{prefix}.ryker_runtime_progress", [])
+
+      assert %{rows: [["update"]]} =
+               SQL.query!(repo, "SELECT action FROM #{prefix}.ryker_operator_actions", [])
+
+      assert %{rows: [[1_877_644]]} =
+               SQL.query!(
+                 repo,
+                 "SELECT ryker_actor_id FROM #{prefix}.github_binding_settings",
+                 []
+               )
+
+      refute column_exists?(repo, prefix, "github_binding_settings", "responder_actor_id")
+
+      assert %{rows: [["operator-chosen", "Operator", "operator@example.com"]]} =
+               SQL.query!(
+                 repo,
+                 "SELECT branch_prefix, commit_name, commit_email FROM #{prefix}.publication_settings",
+                 []
+               )
+
+      assert column_defaults(repo, prefix, "publication_settings") ==
+               %{
+                 "branch_prefix" => "'ryker'::text",
+                 "commit_name" => "'Ryker'::text",
+                 "commit_email" => "'ryker@localhost'::text"
+               }
+
+      assert %{rows: [[receipt]]} =
+               SQL.query!(repo, "SELECT #{prefix}.ryker_learning_roots($1)", [
+                 Jason.encode!([%{"kind" => "root"}])
+               ])
+
+      assert receipt == %{"kind" => "root"}
+
+      assert triggers(repo, prefix, "ryker_control_plane_changed") ==
+               every_table(repo, prefix) -- ["schema_migrations", "ryker_runtime_progress"]
+
+      assert triggers(repo, prefix, "responder_control_plane_changed") == []
+      assert notify_channel(repo, prefix, "ryker_control_plane_notify") == "ryker_control_plane"
+
+      assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 1, prefix: prefix, log: false) ==
+               [@rename_version]
+
+      for suffix <- ~w(runtime_progress operator_actions cutover_runs cutover_items) do
+        assert table_exists?(repo, prefix, "responder_" <> suffix)
+        refute table_exists?(repo, prefix, "ryker_" <> suffix)
+      end
+
+      assert named_objects(repo, prefix, "ryker\\_%") == []
+
+      assert %{rows: [["update"]]} =
+               SQL.query!(repo, "SELECT action FROM #{prefix}.responder_operator_actions", [])
+
+      assert %{rows: [[1_877_644]]} =
+               SQL.query!(
+                 repo,
+                 "SELECT responder_actor_id FROM #{prefix}.github_binding_settings",
+                 []
+               )
+
+      assert column_defaults(repo, prefix, "publication_settings") ==
+               %{
+                 "branch_prefix" => "'responder'::text",
+                 "commit_name" => "'Responder'::text",
+                 "commit_email" => "'responder@localhost'::text"
+               }
+
+      assert triggers(repo, prefix, "ryker_control_plane_changed") == []
+
+      assert notify_channel(repo, prefix, "responder_control_plane_notify") ==
+               "responder_control_plane"
+
+      assert %{rows: [[%{"kind" => "root"}]]} =
+               SQL.query!(
+                 repo,
+                 "SELECT #{prefix}.responder_learning_roots($1)",
+                 [Jason.encode!([%{"kind" => "root"}])]
+               )
     after
       SQL.query!(repo, "DROP SCHEMA IF EXISTS #{prefix} CASCADE", [])
     end
@@ -2258,8 +2436,9 @@ defmodule Ryker.Ingress.MigrationUpgradeTest do
       # The session-evidence command kind, the worker session evidence and the
       # repository source column sit above the settings tables and hold nothing
       # here, so they roll back on their own.
-      assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 7, prefix: prefix, log: false) ==
+      assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 8, prefix: prefix, log: false) ==
                [
+                 @rename_version,
                  @schedule_catch_up_version,
                  @channel_invitations_version,
                  @slack_workspace_url_version,
@@ -2330,7 +2509,8 @@ defmodule Ryker.Ingress.MigrationUpgradeTest do
                  @session_evidence_commands_version,
                  @slack_workspace_url_version,
                  @channel_invitations_version,
-                 @schedule_catch_up_version
+                 @schedule_catch_up_version,
+                 @rename_version
                ]
     after
       SQL.query!(repo, "DROP SCHEMA IF EXISTS #{prefix} CASCADE", [])
@@ -2812,6 +2992,89 @@ defmodule Ryker.Ingress.MigrationUpgradeTest do
     end
 
     path
+  end
+
+  # Every index, constraint and function in the schema whose name carries the
+  # given prefix pattern; the rename must leave none behind.
+  defp named_objects(repo, prefix, pattern) do
+    %{rows: rows} =
+      SQL.query!(
+        repo,
+        """
+        SELECT c.relname AS name FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE n.nspname = $1 AND c.relname LIKE $2
+        UNION ALL
+        SELECT k.conname FROM pg_constraint k JOIN pg_namespace n ON n.oid = k.connamespace
+        WHERE n.nspname = $1 AND k.conname LIKE $2
+        UNION ALL
+        SELECT p.proname FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+        WHERE n.nspname = $1 AND p.proname LIKE $2
+        ORDER BY 1
+        """,
+        [prefix, pattern]
+      )
+
+    List.flatten(rows)
+  end
+
+  defp column_defaults(repo, prefix, table) do
+    %{rows: rows} =
+      SQL.query!(
+        repo,
+        """
+        SELECT column_name, column_default FROM information_schema.columns
+        WHERE table_schema = $1 AND table_name = $2 AND column_default IS NOT NULL
+        """,
+        [prefix, table]
+      )
+
+    rows
+    |> Enum.filter(fn [name, _] -> name in ~w(branch_prefix commit_name commit_email) end)
+    |> Map.new(&List.to_tuple/1)
+  end
+
+  defp triggers(repo, prefix, name) do
+    %{rows: rows} =
+      SQL.query!(
+        repo,
+        """
+        SELECT c.relname FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid
+          JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE n.nspname = $1 AND t.tgname = $2 ORDER BY c.relname
+        """,
+        [prefix, name]
+      )
+
+    List.flatten(rows)
+  end
+
+  defp every_table(repo, prefix) do
+    %{rows: rows} =
+      SQL.query!(
+        repo,
+        """
+        SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE n.nspname = $1 AND c.relkind IN ('r', 'p') ORDER BY c.relname
+        """,
+        [prefix]
+      )
+
+    List.flatten(rows)
+  end
+
+  defp notify_channel(repo, prefix, function) do
+    %{rows: [[definition]]} =
+      SQL.query!(
+        repo,
+        """
+        SELECT pg_get_functiondef(p.oid) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+        WHERE n.nspname = $1 AND p.proname = $2
+        """,
+        [prefix, function]
+      )
+
+    [_, channel] = Regex.run(~r/pg_notify\('([a-z_]+)'/, definition)
+    channel
   end
 
   defp table_exists?(repo, prefix, table) do

@@ -34,14 +34,14 @@ defmodule Ryker.ControlPlane.Updates do
 
     with {:ok, connection} <- Postgrex.Notifications.start_link(connection_options),
          {status, reference} when status in [:ok, :eventually] <-
-           Postgrex.Notifications.listen(connection, "responder_control_plane") do
+           Postgrex.Notifications.listen(connection, "ryker_control_plane") do
       {:ok, %{connection: connection, reference: reference, pending: MapSet.new(), timer: nil}}
     end
   end
 
   @impl true
   def handle_info(
-        {:notification, connection, reference, "responder_control_plane", table},
+        {:notification, connection, reference, "ryker_control_plane", table},
         %{connection: connection, reference: reference} = state
       ) do
     pending = MapSet.union(state.pending, MapSet.new(domains(table)))
@@ -106,6 +106,6 @@ defmodule Ryker.ControlPlane.Updates do
   defp domains("standing_assignment_runs"), do: ~w(rules timeline)
   defp domains("platform_actions"), do: ~w(activity timeline conversations failures)
   defp domains("delivery_" <> _), do: ~w(activity timeline conversations failures)
-  defp domains("responder_operator_actions"), do: ~w(activity failures)
+  defp domains("ryker_operator_actions"), do: ~w(activity failures)
   defp domains(_table), do: ~w(activity usage configuration)
 end
