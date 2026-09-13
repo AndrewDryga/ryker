@@ -322,17 +322,20 @@ defmodule Responder.ControlPlane.OperatorUsabilityTest do
 
   test "working copies do not present the repository name as a retention reason" do
     html =
-      HTML.workspaces([
-        %{
-          action: nil,
-          ref: "session:1",
-          status: :discarded,
-          state: :complete,
-          summary: "emisar",
-          repository: "emisar",
-          updated_at: ~U[2026-09-05 12:00:00Z]
-        }
-      ])
+      HTML.workspaces(
+        [
+          %{
+            action: nil,
+            ref: "session:1",
+            status: :discarded,
+            state: :complete,
+            summary: "emisar",
+            repository: "emisar",
+            updated_at: ~U[2026-09-05 12:00:00Z]
+          }
+        ],
+        no_storage()
+      )
       |> IO.iodata_to_binary()
 
     assert html =~ "Working copy removed"
@@ -378,6 +381,14 @@ defmodule Responder.ControlPlane.OperatorUsabilityTest do
     assert LazyHTML.query(document, "form.filter-toolbar input#operator-search[name=q]")
            |> LazyHTML.attribute("placeholder") == ["Repository name"]
   end
+
+  # The storage sections the Workspaces page renders beneath the working copies.
+  defp no_storage,
+    do: %{
+      budget: %{disposable_bytes_limit: nil, reclaim_target_seconds: nil},
+      preview: [],
+      workers: []
+    }
 
   # "tag.first-class" for each matched element, in document order.
   defp outline(document, selector) do
@@ -454,7 +465,7 @@ defmodule Responder.ControlPlane.OperatorUsabilityTest do
         }
       end
 
-    html = rows |> HTML.workspaces() |> IO.iodata_to_binary()
+    html = rows |> HTML.workspaces(no_storage()) |> IO.iodata_to_binary()
     assert html =~ ">Investigate portal errors</a>"
     assert html =~ ">Update runner version</a>"
   end

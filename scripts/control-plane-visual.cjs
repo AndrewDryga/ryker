@@ -132,9 +132,15 @@ async function discover(page) {
             assert.equal(await page.locator('a[href^="/card-lab"], a[href="/manual-tests"]').count(), 0, 'Retired testing pages must not return to navigation');
             assert.equal(await page.locator('.nav-caption', {hasText: 'Testing'}).count(), 0, 'The Testing navigation group was removed');
             if (name === 'conversation' && width === 390) assert(result.layout.composerTop >= result.layout.transcriptBottom, 'Composer obscures the conversation');
-            if (name === 'repositories') {
-              const panels = await page.locator('.repository-card > header').evaluateAll(es => es.map(e => getComputedStyle(e).backgroundColor));
-              assert(panels.every(color => color === 'rgba(0, 0, 0, 0)' || color === 'rgb(255, 255, 255)'), 'Repository headings must not inherit the old dark page banner');
+            if (['schedules', 'channels', 'repositories', 'workspaces'].includes(name)) {
+              // One shell: the title once, then the page's own column with its comparison
+              // table stacked into label/value rows on a phone instead of scrolling sideways.
+              assert.equal(await page.locator('main h1').count(), 1, `${name}: the title renders once`);
+              assert.equal(await page.locator('main .repository-card, main .table-wrap, main .page-description h2').count(), 0, `${name}: no legacy card or table-wrap layout`);
+              const cell = page.locator('main table.data-table tbody td:not(.row-identity)').first();
+              if (await cell.count()) {
+                assert.equal(await cell.evaluate(e => getComputedStyle(e).display), width <= 760 ? 'grid' : 'table-cell', `${name}: table rows stack only on narrow screens`);
+              }
             }
             if (name === 'requests') {
               const titles = await page.locator('.activity-title').allTextContents();

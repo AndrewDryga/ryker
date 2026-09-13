@@ -2436,7 +2436,7 @@ defmodule Responder.ControlPlane.ProjectionTest do
     # Preview is read-only: nothing about the session changed by looking at it.
     assert Repo.get!(Session, session.id).cleanup_status == :active
 
-    html = storage |> HTML.workspace_storage() |> IO.iodata_to_binary()
+    html = HTML.workspaces([], storage) |> IO.iodata_to_binary()
     assert html =~ "no measurement reported"
     assert html =~ "refused: reserve_exhausted"
     assert html =~ "unknown"

@@ -652,10 +652,16 @@ defmodule Responder.ControlPlane.Router do
   defp route(%Plug.Conn{method: "GET", path_info: ["workspaces"]} = conn, options) do
     conn = fetch_query_params(conn)
 
-    html(conn, 200, "Workspaces", [
-      HTML.workspaces(options.projection.workspaces.(conn.query_params)),
-      HTML.workspace_storage(options.projection.workspace_storage.())
-    ])
+    html(
+      conn,
+      200,
+      "Workspaces",
+      "Repository checkouts used by tasks, not Slack workspaces: what each one holds, what cleanup will do next, and the storage workers report.",
+      HTML.workspaces(
+        options.projection.workspaces.(conn.query_params),
+        options.projection.workspace_storage.()
+      )
+    )
   end
 
   defp route(%Plug.Conn{method: "GET", path_info: [page]} = conn, options)
