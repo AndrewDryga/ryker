@@ -13,6 +13,20 @@ defmodule Responder.Emisar.ApprovalStatusTest do
     end
   end
 
+  # Four different things were all called "In progress", so the governed-action
+  # card rendered byte-for-byte identically whether the action was still queued,
+  # handed to the runner, executing, or being cancelled. An operator watching a
+  # production restart could not tell that their cancellation was in flight.
+  test "states an operator would act on differently do not share a label" do
+    labels = Map.new(~w(pending sent running cancelling), &{&1, ApprovalStatus.label(&1)})
+
+    assert map_size(Map.new(labels, fn {_status, label} -> {label, nil} end)) == 4,
+           "expected four distinct labels, got #{inspect(labels)}"
+
+    # Cancelling is the one that misleads: it must not read as forward progress.
+    refute ApprovalStatus.label("cancelling") =~ "progress"
+  end
+
   test "rejects crossed URLs, unknown status, and extra fields" do
     refute RunState.terminal?(:invalid)
 
