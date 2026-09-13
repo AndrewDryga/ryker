@@ -11,6 +11,7 @@ defmodule Responder.ControlPlane.LiveTest do
   alias Responder.Ingress.WorkProfile
 
   alias Responder.ControlPlane.Endpoint
+  alias Responder.Episodes.Reactions
 
   @endpoint Endpoint
 
@@ -932,6 +933,139 @@ defmodule Responder.ControlPlane.LiveTest do
            )
 
     refute has_element?(view, "[href^='/lab/'], [action^='/lab/']")
+  end
+
+  test "a reply's reactions are compact pills with real counts and one anchored picker" do
+    # The reply carried a "React to this reply" heading, five permanent emoji
+    # buttons and a Custom emoji disclosure whose Add button sat detached
+    # under its input. Recorded reactions now render as small pills with the
+    # count the contract actually provides and a pressed state for the
+    # operator's own; adding opens a picker from one labelled control; a reply
+    # with no reactions reserves nothing; operator messages get no reactions.
+    {:ok, profile} =
+      WorkProfile.new(%{
+        policy: "lab-live-test",
+        policy_digest: String.duplicate("a", 64),
+        repository_ref: nil
+      })
+
+    id = Ecto.UUID.generate()
+    {:ok, %{entry: first}} = ConversationLab.send_message(id, "Question", profile)
+    {episode, _turn} = accepted_reply!(id, first, "Answer with reactions.", profile)
+    message_ref = "control-plane-message:#{episode.id}"
+    {:ok, _} = ConversationLab.react_to_message(id, message_ref, :add, "heart")
+
+    {:ok, _} =
+      Reactions.record(%{
+        action: :add,
+        actor_ref: "slack:user:U-other",
+        emoji_name: "+1",
+        event_ref: "slack-reaction:other-one",
+        occurred_at: DateTime.utc_now(),
+        source: %{kind: "control_plane", ref: "local"},
+        target: %{
+          conversation_ref: "control-plane:lab:#{id}",
+          message_ref: message_ref,
+          transport: "control_plane"
+        }
+      })
+
+    conn = build_conn() |> Map.put(:host, "localhost")
+    {:ok, view, html} = live(conn, "/conversations/#{id}")
+    document = LazyHTML.from_document(html)
+    reply = LazyHTML.query(document, ".lab-chat-message.actor-responder")
+
+    path =
+      "/conversations/#{id}/replies/#{URI.encode(message_ref, &URI.char_unreserved?/1)}/reactions"
+
+    pills = LazyHTML.query(reply, ".lab-reaction-pills form.lab-reaction-pill")
+    assert Enum.count(pills) == 2
+    assert LazyHTML.attribute(pills, "action") == [path, path]
+
+    # Each pill posts the real add/remove contract for its emoji: remove for
+    # the operator's own reaction, add for one they have not made.
+    facts =
+      Enum.map(pills, fn pill ->
+        {LazyHTML.query(pill, "input[name=emoji]") |> LazyHTML.attribute("value"),
+         LazyHTML.query(pill, "input[name=action]") |> LazyHTML.attribute("value"),
+         LazyHTML.query(pill, "button[type=submit]") |> LazyHTML.attribute("aria-pressed"),
+         LazyHTML.query(pill, "button[type=submit]") |> LazyHTML.text()}
+      end)
+
+    assert {["heart"], ["remove"], ["true"], heart} =
+             Enum.find(facts, &match?({["heart"], _, _, _}, &1))
+
+    assert heart =~ "❤️" and heart =~ "1"
+    assert {["+1"], ["add"], ["false"], thumbs} = Enum.find(facts, &match?({["+1"], _, _, _}, &1))
+    assert thumbs =~ "👍" and thumbs =~ "1"
+
+    # One labelled control opens one anchored picker holding the five quick
+    # choices and the custom-name form with its label, aligned Add and error slot.
+    [picker_id] =
+      LazyHTML.query(
+        reply,
+        ".lab-message-actions button.lab-reaction-toggle[type=button][aria-expanded=false]"
+      )
+      |> LazyHTML.attribute("aria-controls")
+
+    assert LazyHTML.query(reply, ".lab-reaction-toggle") |> LazyHTML.attribute("aria-label") == [
+             "Add reaction"
+           ]
+
+    picker = LazyHTML.query(reply, "##{picker_id}.lab-reaction-picker[hidden][phx-update=ignore]")
+    assert Enum.count(picker) == 1
+
+    assert LazyHTML.query(picker, "form.lab-reaction-quick input[name=emoji]")
+           |> LazyHTML.attribute("value") == ["+1", "heart", "eyes", "tada", "rocket"]
+
+    assert LazyHTML.query(picker, "form.lab-reaction-quick input[name=action]")
+           |> LazyHTML.attribute("value")
+           |> Enum.uniq() == ["add"]
+
+    assert LazyHTML.query(picker, "form.lab-reaction-custom label[for='#{picker_id}-name']")
+           |> LazyHTML.text() =~ "Emoji name"
+
+    assert LazyHTML.query(
+             picker,
+             "form.lab-reaction-custom input#" <>
+               picker_id <> "-name[name=emoji][maxlength='100']"
+           )
+           |> Enum.count() == 1
+
+    assert LazyHTML.query(
+             picker,
+             "form.lab-reaction-custom .lab-reaction-custom-row button.lab-reaction-add[type=submit]"
+           )
+           |> LazyHTML.text() =~ "Add"
+
+    assert LazyHTML.query(
+             picker,
+             "form.lab-reaction-custom p.lab-reaction-error[role=alert][hidden]"
+           )
+           |> Enum.count() == 1
+
+    assert LazyHTML.query(picker, "form.lab-reaction-custom input[name=emoji]")
+           |> LazyHTML.attribute("aria-describedby") == ["#{picker_id}-error"]
+
+    refute html =~ "React to this reply"
+    refute has_element?(view, "#lab-messages details summary", "Custom emoji")
+    refute has_element?(view, "#lab-messages .quick-reactions")
+    refute has_element?(view, ".lab-chat-message.actor-operator .lab-reaction-toggle")
+    refute has_element?(view, ".lab-chat-message.actor-operator .lab-reaction-pills")
+
+    # A reply without reactions reserves no pills panel.
+    {:ok, %{entry: second}} = ConversationLab.send_message(id, "Second question", profile)
+    {_episode2, _turn2} = accepted_reply!(id, second, "Answer without reactions.", profile)
+    render_hook(view, "refresh", %{})
+
+    bare =
+      render(view)
+      |> LazyHTML.from_document()
+      |> LazyHTML.query(".lab-chat-message.actor-responder")
+
+    assert Enum.count(bare) == 2
+    assert Enum.count(LazyHTML.query(bare, ".lab-reaction-pills")) == 1
+    assert Enum.count(LazyHTML.query(bare, ".lab-reaction-toggle")) == 2
   end
 
   test "an operator message edits in place through one hidden editor bound to that message" do

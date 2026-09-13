@@ -32,6 +32,11 @@ defmodule Responder.ControlPlane.ConversationLab do
   @maximum_message_bytes 20_000
   @maximum_attachments 2
   @option_keys [:attachments, :id_generator, :now]
+  @operator_actor_ref "control-plane:user:local-operator"
+
+  @doc "The actor every local-operator reaction is recorded under; the page uses it to mark the operator's own."
+  @spec operator_actor_ref() :: String.t()
+  def operator_actor_ref, do: @operator_actor_ref
 
   @spec send_message(String.t(), String.t(), WorkProfile.t(), keyword()) ::
           {:ok, Inbox.receipt()} | {:error, term()}
@@ -113,7 +118,7 @@ defmodule Responder.ControlPlane.ConversationLab do
 
       Reactions.record(%{
         action: action,
-        actor_ref: "control-plane:user:local-operator",
+        actor_ref: @operator_actor_ref,
         emoji_name: emoji_name,
         event_ref: "control-plane-reaction:#{event_id}",
         occurred_at: occurred_at,

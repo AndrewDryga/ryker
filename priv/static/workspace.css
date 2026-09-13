@@ -712,13 +712,10 @@ details.measurement-notes > summary { cursor:pointer; font-weight:600; color:var
 .chat-message-extras .lab-card dl { display:block; font-size:14px; }
 .chat-message-extras .lab-card dt { color:#6b8254; margin-top:8px; }
 .chat-message-extras .lab-card dd { color:#526e3b; }
-.chat-message-extras .lab-reaction-controls { color:#648048; }
-.chat-message-extras .reaction-label { font-size:13px; }
-.chat-message-extras .reaction-chip, .chat-message-extras .feedback-reaction { color:#4c712f; background:#eef6e3; border-color:#d1e3bc; }
+.chat-message-extras .reaction-chip { color:#4c712f; background:#eef6e3; border-color:#d1e3bc; }
 .chat-message-extras .attachment-chip { background:#f3f8eb; border-color:#d8e6c9; color:#536f3b; font-size:14px; }
 .chat-message-extras .attachment-chip span { color:#6c8254; }
 .chat-message-extras .attachment-download img { max-width:100%; max-height:340px; border:1px solid #d6e3c9; border-radius:5px; }
-.chat-message-extras .lab-reaction-controls input { background:#fff; color:#526e3a; border:1px solid #c9ddb3; }
 /* Inline edit: the hidden editor replaces the rendered body in place at the same width and type scale. */
 .lab-chat-message.is-editing .chat-message-text, .lab-chat-message.is-editing .lab-message-actions { display:none; }
 .lab-edit-form { margin:8px 0 0; }
@@ -736,6 +733,31 @@ details.measurement-notes > summary { cursor:pointer; font-weight:600; color:var
 .responder-app .lab-message-actions button { background:none; border:1px solid transparent; border-radius:4px; min-height:36px; padding:6px 8px; color:var(--secondary); font-size:13px; line-height:18px; font-weight:500; }
 .responder-app .lab-message-actions button:hover { color:var(--ink); background:#f1f6e9; }
 .responder-app .lab-message-actions .lab-message-delete:hover { color:#973e30; background:#fff7f5; }
+/* Reactions: small pills for what is recorded, one add-reaction control opening an anchored picker. */
+.lab-reaction-pills { display:flex; flex-wrap:wrap; gap:4px 6px; }
+.lab-reaction-pill { margin:0; display:inline-flex; }
+.responder-app .lab-reaction-pill-button { display:inline-flex; align-items:center; gap:4px; min-height:28px; padding:2px 10px; border:1px solid #d1e3bc; border-radius:999px; background:#f3f8eb; color:#4c712f; font-size:13px; line-height:18px; font-weight:500; }
+.responder-app .lab-reaction-pill-button:hover { border-color:#a9c98d; }
+.responder-app .lab-reaction-pill-button[aria-pressed=true] { background:#dfeccf; border-color:#7ea45e; color:#2f4f25; }
+.responder-app .lab-reaction-pill-button[aria-busy=true] { opacity:.6; }
+.lab-reaction-glyph { font-size:15px; line-height:18px; }
+.lab-reaction-count { font-variant-numeric:tabular-nums; }
+.lab-message-actions { position:relative; }
+.responder-app .lab-reaction-toggle { display:inline-flex; align-items:center; gap:6px; }
+.responder-app .lab-reaction-toggle .ui-icon { width:16px; height:16px; }
+.lab-reaction-picker { position:absolute; right:0; top:100%; z-index:20; width:min(360px,100%); margin-top:4px; padding:12px; background:#fff; border:1px solid #cad7bf; border-radius:8px; box-shadow:0 12px 30px #20341b26; text-align:left; }
+.lab-reaction-picker[hidden] { display:none; }
+.lab-reaction-quick-row { display:flex; flex-wrap:wrap; gap:4px; }
+.lab-reaction-quick { margin:0; }
+.responder-app .lab-reaction-quick button { width:44px; height:44px; padding:0; border:1px solid transparent; border-radius:6px; background:none; font-size:22px; line-height:1; }
+.responder-app .lab-reaction-quick button:hover { background:#f1f6e9; border-color:#d3e3c1; }
+.lab-message-actions .lab-reaction-custom { display:block; margin:12px 0 0; }
+.lab-reaction-custom label { display:block; margin:0 0 4px; font-size:13px; line-height:18px; font-weight:600; color:var(--ink); }
+.lab-reaction-custom-row { display:flex; gap:8px; align-items:stretch; }
+.responder-app .lab-reaction-custom input { flex:1; min-width:0; min-height:40px; padding:8px 12px; border:1px solid #c9d8ba; border-radius:6px; background:#fff; color:var(--ink); font-size:14px; line-height:20px; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }
+.responder-app .lab-reaction-custom input[aria-invalid=true] { border-color:#c86a5a; }
+.responder-app .lab-reaction-custom button.lab-reaction-add { min-height:40px; padding:8px 14px; border:1px solid #34543b; border-radius:6px; background:#34543b; color:#f7f9f1; font-size:14px; line-height:20px; font-weight:550; }
+.lab-reaction-error { margin:4px 0 0; font-size:13px; line-height:18px; color:#973e30; }
 .lab-notices:empty { display:none; }
 .lab-notices { display:grid; gap:8px; margin:8px 0 0; }
 .lab-notice { margin:0; padding:12px 16px; border:1px solid #d8b7af; border-radius:6px; background:#fff7f5; color:#5b3a33; font-size:14px; line-height:20px; }

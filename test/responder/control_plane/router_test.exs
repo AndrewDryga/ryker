@@ -235,7 +235,15 @@ defmodule Responder.ControlPlane.RouterTest do
     assert conversation.resp_body =~ "name=\"attachments[]\""
     assert conversation.resp_body =~ ">Edit<"
     assert conversation.resp_body =~ ">Delete<"
-    assert conversation.resp_body =~ "React to this reply"
+    # The fixture reply carries one recorded heart from the local operator: a
+    # pressed pill that removes, and a picker whose custom form is aligned.
+    refute conversation.resp_body =~ "React to this reply"
+    refute conversation.resp_body =~ "Custom emoji</summary>"
+    assert conversation.resp_body =~ "class=\"lab-reaction-form lab-reaction-pill\""
+    assert conversation.resp_body =~ "aria-pressed=\"true\""
+    assert conversation.resp_body =~ "name=\"action\" value=\"remove\""
+    assert conversation.resp_body =~ "class=\"lab-reaction-picker\""
+    assert conversation.resp_body =~ "aria-label=\"Add reaction\""
 
     assert conversation.resp_body =~
              "/conversations/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6/messages/018f3ef7-1f62-7ee0-a83c-0c12f21d83e7/edit"
@@ -448,6 +456,20 @@ defmodule Responder.ControlPlane.RouterTest do
 
     assert_received {:lab_reaction, "018f3ef7-1f62-7ee0-a83c-0c12f21d83e6",
                      "control-plane-message:lab-reply", :add, "heart"}
+
+    # A pill or picker submission from the page gets the 202 receipt; the
+    # exact reply target and the normalized name still reach the action.
+    live_reaction =
+      json_request(
+        "/conversations/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6/replies/control-plane-message%3Alab-reply/reactions",
+        URI.encode_query(%{"_token" => reaction_token, "action" => "remove", "emoji" => "heart"})
+      )
+
+    assert live_reaction.status == 202
+    assert Jason.decode!(live_reaction.resp_body) == %{"accepted" => true}
+
+    assert_received {:lab_reaction, "018f3ef7-1f62-7ee0-a83c-0c12f21d83e6",
+                     "control-plane-message:lab-reply", :remove, "heart"}
 
     [_, task_token] =
       Regex.run(
