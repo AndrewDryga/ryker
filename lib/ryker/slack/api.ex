@@ -9,7 +9,8 @@ defmodule Ryker.Slack.API do
   Posts one private line to exactly one person in a channel they are already in.
 
   Used when the host must tell a reader something their card cannot say, and
-  never for content anyone else needs to see.
+  never for content anyone else needs to see. Optional: a caller that has
+  nothing else to say checks for it and stays silent when it is absent.
   """
   @callback post_ephemeral(term(), String.t(), String.t(), String.t() | nil, String.t()) ::
               :ok | {:error, term()}
@@ -68,6 +69,7 @@ defmodule Ryker.Slack.API do
                       pin_message: 3,
                       conversation_state: 2,
                       open_view: 3,
+                      post_ephemeral: 5,
                       publish_home: 3,
                       set_thread_status: 4,
                       update_message: 5

@@ -8,6 +8,7 @@ defmodule Ryker.Slack.Mentions do
   """
 
   import Ecto.Query
+  import Ryker.Slack.Renderer.Blocks, only: [escape: 1]
 
   alias Ryker.CanonicalJSON
   alias Ryker.Episodes.{Episode, Event}
@@ -369,12 +370,5 @@ defmodule Ryker.Slack.Mentions do
     if is_binary(value) and byte_size(value) in 1..256 and Regex.match?(@slack_id, value),
       do: :ok,
       else: {:error, :slack_id}
-  end
-
-  defp escape(text) do
-    text
-    |> String.replace("&", "&amp;")
-    |> String.replace("<", "&lt;")
-    |> String.replace(">", "&gt;")
   end
 end
