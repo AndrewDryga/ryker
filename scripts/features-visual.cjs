@@ -21,7 +21,7 @@ assert(process.argv[3], 'Provide a private output directory');
       page.setDefaultTimeout(6000);
       const errors = [];
       page.on('pageerror', error => errors.push(error.message));
-      for (const route of ['/rules', '/preferences', '/guidance', '/memory', '/lab']) {
+      for (const route of ['/rules', '/preferences', '/guidance', '/memory', '/conversations']) {
         const result = {route, width};
         try {
           const response = await page.goto(new URL(route, origin).href);
@@ -109,7 +109,7 @@ assert(process.argv[3], 'Provide a private output directory');
               assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'Populated layout overflow');
             }
           }
-          if (route === '/lab') {
+          if (route === '/conversations') {
             assert.equal(await page.locator('.workflow-list, #workflows, a[href^="/card-lab/"]').count(), 0, 'The retired card catalog must not come back');
           }
           assert.equal(errors.length, 0, 'Browser errors');

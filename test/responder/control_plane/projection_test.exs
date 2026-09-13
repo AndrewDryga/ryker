@@ -768,7 +768,7 @@ defmodule Responder.ControlPlane.ProjectionTest do
     document = snapshot |> HTML.usage() |> IO.iodata_to_binary() |> LazyHTML.from_document()
     people = LazyHTML.query(document, "#usage-people")
 
-    for label <- ["Conversation Lab", "universal", "Slack app", "without a saved person"],
+    for label <- ["Direct conversation", "universal", "Slack app", "without a saved person"],
         do: refute(LazyHTML.text(people) =~ label)
 
     params =

@@ -260,7 +260,7 @@ defmodule Responder.ControlPlane.BehaviorPage do
 
   defp source_url(%{source_conversation_ref: "control-plane:lab:" <> id}) do
     case Ecto.UUID.cast(id) do
-      {:ok, id} -> "/lab/#{id}"
+      {:ok, id} -> "/conversations/#{id}"
       :error -> nil
     end
   end

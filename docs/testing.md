@@ -174,7 +174,7 @@ when both the visible platform effect and its durable Episode/Work/Delivery reco
 control plane's request timeline is the record to check after every visible effect. Skip the
 journeys whose integration is not configured in this installation.
 
-- **Direct conversation** (`/lab`): ask for a concise answer, then a follow-up that depends on it and
+- **Direct conversation** (`/conversations`): ask for a concise answer, then a follow-up that depends on it and
   confirm one conversation with continued episode lineage. Answer a material question and confirm
   the same task session resumes. Upload a bounded text file and an image, then ask for one generated
   image. React locally and confirm one additional post without Slack traffic. Confirm a harmless

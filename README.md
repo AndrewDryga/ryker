@@ -137,8 +137,8 @@ curl -f http://127.0.0.1:4321/healthz
 curl -f http://127.0.0.1:4321/readyz
 ```
 
-Then open `http://127.0.0.1:4321/lab` to talk to the configured model through
-the real durable product pipeline without posting to Slack. The manual
+Then open `http://127.0.0.1:4321/conversations` for direct conversations with the
+agent, without Slack, through the real durable product pipeline. The manual
 qualification journeys for Slack, GitHub, webhooks, state tools and recovery are
 in [`docs/testing.md`](docs/testing.md#manual-qualification).
 

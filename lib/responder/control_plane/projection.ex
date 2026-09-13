@@ -1355,7 +1355,7 @@ defmodule Responder.ControlPlane.Projection do
       media_type: artifact.media_type,
       name: artifact.name,
       path:
-        "/lab/#{conversation_id}/turns/#{artifact.turn_id}/artifacts/#{URI.encode(artifact.ref, &URI.char_unreserved?/1)}",
+        "/conversations/#{conversation_id}/turns/#{artifact.turn_id}/artifacts/#{URI.encode(artifact.ref, &URI.char_unreserved?/1)}",
       ref: artifact.ref,
       status: "available"
     }

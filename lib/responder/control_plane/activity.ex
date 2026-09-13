@@ -220,7 +220,7 @@ defmodule Responder.ControlPlane.Activity do
     })
   end
 
-  defp source("control_plane"), do: "Conversation Lab"
+  defp source("control_plane"), do: "Direct conversation"
   defp source("slack"), do: "Slack"
   defp source("github"), do: "GitHub"
   defp source(_), do: "Integration"

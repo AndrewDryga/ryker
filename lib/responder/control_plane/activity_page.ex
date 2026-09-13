@@ -27,7 +27,9 @@ defmodule Responder.ControlPlane.ActivityPage do
           <div>
             <h1>Activity</h1><p>Inspect incoming messages, running work, and delivered answers.</p>
           </div>
-          <a :if={@activity.total > 0} class="ui-button secondary" href="/lab/new"><.icon name={:plus} />Test a message</a>
+          <a :if={@activity.total > 0} class="ui-button secondary" href="/conversations/new"><.icon name={
+            :plus
+          } />New conversation</a>
         </div>
         <div class="activity-pulse" aria-label="Current workload">
           <span><i class="pulse-dot"></i><b data-active-count>{Map.get(@overview.counts, :active, 0)}</b>
@@ -104,16 +106,16 @@ defmodule Responder.ControlPlane.ActivityPage do
               {if filtered?(@params),
                 do: "Try another phrase or view all activity. Your filters only change this view.",
                 else:
-                  "Messages from connected platforms and the Conversation Lab appear here with their execution history."}
+                  "Messages from connected platforms and direct conversations appear here with their execution history."}
             </p>
             <.link :if={filtered?(@params)} class="ui-button secondary" patch={@path}>Clear filters</.link>
-            <a :if={!filtered?(@params)} class="ui-button primary" href="/lab/new">Test a message
+            <a :if={!filtered?(@params)} class="ui-button primary" href="/conversations/new">New conversation
             <.icon name={:arrow} /></a>
           </div>
           <div id="activity-stream" phx-update="stream" class="activity-list">
             <article :for={{dom_id, item} <- @stream} id={dom_id} class="activity-row">
               <span class={"source-glyph source-#{item.kind}"} aria-hidden="true"><.icon name={
-                if item.source == "Conversation Lab", do: :chat, else: :activity
+                if item.source == "Direct conversation", do: :chat, else: :activity
               } /></span>
               <div class="activity-row-copy">
                 <.link navigate={item.href} class="activity-title">{title(item)}</.link><div class="activity-meta">

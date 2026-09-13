@@ -10,13 +10,14 @@ defmodule Responder.ControlPlane.ConversationLab do
 
   import Ecto.Query
 
-  # Lab input enters the inbox directly; the Slack engagement gate never runs
-  # for it, and the receipt says that instead of inventing Slack checks.
+  # Direct-conversation input enters the inbox directly; the Slack engagement
+  # gate never runs for it, and the receipt says that instead of inventing
+  # Slack checks.
   @engagement %{
     "version" => 1,
     "path" => "conversation_lab",
     "result" => "process",
-    "reason" => "Explicitly submitted through Conversation Lab.",
+    "reason" => "Explicitly submitted in a direct conversation.",
     "checks" => [],
     "settings" => nil,
     "execution_mode" => "live"

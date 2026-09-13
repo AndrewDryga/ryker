@@ -168,7 +168,7 @@ defmodule Responder.ControlPlane.Card do
         record,
         "Local incident",
         payload["title"],
-        "Starts a linked incident investigation in this Lab without creating a Slack channel.",
+        "Starts a linked incident investigation in this conversation without creating a Slack channel.",
         details,
         :open_incident
       )
@@ -193,7 +193,7 @@ defmodule Responder.ControlPlane.Card do
     common(
       record,
       "Additional message",
-      "Post this in Conversation Lab",
+      "Post this in the conversation",
       payload["message"],
       [{"Destination", payload["conversation_ref"]}],
       :confirm_post

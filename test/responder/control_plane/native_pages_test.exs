@@ -16,7 +16,7 @@ defmodule Responder.ControlPlane.NativePagesTest do
            kind: "episode",
            href: "/timeline/request-#{index}",
            title: "Investigate <unsafe> #{index}",
-           source: if(index == 1, do: "Conversation Lab", else: "GitHub"),
+           source: if(index == 1, do: "Direct conversation", else: "GitHub"),
            repository: "responder",
            target: "configured-target",
            state: state,

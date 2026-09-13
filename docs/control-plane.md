@@ -617,10 +617,10 @@ replacement, not the older dashboard or the intended final design above.
 | Page | Wired |
 |---|---|
 | Overview | Live for active, waiting, blocked, delivery-pending, admission queued/deciding/retrying counts, oldest active-admission time, durable Slack-status backlog age, and bounded attention records |
-| Conversation Lab | Live, with durable messages/files, generated-image delivery, the exact Slack chat tool schemas through a local-only adapter, reactions, confirmed extra posts, native cards/actions, episode custody, and same-session continuation |
+| Conversations | Live, with durable messages/files, generated-image delivery, the exact Slack chat tool schemas through a local-only adapter, reactions, confirmed extra posts, native cards/actions, episode custody, and same-session continuation |
 | Episodes list and detail | Live, with bounded search, state filtering, pagination, lifecycle metadata, and typed state-record summaries |
 | Incident rooms list and detail | Live, with bounded search, Slack-room lifecycle, linked source and investigation episodes, typed evidence records, and sanitized publication state |
-| Schedules list and detail | Live, with bounded search, confirmed run-now, Conversation Lab replacement, recurrence and authority, destination, trigger kind, child execution state and timing, attempts, sanitized failures, and dispatched or missed occurrence history |
+| Schedules list and detail | Live, with bounded search, confirmed run-now, direct-conversation replacement, recurrence and authority, destination, trigger kind, child execution state and timing, attempts, sanitized failures, and dispatched or missed occurrence history |
 | Waits | Live, with active-first bounded search, readable target/condition/request, relative timing and exact UTC timestamps, accurate event/timer resolution, and collapsed technical details without raw source payloads |
 | Channels list and detail | Live, with bounded search across durable Slack configuration, membership, incident ownership, conversation summaries, schedules, overrides, and recent episodes |
 | Repositories and topology | Live, with configured policy names, durable channel, schedule, session, and publication counts, serving Coop worker revisions, and the latest frozen freshness receipt |
@@ -635,7 +635,7 @@ replacement, not the older dashboard or the intended final design above.
 
 Every administrative action is a POST behind a native two-step confirm and
 writes its store transition and audit row in the same act, attributed to
-`control-plane@localhost`. A Conversation Lab message is intentionally a
+`control-plane@localhost`. A direct-conversation message is intentionally a
 single CSRF-protected POST: it is an ordinary user input, not an administrative
 state mutation or a shortcut to the model.
 
@@ -657,17 +657,18 @@ already been bitten by that twice today: a deploy that reported success while
 old code ran, and a quality watcher that logged "no defects" for a day while
 its assessor could not start.
 
-## Conversation Lab
+## Conversations
 
-`http://127.0.0.1:4321/lab` is a real local product surface for talking to the
-configured model without posting test traffic to Slack. A submitted message is
+`http://127.0.0.1:4321/conversations` holds direct conversations with the agent,
+without Slack. It is an ordinary way to use the same agent: enter here, receive
+replies here, inspect the exact execution from each message. A submitted message is
 normalized as a `control_plane` source input and then crosses the ordinary
 Inbox, Admission, Episode, Work, state-tool, and Delivery boundaries. The
 browser never calls Coop or a model provider directly. Accepted replies and
 status are projected from the same PostgreSQL rows that own runtime custody;
 there is no second chat transcript or browser-owned recovery state.
 
-The Lab uses the exact `control_plane.work_profile` from trusted host
+A conversation uses the exact `control_plane.work_profile` from trusted host
 configuration. That profile pins its Coop policy, digest, and optional
 repository just like a Slack, GitHub, or webhook adapter does. Browser content
 cannot select a policy, mount another repository, or widen authority.
@@ -684,16 +685,16 @@ type, revision, and custody status; arbitrary payload bodies remain model input 
 Prompts, unaccepted candidates, credentials, and state-tool bearer
 tokens never render.
 
-This is product-semantic parity, not borrowed platform authority. The Lab can exercise the same model,
+This is product-semantic parity, not borrowed platform authority. A direct conversation can exercise the same model,
 episode, task, memory, schedule, wait, publication, Emisar, artifact, reaction, source-read, explicit
 additional-post, incident, and recovery behavior as a Slack conversation. It publishes the exact five Slack chat
-tool names and schemas through a virtual workspace containing only the current Lab conversation. Local
+tool names and schemas through a virtual workspace containing only the current conversation. Local
 model-requested reactions and host-confirmed extra posts traverse the same durable action outbox and
-render in the Lab timeline. Operator feedback reactions are ordered episode events: add/remove updates
+render in the conversation. Operator feedback reactions are ordered episode events: add/remove updates
 the current count without waking work, and a later message carries both current state and bounded event
 history into its frozen model context. Message edits and deletes retain one stable source identity with
 monotonic revisions. Search and source reads span the exact conversation across completed episode boundaries, and
-uploaded Lab files appear as bounded virtual file resources with the same `files` search and `document`
+uploaded conversation files appear as bounded virtual file resources with the same `files` search and `document`
 read contract. An incident offer opens a linked policy-pinned local incident episode in the same timeline,
 so the investigation, tools, waits, progress, and controls are real while Slack channel creation is not.
 Confirmed tasks automatically start the same trusted readiness checks as Slack when their completed
@@ -701,11 +702,11 @@ result contains prepared changes; no second readiness action is needed. Cards re
 close, timeline, evidence, and handoff actions. Local incidents add the same evidence-backed postmortem
 view without pretending that a Slack room was provisioned.
 The local adapter also keeps an executable allowlist of those five implementations. If the shared Slack
-catalog gains or loses a tool without the matching Lab behavior, the catalog fails closed instead of
-advertising a tool the Lab cannot execute.
+catalog gains or loses a tool without the matching local behavior, the catalog fails closed instead of
+advertising a tool the conversation cannot execute.
 The adapter reports that it is emulated and has no external effects. Real Slack audience filtering,
 workspace content, channel provisioning, membership, topic, pin, and archive effects remain on the
-disposable Slack qualification journey because the Lab never receives Slack credentials.
+disposable Slack qualification journey because a direct conversation never receives Slack credentials.
 
 The manual qualification journeys that used to live on a Test journeys page
 are in [`docs/testing.md`](testing.md#manual-qualification). A journey is
@@ -725,7 +726,7 @@ the [redesign plan](control-plane-redesign.md#1-liveview-throughout-the-control-
   URL, which makes it bookmarkable and pasteable into an incident thread, and
   costs no client-side state to keep in step with the server's.
 - **CSS in one hand-written stylesheet**, vendored. No framework.
-- **One tiny same-origin script for live Lab refresh.** Every page renders and
+- **One tiny same-origin script for live conversation refresh.** Every page renders and
   every mutation works without JavaScript. While a local conversation owns live
   custody, `/static/lab.js` replaces only the server-rendered transcript/status
   fragment; it neither stores messages nor calls an external origin. Charts

@@ -5,7 +5,7 @@ defmodule Responder.ControlPlane.Navigation do
 
   @primary [
     {:activity, "Activity", "/"},
-    {:chat, "Conversation Lab", "/lab"},
+    {:chat, "Conversations", "/conversations"},
     {:incident, "Incident rooms", "/incident-rooms"},
     {:incident, "Failures", "/failures"},
     {:usage, "Usage & cost", "/usage"}

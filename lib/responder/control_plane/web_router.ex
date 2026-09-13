@@ -14,18 +14,18 @@ defmodule Responder.ControlPlane.WebRouter do
   end
 
   forward("/assets", Responder.ControlPlane.Assets)
-  get("/lab/new", Responder.ControlPlane.LegacyPlug, :new)
+  get("/conversations/new", Responder.ControlPlane.LegacyPlug, :new)
 
   scope "/" do
     pipe_through(:browser)
     live("/", Responder.ControlPlane.WorkbenchLive)
 
     for path <-
-          ~w(lab activity incident-rooms schedules subscriptions channels repositories failures workspaces findings memory rules preferences guidance instructions usage configuration) do
+          ~w(conversations activity incident-rooms schedules subscriptions channels repositories failures workspaces findings memory rules preferences guidance instructions usage configuration) do
       live("/#{path}", Responder.ControlPlane.WorkbenchLive)
     end
 
-    live("/lab/:id", Responder.ControlPlane.WorkbenchLive)
+    live("/conversations/:id", Responder.ControlPlane.WorkbenchLive)
     live("/timeline/:ref", Responder.ControlPlane.WorkbenchLive)
     live("/timeline/:ref/model-calls", Responder.ControlPlane.WorkbenchLive)
     live("/incident-rooms/:ref", Responder.ControlPlane.WorkbenchLive)

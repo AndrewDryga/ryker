@@ -140,7 +140,7 @@ edits and deletes; self checks now precede actor projection. Other apps remain
 eligible inputs. The in-app browser provider lists no browser, so rendered
 visual acceptance remains unverified; API read-back is not a visual review.
 
-A real Conversation Lab smoke check completed with the existing Emisar Coop
+A real direct-conversation smoke check completed with the existing Emisar Coop
 profile and Terra/medium, including durable admission usage. It took about 128
 seconds end to end. Existing credentials work, but this does not meet the speed
 requirement and is not evidence that fast classification is complete.
@@ -171,8 +171,8 @@ An operator should be able to open a conversation and immediately understand:
 - what every attempt consumed, including admission and unsuccessful attempts;
 - what feedback became a correction, regression case, or model improvement.
 
-Slack, GitHub, and Conversation Lab use the same durable processing pipeline.
-The Lab has the same configured model and governed tool capabilities as its
+Slack, GitHub, and direct conversations use the same durable processing pipeline.
+A conversation has the same configured model and governed tool capabilities as its
 selected repository context, including Emisar. Testing must not require sending
 messages to Slack. The runtime Card Lab that used to preview and post card
 specimens was retired on 2026-09-13; card design is reviewed offline.
@@ -238,7 +238,7 @@ Do not broaden network exposure as part of this migration.
 
 Coverage includes Overview, episodes, incidents, failures, decisions, schedules,
 subscriptions, channels, repositories, workspaces, memory, usage,
-Usage, Configuration, and Conversation Lab.
+Usage, Configuration, and Conversations.
 "Real time" means changes appear as they are committed or observed; an external
 service with no push signal must display the age of its last observation.
 

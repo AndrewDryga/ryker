@@ -279,7 +279,7 @@ For a task proven never started, retry begins the approved task. For an older
 task with existing edits and a closed, unsaved session, preserve and recover those
 edits first; switching to fleet does not automatically restore them.
 
-## Control plane and Conversation Lab
+## Control plane and direct conversations
 
 The loopback control plane provides:
 
@@ -287,15 +287,15 @@ The loopback control plane provides:
 - episode, decision, finding, delivery, approval, publication, schedule,
   retention, and fleet views;
 - failure drill-down and typed retry controls; and
-- Conversation Lab at `/lab`.
+- direct conversations with the agent at `/conversations`.
 
-Conversation Lab enters the same durable generic ingress, admission, episode,
-Work, semantic-validation, and delivery pipeline as Slack, GitHub, and
-webhooks. It uses the configured fixed Work profile. It is not a direct model
-chat shortcut, and it cannot select policy, repository, destination, provider,
-or credentials from browser input. Shared conversational behavior is identical
-to Slack. Slack-owned API effects are emulated locally and labelled as such;
-for example, an incident offer starts linked Work in the Lab rather than
+A direct conversation enters the same durable generic ingress, admission,
+episode, Work, semantic-validation, and delivery pipeline as Slack, GitHub, and
+webhooks. It uses the configured fixed Work profile. It is not a model chat
+shortcut, and it cannot select policy, repository, destination, provider, or
+credentials from browser input. Shared conversational behavior is identical to
+Slack. Slack-owned API effects are emulated locally and labelled as such; for
+example, an incident offer starts linked Work in the conversation rather than
 claiming that a Slack channel was provisioned.
 
 Keep the control plane loopback-only. Its Host and CSRF checks are part of the

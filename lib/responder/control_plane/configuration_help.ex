@@ -18,9 +18,9 @@ defmodule Responder.ControlPlane.ConfigurationHelp do
       "Required by the v1 configuration; product mode uses fleet execution."
     },
     "control_plane" => {
-      "Control plane and Conversation Lab",
-      "Serves this local inspection UI, the Conversation Lab and operator actions.",
-      "The listener accepts loopback connections only. Lab messages use the configured Work profile; repository and Emisar tools retain their real authority.",
+      "Control plane and direct conversations",
+      "Serves this local inspection UI, direct conversations with the agent and operator actions.",
+      "The listener accepts loopback connections only. Conversation messages use the configured Work profile; repository and Emisar tools retain their real authority.",
       "Not configured unless the control_plane section is present."
     },
     "coop_worker_gateway" => {

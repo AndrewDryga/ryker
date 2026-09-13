@@ -84,7 +84,7 @@ defmodule Responder.ControlPlane.HTML do
     rows =
       Enum.map(items, fn item ->
         [
-          "<tr><td><a href=\"/lab/",
+          "<tr><td><a href=\"/conversations/",
           segment(item.id),
           "\"><code>",
           escape(item.id),
@@ -100,7 +100,7 @@ defmodule Responder.ControlPlane.HTML do
       "<section class=\"lab-hero\"><div><p class=\"eyebrow\">Real runtime · local surface</p>",
       "<h2>Talk to Responder without posting to Slack</h2>",
       "<p>Messages enter the ordinary ingress, admission, episode, Work, state-tool, and delivery pipeline. Restart recovery and policy boundaries are identical to platform traffic.</p></div>",
-      "<a class=\"button\" href=\"/lab/new\">Start conversation</a></section>",
+      "<a class=\"button\" href=\"/conversations/new\">Start conversation</a></section>",
       "<section><h2>Recent conversations</h2>",
       table(["Conversation", "Conversation inputs", "Updated"], rows),
       "</section>"
@@ -139,15 +139,15 @@ defmodule Responder.ControlPlane.HTML do
       end)
 
     [
-      "<section class=\"lab-shell\"><div class=\"lab-heading\"><div><p class=\"eyebrow\">Conversation Lab</p><h2>Local model conversation</h2>",
+      "<section class=\"lab-shell\"><div class=\"lab-heading\"><div><p class=\"eyebrow\">Conversation</p><h2>Local model conversation</h2>",
       "<p><code>",
       escape(snapshot.conversation_id),
       "</code></p></div><div class=\"status-cluster\" data-lab-status aria-live=\"polite\">",
       status_badge(snapshot),
-      "<a class=\"quiet-link\" href=\"/lab/",
+      "<a class=\"quiet-link\" href=\"/conversations/",
       segment(snapshot.conversation_id),
       "\">Refresh</a></div></div>",
-      "<p class=\"lab-safety-note\"><strong>Same conversational product as Slack.</strong> Messages, attachments, generated images, state and Emisar tools, questions, waits, tasks, local incidents, publication cards, confirmation controls, reactions, and additional posts use the same durable runtime. Slack-owned API effects are emulated and labelled inside this Lab; repository and Emisar authority still follows the configured Work policy.</p>",
+      "<p class=\"lab-safety-note\"><strong>Same conversational product as Slack.</strong> Messages, attachments, generated images, state and Emisar tools, questions, waits, tasks, local incidents, publication cards, confirmation controls, reactions, and additional posts use the same durable runtime. Slack-owned API effects are emulated and labelled here; repository and Emisar authority still follows the configured Work policy.</p>",
       "<div class=\"lab-stream\" data-lab-stream data-live=\"",
       if(snapshot.live, do: "true", else: "false"),
       "\" aria-live=\"polite\"><div class=\"messages\">",
@@ -159,7 +159,7 @@ defmodule Responder.ControlPlane.HTML do
         else: ["<ul>", episodes, "</ul>"]
       ),
       "</aside></div>",
-      "<form id=\"lab-composer\" phx-update=\"ignore\" class=\"composer\" method=\"post\" enctype=\"multipart/form-data\" action=\"/lab/",
+      "<form id=\"lab-composer\" phx-update=\"ignore\" class=\"composer\" method=\"post\" enctype=\"multipart/form-data\" action=\"/conversations/",
       segment(snapshot.conversation_id),
       "/messages\"><input type=\"hidden\" name=\"_token\" value=\"",
       escape(csrf_token),
@@ -429,7 +429,7 @@ defmodule Responder.ControlPlane.HTML do
     [
       "<div class=\"action-controls\">",
       schedule_controls(schedule),
-      "<a href=\"/lab\">Replace in Conversation Lab…</a></div>",
+      "<a href=\"/conversations\">Replace in a conversation…</a></div>",
       definition_list([
         {"Reference", schedule.ref},
         {"Status", schedule.status},
@@ -651,7 +651,7 @@ defmodule Responder.ControlPlane.HTML do
     review_rows = Enum.map(reviews, &review_row/1)
 
     [
-      "<details class=\"memory-help\" id=\"memory-help\"><summary>How memory works</summary><div class=\"page-help-body\"><p>Current knowledge keeps one evolving summary per subject, with source-linked updates. When background learning is enabled, Responder maintains useful decisions, intentions and changes even when it does not reply, including in shadow mode. Not every message needs a new memory: a learning batch can finish with no change. Related topics are recalled for later routing and work. Source excerpts retain original message text; conversation handovers summarize completed work.</p><p>To create or correct conversation knowledge, explain the fact or change in the original Slack conversation or Conversation Lab. Related updates maintain the same topic. Edits, deletions and expiry invalidate knowledge that depended on the old source; invalidated items remain inspectable but are not recalled. Retention follows the oldest supporting source, so a new update cannot keep an expired fact alive indefinitely.</p><p>Learning activity below shows waiting messages, outcomes and the exact saved attempts. If a batch needs attention, inspect its error before granting one additional model start. A retry does not reset its spent starts or bypass source and execution checks.</p><p>For a deliberate saved fact, ask Responder to remember it and confirm the proposal. When a question explicitly says the answer will be remembered, an operator's answer confirms that fact without another click. These global mappings apply across conversations in this installation and survive ordinary history cleanup. Operational memory shows each saved value and where it applies; use Forget to remove one. Knowledge is context, not an instruction, permission or proof of current health.</p></div></details>",
+      "<details class=\"memory-help\" id=\"memory-help\"><summary>How memory works</summary><div class=\"page-help-body\"><p>Current knowledge keeps one evolving summary per subject, with source-linked updates. When background learning is enabled, Responder maintains useful decisions, intentions and changes even when it does not reply, including in shadow mode. Not every message needs a new memory: a learning batch can finish with no change. Related topics are recalled for later routing and work. Source excerpts retain original message text; conversation handovers summarize completed work.</p><p>To create or correct conversation knowledge, explain the fact or change in the original Slack conversation or direct conversation. Related updates maintain the same topic. Edits, deletions and expiry invalidate knowledge that depended on the old source; invalidated items remain inspectable but are not recalled. Retention follows the oldest supporting source, so a new update cannot keep an expired fact alive indefinitely.</p><p>Learning activity below shows waiting messages, outcomes and the exact saved attempts. If a batch needs attention, inspect its error before granting one additional model start. A retry does not reset its spent starts or bypass source and execution checks.</p><p>For a deliberate saved fact, ask Responder to remember it and confirm the proposal. When a question explicitly says the answer will be remembered, an operator's answer confirms that fact without another click. These global mappings apply across conversations in this installation and survive ordinary history cleanup. Operational memory shows each saved value and where it applies; use Forget to remove one. Knowledge is context, not an instruction, permission or proof of current health.</p></div></details>",
       "<nav class=\"behavior-links\" aria-label=\"Related saved instructions\"><a href=\"/rules\">Standing rules →</a><a href=\"/preferences\">Preferences →</a><a href=\"/guidance\">Guidance →</a></nav>",
       if(snapshot[:conversation_memory],
         do:

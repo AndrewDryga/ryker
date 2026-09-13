@@ -65,13 +65,13 @@ defmodule Responder.ControlPlane.UpdatesTest do
       "slack_incident_rooms" => "incident-rooms",
       "slack_channel_memberships" => "channels",
       "coop_workers" => "workspaces",
-      "conversation_summaries" => "lab",
+      "conversation_summaries" => "conversations",
       "operational_memory_entries" => "memory",
       "memory_review_items" => "memory",
       "operator_behaviors" => "configuration",
       "standing_assignment_runs" => "rules",
       "platform_actions" => "timeline",
-      "delivery_reactions" => "lab",
+      "delivery_reactions" => "conversations",
       "responder_operator_actions" => "failures",
       "future_table" => "configuration",
       # Retained Card Lab history has no page left to refresh; a late write to
@@ -105,6 +105,10 @@ defmodule Responder.ControlPlane.UpdatesTest do
     assert Updates.domain("/") == "activity"
     assert Updates.domain("/timeline/an-episode/model-calls") == "timeline"
     assert Updates.domain("/activity") == "activity"
+    # The live domain is the first URL segment; the renamed page must still
+    # receive every conversation invalidation, and nothing subscribes to "lab".
+    assert Updates.domain("/conversations/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6") ==
+             "conversations"
   end
 
   test "room list and detail receive every invalidation for their displayed state" do

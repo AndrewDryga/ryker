@@ -62,10 +62,10 @@ repository context; the payload limit and clock-skew limit are code defaults. Th
 override any of them. The listener defaults to loopback and starts only when at least one webhook
 source is enabled.
 
-A configured Conversation Lab can be the trusted destination for a loopback/manual route by using
+A configured direct conversation can be the trusted destination for a loopback/manual route by using
 `transport: control_plane` and the same exact `control-plane:lab:<uuid>` value for both
 `conversation_ref` and `thread_ref`. This exercises webhook ingestion, admission, Work, and local
-delivery without posting test traffic to Slack. Arbitrary payload fields still cannot select the Lab,
+delivery without posting test traffic to Slack. Arbitrary payload fields still cannot select the conversation,
 policy, repository, or any other authority; those remain route configuration.
 
 The settings owner publishes the assembled runtime under these application keys; a test can put the
@@ -186,7 +186,7 @@ An open confirmable offer is rendered with `/responder confirm <record-ref>`. Th
 that exact syntax only on a newly created, authenticated issue comment and consumes it before model
 admission. It rechecks the configured actor, exact current discussion, original settled delivery
 receipt, offer kind, and repository contributor policy, then calls the same durable confirmation
-service used by Slack and Conversation Lab. Duplicate webhook delivery or a repeated command returns
+service used by Slack and direct conversations. Duplicate webhook delivery or a repeated command returns
 the existing resource. Cross-thread, stale, malformed, incident-task, and publication commands fail
 closed without creating model work. This syntax cannot approve reviews, merge, deploy, or write
 repository content.

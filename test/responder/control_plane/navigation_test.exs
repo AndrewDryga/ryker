@@ -62,13 +62,35 @@ defmodule Responder.ControlPlane.NavigationTest do
              ]
 
       for path <-
-            ~w(/ /incident-rooms /failures /usage /lab /schedules /subscriptions /memory /findings /configuration /channels /repositories /workspaces) do
+            ~w(/ /incident-rooms /failures /usage /conversations /schedules /subscriptions /memory /findings /configuration /channels /repositories /workspaces) do
         assert path in (document |> LazyHTML.query("a") |> LazyHTML.attribute("href"))
       end
 
-      for removed <- ["/decisions", "/calibration", "/card-lab", "/manual-tests"] do
+      for removed <- ["/decisions", "/calibration", "/card-lab", "/manual-tests", "/lab"] do
         refute removed in (document |> LazyHTML.query("a") |> LazyHTML.attribute("href"))
       end
+    end
+  end
+
+  test "Conversations sits near the top of the primary navigation without Lab phrasing" do
+    # Renamed from Conversation Lab on 2026-09-13. Activity stays the home
+    # item; Conversations follows it so the compact mobile row shows it too.
+    for live <- [true, false],
+        path <- ["/conversations", "/conversations/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6"] do
+      html = render_component(&Navigation.sidebar/1, path: path, live: live)
+      document = LazyHTML.from_document(html)
+      links = LazyHTML.query(document, "nav[aria-label='Main navigation'] a")
+      assert LazyHTML.attribute(links, "href") |> Enum.take(2) == ["/", "/conversations"]
+
+      assert document
+             |> LazyHTML.query(
+               "nav[aria-label='Main navigation'] a[href='/conversations'][aria-current=page]"
+             )
+             |> LazyHTML.text() == "Conversations"
+
+      refute html =~ ~r/\bLab\b/
+      refute html =~ "/lab"
+      refute render_component(&Navigation.mobile/1, path: path, live: live) =~ ~r/\bLab\b/
     end
   end
 
@@ -78,7 +100,7 @@ defmodule Responder.ControlPlane.NavigationTest do
     # catalog. The conversation page moves into the primary navigation so it
     # stays reachable on the compact mobile row as well as the desktop rail.
     for live <- [true, false] do
-      sidebar = render_component(&Navigation.sidebar/1, path: "/lab", live: live)
+      sidebar = render_component(&Navigation.sidebar/1, path: "/conversations", live: live)
       document = LazyHTML.from_document(sidebar)
       assert LazyHTML.query(document, ".nav-caption") |> LazyHTML.text() |> String.trim() != ""
       refute LazyHTML.query(document, ".nav-caption") |> LazyHTML.text() =~ "Testing"
@@ -87,11 +109,11 @@ defmodule Responder.ControlPlane.NavigationTest do
 
       assert document
              |> LazyHTML.query(
-               "nav[aria-label='Main navigation'] a[href='/lab'][aria-current=page]"
+               "nav[aria-label='Main navigation'] a[href='/conversations'][aria-current=page]"
              )
              |> Enum.any?()
 
-      mobile = render_component(&Navigation.mobile/1, path: "/lab", live: live)
+      mobile = render_component(&Navigation.mobile/1, path: "/conversations", live: live)
       mobile_document = LazyHTML.from_document(mobile)
       refute LazyHTML.query(mobile_document, "section strong") |> LazyHTML.text() =~ "Testing"
 

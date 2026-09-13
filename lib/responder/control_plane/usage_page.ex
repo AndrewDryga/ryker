@@ -370,7 +370,7 @@ defmodule Responder.ControlPlane.UsagePage do
     SlackNames.destination(if String.starts_with?(ref, "slack:"), do: ref, else: "slack:" <> ref)
   end
 
-  defp channel(%{transport: "control_plane"}), do: "Conversation Lab"
+  defp channel(%{transport: "control_plane"}), do: "Direct conversation"
   defp channel(row), do: "#{row.transport}:#{row.conversation_ref}"
 
   defp person(%{source: "slack", workspace: workspace, actor: actor}),
