@@ -17,6 +17,7 @@ defmodule Ryker.Work.Executor.Turns do
   alias Ryker.Work.Executor.{Remote, Validation}
 
   @turn_waiting_states Remote.turn_waiting_states()
+  @stopped_turn_states Remote.terminal_turn_states() -- ["completed"]
 
   @doc false
   def ensure_turn(%{turn: %{coop_turn_id: turn_id}} = claim, settings)
@@ -183,15 +184,6 @@ defmodule Ryker.Work.Executor.Turns do
     end
   end
 
-  defp continue_await_turn(
-         claim,
-         %{"state" => "completed"} = remote_turn,
-         settings,
-         _left
-       ) do
-    accept_completed(claim, remote_turn, settings)
-  end
-
   defp continue_await_turn(claim, %{"state" => state}, settings, left)
        when state in @turn_waiting_states and left > 0 do
     with :ok <- Remote.pause(settings),
@@ -205,7 +197,7 @@ defmodule Ryker.Work.Executor.Turns do
        do: {:error, {:work_poll_window_elapsed, :turn}}
 
   defp continue_await_turn(_claim, %{"state" => state} = turn, _settings, _left)
-       when state in ~w(failed interrupted budget_exhausted cancelled) do
+       when state in @stopped_turn_states do
     {:error, {:work_turn_terminal, state, turn["error_code"], turn["error_detail"]}}
   end
 
@@ -408,11 +400,7 @@ defmodule Ryker.Work.Executor.Turns do
              settings.api.get_session(settings.client, claim.session.coop_session_id)
            end),
          :ok <-
-           Remote.exact_remote_session_state(
-             claim.session,
-             remote_session,
-             ~w(open exhausted closed discarded)
-           ) do
+           Remote.exact_remote_session_state(claim.session, remote_session) do
       {:ok, remote_session}
     end
   end

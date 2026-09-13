@@ -139,11 +139,7 @@ defmodule Ryker.Work.Executor do
              settings.api.get_session(settings.client, claim.session.coop_session_id)
            end),
          :ok <-
-           Remote.exact_remote_session_state(
-             claim.session,
-             remote_session,
-             ~w(open exhausted closed discarded)
-           ) do
+           Remote.exact_remote_session_state(claim.session, remote_session) do
       if remote_session["project_env"] == false and remote_session["project_mcp"] == false,
         do: :ok,
         else: {:error, {:coop_protocol_error, :session_project_authority}}
@@ -158,11 +154,7 @@ defmodule Ryker.Work.Executor do
              settings.api.get_session(settings.client, claim.session.coop_session_id)
            end),
          :ok <-
-           Remote.exact_remote_session_state(
-             claim.session,
-             remote_session,
-             ~w(open exhausted closed discarded)
-           ) do
+           Remote.exact_remote_session_state(claim.session, remote_session) do
       if remote_session["repository_read_only"] == true,
         do: :ok,
         else: {:error, {:coop_protocol_error, :session_repository_write_authority}}

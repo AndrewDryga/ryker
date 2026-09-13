@@ -316,26 +316,15 @@ defmodule Ryker.Work.Executor.Validation do
     do: {:error, {:work_execution_blocked, reason}}
 
   defp validate_frozen_candidate(settings, claim, key, verdict) do
-    if function_exported?(settings.api, :validate_frozen_candidate, 7) do
-      settings.api.validate_frozen_candidate(
-        settings.client,
-        claim.session.coop_session_id,
-        claim.turn.coop_turn_id,
-        key,
-        claim.turn.candidate_attempt,
-        claim.turn.candidate_sha256,
-        verdict
-      )
-    else
-      settings.api.validate_candidate(
-        settings.client,
-        claim.session.coop_session_id,
-        claim.turn.coop_turn_id,
-        key,
-        claim.turn.candidate_sha256,
-        verdict
-      )
-    end
+    settings.api.validate_frozen_candidate(
+      settings.client,
+      claim.session.coop_session_id,
+      claim.turn.coop_turn_id,
+      key,
+      claim.turn.candidate_attempt,
+      claim.turn.candidate_sha256,
+      verdict
+    )
   end
 
   defp validation_context(claim, artifacts, settings) do

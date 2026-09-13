@@ -22,11 +22,7 @@ defmodule Ryker.Work.Executor.Workspace do
              settings.api.get_session(settings.client, claim.session.coop_session_id)
            end),
          :ok <-
-           Remote.exact_remote_session_state(
-             claim.session,
-             remote_session,
-             ~w(open exhausted closed discarded)
-           ),
+           Remote.exact_remote_session_state(claim.session, remote_session),
          {:ok, primary} <- primary_workspace(claim.session, remote_session),
          {:ok, companions} <- companion_workspaces(Map.get(remote_session, "companions", [])),
          :ok <- repository_context_workspace(claim.session, companions),

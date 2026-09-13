@@ -418,6 +418,9 @@ defmodule Ryker.Work.ExecutorTest do
           )
         end)
 
+    def validate_frozen_candidate(client, session_id, turn_id, key, _attempt, sha256, verdict),
+      do: validate_candidate(client, session_id, turn_id, key, sha256, verdict)
+
     def cancel_turn(client, session_id, turn_id, key, revision),
       do:
         dispatch(client, :cancel_turn, fn ->

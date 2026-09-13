@@ -503,6 +503,10 @@ defmodule Ryker.TestSupport.FakeWorkCoopAPI do
   end
 
   @impl true
+  def validate_frozen_candidate(agent, session_id, turn_id, key, _attempt, sha256, verdict),
+    do: validate_candidate(agent, session_id, turn_id, key, sha256, verdict)
+
+  @impl true
   def validate_candidate(agent, _session_id, _turn_id, key, sha256, :accept) do
     Agent.get_and_update(agent, fn state ->
       candidate = state.turn["candidate"]
