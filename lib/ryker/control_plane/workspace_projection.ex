@@ -55,7 +55,7 @@ defmodule Ryker.ControlPlane.WorkspaceProjection do
   """
   @spec storage() :: map()
   def storage do
-    now = database_now!()
+    now = Repo.now!()
     settings = Application.get_env(:ryker, :retention, %{})
 
     %{
@@ -167,9 +167,4 @@ defmodule Ryker.ControlPlane.WorkspaceProjection do
        do: :discard_unmerged
 
   defp workspace_action(%Session{}), do: nil
-
-  defp database_now! do
-    {:ok, %{rows: [[%DateTime{} = now]]}} = Repo.query("SELECT clock_timestamp()")
-    now
-  end
 end
