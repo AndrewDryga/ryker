@@ -1,3 +1,5 @@
+import {adoptRetiredKey} from "./drafts.mjs"
+
 const normalize = text => text.trim() === "" ? "" : text.replaceAll("\r\n", "\n")
 
 // Per-tab drafts protect back navigation and reconnection without changing browser history.
@@ -6,7 +8,7 @@ export function createInstructionDraft(form, recover, environment = {}) {
   const doc = environment.document || document
   const win = environment.window || window
   const storage = environment.storage || (() => sessionStorage)
-  const key = `responder:instruction-draft:${form.dataset.scope}`
+  const key = `ryker:instruction-draft:${form.dataset.scope}`
   const text = () => form.querySelector("textarea")
   const revision = () => form.querySelector("input[name=revision]")
   const dirty = () => normalize(text().value) !== form.dataset.savedText
@@ -34,6 +36,7 @@ export function createInstructionDraft(form, recover, environment = {}) {
     event.returnValue = ""
   }
   try {
+    adoptRetiredKey(key, storage())
     const saved = JSON.parse(storage().getItem(key))
     if (saved && typeof saved.text === "string" && /^\d+$/.test(saved.revision)) {
       text().value = saved.text

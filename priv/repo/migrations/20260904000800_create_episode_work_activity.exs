@@ -1,4 +1,4 @@
-defmodule Responder.Repo.Migrations.CreateEpisodeWorkActivity do
+defmodule Ryker.Repo.Migrations.CreateEpisodeWorkActivity do
   use Ecto.Migration
 
   def change do

@@ -1,4 +1,6 @@
-const storageKey = "responder:relearn-selection:v1"
+import {adoptRetiredKey} from "./drafts.mjs"
+
+const storageKey = "ryker:relearn-selection:v1"
 const limit = 16
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 const validItem = item => item && Object.keys(item).sort().join(",") === "id,value" &&
@@ -14,7 +16,7 @@ export function createRelearnPicker(root, getStorage) {
   function read(nextScope) {
     if (!persistent) return new Map()
     let raw
-    try { raw = storage.getItem(storageKey) } catch (_) { persistent = false; return new Map() }
+    try { adoptRetiredKey(storageKey, storage); raw = storage.getItem(storageKey) } catch (_) { persistent = false; return new Map() }
     try {
       if (!raw || raw.length > 10000) return new Map()
       const saved = JSON.parse(raw)

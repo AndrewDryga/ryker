@@ -1,4 +1,4 @@
-defmodule Responder.MixProject do
+defmodule Ryker.MixProject do
   use Mix.Project
 
   @release_assets ~w(
@@ -6,9 +6,9 @@ defmodule Responder.MixProject do
     CHANGELOG.md
     LICENSE
     SECURITY.md
-    deploy/nginx/responder.conf
-    deploy/systemd/responder.service
-    deploy/systemd/responder.env.example
+    deploy/nginx/ryker.conf
+    deploy/systemd/ryker.service
+    deploy/systemd/ryker.env.example
     docs/elixir-ingress-admission.md
     docs/elixir-platform-adapters.md
     docs/operations.md
@@ -22,7 +22,7 @@ defmodule Responder.MixProject do
 
   def project do
     [
-      app: :responder,
+      app: :ryker,
       version: release_version(),
       elixir: ">= 1.19.0 and < 1.21.0",
       elixirc_paths: elixirc_paths(Mix.env()),
@@ -34,7 +34,7 @@ defmodule Responder.MixProject do
 
   def application do
     [
-      mod: {Responder.Application, []},
+      mod: {Ryker.Application, []},
       extra_applications: [:logger, :crypto, :public_key]
     ]
   end
@@ -43,13 +43,13 @@ defmodule Responder.MixProject do
   defp elixirc_paths(_), do: ["lib"]
 
   defp release_version do
-    case System.get_env("RESPONDER_ELIXIR_VERSION") do
+    case System.get_env("RYKER_ELIXIR_VERSION") do
       version when is_binary(version) and version != "" ->
         version
 
       _missing ->
         if Mix.env() == :prod,
-          do: raise("RESPONDER_ELIXIR_VERSION is required for production builds"),
+          do: raise("RYKER_ELIXIR_VERSION is required for production builds"),
           else: "0.1.0-dev"
     end
   end
@@ -74,7 +74,7 @@ defmodule Responder.MixProject do
 
   defp releases do
     [
-      responder: [
+      ryker: [
         applications: [runtime_tools: :permanent],
         include_executables_for: [:unix],
         steps: [:assemble, &copy_release_assets/1, :tar]
@@ -85,7 +85,7 @@ defmodule Responder.MixProject do
   defp copy_release_assets(%Mix.Release{path: release_path} = release) do
     overlays =
       Enum.map(@release_assets, fn relative_path ->
-        overlay = Path.join(["share", "responder", relative_path])
+        overlay = Path.join(["share", "ryker", relative_path])
         source = Path.expand(relative_path, __DIR__)
         target = Path.join(release_path, overlay)
         File.mkdir_p!(Path.dirname(target))

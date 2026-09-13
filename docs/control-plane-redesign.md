@@ -1,7 +1,7 @@
-# Responder control-plane redesign
+# Ryker control-plane redesign
 
 Status: primary workspace implemented; remaining stages are tracked below.
-Deployment identity is the running process's x-responder-version header, not this plan.
+Deployment identity is the running process's x-ryker-version header, not this plan.
 Updated: 2026-09-13. The runtime Slack Card Lab (`/card-lab`) and the Test
 journeys page (`/manual-tests`) described in the dated sections below were
 retired on 2026-09-13 as a clean cut: no redirects, no replacement catalog.
@@ -163,7 +163,7 @@ completed low-latency classifier implementation.
 
 An operator should be able to open a conversation and immediately understand:
 
-- what the person asked and what Responder has answered;
+- what the person asked and what Ryker has answered;
 - what it is doing now, how long that has taken, and whether intervention helps;
 - exactly which retained instructions, messages, context, and tools were supplied
   to each model call;
@@ -256,7 +256,7 @@ do not assume an existing session API provides that behavior. If it does not,
 the implementation needs a bounded Coop capability with request identity,
 reconciliation, cancellation, usage, and pinned model configuration. Do not
 silently create a second provider-credential or production execution path in
-Responder to make a latency graph look better.
+Ryker to make a latency graph look better.
 
 Start qualification with a genuinely small/low-reasoning hosted classifier.
 Select the actual target using the harvested admission corpus and latency
@@ -309,7 +309,7 @@ Show timestamps, durations, the actual target, deadline/retry reason, and last
 confirmed activity. Do not invent percent complete or stream private reasoning.
 
 Distinguish execution attempts from lease claims, host reconciliation polls,
-validation preflights, and semantic correction turns. Responder must not call
+validation preflights, and semantic correction turns. Ryker must not call
 three rejected validation preflights "zero repairs" without explaining the
 different categories.
 
@@ -366,7 +366,7 @@ large histories remain inspectable without loading everything into a socket.
 Provide a dedicated, redacted model-request inspector, rather than relying on
 the current general-purpose safe metadata projection:
 
-- Responder system/developer instructions and the exact retained submitted
+- Ryker system/developer instructions and the exact retained submitted
   prompt, with role boundaries where recorded;
 - source messages, recent conversation, summaries, memory, repository revisions,
   selected evidence, and explicit omissions or truncation reasons;
@@ -377,8 +377,8 @@ the current general-purpose safe metadata projection:
 - a readable view plus sanitized raw request and a comparison between attempts.
 
 Freeze request artifacts at submission time; do not rebuild a past prompt using
-today's templates. Label Responder's submitted request separately from any Coop
-wrapper or provider-owned instruction that was not exposed to Responder. Never
+today's templates. Label Ryker's submitted request separately from any Coop
+wrapper or provider-owned instruction that was not exposed to Ryker. Never
 claim the complete provider request is available when only one layer is stored.
 Do not collect private chain-of-thought.
 
@@ -419,7 +419,7 @@ changing today's configuration must not silently rewrite yesterday's estimates.
 The learning loop captures corrections, reviews fixture candidates, promotes
 approved cases into a replay corpus, and compares model profiles. Reuse those
 semantics rather than building a disconnected analytics dashboard. The current
-admission fixtures and `Responder.Evals.AdmissionCase` are the starting corpus.
+admission fixtures and `Ryker.Evals.AdmissionCase` are the starting corpus.
 
 The new durable loop is:
 
@@ -470,7 +470,7 @@ The new configuration has three comprehensible responsibilities:
   execution connection are configured once.
 - Behavior and access: choose models, repositories, permitted capabilities,
   integrations, and retention using named purposes and human-readable durations.
-- Effective execution: Responder resolves reviewed worker policies, validates
+- Effective execution: Ryker resolves reviewed worker policies, validates
   grants, and pins immutable revisions internally. Show a readable effective
   configuration and provenance in the UI.
 
@@ -639,9 +639,9 @@ page before an operator gets a usable episode view.
 | 8. Simple configuration | `runtime_configuration.ex`, example YAML, effective-config/doctor views, worker policy resolution, migration | Real v1 configs translate without authority expansion; unsupported values fail clearly; restart resumes pinned old work; all shipped examples validate |
 | 9. Release acceptance | Integration journeys, focused load/recovery tests, release/deployment scripts | Qualified immutable release is running; health/readiness and the reported episode, Lab, Slack/GitHub card/delivery boundaries are checked on that release |
 
-Paths in the table are relative to `lib/responder/` unless otherwise stated.
+Paths in the table are relative to `lib/ryker/` unless otherwise stated.
 Add migrations under `priv/repo/migrations/` and owning tests under
-`test/responder/`. Before implementing the Coop capability or Phoenix wiring,
+`test/ryker/`. Before implementing the Coop capability or Phoenix wiring,
 verify the actual dependency API and pin supported contracts.
 
 For each production bug, first add the test that fails for the actual defect,

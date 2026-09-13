@@ -1,4 +1,4 @@
-defmodule Responder.DataCase do
+defmodule Ryker.DataCase do
   @moduledoc false
   use ExUnit.CaseTemplate
   alias Ecto.Adapters.SQL.Sandbox
@@ -6,7 +6,7 @@ defmodule Responder.DataCase do
   using do
     quote do
       @moduletag :database
-      alias Responder.Repo
+      alias Ryker.Repo
     end
   end
 
@@ -22,7 +22,7 @@ defmodule Responder.DataCase do
         do: [{:ownership_timeout, timeout} | options],
         else: options
 
-    owner = Sandbox.start_owner!(Responder.Repo, options)
+    owner = Sandbox.start_owner!(Ryker.Repo, options)
     on_exit(fn -> Sandbox.stop_owner(owner) end)
   end
 end

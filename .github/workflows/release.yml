@@ -90,13 +90,13 @@ jobs:
           version=${GITHUB_REF_NAME#v}
           install -d -m 0755 dist
           install -m 0644 \
-            "_build/prod/responder-${version}.tar.gz" \
-            "dist/responder_${version}_elixir_linux_amd64.tar.gz"
+            "_build/prod/ryker-${version}.tar.gz" \
+            "dist/ryker_${version}_elixir_linux_amd64.tar.gz"
           install -m 0755 scripts/install-elixir-release.sh dist/install-elixir-release.sh
           install -m 0755 scripts/check-elixir-release.sh dist/check-elixir-release.sh
           install -m 0755 scripts/activate-elixir-release.sh dist/activate-elixir-release.sh
           (cd dist && sha256sum \
-            responder_*_elixir_linux_amd64.tar.gz \
+            ryker_*_elixir_linux_amd64.tar.gz \
             install-elixir-release.sh \
             check-elixir-release.sh \
             activate-elixir-release.sh > checksums.txt)
@@ -107,7 +107,7 @@ jobs:
         run: scripts/check-release.sh dist "$GITHUB_REF_NAME"
       - uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
         with:
-          subject-path: dist/responder_*.tar.gz
+          subject-path: dist/ryker_*.tar.gz
       - name: publish verified draft
         env:
           GH_TOKEN: ${{ github.token }}
@@ -116,7 +116,7 @@ jobs:
             --draft \
             --title "$GITHUB_REF_NAME" \
             --notes-file /tmp/release-notes.md \
-            dist/responder_*_elixir_linux_amd64.tar.gz \
+            dist/ryker_*_elixir_linux_amd64.tar.gz \
             dist/install-elixir-release.sh \
             dist/check-elixir-release.sh \
             dist/activate-elixir-release.sh \

@@ -1,12 +1,12 @@
 # Elixir/PostgreSQL operations
 
-The production Responder is one Elixir release backed by PostgreSQL. PostgreSQL
+The production Ryker is one Elixir release backed by PostgreSQL. PostgreSQL
 is the durable authority for ingress, episodes, Work, delivery, waits,
 schedules, approvals, publication, remote-worker placement, and retention.
 A process restart does not create a second deployment state: the replacement
 claims expired or released custody from the same database and resumes it.
 
-The systemd unit in `deploy/systemd/responder.service` is the canonical service
+The systemd unit in `deploy/systemd/ryker.service` is the canonical service
 definition. It runs migrations before every start, starts the release in the
 foreground, and lets systemd deliver `SIGTERM` directly to the BEAM process.
 Run exactly one service against a production platform identity and database.
@@ -15,10 +15,10 @@ Run exactly one service against a production platform identity and database.
 
 Install these owner-controlled files before starting the service:
 
-- `/etc/responder/responder.env`, derived from
-  `deploy/systemd/responder.env.example` and mode `0600`;
-- `/etc/systemd/system/responder.service`;
-- `/usr/local/lib/responder/current`, the atomic symlink created by the release
+- `/etc/ryker/ryker.env`, derived from
+  `deploy/systemd/ryker.env.example` and mode `0600`;
+- `/etc/systemd/system/ryker.service`;
+- `/usr/local/lib/ryker/current`, the atomic symlink created by the release
   installer; and
 - the remote Coop worker policies, certificates, repository mappings, and
   execution endpoints named by the reviewed configuration.
@@ -56,9 +56,9 @@ scripts/deploy.sh
 It refuses a dirty tree, builds and proves the exact immutable Elixir archive,
 boots it against a disposable PostgreSQL database, verifies a same-database
 restart and a `pg_dump`/restore boot, installs the versioned release, atomically
-moves `/usr/local/lib/responder/current`, restarts `responder.service`, and
+moves `/usr/local/lib/ryker/current`, restarts `ryker.service`, and
 waits for both `/healthz` and `/readyz`. It then requires the ready process's
-`x-responder-version` header to match the exact installed release; inspecting
+`x-ryker-version` header to match the exact installed release; inspecting
 the `current` symlink alone is not proof that systemd is serving that build.
 
 When the archive carries migrations the live database has not applied and the
@@ -69,16 +69,16 @@ PostgreSQL. A migration that fails on real rows fails there, with the old
 release still serving. Deploys without new migrations skip this step.
 
 On macOS the same script manages the service through launchd instead of
-systemd: it renders `deploy/launchd/responder.plist.template` into
-`~/Library/LaunchAgents/ai.emisar.responder.plist`, which sources the runtime
+systemd: it renders `deploy/launchd/ryker.plist.template` into
+`~/Library/LaunchAgents/ai.emisar.ryker.plist`, which sources the runtime
 environment file, runs migrations, and starts the release in the foreground
 with restart-on-failure, exactly as the systemd unit does. The install prefix,
 state directory, environment file, label, and scheduler flags default to
-`~/.local/lib/responder-elixir`, `~/.local/state/responder/emisar`,
-`runtime.env` in that directory, `ai.emisar.responder`, and `+S 4:4`; override
-them with `RESPONDER_DEPLOY_PREFIX`, `RESPONDER_STATE_ROOT`,
-`RESPONDER_RUNTIME_ENV`, `RESPONDER_LAUNCHD_LABEL`, and `RESPONDER_ERL_FLAGS`.
-Logs go to `log/responder.stdout.log` and `log/responder.stderr.log` under the
+`~/.local/lib/ryker-elixir`, `~/.local/state/ryker/emisar`,
+`runtime.env` in that directory, `ai.emisar.ryker`, and `+S 4:4`; override
+them with `RYKER_DEPLOY_PREFIX`, `RYKER_STATE_ROOT`,
+`RYKER_RUNTIME_ENV`, `RYKER_LAUNCHD_LABEL`, and `RYKER_ERL_FLAGS`.
+Logs go to `log/ryker.stdout.log` and `log/ryker.stderr.log` under the
 state directory. The script keeps the five most recent installed releases.
 
 This is a normal one-writer restart, not a canary or promote workflow. Do not
@@ -89,8 +89,8 @@ PostgreSQL after the replacement starts.
 After the script succeeds, record:
 
 ```bash
-/usr/local/lib/responder/current/bin/responder version
-systemctl is-active responder.service
+/usr/local/lib/ryker/current/bin/ryker version
+systemctl is-active ryker.service
 curl --fail http://127.0.0.1:4321/healthz
 curl --fail http://127.0.0.1:4321/readyz
 scripts/check-running-elixir-release.sh http://127.0.0.1:4321 EXPECTED_VERSION
@@ -109,7 +109,7 @@ version, and live platform receipts are separate evidence.
 | `/readyz` | every configured runtime is alive, scheduler progress is fresh, and no due or active custody is stalled past its configured threshold |
 | `/metrics` | Prometheus counters and gauges for queue depth, oldest due work, active lease age, scheduler progress, failures, placements, delivery, and retention |
 
-Keep these endpoints on loopback. `deploy/nginx/responder.conf` exposes only the
+Keep these endpoints on loopback. `deploy/nginx/ryker.conf` exposes only the
 signed GitHub and universal-webhook ingress paths. A routable control-plane bind
 would expose operational counts and compete with production work for database
 connections.
@@ -139,18 +139,18 @@ Run the short-lived Mix tasks with the same `MIX_ENV=prod`, `DATABASE_URL`, and
 absolute runtime configuration path as the release:
 
 ```bash
-mix responder.doctor
-mix responder.status
-mix responder.failures
-mix responder.retry admission 'ingress-input:...' \
+mix ryker.doctor
+mix ryker.status
+mix ryker.failures
+mix ryker.retry admission 'ingress-input:...' \
   --operator U123 --action-ref retry-admission-20260904-1
-mix responder.replay slack 'ingress-input:...' 'post-fix-check-1' \
+mix ryker.replay slack 'ingress-input:...' 'post-fix-check-1' \
   --operator U123 --action-ref replay-slack-20260904-1
-mix responder.replay show 'ingress-input:...' \
+mix ryker.replay show 'ingress-input:...' \
 
 ```
 
-The commands start only temporary database dependencies, never the Responder
+The commands start only temporary database dependencies, never the Ryker
 worker tree. Doctor therefore reports configuration, database, migration, and
 durable queue readiness; `/readyz` on the running release remains authoritative
 for process-local workers and progress heartbeats. Failure output contains
@@ -233,11 +233,11 @@ authority. Keep the current runtime configuration's other policies and tool gran
    existing saved work unreadable. Worker traffic uses outbound mutual TLS;
    do not expose the operator control plane to connect a remote worker.
 
-3. Enroll the exact worker and workspace. In the Responder checkout, with the
+3. Enroll the exact worker and workspace. In the Ryker checkout, with the
    running release's `MIX_ENV=prod` and `DATABASE_URL` environment loaded:
 
    ```bash
-   mix responder.coop_worker enroll WORKER_ID WORKSPACE_REF OPERATOR_REF
+   mix ryker.coop_worker enroll WORKER_ID WORKSPACE_REF OPERATOR_REF
    ```
 
    This command prints the enrollment token once. Save only its token value in
@@ -262,7 +262,7 @@ authority. Keep the current runtime configuration's other policies and tool gran
    workspace must exactly match enrollment. Verify the selected worker advertises
    the task's repository, pinned policy and authority, compatible sandbox,
    required capabilities and available capacity. The save is applied by the
-   running process; `mix responder.doctor` reports whether the saved revision is
+   running process; `mix ryker.doctor` reports whether the saved revision is
    the applied one. No restart is required for a settings change. Do not restart or upgrade co:op as an incidental
    part of deploying a host UI change.
 
@@ -324,7 +324,7 @@ acceptance proves platform grants and APIs. None substitutes for another.
 
 ## Model routing
 
-Responder has two distinct model decisions. The short-lived admission session decides lifecycle
+Ryker has two distinct model decisions. The short-lived admission session decides lifecycle
 (`reply`, start, continue, react, or ignore), candidate relation, and an abstract Work class. It is a
 classifier; the current setup uses Terra/medium. The durable Work session then uses
 the class selected from the host-owned profile:
@@ -347,8 +347,8 @@ file with:
 coop sessions policies --policies /etc/coop/session-policies.yaml --json
 ```
 
-Copy both returned maps into the Responder YAML and the worker connector configuration. The three
-class policies must have one identical `authority_digest`; Responder rejects configuration, fleet
+Copy both returned maps into the Ryker YAML and the worker connector configuration. The three
+class policies must have one identical `authority_digest`; Ryker rejects configuration, fleet
 placement, or a returned Coop session that widens it. Use new versioned policy names when changing
 targets; do not mutate the meaning of a policy still pinned by an active or recoverable episode.
 Contributor, schedule, incident, and evaluation policies remain separate authority lanes, even when
@@ -364,7 +364,7 @@ read PostgreSQL only, and there is no fallback that would pick the file up again
 Dry-run first. The dry run writes nothing at all:
 
 ```bash
-MIX_ENV=prod mix responder.import_configuration /var/lib/responder/responder-elixir.yaml
+MIX_ENV=prod mix ryker.import_configuration /var/lib/ryker/ryker-elixir.yaml
 ```
 
 It prints one redacted JSON plan:
@@ -373,7 +373,7 @@ It prints one redacted JSON plan:
   it, including each reviewed `policy_bindings` pin;
 - `deployment` — the values that become environment variables, by variable name;
 - `secret_remap` — every credential *name* the fixed contract renames, plus each
-  custom webhook secret that must be listed in `RESPONDER_WEBHOOK_SECRET_NAMES`;
+  custom webhook secret that must be listed in `RYKER_WEBHOOK_SECRET_NAMES`;
 - `replaced_tuning` — non-default operational knobs and the shipped default that
   now replaces each one;
 - `retired` — declarations with no destination, named with their value and why;
@@ -392,7 +392,7 @@ before applying, then rehearse the apply on a restored copy of the database.
 Apply with the explicit flag, with the old writer stopped:
 
 ```bash
-MIX_ENV=prod mix responder.import_configuration /var/lib/responder/responder-elixir.yaml --apply
+MIX_ENV=prod mix ryker.import_configuration /var/lib/ryker/ryker-elixir.yaml --apply
 ```
 
 The apply is one transaction. It creates the installation under the `host_ref`
@@ -418,8 +418,8 @@ turns, so the spend is recovered rather than estimated.
 Dry-run first. It reads Coop and writes nothing:
 
 ```bash
-MIX_ENV=prod mix responder.backfill_learning_usage
-MIX_ENV=prod mix responder.backfill_learning_usage --apply
+MIX_ENV=prod mix ryker.backfill_learning_usage
+MIX_ENV=prod mix ryker.backfill_learning_usage --apply
 ```
 
 Both print one JSON summary: `unmetered_runs` selected, `recovered_runs`,
@@ -450,20 +450,20 @@ Use physical or managed continuous backup in production and take an explicit
 logical backup before migrations, platform-identity changes, and cutover:
 
 ```bash
-install -d -m 0700 /var/lib/responder/backups
-pg_dump --format=custom --file=/var/lib/responder/backups/responder-$(date -u +%Y%m%dT%H%M%SZ).dump responder
-pg_restore --list /var/lib/responder/backups/responder-*.dump >/dev/null
+install -d -m 0700 /var/lib/ryker/backups
+pg_dump --format=custom --file=/var/lib/ryker/backups/ryker-$(date -u +%Y%m%dT%H%M%SZ).dump ryker
+pg_restore --list /var/lib/ryker/backups/ryker-*.dump >/dev/null
 ```
 
 Periodically prove restore into a different database:
 
 ```bash
-createdb responder_restore_check
+createdb ryker_restore_check
 pg_restore --exit-on-error --no-owner --no-privileges \
-  --dbname=responder_restore_check /var/lib/responder/backups/responder-TIMESTAMP.dump
-DATABASE_URL=ecto://responder@127.0.0.1/responder_restore_check \
-  /usr/local/lib/responder/current/bin/responder eval 'Responder.Release.migrate()'
-dropdb responder_restore_check
+  --dbname=ryker_restore_check /var/lib/ryker/backups/ryker-TIMESTAMP.dump
+DATABASE_URL=ecto://ryker@127.0.0.1/ryker_restore_check \
+  /usr/local/lib/ryker/current/bin/ryker eval 'Ryker.Release.migrate()'
+dropdb ryker_restore_check
 ```
 
 Do not point a second live service at the restored database while the original
@@ -475,7 +475,7 @@ disposable identities for this reason.
 A normal restart is:
 
 ```bash
-systemctl restart responder.service
+systemctl restart ryker.service
 curl --fail http://127.0.0.1:4321/readyz
 ```
 
@@ -498,11 +498,11 @@ under its key and the session replacement that placement loss forces proceeds. A
 uncertain or unfinished operation keeps the fence, and its session is not replaced
 until that operation resolves.
 
-A review can finish after a worker request times out. Responder reconciles its
+A review can finish after a worker request times out. Ryker reconciles its
 original operation on the original placement and reads the saved review result;
 the timeout receipt is retained and the gate is not rerun. This requires the Coop
 daemon and connector's completed-review reconciliation support. Upgrade workers
-independently of Responder; do not clear command receipts or change review keys to
+independently of Ryker; do not clear command receipts or change review keys to
 work around an older worker.
 
 Recovery also requires that original placement to remain active. If it has expired
@@ -587,15 +587,15 @@ discarding dirty or unpublished work.
 `storage_high_watermark_bytes`, `storage_low_watermark_bytes` and
 `storage_reserve_bytes` are the documented per-worker storage policy. They and
 the draining settings (`batch_limit`, `batch_seconds`,
-`retained_recheck_seconds`) are shipped code defaults in `Responder.Defaults`;
+`retained_recheck_seconds`) are shipped code defaults in `Ryker.Defaults`;
 only the retention horizons are operator settings. Watermarks must be ordered
 and the reserve must be smaller than the high watermark; defaults outside those
 bounds fail at startup.
 
-Workers report their own measured storage in every poll. Responder never
+Workers report their own measured storage in every poll. Ryker never
 estimates it: a worker that reports no `storage` object is unknown, not zero,
 and its measurements are labelled stale once its heartbeat goes stale. When a
-worker reports `allocation: refused`, Responder stops placing new
+worker reports `allocation: refused`, Ryker stops placing new
 fork-requiring sessions on it and says why; cleanup, control, and recovery of
 work already on that worker continue. Recovery follows the worker's own
 reported return to `open`, so there is no second hysteresis to oscillate
@@ -610,7 +610,7 @@ helpers from the same GitHub Release:
 ```bash
 version=X.Y.Z
 tag=v$version
-archive=responder_${version}_elixir_linux_amd64.tar.gz
+archive=ryker_${version}_elixir_linux_amd64.tar.gz
 
 cosign verify-blob checksums.txt \
   --bundle checksums.txt.bundle \
@@ -630,7 +630,7 @@ gh attestation verify "$archive" \
 
 sudo ./install-elixir-release.sh \
   "$archive" "$version" checksums.txt checksums.txt.bundle "$tag" \
-  /usr/local/lib/responder
+  /usr/local/lib/ryker
 ```
 
 The installer authenticates the manifest and provenance before extraction,
@@ -643,8 +643,8 @@ An ordinary release rollback selects a previously installed immutable Elixir
 version only when its database contract is compatible:
 
 ```bash
-sudo scripts/activate-elixir-release.sh /usr/local/lib/responder PREVIOUS_VERSION
-sudo systemctl restart responder.service
+sudo scripts/activate-elixir-release.sh /usr/local/lib/ryker PREVIOUS_VERSION
+sudo systemctl restart ryker.service
 curl --fail http://127.0.0.1:4321/readyz
 ```
 

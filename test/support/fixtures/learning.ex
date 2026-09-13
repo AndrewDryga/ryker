@@ -1,21 +1,21 @@
-defmodule Responder.Fixtures.Learning do
+defmodule Ryker.Fixtures.Learning do
   @moduledoc false
   import Ecto.Query
 
-  alias Responder.Admission.Decision
-  alias Responder.CanonicalJSON
-  alias Responder.Episodes
-  alias Responder.Fixtures.Episodes, as: EpisodeFixtures
-  alias Responder.Ingress.Inbox.{Entry, EntryChangeset}
-  alias Responder.Learning.FleetSession
-  alias Responder.Repo
-  alias Responder.State.{Learning, Observations}
+  alias Ryker.Admission.Decision
+  alias Ryker.CanonicalJSON
+  alias Ryker.Episodes
+  alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
+  alias Ryker.Ingress.Inbox.{Entry, EntryChangeset}
+  alias Ryker.Learning.FleetSession
+  alias Ryker.Repo
+  alias Ryker.State.{Learning, Observations}
 
   @doc "Host-contract adapter only: simulate the exact transport acknowledgment without calling a model."
   def accept(id, body, producer) do
     run =
       case Ecto.UUID.cast(id) do
-        {:ok, id} -> Repo.get(Responder.State.LearningRun, id)
+        {:ok, id} -> Repo.get(Ryker.State.LearningRun, id)
         _ -> nil
       end
 
@@ -24,7 +24,7 @@ defmodule Responder.Fixtures.Learning do
 
     claim =
       if run && run.batch_id do
-        batch = Repo.get!(Responder.Learning.Batch, run.batch_id)
+        batch = Repo.get!(Ryker.Learning.Batch, run.batch_id)
         %{batch: batch, lease_ref: batch.lease_ref}
       end
 

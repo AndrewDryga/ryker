@@ -2,8 +2,8 @@
 // keep the output private and outside the repository. No writes or model calls.
 // Configured display names can refresh using read-only Slack directory calls.
 // Usage: node scripts/control-plane-visual.cjs http://127.0.0.1:4321 OUTPUT [--filters]
-// Install Playwright separately, or set RESPONDER_PLAYWRIGHT_MODULE to its path.
-const { chromium } = require(process.env.RESPONDER_PLAYWRIGHT_MODULE || 'playwright');
+// Install Playwright separately, or set RYKER_PLAYWRIGHT_MODULE to its path.
+const { chromium } = require(process.env.RYKER_PLAYWRIGHT_MODULE || 'playwright');
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const assert = require('node:assert/strict');
@@ -108,7 +108,7 @@ async function discover(page) {
         try {
           const response = await page.goto(new URL(route, origin).href, {waitUntil: 'domcontentloaded'});
           result.status = response.status();
-          result.version = response.headers()['x-responder-version'];
+          result.version = response.headers()['x-ryker-version'];
           if (removedPages.includes(name)) {
             assert.equal(result.status, 404, 'Removed pages must return a real 404');
             assert.equal(response.request().redirectedFrom(), null, 'Removed pages must not acquire compatibility redirects');

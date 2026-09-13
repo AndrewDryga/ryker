@@ -19,7 +19,7 @@ export WATCHDOG_STATE="$work/state"
 export WATCHDOG_NO_NOTIFY=1
 export WATCHDOG_STRIKES=2
 export WATCHDOG_RENOTIFY_MINUTES=0
-mkdir -p "$WATCHDOG_AGENTS" "$work/deploy/.responder/state"
+mkdir -p "$WATCHDOG_AGENTS" "$work/deploy/.ryker/state"
 
 failures=0
 check() {
@@ -55,13 +55,13 @@ count_check() {
   fi
 }
 
-/usr/bin/plutil -create xml1 "$WATCHDOG_AGENTS/ai.emisar.responder.probe.plist"
+/usr/bin/plutil -create xml1 "$WATCHDOG_AGENTS/ai.emisar.ryker.probe.plist"
 /usr/bin/plutil -insert StandardErrorPath -string \
-  "$work/deploy/.responder/state/responder.stderr.log" \
-  "$WATCHDOG_AGENTS/ai.emisar.responder.probe.plist"
-printf 'listen: 127.0.0.1:59999\n' > "$work/deploy/.responder/responder.yaml"
+  "$work/deploy/.ryker/state/ryker.stderr.log" \
+  "$WATCHDOG_AGENTS/ai.emisar.ryker.probe.plist"
+printf 'listen: 127.0.0.1:59999\n' > "$work/deploy/.ryker/ryker.yaml"
 
-db="$work/deploy/.responder/state/responder.db"
+db="$work/deploy/.ryker/state/responder.db"
 # seed <state> <created-minutes-ago> [failure_count] [next-attempt modifier].
 # The columns are the real ones — failure_count, started_at, completed_at —
 # because the watchdog now reads all three and a fabricated table that is
@@ -129,7 +129,7 @@ else
 fi
 
 second=$(run)
-check "a persistent stall raises the alarm" "ALERT Responder probe is not working" "$second"
+check "a persistent stall raises the alarm" "ALERT Ryker probe is not working" "$second"
 check "the alarm says what is wrong" "waited 12m and nothing has ever run" "$second"
 
 # Provider weather is named, not disguised as a host stall. On 2026-08-15 the
@@ -151,7 +151,7 @@ check "an unreachable endpoint is still reported" "not ready: unreachable" "$rec
 
 # With the port answering and the queue drained, it goes quiet and forgets.
 rm -rf "$WATCHDOG_STATE"; seed running 30
-printf 'listen: 127.0.0.1:0\n' > "$work/deploy/.responder/responder.yaml"
+printf 'listen: 127.0.0.1:0\n' > "$work/deploy/.ryker/ryker.yaml"
 /usr/bin/python3 -c "
 import http.server, threading, sys
 class H(http.server.BaseHTTPRequestHandler):
@@ -166,7 +166,7 @@ import time; time.sleep(12)
 " &
 server=$!
 sleep 1
-printf 'listen: 127.0.0.1:%s\n' "$(cat "$work/port")" > "$work/deploy/.responder/responder.yaml"
+printf 'listen: 127.0.0.1:%s\n' "$(cat "$work/port")" > "$work/deploy/.ryker/ryker.yaml"
 healthy=$(run)
 kill $server 2>/dev/null; wait $server 2>/dev/null
 if [[ -z $healthy ]]; then
@@ -182,8 +182,8 @@ fi
 # sent.
 rm -rf "$WATCHDOG_STATE"; seed pending 12
 printf 'listen: 127.0.0.1:59999\nslack:\n  operators:\n    - UWATCHOP1\n' \
-  > "$work/deploy/.responder/responder.yaml"
-printf 'SLACK_BOT_TOKEN=xoxb-watchdog-test-token\n' > "$work/deploy/.responder/local.env"
+  > "$work/deploy/.ryker/ryker.yaml"
+printf 'SLACK_BOT_TOKEN=xoxb-watchdog-test-token\n' > "$work/deploy/.ryker/local.env"
 /usr/bin/python3 -c "
 import http.server, threading, time
 class H(http.server.BaseHTTPRequestHandler):
@@ -214,7 +214,7 @@ check "the DM authenticates with the deployment's token" "Bearer xoxb-watchdog-t
 
 # A deployment without Slack credentials keeps the toast and says why, rather
 # than failing the check.
-rm -rf "$WATCHDOG_STATE"; rm -f "$work/deploy/.responder/local.env"; seed pending 12
+rm -rf "$WATCHDOG_STATE"; rm -f "$work/deploy/.ryker/local.env"; seed pending 12
 run >/dev/null
 nodm=$(run)
 check "a deployment without credentials skips the DM and says so" "slack DM skipped" "$nodm"
@@ -256,7 +256,7 @@ for _ in 1 2 3 4 5 6 7 8 9 10; do
   [[ -s $work/ready-port ]] && break
   sleep 0.3
 done
-printf 'listen: 127.0.0.1:%s\n' "$(cat "$work/ready-port")" > "$work/deploy/.responder/responder.yaml"
+printf 'listen: 127.0.0.1:%s\n' "$(cat "$work/ready-port")" > "$work/deploy/.ryker/ryker.yaml"
 
 # Unrelated work is activity, not recovery of the stalled cohort. The live
 # false positives came from a daily review and Rivals messages moving while the
@@ -273,7 +273,7 @@ partial=$(run)
 check "unrelated activity names the provider-limited work still blocked" \
   "Activity resumed, but 1 provider-limited run remains blocked" "$partial"
 refute "unrelated activity is not recovery of the stalled cohort" \
-  "ALERT Responder probe recovered" "$partial"
+  "ALERT Ryker probe recovered" "$partial"
 
 /usr/bin/sqlite3 "$db" "
   UPDATE agent_runs SET state = 'completed', next_attempt_at = '',
@@ -281,7 +281,7 @@ refute "unrelated activity is not recovery of the stalled cohort" \
   WHERE id = 'run_stalled';"
 cohort_recovered=$(run)
 check "the watchdog recovers when the stalled cohort moves" \
-  "ALERT Responder probe recovered" "$cohort_recovered"
+  "ALERT Ryker probe recovered" "$cohort_recovered"
 
 # Failing work waiting out its backoff is the stall, not an exemption from it.
 rm -rf "$WATCHDOG_STATE"; seed pending 12 3 '+45 seconds'
@@ -315,7 +315,7 @@ rm -rf "$WATCHDOG_STATE"; seed pending 20 4
     strftime('%Y-%m-%dT%H:%M:%f', 'now', '-2 minutes'));"
 run >/dev/null
 flowing=$(run)
-refute "an old run behind a moving queue is not an outage" "ALERT Responder probe is not working" "$flowing"
+refute "an old run behind a moving queue is not an outage" "ALERT Ryker probe is not working" "$flowing"
 check "the waiting work is still logged, gated on movement" "but runs are moving" "$flowing"
 
 # A first attempt genuinely scheduled for the future is not a stall. Without
@@ -336,11 +336,11 @@ fi
 rm -rf "$WATCHDOG_STATE"; seed pending 12 1
 run >/dev/null
 alarmed=$(run)
-check "a due stall still alarms" "ALERT Responder probe is not working" "$alarmed"
+check "a due stall still alarms" "ALERT Ryker probe is not working" "$alarmed"
 /usr/bin/sqlite3 "$db" "DELETE FROM agent_runs;"
 dipped=$(run)
 refute "a due count that dips to zero without movement is not recovery" \
-  "ALERT Responder probe recovered" "$dipped"
+  "ALERT Ryker probe recovered" "$dipped"
 held=$(cat "$WATCHDOG_STATE/probe.strikes" 2>/dev/null || echo 0)
 if [[ $held -ge 2 ]]; then
   printf 'ok   an unmoved queue keeps its strikes instead of re-climbing\n'
@@ -356,7 +356,7 @@ fi
           strftime('%Y-%m-%dT%H:%M:%f', 'now', '-2 minutes'), strftime('%Y-%m-%dT%H:%M:%f', 'now'));"
 moved=$(run)
 check "recovery is logged once a run has actually moved" \
-  "ALERT Responder probe recovered" "$moved"
+  "ALERT Ryker probe recovered" "$moved"
 
 # A hold must not outlive the thing it watched. When the queue has read clear
 # for a whole stall window with nothing left to move — rows pruned, work
@@ -372,7 +372,7 @@ expired=$(run)
 check "a hold that outlasts the stall window is dropped" \
   "clearing strikes without calling it recovery" "$expired"
 refute "and dropping a hold is never announced as recovery" \
-  "ALERT Responder probe recovered" "$expired"
+  "ALERT Ryker probe recovered" "$expired"
 if [[ ! -f $WATCHDOG_STATE/probe.strikes ]]; then
   printf 'ok   a dropped hold releases its strikes\n'
 else
@@ -395,15 +395,15 @@ due_again 105; run >/dev/null; run >/dev/null
 backoff 128
 replay=$(run)
 count_check "two hours of backoff flapping raises exactly one alarm" 1 \
-  "ALERT Responder probe is not working" "$replay"
+  "ALERT Ryker probe is not working" "$replay"
 count_check "and never once claims recovery while nothing moves" 0 \
-  "ALERT Responder probe recovered" "$replay"
+  "ALERT Ryker probe recovered" "$replay"
 /usr/bin/sqlite3 "$db" "
   UPDATE agent_runs SET state = 'completed', next_attempt_at = '',
     completed_at = strftime('%Y-%m-%dT%H:%M:%f', 'now');"
 resumed=$(run)
 count_check "recovery is announced when the queue moves again, once" 1 \
-  "ALERT Responder probe recovered" "$resumed"
+  "ALERT Ryker probe recovered" "$resumed"
 export WATCHDOG_RENOTIFY_MINUTES=0
 kill $ready_server 2>/dev/null; wait $ready_server 2>/dev/null
 

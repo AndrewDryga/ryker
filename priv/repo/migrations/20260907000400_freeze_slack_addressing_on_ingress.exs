@@ -1,4 +1,4 @@
-defmodule Responder.Repo.Migrations.FreezeSlackAddressingOnIngress do
+defmodule Ryker.Repo.Migrations.FreezeSlackAddressingOnIngress do
   use Ecto.Migration
 
   def up do

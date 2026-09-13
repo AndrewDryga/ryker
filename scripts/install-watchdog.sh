@@ -10,10 +10,10 @@
 # actually registered before it reports success.
 set -euo pipefail
 
-label="ai.emisar.responder.watchdog"
+label="ai.emisar.ryker.watchdog"
 plist="$HOME/Library/LaunchAgents/$label.plist"
 script="$(cd "$(dirname "$0")" && pwd)/watchdog.sh"
-state="$HOME/.local/state/responder-watchdog"
+state="$HOME/.local/state/ryker-watchdog"
 
 mkdir -p "$(dirname "$plist")" "$state"
 cat > "$plist" <<PLIST

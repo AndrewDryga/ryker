@@ -20,14 +20,14 @@ if [[ ! $expected_version =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$ ]]; then
 fi
 
 target="$prefix/releases/$expected_version"
-binary="$target/bin/responder"
+binary="$target/bin/ryker"
 
 if [[ ! -d $target || ! -x $binary ]]; then
   echo "installed release $target is incomplete" >&2
   exit 1
 fi
 
-if [[ $($binary version) != "responder $expected_version" ]]; then
+if [[ $($binary version) != "ryker $expected_version" ]]; then
   echo "installed release $target has the wrong version" >&2
   exit 1
 fi
@@ -56,9 +56,9 @@ case $(uname -s) in
   *) mv -Tf "$link_staging" "$prefix/current" ;;
 esac
 
-if [[ $("$prefix"/current/bin/responder version) != "responder $expected_version" ]]; then
+if [[ $("$prefix"/current/bin/ryker version) != "ryker $expected_version" ]]; then
   echo "activated release failed verification" >&2
   exit 1
 fi
 
-echo "current responder release: $prefix/current -> releases/$expected_version"
+echo "current ryker release: $prefix/current -> releases/$expected_version"

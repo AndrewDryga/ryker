@@ -1,4 +1,4 @@
-defmodule Responder.Repo.Migrations.CreateModelInstructions do
+defmodule Ryker.Repo.Migrations.CreateModelInstructions do
   use Ecto.Migration
 
   def change do

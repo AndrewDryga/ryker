@@ -1,4 +1,4 @@
-defmodule Responder.Repo.Migrations.AllowLocalLabPostCapability do
+defmodule Ryker.Repo.Migrations.AllowLocalLabPostCapability do
   use Ecto.Migration
 
   def up do

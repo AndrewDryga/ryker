@@ -27,7 +27,7 @@ if [[ ! $expected_sha256 =~ ^[0-9a-f]{64}$ ]]; then
   exit 2
 fi
 
-scratch=$(mktemp -d "${TMPDIR:-/tmp}/responder-elixir-release.XXXXXX")
+scratch=$(mktemp -d "${TMPDIR:-/tmp}/ryker-elixir-release.XXXXXX")
 trap 'rm -rf "$scratch"' EXIT
 
 verified_archive="$scratch/archive.tar.gz"
@@ -71,10 +71,10 @@ fi
 
 tar -xzf "$verified_archive" -C "$scratch"
 
-binary="$scratch/bin/responder"
-migration="$scratch/lib/responder-$expected_version/priv/repo/migrations/20260830000100_finalize_elixir_product_schema.exs"
+binary="$scratch/bin/ryker"
+migration="$scratch/lib/ryker-$expected_version/priv/repo/migrations/20260830000100_finalize_elixir_product_schema.exs"
 
-[[ -x $binary ]] || { echo "release is missing executable bin/responder" >&2; exit 1; }
+[[ -x $binary ]] || { echo "release is missing executable bin/ryker" >&2; exit 1; }
 [[ -f $migration ]] || { echo "release is missing the product migration" >&2; exit 1; }
 [[ -f $scratch/releases/$expected_version/runtime.exs ]] || {
   echo "release is missing runtime configuration" >&2
@@ -83,14 +83,14 @@ migration="$scratch/lib/responder-$expected_version/priv/repo/migrations/2026083
 
 for asset in \
   README.md \
-  deploy/nginx/responder.conf \
-  deploy/systemd/responder.service \
-  deploy/systemd/responder.env.example \
+  deploy/nginx/ryker.conf \
+  deploy/systemd/ryker.service \
+  deploy/systemd/ryker.env.example \
   docs/elixir-ingress-admission.md \
   docs/operations.md \
   docs/releasing.md; do
-  if [[ ! -f $scratch/share/responder/$asset ]]; then
-    echo "release is missing operator asset share/responder/$asset" >&2
+  if [[ ! -f $scratch/share/ryker/$asset ]]; then
+    echo "release is missing operator asset share/ryker/$asset" >&2
     exit 1
   fi
 done
@@ -100,14 +100,14 @@ if find "$scratch/lib" -maxdepth 1 -type d \( -name 'credo-*' -o -name 'jsv-*' \
   exit 1
 fi
 
-[[ $($binary version) == "responder $expected_version" ]] || {
+[[ $($binary version) == "ryker $expected_version" ]] || {
   echo "release version does not match $expected_version" >&2
   exit 1
 }
 
-DATABASE_URL=ecto://release-check:release-check@127.0.0.1/responder_release_check \
+DATABASE_URL=ecto://release-check:release-check@127.0.0.1/ryker_release_check \
   $binary eval \
-  'if Code.ensure_loaded?(Responder.Release), do: System.halt(0), else: System.halt(1)'
+  'if Code.ensure_loaded?(Ryker.Release), do: System.halt(0), else: System.halt(1)'
 
 if [[ $mode != --archive-only ]]; then
   install_prefix="$scratch/install-root"
@@ -126,7 +126,7 @@ if [[ $mode != --archive-only ]]; then
     exit 1
   }
 
-  [[ $("$install_prefix"/current/bin/responder version) == "responder $expected_version" ]] || {
+  [[ $("$install_prefix"/current/bin/ryker version) == "ryker $expected_version" ]] || {
     echo "installed release does not execute through current" >&2
     exit 1
   }

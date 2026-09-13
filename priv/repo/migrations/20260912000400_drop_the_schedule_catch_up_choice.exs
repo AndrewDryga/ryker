@@ -1,4 +1,4 @@
-defmodule Responder.Repo.Migrations.DropTheScheduleCatchUpChoice do
+defmodule Ryker.Repo.Migrations.DropTheScheduleCatchUpChoice do
   use Ecto.Migration
 
   # A schedule carried a choice about missed runs, and every surface that showed

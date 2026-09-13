@@ -1,4 +1,4 @@
-defmodule Responder.Repo.Migrations.RecordAdmissionAttempts do
+defmodule Ryker.Repo.Migrations.RecordAdmissionAttempts do
   use Ecto.Migration
 
   def up do

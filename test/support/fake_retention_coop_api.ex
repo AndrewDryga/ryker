@@ -1,4 +1,4 @@
-defmodule Responder.FakeRetentionCoopAPI do
+defmodule Ryker.FakeRetentionCoopAPI do
   @moduledoc false
 
   use Agent

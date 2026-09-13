@@ -1,4 +1,4 @@
-defmodule Responder.Repo.Migrations.CreateConversationKnowledge do
+defmodule Ryker.Repo.Migrations.CreateConversationKnowledge do
   use Ecto.Migration
 
   def change do

@@ -1,4 +1,4 @@
-defmodule Responder.Repo.Migrations.AddEventSubscriptionsAndScheduleHistory do
+defmodule Ryker.Repo.Migrations.AddEventSubscriptionsAndScheduleHistory do
   use Ecto.Migration
 
   def up do

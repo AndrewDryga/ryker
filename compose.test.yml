@@ -19,11 +19,11 @@ services:
       - -c
       - full_page_writes=off
     environment:
-      POSTGRES_DB: responder_test
+      POSTGRES_DB: ryker_test
       POSTGRES_PASSWORD: postgres
       POSTGRES_USER: postgres
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d responder_test"]
+      test: ["CMD-SHELL", "pg_isready -U postgres -d ryker_test"]
       interval: 200ms
       timeout: 2s
       retries: 30

@@ -1,4 +1,4 @@
-defmodule Responder.Repo.Migrations.AllowConfirmedSlackInteractionFeedback do
+defmodule Ryker.Repo.Migrations.AllowConfirmedSlackInteractionFeedback do
   use Ecto.Migration
 
   def up,

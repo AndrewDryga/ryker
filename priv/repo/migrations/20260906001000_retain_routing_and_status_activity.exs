@@ -1,4 +1,4 @@
-defmodule Responder.Repo.Migrations.RetainRoutingAndStatusActivity do
+defmodule Ryker.Repo.Migrations.RetainRoutingAndStatusActivity do
   use Ecto.Migration
 
   def up do

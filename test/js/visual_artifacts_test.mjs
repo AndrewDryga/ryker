@@ -8,7 +8,7 @@ import {createCaptureDirectory} from '../../scripts/visual-artifacts.cjs';
 test('organization screenshots cannot enter the checkout through a symlinked parent', async () => {
   // The first capture harness compared lexical paths, allowing an outside
   // symlink to redirect private screenshots into a committable directory.
-  const scratch = await fs.mkdtemp(path.join(os.tmpdir(), 'responder-visual-test-'));
+  const scratch = await fs.mkdtemp(path.join(os.tmpdir(), 'ryker-visual-test-'));
   try {
     const repository = path.join(scratch, 'repo');
     await fs.mkdir(repository);
@@ -19,7 +19,7 @@ test('organization screenshots cannot enter the checkout through a symlinked par
 });
 
 test('each capture creates a fresh private directory and never reuses an existing target', async () => {
-  const scratch = await fs.mkdtemp(path.join(os.tmpdir(), 'responder-visual-test-'));
+  const scratch = await fs.mkdtemp(path.join(os.tmpdir(), 'ryker-visual-test-'));
   try {
     const repository = path.join(scratch, 'repo');
     await fs.mkdir(repository);

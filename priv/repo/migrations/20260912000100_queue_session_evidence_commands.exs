@@ -1,4 +1,4 @@
-defmodule Responder.Repo.Migrations.QueueSessionEvidenceCommands do
+defmodule Ryker.Repo.Migrations.QueueSessionEvidenceCommands do
   use Ecto.Migration
 
   # The worker protocol has carried `get_session_evidence` since the capability

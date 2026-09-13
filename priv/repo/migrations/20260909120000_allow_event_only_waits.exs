@@ -1,4 +1,4 @@
-defmodule Responder.Repo.Migrations.AllowEventOnlyWaits do
+defmodule Ryker.Repo.Migrations.AllowEventOnlyWaits do
   use Ecto.Migration
 
   def up do

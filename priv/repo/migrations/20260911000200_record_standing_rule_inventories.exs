@@ -1,4 +1,4 @@
-defmodule Responder.Repo.Migrations.RecordStandingRuleInventories do
+defmodule Ryker.Repo.Migrations.RecordStandingRuleInventories do
   use Ecto.Migration
 
   def change do

@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  macOS counterpart of deploy/systemd/ryker.service, rendered and installed
+  by scripts/deploy.sh. Migrations run before every start, the release runs in
+  the foreground as the job's own process (the shell execs into it), and launchd
+  delivers SIGTERM directly to the BEAM. KeepAlive on failure only matches
+  Restart=on-failure; ExitTimeOut matches TimeoutStopSec.
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>__LABEL__</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>-c</string>
+    <string>set -a; . "__RUNTIME_ENV__"; set +a; "__PREFIX__/current/bin/ryker" eval 'Ryker.Release.migrate()' &amp;&amp; exec "__PREFIX__/current/bin/ryker" start</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>ERL_FLAGS</key>
+    <string>__ERL_FLAGS__</string>
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+  </dict>
+  <key>WorkingDirectory</key>
+  <string>__STATE_ROOT__</string>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <dict>
+    <key>SuccessfulExit</key>
+    <false/>
+  </dict>
+  <key>ThrottleInterval</key>
+  <integer>5</integer>
+  <key>ExitTimeOut</key>
+  <integer>60</integer>
+  <key>StandardOutPath</key>
+  <string>__STATE_ROOT__/log/ryker.stdout.log</string>
+  <key>StandardErrorPath</key>
+  <string>__STATE_ROOT__/log/ryker.stderr.log</string>
+</dict>
+</plist>

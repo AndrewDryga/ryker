@@ -1,4 +1,4 @@
-defmodule Responder.Repo.Migrations.AllowEpisodeReactionEvents do
+defmodule Ryker.Repo.Migrations.AllowEpisodeReactionEvents do
   use Ecto.Migration
 
   def up do

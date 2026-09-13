@@ -5,7 +5,7 @@ import vm from "node:vm"
 import {createRelearnPicker} from "../../priv/static/relearn-selection.mjs"
 
 const source = readFileSync(new URL("../../priv/static/control-plane.js", import.meta.url), "utf8")
-const retained = JSON.parse(readFileSync(new URL("../responder/work/fixtures/airflow_candidate_responses.json", import.meta.url), "utf8"))
+const retained = JSON.parse(readFileSync(new URL("../ryker/work/fixtures/airflow_candidate_responses.json", import.meta.url), "utf8"))
 
 function fixture(hash = "") {
   let hook

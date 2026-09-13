@@ -1,6 +1,6 @@
-defmodule Responder.Fixtures.Episodes do
+defmodule Ryker.Fixtures.Episodes do
   @moduledoc false
-  alias Responder.Episodes.Command
+  alias Ryker.Episodes.Command
 
   @occurred_at ~U[2026-08-27 12:00:00.000000Z]
 

@@ -1,4 +1,4 @@
-defmodule Responder.Repo.Migrations.BindDeliveryTargets do
+defmodule Ryker.Repo.Migrations.BindDeliveryTargets do
   use Ecto.Migration
 
   # An accepted answer keeps the exact destination it was accepted with, so a

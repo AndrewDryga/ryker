@@ -1,4 +1,4 @@
-defmodule Responder.Repo.Migrations.FinalizeElixirProductSchema do
+defmodule Ryker.Repo.Migrations.FinalizeElixirProductSchema do
   use Ecto.Migration
 
   @schema_root "priv/repo/schema"
@@ -14,7 +14,7 @@ defmodule Responder.Repo.Migrations.FinalizeElixirProductSchema do
   end
 
   defp run_sql_file(name) do
-    :responder
+    :ryker
     |> Application.app_dir(Path.join(@schema_root, name))
     |> File.read!()
     |> String.replace("public.", quoted_prefix() <> ".")

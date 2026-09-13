@@ -3,17 +3,17 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Governed action — Responder docs</title>
+<title>Governed action — Ryker docs</title>
 <meta name="description" content="Typed actions, approvals, runbook drafts, grant promotions, standing assignments, schedules, external waits, and draft-PR publication.">
 <!-- Unfurl metadata. og:image is root-relative; most unfurlers need absolute
      URLs, so point og:image (and add og:url + rel=canonical) at the real domain
      when the site gets one — a one-line substitution at publish time. -->
 <meta property="og:type" content="website">
-<meta property="og:title" content="Governed action — Responder docs">
+<meta property="og:title" content="Governed action — Ryker docs">
 <meta property="og:description" content="Typed actions, approvals, runbook drafts, grant promotions, standing assignments, schedules, external waits, and draft-PR publication.">
 <meta property="og:image" content="../assets/og.png">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="Governed action — Responder docs">
+<meta name="twitter:title" content="Governed action — Ryker docs">
 <meta name="twitter:description" content="Typed actions, approvals, runbook drafts, grant promotions, standing assignments, schedules, external waits, and draft-PR publication.">
 
 <meta name="color-scheme" content="dark">
@@ -29,7 +29,7 @@
   <div class="wrap nav-in">
     <a class="wordmark" href="../index.html">
       <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true" focusable="false"><rect width="14" height="14" rx="4" fill="#36e6a5"></rect></svg>
-      Responder
+      Ryker
     </a>
     <nav class="nav-links" aria-label="Main">
       <a href="../index.html#how">How it works</a>
@@ -59,7 +59,7 @@
         <nav aria-label="Documentation">
           <p class="grp">Start</p>
           <ul>
-            <li><a href="index.html">What Responder is</a></li>
+            <li><a href="index.html">What Ryker is</a></li>
             <li><a href="getting-started.html">Run it</a></li>
           </ul>
           <p class="grp">Using it</p>
@@ -79,7 +79,7 @@
   </aside>
 
   <main class="doc" id="main">
-    <p class="crumb"><a href="../index.html">Responder</a> <span>/</span> <a href="index.html">Docs</a> <span>/</span> <span>Governed action</span></p>
+    <p class="crumb"><a href="../index.html">Ryker</a> <span>/</span> <a href="index.html">Docs</a> <span>/</span> <span>Governed action</span></p>
 
     <details class="doc-toc">
       <summary>On this page</summary>
@@ -100,11 +100,11 @@
 
     <h1>Governed action</h1>
 
-    <p class="lede">Responder has no production shell. Everything it can change runs through a gate it does not own. This page is that gate, end to end: how an action is found, who approves it, what it can earn, and where the boundary is drawn every time.</p>
+    <p class="lede">Ryker has no production shell. Everything it can change runs through a gate it does not own. This page is that gate, end to end: how an action is found, who approves it, what it can earn, and where the boundary is drawn every time.</p>
 
     <h2 id="emisar">Emisar, in one paragraph</h2>
 
-    <p>Emisar is the infrastructure authority. It publishes a catalog of <em>typed</em> actions in signed packs, decides by policy what may run, what must wait for a person, and what is denied, and it owns approval, execution and audit. As the Slack app description puts it, an outbound-only runner validates the action, its arguments, its limits, and the trusted pack hash again on the target host before execution. Responder is a client of that system. It can discover an action and submit one; it cannot approve one, and it holds no infrastructure credential of its own.</p>
+    <p>Emisar is the infrastructure authority. It publishes a catalog of <em>typed</em> actions in signed packs, decides by policy what may run, what must wait for a person, and what is denied, and it owns approval, execution and audit. As the Slack app description puts it, an outbound-only runner validates the action, its arguments, its limits, and the trusted pack hash again on the target host before execution. Ryker is a client of that system. It can discover an action and submit one; it cannot approve one, and it holds no infrastructure credential of its own.</p>
 
     <div class="callout good">
       <p class="lbl">The shape of the boundary</p>
@@ -115,7 +115,7 @@
 
     <p>An action has an immutable identity of three parts: the action, the pack it came from, and the runner that would execute it. All three are required, and they are compared as opaque identifiers — trimmed, never case-folded, because Emisar assigned them. A pack reference carries both a version and a digest, so <code>nomad@1.4.0+sha256:…</code> names one exact pack and no other.</p>
 
-    <p>Discovery is a real contract, not a convention. At startup Responder initializes the Emisar tool catalog and refuses to run if any of <code>find_actions</code>, <code>get_action</code>, <code>list_runners</code> or <code>run_action</code> is missing. It also checks the server identity and protocol version. This validates authentication and the catalog <em>without executing anything</em>.</p>
+    <p>Discovery is a real contract, not a convention. At startup Ryker initializes the Emisar tool catalog and refuses to run if any of <code>find_actions</code>, <code>get_action</code>, <code>list_runners</code> or <code>run_action</code> is missing. It also checks the server identity and protocol version. This validates authentication and the catalog <em>without executing anything</em>.</p>
 
     <p>The model must find the action; it may not invent one. And it may not claim a capability does not exist without first listing every pack, including the ones not currently available. “There is no action for that” is a finding that has to be earned.</p>
 
@@ -123,7 +123,7 @@
 
     <h2 id="approvals">Approvals</h2>
 
-    <p>When Emisar answers <code>pending_approval</code>, Responder copies the exact run, operation, pack and runner references, the approval request, its URL and its expiry — and then checks all of it before anything reaches Slack.</p>
+    <p>When Emisar answers <code>pending_approval</code>, Ryker copies the exact run, operation, pack and runner references, the approval request, its URL and its expiry — and then checks all of it before anything reaches Slack.</p>
 
     <p>The envelope is accepted only when the requester is a configured operator, every identifier is present, the status is exactly <code>pending_approval</code>, and the expiry is set and still in the future. The URL is checked harder than that:</p>
 
@@ -139,13 +139,13 @@
 
     <p>The card carries a blast-radius strip of three fields: the action, the runner, and the pack. It shows no target row and no policy row, because those were never recorded — and a blast-radius strip that guesses the blast radius is worse than one that stops at what it knows.</p>
 
-    <p>Responder watches that exact run in the background, updating the card as it progresses, and posts the terminal result plus read-only verification into the same conversation. Waiting consumes no model turn and survives a restart. On every poll it re-checks the immutable identity: if the run, operation, action, pack or runner has drifted, it refuses rather than following the new thing. Emisar reports fourteen distinct run statuses; Slack renders them as three answers, and <code>denied</code> is rendered grey rather than red — an operator declining a change is the control working, not a failure.</p>
+    <p>Ryker watches that exact run in the background, updating the card as it progresses, and posts the terminal result plus read-only verification into the same conversation. Waiting consumes no model turn and survives a restart. On every poll it re-checks the immutable identity: if the run, operation, action, pack or runner has drifted, it refuses rather than following the new thing. Emisar reports fourteen distinct run statuses; Slack renders them as three answers, and <code>denied</code> is rendered grey rather than red — an operator declining a change is the control working, not a failure.</p>
 
     <h3 id="verification">Approval is not success</h3>
 
     <p>This is the part most systems get wrong. An approval resolves the waiting episode and <strong>queues a separate verification episode</strong>. Approval is authorization to dispatch, never proof that the requested effect happened.</p>
 
-    <p>During verification, Responder cannot run the action again, and cannot substitute a different run. The continuation prompt forbids it outright. Verification is read-only, and it is a different episode with its own record — which is also what funds the trust ladder below.</p>
+    <p>During verification, Ryker cannot run the action again, and cannot substitute a different run. The continuation prompt forbids it outright. Verification is read-only, and it is a different episode with its own record — which is also what funds the trust ladder below.</p>
 
     <h2 id="cannot">What it cannot do</h2>
 
@@ -168,7 +168,7 @@
 
     <h2 id="runbooks">Runbook drafts</h2>
 
-    <p>When an episode ends with a <em>verified</em> remediation, Responder can offer to write it down as an Emisar runbook draft. Be precise about what that means: Responder creates one unpublished draft. It does not validate, publish, or execute runbooks. Emisar alone decides whether a draft is ever published.</p>
+    <p>When an episode ends with a <em>verified</em> remediation, Ryker can offer to write it down as an Emisar runbook draft. Be precise about what that means: Ryker creates one unpublished draft. It does not validate, publish, or execute runbooks. Emisar alone decides whether a draft is ever published.</p>
 
     <p>The offer is refused unless two things are true: the episode’s outcome is recorded as verified, and the action named is one this same episode ran successfully. The step is rebuilt from the <em>recorded</em> action reference, not from anything the model typed — even on an exact match, the stored row is the one that is used. There is no path by which a byte a model wrote reaches Emisar.</p>
 
@@ -199,7 +199,7 @@
 
     <p>A standing assignment is an operator delegating one narrow class of change, watched for by a signal pattern, bounded by a daily budget and an expiry date.</p>
 
-    <p>The change classes are a closed allowlist of five, and the set is closed because free text means Responder may change anything:</p>
+    <p>The change classes are a closed allowlist of five, and the set is closed because free text means Ryker may change anything:</p>
 
     <ul>
       <li><code>dependency_upgrade</code></li>
@@ -220,7 +220,7 @@
 
     <p>Every evaluation is recorded three ways: a durable row, an audit event, and an episode event that a replay fixture can contain. Declines are recorded too, with the reason. Two store invariants do the real work: a uniqueness constraint on the assignment and the issue makes “one pull request per issue” structural rather than careful, and counting today’s rows <em>is</em> the budget. It claims before it acts, so a crash leaves an issue handled rather than handled twice.</p>
 
-    <p>Creating one is a conversation. Say what you want watched and Responder answers with a confirmation card showing the normalized bounds — repository, change class, daily budget, expiry, path globs, signal. The typed <code>create</code> subcommand was retired: it was a nine-key line where a miscounted path list was a repository-wide grant that read as a narrow one. The button carries only <em>which offer</em>; the bounds are re-read from the record at confirm time, and a card clicked in a different channel than it was issued for is refused.</p>
+    <p>Creating one is a conversation. Say what you want watched and Ryker answers with a confirmation card showing the normalized bounds — repository, change class, daily budget, expiry, path globs, signal. The typed <code>create</code> subcommand was retired: it was a nine-key line where a miscounted path list was a repository-wide grant that read as a narrow one. The button carries only <em>which offer</em>; the bounds are re-read from the record at confirm time, and a card clicked in a different channel than it was issued for is refused.</p>
 
     <h2 id="schedules">Schedules</h2>
 
@@ -236,7 +236,7 @@
 
     <h2 id="waits">External waits and wakeups</h2>
 
-    <p>Work often has to stop and watch something else finish. Responder makes that a first-class state instead of a polling loop.</p>
+    <p>Work often has to stop and watch something else finish. Ryker makes that a first-class state instead of a polling loop.</p>
 
     <p>A turn can declare a wait with a kind — <code>github_checks</code>, <code>deployment</code>, <code>terraform_run</code>, <code>emisar_approval</code>, <code>scheduled_verification</code>, or <code>other</code> — an event matcher naming the exact thing to watch, and when to look again. The wakeup is durable: it has its own state, its own lease with a fencing token, and its own deadline, and it survives a restart.</p>
 
@@ -246,13 +246,13 @@
 
     <h2 id="publication">Draft-PR publication</h2>
 
-    <p>Engineering work ends as a reviewed draft pull request from an isolated fork. A person merges. The publication path is where Responder is most paranoid, because it is the one place it writes to something you keep.</p>
+    <p>Engineering work ends as a reviewed draft pull request from an isolated fork. A person merges. The publication path is where Ryker is most paranoid, because it is the one place it writes to something you keep.</p>
 
     <ol>
       <li>Coop returns a complete reviewed patch, the exact parent commit, and the candidate tree it approved.</li>
-      <li>Responder builds a throwaway private checkout, fetches that exact parent, and applies the patch.</li>
+      <li>Ryker builds a throwaway private checkout, fetches that exact parent, and applies the patch.</li>
       <li>It runs <code>git write-tree</code>. If the result does not equal Coop’s candidate tree <strong>byte for byte</strong>, publication is refused and the message names both hashes.</li>
-      <li>It pushes a deterministic Responder-owned branch with <code>--force-with-lease</code>, leased against the SHA it recorded. A branch that already exists and was not recorded is not overwritten. A branch that changed outside Responder is refused, naming expected and found.</li>
+      <li>It pushes a deterministic Ryker-owned branch with <code>--force-with-lease</code>, leased against the SHA it recorded. A branch that already exists and was not recorded is not overwritten. A branch that changed outside Ryker is refused, naming expected and found.</li>
       <li>It creates or updates a <em>draft</em> pull request, then verifies the PR still preserves the branch at the pushed SHA.</li>
     </ol>
 
@@ -264,7 +264,7 @@
 
     <h2 id="discard">Verified discard</h2>
 
-    <p>Cleanup is ownership-based, never name-based. Responder records the exact Coop session ID, then asks for a discard plan, and that plan pins the revision, the workspace identity, the branch, the head, a status digest, whether the tree is dirty, whether it is unmerged, and whether anything is still running.</p>
+    <p>Cleanup is ownership-based, never name-based. Ryker records the exact Coop session ID, then asks for a discard plan, and that plan pins the revision, the workspace identity, the branch, the head, a status digest, whether the tree is dirty, whether it is unmerged, and whether anything is still running.</p>
 
     <p>The rules on top of that plan are short:</p>
 
@@ -273,7 +273,7 @@
       <li><strong>Dirty work is never discarded.</strong> Not automatically, not from Slack, not from the control plane.</li>
       <li>Unmerged work is discarded only after its reviewed tree is durable in a draft PR — and then only when a second, explicitly acknowledged plan comes back still clean.</li>
       <li>Deleting a Slack room does not discard the work behind it.</li>
-      <li>Forks Responder did not record are outside its cleanup set entirely.</li>
+      <li>Forks Ryker did not record are outside its cleanup set entirely.</li>
     </ul>
 
     <nav class="doc-next" aria-label="Page navigation">
@@ -304,7 +304,7 @@
 
 <footer class="foot">
   <div class="wrap foot-in">
-    <span class="state"><span class="dot good"></span>Responder</span>
+    <span class="state"><span class="dot good"></span>Ryker</span>
     <span class="sep">·</span>
     <span>design-partner preview</span>
     <nav aria-label="Footer">

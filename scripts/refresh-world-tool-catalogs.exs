@@ -1,7 +1,7 @@
 # Run with MIX_ENV=test scripts/elixir-mix.sh run --no-start scripts/refresh-world-tool-catalogs.exs.
 # These are generated host schemas, not captured model responses. Preserve the
 # recorded external tool world and catalog references exactly as JSON values.
-tools = Responder.StateTools.Tools.list(capabilities: [:event_waits, :publication, :schedules])
+tools = Ryker.StateTools.Tools.list(capabilities: [:event_waits, :publication, :schedules])
 
 for path <- Path.wildcard("testdata/scenarios/*/tool-catalog.json") do
   catalog = path |> File.read!() |> Jason.decode!()
@@ -12,7 +12,7 @@ for path <- Path.wildcard("testdata/scenarios/*/tool-catalog.json") do
 
     %{"version" => 1, "servers" => servers} ->
       unless Enum.count(servers, &(&1["name"] == "responder-state")) == 1,
-        do: raise("expected one Responder schema owner in #{path}")
+        do: raise("expected one Ryker schema owner in #{path}")
 
       updated =
         Map.put(

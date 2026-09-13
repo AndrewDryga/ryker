@@ -1,4 +1,4 @@
-defmodule Responder.Repo.Migrations.CreateCutoverLedger do
+defmodule Ryker.Repo.Migrations.CreateCutoverLedger do
   use Ecto.Migration
 
   def up do

@@ -1,4 +1,4 @@
-defmodule Responder.Repo.Migrations.AddEpisodeOriginsAndCorrelationClaims do
+defmodule Ryker.Repo.Migrations.AddEpisodeOriginsAndCorrelationClaims do
   use Ecto.Migration
 
   # One episode may gather evidence from several conversations. Every admitted

@@ -11,7 +11,7 @@
 /crash.dump
 /.elixir/
 /.elixir
-/.responder/
+/.ryker/
 *.db
 *.db-shm
 *.db-wal

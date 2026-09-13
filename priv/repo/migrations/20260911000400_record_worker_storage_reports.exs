@@ -1,4 +1,4 @@
-defmodule Responder.Repo.Migrations.RecordWorkerStorageReports do
+defmodule Ryker.Repo.Migrations.RecordWorkerStorageReports do
   use Ecto.Migration
 
   def up do

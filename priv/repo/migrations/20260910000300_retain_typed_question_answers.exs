@@ -1,4 +1,4 @@
-defmodule Responder.Repo.Migrations.RetainTypedQuestionAnswers do
+defmodule Ryker.Repo.Migrations.RetainTypedQuestionAnswers do
   use Ecto.Migration
 
   # A typed reply answers a question without selecting a choice. The response

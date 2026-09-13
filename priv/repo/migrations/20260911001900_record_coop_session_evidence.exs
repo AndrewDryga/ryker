@@ -1,4 +1,4 @@
-defmodule Responder.Repo.Migrations.RecordCoopSessionEvidence do
+defmodule Ryker.Repo.Migrations.RecordCoopSessionEvidence do
   use Ecto.Migration
 
   def up do

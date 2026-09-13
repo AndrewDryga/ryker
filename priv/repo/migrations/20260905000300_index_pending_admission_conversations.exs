@@ -1,4 +1,4 @@
-defmodule Responder.Repo.Migrations.IndexPendingAdmissionConversations do
+defmodule Ryker.Repo.Migrations.IndexPendingAdmissionConversations do
   use Ecto.Migration
 
   def change do

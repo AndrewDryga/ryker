@@ -1,4 +1,4 @@
-defmodule Responder.Repo.Migrations.RecordEngagementReceipts do
+defmodule Ryker.Repo.Migrations.RecordEngagementReceipts do
   use Ecto.Migration
 
   def change do

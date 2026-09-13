@@ -1,15 +1,15 @@
-defmodule Responder.Fixtures.AnswerMemory do
+defmodule Ryker.Fixtures.AnswerMemory do
   @moduledoc "Store-contract setup; Slack delivery/admission is covered by QuestionEndToEndTest."
 
-  alias Responder.Admission.Decision
-  alias Responder.Episodes
-  alias Responder.Fixtures.Episodes, as: EpisodeFixtures
-  alias Responder.Ingress.Inbox
-  alias Responder.Ingress.Inbox.EntryChangeset
-  alias Responder.Repo
-  alias Responder.Slack.Input
-  alias Responder.State.{Records, ResponseChangeset}
-  alias Responder.Work.Custody
+  alias Ryker.Admission.Decision
+  alias Ryker.Episodes
+  alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
+  alias Ryker.Ingress.Inbox
+  alias Ryker.Ingress.Inbox.EntryChangeset
+  alias Ryker.Repo
+  alias Ryker.Slack.Input
+  alias Ryker.State.{Records, ResponseChangeset}
+  alias Ryker.Work.Custody
 
   def answered!(value, occurred_at) do
     id = Ecto.UUID.generate()

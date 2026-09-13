@@ -33,10 +33,10 @@ tools own durable records. The generic Delivery module owns external message and
    from that decision's frozen snapshot rather than fetched again. A continuation in the same healthy
    Coop session sends only new input plus a parent-submission reference.
 4. Coop creates the session and turn under stable operation keys derived from immutable local rows.
-5. Responder stores each candidate's exact bytes, SHA-256, and attempt before validation.
+5. Ryker stores each candidate's exact bytes, SHA-256, and attempt before validation.
 6. The universal validator returns every hard, actionable violation at once. Rejection continues in
    the same Coop turn and session.
-7. Responder freezes the exact accept or reject mutation before calling Coop. Lost responses are
+7. Ryker freezes the exact accept or reject mutation before calling Coop. Lost responses are
    reconciled by operation key and current turn state.
 8. A validated accept atomically stores the result and advances the episode. A visible result becomes
    `delivery_pending`; deliberate silence settles immediately with an audited reason.
@@ -71,7 +71,7 @@ tools own durable records. The generic Delivery module owns external message and
 - Coop resolves the selector through the operator-configured remote and returns the session's
   version-1 `source` binding (`requested`, `remote_identity`, `default_ref`, `default_commit`,
   `selected_ref`, `selected_commit`, merge-base `base_commit`, `admitted_tree`, `resolved_at`, plus
-  `pull_request_number` and optional `pull_request_expected_head` for a pull request). Responder
+  `pull_request_number` and optional `pull_request_expected_head` for a pull request). Ryker
   refuses the workspace (`coop_protocol_error: repository_source`) unless the binding answers the
   exact persisted request, its derived ref matches, and the session's creation base is the
   binding's `base_commit` (the workspace itself starts at `selected_commit`). Every non-default
@@ -85,7 +85,7 @@ tools own durable records. The generic Delivery module owns external message and
 - The validated binding is exposed to the model as `work.workspace.source`: a fact about where the
   checkout starts, never publication authority. Engineering completion still requires a committed
   tree beyond `admitted_source_tree`; review-only work may finish unchanged. Publication keeps its
-  own Responder-owned branch rule, so a selected human branch or pull request cannot become a push
+  own Ryker-owned branch rule, so a selected human branch or pull request cannot become a push
   target merely because it was checked out.
 - A frozen submission never changes under one operation key, even after a process crash or deploy.
 - Only a confirmed failure that produced no remote resource may spend a create or submit generation.
@@ -112,9 +112,9 @@ tools own durable records. The generic Delivery module owns external message and
 - Interrupted, cancelled, budget-exhausted, or otherwise unsafe terminal turns are surfaced in
   blocked custody; the host does not silently replay a human instruction after Coop says send intent
   may have happened.
-- An active remote turn must be cancelled through Work custody. Responder first freezes the intent,
+- An active remote turn must be cancelled through Work custody. Ryker first freezes the intent,
   reconciles Coop's idempotent cancellation, and only then cancels or transfers the episode owner.
-- If Stop races a prepared create or submit before a remote resource is known, Responder calls Coop's
+- If Stop races a prepared create or submit before a remote resource is known, Ryker calls Coop's
   exact operation fence. The fence either prevents that mutation from starting or returns the
   operation/resource that already won the race. Cleanup never creates fresh work after authority was
   revoked, and a lookup miss or timeout is never treated as proof of absence.
@@ -129,7 +129,7 @@ tools own durable records. The generic Delivery module owns external message and
 - Delivery retries are bounded independently from model execution. Permanent platform errors and
   exhausted transient retries preserve the exact accepted result in operator-rearmable blocked
   custody instead of polling a provider forever. Operators inspect or rearm that immutable intent by
-  durable reference with `mix responder.delivery list|show|rearm`; a rearm starts a separately audited
+  durable reference with `mix ryker.delivery list|show|rearm`; a rearm starts a separately audited
   retry generation with a fresh bounded attempt budget.
 
 ## Memory and background learning
@@ -140,7 +140,7 @@ The memory pipeline has separate read, learn, and act decisions:
 1. Admission returns only `action`, `episode_ref`, `reaction`, `relation`, `reason`, and
    `work_class`. Its schema has no `observation` or `knowledge` output. Committing a retained input
    records a bounded original-message excerpt and its exact source receipt, including for silence.
-2. The optional `Responder.Learning.Runtime` coalesces decided input revisions in the same writable
+2. The optional `Ryker.Learning.Runtime` coalesces decided input revisions in the same writable
    scope and execution mode. A revision belongs to one durable batch. Quiet/max-delay clocks start
    when admission made it eligible, not when the historical source message happened.
 3. `State.Learning` freezes the selected original inputs, eligible existing subjects, prompt,
@@ -226,7 +226,7 @@ mutable episode projection.
 
 Successful disclosure attests the session's source and knowledge row counts, including tracked zero.
 Missing or partially pruned custody is not treated as source-free prose, and later reads cannot heal
-that gap. This covers Responder-accounted disclosures, not untracked native or live-platform reads.
+that gap. This covers Ryker-accounted disclosures, not untracked native or live-platform reads.
 The producer's accumulated session dependencies are conservative: later disclosures can invalidate
 an earlier record. They do not extend its source lifetime or copy all roots onto every record.
 Producer reads take a nonblocking shared session lock. Busy producers are temporarily unavailable,
@@ -239,7 +239,7 @@ The example YAML enables `learning` with a trusted Coop policy/digest, one worke
 to 16 inputs, a 10-second quiet delay, and a 60-second maximum coalescing delay. Omitting the
 section disables this runtime. Configuration must use a dedicated empty scratch repository with
 `repository_read_only=true`, `project_env=false`, `project_mcp=false`, no companions, and no
-Responder state/action tools; a returned Responder binding digest is rejected before source
+Ryker state/action tools; a returned Ryker binding digest is rejected before source
 submission. Coop still owns an execution fork and exposes provider built-in tools. Read-only
 restricts the repository mount, not writable output/scratch or the provider home; network egress
 is not disabled by these policy flags. Instructions prohibit native external actions, but this is
@@ -471,10 +471,10 @@ byte-identical correction attempts receive distinct attempt-bound validation key
 host-valid but behaviorally wrong result fails instead of being silently accepted.
 
 ```console
-scripts/elixir-test.sh test/responder/evals
-MIX_ENV=test mix responder.eval work-pack
-MIX_ENV=test mix responder.eval work
-MIX_ENV=test mix responder.eval world-pack
+scripts/elixir-test.sh test/ryker/evals
+MIX_ENV=test mix ryker.eval work-pack
+MIX_ENV=test mix ryker.eval work
+MIX_ENV=test mix ryker.eval world-pack
 make eval-world-smoke
 make eval-world
 ```
@@ -492,20 +492,20 @@ once at a strict 100% floor. The release `eval-world` gate runs the full corpus 
 dedicated candidate policy and a separately pinned baseline policy in the exact same deterministic
 world, enforcing aggregate, per-case, hard-invariant, `UNRUN`, and paired-regression limits. One
 versioned scenario directory is shared
-by deterministic host replay and real-model execution. Its production Responder state tools are real
+by deterministic host replay and real-model execution. Its production Ryker state tools are real
 and lease-authorized against an empty disposable PostgreSQL database; its metrics, scheduler, GitHub,
 and similar external tools are a strict recorded cassette. Calls match important normalized
 arguments rather than a global order, controlled failures are replayed per rule, and unmatched calls
 return a bounded error instead of fabricated data. Visible output goes only to the inert `eval`
 transport. Hard checks run first, then a tool-free judge session scores every human-language rubric
 criterion exactly once. Missing judge evidence remains `UNRUN`, never green.
-The eval socket cannot equal the production Coop socket. Before any model turn, Responder verifies the
+The eval socket cannot equal the production Coop socket. Before any model turn, Ryker verifies the
 exact policy digest and Coop's public `repository_read_only` bit; the dedicated daemon is deployed
 without production environment, credentials, network mutation tools, or project MCP configuration.
 
 ## Configuration
 
-`Responder.Work.Runtime` is optional. Its trusted configuration contains only:
+`Ryker.Work.Runtime` is optional. Its trusted configuration contains only:
 
 - `socket`: local Coop Unix socket;
 - `worker_ref`: stable identity prefix for this local worker pool;
@@ -523,14 +523,14 @@ execution remains a separate confirmed contributor policy rather than a `deep` s
 Obtain both `policy_digests` and `policy_authority_digests` from
 `coop sessions policies --policies /etc/coop/session-policies.yaml --json`. Copy the matching full
 digest and shared authority digest into every Work profile and worker advertisement; never derive or
-hand-write either digest in Responder.
+hand-write either digest in Ryker.
 
 For example:
 
 ```elixir
-config :responder, :work,
-  socket: "/var/lib/responder/coop/control.sock",
-  worker_ref: "responder-work:host-a",
+config :ryker, :work,
+  socket: "/var/lib/ryker/coop/control.sock",
+  worker_ref: "ryker-work:host-a",
   concurrency: 4,
   platform_tools: ["list_runners", "find_actions"],
   poll_interval_ms: 250,
@@ -539,7 +539,7 @@ config :responder, :work,
 
 The YAML field is named `work.source_and_action_tools`; the internal runtime option is
 `platform_tools`. The configured names must exactly match tools actually supplied to that Coop
-policy by its owner-private MCP configuration. Responder never reads MCP credentials, and an
+policy by its owner-private MCP configuration. Ryker never reads MCP credentials, and an
 incoming Slack, GitHub, webhook, or direct-conversation message cannot add a tool or change this list.
 All of those sources share the same trusted Work runtime. Direct conversations also install a loopback
 implementation of the exact Slack chat capability schemas: `list_slack_channels`, `search_slack`,
@@ -568,7 +568,7 @@ from an incoming event. Those are admitted and pinned by their owning boundaries
 
 A Coop worker can export one bounded, versioned account of a session it hosts: the network posture
 the session was admitted under, what its newest run was observed doing, the session-wide receipt,
-and the host-approved Coop task bound into its workspace. `Responder.CoopFleet.SessionEvidenceDocument`
+and the host-approved Coop task bound into its workspace. `Ryker.CoopFleet.SessionEvidenceDocument`
 is the consumer half of that contract, held to the producer by the golden fixtures in
 `testdata/protocol/coop-session-evidence*.json`, which Coop's own exporter test writes.
 
@@ -578,7 +578,7 @@ boundary beside narration sync, its result is discarded, and a worker that does 
 spend a model call, alter frozen prompt bytes, change a decision or add an external effect.
 
 Recording keys on the capture's content rather than its clock. A worker keeps no transition ledger,
-so what it can honestly offer is the session as it stands; Responder records a series of those
+so what it can honestly offer is the session as it stands; Ryker records a series of those
 snapshots, and a poll that found nothing changed advances the times on the state already recorded
 instead of manufacturing a history of identical rows. That is also the idempotency rule: a
 redelivered command, a retried capture and two concurrent captures of one state converge on a
@@ -621,7 +621,7 @@ something a card resolves for itself.
 
 ## Retention and cleanup
 
-`Responder.Retention.Runtime` owns both remote workspace cleanup and local data horizons. For every
+`Ryker.Retention.Runtime` owns both remote workspace cleanup and local data horizons. For every
 terminal episode it closes only the exact Coop session recorded in PostgreSQL, waits the configured
 grace period, fetches an exact discard plan, and then:
 
@@ -636,7 +636,7 @@ workspace retained only for unpublished, unmerged commits may be explicitly disc
 action always obtains a fresh Coop plan with unmerged acceptance; dirty work remains retained. Both
 actions are idempotent and leave an audit row.
 
-Before a finished episode becomes eligible for that history cleanup, `Responder.State.Cases`
+Before a finished episode becomes eligible for that history cleanup, `Ryker.State.Cases`
 captures its compact case: the problem, the occurrence identities it was reported under, the
 evidence-backed cause when one was actually established, what was attempted, how it ended, and the
 links back to the sources. The case holds no raw payload, keeps the source identities it was built
@@ -671,7 +671,7 @@ One cleanup pass claims repeatedly under a bounded budget: at most `batch_limit`
 `batch_seconds` of wall time, and at most one phase per session. Candidates are ordered by
 eligibility, the durable time the session became claimable — the owner's terminal time before
 close, `discard_after` after it, and the publication time for work retained as unpublished and
-unmerged. `Responder.Retention.Custody.eligible_query/1` is the single definition of that set;
+unmerged. `Ryker.Retention.Custody.eligible_query/1` is the single definition of that set;
 readiness and the operator preview read it rather than restating it, so a Work or learning backlog
 can never be counted differently by the surface that reports it.
 
@@ -691,6 +691,6 @@ elapse without waiting, and writes the per-day inventory, high-water marks and l
 Each worker poll may carry a strictly validated `storage` object: measured capacity, free, reserve,
 watermarks, inactive disposable bytes, protected bytes, optional unattributed bytes, and the
 worker's own `open`/`refused` allocation decision. It is optional; absent means unknown, never
-zero. Responder stores the last report, counts the decrease in reported disposable bytes as
+zero. Ryker stores the last report, counts the decrease in reported disposable bytes as
 measured reclamation, and refuses to place new fork-requiring sessions on a worker that reports
 `refused` while leaving cleanup, control, and existing-work recovery on that worker alone.

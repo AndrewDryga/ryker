@@ -1,12 +1,12 @@
-# Emisar Slack app
+# Ryker Slack app
 
-The Responder service powers the self-hosted **Emisar** Slack app over Socket Mode. Slack users see
-the app and bot as `Emisar` and mention it as `@Emisar`; the existing `/responder` command remains
-the deterministic recovery surface for the few settings that must work when nothing else does. The
-shipped manifest is complete for the features the
-runtime implements: app presentation, bot identity, App Home state, bot scopes, event
-subscriptions, interactive controls, hosting mode, organization deployment, Slack MCP, incoming
-webhooks, and token rotation.
+The Ryker service powers the self-hosted **Ryker** Slack app over Socket Mode. Slack users see
+the app and bot as `Ryker` and mention it as `@Ryker`; the `/ryker` command remains the
+deterministic recovery surface for the few settings that must work when nothing else does. The
+shipped manifest is complete for the features the runtime implements: app presentation, bot
+identity, App Home state, bot scopes, event subscriptions, interactive controls, hosting mode,
+organization deployment, Slack MCP, incoming webhooks, and token rotation. Emisar is the
+infrastructure product Ryker works through; it is named in the manifest only in that role.
 
 ## Create the app
 
@@ -21,19 +21,24 @@ webhooks, and token rotation.
 5. Install the app to the workspace and store its `xoxb-` token as `SLACK_BOT_TOKEN`.
 6. Put the workspace, operator, invite-user, summon-channel, and watch-channel IDs into
    the console's Slack connection settings, which record the verified workspace, bot and bot-user identities.
-   Invite `@Emisar` to every configured summon and watch channel.
+   Invite `@Ryker` to every configured summon and watch channel.
 7. Enroll the reviewed remote Coop workers, install the Slack tokens in the owner-only service
-   environment, start `responder.service`, and require both `/healthz` and `/readyz` before running
+   environment, start `ryker.service`, and require both `/healthz` and `/readyz` before running
    the Slack qualification journeys in `docs/testing.md`.
 
-When updating an existing app, apply the new manifest. This changes the app and bot display names
-to `Emisar`; it does not rename the `/responder` command or any durable internal identifiers.
+When updating an existing app, apply the new manifest. On an app created before 2026-09-13 this
+renames the app and bot from `Emisar` to `Ryker`, the slash command from `/responder` to `/ryker`
+and the message shortcut callback to `ryker_investigate_message`; upload
+`deploy/slack-app-icon.png` (the Ryker avatar) again under **Basic Information**. Cards posted
+before that release keep their old control ids: a click on one is answered with a private notice
+that the card predates the rename and is recorded in the interaction audit, never acted on. A
+shortcut invoked before the manifest is applied is acknowledged and logged as retired.
 Reinstall when Slack reports that the updated manifest adds an OAuth scope. The Agent experience
 adds `assistant:write` and `im:history`, while per-user Home visibility adds `im:read` and
 `mpim:read`. Conversational channel setup uses
 bounded `conversations.list` membership reconciliation and `usergroups:read` to validate and expand
 explicitly selected incident audiences. Lightweight acknowledgements use `reactions:write`;
-`reactions:read` plus the `reaction_added` and `reaction_removed` events let Emisar understand
+`reactions:read` plus the `reaction_added` and `reaction_removed` events let Ryker understand
 feedback on its own messages in later conversation turns. Reaction events never start work or
 authorize an action by themselves.
 Channel-resource discovery uses `bookmarks:read` to list the configured channel's bookmarks before
@@ -47,12 +52,12 @@ subscribed events are delivered over Socket Mode and do not need a public reques
 manifest uses Slack's current `agent_view`; applying it to an older `assistant_view` app performs
 Slack's irreversible Messages-tab migration.
 
-Slack messages may include up to four bounded Slack-hosted files per turn. Responder supports PNG,
+Slack messages may include up to four bounded Slack-hosted files per turn. Ryker supports PNG,
 JPEG, WebP, and GIF screenshots; UTF-8 text, Markdown, CSV, JSON, and YAML; and PDF documents.
 Defaults cap each file and the whole turn at 8 MiB. The ordered worker downloads a private Slack
 URL with the bot token, verifies the Slack host, declared type, detected content, size, and SHA-256
 digest, and submits a typed read-only artifact to Coop. Private URLs and bytes never enter model
-prompts, Slack output, compact summaries, or long-term memory. Responder retains only bounded
+prompts, Slack output, compact summaries, or long-term memory. Ryker retains only bounded
 Slack metadata under normal operational-data retention; Coop removes the binary payload when the
 turn becomes terminal. Unsupported or misleading content fails closed with a user-visible retry
 message and does not start repository work.
@@ -60,7 +65,7 @@ message and does not start repository work.
 When a user explicitly asks for an image or chart, the agent may create up to four PNG, JPEG, WebP,
 or GIF outputs in Coop's per-turn output directory or return typed ACP image content. Coop stores
 the bytes outside the text transcript and exposes content-addressed metadata only after the turn is
-terminal. Responder accepts only visuals explicitly referenced by that turn's strict response,
+terminal. Ryker accepts only visuals explicitly referenced by that turn's strict response,
 verifies type, size, and SHA-256, requires a title and useful alt text, and uploads each file to the
 same channel and thread as the prose reply. The durable filename includes the delivery ID so a lost
 Slack response can be reconciled without a duplicate upload. Images are presentation artifacts;
@@ -69,14 +74,14 @@ charts do not become evidence unless their underlying observations are separatel
 Slack displays only the manifest's static slash-command usage hint; it does not ask the app for
 dynamic subcommand completions. Keep the hint short, and keep it to verbs that exist. The hint names
 the emergency kit — `status`, `proactive`, `shadow`, and `help` — and the full guide comes from
-`/responder` or `/responder help` rather than from the picker. `assignments` is the one verb the
+`/ryker` or `/ryker help` rather than from the picker. `assignments` is the one verb the
 guide carries that the hint does not: it reads a channel's standing grants and pauses, resumes or
 deletes one. Creating one is `offer_assignment` and its confirmation card, not a verb. Anything else the command used to do is
 now on App Home, on a pinned card's buttons, in the web control plane, or in
 the saved Slack connection; a
 retired verb answers with the one line naming which.
 
-Inviting `@Emisar` to a channel first offers safe mention-only and proactive defaults plus a
+Inviting `@Ryker` to a channel first offers safe mention-only and proactive defaults plus a
 **Customize** path. Customize starts a four-question setup conversation. A configured operator chooses
 mention-only, proactive, or shadow participation; a configured repository; app-alert escalation;
 and the incident audience. Answers may be replies in the setup thread or top-level messages from
@@ -87,35 +92,36 @@ Slack, and action payloads contain only the stored setup ID.
 
 The conversational surface is primary. Operators ask in their own words; the model classifies the
 intent and the host executes it deterministically. There is no phrase table — a plain channel
-message is never a command, whichever words are in it. `@Emisar reconfigure this channel` is the
+message is never a command, whichever words are in it. `@Ryker reconfigure this channel` is the
 one request still read from text, because channel setup has to work when the model is unavailable,
-and it is read only when Responder is addressed. The slash command remains a recovery surface
+and it is read only when Ryker is addressed. The slash command remains a recovery surface
 rather than a second configuration system.
 
-The icon is the 512 by 512 Emisar mark on its native `#0A0B0D` background. Its SHA-256 checksum is:
+The icon is the supplied 512 by 512 Ryker avatar (`brand/ryker/avatar.png`, full crop, graphite
+background). Its SHA-256 checksum is:
 
 ```text
-ba84d1bc32f415feac4f916384075d29180f02010efbd66694b2f60c31574661
+bc877b38a76c56d8a20c4a6ea9d39b2b984bd0c8bcc87d6eeb3c505d80e6a7c4
 ```
 
 Do not add additional scopes, event subscriptions, commands, shortcuts, App Home tabs, or Slack
 agent surfaces speculatively. Slack reviews must be able to exercise every requested capability,
 and the manifest tests plus guided live journeys treat its scope list as the runtime contract.
 
-The `message.channels` and `message.groups` subscriptions let Responder participate throughout a
+The `message.channels` and `message.groups` subscriptions let Ryker participate throughout a
 created incident room and triage configured operational feeds. Configured incident operators do not
 need to mention the bot in incident rooms. Human messages in effectively proactive channels are
 classified as ignore or a reply that follows the human's channel or thread location; a reply can
 offer an operator-confirmed incident without creating it. Credible unresolved external-app alerts
 and explicit human incident requests can create an incident directly. The installation participation default
-decides channels that never chose for themselves; `/responder proactive` saves an explicit choice
+decides channels that never chose for themselves; `/ryker proactive` saves an explicit choice
 for one channel, or moves the installation default when it is given `global`. Current-state questions can use policy-authorized read-only
 Emisar investigation before that decision. Slack sends mentioned messages through both event
-subscriptions, so Responder admits only `app_mention` for messages containing its bot mention.
+subscriptions, so Ryker admits only `app_mention` for messages containing its bot mention.
 
-Operators can ask Responder to remember only typed behavior. A supported preference changes
+Operators can ask Ryker to remember only typed behavior. A supported preference changes
 investigation depth or response detail; a supported standing rule subscribes one channel to
-read-only Terraform-plan review, deployment verification, or alert triage. Responder first renders
+read-only Terraform-plan review, deployment verification, or alert triage. Ryker first renders
 the normalized behavior, scope, expiry, source filter, and safety boundary for confirmation.
 App Home and the web control plane provide state-aware management. Matching rules can
 operate when broad proactive triage is off, but never create an incident or authorize a mutation.
@@ -129,7 +135,7 @@ native progress indicators.
 Direct messages always start read-only triage even when normal-channel proactive mode
 is off. The **Investigate message** shortcut does the same for one selected message.
 App Home summarizes current incidents, active sessions, failed durable work, current channel
-situations, and the commitments Emisar owes the team; the web control plane shows the same records
+situations, and the commitments Ryker owes the team; the web control plane shows the same records
 with more history. Each bounded destination-backed Home row links back to its exact Slack location;
 memory and behavior rows link to their source while the exact user still shares it. Configured
 operators can use state-specific memory, schedule, publication-recovery, and safe retained-work
@@ -142,13 +148,13 @@ thread and creates an isolated writable Coop fork; the rest of the shared channe
 Active full members can collaborate there, edit, test, and commit repository files under Coop
 contributor policy and review the changes. The contributor session omits shared operational MCP and
 environment credentials. The confirmation itself grants the draft pull request for that repository,
-so Responder opens it from the exact reviewed candidate without a further click; stopping or
+so Ryker opens it from the exact reviewed candidate without a further click; stopping or
 closing the task and discarding retained work stay operator decisions. The task cannot merge,
 deploy, sign, or mutate infrastructure. Replies in that thread continue the same task without an
 `@mention`.
 
 The public and private channel archive, unarchive, and deletion subscriptions keep incident-room
-lifecycle state durable. Responder blocks an open incident when its room is archived or deleted,
+lifecycle state durable. Ryker blocks an open incident when its room is archived or deleted,
 preserves the channel identity, Coop session, fork, and audit history, and stops attempting Slack
 delivery. Unarchiving restores the room. A periodic `conversations.info` check repairs missed archive
 events; `channel_not_found` is recorded as unavailable rather than treated as proof of deletion.
@@ -160,9 +166,9 @@ unlisted pilot. Its public support facts are:
 
 | Field | Value |
 | --- | --- |
-| App name | Emisar |
-| Bot display name | Emisar |
-| Short description | AI SRE first responder for evidence-backed investigation and governed operations |
+| App name | Ryker |
+| Bot display name | Ryker |
+| Short description | A proactive AI teammate in Slack and GitHub that shows its work and keeps you in control |
 | Support | https://emisar.dev/support |
 | Support email | support@emisar.dev |
 | Privacy policy | https://emisar.dev/privacy |
@@ -178,7 +184,7 @@ recovery, and uninstallation before a production rollout.
 ## Marketplace boundary
 
 The current app must not be submitted to the public Slack Marketplace. Slack does not accept
-Socket Mode apps in the Marketplace and requires HTTP request URLs for published apps. Responder
+Socket Mode apps in the Marketplace and requires HTTP request URLs for published apps. Ryker
 also intentionally has one configured workspace and static operator-managed tokens; it does not
 yet implement a public OAuth installation and onboarding lifecycle.
 
@@ -189,7 +195,7 @@ Complete these items before adding an `app_directory` section to the manifest:
    idempotency. Disable Socket Mode after production HTTP delivery is proven.
 2. Add OAuth v2 installation with `state` verification, per-workspace encrypted token storage,
    installation updates, revocation and uninstall handling, and a multi-workspace tenancy model.
-3. Publish a Responder-specific installation landing page and post-install onboarding path. The
+3. Publish a Ryker-specific installation landing page and post-install onboarding path. The
    existing Emisar home page is not a substitute for an app installation page.
 4. Add the manifest `app_directory` fields only when their landing, privacy, support, language,
    pricing, and optional direct-install URLs are live and accurate.

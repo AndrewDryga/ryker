@@ -2,7 +2,7 @@
 set -euo pipefail
 
 root=$(cd "$(dirname "$0")/.." && pwd)
-compose=(docker compose --project-name responder-kernel --file "$root/compose.test.yml")
+compose=(docker compose --project-name ryker-kernel --file "$root/compose.test.yml")
 
 cd "$root"
 
@@ -20,8 +20,8 @@ export PGUSER=postgres
 
 isolated_database=0
 
-if [[ ${RESPONDER_TEST_ISOLATED:-0} == 1 ]]; then
-  export PGDATABASE="responder_test_$$_${RANDOM}"
+if [[ ${RYKER_TEST_ISOLATED:-0} == 1 ]]; then
+  export PGDATABASE="ryker_test_$$_${RANDOM}"
 
   cleanup_database() {
     status=$?
@@ -38,7 +38,11 @@ if [[ ${RESPONDER_TEST_ISOLATED:-0} == 1 ]]; then
   env MIX_ENV=test scripts/elixir-mix.sh ecto.create --quiet
   isolated_database=1
 else
-  export PGDATABASE=${PGDATABASE:-responder_test}
+  # The compose project name changed with the 2026-09-13 rename, so a fresh
+  # container may be serving; create the shared database when it is absent
+  # (ecto.create is a no-op when it already exists).
+  export PGDATABASE=${PGDATABASE:-ryker_test}
+  env MIX_ENV=test scripts/elixir-mix.sh ecto.create --quiet
 fi
 
 if [[ ${1:-} == "--check" ]]; then

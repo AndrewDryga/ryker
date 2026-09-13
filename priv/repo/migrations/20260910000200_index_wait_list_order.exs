@@ -1,4 +1,4 @@
-defmodule Responder.Repo.Migrations.IndexWaitListOrder do
+defmodule Ryker.Repo.Migrations.IndexWaitListOrder do
   use Ecto.Migration
 
   def change do

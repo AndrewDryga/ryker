@@ -1,4 +1,4 @@
-defmodule Responder.Repo.Migrations.RecordConfigurationImports do
+defmodule Ryker.Repo.Migrations.RecordConfigurationImports do
   use Ecto.Migration
 
   # The one-time configuration importer records what it applied, never what it

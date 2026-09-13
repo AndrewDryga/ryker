@@ -1,4 +1,4 @@
-defmodule Responder.Repo.Migrations.SelectWorkPlacement do
+defmodule Ryker.Repo.Migrations.SelectWorkPlacement do
   use Ecto.Migration
 
   # Which enrolled worker workspace runs Work is an operator selection, not a

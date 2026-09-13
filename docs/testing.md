@@ -1,6 +1,6 @@
-# Testing Responder
+# Testing Ryker
 
-Responder has separate deterministic, model-evaluation, release, and live-acceptance boundaries.
+Ryker has separate deterministic, model-evaluation, release, and live-acceptance boundaries.
 No one command proves all four.
 
 ## Focused development tests
@@ -8,7 +8,7 @@ No one command proves all four.
 Run the owning ExUnit file while editing:
 
 ```bash
-scripts/elixir-test.sh test/responder/work/executor_test.exs
+scripts/elixir-test.sh test/ryker/work/executor_test.exs
 ```
 
 Parallel PostgreSQL tests must use suite-owned conversation and workspace identities. Sandbox
@@ -61,9 +61,9 @@ The current evaluation runners are owned by the Elixir runtime. Corpora can be c
 credentials:
 
 ```bash
-MIX_ENV=test scripts/elixir-mix.sh responder.eval admission-pack
-MIX_ENV=test scripts/elixir-mix.sh responder.eval work-pack
-MIX_ENV=test scripts/elixir-mix.sh responder.eval world-pack
+MIX_ENV=test scripts/elixir-mix.sh ryker.eval admission-pack
+MIX_ENV=test scripts/elixir-mix.sh ryker.eval work-pack
+MIX_ENV=test scripts/elixir-mix.sh ryker.eval world-pack
 ```
 
 Admission and Work can be run through the isolated evaluation Coop daemon:
@@ -72,18 +72,18 @@ Evaluation authority is supplied explicitly through the evaluation environment a
 if it matches a reviewed production policy binding:
 
 ```bash
-export RESPONDER_EVAL_SOCKET=/absolute/evaluation-coop/control.sock
-export RESPONDER_EVAL_NO_TOOLS_POLICY=responder-eval-no-tools-v1
-export RESPONDER_EVAL_NO_TOOLS_POLICY_DIGEST=SHA256
-export RESPONDER_EVAL_WORLD_POLICY=responder-eval-world-v1
-export RESPONDER_EVAL_WORLD_POLICY_DIGEST=SHA256
-export RESPONDER_EVAL_WORLD_BASELINE_POLICY=responder-eval-world-baseline-v1
-export RESPONDER_EVAL_WORLD_BASELINE_POLICY_DIGEST=SHA256
+export RYKER_EVAL_SOCKET=/absolute/evaluation-coop/control.sock
+export RYKER_EVAL_NO_TOOLS_POLICY=ryker-eval-no-tools-v1
+export RYKER_EVAL_NO_TOOLS_POLICY_DIGEST=SHA256
+export RYKER_EVAL_WORLD_POLICY=ryker-eval-world-v1
+export RYKER_EVAL_WORLD_POLICY_DIGEST=SHA256
+export RYKER_EVAL_WORLD_BASELINE_POLICY=ryker-eval-world-baseline-v1
+export RYKER_EVAL_WORLD_BASELINE_POLICY_DIGEST=SHA256
 ```
 
 ```bash
-MIX_ENV=test scripts/elixir-mix.sh responder.eval admission
-MIX_ENV=test scripts/elixir-mix.sh responder.eval work
+MIX_ENV=test scripts/elixir-mix.sh ryker.eval admission
+MIX_ENV=test scripts/elixir-mix.sh ryker.eval work
 ```
 
 The world evaluation exercises the real episode kernel, Work executor, lease-scoped state tools,
@@ -100,15 +100,15 @@ configured aggregate, per-case, paired-regression, hard-invariant, execution, an
 
 Both run through `scripts/elixir-world-eval.sh`, which splits the plan into shards that run at
 once. The full matrix is 186 observations at about 93 seconds each; one VM ran them one after
-another and took 4.8 hours. Each shard is its own `mix responder.eval world --shard I/N` VM on
+another and took 4.8 hours. Each shard is its own `mix ryker.eval world --shard I/N` VM on
 its own campaign database and its own worker-gateway and state-tools ports (the configured
-`RESPONDER_WORKER_PORT` and `RESPONDER_STATE_TOOLS_PORT` each advanced by two per shard, with the
-port of `RESPONDER_WORKER_PUBLIC_URL` rewritten to match), running the slice it is dealt from the
+`RYKER_WORKER_PORT` and `RYKER_STATE_TOOLS_PORT` each advanced by two per shard, with the
+port of `RYKER_WORKER_PUBLIC_URL` rewritten to match), running the slice it is dealt from the
 same ordered plan: scenario/repeat pairs go round-robin, so a candidate and its baseline always
-share a shard. `RESPONDER_WORLD_EVAL_SHARDS` (default 4, also a `make` variable) is the most
-shards that run; `mix responder.eval world-shards` previews how many the plan fills, so
+share a shard. `RYKER_WORLD_EVAL_SHARDS` (default 4, also a `make` variable) is the most
+shards that run; `mix ryker.eval world-shards` previews how many the plan fills, so
 `--repeat 1 --case X` starts one VM, not four. A shard writes its results with no verdict, and
-`mix responder.eval world-merge` joins the partial results into the one report — same shape,
+`mix ryker.eval world-merge` joins the partial results into the one report — same shape,
 same summary code, same thresholds and exit status as a single run — that the trend tooling reads.
 Per-shard logs and partial results sit beside the report in `<report>.shards/`; a shard that
 fails fails the run without a merge and leaves them there. Each shard holds a pool of ten
@@ -125,7 +125,7 @@ An observation that passed drops its database; one that failed or faulted preser
 the shard and the merged run name it at the end for custody inspection.
 
 Detailed reports are written mode `0600` under `$(EVAL_HISTORY)`, which defaults to
-`~/.local/state/responder/eval-history`. Inspect the series with:
+`~/.local/state/ryker/eval-history`. Inspect the series with:
 
 ```bash
 make eval-trend
@@ -152,7 +152,7 @@ Elixir release and posts only to an existing joined, non-Connect channel named `
 
 ```bash
 set -a
-source ../emisar/.responder/local.env
+source ../emisar/.ryker/local.env
 set +a
 make live-acceptance LIVE_CHANNEL=C0123TEST
 ```
@@ -180,9 +180,9 @@ journeys whose integration is not configured in this installation.
   image. React locally and confirm one additional post without Slack traffic. Confirm a harmless
   task, inspect its diff/timeline/evidence/handoff, and exercise readiness, explicit draft
   publication and the delivery check. Confirm a local incident and read its postmortem without a
-  Slack room. Restart Responder while work is pending and confirm custody resumes from PostgreSQL
+  Slack room. Restart Ryker while work is pending and confirm custody resumes from PostgreSQL
   without a duplicate reply.
-- **Slack threads, cards and emoji**: mention Responder in an approved test channel and confirm the
+- **Slack threads, cards and emoji**: mention Ryker in an approved test channel and confirm the
   reply stays in the exact thread. Request a task and verify the host-owned offer card, its status
   and progress repaints, Stop, and idempotent button retries. React with configured Unicode and
   custom emoji and confirm one normalized reaction input with no bot-loop echo. Upload a bounded

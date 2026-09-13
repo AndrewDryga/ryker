@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build, prove, install, and restart the one-writer Responder service.
+# Build, prove, install, and restart the one-writer Ryker service.
 #
 # Durable admission, Work, delivery, schedule, and fleet custody resume from
 # PostgreSQL after the restart; there is no canary/promote state. Before the
@@ -26,26 +26,27 @@ fi
 repository=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 cd "$repository"
 
-health_url=${RESPONDER_HEALTH_URL:-http://127.0.0.1:4321}
-keep_releases=${RESPONDER_KEEP_RELEASES:-5}
+health_url=${RYKER_HEALTH_URL:-http://127.0.0.1:4321}
+keep_releases=${RYKER_KEEP_RELEASES:-5}
 
 case $(uname -s) in
   Darwin)
     manager=launchd
-    prefix=${RESPONDER_DEPLOY_PREFIX:-$HOME/.local/lib/responder-elixir}
-    state_root=${RESPONDER_STATE_ROOT:-$HOME/.local/state/responder/emisar}
-    runtime_env=${RESPONDER_RUNTIME_ENV:-$state_root/runtime.env}
-    label=${RESPONDER_LAUNCHD_LABEL:-ai.emisar.responder}
-    erl_flags=${RESPONDER_ERL_FLAGS:-+S 4:4}
-    plist="$HOME/Library/LaunchAgents/$label.plist"
+    prefix=${RYKER_DEPLOY_PREFIX:-$HOME/.local/lib/ryker-elixir}
+    state_root=${RYKER_STATE_ROOT:-$HOME/.local/state/ryker/emisar}
+    runtime_env=${RYKER_RUNTIME_ENV:-$state_root/runtime.env}
+    label=${RYKER_LAUNCHD_LABEL:-ai.emisar.ryker}
+    erl_flags=${RYKER_ERL_FLAGS:-+S 4:4}
+    launch_agents="$HOME/Library/LaunchAgents"
+    plist="$launch_agents/$label.plist"
     service="$label"
     ;;
   *)
     manager=systemd
-    prefix=${RESPONDER_DEPLOY_PREFIX:-/usr/local/lib/responder}
-    state_root=${RESPONDER_STATE_ROOT:-/var/lib/responder}
-    runtime_env=${RESPONDER_RUNTIME_ENV:-/etc/responder/responder.env}
-    unit=${RESPONDER_SYSTEMD_UNIT:-responder.service}
+    prefix=${RYKER_DEPLOY_PREFIX:-/usr/local/lib/ryker}
+    state_root=${RYKER_STATE_ROOT:-/var/lib/ryker}
+    runtime_env=${RYKER_RUNTIME_ENV:-/etc/ryker/ryker.env}
+    unit=${RYKER_SYSTEMD_UNIT:-ryker.service}
     service="$unit"
     ;;
 esac
@@ -55,6 +56,15 @@ if [[ $health_url =~ :([0-9]+)/?$ ]]; then
 else
   control_port=80
 fi
+
+# The one-time macOS cutover from the Responder on-host layout. Until it has
+# happened the live database is reached through the old deployment's
+# runtime.env, and its backups land beside it so they move with the root.
+cutover=0
+rehearsal_env=$runtime_env
+backup_root=$state_root
+old_state_root="$HOME/.local/state/responder"
+old_deployment="$old_state_root/emisar"
 
 if [[ -n $(git status --porcelain) ]]; then
   echo "deploy: refusing to deploy a dirty tree — commit first" >&2
@@ -78,12 +88,33 @@ case $manager in
       echo "deploy: launchctl is required by the macOS deployment" >&2
       exit 1
     }
-    [[ -r $runtime_env ]] || {
-      echo "deploy: $runtime_env is missing; the launchd job sources it before every start" >&2
+    if [[ -r $old_deployment/runtime.env && ! -e $runtime_env ]]; then
+      # Still on the old layout: prove the archive against it, then let
+      # scripts/rename-cutover.sh move everything across after the install.
+      cutover=1
+      rehearsal_env="$old_deployment/runtime.env"
+      backup_root="$old_deployment"
+      echo "deploy: cutover: old layout at $old_deployment will be cut over to $state_root after the archive is proven"
+    elif [[ -r $runtime_env && ! -e $old_deployment && ! -e $state_root/backups/rename-cutover.done ]] &&
+      compgen -G "$state_root/backups/pre-rename-*.runtime.env" >/dev/null; then
+      echo "deploy: cutover: a previous cutover did not complete; run scripts/rename-cutover.sh prepare to resume it, then deploy again" >&2
       exit 1
-    }
+    else
+      [[ -r $runtime_env ]] || {
+        echo "deploy: $runtime_env is missing; the launchd job sources it before every start" >&2
+        exit 1
+      }
+    fi
     ;;
 esac
+
+rename_cutover() {
+  # rename_cutover prepare|finish: the cutover with the paths computed above.
+  OLD_STATE_ROOT="$old_state_root" OLD_DEPLOYMENT="$old_deployment" \
+    NEW_STATE_ROOT="$(dirname "$state_root")" NEW_DEPLOYMENT="$state_root" \
+    NEW_LABEL="$label" LAUNCH_AGENTS="$launch_agents" \
+    scripts/rename-cutover.sh "$1"
+}
 
 run_privileged() {
   if [[ $manager != systemd || $(id -u) -eq 0 ]]; then
@@ -105,7 +136,7 @@ archive_sha256() {
   fi
 }
 
-scratch=$(mktemp -d "${TMPDIR:-/tmp}/responder-deploy.XXXXXX")
+scratch=$(mktemp -d "${TMPDIR:-/tmp}/ryker-deploy.XXXXXX")
 preflight_database=
 preflight_port=
 
@@ -125,9 +156,9 @@ trap cleanup EXIT
 make elixir-candidate-check
 
 version=$(scripts/elixir-release-version.sh)
-archive="_build/prod/responder-$version.tar.gz"
+archive="_build/prod/ryker-$version.tar.gz"
 digest=$(archive_sha256 "$archive")
-candidate="_build/prod/rel/responder/bin/responder"
+candidate="_build/prod/rel/ryker/bin/ryker"
 
 env_value() {
   # env_value FILE KEY: the value of KEY=value, without surrounding quotes.
@@ -144,13 +175,13 @@ candidate_eval() {
   # candidate_eval DATABASE_URL EXPRESSION: evaluate inside the built release
   # against one database, with nothing else from the deployment's environment.
   env DATABASE_URL="$1" POOL_SIZE=2 RELEASE_DISTRIBUTION=none \
-    RELEASE_TMP="$scratch/release-tmp" RESPONDER_STATE_DIR="$scratch/state" \
+    RELEASE_TMP="$scratch/release-tmp" RYKER_STATE_DIR="$scratch/state" \
     "$candidate" eval "$2"
 }
 
 pending_migrations() {
   candidate_eval "$1" \
-    'Responder.Release.migrations() |> Enum.count(&match?({:down, _, _}, &1)) |> IO.puts()' |
+    'Ryker.Release.migrations() |> Enum.count(&match?({:down, _, _}, &1)) |> IO.puts()' |
     tail -n 1
 }
 
@@ -158,10 +189,10 @@ pending_migrations() {
 # rows. When this archive carries migrations the live database has not applied,
 # back the live database up and run them on a restored copy in the disposable
 # test PostgreSQL first. Most deploys carry none and skip this after one check.
-if [[ -r $runtime_env ]]; then
-  database_url=$(env_value "$runtime_env" DATABASE_URL)
+if [[ -r $rehearsal_env ]]; then
+  database_url=$(env_value "$rehearsal_env" DATABASE_URL)
   [[ -n $database_url ]] || {
-    echo "deploy: $runtime_env does not define DATABASE_URL" >&2
+    echo "deploy: $rehearsal_env does not define DATABASE_URL" >&2
     exit 1
   }
 
@@ -173,7 +204,7 @@ if [[ -r $runtime_env ]]; then
 
   if [[ $pending -gt 0 ]]; then
     echo "deploy: $pending pending migration(s); backing up the live database and rehearsing them on a restored copy"
-    backup_dir="$state_root/backups"
+    backup_dir="$backup_root/backups"
     mkdir -p "$backup_dir"
     chmod 0700 "$backup_dir"
     backup="$backup_dir/pre-$version-$(date -u +%Y%m%dT%H%M%SZ).dump"
@@ -182,17 +213,17 @@ if [[ -r $runtime_env ]]; then
     chmod 0600 "$backup"
     echo "deploy: backup written to $backup"
 
-    compose=(docker compose --project-name responder-kernel --file "$repository/compose.test.yml")
+    compose=(docker compose --project-name ryker-kernel --file "$repository/compose.test.yml")
     "${compose[@]}" up --detach --wait episode-db >/dev/null
     address=$("${compose[@]}" port episode-db 5432)
     preflight_port=${address##*:}
-    preflight_database="responder_preflight_${$}_${RANDOM}"
+    preflight_database="ryker_preflight_${$}_${RANDOM}"
     PGPASSWORD=postgres createdb -h 127.0.0.1 -p "$preflight_port" -U postgres "$preflight_database"
     PGPASSWORD=postgres pg_restore --exit-on-error --no-owner --no-privileges \
       -h 127.0.0.1 -p "$preflight_port" -U postgres --dbname="$preflight_database" "$backup"
 
     preflight_url="ecto://postgres:postgres@127.0.0.1:$preflight_port/$preflight_database"
-    if ! candidate_eval "$preflight_url" 'Responder.Release.migrate()' >"$scratch/preflight-migrate.log" 2>&1; then
+    if ! candidate_eval "$preflight_url" 'Ryker.Release.migrate()' >"$scratch/preflight-migrate.log" 2>&1; then
       echo "deploy: pending migrations failed against a restored copy of the live database; nothing was changed" >&2
       cat "$scratch/preflight-migrate.log" >&2
       exit 1
@@ -208,7 +239,7 @@ if [[ -r $runtime_env ]]; then
     echo "deploy: no pending migrations"
   fi
 else
-  echo "deploy: $runtime_env is not readable; skipping the migration rehearsal"
+  echo "deploy: $rehearsal_env is not readable; skipping the migration rehearsal"
 fi
 
 # The installer writes an immutable version directory and atomically moves only
@@ -217,9 +248,17 @@ fi
 run_privileged scripts/install-elixir-release.sh \
   "$archive" "$version" "$digest" "$prefix" --local-build
 
+# With the archive proven and installed, the old release, its sidecars, the
+# database, and the state root move to their new names. From here on the old
+# job is stopped; the restart below loads the new one against the moved
+# deployment.
+if [[ $cutover == 1 ]]; then
+  rename_cutover prepare
+fi
+
 stop_unmanaged_listener() {
-  # A release started by hand (`bin/responder daemon`) is not a launchd job.
-  # It is stopped only when it is verifiably a Responder release under the
+  # A release started by hand (`bin/ryker daemon`) is not a launchd job.
+  # It is stopped only when it is verifiably a Ryker release under the
   # install prefix; anything else holding the port aborts the deploy.
   local pids pid command
   pids=$(lsof -nP -t -iTCP:"$control_port" -sTCP:LISTEN 2>/dev/null || true)
@@ -228,10 +267,10 @@ stop_unmanaged_listener() {
   for pid in $pids; do
     command=$(ps -o comm= -p "$pid" || true)
     if [[ $command != "$prefix/releases/"*/erts-*/bin/beam.smp ]]; then
-      echo "deploy: port $control_port is held by pid $pid ($command), not a Responder release under $prefix" >&2
+      echo "deploy: port $control_port is held by pid $pid ($command), not a Ryker release under $prefix" >&2
       exit 1
     fi
-    echo "deploy: stopping the Responder release running outside launchd (pid $pid)"
+    echo "deploy: stopping the Ryker release running outside launchd (pid $pid)"
     kill -TERM "$pid"
   done
 
@@ -257,7 +296,7 @@ case $manager in
       -e "s|__RUNTIME_ENV__|$runtime_env|g" \
       -e "s|__STATE_ROOT__|$state_root|g" \
       -e "s|__ERL_FLAGS__|$erl_flags|g" \
-      deploy/launchd/responder.plist.template >"$scratch/$label.plist"
+      deploy/launchd/ryker.plist.template >"$scratch/$label.plist"
     plutil -lint "$scratch/$label.plist" >/dev/null
     install -m 0644 "$scratch/$label.plist" "$plist"
 
@@ -294,18 +333,26 @@ if [[ $ready != 1 ]]; then
   echo "deploy: $service did not become healthy and ready at $health_url" >&2
   case $manager in
     systemd) run_privileged systemctl status --no-pager "$unit" >&2 || true ;;
-    launchd) tail -n 40 "$state_root/log/responder.stderr.log" >&2 || true ;;
+    launchd) tail -n 40 "$state_root/log/ryker.stderr.log" >&2 || true ;;
   esac
   exit 1
 fi
 
-installed_version=$("$prefix/current/bin/responder" version)
-if [[ $installed_version != "responder $version" ]]; then
-  echo "deploy: installed pointer reports '$installed_version', expected responder $version" >&2
+installed_version=$("$prefix/current/bin/ryker" version)
+if [[ $installed_version != "ryker $version" ]]; then
+  echo "deploy: installed pointer reports '$installed_version', expected ryker $version" >&2
   exit 1
 fi
 
 scripts/check-running-elixir-release.sh "$health_url" "$version"
+
+# Only once the new release is verifiably serving do the Responder-era plists
+# go. This also picks up the retirement when a cutover deploy failed after
+# `prepare` and was redone, which is why it is not tied to this run alone.
+if [[ $manager == launchd ]] &&
+  { [[ $cutover == 1 ]] || compgen -G "$launch_agents/ai.emisar.responder*.plist*" >/dev/null; }; then
+  rename_cutover finish
+fi
 
 # Keep a few immutable installs for rollback; each is tens of megabytes and a
 # hundred of them once filled the disk. Release directories are named by the
@@ -318,5 +365,5 @@ ls -1t "$prefix/releases" | tail -n +"$((keep_releases + 1))" | while read -r ol
   echo "deploy: pruned old release $old"
 done
 
-echo "deploy: $service is active and ready on responder $version"
+echo "deploy: $service is active and ready on ryker $version"
 echo "deploy: PostgreSQL custody will resume pending work after the normal restart"

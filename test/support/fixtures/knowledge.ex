@@ -1,9 +1,9 @@
-defmodule Responder.Fixtures.Knowledge do
+defmodule Ryker.Fixtures.Knowledge do
   @moduledoc false
-  alias Responder.Admission.Decision
-  alias Responder.Ingress.Inbox.Entry
-  alias Responder.Repo
-  alias Responder.State.{Knowledge, LearningSources, Observations}
+  alias Ryker.Admission.Decision
+  alias Ryker.Ingress.Inbox.Entry
+  alias Ryker.Repo
+  alias Ryker.State.{Knowledge, LearningSources, Observations}
 
   @doc "Store-contract fixture, not an admission memory API or a model-result recording."
   def record_topic(entry, proposal, offered, omissions \\ []) do
@@ -39,7 +39,7 @@ defmodule Responder.Fixtures.Knowledge do
                context.input_entry,
                context.input_entry.repository_ref
              ),
-           {:ok, receipt} <- Responder.Admission.commit(context, routing, result_ref),
+           {:ok, receipt} <- Ryker.Admission.commit(context, routing, result_ref),
            :ok <- record_proposal(receipt.entry, proposal, context, result_ref) do
         receipt
       else

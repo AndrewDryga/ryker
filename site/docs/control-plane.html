@@ -3,17 +3,17 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>The control plane — Responder docs</title>
+<title>The control plane — Ryker docs</title>
 <meta name="description" content="The local web UI: episodes and full traces, the decisions queue, findings, the review ledger, and audit.">
 <!-- Unfurl metadata. og:image is root-relative; most unfurlers need absolute
      URLs, so point og:image (and add og:url + rel=canonical) at the real domain
      when the site gets one — a one-line substitution at publish time. -->
 <meta property="og:type" content="website">
-<meta property="og:title" content="The control plane — Responder docs">
+<meta property="og:title" content="The control plane — Ryker docs">
 <meta property="og:description" content="The local web UI: episodes and full traces, the decisions queue, findings, the review ledger, and audit.">
 <meta property="og:image" content="../assets/og.png">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="The control plane — Responder docs">
+<meta name="twitter:title" content="The control plane — Ryker docs">
 <meta name="twitter:description" content="The local web UI: episodes and full traces, the decisions queue, findings, the review ledger, and audit.">
 
 <meta name="color-scheme" content="dark">
@@ -29,7 +29,7 @@
   <div class="wrap nav-in">
     <a class="wordmark" href="../index.html">
       <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true" focusable="false"><rect width="14" height="14" rx="4" fill="#36e6a5"></rect></svg>
-      Responder
+      Ryker
     </a>
     <nav class="nav-links" aria-label="Main">
       <a href="../index.html#how">How it works</a>
@@ -59,7 +59,7 @@
         <nav aria-label="Documentation">
           <p class="grp">Start</p>
           <ul>
-            <li><a href="index.html">What Responder is</a></li>
+            <li><a href="index.html">What Ryker is</a></li>
             <li><a href="getting-started.html">Run it</a></li>
           </ul>
           <p class="grp">Using it</p>
@@ -79,7 +79,7 @@
   </aside>
 
   <main class="doc" id="main">
-    <p class="crumb"><a href="../index.html">Responder</a> <span>/</span> <a href="index.html">Docs</a> <span>/</span> <span>The control plane</span></p>
+    <p class="crumb"><a href="../index.html">Ryker</a> <span>/</span> <a href="index.html">Docs</a> <span>/</span> <span>The control plane</span></p>
 
     <details class="doc-toc">
       <summary>On this page</summary>
@@ -105,7 +105,7 @@
 
     <h2 id="what">What it is</h2>
 
-    <p>The control plane is served by the Responder process itself through server-rendered LiveView pages. It is bound to loopback along with everything else. There are no accounts, no roles, and no invitations, because <strong>the loopback interface is the authentication.</strong> If you can reach it, you are already on the host.</p>
+    <p>The control plane is served by the Ryker process itself through server-rendered LiveView pages. It is bound to loopback along with everything else. There are no accounts, no roles, and no invitations, because <strong>the loopback interface is the authentication.</strong> If you can reach it, you are already on the host.</p>
 
     <p>Three properties are worth stating because they were chosen, not inherited:</p>
 
@@ -127,7 +127,7 @@
       <div><dt>Overview</dt><dd>What is happening right now?</dd></div>
       <div><dt>Episodes</dt><dd>What did it do, and why?</dd></div>
       <div><dt>Schedules</dt><dd>What runs on its own, and did it?</dd></div>
-      <div><dt>Channels</dt><dd>Where is Responder, and what is set up there?</dd></div>
+      <div><dt>Channels</dt><dd>Where is Ryker, and what is set up there?</dd></div>
       <div><dt>Failures</dt><dd>What is broken, and can I retry it?</dd></div>
       <div><dt>Workspaces</dt><dd>What is still held, and why?</dd></div>
     </dl>
@@ -136,7 +136,7 @@
 
     <dl>
       <div><dt>Decisions</dt><dd>What did it choose, and was it right?</dd></div>
-      <div><dt>Findings</dt><dd>What is wrong with Responder itself?</dd></div>
+      <div><dt>Findings</dt><dd>What is wrong with Ryker itself?</dd></div>
       <div><dt>Memory</dt><dd>What does it believe, and where did that come from?</dd></div>
     </dl>
 
@@ -178,7 +178,7 @@
 
     <h3 id="refusals">Refusals and corrections</h3>
 
-    <p>When the host refuses a model answer, that refusal is a step on the rail like any other: “the result did not fit the required format, so Responder sent a correction back instead of acting on it.” The exact correction text is written to the audit log and shown here.</p>
+    <p>When the host refuses a model answer, that refusal is a step on the rail like any other: “the result did not fit the required format, so Ryker sent a correction back instead of acting on it.” The exact correction text is written to the audit log and shown here.</p>
 
     <p>Four correction classes: <code>unreadable</code>, <code>incomplete</code>, <code>rejected</code>, and <code>shape</code>. The last is the only one that posts on a second attempt rather than blocking the turn — right content, wrong form.</p>
 
@@ -188,7 +188,7 @@
 
     <p><strong>Measured and zero are different.</strong> Usage and latency both carry an explicit “was this recorded?” flag, so nobody ever renders an unmeasured turn as free or instant — down to the trend, where a day of unmeasured attempts gets its own mark rather than a missing bar.</p>
 
-    <p><strong>Wall clock is three spans, not one duration.</strong> Queued is Coop holding a turn before a provider picked it up. Provider is the provider working. Host is Responder not yet having noticed the turn finished, because it polls — that gap is real, is nobody else’s, and is the one span this codebase can fix on its own. Provider time is deliberately <em>not</em> split into inference and tool calls, because the underlying record does not hold that split, and an invented split in a latency report is a guess wearing a measurement’s clothes.</p>
+    <p><strong>Wall clock is three spans, not one duration.</strong> Queued is Coop holding a turn before a provider picked it up. Provider is the provider working. Host is Ryker not yet having noticed the turn finished, because it polls — that gap is real, is nobody else’s, and is the one span this codebase can fix on its own. Provider time is deliberately <em>not</em> split into inference and tool calls, because the underlying record does not hold that split, and an invented split in a latency report is a guess wearing a measurement’s clothes.</p>
 
     <p>Cost follows the same rule. Provider-reported amounts are shown directly and never re-priced. An optional local price table fills in providers that report tokens but no money — and a model with no rate reports <em>no estimate</em>, never a zero that reads as “free”. Reported and estimated are printed on separate lines and never summed.</p>
 
@@ -206,7 +206,7 @@
 
     <p>The result is the property the whole project rests on: a real production failure becomes a recorded real model answer that replays offline, with no credentials and no model call, on every commit.</p>
 
-    <p>The Decisions page also carries the watch decisions themselves — what Responder chose to do with each message, its attention scores, and the reason it recorded — plus correction rates, judged evaluation results, feedback, and the model audition panel.</p>
+    <p>The Decisions page also carries the watch decisions themselves — what Ryker chose to do with each message, its attention scores, and the reason it recorded — plus correction rates, judged evaluation results, feedback, and the model audition panel.</p>
 
     <div class="callout">
       <p class="lbl">Why the audition panel has two halves that never join</p>
@@ -215,7 +215,7 @@
 
     <h2 id="findings">Findings</h2>
 
-    <p>A <strong>finding</strong> is a proposed defect in Responder itself, not in your infrastructure. A read-only assessor reads terminal episodes out of process and proposes one; a second, independent read-only reviewer then tries to disprove it. Both verdicts are shown.</p>
+    <p>A <strong>finding</strong> is a proposed defect in Ryker itself, not in your infrastructure. A read-only assessor reads terminal episodes out of process and proposes one; a second, independent read-only reviewer then tries to disprove it. Both verdicts are shown.</p>
 
     <p>That challenger is not decoration. In its first week it overturned 23 of 83 proposals. A page that showed only the assessor would have shown a 28% false-positive rate as a to-do list.</p>
 
@@ -282,7 +282,7 @@
 
 <footer class="foot">
   <div class="wrap foot-in">
-    <span class="state"><span class="dot good"></span>Responder</span>
+    <span class="state"><span class="dot good"></span>Ryker</span>
     <span class="sep">·</span>
     <span>design-partner preview</span>
     <nav aria-label="Footer">

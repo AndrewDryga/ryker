@@ -1,4 +1,4 @@
-defmodule Responder.Repo.Migrations.NotifyControlPlaneChanges do
+defmodule Ryker.Repo.Migrations.NotifyControlPlaneChanges do
   use Ecto.Migration
 
   def up do

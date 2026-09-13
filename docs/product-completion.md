@@ -49,7 +49,7 @@ does not mark the broader typed timeline item complete.
   tables, filters, empty states and actionable errors across every route.
 - [ ] Explained execution chapters and typed request, tool, goal, evidence,
   validation, approval and delivery components; preserve exact retained artifacts.
-- [ ] Safe tool-detail capture across Coop and Responder, without secrets or
+- [ ] Safe tool-detail capture across Coop and Ryker, without secrets or
   private reasoning; absent historical bodies remain explicitly unavailable.
 - [ ] Cost estimates with versioned rates, separate reported cost, all attempts,
   own/descendant attribution and idempotent invocation accounting.
@@ -106,7 +106,7 @@ and their retention remain; per-request execution history stays in the timeline.
 Slack acceptance is confined to Emisar #test. GitHub live tests require an
 operator-selected test repository/issue/PR; none is selected yet. Do not use
 another workspace or invent a target. Existing Coop credentials remain in use.
-Do not restart or install Coop as part of Responder deployment.
+Do not restart or install Coop as part of Ryker deployment.
 
 Local classifier hosting/training and the one-command adoption/demo workflow
 remain deferred. There is no canary/promote deployment state machine.

@@ -25,7 +25,7 @@ function element(attributes = {}) {
 }
 
 function page(pathname = "/conversations") {
-  const root = element(); root.selectors = ["#responder-shell"]
+  const root = element(); root.selectors = ["#ryker-shell"]
   const directory = element(); directory.selectors = ["#lab-directory"]; directory.parent = root
   const close = element(); close.selectors = ["[data-lab-directory-close]"]; close.parent = directory
   const link = element(); link.selectors = ["a"]; link.parent = directory
@@ -49,13 +49,13 @@ test("the index composer's draft key is stable while its send target changes eve
   // a stable scope instead; an open conversation still keys by its own action.
   const draft = {getAttribute: () => "/conversations/0f9e8d7c-1234-4abc-8def-0123456789ab/messages", matches: s => s === ".composer", dataset: {draftAction: "new"}}
   const field = {name: "message", tagName: "TEXTAREA", form: draft}
-  assert.equal(draftKey(field, "/conversations"), "responder:draft:/conversations:new:message")
+  assert.equal(draftKey(field, "/conversations"), "ryker:draft:/conversations:new:message")
   draft.getAttribute = () => "/conversations/ffffffff-1234-4abc-8def-0123456789ab/messages"
-  assert.equal(draftKey(field, "/conversations"), "responder:draft:/conversations:new:message")
+  assert.equal(draftKey(field, "/conversations"), "ryker:draft:/conversations:new:message")
 
   const open = {getAttribute: () => "/conversations/0f9e8d7c-1234-4abc-8def-0123456789ab/messages", matches: s => s === ".composer", dataset: {}}
   assert.equal(draftKey({name: "message", tagName: "TEXTAREA", form: open}, "/conversations/0f9e8d7c-1234-4abc-8def-0123456789ab"),
-    "responder:draft:/conversations/0f9e8d7c-1234-4abc-8def-0123456789ab:/conversations/0f9e8d7c-1234-4abc-8def-0123456789ab/messages:message")
+    "ryker:draft:/conversations/0f9e8d7c-1234-4abc-8def-0123456789ab:/conversations/0f9e8d7c-1234-4abc-8def-0123456789ab/messages:message")
 })
 
 test("only an index draft follows its first accepted send, to the identity its form posted to", () => {

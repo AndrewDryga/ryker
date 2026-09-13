@@ -6,7 +6,7 @@ work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 
 set +e
-output=$(RESPONDER_ELIXIR_RELEASE="$work/missing-release" \
+output=$(RYKER_ELIXIR_RELEASE="$work/missing-release" \
   "$root/scripts/elixir-live-acceptance.sh" C0BLU1GACKC 2>&1)
 status=$?
 set -e
@@ -18,7 +18,7 @@ if [[ $status -ne 1 ]] || [[ $output != *"installed Elixir release is unavailabl
 fi
 
 set +e
-output=$(RESPONDER_ELIXIR_RELEASE="$work/missing-release" \
+output=$(RYKER_ELIXIR_RELEASE="$work/missing-release" \
   "$root/scripts/elixir-live-acceptance.sh" invalid/channel 2>&1)
 status=$?
 set -e

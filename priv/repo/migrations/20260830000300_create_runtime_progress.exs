@@ -1,4 +1,4 @@
-defmodule Responder.Repo.Migrations.CreateRuntimeProgress do
+defmodule Ryker.Repo.Migrations.CreateRuntimeProgress do
   use Ecto.Migration
 
   def change do

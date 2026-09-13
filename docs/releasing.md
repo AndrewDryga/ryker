@@ -1,6 +1,6 @@
-# Releasing Responder
+# Releasing Ryker
 
-Responder releases are public, tag-driven GitHub Releases. The canonical service artifact is the
+Ryker releases are public, tag-driven GitHub Releases. The canonical service artifact is the
 self-contained Linux amd64 Elixir release. The workflow builds and structurally checks it, adds the
 three installation helpers, signs `checksums.txt` through GitHub OIDC and cosign, and publishes the
 finalized changelog section. GitHub records build provenance for the archive.
@@ -40,7 +40,7 @@ Before the first release:
 7. keep the default Actions token read-only; the release job declares its narrow write and OIDC
    permissions itself.
 
-Responder has no automatic production deployment. The continuous-delivery boundary publishes
+Ryker has no automatic production deployment. The continuous-delivery boundary publishes
 verified service artifacts; an operator explicitly installs and configures them on the target
 host.
 
@@ -84,7 +84,7 @@ git push origin vX.Y.Z
 
 Watch `.github/workflows/release.yml` to completion, then confirm the GitHub Release contains:
 
-- `responder_X.Y.Z_elixir_linux_amd64.tar.gz`;
+- `ryker_X.Y.Z_elixir_linux_amd64.tar.gz`;
 - `install-elixir-release.sh`, `check-elixir-release.sh`, and `activate-elixir-release.sh`;
 - `checksums.txt`;
 - `checksums.txt.bundle`.

@@ -109,9 +109,9 @@ and user display name without requesting new credentials or scopes.
 Screenshots and logs contain organization data and stay outside the repository.
 Representative evidence directories:
 
-- `/private/tmp/responder-ux-iteration-two-1XKI0T` — all card states.
-- `/private/tmp/responder-ux-final-preview-5qAbkL` — page and interaction pass.
-- `/private/tmp/responder-multi-attempt-final-XsYdLs` — the exact user timeline.
+- `/private/tmp/ryker-ux-iteration-two-1XKI0T` — all card states.
+- `/private/tmp/ryker-ux-final-preview-5qAbkL` — page and interaction pass.
+- `/private/tmp/ryker-multi-attempt-final-XsYdLs` — the exact user timeline.
 
 The preview on port 44321 uses PostgreSQL read-only transactions and starts no
 runtime workers or operator actions. Preview evidence is not deployment evidence.
@@ -121,7 +121,7 @@ runtime workers or operator actions. Preview evidence is not deployment evidence
 Run the shared-contract gate once, complete the read-only review board, commit
 the owned files, qualify the exact immutable release, install and verify its
 version, health, readiness and real browser behavior on port 4321. Do not restart
-or install Coop as part of a Responder release.
+or install Coop as part of a Ryker release.
 
 Review-board findings were closed with regressions: only actual distinct received
 messages advance conversation parts; fetched directory labels are redacted before
@@ -136,7 +136,7 @@ current test had run only four seconds. The incomplete qualification was not
 treated as a passing full gate. Local release proof is recorded separately.
 
 OrbStack and the existing database were restored with operator approval; no data
-was deleted. The earlier Responder shutdown followed database-pool failures and
+was deleted. The earlier Ryker shutdown followed database-pool failures and
 a supervisor cascade. That proves the application shutdown path, not why the
 database became unavailable. The canonical Linux service already restarts on
 failure; a manually started macOS daemon is not equivalent OS-level supervision.

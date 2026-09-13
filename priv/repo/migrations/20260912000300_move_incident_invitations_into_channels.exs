@@ -1,4 +1,4 @@
-defmodule Responder.Repo.Migrations.MoveIncidentInvitationsIntoChannels do
+defmodule Ryker.Repo.Migrations.MoveIncidentInvitationsIntoChannels do
   use Ecto.Migration
 
   # Who joins an incident room was configured in two places: a global list in

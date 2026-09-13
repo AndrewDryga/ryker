@@ -1,4 +1,4 @@
-defmodule Responder.Repo.Migrations.CreateCardLabPosts do
+defmodule Ryker.Repo.Migrations.CreateCardLabPosts do
   use Ecto.Migration
 
   def change do

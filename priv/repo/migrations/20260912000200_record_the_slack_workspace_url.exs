@@ -1,4 +1,4 @@
-defmodule Responder.Repo.Migrations.RecordTheSlackWorkspaceUrl do
+defmodule Ryker.Repo.Migrations.RecordTheSlackWorkspaceUrl do
   use Ecto.Migration
 
   # A Slack message link is `<workspace>/archives/<channel>/p<ts>`, and the host

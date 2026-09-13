@@ -21,7 +21,7 @@ Summarize every recorded model evaluation, grouped by the target that produced
 it and ordered by time. Prints pass rate and mean judge score per run, with the
 change from the previous run of the same target.
 
-Defaults to $EVAL_HISTORY, then ~/.local/state/responder/eval-history.
+Defaults to $EVAL_HISTORY, then ~/.local/state/ryker/eval-history.
 EOF
 }
 
@@ -32,7 +32,7 @@ case "${1:-}" in
     ;;
 esac
 
-history_dir=${1:-${EVAL_HISTORY:-$HOME/.local/state/responder/eval-history}}
+history_dir=${1:-${EVAL_HISTORY:-$HOME/.local/state/ryker/eval-history}}
 
 if ! command -v jq >/dev/null 2>&1; then
   printf 'eval-trend: jq is required\n' >&2

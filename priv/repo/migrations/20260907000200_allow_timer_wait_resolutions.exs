@@ -1,4 +1,4 @@
-defmodule Responder.Repo.Migrations.AllowTimerWaitResolutions do
+defmodule Ryker.Repo.Migrations.AllowTimerWaitResolutions do
   use Ecto.Migration
 
   def up do

@@ -1,4 +1,4 @@
-defmodule Responder.Repo.Migrations.CreateDurableSettings do
+defmodule Ryker.Repo.Migrations.CreateDurableSettings do
   use Ecto.Migration
 
   # Product settings previously assembled from application YAML at boot become

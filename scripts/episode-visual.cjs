@@ -1,7 +1,7 @@
 // Read-only timeline acceptance against real retained episodes. No actions/model calls.
 // Screenshots stay in a private directory outside the repository.
 // node scripts/episode-visual.cjs ORIGIN OUTPUT /timeline/ENCODED_REF [...]
-const {chromium} = require(process.env.RESPONDER_PLAYWRIGHT_MODULE || 'playwright');
+const {chromium} = require(process.env.RYKER_PLAYWRIGHT_MODULE || 'playwright');
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const assert = require('node:assert/strict');
@@ -30,7 +30,7 @@ assert(routes.length && routes.every(route => /^\/timeline\/[^/?#]+$/.test(route
         try {
           const response = await page.goto(new URL(route, origin).href);
           assert.equal(response.status(), 200);
-          result.version = response.headers()['x-responder-version'];
+          result.version = response.headers()['x-ryker-version'];
           await page.locator('[data-connection-state="connected"]').waitFor();
           await page.evaluate(() => document.fonts.ready);
           await capture('overview');
@@ -75,8 +75,8 @@ assert(routes.length && routes.every(route => /^\/timeline\/[^/?#]+$/.test(route
             await instructions.locator('.prompt-source-body pre').waitFor({state: 'visible'});
             assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'Opened instructions must not overflow');
             await capture('instructions');
-            const updated = await page.locator('#responder-shell').getAttribute('data-updated-at');
-            await page.waitForFunction(previous => document.querySelector('#responder-shell')?.dataset.updatedAt !== previous, updated, {timeout: 12000});
+            const updated = await page.locator('#ryker-shell').getAttribute('data-updated-at');
+            await page.waitForFunction(previous => document.querySelector('#ryker-shell')?.dataset.updatedAt !== previous, updated, {timeout: 12000});
             assert(await instructions.locator('.prompt-source-body pre').isVisible(), 'Live updates must preserve open evidence');
             await instructions.locator(':scope > summary').click();
           }

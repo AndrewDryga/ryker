@@ -9,7 +9,7 @@ Research and rejected alternatives: [memory research](research/memory-systems.md
 
 ## In plain English
 
-Responder keeps original messages as evidence. A background learner reads a small group of new
+Ryker keeps original messages as evidence. A background learner reads a small group of new
 messages, even when there is nothing useful to say back. It looks for existing related topics,
 then updates one, creates a genuinely different topic, or saves nothing. Before accepting a new
 topic, the host checks once more for an existing match the learner might have missed.
@@ -20,13 +20,13 @@ separate human-confirmation rules. Search finds relevant memories and links back
 messages. None of these memories grants permission to act or proves that an old deployment is
 still healthy.
 
-If a topic loses its supporting sources, Responder stops using it. An operator can select current
+If a topic loses its supporting sources, Ryker stops using it. An operator can select current
 originals to relearn the same topic, preserving its identity and history. Failed attempts stay
 visible and have a fixed spending limit; restarting the worker does not buy unlimited retries.
 
 ## 1. Product contract and scope
 
-Responder learns from authorized retained conversation inputs independently of replying.
+Ryker learns from authorized retained conversation inputs independently of replying.
 One supervised background lane maintains current topic knowledge. It reads original Inbox
 revisions, not model-written observations. Admission decides response/work routing; Work owns
 execution; confirmed preferences/guidance remain operator-confirmed. No second agent runtime.
@@ -140,7 +140,7 @@ producer custody fails closed. Keep raw operator/audit history separate from mod
 An existing session with no exposure rows is not automatically source-free: it may predate this
 custody or have missing rows. Successful exposure records source/knowledge row counts under the
 same session lock, including an intentionally empty submission. Reuse requires that marker and
-matching retained counts. This attests Responder-accounted disclosures, not untracked native or
+matching retained counts. This attests Ryker-accounted disclosures, not untracked native or
 live-platform reads. Failed exposure cannot initialize the marker.
 The existing source-exposure table has no per-turn disclosure cutoff, so this uses the producer
 session's accumulated dependencies conservatively. Later disclosures can make an earlier record
@@ -176,7 +176,7 @@ compaction group cannot permanently occupy the oldest maintenance window.
 
 ## 4. Durable background learning
 
-Introduce `Responder.Learning.Runtime`, a bounded worker and a small durable batch owner reusing
+Introduce `Ryker.Learning.Runtime`, a bounded worker and a small durable batch owner reusing
 `State.Learning` for frozen prompts/results and application. Configuration is an explicit optional
 `learning` section with trusted policy/digest, concurrency, and spending/retry bounds. Product
 examples enable it; missing setup is visible as disabled, not silently advertised as learning.
@@ -227,7 +227,7 @@ grant when learning is disabled or misconfigured. Repeating an already accepted 
 its original receipt even if configuration changes again; it grants no further start. Retry UI
 explains this current-policy selection. Account recovery is not permission to reset execution budgets.
 
-Use Coop sessions with no product checkout, project environment, MCP, or Responder action tools.
+Use Coop sessions with no product checkout, project environment, MCP, or Ryker action tools.
 The current Coop runtime requires an execution fork even for a read-only model call; pin a
 dedicated empty scratch repository with `repository_read_only=true`, `project_env=false`, and
 `project_mcp=false`. Do not describe these flags as disabling provider built-in tools: they
@@ -235,7 +235,7 @@ remove product capabilities and writable repository authority, not the provider'
 Check those public authority fields and absence of companion repositories before submitting
 any source text. Qualification must inspect the actual isolated execution and cleanup.
 Reject any returned `responder_binding_digest`: the learner intentionally creates an unbound
-session and must not receive Responder state/action tools through an unexpected binding.
+session and must not receive Ryker state/action tools through an unexpected binding.
 
 The installed Coop runtime does not provide a no-native-tools or provider-only-network policy.
 Read-only applies to the repository mount, with a writable `.coop-output` directory; provider
@@ -250,7 +250,7 @@ If enforced no-native-tools execution is required for unattended activation, qua
 capability in Coop/provider execution first; do not silently introduce a second model runtime.
 
 Add execution kind `learning`, a
-`learning_run_id` FK/pair uniqueness constraint, an external reference `responder-learning:<run UUID>`,
+`learning_run_id` FK/pair uniqueness constraint, an external reference `ryker-learning:<run UUID>`,
 and the corresponding owner check to existing execution-session/fleet placement custody. Include
 discarded learning sessions in retention cleanup. No Work timeline activity-sync callback: the
 learning receipt owns its prompt, public result, producer, errors and execution identity. Use configured local
@@ -276,7 +276,7 @@ New evidence must still be eligible. Only execution/capacity failures pause new 
 An applied result whose body later expires remains an applied receipt; restart must not parse a
 missing body or infer a new judgment. Stop proof survives a local apply rejection after remote acceptance.
 
-The learning lane provides no host-published replies, episode creation, Responder state tools,
+The learning lane provides no host-published replies, episode creation, Ryker state tools,
 or governed infrastructure actions. Its instructions prohibit responding or taking action through
 native tools, but the existing provider sandbox does not technically disable those tools or their
 external effects. Shadow/live inputs have the same learning semantics but do not cross
@@ -434,7 +434,7 @@ or install independently managed Coop workers. No claim that a green test equals
 Fable 5.1 (`claude-fable-5-1`) reviewed the full draft and owning Elixir code on 2026-09-08.
 Its verdict was "not implementable as written", with concrete custody/schema gaps, not approval.
 The public review is retained at
-`/private/tmp/responder-memory-build.TJkOPg/fable-spec-initial.jsonl` (result record only).
+`/private/tmp/ryker-memory-build.TJkOPg/fable-spec-initial.jsonl` (result record only).
 
 Accepted corrections:
 

@@ -2,12 +2,12 @@
 const assert = require('node:assert/strict');
 const path = require('node:path');
 const {createCaptureDirectory} = require('./visual-artifacts.cjs');
-const {chromium} = require(process.env.RESPONDER_PLAYWRIGHT_MODULE || 'playwright');
+const {chromium} = require(process.env.RYKER_PLAYWRIGHT_MODULE || 'playwright');
 
 (async () => {
   const origin = process.argv[2] || 'http://127.0.0.1:4321';
   assert(['127.0.0.1', 'localhost', '[::1]'].includes(new URL(origin).hostname));
-  const output = await createCaptureDirectory(process.argv[3] || '/tmp/responder-usage-visual', path.resolve(__dirname, '..'));
+  const output = await createCaptureDirectory(process.argv[3] || '/tmp/ryker-usage-visual', path.resolve(__dirname, '..'));
   const browser = await chromium.launch({headless: true});
   try {
     for (const width of [1440, 1024, 390]) {
@@ -17,7 +17,7 @@ const {chromium} = require(process.env.RESPONDER_PLAYWRIGHT_MODULE || 'playwrigh
       page.on('console', message => {if (message.type() === 'error') errors.push(message.text());});
       const response = await page.goto(origin + '/usage');
       assert.equal(response.status(), 200);
-      await page.locator('#responder-shell[data-connection-state=connected]').waitFor();
+      await page.locator('#ryker-shell[data-connection-state=connected]').waitFor();
       await page.locator('.usage-summary').waitFor();
       await page.evaluate(() => document.fonts.ready);
       assert.equal(await page.locator('.app-topbar, #live-controls, button[phx-click=toggle-live]').count(), 0);
@@ -110,8 +110,8 @@ const {chromium} = require(process.env.RESPONDER_PLAYWRIGHT_MODULE || 'playwrigh
       await method.scrollIntoViewIfNeeded();
       await page.screenshot({path: path.join(output, `pricing-${width}.png`)});
       // Automatic refresh preserves reading state, without a Pause/Refresh UI.
-      const updated = await page.locator('#responder-shell').getAttribute('data-updated-at');
-      await page.waitForFunction(previous => document.querySelector('#responder-shell')?.dataset.updatedAt !== previous, updated, {timeout: 12000});
+      const updated = await page.locator('#ryker-shell').getAttribute('data-updated-at');
+      await page.waitForFunction(previous => document.querySelector('#ryker-shell')?.dataset.updatedAt !== previous, updated, {timeout: 12000});
       assert.notEqual(await method.getAttribute('open'), null);
       const link = page.locator('#usage-profiles .usage-identity a').first();
       await link.click();

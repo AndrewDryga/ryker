@@ -1,4 +1,4 @@
-defmodule Responder.Repo.Migrations.CreateConversationObservations do
+defmodule Ryker.Repo.Migrations.CreateConversationObservations do
   use Ecto.Migration
 
   def change do

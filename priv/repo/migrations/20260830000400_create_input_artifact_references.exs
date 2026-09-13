@@ -1,4 +1,4 @@
-defmodule Responder.Repo.Migrations.CreateInputArtifactReferences do
+defmodule Ryker.Repo.Migrations.CreateInputArtifactReferences do
   use Ecto.Migration
 
   def up do

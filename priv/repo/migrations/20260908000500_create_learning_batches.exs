@@ -1,4 +1,4 @@
-defmodule Responder.Repo.Migrations.CreateLearningBatches do
+defmodule Ryker.Repo.Migrations.CreateLearningBatches do
   use Ecto.Migration
 
   def change do

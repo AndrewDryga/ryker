@@ -1,4 +1,4 @@
-defmodule Responder.Repo.Migrations.CreateEpisodeRoutingDigests do
+defmodule Ryker.Repo.Migrations.CreateEpisodeRoutingDigests do
   use Ecto.Migration
 
   # Routing compares evidence, not the newest timestamp. A digest is the

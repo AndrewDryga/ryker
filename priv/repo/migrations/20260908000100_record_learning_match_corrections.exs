@@ -1,4 +1,4 @@
-defmodule Responder.Repo.Migrations.RecordLearningMatchCorrections do
+defmodule Ryker.Repo.Migrations.RecordLearningMatchCorrections do
   use Ecto.Migration
 
   def change do

@@ -1,4 +1,4 @@
-defmodule Responder.Repo.Migrations.AddPublicationRecovery do
+defmodule Ryker.Repo.Migrations.AddPublicationRecovery do
   use Ecto.Migration
 
   def up do

@@ -1,4 +1,4 @@
-defmodule Responder.Repo.Migrations.AttestWorkSourceExposureCounts do
+defmodule Ryker.Repo.Migrations.AttestWorkSourceExposureCounts do
   use Ecto.Migration
 
   def change do

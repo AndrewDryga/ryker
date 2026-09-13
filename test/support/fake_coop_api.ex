@@ -1,7 +1,7 @@
-defmodule Responder.TestSupport.FakeCoopAPI do
+defmodule Ryker.TestSupport.FakeCoopAPI do
   @moduledoc false
 
-  @behaviour Responder.Coop.API
+  @behaviour Ryker.Coop.API
 
   def start_link(candidates, options \\ []) do
     resume_operations = Keyword.get(options, :resume_operations, false)
@@ -575,8 +575,8 @@ defmodule Responder.TestSupport.FakeCoopAPI do
       external_ref =
         String.replace_prefix(
           key,
-          "responder:admission:create:",
-          "responder-admission:"
+          "ryker:admission:create:",
+          "ryker-admission:"
         )
 
       session =

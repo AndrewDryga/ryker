@@ -1,4 +1,4 @@
-defmodule Responder.Repo.Migrations.AddExplicitKnowledgeRebuilds do
+defmodule Ryker.Repo.Migrations.AddExplicitKnowledgeRebuilds do
   use Ecto.Migration
 
   def change do

@@ -1,6 +1,6 @@
 // Read-only, real-episode regression for the timeline rail and prompt provenance.
 // Usage: node scripts/timeline-visual.cjs EPISODE_URL PRIVATE_OUTPUT_PREFIX
-const {chromium} = require(process.env.RESPONDER_PLAYWRIGHT_MODULE || 'playwright');
+const {chromium} = require(process.env.RYKER_PLAYWRIGHT_MODULE || 'playwright');
 const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
 const path = require('node:path');
@@ -32,7 +32,7 @@ const {createCaptureDirectory} = require('./visual-artifacts.cjs');
         const marker = getComputedStyle(e, '::before');
         return rail / 2 + parseFloat(marker.left) + (parseFloat(marker.width) + parseFloat(marker.borderLeftWidth) + parseFloat(marker.borderRightWidth)) / 2;
       }));
-      const result = {width, version: response.headers()['x-responder-version'], rails, markerOffsets, errors};
+      const result = {width, version: response.headers()['x-ryker-version'], rails, markerOffsets, errors};
       await page.screenshot({path: path.join(output, `timeline-${width}.png`)});
       try {
         // User and host rows once inherited different side margins: the rail jumped 22px.
@@ -45,8 +45,8 @@ const {createCaptureDirectory} = require('./visual-artifacts.cjs');
         const instructions = page.locator('.prompt-source[data-source="instructions"]').first();
         await instructions.locator('summary').click();
         await instructions.locator('.prompt-source-body').waitFor();
-        const updatedAt = await page.locator('#responder-shell').getAttribute('data-updated-at');
-        await page.waitForFunction(previous => document.querySelector('#responder-shell')?.dataset.updatedAt !== previous, updatedAt, {timeout: 12000});
+        const updatedAt = await page.locator('#ryker-shell').getAttribute('data-updated-at');
+        await page.waitForFunction(previous => document.querySelector('#ryker-shell')?.dataset.updatedAt !== previous, updatedAt, {timeout: 12000});
         assert(await instructions.getAttribute('open') !== null, 'Expanded prompt survives refresh');
         await instructions.locator('summary').scrollIntoViewIfNeeded();
         await page.screenshot({path: path.join(output, `prompt-${width}.png`)});

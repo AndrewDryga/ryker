@@ -5,11 +5,11 @@ Chromium. The harness does not install dependencies, start runtime workers,
 send messages, post to Slack, or call a model.
 
 ```sh
-node scripts/control-plane-visual.cjs http://127.0.0.1:4321 /tmp/responder-visual-review
+node scripts/control-plane-visual.cjs http://127.0.0.1:4321 /tmp/ryker-visual-review
 ```
 
 If Playwright is installed outside Node's normal module search path, set
-`RESPONDER_PLAYWRIGHT_MODULE` to that installation's `playwright` directory.
+`RYKER_PLAYWRIGHT_MODULE` to that installation's `playwright` directory.
 Pass `--filters` for the smaller activity/filters pass during iteration.
 
 The harness captures viewport and full-page PNGs at 1440px and 390px, checks
@@ -32,7 +32,7 @@ visual-quality verdict, nor does it establish backend or live Slack parity.
 For a focused timeline regression, use a populated real episode:
 
 ```sh
-node scripts/timeline-visual.cjs http://127.0.0.1:4321/timeline/EPISODE_REFERENCE /tmp/responder-timeline-review
+node scripts/timeline-visual.cjs http://127.0.0.1:4321/timeline/EPISODE_REFERENCE /tmp/ryker-timeline-review
 ```
 
 This captures 1440px, 900px and 390px layouts, asserts that message/event/request

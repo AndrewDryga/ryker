@@ -3,17 +3,17 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>What Responder is — Responder docs</title>
+<title>What Ryker is — Ryker docs</title>
 <meta name="description" content="The five-minute mental model: episodes, evidence, corrections, and the autonomy ladder.">
 <!-- Unfurl metadata. og:image is root-relative; most unfurlers need absolute
      URLs, so point og:image (and add og:url + rel=canonical) at the real domain
      when the site gets one — a one-line substitution at publish time. -->
 <meta property="og:type" content="website">
-<meta property="og:title" content="What Responder is — Responder docs">
+<meta property="og:title" content="What Ryker is — Ryker docs">
 <meta property="og:description" content="The five-minute mental model: episodes, evidence, corrections, and the autonomy ladder.">
 <meta property="og:image" content="../assets/og.png">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="What Responder is — Responder docs">
+<meta name="twitter:title" content="What Ryker is — Ryker docs">
 <meta name="twitter:description" content="The five-minute mental model: episodes, evidence, corrections, and the autonomy ladder.">
 
 <meta name="color-scheme" content="dark">
@@ -29,7 +29,7 @@
   <div class="wrap nav-in">
     <a class="wordmark" href="../index.html">
       <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true" focusable="false"><rect width="14" height="14" rx="4" fill="#36e6a5"></rect></svg>
-      Responder
+      Ryker
     </a>
     <nav class="nav-links" aria-label="Main">
       <a href="../index.html#how">How it works</a>
@@ -60,7 +60,7 @@
         <nav aria-label="Documentation">
           <p class="grp">Start</p>
           <ul>
-            <li><a href="index.html" class="on" aria-current="page">What Responder is</a></li>
+            <li><a href="index.html" class="on" aria-current="page">What Ryker is</a></li>
             <li><a href="getting-started.html">Run it</a></li>
           </ul>
           <p class="grp">Using it</p>
@@ -81,7 +81,7 @@
 
   <!-- Content ------------------------------------------------------------- -->
   <main class="doc" id="main">
-    <p class="crumb"><a href="../index.html">Responder</a> <span>/</span> <span>Docs</span></p>
+    <p class="crumb"><a href="../index.html">Ryker</a> <span>/</span> <span>Docs</span></p>
 
     <details class="doc-toc">
       <summary>On this page</summary>
@@ -96,9 +96,9 @@
       </ul>
     </details>
 
-    <h1>What Responder is</h1>
+    <h1>What Ryker is</h1>
 
-    <p class="lede">Responder is an AI SRE first responder that lives in Slack. It answers questions, investigates alerts, and prepares code — and it keeps a full record of how it reached every answer. This page is the whole mental model. Five minutes, four ideas.</p>
+    <p class="lede">Ryker is an AI SRE first responder that lives in Slack. It answers questions, investigates alerts, and prepares code — and it keeps a full record of how it reached every answer. This page is the whole mental model. Five minutes, four ideas.</p>
 
     <div class="callout">
       <p class="lbl">Status</p>
@@ -107,16 +107,16 @@
 
     <h2 id="shape">The shape of it</h2>
 
-    <p>Responder runs as one Elixir release backed by PostgreSQL on a host you control. It connects to Slack over socket mode, so it needs no inbound port. It reads your repositories to learn what your systems are <em>supposed</em> to look like. It checks that against live evidence through Emisar, the infrastructure authority. Then it says what it found.</p>
+    <p>Ryker runs as one Elixir release backed by PostgreSQL on a host you control. It connects to Slack over socket mode, so it needs no inbound port. It reads your repositories to learn what your systems are <em>supposed</em> to look like. It checks that against live evidence through Emisar, the infrastructure authority. Then it says what it found.</p>
 
-    <p>It talks to a model through <a href="https://github.com/AndrewDryga/coop">Coop</a>, which owns the isolated session and the fork the model works in. You bring your own model and your own account. Responder has no second model runtime and no direct provider client.</p>
+    <p>It talks to a model through <a href="https://github.com/AndrewDryga/coop">Coop</a>, which owns the isolated session and the fork the model works in. You bring your own model and your own account. Ryker has no second model runtime and no direct provider client.</p>
 
     <p>Three layers, three owners, and the split is the point:</p>
 
     <table>
       <thead><tr><th>Concern</th><th>Owner</th></tr></thead>
       <tbody>
-        <tr><td>Slack identity, correlation, the durable record, delivery</td><td>Responder</td></tr>
+        <tr><td>Slack identity, correlation, the durable record, delivery</td><td>Ryker</td></tr>
         <tr><td>Repository allowlist, model target, budgets, the fork and the box</td><td>Coop</td></tr>
         <tr><td>Infrastructure identity, policy, approval, execution, audit</td><td>Emisar</td></tr>
         <tr><td>Merge, signing, deployment</td><td>A person, outside all three</td></tr>
@@ -142,11 +142,11 @@
 
     <h2 id="evidence">Idea two: answers are assembled from evidence</h2>
 
-    <p>Responder does not write a paragraph and then look for support. It records observations, and the answer is built from what it recorded.</p>
+    <p>Ryker does not write a paragraph and then look for support. It records observations, and the answer is built from what it recorded.</p>
 
     <p>Each evidence row carries its <strong>claim</strong> (what was being checked), its <strong>observation</strong> (what was seen), its <strong>source</strong> (where it came from — repository, Emisar, monitoring, Slack), its <strong>observed-at</strong> time, its <strong>freshness</strong>, and its <strong>confidence</strong>. Confidence is one of <code>high</code>, <code>medium</code>, or <code>low</code>, and the weakest row wins: a claim is only high-confidence when every row behind it is.</p>
 
-    <p>A row can also <em>contradict</em> a claim rather than support it. When two sources disagree, Responder quotes both, with their identifiers and their observation times, and asks you to decide. It does not silently prefer the convenient one.</p>
+    <p>A row can also <em>contradict</em> a claim rather than support it. When two sources disagree, Ryker quotes both, with their identifiers and their observation times, and asks you to decide. It does not silently prefer the convenient one.</p>
 
     <p>Coverage is reported layer by layer: <code>change</code>, <code>host</code>, <code>runtime</code>, <code>workload</code>, <code>dependency</code>, <code>application</code>, and impact — with <code>hardware</code>, <code>scheduler</code> and <code>task</code> added when the work calls for them. Each layer gets one of <code>healthy</code>, <code>degraded</code>, <code>unhealthy</code>, <code>unknown</code>, or <code>not_applicable</code>.</p>
 
@@ -179,7 +179,7 @@
 
     <h2 id="ladder">Idea four: the autonomy ladder</h2>
 
-    <p>Responder does not have one volume knob. For every message it sees, it picks a rung:</p>
+    <p>Ryker does not have one volume knob. For every message it sees, it picks a rung:</p>
 
     <dl>
       <div><dt>Ignore</dt><dd>Routine noise, chatter, a duplicate, a success notification. The kind of message a teammate would read and say nothing about. The decision is still recorded.</dd></div>
@@ -192,7 +192,7 @@
 
     <p>Score alone is never enough. An ambient reply must also be <em>material</em>, and must be one of: a correction, new evidence, a decision, a completed action, or a necessary question. Two people talking to each other can only be interrupted by a material correction. A message addressed to a specific human is never reacted to at all.</p>
 
-    <p>Human messages do not become incidents on their own. Responder answers in place and may attach an <strong>Open incident room</strong> button; only a configured operator can press it.</p>
+    <p>Human messages do not become incidents on their own. Ryker answers in place and may attach an <strong>Open incident room</strong> button; only a configured operator can press it.</p>
 
     <h2 id="cannot">What it cannot do</h2>
 
@@ -244,7 +244,7 @@
 
 <footer class="foot">
   <div class="wrap foot-in">
-    <span class="state"><span class="dot good"></span>Responder</span>
+    <span class="state"><span class="dot good"></span>Ryker</span>
     <span class="sep">·</span>
     <span>design-partner preview</span>
     <nav aria-label="Footer">

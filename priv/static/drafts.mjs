@@ -8,39 +8,81 @@ export const draftKey = (element, path) => {
   if (!element.form.matches(".composer") && !element.form.matches(".lab-edit-form")) return null
   if (element.tagName !== "TEXTAREA" && !["text", "search"].includes(element.type)) return null
   const action = element.form.dataset?.draftAction || element.form.getAttribute("action")
-  return `responder:draft:${path}:${action}:${element.name}`
+  return `ryker:draft:${path}:${action}:${element.name}`
 }
 
-// Drafts typed before 2026-09-13 were keyed by the retired /lab URLs. A draft
-// under that key is carried to its /conversations identity exactly once, both
-// texts survive a collision, a storage failure loses nothing, and once a key
-// has been settled the retired key is never read again in this session.
-// Nothing here sends: the operator still has to press Send.
-const legacyPattern = /^responder:draft:\/conversations\/([^:/]+):\/conversations\/([^:]+):(.+)$/
-const settled = new Set()
+// Two renames on 2026-09-13 retired the keys drafts were stored under: the
+// surface moved from /lab to /conversations, and the product was renamed
+// (Responder to Ryker), which changed every key's prefix. A draft under a
+// retired key is carried to its current identity exactly once, every text survives a
+// collision, a storage failure loses nothing, and once a key has been settled
+// no retired key is read again in this session. Nothing here sends: the
+// operator still has to press Send.
+const currentPrefix = "ryker:"
+const retiredPrefix = "responder:"
+const conversationPattern = /^draft:\/conversations\/([^:/]+):\/conversations\/([^:]+):(.+)$/
+// Settled keys belong to the storage they were settled in: one tab has one
+// sessionStorage, so "once per session" is once per storage object.
+const settledByStorage = new WeakMap()
+const settledIn = storage => {
+  let keys = settledByStorage.get(storage)
+  if (!keys) { keys = new Set(); settledByStorage.set(storage, keys) }
+  return keys
+}
 
-export const legacyDraftKey = key => {
-  const match = legacyPattern.exec(key)
-  return match ? `responder:draft:/lab/${match[1]}:/lab/${match[2]}:${match[3]}` : null
+// The retired keys a current key may still be stored under, newest first.
+export const legacyDraftKeys = key => {
+  if (!key.startsWith(`${currentPrefix}draft:`)) return []
+  const rest = key.slice(currentPrefix.length)
+  const keys = [retiredPrefix + rest]
+  const match = conversationPattern.exec(rest)
+  if (match) keys.push(`${retiredPrefix}draft:/lab/${match[1]}:/lab/${match[2]}:${match[3]}`)
+  return keys
 }
 
 export const transferLegacyDraft = (key, storage) => {
-  const legacyKey = legacyDraftKey(key)
-  if (!legacyKey || settled.has(key)) return null
-  let legacy
-  try { legacy = storage.getItem(legacyKey) } catch (_) { return null }
-  if (legacy === null) { settled.add(key); return null }
+  const legacyKeys = legacyDraftKeys(key)
+  if (legacyKeys.length === 0) return null
+  const settled = settledIn(storage)
+  if (settled.has(key)) return null
+  let found
+  try {
+    // Oldest text first, so a merged draft reads in the order it was typed.
+    found = legacyKeys.map(legacyKey => [legacyKey, storage.getItem(legacyKey)]).reverse()
+      .filter(([, value]) => value !== null)
+  } catch (_) { return null }
+  if (found.length === 0) { settled.add(key); return null }
   try {
     const current = storage.getItem(key)
-    const merged = current === null || current === "" || current === legacy ? legacy : `${legacy}\n\n${current}`
+    const texts = [...found.map(([, value]) => value), current]
+      .filter((value, index, all) => value !== null && value !== "" && all.indexOf(value) === index)
+    const merged = texts.join("\n\n")
     storage.setItem(key, merged)
-    storage.removeItem(legacyKey)
+    for (const [legacyKey] of found) storage.removeItem(legacyKey)
     settled.add(key)
     return merged
   } catch (_) {
-    // The retired key stays until a transfer succeeds; nothing is dropped.
+    // The retired keys stay until a transfer succeeds; nothing is dropped.
     return null
   }
+}
+
+// State keys (which editor is open, an instruction draft with its revision, a
+// relearn selection) are adopted whole: the retired value moves under the
+// current key once, and only when nothing newer is already there.
+export const adoptRetiredKey = (key, storage) => {
+  if (!key.startsWith(currentPrefix)) return
+  const settled = settledIn(storage)
+  if (settled.has(key)) return
+  const retired = retiredPrefix + key.slice(currentPrefix.length)
+  try {
+    const value = storage.getItem(retired)
+    if (value !== null) {
+      if (storage.getItem(key) === null) storage.setItem(key, value)
+      storage.removeItem(retired)
+    }
+    settled.add(key)
+  } catch (_) { /* Not settled: the next read tries again. */ }
 }
 
 export const captureDrafts = (form, path) => Array.from(form.elements).flatMap(element => {

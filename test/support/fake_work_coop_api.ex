@@ -1,9 +1,9 @@
-defmodule Responder.TestSupport.FakeWorkCoopAPI do
+defmodule Ryker.TestSupport.FakeWorkCoopAPI do
   @moduledoc false
 
-  @behaviour Responder.Coop.API
+  @behaviour Ryker.Coop.API
 
-  alias Responder.Work.StateBinding
+  alias Ryker.Work.StateBinding
 
   def start_link(candidates, options \\ []) do
     Agent.start_link(fn ->

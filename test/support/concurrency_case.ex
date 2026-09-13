@@ -1,4 +1,4 @@
-defmodule Responder.ConcurrencyCase do
+defmodule Ryker.ConcurrencyCase do
   @moduledoc false
 
   use ExUnit.CaseTemplate
@@ -6,16 +6,16 @@ defmodule Responder.ConcurrencyCase do
   import Ecto.Query
 
   alias Ecto.Adapters.SQL.Sandbox
-  alias Responder.Ingress.Inbox
-  alias Responder.Ingress.Inbox.Entry
-  alias Responder.Repo
-  alias Responder.State.{ConversationObservation, StandingRuleInventory}
+  alias Ryker.Ingress.Inbox
+  alias Ryker.Ingress.Inbox.Entry
+  alias Ryker.Repo
+  alias Ryker.State.{ConversationObservation, StandingRuleInventory}
 
   using do
     quote do
       @moduletag :database
       import Ecto.Query
-      import Responder.ConcurrencyCase
+      import Ryker.ConcurrencyCase
     end
   end
 
