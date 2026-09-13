@@ -317,45 +317,6 @@ defmodule Ryker.CoopFleet.ClientTest do
             }} = Client.capabilities(versioned, session)
   end
 
-  test "bound create carries the exact private state-tools binding", %{
-    client: client,
-    session: session
-  } do
-    key = "ryker:work:create:#{session.id}:g1"
-
-    binding = %{
-      "endpoint" => "https://ryker.example/v1/state-tools/mcp",
-      "token" => String.duplicate("a", 64) <> String.duplicate("t", 43)
-    }
-
-    assert {:ok, %{"id" => "remote-resource"}} =
-             Client.create_bound_session(
-               client,
-               key,
-               @policy,
-               session.external_ref,
-               binding,
-               session.repository_source
-             )
-
-    assert_receive {:fleet_command, ^session, "create_session", payload, ^key, _options}
-
-    assert payload["responder_binding"] == %{
-             "endpoint" => binding["endpoint"],
-             "token_sha256" => StateBinding.sha256(binding["token"])
-           }
-
-    refute inspect(payload) =~ binding["token"]
-
-    assert Map.drop(payload, ["responder_binding"]) == %{
-             "authority_digest" => @authority_digest,
-             "external_ref" => session.external_ref,
-             "policy" => @policy,
-             "policy_digest" => @policy_digest,
-             "source" => %{"kind" => "default"}
-           }
-  end
-
   test "freshness capability follows the exact session placement during a rolling upgrade", %{
     client: client,
     session: session
@@ -1272,11 +1233,6 @@ defmodule Ryker.CoopFleet.ClientTest do
     client: client,
     session: session
   } do
-    binding = %{
-      "endpoint" => "https://ryker.example/v1/state-tools/mcp",
-      "token" => String.duplicate("a", 64) <> String.duplicate("t", 43)
-    }
-
     # An audited incident retry exhausted into cancellation after placement rejected the create;
     # without a command row, the outbound-only fleet could prove that nothing reached Coop.
     assert {:ok,
@@ -1290,21 +1246,6 @@ defmodule Ryker.CoopFleet.ClientTest do
                "fence-create",
                @policy,
                session.external_ref,
-               session.repository_source
-             )
-
-    assert {:ok,
-            %{
-              "error_code" => "operation_not_enqueued",
-              "method" => "CreateRemoteSession",
-              "state" => "failed"
-            }} =
-             Client.fence_bound_session(
-               client,
-               "fence-bound-create",
-               @policy,
-               session.external_ref,
-               binding,
                session.repository_source
              )
 
@@ -1336,13 +1277,18 @@ defmodule Ryker.CoopFleet.ClientTest do
               "method" => "SubmitTurn",
               "state" => "failed"
             }} =
-             Client.fence_submit_turn(
+             Client.fence_frozen_turn(
                client,
                session.coop_session_id,
                "fence-submit",
                3,
-               "frozen prompt",
-               schema
+               %{
+                 "input_artifact_refs" => [],
+                 "output_schema" => schema,
+                 "prompt" => "frozen prompt"
+               },
+               nil,
+               []
              )
 
     assert {:ok, _} = Client.get_turn(client, session.coop_session_id, "coop-turn-1")
@@ -1457,18 +1403,12 @@ defmodule Ryker.CoopFleet.ClientTest do
     client: client,
     session: session
   } do
-    binding = %{
-      "endpoint" => "https://ryker.example/v1/state-tools/mcp",
-      "token" => String.duplicate("a", 64) <> String.duplicate("t", 43)
-    }
-
     assert {:error, {:coop_fleet_authority_mismatch, :policy}} =
-             Client.create_bound_session(
+             Client.create_session(
                client,
                "wrong-create",
                "wrong-policy",
                session.external_ref,
-               binding,
                nil
              )
 
@@ -1478,16 +1418,6 @@ defmodule Ryker.CoopFleet.ClientTest do
                "wrong-fence",
                "wrong-policy",
                session.external_ref,
-               nil
-             )
-
-    assert {:error, {:coop_fleet_authority_mismatch, :policy}} =
-             Client.fence_bound_session(
-               client,
-               "wrong-bound-fence",
-               "wrong-policy",
-               session.external_ref,
-               binding,
                nil
              )
 
@@ -1519,31 +1449,36 @@ defmodule Ryker.CoopFleet.ClientTest do
 
     artifacts = [%{"id" => "artifact"}]
 
+    submission = %{
+      "input_artifact_refs" => [],
+      "output_schema" => %{"type" => "object"},
+      "prompt" => "prompt"
+    }
+
     assert {:error, :coop_fleet_input_artifact_mismatch} =
-             Client.submit_turn_with_artifacts(
+             Client.submit_frozen_turn(
                client,
                session.coop_session_id,
                "submit-artifact",
                1,
-               "prompt",
-               %{"type" => "object"},
+               submission,
+               nil,
                artifacts
              )
 
     assert {:error, :coop_fleet_input_artifact_mismatch} =
-             Client.fence_submit_turn_with_artifacts(
+             Client.fence_frozen_turn(
                client,
                session.coop_session_id,
                "fence-artifact",
                1,
-               "prompt",
-               %{"type" => "object"},
+               submission,
+               nil,
                artifacts
              )
 
     refute_receive {:fleet_command, _, _, _, "wrong-create", _}
     refute_receive {:fleet_command, _, _, _, "wrong-fence", _}
-    refute_receive {:fleet_command, _, _, _, "wrong-bound-fence", _}
   end
 
   test "operation reconciliation uses only the durable command result and owning session", %{

@@ -351,42 +351,6 @@ defmodule Ryker.Work.ExecutorTest do
           FakeAPI.fence_submit_turn(client.fake, session_id, key, revision, prompt, schema)
         end)
 
-    def submit_turn_with_artifacts(client, session_id, key, revision, prompt, schema, artifacts),
-      do:
-        dispatch(client, :submit_turn, fn ->
-          FakeAPI.submit_turn_with_artifacts(
-            client.fake,
-            session_id,
-            key,
-            revision,
-            prompt,
-            schema,
-            artifacts
-          )
-        end)
-
-    def fence_submit_turn_with_artifacts(
-          client,
-          session_id,
-          key,
-          revision,
-          prompt,
-          schema,
-          artifacts
-        ),
-        do:
-          dispatch(client, :fence_submit_turn, fn ->
-            FakeAPI.fence_submit_turn_with_artifacts(
-              client.fake,
-              session_id,
-              key,
-              revision,
-              prompt,
-              schema,
-              artifacts
-            )
-          end)
-
     def submit_frozen_turn(
           client,
           session_id,

@@ -319,10 +319,4 @@ defmodule Ryker.Admission.CandidateSearch do
 
   defp anchor_overlap(%RoutingDigest{anchor_keys: keys}, anchors),
     do: keys |> MapSet.new() |> MapSet.intersection(MapSet.new(anchors)) |> MapSet.size()
-
-  @doc false
-  def lane_limit, do: @lane_limit
-
-  @doc false
-  def pool_limit, do: @pool_limit
 end

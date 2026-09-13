@@ -51,21 +51,7 @@ defmodule Ryker.Coop.Client do
 
   @impl true
   def create_session(%__MODULE__{} = client, key, policy, task, source) do
-    with {:ok, document} <- create_session_document(key, policy, task, nil, source) do
-      request(client, :post, "/v1/sessions",
-        body: CanonicalJSON.encode!(document),
-        headers: [
-          {"content-type", "application/json"},
-          {"idempotency-key", key},
-          {"prefer", "respond-async"}
-        ]
-      )
-    end
-  end
-
-  @impl true
-  def create_bound_session(%__MODULE__{} = client, key, policy, task, binding, source) do
-    with {:ok, document} <- create_session_document(key, policy, task, binding, source) do
+    with {:ok, document} <- create_session_document(key, policy, task, source) do
       request(client, :post, "/v1/sessions",
         body: CanonicalJSON.encode!(document),
         headers: [
@@ -79,14 +65,7 @@ defmodule Ryker.Coop.Client do
 
   @impl true
   def fence_create_session(%__MODULE__{} = client, key, policy, task, source) do
-    with {:ok, document} <- create_session_document(key, policy, task, nil, source) do
-      fence_operation(client, key, "CreateRemoteSession", document)
-    end
-  end
-
-  @impl true
-  def fence_bound_session(%__MODULE__{} = client, key, policy, task, binding, source) do
-    with {:ok, document} <- create_session_document(key, policy, task, binding, source) do
+    with {:ok, document} <- create_session_document(key, policy, task, source) do
       fence_operation(client, key, "CreateRemoteSession", document)
     end
   end
@@ -218,58 +197,10 @@ defmodule Ryker.Coop.Client do
 
   @impl true
   def submit_turn(client, session_id, key, expected_revision, prompt, schema) do
-    submit_turn_with_artifacts(client, session_id, key, expected_revision, prompt, schema, [])
-  end
-
-  @impl true
-  def submit_turn_with_artifacts(
-        client,
-        session_id,
-        key,
-        expected_revision,
-        prompt,
-        schema,
-        artifacts
-      ) do
     with {:ok, session_id} <- path_id(session_id),
          :ok <- reference(key, :idempotency_key),
-         {:ok, document} <- submit_turn_document(expected_revision, prompt, schema, artifacts) do
+         {:ok, document} <- submit_turn_document(expected_revision, prompt, schema, nil, []) do
       mutation(client, :post, "/v1/sessions/#{session_id}/turns", key, document)
-    end
-  end
-
-  @impl true
-  def fence_submit_turn(client, session_id, key, expected_revision, prompt, schema) do
-    fence_submit_turn_with_artifacts(
-      client,
-      session_id,
-      key,
-      expected_revision,
-      prompt,
-      schema,
-      []
-    )
-  end
-
-  @impl true
-  def fence_submit_turn_with_artifacts(
-        client,
-        session_id,
-        key,
-        expected_revision,
-        prompt,
-        schema,
-        artifacts
-      ) do
-    with {:ok, session_id} <- path_id(session_id),
-         :ok <- reference(key, :idempotency_key),
-         {:ok, document} <- submit_turn_document(expected_revision, prompt, schema, artifacts) do
-      fence_operation(
-        client,
-        key,
-        "SubmitTurn",
-        Map.put(document, "session_id", session_id)
-      )
     end
   end
 
@@ -390,18 +321,12 @@ defmodule Ryker.Coop.Client do
 
   # Create and fence build the identical document, so a fence request hashes the
   # exact selector create would have sent.
-  defp create_session_document(key, policy, task, binding, source) do
+  defp create_session_document(key, policy, task, source) do
     with :ok <- reference(key, :idempotency_key),
          :ok <- reference(policy, :policy),
          :ok <- reference(task, :task),
-         {:ok, binding} <- optional_responder_binding(binding),
          {:ok, source} <- repository_source(source) do
-      document =
-        %{"policy" => policy, "task" => task}
-        |> maybe_put("responder_binding", binding)
-        |> maybe_put("source", source)
-
-      {:ok, document}
+      {:ok, maybe_put(%{"policy" => policy, "task" => task}, "source", source)}
     end
   end
 
@@ -435,9 +360,6 @@ defmodule Ryker.Coop.Client do
   end
 
   defp responder_binding(_binding), do: {:error, {:invalid_coop_responder_binding, :fields}}
-
-  defp submit_turn_document(expected_revision, prompt, schema, artifacts),
-    do: submit_turn_document(expected_revision, prompt, schema, nil, artifacts)
 
   defp submit_turn_document(expected_revision, prompt, schema, binding, artifacts) do
     with :ok <- positive_revision(expected_revision),

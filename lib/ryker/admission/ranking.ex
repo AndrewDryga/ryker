@@ -150,9 +150,6 @@ defmodule Ryker.Admission.Ranking do
   defp value(true, points), do: points
   defp value(false, _points), do: 0
 
-  @doc false
-  def reserved_non_local, do: @reserved_non_local
-
   @doc "The recorded feature values behind one offered candidate."
   @spec document(scored()) :: map()
   def document(candidate) do

@@ -71,18 +71,7 @@ defmodule Ryker.CoopFleet.Client do
   def create_session(client, key, policy, task, source) do
     with {:ok, session} <- session_by_task_ref(task),
          :ok <- exact_authority(session, policy, source),
-         {:ok, payload} <- create_session_payload(session, policy, task, nil, source),
-         {:ok, remote} <- execute(client, session, "create_session", payload, key) do
-      ensure_workspace(client, session, remote, key)
-    end
-  end
-
-  @impl true
-  def create_bound_session(client, key, policy, task, binding, source) do
-    with {:ok, session} <- session_by_task_ref(task),
-         :ok <- exact_authority(session, policy, source),
-         :ok <- optional_responder_binding(binding),
-         {:ok, payload} <- create_session_payload(session, policy, task, binding, source),
+         {:ok, payload} <- create_session_payload(session, policy, task, source),
          {:ok, remote} <- execute(client, session, "create_session", payload, key) do
       ensure_workspace(client, session, remote, key)
     end
@@ -175,17 +164,7 @@ defmodule Ryker.CoopFleet.Client do
   def fence_create_session(client, key, policy, task, source) do
     with {:ok, session} <- session_by_task_ref(task),
          :ok <- exact_authority(session, policy, source),
-         {:ok, payload} <- create_session_payload(session, policy, task, nil, source) do
-      fence_durable_operation(client, session, key, "create_session", payload)
-    end
-  end
-
-  @impl true
-  def fence_bound_session(client, key, policy, task, binding, source) do
-    with {:ok, session} <- session_by_task_ref(task),
-         :ok <- exact_authority(session, policy, source),
-         :ok <- optional_responder_binding(binding),
-         {:ok, payload} <- create_session_payload(session, policy, task, binding, source) do
+         {:ok, payload} <- create_session_payload(session, policy, task, source) do
       fence_durable_operation(client, session, key, "create_session", payload)
     end
   end
@@ -425,11 +404,7 @@ defmodule Ryker.CoopFleet.Client do
   end
 
   @impl true
-  def submit_turn(client, session_id, key, revision, prompt, schema),
-    do: submit_turn_with_artifacts(client, session_id, key, revision, prompt, schema, [])
-
-  @impl true
-  def submit_turn_with_artifacts(client, session_id, key, revision, prompt, schema, artifacts) do
+  def submit_turn(client, session_id, key, revision, prompt, schema) do
     submission = %{
       "contract_version" => "work-final-v1",
       "context" => %{},
@@ -438,7 +413,7 @@ defmodule Ryker.CoopFleet.Client do
       "prompt" => prompt
     }
 
-    submit_frozen_turn(client, session_id, key, revision, submission, nil, artifacts)
+    submit_frozen_turn(client, session_id, key, revision, submission, nil, [])
   end
 
   @impl true
@@ -462,31 +437,6 @@ defmodule Ryker.CoopFleet.Client do
         key
       )
     end
-  end
-
-  @impl true
-  def fence_submit_turn(client, session_id, key, revision, prompt, schema),
-    do: fence_submit_turn_with_artifacts(client, session_id, key, revision, prompt, schema, [])
-
-  @impl true
-  def fence_submit_turn_with_artifacts(
-        client,
-        session_id,
-        key,
-        revision,
-        prompt,
-        schema,
-        artifacts
-      ) do
-    submission = %{
-      "contract_version" => "work-final-v1",
-      "context" => %{},
-      "input_artifact_refs" => [],
-      "output_schema" => schema,
-      "prompt" => prompt
-    }
-
-    fence_frozen_turn(client, session_id, key, revision, submission, nil, artifacts)
   end
 
   @impl true
@@ -1093,7 +1043,7 @@ defmodule Ryker.CoopFleet.Client do
 
   defp current_command_placement(command) do
     placement = Repo.one(from(value in Placement, where: value.id == ^command.placement_id))
-    %{rows: [[%DateTime{} = now]]} = Repo.query!("SELECT clock_timestamp()")
+    now = Repo.now!()
 
     cond do
       placement && placement.state == :active &&
@@ -1165,7 +1115,7 @@ defmodule Ryker.CoopFleet.Client do
 
   # Create and fence build the identical payload, so a fence request hashes the
   # exact selector create would have sent.
-  defp create_session_payload(session, policy, task, responder_binding, source) do
+  defp create_session_payload(session, policy, task, source) do
     with {:ok, source} <- repository_source(source) do
       payload =
         %{
@@ -1174,7 +1124,6 @@ defmodule Ryker.CoopFleet.Client do
           "policy" => policy,
           "policy_digest" => session.policy_digest
         }
-        |> maybe_put_responder_binding(responder_binding)
         |> maybe_put_repository_source(source)
 
       {:ok, payload}

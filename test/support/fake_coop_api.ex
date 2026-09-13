@@ -178,7 +178,7 @@ defmodule Ryker.TestSupport.FakeCoopAPI do
     end)
   end
 
-  @impl true
+  # Not part of `Ryker.Coop.API`; tests fence a prompt-shaped turn directly.
   def fence_submit_turn(agent, _session_id, key, _revision, _prompt, _schema),
     do: fence_operation(agent, key, "SubmitTurn")
 

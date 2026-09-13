@@ -649,7 +649,7 @@ defmodule Ryker.Ingress.Inbox do
   defp reconcile(input, nil, settings) do
     # Work acceptance uses the database clock. Mixing that with application
     # timestamps can place a follow-up before the answer it follows in the Lab.
-    %{rows: [[now]]} = Repo.query!("SELECT clock_timestamp()")
+    now = Repo.now!()
 
     input
     |> EntryChangeset.insert(

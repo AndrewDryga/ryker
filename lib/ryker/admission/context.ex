@@ -123,9 +123,9 @@ defmodule Ryker.Admission.Context do
          {:ok, built_at} <- parse_datetime(snapshot["built_at"]),
          true <- valid_fingerprint?(snapshot["active_episode_fingerprint"]),
          true <- valid_count?(snapshot["conversation_episode_count"]),
-         {:ok, conversation_context} <- restore_document(snapshot, "conversation_context"),
-         {:ok, context_manifest} <- restore_document(snapshot, "context_manifest"),
-         {:ok, routing_receipt} <- restore_document(snapshot, "routing_receipt"),
+         {:ok, conversation_context} <- restore_document(snapshot, :conversation_context),
+         {:ok, context_manifest} <- restore_document(snapshot, :context_manifest),
+         {:ok, routing_receipt} <- restore_document(snapshot, :routing_receipt),
          {:ok, candidates} <- restore_candidates(snapshot["candidates"], episodes) do
       {:ok,
        %__MODULE__{
@@ -168,11 +168,11 @@ defmodule Ryker.Admission.Context do
   defp put_routing_receipt(document, nil), do: document
   defp put_routing_receipt(document, receipt), do: Map.put(document, "routing_receipt", receipt)
 
-  defp restore_document(snapshot, key) do
-    case Map.fetch(snapshot, key) do
+  defp restore_document(snapshot, field) do
+    case Map.fetch(snapshot, Atom.to_string(field)) do
       :error -> {:ok, nil}
       {:ok, %{} = document} -> {:ok, document}
-      {:ok, _invalid} -> {:error, {:invalid_admission_context_snapshot, String.to_atom(key)}}
+      {:ok, _invalid} -> {:error, {:invalid_admission_context_snapshot, field}}
     end
   end
 

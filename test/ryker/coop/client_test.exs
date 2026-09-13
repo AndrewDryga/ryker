@@ -38,33 +38,6 @@ defmodule Ryker.Coop.ClientTest do
     end)
   end
 
-  test "creates a session with one exact private Ryker binding" do
-    response = %{"operation" => %{"id" => "op_create", "state" => "running"}}
-
-    binding = %{
-      "endpoint" => "https://ryker.example/v1/state-tools/mcp",
-      "token" => String.duplicate("t", 48)
-    }
-
-    with_unix_server(response, fn client, request ->
-      assert {:ok, ^response} =
-               Client.create_bound_session(
-                 client,
-                 "ryker:work:create:123",
-                 "work-read-only",
-                 "episode:123",
-                 binding,
-                 nil
-               )
-
-      assert request.().body |> Jason.decode!() == %{
-               "policy" => "work-read-only",
-               "responder_binding" => binding,
-               "task" => "episode:123"
-             }
-    end)
-  end
-
   test "create and fence send one byte-identical selector for the same session" do
     response = %{"operation" => %{"id" => "op_create", "state" => "running"}}
     source = %{"kind" => "pull_request", "number" => 514}
@@ -260,13 +233,13 @@ defmodule Ryker.Coop.ClientTest do
 
     with_unix_server(response, fn client, request ->
       assert {:ok, ^response} =
-               Client.submit_turn_with_artifacts(
+               Client.submit_frozen_turn(
                  client,
                  "remote_123",
                  "ryker:work:turn:artifact",
                  4,
-                 "Inspect it.",
-                 schema,
+                 %{"output_schema" => schema, "prompt" => "Inspect it."},
+                 nil,
                  [artifact]
                )
 
@@ -285,13 +258,13 @@ defmodule Ryker.Coop.ClientTest do
 
     with_unix_server(fenced, fn client, request ->
       assert {:ok, ^fenced} =
-               Client.fence_submit_turn_with_artifacts(
+               Client.fence_frozen_turn(
                  client,
                  "remote_123",
                  "ryker:work:turn:artifact",
                  4,
-                 "Inspect it.",
-                 schema,
+                 %{"output_schema" => schema, "prompt" => "Inspect it."},
+                 nil,
                  [artifact]
                )
 
@@ -339,13 +312,14 @@ defmodule Ryker.Coop.ClientTest do
 
     with_unix_server(fenced_turn, fn client, request ->
       assert {:ok, ^fenced_turn} =
-               Client.fence_submit_turn(
+               Client.fence_frozen_turn(
                  client,
                  "remote_123",
                  "ryker:work:turn:turn:g1:sha",
                  4,
-                 "Frozen prompt",
-                 schema
+                 %{"output_schema" => schema, "prompt" => "Frozen prompt"},
+                 nil,
+                 []
                )
 
       captured = request.()
@@ -869,56 +843,56 @@ defmodule Ryker.Coop.ClientTest do
                %{"invalid_utf8" => <<255>>}
              )
 
-    assert Client.submit_turn_with_artifacts(
+    assert Client.submit_frozen_turn(
              client,
              "remote_123",
              "turn:key",
              1,
-             "prompt",
-             schema,
+             %{"output_schema" => schema, "prompt" => "prompt"},
+             nil,
              :not_a_list
            ) == {:error, {:invalid_coop_request, :artifacts}}
 
-    assert Client.submit_turn_with_artifacts(
+    assert Client.submit_frozen_turn(
              client,
              "remote_123",
              "turn:key",
              1,
-             "prompt",
-             schema,
+             %{"output_schema" => schema, "prompt" => "prompt"},
+             nil,
              List.duplicate(%{}, 6)
            ) == {:error, {:invalid_coop_request, :artifacts}}
 
-    assert Client.submit_turn_with_artifacts(
+    assert Client.submit_frozen_turn(
              client,
              "remote_123",
              "turn:key",
              1,
-             "prompt",
-             schema,
+             %{"output_schema" => schema, "prompt" => "prompt"},
+             nil,
              [%{"data" => "bytes"}]
            ) == {:error, {:invalid_coop_request, :artifacts}}
 
-    assert Client.submit_turn_with_artifacts(
+    assert Client.submit_frozen_turn(
              client,
              "remote_123",
              "turn:key",
              1,
-             "prompt",
-             schema,
+             %{"output_schema" => schema, "prompt" => "prompt"},
+             nil,
              [input_artifact("wrong-digest", "payload")]
            ) == {:error, {:invalid_coop_request, :artifacts}}
 
     first = String.duplicate("a", 5 * 1_024 * 1_024)
     second = String.duplicate("b", 4 * 1_024 * 1_024)
 
-    assert Client.submit_turn_with_artifacts(
+    assert Client.submit_frozen_turn(
              client,
              "remote_123",
              "turn:key",
              1,
-             "prompt",
-             schema,
+             %{"output_schema" => schema, "prompt" => "prompt"},
+             nil,
              [input_artifact(sha256(first), first), input_artifact(sha256(second), second)]
            ) == {:error, {:invalid_coop_request, :artifacts}}
 
