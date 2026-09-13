@@ -845,6 +845,11 @@ defmodule Responder.ControlPlane.RequestContextHTML do
   defp source_state(_value, state, unavailable) when unavailable in ["Expired", "Not recorded"],
     do: state
 
+  # A body that has not loaded yet has no text to estimate from. "≈ 1 estimated
+  # tokens" on a prompt that is actually thousands is worse than no number.
+  defp source_state(_value, state, "The retained prompt loads when this disclosure is opened"),
+    do: state
+
   defp source_state(value, state, override),
     do: [
       if(override || value in [nil, [], %{}, ""], do: [state, " · "], else: []),
