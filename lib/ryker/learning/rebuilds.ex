@@ -1,9 +1,9 @@
 defmodule Ryker.Learning.Rebuilds do
   @moduledoc "Explicit, source-only repair of an unavailable topic under the existing learning budget."
   import Ecto.Query
-  alias Ryker.{CanonicalJSON, Repo}
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Learning.{Batch, Runtime}
+  alias Ryker.Repo
   alias Ryker.Slack.ChannelMembership
 
   alias Ryker.State.{
@@ -220,7 +220,7 @@ defmodule Ryker.Learning.Rebuilds do
 
   @doc false
   def request_in_transaction(id, version, generation, selected) do
-    queue_lock!()
+    Batch.lock_queue!()
     batch = existing(id, generation, "FOR UPDATE")
     topic = target!(id, version, generation)
 
@@ -239,7 +239,7 @@ defmodule Ryker.Learning.Rebuilds do
           struct!(
             Batch,
             Map.merge(scope, %{
-              scope_key: scope_key(scope),
+              scope_key: Batch.scope_key(scope),
               policy: settings.policy,
               policy_digest: settings.policy_digest,
               status: :queued,
@@ -260,7 +260,7 @@ defmodule Ryker.Learning.Rebuilds do
 
   @doc false
   def reselect_in_transaction(id, expected_budget_version, expected_target, selected) do
-    queue_lock!()
+    Batch.lock_queue!()
     batch = Repo.one(from(b in Batch, where: b.id == ^id, lock: "FOR UPDATE"))
 
     unless batch && batch.rebuild_target_id && batch.status in @terminal &&
@@ -286,7 +286,7 @@ defmodule Ryker.Learning.Rebuilds do
         rebuild_selection: selected,
         rebuild_target_version: topic.version,
         execution_mode: execution_mode,
-        scope_key: scope_key(scope),
+        scope_key: Batch.scope_key(scope),
         input_count: length(entries),
         status: :queued,
         start_limit: batch.start_count + 1,
@@ -500,13 +500,6 @@ defmodule Ryker.Learning.Rebuilds do
       execution_mode: mode
     }
 
-  defp scope_key(scope),
-    do:
-      scope
-      |> Map.update!(:execution_mode, &Atom.to_string/1)
-      |> Map.new(fn {k, v} -> {Atom.to_string(k), v} end)
-      |> CanonicalJSON.digest()
-
   defp outcome(batch),
     do: %{
       "batch_id" => batch.id,
@@ -518,9 +511,4 @@ defmodule Ryker.Learning.Rebuilds do
       "budget_version" => batch.budget_version,
       "execution_mode" => Atom.to_string(batch.execution_mode)
     }
-
-  defp queue_lock! do
-    unless Repo.in_transaction?(), do: raise(ArgumentError, "operator audit transaction required")
-    Repo.query!("SELECT pg_advisory_xact_lock(hashtextextended('learning-queue', 0))")
-  end
 end

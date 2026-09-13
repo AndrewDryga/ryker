@@ -429,7 +429,7 @@ defmodule Ryker.State.Learning do
 
       true ->
         run
-        |> Ecto.Changeset.change(stop_receipt: receipt, remote_stopped_at: DateTime.utc_now())
+        |> Ecto.Changeset.change(stop_receipt: receipt, remote_stopped_at: Repo.now!())
         |> Repo.update!()
     end
   end
@@ -837,9 +837,8 @@ defmodule Ryker.State.Learning do
 
   defp valid_entries?([first | _] = entries) do
     Enum.all?(entries, fn entry ->
-      entry.status == :decided and entry.event_kind != :delete and
-        is_nil(entry.operational_pruned_at) and
-        is_map(entry.content) and entry.destination_transport == first.destination_transport and
+      LearningSources.current_entry?(entry) and
+        entry.destination_transport == first.destination_transport and
         entry.destination_conversation_ref == first.destination_conversation_ref and
         entry.repository_ref == first.repository_ref and
         entry.execution_mode == first.execution_mode
@@ -960,7 +959,7 @@ defmodule Ryker.State.Learning do
         Repo.update!(
           Ecto.Changeset.change(run,
             status: :applied,
-            applied_at: DateTime.utc_now(),
+            applied_at: Repo.now!(),
             error_code: nil
           )
         )
@@ -1108,7 +1107,7 @@ defmodule Ryker.State.Learning do
           status: status,
           error_code: code,
           match_refs: references,
-          updated_at: DateTime.utc_now()
+          updated_at: Repo.now!()
         ]
       )
     end)

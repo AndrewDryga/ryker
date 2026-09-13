@@ -1,9 +1,9 @@
 defmodule Ryker.Learning.Batches do
   @moduledoc "Durable, exclusively assigned learning inputs and leased execution budgets."
   import Ecto.Query
-  alias Ryker.{CanonicalJSON, Repo}
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Learning.{Batch, InputMembership, Rebuilds, Runtime}
+  alias Ryker.Repo
 
   alias Ryker.State.{
     ConversationObservation,
@@ -16,9 +16,7 @@ defmodule Ryker.Learning.Batches do
   def claim(worker, settings) do
     Repo.transaction(fn ->
       now = Repo.now!()
-      # Only queue assignment is serialized, never model execution. This keeps
-      # exclusive membership and the single active scope invariant one decision.
-      Repo.query!("SELECT pg_advisory_xact_lock(hashtextextended('learning-queue', 0))")
+      Batch.lock_queue!()
       batch = next_batch(now) || create_batch(settings, now)
       if batch, do: lease(batch, worker, settings.lease_seconds, now), else: :idle
     end)
@@ -231,7 +229,7 @@ defmodule Ryker.Learning.Batches do
   @doc false
   def retry_in_transaction(id, expected_version) do
     unless Repo.in_transaction?(), do: raise(ArgumentError, "operator audit transaction required")
-    Repo.query!("SELECT pg_advisory_xact_lock(hashtextextended('learning-queue', 0))")
+    Batch.lock_queue!()
 
     case Repo.get(Batch, id) do
       %Batch{rebuild_target_id: target} = batch when not is_nil(target) ->
@@ -337,18 +335,13 @@ defmodule Ryker.Learning.Batches do
   end
 
   defp learnable_entry?(entry, batch) do
-    with true <- current_entry?(entry) and same_scope?(entry, batch),
+    with true <- LearningSources.current_entry?(entry) and same_scope?(entry, batch),
          {:ok, scope} <- Observations.locked_scope(entry, entry.repository_ref),
          sources when is_list(sources) and sources != [] <- LearningSources.for_entry(entry),
          true <- LearningSources.valid?(sources, scope),
          do: true,
          else: (_ -> false)
   end
-
-  defp current_entry?(entry),
-    do:
-      entry.status == :decided and entry.event_kind != :delete and
-        is_nil(entry.operational_pruned_at) and is_map(entry.content)
 
   defp same_scope?(entry, batch),
     do:
@@ -575,7 +568,7 @@ defmodule Ryker.Learning.Batches do
         struct!(
           Batch,
           Map.merge(scope, %{
-            scope_key: scope_key(scope),
+            scope_key: Batch.scope_key(scope),
             status: :queued,
             input_count: length(entries),
             policy: settings.policy,
@@ -701,13 +694,6 @@ defmodule Ryker.Learning.Batches do
 
   @doc false
   def lock_owned_in_transaction!(claim), do: owned!(claim)
-
-  defp scope_key(scope),
-    do:
-      scope
-      |> Map.update!(:execution_mode, &Atom.to_string/1)
-      |> Map.new(fn {k, v} -> {Atom.to_string(k), v} end)
-      |> CanonicalJSON.digest()
 
   defp save(row, attrs), do: row |> Ecto.Changeset.change(attrs) |> Repo.update!()
 end
