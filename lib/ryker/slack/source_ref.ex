@@ -29,6 +29,23 @@ defmodule Ryker.Slack.SourceRef do
   def bookmark(workspace_ref, channel_ref, bookmark_ref),
     do: encode_resource(workspace_ref, channel_ref, "bookmark", bookmark_ref)
 
+  @doc "The ref of a parsed source, exactly as `parse/2` read it."
+  @spec encode(map()) :: String.t()
+  def encode(%{kind: :channel, workspace_ref: workspace_ref, channel_ref: channel_ref}),
+    do: channel(workspace_ref, channel_ref)
+
+  def encode(%{kind: kind, workspace_ref: workspace_ref, channel_ref: channel_ref} = source)
+      when kind in [:message, :thread],
+      do: encode(workspace_ref, channel_ref, Atom.to_string(kind), source.message_ref)
+
+  def encode(%{kind: kind, workspace_ref: workspace_ref, channel_ref: channel_ref} = source)
+      when kind in [:bookmark, :canvas, :file],
+      do: encode_resource(workspace_ref, channel_ref, Atom.to_string(kind), source.resource_ref)
+
+  @doc "A workspace, channel or user id as Slack issues them."
+  @spec slack_id?(term()) :: boolean()
+  def slack_id?(value), do: id?(value)
+
   @spec parse(String.t(), String.t()) :: {:ok, map()} | {:error, :invalid_slack_source_ref}
   def parse(value, expected_workspace_ref) when is_binary(value) do
     case String.split(value, ":") do
