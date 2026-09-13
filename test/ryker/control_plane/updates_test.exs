@@ -34,7 +34,7 @@ defmodule Ryker.ControlPlane.UpdatesTest do
     # NOTIFY commits independently without leaving a fixture in shared tables.
     task =
       unboxed_task(fn ->
-        Repo.query!("SELECT pg_notify('responder_control_plane', 'execution_usage')")
+        Repo.query!("SELECT pg_notify('ryker_control_plane', 'execution_usage')")
       end)
 
     Task.await(task)
@@ -44,7 +44,7 @@ defmodule Ryker.ControlPlane.UpdatesTest do
   test "the notification payload contains no model, message, or credential data" do
     %{rows: [[definition]]} =
       Sandbox.unboxed_run(Repo, fn ->
-        Repo.query!("SELECT pg_get_functiondef('responder_control_plane_notify()'::regprocedure)")
+        Repo.query!("SELECT pg_get_functiondef('ryker_control_plane_notify()'::regprocedure)")
       end)
 
     assert definition =~ "TG_TABLE_NAME"
@@ -72,7 +72,7 @@ defmodule Ryker.ControlPlane.UpdatesTest do
       "standing_assignment_runs" => "rules",
       "platform_actions" => "timeline",
       "delivery_reactions" => "conversations",
-      "responder_operator_actions" => "failures",
+      "ryker_operator_actions" => "failures",
       "future_table" => "configuration",
       # Retained Card Lab history has no page left to refresh; a late write to
       # it (there is no writer) falls into the generic readers like any
@@ -90,7 +90,7 @@ defmodule Ryker.ControlPlane.UpdatesTest do
 
       {:noreply, state} =
         Updates.handle_info(
-          {:notification, self(), state.reference, "responder_control_plane", table},
+          {:notification, self(), state.reference, "ryker_control_plane", table},
           state
         )
 
@@ -119,7 +119,7 @@ defmodule Ryker.ControlPlane.UpdatesTest do
 
       {:noreply, pending} =
         Updates.handle_info(
-          {:notification, self(), state.reference, "responder_control_plane", table},
+          {:notification, self(), state.reference, "ryker_control_plane", table},
           state
         )
 

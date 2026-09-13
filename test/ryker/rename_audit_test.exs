@@ -84,6 +84,8 @@ defmodule Ryker.RenameAuditTest do
      "the manifest update step names the command it replaces"},
     {~r{^test/ryker/slack/app_manifest_test\.exs$}, ~r/"responder"/,
      "asserts the manifest copy no longer names the old product"},
+    {~r{^test/ryker/ingress/migration_upgrade_test\.exs$}, ~r/[Rr]esponder/,
+     "the migration ladder test drives historical schema states by their names, including the rename migration's own up and down"},
     # --- database objects renamed by the 2026-09-13 data migration; this entry
     # leaves with the code that switches to the new names
     {~r//,
