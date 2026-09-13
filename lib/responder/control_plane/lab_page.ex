@@ -229,6 +229,7 @@ defmodule Responder.ControlPlane.LabPage do
       assigns
       |> assign(:link, inspection_link(assigns.message))
       |> assign(:state, message_state(assigns.message))
+      |> assign(:failure, message_failure(assigns.message))
       |> assign(:rows, Map.get(assigns.progress, assigns.message[:native_input_id], []))
 
     ~H"""
@@ -251,6 +252,10 @@ defmodule Responder.ControlPlane.LabPage do
       {Phoenix.HTML.raw(HTML.lab_message_editor(@message))}
       <div class="chat-message-extras">{Phoenix.HTML.raw(HTML.lab_message_extras(@message))}</div>
       {Phoenix.HTML.raw(HTML.lab_message_actions(@message))}
+      <p :if={@failure} class="lab-message-failure" role="status">
+        <span>{@failure.label}</span> <.link navigate={@failure.retry}>Retry</.link>
+        <.link navigate={@failure.inspect}>Inspect cause</.link>
+      </p>
       <p :for={row <- @rows} id={"lab-progress-#{row.id}"} class="lab-message-progress" role="status">
         <span>{row.phase}</span><span class="lab-progress-elapsed">{Float.round(
           row.elapsed_ms / 1000,
@@ -379,11 +384,26 @@ defmodule Responder.ControlPlane.LabPage do
   # were the normal case on every line and said nothing.
   defp message_state(%{event_kind: :edit}), do: "edited"
   defp message_state(%{actor: :operator, status: :blocked}), do: "Needs attention"
+  defp message_state(%{actor: :operator, execution: %{state: "blocked"}}), do: "Needs attention"
+
+  defp message_state(%{actor: :operator, execution: %{state: state}})
+       when state in ["working", "pending"],
+       do: "Working"
+
   defp message_state(%{actor: :operator}), do: nil
   defp message_state(%{actor: :integration}), do: nil
   defp message_state(%{status: :delivery_pending}), do: "Sending"
   defp message_state(%{status: status}) when status in [:settled, :delivered], do: nil
   defp message_state(%{status: status}), do: label(status)
+
+  # Model work that stopped is a material failure of this message: it reads
+  # beside the message with the same retry /failures offers, not nowhere.
+  defp message_failure(%{actor: :operator, execution: %{state: "blocked", key: key}}) do
+    path = "/actions/work/#{URI.encode_www_form(key)}/retry"
+    %{label: "Model work stopped", retry: path, inspect: "/failures"}
+  end
+
+  defp message_failure(_message), do: nil
 
   defp progress_by_input(snapshot) do
     snapshot
