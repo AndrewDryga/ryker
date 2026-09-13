@@ -17,6 +17,7 @@ defmodule Ryker.Retention.DataTest do
   alias Ryker.Repo
   alias Ryker.Retention.Custody, as: RetentionCustody
   alias Ryker.Retention.{Data, Operator, OperatorAction}
+  alias Ryker.Slack.{IncidentRoom, IncidentRoomLifecycleEvent}
   alias Ryker.Slack.Input, as: SlackInput
 
   alias Ryker.State.{
@@ -470,6 +471,39 @@ defmodule Ryker.Retention.DataTest do
     assert Repo.get(Session, session.id) == nil
   end
 
+  test "a closed incident room stays while the thread episode that offered it is still open" do
+    # A room has two episode owners: the thread episode that offered it and the
+    # incident episode that ran in it. History pruning pins on either; the
+    # closed-work prune joined only the incident episode, so a room whose
+    # incident finished while the offering thread was still waiting on its
+    # operator lost the room and its lifecycle events under an active episode.
+    source = settled_work!("room-source")
+    linked = settled_work!("room-linked") |> discard_session!()
+    insert_open_record!(source)
+    record = Repo.get_by!(Ryker.State.Record, episode_id: source.episode.id)
+
+    Repo.query!("UPDATE episode_kernel_episodes SET state = 'waiting_for_input' WHERE id = $1", [
+      uuid!(source.episode.id)
+    ])
+
+    room = insert_closed_room!(source.episode.id, linked.episode.id, record.id)
+
+    assert {:ok, result} = Data.prune(settings(closed_work_seconds: 60))
+    assert result.closed_work == 0
+    assert Repo.get(IncidentRoom, room.id)
+    assert Repo.get_by(IncidentRoomLifecycleEvent, room_id: room.id)
+
+    Repo.query!("UPDATE episode_kernel_episodes SET state = 'complete' WHERE id = $1", [
+      uuid!(source.episode.id)
+    ])
+
+    discard_session!(source)
+
+    assert {:ok, result} = Data.prune(settings(closed_work_seconds: 60))
+    assert result.closed_work == 2
+    assert Repo.get(IncidentRoom, room.id) == nil
+  end
+
   test "episode history is indivisible, pinned while live work depends on it, and audit survives longer" do
     eligible = settled_work!("history") |> discard_session!()
     pinned = settled_work!("pinned") |> discard_session!()
@@ -867,6 +901,58 @@ defmodule Ryker.Retention.DataTest do
                  "version" => 1
                }
              ])
+  end
+
+  # A closed room in the shape the incident room worker leaves behind: the
+  # offering thread episode, the linked incident episode, and one joined event.
+  defp insert_closed_room!(source_episode_id, episode_id, record_id) do
+    room_id = Ecto.UUID.generate()
+
+    room =
+      Repo.insert!(%IncidentRoom{
+        attempt_count: 0,
+        bot_user_ref: "slack:user:UBOT",
+        channel_name: "inc-retention-room",
+        channel_ref: "C-INC",
+        channel_state: :archived,
+        confirmation_ref: "confirmation:room:#{room_id}",
+        episode_id: episode_id,
+        id: room_id,
+        inserted_at: @old,
+        policy: "incident-room",
+        policy_digest: String.duplicate("a", 64),
+        private: false,
+        prompt: "Investigate the incident in its own room.",
+        reconciled_channel_state: :archived,
+        record_id: record_id,
+        ref: "incident-room:#{room_id}",
+        repository_ref: "ryker",
+        requested_at: @old,
+        requested_by_actor_ref: "slack:user:U123",
+        source_channel_ref: "C456",
+        source_episode_id: source_episode_id,
+        source_message_ref: "1787832000.000100",
+        status: :closed,
+        title: "Retention room",
+        topic: "Retention room incident",
+        updated_at: @old,
+        workspace_ref: "T123"
+      })
+
+    Repo.insert!(%IncidentRoomLifecycleEvent{
+      channel_ref: "C-INC",
+      event_fingerprint: String.duplicate("c", 64),
+      event_ref: "event:room:#{room_id}:joined",
+      id: Ecto.UUID.generate(),
+      inserted_at: @old,
+      kind: :joined,
+      occurred_at: @old,
+      room_id: room.id,
+      updated_at: @old,
+      workspace_ref: "T123"
+    })
+
+    room
   end
 
   defp insert_open_record!(work) do
