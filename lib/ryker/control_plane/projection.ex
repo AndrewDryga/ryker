@@ -2511,6 +2511,8 @@ defmodule Ryker.ControlPlane.Projection do
   defp record_summary(%Record{subject_ref: subject}) when is_binary(subject), do: subject
   defp record_summary(%Record{operation_id: operation}), do: operation
 
+  # A reaction delivery belongs to an input rather than an episode; its input
+  # id is what finds the conversation and source it was reacting in.
   defp delivery_item(item) do
     %{
       action: :rearm,
@@ -2518,6 +2520,7 @@ defmodule Ryker.ControlPlane.Projection do
       detail: FailureDetail.project(item.error_detail),
       diagnosis: FailureDetail.facts(item.error_detail),
       episode_id: Map.get(item, :episode_id),
+      input_id: Map.get(item, :input_id),
       kind: "delivery",
       ref: item.delivery_ref,
       source: "#{item.kind} delivery",
