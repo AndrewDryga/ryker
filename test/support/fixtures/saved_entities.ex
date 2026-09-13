@@ -107,7 +107,7 @@ defmodule Responder.Fixtures.SavedEntities do
       source_conversation_ref: source_conversation_ref,
       source_thread_ref: "1.000001",
       source_message_ref: "1.000002",
-      expires_at: DateTime.add(@now, 30, :day),
+      expires_at: Keyword.get(overrides, :expires_at, DateTime.add(@now, 30, :day)),
       inserted_at: @now,
       updated_at: @now
     })

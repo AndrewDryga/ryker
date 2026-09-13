@@ -96,16 +96,32 @@ assert(process.argv[3], 'Provide a private output directory');
               }, fixture);
               result.populatedFixture = true;
               await page.screenshot({path: path.join(output, `rules-${width}-populated.png`), fullPage: true});
+              // The approved entry: title with its status, a 13px scope line, the
+              // instruction, usage, then the source link with Pause visible and
+              // Delete behind a closed, 44px overflow control. No card chrome, no
+              // definition list, and no bare <header>/<footer> page styling.
               const entry = await page.locator('.behavior-entry').first().evaluate(e => {
-                const header = getComputedStyle(e.querySelector('header'));
-                const footer = getComputedStyle(e.querySelector('footer'));
-                return {background: header.backgroundColor, position: header.position,
-                  leftPadding: footer.paddingLeft, bottomMargin: footer.marginBottom};
+                const heading = e.querySelector('.behavior-heading');
+                const footer = e.querySelector('footer.behavior-footer');
+                const menu = e.querySelector('details.behavior-menu > summary');
+                const box = node => node.getBoundingClientRect();
+                return {legacy: e.querySelectorAll('header, dl').length,
+                  titleSize: getComputedStyle(heading.querySelector('h2')).fontSize,
+                  scopeSize: getComputedStyle(e.querySelector('.behavior-scope')).fontSize,
+                  statusOnTitleLine: !!heading.querySelector('.ui-status'),
+                  footerPadding: footer ? getComputedStyle(footer).paddingLeft : '0px',
+                  footerBorder: footer ? getComputedStyle(footer).borderTopWidth : '0px',
+                  menuHit: menu ? Math.min(box(menu).width, box(menu).height) : 44,
+                  menuOpen: !!e.querySelector('details.behavior-menu[open]')};
               });
-              assert.equal(entry.background, 'rgba(0, 0, 0, 0)', 'Rule heading must not inherit the old dark page header');
-              assert.equal(entry.position, 'static');
-              assert.equal(entry.leftPadding, '0px');
-              assert.equal(entry.bottomMargin, '0px');
+              assert.equal(entry.legacy, 0, 'Entries carry no page-header markup or definition list');
+              assert.equal(entry.titleSize, '16px');
+              assert.equal(entry.scopeSize, '13px');
+              assert(entry.statusOnTitleLine, 'Status sits on the title line');
+              assert.equal(entry.footerPadding, '0px');
+              assert.equal(entry.footerBorder, '0px');
+              assert(entry.menuHit >= 44, `Overflow control hit area ${entry.menuHit}px`);
+              assert(!entry.menuOpen, 'The overflow menu starts closed');
               assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'Populated layout overflow');
             }
           }

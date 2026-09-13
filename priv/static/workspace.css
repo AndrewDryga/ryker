@@ -1095,20 +1095,6 @@ details.measurement-notes > summary { cursor:pointer; font-weight:600; color:var
 .behavior-empty h2 { font-size:21px; margin:0 0 8px; }
 .behavior-empty p { color:#525d55; margin:0; max-width:70ch; }
 .behavior-empty > a { display:inline-block; margin-top:12px; }
-.behavior-entries { display:grid; gap:14px; }
-.behavior-entry { background:#fff; border:1px solid #dce2d9; border-radius:8px; padding:20px 24px; min-width:0; overflow-wrap:anywhere; }
-.behavior-entry header { position:static; background:none; backdrop-filter:none; border:0; padding:0; margin:0; z-index:auto; display:flex; align-items:baseline; justify-content:space-between; gap:16px; }
-.behavior-entry h2 { font-size:20px; line-height:1.35; margin:0; max-width:72ch; }
-.behavior-entry .behavior-instruction { white-space:pre-wrap; line-height:1.55; max-width:85ch; margin:8px 0 16px; }
-.behavior-library .behavior-meta { display:flex; flex-wrap:wrap; gap:14px 28px; margin:16px 0; }
-.behavior-library .behavior-meta dt, .behavior-library .behavior-meta dd { padding:0; border:0; }
-.behavior-meta > div { display:grid; gap:3px; }
-.behavior-meta dt { color:#626b63; font-size:13px; }
-.behavior-meta dd { margin:0; font-size:14px; }
-.behavior-entry footer { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px; border-top:1px solid #edf0e9; padding:14px 0 0; margin:14px 0 0; max-width:none; font-size:14px; }
-.behavior-entry footer span { color:#626b63; }
-.behavior-entry details summary { color:#36553e; font-weight:550; }
-.behavior-entry details pre { max-width:100%; white-space:pre-wrap; }
 .behavior-pagination { display:flex; justify-content:space-between; flex-wrap:wrap; gap:16px; padding:18px 0; }
 .behavior-history { margin-top:28px; }
 .behavior-history h2 { font-size:21px; }
@@ -1131,8 +1117,6 @@ details.measurement-notes > summary { cursor:pointer; font-weight:600; color:var
   .responder-app .page-heading h1 { font-size:24px; }
   .responder-app .filter-toolbar input[type=search] { flex-basis:100%; max-width:none; }
   .responder-app .filter-toolbar select { flex:1 1 calc(50% - 6px); min-width:0; }
-  .behavior-entry { padding:16px; }
-  .behavior-entry header { flex-wrap:wrap; gap:8px; }
   .behavior-history li { grid-template-columns:1fr; }
 }
 .episode-follow-through { margin-block: 1.5rem; padding-block: 1rem; border-block: 1px solid var(--stroke); }
@@ -1353,3 +1337,35 @@ details.measurement-notes > summary { cursor:pointer; font-weight:600; color:var
 .context-rows dt { color:var(--secondary); font-size:13px; }
 .context-rows dd { margin:0; font-size:14px; }
 .context-rows > div { display:contents; }
+
+/* Behavior library entries (approved 2026-09-09): unframed rows down the shell's left edge. Each entry is the title with its status, one 13px/18px line of scope, trigger, sender, repository and expiry, the 16px/24px stored instruction (a labelled preview opening to the verbatim text when it is long), one usage line, then the source link with Pause or Resume visible and Delete behind a named overflow control. The base stylesheet paints any bare <footer> as page chrome; this one is a row's last line. */
+.behavior-entries { border-top:1px solid var(--stroke); }
+.behavior-entry { padding:16px 0; border-bottom:1px solid var(--stroke); min-width:0; overflow-wrap:anywhere; }
+.behavior-heading { display:flex; align-items:flex-start; justify-content:space-between; gap:4px 16px; }
+.responder-app .behavior-entry h2 { margin:0; max-width:76ch; font-size:16px; line-height:24px; font-weight:600; letter-spacing:0; color:var(--ink); }
+.behavior-heading .ui-status { flex-shrink:0; margin-top:3px; padding:0; font-size:13px; line-height:18px; }
+.responder-app .behavior-scope { margin:2px 0 0; font-size:13px; line-height:18px; color:var(--secondary); }
+.responder-app .behavior-entry .behavior-instruction { margin:8px 0 0; max-width:76ch; font-size:16px; line-height:24px; white-space:pre-wrap; color:var(--ink); }
+.behavior-preview-label { color:var(--secondary); font-size:13px; }
+.behavior-full, .behavior-conditions { margin:4px 0 0; max-width:76ch; }
+.behavior-full > summary, .behavior-conditions > summary { display:inline-block; min-height:24px; padding:2px 0; color:var(--green); font-size:14px; line-height:20px; font-weight:550; cursor:pointer; }
+.behavior-full > summary:focus-visible, .behavior-conditions > summary:focus-visible { outline:2px solid var(--green); outline-offset:2px; }
+.behavior-full[open] > summary, .behavior-conditions[open] > summary { margin-bottom:4px; }
+.responder-app .behavior-full > .behavior-instruction { margin-top:0; }
+.behavior-conditions pre { margin:0; max-width:100%; white-space:pre-wrap; }
+/* Once the verbatim text is open the preview above it says nothing new. */
+.behavior-entry:has(> .behavior-full[open]) > .behavior-preview { display:none; }
+.responder-app .behavior-usage { margin:8px 0 0; font-size:13px; line-height:18px; color:var(--secondary); }
+.responder-app .behavior-footer { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px 16px; max-width:none; margin:8px 0 0; padding:0; border:0; color:inherit; font-size:14px; }
+.behavior-footer .behavior-links { min-height:24px; }
+.behavior-footer .behavior-links a { font-size:14px; line-height:24px; }
+.responder-app .behavior-actions .ui-button { min-height:44px; }
+.behavior-menu { position:relative; }
+.responder-app .behavior-menu > summary { list-style:none; min-width:44px; min-height:44px; padding:6px 12px; font-size:20px; line-height:1; letter-spacing:.04em; }
+.behavior-menu > summary::-webkit-details-marker { display:none; }
+.responder-app .behavior-menu > summary:focus-visible { outline:2px solid var(--green); outline-offset:2px; }
+.behavior-menu-items { position:absolute; right:0; top:calc(100% + 4px); z-index:3; min-width:168px; padding:6px; background:#fff; border:1px solid var(--stroke); border-radius:6px; box-shadow:0 6px 18px #1c2a1f1f; }
+.responder-app .behavior-menu-items .action-control, .responder-app .behavior-menu-items .ui-button { width:100%; justify-content:flex-start; }
+@media (max-width:600px) {
+  .responder-app .behavior-footer .behavior-actions { width:100%; justify-content:flex-end; }
+}
