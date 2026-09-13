@@ -923,15 +923,92 @@ defmodule Responder.ControlPlane.LiveTest do
 
     assert has_element?(
              view,
-             ".lab-message-controls form[action='/conversations/#{id}/messages/#{item_id}/edit']"
+             "form.lab-edit-form[action='/conversations/#{id}/messages/#{item_id}/edit']"
            )
 
     assert has_element?(
              view,
-             ".lab-message-controls form[action='/conversations/#{id}/messages/#{item_id}/delete']"
+             ".lab-message-actions form[action='/conversations/#{id}/messages/#{item_id}/delete']"
            )
 
     refute has_element?(view, "[href^='/lab/'], [action^='/lab/']")
+  end
+
+  test "an operator message edits in place through one hidden editor bound to that message" do
+    # The Edit disclosure opened a second textarea under the message with an
+    # "Edit message" heading and a full-width bar. The editor is now one hidden
+    # form per editable message, bound to that message's exact edit route and
+    # token, holding the stored body, with Cancel and Save at its lower edge.
+    # Replies and deleted messages get no editor; nothing else on the page is a
+    # textarea besides the composer.
+    {:ok, profile} =
+      WorkProfile.new(%{
+        policy: "lab-live-test",
+        policy_digest: String.duplicate("a", 64),
+        repository_ref: nil
+      })
+
+    id = Ecto.UUID.generate()
+
+    {:ok, %{entry: first}} =
+      ConversationLab.send_message(id, "Stored body with **markdown**", profile)
+
+    "control-plane-item:" <> item_id = first.source_item_ref
+    {:ok, %{entry: second}} = ConversationLab.send_message(id, "To be deleted", profile)
+    "control-plane-item:" <> deleted_id = second.source_item_ref
+    {:ok, _} = ConversationLab.delete_message(id, deleted_id, profile)
+    {_episode, _turn} = accepted_reply!(id, first, "A reply nobody can edit.", profile)
+
+    conn = build_conn() |> Map.put(:host, "localhost")
+    {:ok, view, html} = live(conn, "/conversations/#{id}")
+    document = LazyHTML.from_document(html)
+
+    assert has_element?(
+             view,
+             ".lab-message-actions button.lab-edit-toggle[type=button][aria-controls='lab-edit-#{item_id}'][aria-expanded=false]",
+             "Edit"
+           )
+
+    editor = LazyHTML.query(document, "form#lab-edit-#{item_id}.lab-edit-form")
+    assert LazyHTML.attribute(editor, "hidden") == [""]
+
+    assert LazyHTML.attribute(editor, "action") == [
+             "/conversations/#{id}/messages/#{item_id}/edit"
+           ]
+
+    assert LazyHTML.attribute(editor, "data-lab-edit") == [item_id]
+    assert LazyHTML.query(editor, "input[name=_token]") |> LazyHTML.attribute("value") != [""]
+
+    assert LazyHTML.query(editor, "textarea[name=message]") |> LazyHTML.text() ==
+             "Stored body with **markdown**"
+
+    assert LazyHTML.query(editor, "label.sr-only[for='lab-edit-#{item_id}-text']")
+           |> LazyHTML.text() =~ "Edit message"
+
+    assert LazyHTML.query(editor, ".lab-edit-actions button.lab-edit-cancel[type=button]")
+           |> LazyHTML.text() =~ "Cancel"
+
+    assert LazyHTML.query(editor, ".lab-edit-actions button.lab-edit-save[type=submit]")
+           |> LazyHTML.text() =~ "Save"
+
+    assert LazyHTML.query(editor, "p.lab-edit-error[role=alert][hidden]") |> Enum.count() == 1
+
+    # No disclosure, no repeated heading, no duplicate body, no visible second textarea.
+    refute has_element?(view, "#lab-messages details summary", "Edit")
+    refute has_element?(view, "#lab-messages label:not(.sr-only)", "Edit message")
+    refute has_element?(view, "#lab-messages h3, #lab-messages h4, #lab-messages summary", "Edit")
+    assert length(find_all(view, "#lab-messages textarea")) == 1
+    assert length(find_all(view, "#lab-messages .lab-edit-toggle")) == 1
+    refute has_element?(view, ".lab-chat-message.actor-responder .lab-edit-form")
+    refute has_element?(view, "form#lab-edit-#{deleted_id}")
+    assert has_element?(view, "#lab-notices[phx-update=ignore]")
+
+    # Delete stays beside Edit as its own exact form.
+    assert has_element?(
+             view,
+             ".lab-message-actions form[action='/conversations/#{id}/messages/#{item_id}/delete'] button.lab-message-delete",
+             "Delete"
+           )
   end
 
   test "the workspace offers no card catalog, previews or specimen events" do
@@ -1066,7 +1143,7 @@ defmodule Responder.ControlPlane.LiveTest do
 
     assert has_element?(view, ".lab-message-progress", "Queued")
     assert has_element?(view, ".lab-directory-list a", "Inspect the request behind this answer")
-    assert has_element?(view, ".lab-message-controls", "Edit")
+    assert has_element?(view, ".lab-message-actions .lab-edit-toggle", "Edit")
     assert has_element?(view, ".lab-native-composer[phx-update=ignore]")
 
     {:ok, _} =

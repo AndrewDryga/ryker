@@ -1,7 +1,8 @@
 // Conversation page controls that live in the browser: the narrow-screen
-// directory drawer, the Examples fill-in, and following the first send of an
-// index draft to the conversation it created. Nothing here submits a message,
-// calls a model or discards typed text.
+// directory drawer, the Examples fill-in, following the first send of an
+// index draft to the conversation it created, and the inline message editor.
+// Nothing here rewrites the transcript: every change is posted to the exact
+// message's own route and comes back through the live stream.
 
 const conversationAction = /^\/conversations\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/messages$/i
 
@@ -36,10 +37,57 @@ export const fillExample = (textarea, example) => {
   return true
 }
 
+// The same limits the server enforces for an edit, checked before anything
+// leaves the browser so a rejection never costs the typed text.
+export const validateEdit = text => {
+  const bytes = new TextEncoder().encode(text).byteLength
+  if (bytes > 20000) return `Message is ${bytes.toLocaleString("en-US")} bytes; maximum is 20,000.`
+  if (text.includes("\u0000")) return "Remove the null character from your message."
+  if (text.trim() === "") return "The message cannot be empty."
+  return ""
+}
+
+const failureText = error => {
+  switch (error?.message) {
+    case "rejected:409": return "This message was deleted or changed while you were editing. Reload the conversation to see its current state; your text is kept here."
+    case "rejected:422": return "The edit was rejected: the message must be plain text, not empty, and under 20,000 bytes."
+    case "rejected:403": return "This edit could not be confirmed. Reload the conversation and try again; your text is kept here."
+    default: return "The edit was not confirmed. Your text is kept; check the conversation before saving again."
+  }
+}
+
+// Posts a form the way the composer does and resolves only on a positive
+// 202 receipt; every other answer, including a lost connection, throws.
+const receipt = async (form, fetcher) => {
+  const body = new URLSearchParams()
+  for (const field of form.elements || []) if (field.name && !field.disabled) body.append(field.name, field.value)
+  const response = await fetcher(form.action, {
+    method: "POST", body, credentials: "same-origin", redirect: "error",
+    headers: {Accept: "application/json"}
+  })
+  if ([400, 403, 404, 409, 413, 422].includes(response.status)) throw new Error(`rejected:${response.status}`)
+  if (response.status !== 202) throw new Error("not_accepted")
+  const data = await response.json()
+  if (data.accepted !== true) throw new Error("unconfirmed_receipt")
+}
+
 export const createConversationControls = (root, options = {}) => {
   const win = options.window || (typeof window === "undefined" ? {location: {pathname: ""}} : window)
+  const doc = options.document || (typeof document === "undefined" ? null : document)
+  const storage = options.storage || (() => sessionStorage)
+  const fetcher = options.fetcher || ((...args) => fetch(...args))
+  const pushEvent = options.pushEvent || (() => {})
+  const path = () => win.location.pathname
   let open = false
   let openedAt = null
+  let editing = null
+  let saving = false
+
+  const store = {
+    get(key) { try { return storage().getItem(key) } catch (_) { return null } },
+    set(key, value) { try { storage().setItem(key, value) } catch (_) { /* A storage failure loses nothing typed. */ } },
+    remove(key) { try { storage().removeItem(key) } catch (_) {} }
+  }
 
   const directory = () => root.querySelector?.("#lab-directory") || null
   const toggle = () => root.querySelector?.("[data-lab-directory-toggle]") || null
@@ -53,7 +101,7 @@ export const createConversationControls = (root, options = {}) => {
 
   const openDirectory = () => {
     open = true
-    openedAt = win.location.pathname
+    openedAt = path()
     apply()
     // Focus enters the drawer so keyboard and screen-reader users land on
     // what just opened; Escape or Close returns them to the toggle.
@@ -68,8 +116,160 @@ export const createConversationControls = (root, options = {}) => {
     if (returnFocus) toggle()?.focus()
   }
 
+  // Inline editing. The editor is the hidden form the server renders under
+  // each editable message; its open state and unsaved text live here and in
+  // session storage, so a live patch or a reconnect puts them back.
+  const editingKey = () => `responder:editing:${path()}`
+  const editDraftKey = id => `responder:draft:${path()}:${path()}/messages/${id}/edit:message`
+  const editorFor = id => (doc && id) ? doc.getElementById(`lab-edit-${id}`) : null
+  const fieldOf = form => form.querySelector("textarea[name=message]")
+  const toggleFor = form => form.closest("article")?.querySelector(".lab-edit-toggle") || null
+  const autosize = field => { if (field?.style) { field.style.height = "auto"; field.style.height = `${field.scrollHeight}px` } }
+
+  const showError = (form, message) => {
+    const error = form.querySelector(".lab-edit-error")
+    if (!error) return
+    error.textContent = message
+    error.hidden = false
+    fieldOf(form)?.setAttribute?.("aria-describedby", error.id)
+  }
+
+  const clearError = form => {
+    const error = form.querySelector(".lab-edit-error")
+    if (!error) return
+    error.hidden = true
+    error.textContent = ""
+    fieldOf(form)?.removeAttribute?.("aria-describedby")
+  }
+
+  const showEditor = (form, {focus = true, value} = {}) => {
+    const field = fieldOf(form)
+    form.hidden = false
+    form.closest("article")?.classList.add("is-editing")
+    toggleFor(form)?.setAttribute("aria-expanded", "true")
+    if (typeof value === "string" && field.value !== value) field.value = value
+    autosize(field)
+    if (focus) {
+      field.focus()
+      const end = field.value.length
+      if (typeof field.setSelectionRange === "function") field.setSelectionRange(end, end)
+    }
+  }
+
+  const hideEditor = (form, {restore = false} = {}) => {
+    const field = fieldOf(form)
+    if (restore && field) field.value = field.defaultValue
+    form.hidden = true
+    form.closest("article")?.classList.remove("is-editing")
+    toggleFor(form)?.setAttribute("aria-expanded", "false")
+    clearError(form)
+  }
+
+  const openEdit = button => {
+    const id = (button.getAttribute("aria-controls") || "").replace(/^lab-edit-/, "")
+    const form = editorFor(id)
+    if (!form) return false
+    if (editing && editing.id === id) { cancelEdit(form); return true }
+    if (editing && editing.id !== id) { const other = editorFor(editing.id); if (other) hideEditor(other) }
+    editing = {id}
+    store.set(editingKey(), id)
+    const draft = store.get(editDraftKey(id))
+    showEditor(form, {value: draft === null ? undefined : draft})
+    return true
+  }
+
+  const cancelEdit = form => {
+    const id = form.dataset?.labEdit
+    if (id) store.remove(editDraftKey(id))
+    store.remove(editingKey())
+    editing = null
+    hideEditor(form, {restore: true})
+    toggleFor(form)?.focus()
+  }
+
+  const saveEdit = async form => {
+    const field = fieldOf(form)
+    const problem = validateEdit(field.value)
+    if (problem) { showError(form, problem); field.focus(); return }
+    clearError(form)
+    saving = true
+    const save = form.querySelector(".lab-edit-save")
+    if (save) { save.disabled = true; save.setAttribute("aria-busy", "true") }
+    try {
+      await receipt(form, fetcher)
+      const id = form.dataset?.labEdit
+      if (id) store.remove(editDraftKey(id))
+      store.remove(editingKey())
+      editing = null
+      // The saved text stays in the field until the live stream renders the
+      // accepted revision; the transcript is never rewritten from here.
+      hideEditor(form)
+      pushEvent("refresh", {})
+    } catch (error) {
+      showError(form, failureText(error))
+    } finally {
+      saving = false
+      if (save) { save.disabled = false; save.removeAttribute("aria-busy") }
+    }
+  }
+
+  // A message that vanished while its editor was open is said out loud, with
+  // the unsaved text kept on screen, instead of the editor silently closing.
+  const reportLostEditor = () => {
+    const id = editing.id
+    const text = store.get(editDraftKey(id)) || ""
+    const notices = root.querySelector?.("#lab-notices")
+    if (notices && doc) {
+      const notice = doc.createElement("div")
+      notice.className = "lab-notice"
+      notice.setAttribute("role", "alert")
+      const message = doc.createElement("p")
+      message.textContent = "The message you were editing is no longer available to edit. Your unsaved text is kept here:"
+      const kept = doc.createElement("pre")
+      kept.textContent = text
+      const dismiss = doc.createElement("button")
+      dismiss.type = "button"
+      dismiss.className = "lab-notice-dismiss"
+      dismiss.textContent = "Dismiss"
+      dismiss.addEventListener("click", () => notice.remove())
+      notice.appendChild(message)
+      notice.appendChild(kept)
+      notice.appendChild(dismiss)
+      notices.appendChild(notice)
+    }
+    store.remove(editDraftKey(id))
+    store.remove(editingKey())
+    editing = null
+  }
+
+  const performAction = async form => {
+    if (form.dataset?.pending) return
+    form.dataset.pending = "true"
+    const buttons = Array.from(form.querySelectorAll?.("button") || [])
+    buttons.forEach(button => { button.disabled = true })
+    try {
+      await receipt(form, fetcher)
+      pushEvent("refresh", {})
+    } catch (error) {
+      const notices = root.querySelector?.("#lab-notices")
+      if (notices && doc) {
+        const notice = doc.createElement("p")
+        notice.className = "lab-notice"
+        notice.setAttribute("role", "alert")
+        notice.textContent = error?.message?.startsWith("rejected:")
+          ? "The server did not accept this action. Reload the conversation to see its current state."
+          : "This action was not confirmed. Check the conversation before trying again; nothing was retried."
+        notices.appendChild(notice)
+      }
+    } finally {
+      delete form.dataset.pending
+      buttons.forEach(button => { button.disabled = false })
+    }
+  }
+
   return {
     get open() { return open },
+    get editing() { return editing },
     click(event) {
       const target = event.target
       if (!target?.closest) return false
@@ -85,6 +285,10 @@ export const createConversationControls = (root, options = {}) => {
         if (list) list.open = false
         return true
       }
+      const edit = target.closest(".lab-edit-toggle")
+      if (edit) return openEdit(edit)
+      const cancel = target.closest(".lab-edit-cancel")
+      if (cancel) { const form = cancel.closest(".lab-edit-form"); if (form) cancelEdit(form); return true }
       if (open && !target.closest("#lab-directory")) {
         // Choosing a conversation navigates; clicking the backdrop just closes.
         closeDirectory(false)
@@ -93,15 +297,71 @@ export const createConversationControls = (root, options = {}) => {
       return false
     },
     keydown(event) {
+      const form = event.target?.closest?.(".lab-edit-form")
+      if (form && event.target.tagName === "TEXTAREA") {
+        if (event.key === "Escape") { cancelEdit(form); return true }
+        if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+          event.preventDefault()
+          if (!saving) saveEdit(form)
+          return true
+        }
+        return false
+      }
       if (event.key === "Escape" && open) { closeDirectory(); return true }
       return false
     },
-    // A live patch re-renders the drawer closed; keep the operator's state
-    // unless they navigated away from where they opened it.
-    refresh() {
-      if (open && openedAt !== win.location.pathname) open = false
-      apply()
+    input(event) {
+      const form = event.target?.closest?.(".lab-edit-form")
+      if (!form || event.target.tagName !== "TEXTAREA") return false
+      const id = form.dataset?.labEdit
+      if (id) store.set(editDraftKey(id), event.target.value)
+      autosize(event.target)
+      return true
     },
-    destroy() { open = false }
+    // Returns a promise while a save is running, true when the event was
+    // handled without a request (a second submit during a save), false when
+    // the form is not ours.
+    submit(event) {
+      const form = event.target
+      if (!form?.matches) return false
+      if (form.matches(".lab-edit-form")) {
+        event.preventDefault()
+        if (saving) return true
+        return saveEdit(form)
+      }
+      if (form.matches(".lab-action-form")) {
+        event.preventDefault()
+        return performAction(form)
+      }
+      return false
+    },
+    // After a reconnect the server renders every editor closed; an editor the
+    // operator had open comes back with its draft, without stealing focus.
+    restore() {
+      const id = store.get(editingKey())
+      if (!id) return false
+      const form = editorFor(id)
+      if (!form) { store.remove(editingKey()); return false }
+      editing = {id}
+      const draft = store.get(editDraftKey(id))
+      showEditor(form, {focus: false, value: draft === null ? undefined : draft})
+      return true
+    },
+    // A live patch re-renders the drawer and every editor closed; keep the
+    // operator's state unless they navigated away from where they opened it.
+    refresh() {
+      if (open && openedAt !== path()) open = false
+      apply()
+      if (editing) {
+        const form = editorFor(editing.id)
+        if (!form) {
+          reportLostEditor()
+        } else {
+          const draft = store.get(editDraftKey(editing.id))
+          showEditor(form, {focus: false, value: draft === null ? undefined : draft})
+        }
+      }
+    },
+    destroy() { open = false; editing = null }
   }
 }

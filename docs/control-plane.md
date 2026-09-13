@@ -670,7 +670,12 @@ message carries a `View request` link to its own retained execution: an input's
 own admission request (or its pre-episode request inspector, or its recorded
 decision when it was ignored) and a reply's producing work turn. While a message
 is waiting on admission its progress shows beneath it. There is no runtime rail,
-welcome page or `/conversations/new` route. A submitted message is
+welcome page or `/conversations/new` route. Editing an operator message happens
+in place: Edit swaps the rendered body for an editor at the same width, Enter
+adds a line, Cmd/Ctrl+Enter saves one new revision through the message's own
+edit route, Escape cancels without a request, a rejected save keeps the text with
+an error beside it, and an open editor survives live patches and reconnects. A
+submitted message is
 normalized as a `control_plane` source input and then crosses the ordinary
 Inbox, Admission, Episode, Work, state-tool, and Delivery boundaries. The
 browser never calls Coop or a model provider directly. Accepted replies and

@@ -193,17 +193,7 @@ defmodule Responder.ControlPlane.Router do
          true <- CSRF.valid?(options.csrf_secret, @lab_action, conversation_id, token),
          {:ok, _receipt} <-
            options.actions.send_lab_message.(conversation_id, message, attachments) do
-      if get_req_header(conn, "accept") == ["application/json"] do
-        conn
-        |> put_resp_content_type("application/json")
-        |> send_resp(202, Jason.encode!(%{accepted: true}))
-        |> halt()
-      else
-        conn
-        |> put_resp_header("location", "/conversations/#{conversation_id}")
-        |> send_resp(303, "")
-        |> halt()
-      end
+      lab_accepted(conn, conversation_id)
     else
       false -> text(conn, 403, "Invalid confirmation token")
       {:error, :path_ref} -> text(conn, 404, "Conversation not found")
@@ -226,7 +216,7 @@ defmodule Responder.ControlPlane.Router do
          resource <- lab_message_resource(conversation_id, item_id, :edit),
          true <- CSRF.valid?(options.csrf_secret, @lab_message_action, resource, token),
          {:ok, _receipt} <- options.actions.edit_lab_message.(conversation_id, item_id, message) do
-      redirect_lab(conn, conversation_id)
+      lab_accepted(conn, conversation_id)
     else
       false -> text(conn, 403, "Invalid confirmation token")
       {:error, :path_ref} -> text(conn, 404, "Message not found")
@@ -250,7 +240,7 @@ defmodule Responder.ControlPlane.Router do
          resource <- lab_message_resource(conversation_id, item_id, :delete),
          true <- CSRF.valid?(options.csrf_secret, @lab_message_action, resource, token),
          {:ok, _receipt} <- options.actions.delete_lab_message.(conversation_id, item_id) do
-      redirect_lab(conn, conversation_id)
+      lab_accepted(conn, conversation_id)
     else
       false -> text(conn, 403, "Invalid confirmation token")
       {:error, :path_ref} -> text(conn, 404, "Message not found")
@@ -279,7 +269,7 @@ defmodule Responder.ControlPlane.Router do
              action,
              emoji_name
            ) do
-      redirect_lab(conn, conversation_id)
+      lab_accepted(conn, conversation_id)
     else
       false -> text(conn, 403, "Invalid confirmation token")
       {:error, :path_ref} -> text(conn, 404, "Message not found")
@@ -1859,11 +1849,22 @@ defmodule Responder.ControlPlane.Router do
     end
   end
 
-  defp redirect_lab(conn, conversation_id) do
-    conn
-    |> put_resp_header("location", "/conversations/#{conversation_id}")
-    |> send_resp(303, "")
-    |> halt()
+  # A durable acceptance answers the page's own JavaScript with a 202 receipt
+  # so the view reconciles through the live stream, and a plain browser
+  # submission with the redirect it expects. Both mean the same thing: the
+  # action is recorded, exactly once.
+  defp lab_accepted(conn, conversation_id) do
+    if get_req_header(conn, "accept") == ["application/json"] do
+      conn
+      |> put_resp_content_type("application/json")
+      |> send_resp(202, Jason.encode!(%{accepted: true}))
+      |> halt()
+    else
+      conn
+      |> put_resp_header("location", "/conversations/#{conversation_id}")
+      |> send_resp(303, "")
+      |> halt()
+    end
   end
 
   defp lab_message_resource(conversation_id, item_id, action)

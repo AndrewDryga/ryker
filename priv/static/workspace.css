@@ -712,8 +712,6 @@ details.measurement-notes > summary { cursor:pointer; font-weight:600; color:var
 .chat-message-extras .lab-card dl { display:block; font-size:14px; }
 .chat-message-extras .lab-card dt { color:#6b8254; margin-top:8px; }
 .chat-message-extras .lab-card dd { color:#526e3b; }
-.chat-message-extras .lab-message-controls { margin-top:8px; font-size:14px; color:#648247; }
-.chat-message-extras .lab-message-controls textarea { color:var(--ink); background:#fff; border:1px solid #cedfb9; padding:12px; border-radius:4px; width:100%; font:16px/24px inherit; box-sizing:border-box; }
 .chat-message-extras .lab-reaction-controls { color:#648048; }
 .chat-message-extras .reaction-label { font-size:13px; }
 .chat-message-extras .reaction-chip, .chat-message-extras .feedback-reaction { color:#4c712f; background:#eef6e3; border-color:#d1e3bc; }
@@ -721,6 +719,29 @@ details.measurement-notes > summary { cursor:pointer; font-weight:600; color:var
 .chat-message-extras .attachment-chip span { color:#6c8254; }
 .chat-message-extras .attachment-download img { max-width:100%; max-height:340px; border:1px solid #d6e3c9; border-radius:5px; }
 .chat-message-extras .lab-reaction-controls input { background:#fff; color:#526e3a; border:1px solid #c9ddb3; }
+/* Inline edit: the hidden editor replaces the rendered body in place at the same width and type scale. */
+.lab-chat-message.is-editing .chat-message-text, .lab-chat-message.is-editing .lab-message-actions { display:none; }
+.lab-edit-form { margin:8px 0 0; }
+.lab-edit-form textarea { display:block; width:100%; box-sizing:border-box; min-height:48px; padding:8px 12px; border:1px solid #c9d8ba; border-radius:6px; background:#fff; color:var(--ink); font:inherit; font-size:16px; line-height:24px; resize:none; overflow:hidden; }
+.lab-edit-form textarea:focus { outline:2px solid #b5cd98; outline-offset:2px; }
+.lab-edit-error { margin:4px 0 0; font-size:13px; line-height:18px; color:#973e30; }
+.lab-edit-actions { display:flex; align-items:center; justify-content:flex-end; flex-wrap:wrap; gap:8px; margin-top:8px; }
+.lab-edit-hint { margin-right:auto; font-size:13px; line-height:18px; color:var(--secondary); }
+.responder-app .lab-edit-cancel, .responder-app .lab-edit-save { min-height:40px; padding:8px 14px; border-radius:5px; font-size:14px; line-height:20px; font-weight:550; }
+.responder-app .lab-edit-cancel { background:#fff; border:1px solid #d7ddd1; color:#4d5d47; }
+.responder-app .lab-edit-save { background:#34543b; border:1px solid #34543b; color:#f7f9f1; }
+.responder-app .lab-edit-save[aria-busy=true] { opacity:.7; }
+.lab-message-actions { display:flex; align-items:center; justify-content:flex-end; flex-wrap:wrap; gap:4px 8px; margin-top:8px; font-size:13px; line-height:18px; }
+.lab-message-actions form { margin:0; display:inline-flex; }
+.responder-app .lab-message-actions button { background:none; border:1px solid transparent; border-radius:4px; min-height:36px; padding:6px 8px; color:var(--secondary); font-size:13px; line-height:18px; font-weight:500; }
+.responder-app .lab-message-actions button:hover { color:var(--ink); background:#f1f6e9; }
+.responder-app .lab-message-actions .lab-message-delete:hover { color:#973e30; background:#fff7f5; }
+.lab-notices:empty { display:none; }
+.lab-notices { display:grid; gap:8px; margin:8px 0 0; }
+.lab-notice { margin:0; padding:12px 16px; border:1px solid #d8b7af; border-radius:6px; background:#fff7f5; color:#5b3a33; font-size:14px; line-height:20px; }
+.lab-notice p { margin:0; }
+.lab-notice pre { white-space:pre-wrap; overflow-wrap:anywhere; margin:8px 0; font:inherit; font-size:16px; line-height:24px; color:var(--ink); }
+.responder-app .lab-notice-dismiss { background:#fff; border:1px solid #d8b7af; border-radius:4px; min-height:36px; padding:6px 10px; font-size:13px; color:#5b3a33; }
 .lab-message-progress { display:flex; flex-wrap:wrap; align-items:baseline; gap:4px 8px; margin:8px 0 0; font-size:13px; line-height:18px; color:#5b6a54; }
 .lab-message-progress .lab-progress-elapsed { color:var(--secondary); font-variant-numeric:tabular-nums; }
 .lab-chat-message .document-provenance { margin-top:8px; font-size:13px; line-height:18px; color:var(--secondary); }
