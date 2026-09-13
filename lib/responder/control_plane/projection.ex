@@ -11,6 +11,7 @@ defmodule Responder.ControlPlane.Projection do
 
   alias Responder.ControlPlane.{Activity, AdmissionProgress, InspectionRedactor, UsageProjection}
   alias Responder.ControlPlane.BehaviorLibrary
+  alias Responder.ControlPlane.ChannelDetail
   alias Responder.ControlPlane.ConversationMemory
   alias Responder.ControlPlane.CurrentInputs
   alias Responder.ControlPlane.InstructionSettings
@@ -51,7 +52,7 @@ defmodule Responder.ControlPlane.Projection do
       behavior: &BehaviorLibrary.fetch/1,
       behaviors: &BehaviorLibrary.list/2,
       admission: &admission/1,
-      channel: &channel/2,
+      channel: &ChannelDetail.fetch/2,
       channels: &channels/1,
       instructions: &InstructionSettings.fetch/1,
       configuration: &configuration/0,
@@ -87,7 +88,7 @@ defmodule Responder.ControlPlane.Projection do
     }
   end
 
-  defdelegate channel(workspace_ref, channel_ref), to: Responder.ControlPlane.OperatorProjection
+  defdelegate channel(workspace_ref, channel_ref), to: ChannelDetail, as: :fetch
   defdelegate channels(params), to: Responder.ControlPlane.OperatorProjection
   defdelegate incident(ref), to: Responder.ControlPlane.OperatorProjection
   defdelegate incidents(params), to: Responder.ControlPlane.OperatorProjection

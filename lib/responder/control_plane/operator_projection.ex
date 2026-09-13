@@ -18,13 +18,11 @@ defmodule Responder.ControlPlane.OperatorProjection do
   alias Responder.Slack.{
     ChannelConfiguration,
     ChannelMembership,
-    ChannelSettings,
     IncidentRoom,
     IncidentRoomLifecycleEvent
   }
 
   alias Responder.State.{
-    ConversationSummary,
     EventSubscription,
     Record,
     Schedule,
@@ -418,175 +416,6 @@ defmodule Responder.ControlPlane.OperatorProjection do
       )
     )
   end
-
-  def channel(workspace_ref, channel_ref)
-      when is_binary(workspace_ref) and is_binary(channel_ref) and
-             byte_size(workspace_ref) <= 1_024 and byte_size(channel_ref) <= 1_024 do
-    conversation_ref = "slack:#{workspace_ref}:#{channel_ref}"
-    configuration = channel_configuration(workspace_ref, channel_ref)
-    membership = channel_membership(workspace_ref, channel_ref)
-    incident_room = channel_incident_room(workspace_ref, channel_ref)
-    episodes = channel_episodes(conversation_ref)
-
-    if is_nil(configuration) and is_nil(membership) and is_nil(incident_room) and episodes == [] do
-      :not_found
-    else
-      {:ok,
-       %{
-         channel:
-           channel_detail(configuration, membership, incident_room, workspace_ref, channel_ref),
-         episodes: episodes,
-         participation: channel_participation(workspace_ref, conversation_ref, configuration),
-         schedules: channel_schedules(conversation_ref),
-         summaries: channel_summaries(workspace_ref, conversation_ref)
-       }}
-    end
-  end
-
-  def channel(_workspace_ref, _channel_ref), do: :not_found
-
-  defp channel_configuration(workspace_ref, channel_ref) do
-    Repo.one(
-      from(configuration in ChannelConfiguration,
-        where:
-          configuration.workspace_ref == ^workspace_ref and
-            configuration.channel_ref == ^channel_ref,
-        limit: 1
-      )
-    )
-  end
-
-  defp channel_membership(workspace_ref, channel_ref) do
-    Repo.one(
-      from(membership in ChannelMembership,
-        where:
-          membership.workspace_ref == ^workspace_ref and
-            membership.channel_ref == ^channel_ref,
-        limit: 1
-      )
-    )
-  end
-
-  defp channel_incident_room(workspace_ref, channel_ref) do
-    Repo.one(
-      from(room in IncidentRoom,
-        where: room.workspace_ref == ^workspace_ref and room.channel_ref == ^channel_ref,
-        order_by: [desc: room.updated_at, desc: room.id],
-        limit: 1,
-        select: %{
-          channel_state: room.channel_state,
-          private: room.private,
-          repository_ref: room.repository_ref
-        }
-      )
-    )
-  end
-
-  defp channel_episodes(conversation_ref) do
-    Repo.all(
-      from(episode in Episode,
-        where:
-          episode.destination_transport == "slack" and
-            episode.destination_conversation_ref == ^conversation_ref,
-        order_by: [desc: episode.updated_at, desc: episode.id],
-        limit: @detail_limit,
-        select: %{
-          ref: episode.key,
-          state: episode.state,
-          thread_ref: episode.destination_thread_ref,
-          updated_at: episode.updated_at
-        }
-      )
-    )
-  end
-
-  defp channel_schedules(conversation_ref) do
-    Repo.all(
-      from(schedule in Schedule,
-        where:
-          schedule.destination_transport == "slack" and
-            schedule.destination_conversation_ref == ^conversation_ref,
-        order_by: [asc: schedule.next_occurrence_at, desc: schedule.id],
-        limit: @detail_limit,
-        select: %{
-          next_occurrence_at: schedule.next_occurrence_at,
-          ref: schedule.ref,
-          status: schedule.status,
-          title: schedule.title
-        }
-      )
-    )
-  end
-
-  # One effective participation with the layer that decided it. There is no
-  # second override store to reconcile: a channel either chose, or inherits.
-  defp channel_participation(workspace_ref, conversation_ref, configuration) do
-    case ChannelSettings.effective(workspace_ref, conversation_ref, installation_participation()) do
-      %{} = effective ->
-        Enum.map([:proactive, :shadow], fn setting ->
-          %{
-            revision: configuration && configuration.revision,
-            scope: effective[setting].source,
-            setting: setting,
-            updated_at: configuration && configuration.saved_at,
-            value: effective[setting].value
-          }
-        end)
-
-      {:error, _reason} ->
-        []
-    end
-  end
-
-  defp installation_participation do
-    case Responder.Settings.fetch() do
-      {:ok, settings} -> settings.slack.default_participation
-      {:error, :settings_not_initialized} -> :mentions
-    end
-  end
-
-  defp channel_summaries(workspace_ref, conversation_ref) do
-    Repo.all(
-      from(summary in ConversationSummary,
-        where:
-          summary.transport == "slack" and summary.workspace_ref == ^workspace_ref and
-            summary.conversation_ref == ^conversation_ref,
-        order_by: [desc: summary.updated_at, desc: summary.id],
-        limit: 50,
-        select: %{
-          ref: summary.ref,
-          repository_ref: summary.repository_ref,
-          thread_ref: summary.thread_ref,
-          updated_at: summary.updated_at
-        }
-      )
-    )
-  end
-
-  defp channel_detail(configuration, membership, incident_room, workspace_ref, channel_ref) do
-    %{
-      alert_policy: optional_field(configuration, :alert_policy),
-      channel_ref: channel_ref,
-      channel_state: optional_field(incident_room, :channel_state),
-      configuration_revision: optional_field(configuration, :revision),
-      configuration_saved_at: optional_field(configuration, :saved_at),
-      incident_room: not is_nil(incident_room),
-      membership: optional_field(membership, :status),
-      participation: optional_field(configuration, :participation),
-      private: preferred_field(membership, :private, incident_room, :private),
-      repository_ref:
-        preferred_field(configuration, :repository_ref, incident_room, :repository_ref),
-      workspace_ref: workspace_ref
-    }
-  end
-
-  defp optional_field(nil, _field), do: nil
-  defp optional_field(record, field), do: Map.fetch!(record, field)
-
-  defp preferred_field(nil, _field, fallback, fallback_field),
-    do: optional_field(fallback, fallback_field)
-
-  defp preferred_field(record, field, _fallback, _fallback_field), do: Map.fetch!(record, field)
 
   def repositories(params) when is_map(params) do
     runtime = runtime_repositories()

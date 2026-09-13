@@ -1251,7 +1251,7 @@ defmodule Responder.ControlPlane.RouterTest do
           {"/schedules/schedule%3Aone", "Execution history"},
           {"/subscriptions", "Waits"},
           {"/channels", "Slack channels Responder knows about"},
-          {"/channels/T123/C456", "Conversation continuity"},
+          {"/channels/T123/C456", "Conversation summaries"},
           {"/repositories", "Connected repositories"},
           {"/workspaces", "Workspaces"},
           {"/findings", "Findings"}
@@ -1815,27 +1815,53 @@ defmodule Responder.ControlPlane.RouterTest do
           "T123", "C456" ->
             {:ok,
              %{
-               channel: %{
-                 alert_policy: :offer,
+               scope: %Responder.ControlPlane.ChannelScope{
+                 workspace_ref: "T123",
                  channel_ref: "C456",
-                 channel_state: nil,
-                 configuration_revision: 2,
-                 configuration_saved_at: ~U[2026-08-28 12:00:00Z],
-                 incident_room: false,
-                 membership: :joined,
-                 participation: :mentions,
-                 private: true,
-                 repository_ref: "responder",
-                 workspace_ref: "T123"
+                 canonical_workspace_ref: "slack:T123",
+                 conversation_ref: "slack:T123:C456",
+                 repository_ref: "responder"
                },
-               episodes: [
-                 %{
-                   ref: "episode:one",
-                   state: :working,
-                   thread_ref: "1787832000.001000",
+               channel: %{
+                 kind: :channel,
+                 membership: %{
+                   deleted_at: nil,
+                   external_shared: false,
+                   generation: 1,
+                   joined_at: ~U[2026-08-28 12:00:00Z],
+                   left_at: nil,
+                   private: true,
+                   status: :joined,
                    updated_at: ~U[2026-08-28 12:00:00Z]
-                 }
-               ],
+                 },
+                 configuration: %{
+                   actor_ref: "U123",
+                   alert_policy: :offer,
+                   invite_user_group_refs: [],
+                   invite_user_refs: [],
+                   participation: :mentions,
+                   repository_ref: "responder",
+                   revision: 2,
+                   saved_at: ~U[2026-08-28 12:00:00Z]
+                 },
+                 incident_room: nil,
+                 repository: %{ref: "responder", source: :configuration}
+               },
+               episodes: %{
+                 key: "episode_page",
+                 items: [
+                   %{
+                     execution_mode: :live,
+                     ref: "episode:one",
+                     state: :working,
+                     thread_ref: "1787832000.001000",
+                     updated_at: ~U[2026-08-28 12:00:00Z]
+                   }
+                 ],
+                 total: 1,
+                 page: 1,
+                 pages: 1
+               },
                participation: [
                  %{
                    revision: 2,
@@ -1852,22 +1878,34 @@ defmodule Responder.ControlPlane.RouterTest do
                    value: false
                  }
                ],
-               schedules: [
-                 %{
-                   next_occurrence_at: ~U[2026-08-29 09:00:00Z],
-                   ref: "schedule:one",
-                   status: :active,
-                   title: "Daily health"
-                 }
-               ],
-               summaries: [
-                 %{
-                   ref: "summary:one",
-                   repository_ref: "responder",
-                   thread_ref: "1787832000.001000",
-                   updated_at: ~U[2026-08-28 12:00:00Z]
-                 }
-               ]
+               schedules: %{
+                 key: "schedule_page",
+                 items: [
+                   %{
+                     next_occurrence_at: ~U[2026-08-29 09:00:00Z],
+                     ref: "schedule:one",
+                     status: :active,
+                     title: "Daily health"
+                   }
+                 ],
+                 total: 1,
+                 page: 1,
+                 pages: 1
+               },
+               summaries: %{
+                 key: "summary_page",
+                 items: [
+                   %{
+                     ref: "summary:one",
+                     repository_ref: "responder",
+                     thread_ref: "1787832000.001000",
+                     updated_at: ~U[2026-08-28 12:00:00Z]
+                   }
+                 ],
+                 total: 1,
+                 page: 1,
+                 pages: 1
+               }
              }}
 
           _workspace, _channel ->

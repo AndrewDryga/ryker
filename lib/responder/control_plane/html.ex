@@ -564,44 +564,6 @@ defmodule Responder.ControlPlane.HTML do
     ]
   end
 
-  def channel(%{
-        channel: channel,
-        episodes: episodes,
-        participation: participation,
-        schedules: schedules,
-        summaries: summaries
-      }) do
-    participation_rows = Enum.map(participation, &channel_participation_row/1)
-    schedule_rows = Enum.map(schedules, &channel_schedule_row/1)
-    episode_rows = Enum.map(episodes, &channel_episode_row/1)
-    summary_rows = Enum.map(summaries, &channel_summary_row/1)
-
-    [
-      definition_list([
-        {"Workspace", {:safe, slack_reference(channel.workspace_ref, channel.workspace_ref)}},
-        {"Channel", {:safe, slack_reference(channel.workspace_ref, channel.channel_ref)}},
-        {"Kind", if(channel.incident_room, do: "incident room", else: "conversation")},
-        {"Channel state", fallback(channel.channel_state, "not recorded")},
-        {"Membership", fallback(channel.membership, "not recorded")},
-        {"Visibility", channel_visibility(channel.private)},
-        {"Participation", fallback(channel.participation, "not configured")},
-        {"Repository", fallback(channel.repository_ref, "none")},
-        {"Alert policy", fallback(channel.alert_policy, "not configured")},
-        {"Configuration revision", fallback(channel.configuration_revision, "none")},
-        {"Configuration saved", channel.configuration_saved_at}
-      ]),
-      "<section><h2>Effective participation</h2>",
-      table(["Setting", "Value", "Decided by", "Revision", "Updated"], participation_rows),
-      "</section><section><h2>Schedules here</h2>",
-      table(["Schedule", "Status", "Next"], schedule_rows),
-      "</section><section><h2>Conversation continuity</h2>",
-      table(["Summary", "Thread", "Repository", "Updated"], summary_rows),
-      "</section><section><h2>Recent work</h2>",
-      table(["Episode", "State", "Thread", "Updated"], episode_rows),
-      "</section>"
-    ]
-  end
-
   def repositories(items, params \\ %{}) do
     rows =
       Enum.map(items, fn item ->
@@ -1648,15 +1610,6 @@ defmodule Responder.ControlPlane.HTML do
   defp channel_label(workspace_ref, channel_ref),
     do: SlackNames.name(workspace_ref, channel_ref)
 
-  defp slack_reference(workspace, ref),
-    do: [
-      "<span title=\"",
-      escape(ref),
-      "\">",
-      escape(SlackNames.name(workspace, ref)),
-      "</span>"
-    ]
-
   defp workspace_status(:active), do: "In use"
   defp workspace_status(:grace), do: "Kept for follow-up"
   defp workspace_status(:retained), do: "Changes preserved"
@@ -1697,70 +1650,6 @@ defmodule Responder.ControlPlane.HTML do
   defp channel_kind(%{incident_room: true}), do: "incident room"
   defp channel_kind(%{channel_ref: "D" <> _rest}), do: "direct message"
   defp channel_kind(_item), do: "shared channel"
-
-  defp channel_visibility(true), do: "private"
-  defp channel_visibility(_public_or_unknown), do: "public or unrecorded"
-
-  defp channel_participation_row(item) do
-    [
-      "<tr><td>",
-      escape(item.setting),
-      "</td><td>",
-      escape(if(item.value, do: "on", else: "off")),
-      "</td><td>",
-      escape(if(item.scope == :installation, do: "installation default", else: item.scope)),
-      "</td><td>",
-      integer(item.revision),
-      "</td><td>",
-      timestamp(item.updated_at),
-      "</td></tr>"
-    ]
-  end
-
-  defp channel_schedule_row(item) do
-    [
-      "<tr><td><a href=\"/schedules/",
-      segment(item.ref),
-      "\">",
-      escape(item.title),
-      "</a></td><td>",
-      escape(item.status),
-      "</td><td>",
-      timestamp(item.next_occurrence_at),
-      "</td></tr>"
-    ]
-  end
-
-  defp channel_episode_row(item) do
-    [
-      "<tr><td>",
-      episode_link(item.ref),
-      "</td><td>",
-      escape(item.state),
-      "</td><td>",
-      escape(fallback(item.thread_ref, "channel root")),
-      "</td><td>",
-      timestamp(item.updated_at),
-      "</td></tr>"
-    ]
-  end
-
-  defp channel_summary_row(item) do
-    [
-      "<tr><td><code>",
-      escape(item.ref),
-      "</code></td><td>",
-      escape(fallback(item.thread_ref, "channel root")),
-      "</td><td>",
-      escape(fallback(item.repository_ref, "none")),
-      "</td><td>",
-      timestamp(item.updated_at),
-      "</td></tr>"
-    ]
-  end
-
-  defp fallback(nil, replacement), do: replacement
-  defp fallback(value, _replacement), do: value
 
   defp episode_link(nil), do: "—"
 

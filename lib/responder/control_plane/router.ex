@@ -11,6 +11,7 @@ defmodule Responder.ControlPlane.Router do
   alias Responder.ControlPlane.{
     BehaviorLibrary,
     BehaviorPage,
+    ChannelPage,
     CSRF,
     HTML,
     LearningActivity,
@@ -442,7 +443,13 @@ defmodule Responder.ControlPlane.Router do
          {:ok, channel_ref} <- path_ref(channel_ref) do
       case options.projection.channel.(workspace_ref, channel_ref) do
         {:ok, snapshot} ->
-          html(conn, 200, SlackNames.name(workspace_ref, channel_ref), HTML.channel(snapshot))
+          html(
+            conn,
+            200,
+            SlackNames.name(workspace_ref, channel_ref),
+            ChannelPage.description(snapshot),
+            Safe.to_iodata(ChannelPage.render(%{__changed__: nil, view: snapshot}))
+          )
 
         :not_found ->
           html(conn, 404, "Not found", HTML.generic("Channel", []))
