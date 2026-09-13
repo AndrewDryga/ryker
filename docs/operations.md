@@ -402,41 +402,15 @@ targets; do not mutate the meaning of a policy still pinned by an active or reco
 Contributor, schedule, incident, and evaluation policies remain separate authority lanes, even when
 they happen to use one of the same model targets.
 
-## One-time learning usage backfill
+## Learning usage before 2026-09-11
 
-Learning turns began writing `execution_usage` rows on 2026-09-11. The learning
-runs that finished before that spent tokens the ledger never recorded, so
-`/usage` under-reports the memory lane for that history. Coop still holds their
-turns, so the spend is recovered rather than estimated.
-
-Dry-run first. It reads Coop and writes nothing:
-
-```bash
-MIX_ENV=prod mix ryker.backfill_learning_usage
-MIX_ENV=prod mix ryker.backfill_learning_usage --apply
-```
-
-Both print one JSON summary: `unmetered_runs` selected, `recovered_runs`,
-`recovered_tokens` (fresh input, cached input, output, reasoning) and
-`skipped_runs` grouped by a stable reason with their run IDs. The dry run's
-recovered figures are exactly what `--apply` records.
-
-`--apply` re-reads each turn from the same Coop session the run used, verifies
-it is that exact turn, and records it through the accounting path the learning
-executor uses. A run the ledger already holds is not selected, so rerunning
-recovers nothing further and an interrupted reconciliation is resumed by running
-the command again.
-
-Unlike the read-only inspection commands, both modes read Coop, over the same
-durable worker commands the executor uses. Run this one with the release and its
-enrolled workers running; with nothing to serve the reads every run is reported
-as skipped and nothing is written.
-
-Nothing is estimated or zeroed. A run whose Coop session or turn is gone is
-reported as skipped, and so is a turn Coop kept without usage: a failed learning
-turn reports no counters, and a row of zeroes would read on `/usage` as a free
-execution. Those runs stay unmetered until Coop persists a failed turn's
-accumulated usage; rerunning the command then recovers them.
+Learning turns began writing `execution_usage` rows on 2026-09-11. The runs that
+finished earlier were re-metered from their Coop turns by a one-off backfill
+command on 2026-09-12. Nine runs rejected on 2026-09-08 stay unmetered for good:
+their learning sessions are gone, so there is no turn left to read and nothing
+to estimate from. The command was retired on 2026-09-13 because that was the
+whole population it could ever apply to; the executor meters every turn it
+observes, so no new unmetered run can appear.
 
 ## PostgreSQL backup and restore
 

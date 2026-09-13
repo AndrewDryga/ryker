@@ -415,12 +415,11 @@ defmodule Ryker.Learning.Executor do
         session["project_env"] == false and session["project_mcp"] == false and
         Map.get(session, "companions", []) == []
 
-  @doc false
-  def exact_turn(%{"id" => id, "session_id" => sid}, sid, expected)
-      when is_binary(id) and byte_size(id) in 1..1024 and (is_nil(expected) or expected == id),
-      do: :ok
+  defp exact_turn(%{"id" => id, "session_id" => sid}, sid, expected)
+       when is_binary(id) and byte_size(id) in 1..1024 and (is_nil(expected) or expected == id),
+       do: :ok
 
-  def exact_turn(_, _, _), do: {:error, :learning_remote_identity_conflict}
+  defp exact_turn(_, _, _), do: {:error, :learning_remote_identity_conflict}
 
   defp call(claim, settings, operation, arguments) do
     with {:ok, _} <- Batches.renew(claim, settings.lease_seconds) do
