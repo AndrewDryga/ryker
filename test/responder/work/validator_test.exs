@@ -562,6 +562,58 @@ defmodule Responder.Work.ValidatorTest do
              )
   end
 
+  # Episode 0b0c3590 in production, 2026-09-13: a question plus TWO open
+  # event-only watches. Every possible answer was invalid — referencing all
+  # three failed "exactly one durable input wait", and dropping the extras
+  # failed "open durable waits cannot be abandoned". The turn burned its three
+  # attempts and blocked with output_contract_failed, on the very answer an
+  # operator had just typed. A correction the model cannot satisfy is our bug.
+  test "a question keeps continuation alongside more than one event-only watch" do
+    input = %{
+      "deadline_at" => nil,
+      "kind" => "wait",
+      "wait_kind" => "input",
+      "wait_ref" => "record:question"
+    }
+
+    watch = fn ref ->
+      %{"deadline_at" => nil, "kind" => "wait", "wait_kind" => "event", "wait_ref" => ref}
+    end
+
+    records = %{
+      "record:question" => record("input_request", input),
+      "record:watch-one" => record("event_wait", watch.("record:watch-one")),
+      "record:watch-two" => record("event_wait", watch.("record:watch-two"))
+    }
+
+    outcome =
+      empty_outcome(%{
+        "record_refs" => ["record:watch-one", "record:question", "record:watch-two"],
+        "state" => "waiting_for_input"
+      })
+
+    assert {:accept, accepted} =
+             Validator.validate(
+               candidate(outcome, "Which project hosts this application?"),
+               context(records: records),
+               @now
+             )
+
+    # The question owns continuation; the watches stay armed and are not it.
+    assert accepted.result.continuation == input
+
+    # A timed wait is still not an event-only watch, so it cannot ride along.
+    timed =
+      put_in(records, ["record:watch-two", "continuation", "deadline_at"], "2099-08-28T12:30:00Z")
+
+    assert {:reject, _} =
+             Validator.validate(
+               candidate(outcome, "Which project?"),
+               context(records: timed),
+               @now
+             )
+  end
+
   test "waiting and complete outcomes name exactly one compatible durable wait" do
     input_wait = %{
       "deadline_at" => nil,
