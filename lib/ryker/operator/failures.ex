@@ -11,7 +11,7 @@ defmodule Ryker.Operator.Failures do
   alias Ryker.Emisar.Operator, as: EmisarOperator
   alias Ryker.Ingress.Inbox
   alias Ryker.Ingress.Inbox.Entry
-  alias Ryker.Operator.Actions
+  alias Ryker.Operator.{Actions, Reference}
   alias Ryker.Retention.Operator, as: RetentionOperator
   alias Ryker.Retention.OperatorAction
   alias Ryker.Slack.{IncidentRoom, IncidentRooms, InteractionAudit, InteractionAudits}
@@ -193,13 +193,5 @@ defmodule Ryker.Operator.Failures do
   defp kind(kind) when kind in @kinds, do: :ok
   defp kind(_kind), do: {:error, {:invalid_operator_failure, :kind}}
 
-  defp reference(value, field)
-       when is_binary(value) and byte_size(value) in 1..1_024 do
-    if String.valid?(value) and String.trim(value) != "" and
-         :binary.match(value, <<0>>) == :nomatch,
-       do: :ok,
-       else: {:error, {:invalid_operator_failure, field}}
-  end
-
-  defp reference(_value, field), do: {:error, {:invalid_operator_failure, field}}
+  defp reference(value, field), do: Reference.check(value, field, :invalid_operator_failure)
 end

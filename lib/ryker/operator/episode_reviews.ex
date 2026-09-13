@@ -10,7 +10,7 @@ defmodule Ryker.Operator.EpisodeReviews do
   import Ecto.Query
 
   alias Ryker.Episodes.Episode
-  alias Ryker.Operator.EpisodeReview
+  alias Ryker.Operator.{EpisodeReview, Reference}
   alias Ryker.Repo
 
   @spec review(String.t(), String.t(), String.t()) ::
@@ -80,14 +80,7 @@ defmodule Ryker.Operator.EpisodeReviews do
     end
   end
 
-  defp reference(value, _field)
-       when is_binary(value) and byte_size(value) in 1..1_024 do
-    if String.valid?(value) and not String.contains?(value, <<0>>),
-      do: :ok,
-      else: {:error, :invalid_episode_review}
-  end
-
-  defp reference(_value, field), do: {:error, {:invalid_episode_review, field}}
+  defp reference(value, field), do: Reference.check(value, field, :invalid_episode_review)
 
   defp note(value) when is_binary(value) and byte_size(value) <= 2_048 do
     if String.valid?(value) and not String.contains?(value, <<0>>),

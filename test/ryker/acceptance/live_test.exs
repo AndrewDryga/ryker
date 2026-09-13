@@ -185,7 +185,7 @@ defmodule Ryker.Acceptance.LiveTest do
       {put_in(configuration(), [:slack, :operators], []), "C-TEST", [],
        :live_acceptance_operator_not_configured},
       {put_in(configuration(), [:slack, :operators], [" "]), "C-TEST", [],
-       {:invalid_live_acceptance, :reference}},
+       {:invalid_live_acceptance, :operator_ref}},
       {configuration(), "C-TEST", [run_id: ""], {:invalid_live_acceptance, :run_id}},
       {configuration(), "C-TEST", [timeout_ms: 0], {:invalid_live_acceptance, :timeout_ms}},
       {configuration(), "C-TEST", [operations: %{}], {:invalid_live_acceptance, :operations}},

@@ -13,6 +13,7 @@ defmodule Ryker.Acceptance.Live do
   alias Ryker.{Bootstrap, Settings}
   alias Ryker.CoopFleet.Placement
   alias Ryker.Ingress.Inbox.Entry
+  alias Ryker.Operator.Reference
   alias Ryker.Repo
   alias Ryker.Runtime.Assembly
   alias Ryker.Slack.{Client, Gateway, Runtime}
@@ -572,15 +573,7 @@ defmodule Ryker.Acceptance.Live do
     end
   end
 
-  defp reference(value, _field)
-       when is_binary(value) and byte_size(value) in 1..1_024 do
-    if String.valid?(value) and String.trim(value) != "" and
-         :binary.match(value, <<0>>) == :nomatch,
-       do: :ok,
-       else: {:error, {:invalid_live_acceptance, :reference}}
-  end
-
-  defp reference(_value, field), do: {:error, {:invalid_live_acceptance, field}}
+  defp reference(value, field), do: Reference.check(value, field, :invalid_live_acceptance)
 
   defp string_keys(report),
     do: Map.new(report, fn {key, value} -> {Atom.to_string(key), value} end)

@@ -18,8 +18,9 @@ defmodule Ryker.Operator.EpisodeReviewsTest do
     assert EpisodeReviews.review("episode", "control-plane:local", nil) ==
              {:error, {:invalid_episode_review, :note}}
 
+    # A malformed value names its field like a missing one does.
     assert EpisodeReviews.review(<<255>>, "control-plane:local") ==
-             {:error, :invalid_episode_review}
+             {:error, {:invalid_episode_review, :episode_key}}
 
     assert EpisodeReviews.review("missing:episode", "control-plane:local") ==
              {:error, :episode_not_found}
