@@ -1,15 +1,12 @@
 defmodule Ryker.StateTools.Tools do
   @moduledoc false
 
+  alias Ryker.CanonicalJSON
   alias Ryker.Emisar.ApprovalContract
   alias Ryker.State.Records
-  alias Ryker.StateTools.FixedTools
+  alias Ryker.StateTools.{ErrorCode, FixedTools}
 
-  @fixed_tool_names ~w(
-    get_work_state cite_source record_finding request_input wait_for list_automations get_automation
-    propose_automation plan_goal update_goal request_task search_memory propose_memory remember_answer
-    update_conversation_summary record_feedback validate_final
-  )
+  @fixed_tool_names FixedTools.names()
 
   @spec list(keyword() | map()) :: [map()]
   def list(options \\ %{}) do
@@ -47,18 +44,11 @@ defmodule Ryker.StateTools.Tools do
       {:ok, result(record)}
     else
       nil -> {:error, "not_configured"}
-      {:error, :unauthorized} -> {:error, "unauthorized"}
-      {:error, reason} -> {:error, error_code(reason)}
+      {:error, reason} -> {:error, ErrorCode.code(reason)}
     end
   end
 
-  def call(name, arguments, options) do
-    if name in FixedTools.names() do
-      FixedTools.call(name, arguments, options)
-    else
-      {:error, "unknown_tool"}
-    end
-  end
+  def call(_name, _arguments, _options), do: {:error, "unknown_tool"}
 
   defp result(record) do
     %{
@@ -96,15 +86,7 @@ defmodule Ryker.StateTools.Tools do
     }
   end
 
-  defp record_operation_id(payload) do
-    digest =
-      payload
-      |> Ryker.CanonicalJSON.encode!()
-      |> then(&:crypto.hash(:sha256, &1))
-      |> Base.encode16(case: :lower)
-
-    "host:emisar:" <> digest
-  end
+  defp record_operation_id(payload), do: "host:emisar:" <> CanonicalJSON.digest(payload)
 
   defp exact_fields(arguments, fields) when is_map(arguments) do
     if Enum.sort(Map.keys(arguments)) == Enum.sort(fields),
@@ -113,16 +95,6 @@ defmodule Ryker.StateTools.Tools do
   end
 
   defp exact_fields(_arguments, _fields), do: {:error, :invalid_arguments}
-
-  defp error_code(:state_record_unauthorized), do: "unauthorized"
-  defp error_code(:state_record_confirmation_unsupported), do: "confirmation_unsupported"
-  defp error_code(:state_record_shadow_forbidden), do: "unauthorized"
-  defp error_code(:state_record_operation_conflict), do: "operation_conflict"
-  defp error_code(:state_record_subject_conflict), do: "operation_conflict"
-  defp error_code(:invalid_arguments), do: "invalid_arguments"
-  defp error_code({:invalid_state_record, _field}), do: "invalid_arguments"
-  defp error_code({:invalid_emisar_approval, _field}), do: "invalid_arguments"
-  defp error_code(_reason), do: "temporarily_unavailable"
 
   defp emisar_rpc_url(options) when is_list(options) do
     if Keyword.keyword?(options), do: Keyword.get(options, :emisar_rpc_url), else: nil
