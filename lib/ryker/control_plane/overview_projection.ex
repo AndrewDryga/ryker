@@ -15,6 +15,7 @@ defmodule Ryker.ControlPlane.OverviewProjection do
 
   @active_states [:working, :waiting_for_input, :waiting_for_event]
 
+  @doc "The counts, fleet state, attention list and queue progress the Activity page leads with."
   def overview do
     active_query = from(episode in Episode, where: episode.state in ^@active_states)
 

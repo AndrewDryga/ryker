@@ -18,6 +18,7 @@ defmodule Ryker.ControlPlane.ScheduleProjection do
   @detail_limit 200
   @statuses ~w(active paused completed expired deleted)a
 
+  @doc "The schedule directory, filtered by status and search."
   def list(params) when is_map(params) do
     query =
       from(schedule in Schedule,
@@ -45,6 +46,7 @@ defmodule Ryker.ControlPlane.ScheduleProjection do
 
   def list(_params), do: list(%{})
 
+  @doc "One schedule with its recorded occurrences."
   def fetch(ref) when is_binary(ref) and byte_size(ref) <= 1_024 do
     case Repo.one(from(schedule in Schedule, where: schedule.ref == ^ref, limit: 1)) do
       nil ->

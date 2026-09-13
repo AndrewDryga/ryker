@@ -19,6 +19,7 @@ defmodule Ryker.ControlPlane.IncidentProjection do
   @detail_limit 200
   @statuses ~w(requested ready blocked closed)a
 
+  @doc "The incident-room directory, filtered by status and search."
   def list(params) when is_map(params) do
     latest_publications =
       from(publication in Publication,
@@ -66,6 +67,7 @@ defmodule Ryker.ControlPlane.IncidentProjection do
 
   def list(_params), do: list(%{})
 
+  @doc "One incident room with its lifecycle, records and latest publication."
   def fetch(ref) when is_binary(ref) and byte_size(ref) <= 1_024 do
     case Repo.one(from(room in IncidentRoom, where: room.ref == ^ref, limit: 1)) do
       nil ->

@@ -14,6 +14,7 @@ defmodule Ryker.ControlPlane.WorkspaceProjection do
   alias Ryker.Retention.Custody, as: RetentionCustody
   alias Ryker.Work.Session
 
+  @doc "The newest hundred worker sessions with their cleanup state and safe action."
   def list(_params) do
     Repo.all(
       from(session in Session,
@@ -28,6 +29,7 @@ defmodule Ryker.ControlPlane.WorkspaceProjection do
     |> Activity.with_request_titles()
   end
 
+  @doc "One worker session by its external reference."
   def fetch(ref) when is_binary(ref) and byte_size(ref) <= 1_024 do
     case Repo.one(
            from(session in Session,

@@ -12,6 +12,7 @@ defmodule Ryker.ControlPlane.MemoryProjection do
   alias Ryker.Repo
   alias Ryker.State.{Behavior, Memories, MemoryEntry, Schedule}
 
+  @doc "Every collection the Memory page shows, expiry applied at read time."
   def fetch(params \\ %{}) do
     secrets = InspectionRedactor.configured_secrets()
 
