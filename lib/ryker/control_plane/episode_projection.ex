@@ -89,6 +89,10 @@ defmodule Ryker.ControlPlane.EpisodeProjection do
              destination: destination(episode),
              conversation_ref: episode.destination_conversation_ref,
              thread_ref: episode.destination_thread_ref,
+             # Set once retention removed the kernel events and closed records;
+             # an empty timeline after that is expiry, not an episode that
+             # never did anything.
+             history_pruned_at: episode.history_pruned_at,
              # The identity a card needs to read evidence recorded against this
              # episode; the key is the reader-facing reference and cannot be
              # joined on.

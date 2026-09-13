@@ -289,6 +289,24 @@ defmodule Ryker.ControlPlane.EpisodeTraceTest do
     assert detail.trace.case_file.expired_at == @received
   end
 
+  # Episode-history retention deletes the kernel events, origins and closed
+  # records and stamps the episode. The trace counted "0 of 0 kernel events"
+  # for such an episode, indistinguishable from one that never had any, so
+  # the page could not say the history was removed rather than never written.
+  test "pruned episode history is reported as retention, not as an empty timeline" do
+    {_entry, episode} = admitted_input!()
+    {:ok, before} = Projection.episode(episode.key)
+    assert before.trace.history.pruned_at == nil
+
+    Repo.update_all(from(e in Ryker.Episodes.Episode, where: e.id == ^episode.id),
+      set: [history_pruned_at: @received]
+    )
+
+    {:ok, detail} = Projection.episode(episode.key)
+    assert detail.trace.history.pruned_at == @received
+    assert detail.episode.history_pruned_at == @received
+  end
+
   test "accepting a reply records the decision without repeating the response body" do
     # The OOM reply appeared in candidate, acceptance and delivery cards.
     {_entry, episode} = admitted_input!()
