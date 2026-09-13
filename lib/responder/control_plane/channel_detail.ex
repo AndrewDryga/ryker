@@ -10,7 +10,8 @@ defmodule Responder.ControlPlane.ChannelDetail do
 
   import Ecto.Query
 
-  alias Responder.ControlPlane.{ChannelContext, ChannelScope, PagedRelation}
+  alias Responder.Accounting.Query, as: AccountingQuery
+  alias Responder.ControlPlane.{ChannelContext, ChannelScope, PagedRelation, UsageProjection}
   alias Responder.Episodes.Episode
   alias Responder.Repo
   alias Responder.Slack.{ChannelConfiguration, ChannelMembership, ChannelSettings, IncidentRoom}
@@ -22,10 +23,15 @@ defmodule Responder.ControlPlane.ChannelDetail do
   # section can never reset another. Anything else in the query string is
   # dropped before it reaches a query.
   @page_keys ~w(episode_page schedule_page summary_page rollup_page knowledge_page learning_page rule_page preference_page guidance_page memory_page)
+  # The usage window and mode use the request directory's own names, so the
+  # filtered link the page offers carries exactly the scope the page showed.
+  @usage_keys ~w(usage_window mode)
+  @default_window "7d"
+  @default_mode "all"
 
   @doc "The query parameters the channel route accepts."
   @spec query_keys() :: [String.t()]
-  def query_keys, do: @page_keys
+  def query_keys, do: @page_keys ++ @usage_keys
 
   @doc """
   Projects `/channels/:workspace/:channel` for `params`.
@@ -71,10 +77,13 @@ defmodule Responder.ControlPlane.ChannelDetail do
         memory: ChannelContext.memory(scope, params)
       }
 
+      usage = usage(scope, params)
+
       {:ok,
        Map.merge(relations, %{
          scope: scope,
-         params: link_params(Map.values(relations)),
+         params: Map.merge(link_params(Map.values(relations)), usage_params(usage)),
+         usage: usage,
          channel: %{
            kind: kind(scope, incident_room),
            membership: membership,
@@ -95,6 +104,49 @@ defmodule Responder.ControlPlane.ChannelDetail do
     for %{key: key, page: page} <- relations, page > 1, into: %{} do
       {key, Integer.to_string(page)}
     end
+  end
+
+  defp usage_params(usage) do
+    %{"usage_window" => usage.window, "mode" => usage.mode}
+    |> Map.reject(fn {key, value} ->
+      (key == "usage_window" and value == @default_window) or
+        (key == "mode" and value == @default_mode)
+    end)
+  end
+
+  # The same deduplicated ledger, window and mode defaults as /usage, narrowed
+  # to this exact conversation. Coverage travels with every figure: a turn
+  # that reported no tokens or carried no price is counted, not summed as zero.
+  defp usage(scope, params) do
+    window = UsageProjection.window(params["usage_window"])
+    mode = if params["mode"] in ~w(live shadow), do: params["mode"], else: @default_mode
+
+    totals =
+      UsageProjection.since(window)
+      |> AccountingQuery.executions(mode)
+      |> where([e], e.transport == "slack" and e.conversation_ref == ^scope.conversation_ref)
+      |> UsageProjection.totals()
+
+    %{
+      window: window,
+      mode: mode,
+      executions: totals.attempts,
+      measured: totals.usage_measured,
+      costed: totals.costed,
+      input_tokens: totals.input_tokens,
+      cached_input_tokens: totals.cached_input_tokens,
+      output_tokens: totals.output_tokens,
+      reasoning_tokens: totals.reasoning_tokens,
+      cost_usd: if(totals.costed > 0, do: totals.cost_usd),
+      link:
+        "/activity?" <>
+          URI.encode_query(%{
+            "usage_channel" => scope.conversation_ref,
+            "usage_window" => window,
+            "mode" => mode
+          }),
+      usage_path: "/usage?" <> URI.encode_query(%{"window" => window, "mode" => mode})
+    }
   end
 
   defp configuration(scope) do

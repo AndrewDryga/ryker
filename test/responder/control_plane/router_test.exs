@@ -1242,6 +1242,12 @@ defmodule Responder.ControlPlane.RouterTest do
     assert_received {:channel_params, params}
     assert params == %{"summary_page" => "2", "episode_page" => "3"}
 
+    assert request(:get, "/channels/T123/C456?usage_window=24h&mode=live&window=all").status ==
+             200
+
+    assert_received {:channel_params, %{"usage_window" => "24h", "mode" => "live"} = usage_params}
+    refute Map.has_key?(usage_params, "window")
+
     assert Router.snapshot("/channels/T123/C456", "schedule_page=4&unknown=1", options()).status ==
              200
 
@@ -1951,6 +1957,20 @@ defmodule Responder.ControlPlane.RouterTest do
                preferences: %{key: "preference_page", items: [], total: 0, page: 1, pages: 1},
                guidance: %{key: "guidance_page", items: [], total: 0, page: 1, pages: 1},
                memory: %{key: "memory_page", items: [], total: 0, page: 1, pages: 1},
+               usage: %{
+                 window: "7d",
+                 mode: "all",
+                 executions: 0,
+                 measured: 0,
+                 costed: 0,
+                 input_tokens: 0,
+                 cached_input_tokens: 0,
+                 output_tokens: 0,
+                 reasoning_tokens: 0,
+                 cost_usd: nil,
+                 link: "/activity?mode=all&usage_channel=slack%3AT123%3AC456&usage_window=7d",
+                 usage_path: "/usage?mode=all&window=7d"
+               },
                learning: %{
                  key: "learning_page",
                  items: [],

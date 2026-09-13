@@ -15,7 +15,18 @@ defmodule Responder.ControlPlane.ChannelDetailTest do
   import Phoenix.LiveViewTest
   import Plug.Test
 
-  alias Responder.ControlPlane.{Actions, Activity, Endpoint, LearningActivity, Projection, Router}
+  alias Responder.Accounting.Execution
+
+  alias Responder.ControlPlane.{
+    Actions,
+    Activity,
+    Endpoint,
+    LearningActivity,
+    Projection,
+    Router,
+    UsageProjection
+  }
+
   alias Responder.Episodes
   alias Responder.Episodes.Episode
   alias Responder.Fixtures.Episodes, as: EpisodeFixtures
@@ -255,6 +266,12 @@ defmodule Responder.ControlPlane.ChannelDetailTest do
     [key] = episodes!("slack:T123:C456", 1)
     KnowledgeFixtures.learn!(Repo.get_by!(Episode, key: key))
     batch!("slack:T123:C456", status: :deferred, error_code: "learning_judgment_deferred")
+
+    execution!("slack:T123:C456",
+      recorded_at: DateTime.add(DateTime.utc_now(), -1, :hour),
+      tokens: {1, 0, 0, 0}
+    )
+
     handler = "channel-detail-no-external-request-#{System.unique_integer([:positive])}"
     test_pid = self()
 
@@ -1041,6 +1058,166 @@ defmodule Responder.ControlPlane.ChannelDetailTest do
     end
   end
 
+  describe "usage" do
+    test "usage is the conversation's own measured ledger with explicit coverage, never a free zero" do
+      # Nine executions, two without token reports and one without a price:
+      # summing them as zero would have shown a cheaper channel than the
+      # ledger records.
+      membership!("T123", "C456", private: false, external_shared: false)
+      now = DateTime.utc_now()
+
+      execution!("slack:T123:C456",
+        recorded_at: DateTime.add(now, -1, :hour),
+        tokens: {100, 20, 30, 5},
+        cost: "0.50"
+      )
+
+      execution!("slack:T123:C456", recorded_at: DateTime.add(now, -2, :hour), tokens: nil)
+
+      execution!("slack:T123:C456",
+        recorded_at: DateTime.add(now, -3, :hour),
+        tokens: {10, 0, 2, 0},
+        mode: "shadow"
+      )
+
+      execution!("slack:T123:C999",
+        recorded_at: DateTime.add(now, -1, :hour),
+        tokens: {1, 1, 1, 1}
+      )
+
+      assert {:ok, view} = Projection.channel("T123", "C456", %{})
+
+      assert %{
+               window: "7d",
+               mode: "all",
+               executions: 3,
+               measured: 2,
+               costed: 1,
+               input_tokens: 110,
+               cached_input_tokens: 20,
+               output_tokens: 32,
+               reasoning_tokens: 5
+             } = view.usage
+
+      assert Decimal.equal?(view.usage.cost_usd, Decimal.new("0.50"))
+
+      %URI{path: "/activity", query: query} = URI.parse(view.usage.link)
+      params = URI.decode_query(query)
+      assert params["usage_channel"] == "slack:T123:C456"
+      assert params["usage_window"] == "7d"
+      assert params["mode"] == "all"
+      assert Enum.all?(Map.keys(params), &(&1 in UsageProjection.filter_keys() or &1 == "mode"))
+
+      assert view.usage.usage_path ==
+               "/usage?" <> URI.encode_query(%{"mode" => "all", "window" => "7d"})
+
+      assert {:ok, live} = Projection.channel("T123", "C456", %{"mode" => "live"})
+      assert %{executions: 2, measured: 1, costed: 1, mode: "live"} = live.usage
+      assert URI.decode_query(URI.parse(live.usage.link).query)["mode"] == "live"
+      assert {:ok, shadow} = Projection.channel("T123", "C456", %{"mode" => "shadow"})
+      assert %{executions: 1, measured: 1, costed: 0, mode: "shadow"} = shadow.usage
+
+      html = page("/channels/T123/C456")
+      section = html |> LazyHTML.from_document() |> LazyHTML.query("#usage")
+      text = section |> LazyHTML.text() |> String.replace(~r/\s+/, " ")
+      assert text =~ "Last 7 days"
+      assert text =~ "all work"
+      assert text =~ "3 executions"
+      assert text =~ "2 of 3 reported tokens"
+      assert text =~ "1 of 3 recorded a cost"
+      assert text =~ "$0.50"
+      assert text =~ "110"
+      hrefs = section |> LazyHTML.query("a") |> LazyHTML.attribute("href")
+      assert view.usage.link in hrefs
+      assert view.usage.usage_path in hrefs
+    end
+
+    test "measured zero, missing measurement and missing cost read differently" do
+      membership!("T123", "C456", private: false, external_shared: false)
+      now = DateTime.utc_now()
+
+      quiet = page("/channels/T123/C456") |> usage_text()
+      assert quiet =~ "No executions"
+      refute quiet =~ "$0"
+      refute quiet =~ "Not recorded"
+
+      execution!("slack:T123:C456",
+        recorded_at: DateTime.add(now, -1, :hour),
+        tokens: {0, 0, 0, 0}
+      )
+
+      assert {:ok, view} = Projection.channel("T123", "C456", %{})
+      assert %{executions: 1, measured: 1, costed: 0, input_tokens: 0, cost_usd: nil} = view.usage
+      measured_zero = page("/channels/T123/C456") |> usage_text()
+      assert measured_zero =~ "1 of 1 reported tokens"
+      assert measured_zero =~ "0 input"
+      assert measured_zero =~ "Cost Not recorded"
+      refute measured_zero =~ "$0"
+
+      Repo.delete_all(Execution)
+      execution!("slack:T123:C456", recorded_at: DateTime.add(now, -1, :hour), tokens: nil)
+      assert {:ok, view} = Projection.channel("T123", "C456", %{})
+      assert %{executions: 1, measured: 0, costed: 0} = view.usage
+      missing = page("/channels/T123/C456") |> usage_text()
+      assert missing =~ "0 of 1 reported tokens"
+      assert missing =~ "Tokens Not recorded"
+      assert missing =~ "Cost Not recorded"
+      refute missing =~ "0 input"
+    end
+
+    test "the window is explicit and its boundaries hold for every choice" do
+      membership!("T123", "C456", private: false, external_shared: false)
+      now = DateTime.utc_now()
+
+      for hours <- [1, 72, 480, 1440] do
+        execution!("slack:T123:C456",
+          recorded_at: DateTime.add(now, -hours, :hour),
+          tokens: {1, 0, 0, 0}
+        )
+      end
+
+      for {window, expected, label} <- [
+            {"24h", 1, "Last 24 hours"},
+            {"7d", 2, "Last 7 days"},
+            {"30d", 3, "Last 30 days"},
+            {"all", 4, "All time"},
+            {"yesterday", 2, "Last 7 days"}
+          ] do
+        assert {:ok, view} = Projection.channel("T123", "C456", %{"usage_window" => window})
+        assert view.usage.executions == expected, "#{window} counted #{view.usage.executions}"
+
+        assert URI.decode_query(URI.parse(view.usage.link).query)["usage_window"] ==
+                 view.usage.window
+
+        assert page("/channels/T123/C456?usage_window=#{window}") |> usage_text() =~ label
+      end
+
+      # The pager links keep the chosen window, and the window keeps the pages.
+      for _ <- 1..26, do: summary!("slack:T123", "slack:T123:C456", [])
+      html = page("/channels/T123/C456?usage_window=24h&summary_page=2&mode=live")
+      document = LazyHTML.from_document(html)
+
+      [previous] =
+        document |> LazyHTML.query("#summaries .pagination a") |> LazyHTML.attribute("href")
+
+      assert previous == "/channels/T123/C456?mode=live&usage_window=24h#summaries"
+
+      assert document |> LazyHTML.query("#summaries .pagination span") |> LazyHTML.text() =~
+               "Page 2 of 2"
+
+      assert usage_text(html) =~ "Last 24 hours"
+      assert usage_text(html) =~ "live work"
+    end
+
+    defp usage_text(html) do
+      html
+      |> LazyHTML.from_document()
+      |> LazyHTML.query("#usage")
+      |> LazyHTML.text()
+      |> String.replace(~r/\s+/, " ")
+    end
+  end
+
   describe "live routing" do
     setup do
       start_supervised!(
@@ -1520,6 +1697,37 @@ defmodule Responder.ControlPlane.ChannelDetailTest do
     )
 
     entry
+  end
+
+  defp execution!(conversation, options) do
+    tokens = Keyword.get(options, :tokens)
+
+    {input, cached, output, reasoning} =
+      case tokens do
+        {input, cached, output, reasoning} -> {input, cached, output, reasoning}
+        nil -> {nil, nil, nil, nil}
+      end
+
+    cost = Keyword.get(options, :cost)
+
+    Repo.insert!(%Execution{
+      kind: "work",
+      source_id: Ecto.UUID.generate(),
+      generation: "1",
+      transport: "slack",
+      conversation_ref: conversation,
+      execution_mode: Keyword.get(options, :mode, "live"),
+      status: "completed",
+      execution_target: "unpriced:model/none@none",
+      usage_recorded: not is_nil(tokens),
+      usage_input_tokens: input,
+      usage_cached_input_tokens: cached,
+      usage_output_tokens: output,
+      usage_reasoning_tokens: reasoning,
+      usage_cost_recorded: not is_nil(cost),
+      usage_cost_usd: cost && Decimal.new(cost),
+      recorded_at: Keyword.fetch!(options, :recorded_at)
+    })
   end
 
   defp draft!(source, marker) do

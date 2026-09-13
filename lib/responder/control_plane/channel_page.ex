@@ -482,6 +482,41 @@ defmodule Responder.ControlPlane.ChannelPage do
           </footer>
         </article>
       </.relation>
+      <section id="usage" class="channel-section">
+        <h2>Usage</h2>
+        <p class="channel-entry-meta">
+          <span>{window(@view.usage.window)}</span>
+          <span>{mode(@view.usage.mode)}</span>
+          <span>Per Coop turn, from the same ledger as Usage &amp; cost</span>
+        </p>
+        <p :if={@view.usage.executions == 0} class="empty-state">
+          No executions were recorded for this conversation in this window.
+        </p>
+        <dl :if={@view.usage.executions > 0} class="channel-facts">
+          <.fact label="Executions">{count(@view.usage.executions, "execution", "executions")}</.fact>
+          <.fact label="Tokens">
+            <%= if @view.usage.measured > 0 do %>
+              {number(@view.usage.input_tokens)} input · {number(@view.usage.cached_input_tokens)} cached input
+              · {number(@view.usage.output_tokens)} output · {number(@view.usage.reasoning_tokens)} reasoning
+            <% else %>
+              Not recorded
+            <% end %>
+            <span class="channel-coverage">
+              {@view.usage.measured} of {@view.usage.executions} reported tokens
+            </span>
+          </.fact>
+          <.fact label="Cost">
+            {if @view.usage.cost_usd, do: money(@view.usage.cost_usd), else: "Not recorded"}
+            <span class="channel-coverage">
+              {@view.usage.costed} of {@view.usage.executions} recorded a cost
+            </span>
+          </.fact>
+        </dl>
+        <p class="channel-links">
+          <a href={@view.usage.link}>Requests in this window →</a>
+          <a href={@view.usage.usage_path}>Usage &amp; cost →</a>
+        </p>
+      </section>
     </div>
     """
   end
@@ -673,6 +708,31 @@ defmodule Responder.ControlPlane.ChannelPage do
 
   defp used(%{use_count: count, last_used_at: at}),
     do: "Used #{count} #{if count == 1, do: "time", else: "times"} · last #{timestamp(at)}"
+
+  defp window("24h"), do: "Last 24 hours"
+  defp window("30d"), do: "Last 30 days"
+  defp window("all"), do: "All time"
+  defp window(_default), do: "Last 7 days"
+
+  defp mode("live"), do: "live work"
+  defp mode("shadow"), do: "evaluation runs"
+  defp mode(_all), do: "all work, live and evaluation"
+
+  defp number(value) when is_integer(value),
+    do: value |> Integer.to_string() |> String.replace(~r/\B(?=(\d{3})+(?!\d))/, ",")
+
+  defp number(_missing), do: "0"
+
+  # Recorded cost only; a channel without a price is "Not recorded", never $0.
+  defp money(cost) do
+    precision =
+      if Decimal.compare(cost, Decimal.new(0)) == :gt and
+           Decimal.compare(cost, Decimal.new("0.01")) == :lt,
+         do: 4,
+         else: 2
+
+    "$" <> Decimal.to_string(Decimal.round(cost, precision), :normal)
+  end
 
   defp sender("human"), do: "People only"
   defp sender("app"), do: "Apps only"

@@ -1369,3 +1369,44 @@ details.measurement-notes > summary { cursor:pointer; font-weight:600; color:var
 @media (max-width:600px) {
   .responder-app .behavior-footer .behavior-actions { width:100%; justify-content:flex-end; }
 }
+
+/* Channel detail: one column of quiet sections under the shared header.
+   Sections separate with a rule, entries with a lighter one; nothing is framed. */
+.channel-page { max-width:1100px; }
+.channel-page .channel-metrics { display:flex; flex-wrap:wrap; align-items:baseline; gap:4px 10px; margin:0 0 24px; font-size:13px; line-height:18px; color:var(--secondary); }
+.channel-page .channel-metrics a { font-size:16px; line-height:24px; font-weight:600; }
+.channel-page .channel-section { margin:0 0 24px; padding:20px 0 0; border-top:1px solid var(--stroke); }
+.channel-page .channel-section > h2 { font-size:20px; line-height:1.3; margin:0 0 4px; }
+.channel-page .channel-facts { display:grid; grid-template-columns:minmax(140px,max-content) minmax(0,1fr); gap:0 24px; margin:8px 0 0; font-size:15px; line-height:24px; }
+.channel-page .channel-facts > div { display:contents; }
+.channel-page .channel-facts dt { padding:8px 0; border-bottom:1px solid #edf0ea; color:var(--secondary); font-size:13px; line-height:18px; }
+.channel-page .channel-facts dd { margin:0; padding:8px 0; border-bottom:1px solid #edf0ea; color:var(--ink); overflow-wrap:anywhere; font-variant-numeric:tabular-nums; }
+.channel-page .channel-facts code { margin-left:6px; font-size:12px; color:var(--secondary); }
+.channel-page .channel-coverage { display:block; font-size:13px; line-height:18px; color:var(--secondary); }
+.channel-page .channel-health, .channel-page .channel-entry-meta, .channel-page .channel-links { display:flex; flex-wrap:wrap; gap:4px 16px; margin:0 0 8px; font-size:13px; line-height:18px; color:var(--secondary); }
+.channel-page .channel-entry { padding:12px 0; border-top:1px solid #edf0ea; }
+.channel-page .channel-entry:first-child { border-top:0; padding-top:4px; }
+.channel-page .channel-entry > header { position:static; top:auto; z-index:auto; display:flex; flex-wrap:wrap; align-items:baseline; justify-content:space-between; gap:4px 16px; margin:0 0 4px; padding:0; background:none; border:0; backdrop-filter:none; }
+.channel-page .channel-entry h3 { margin:0; font-size:16px; line-height:24px; font-weight:600; overflow-wrap:anywhere; }
+.channel-page .channel-entry time, .channel-page .channel-scope { font-size:13px; line-height:18px; color:var(--secondary); }
+.channel-page .channel-entry-text { margin:4px 0 8px; max-width:80ch; overflow-wrap:anywhere; white-space:pre-line; }
+.channel-page .channel-entry footer { display:flex; flex-wrap:wrap; gap:4px 16px; max-width:none; margin:4px 0 0; padding:0; border:0; font-size:13px; line-height:18px; color:var(--secondary); }
+.channel-page .channel-entry footer code { font-size:12px; }
+.channel-page .channel-facts-disclosure { margin:4px 0 8px; font-size:14px; }
+.channel-page .channel-facts-disclosure > summary { cursor:pointer; padding:4px 0; min-height:24px; }
+.channel-page .channel-fact-group h4 { margin:8px 0 4px; font-size:13px; line-height:18px; }
+.channel-page .channel-fact-group ul { margin:0; padding-left:20px; }
+.channel-page .channel-unavailable { margin:4px 0 8px; padding:8px 12px; border-left:3px solid #a88445; background:#f5f0e6; color:var(--text); font-size:14px; }
+.channel-page .channel-batches { list-style:none; margin:0; padding:0; }
+.channel-page .channel-batches li { padding:10px 0; border-top:1px solid #edf0ea; }
+.channel-page .channel-batches li:first-child { border-top:0; }
+.channel-page .channel-batches p { margin:4px 0; font-size:14px; }
+.channel-page .channel-batches time { font-size:13px; color:var(--secondary); }
+.channel-page .pagination { display:flex; flex-wrap:wrap; align-items:center; gap:0 16px; margin:8px 0 0; font-size:13px; color:var(--secondary); }
+.channel-page .pagination a { display:inline-flex; align-items:center; min-height:44px; }
+.channel-page .empty-state { margin:4px 0 0; font-size:14px; line-height:20px; color:var(--secondary); }
+@media (max-width:580px) {
+  .channel-page .channel-facts { grid-template-columns:minmax(0,1fr); }
+  .channel-page .channel-facts dt { padding-bottom:0; border-bottom:0; }
+  .channel-page .channel-entry > header { display:block; }
+}
