@@ -95,8 +95,6 @@ defmodule Responder.ControlPlane.Router do
     do:
       page in ~w(conversations incident-rooms schedules subscriptions channels repositories failures workspaces findings memory rules preferences guidance usage configuration)
 
-  defp snapshot_path?(["conversations", "new"]), do: false
-
   defp snapshot_path?([page, _ref]),
     do: page in ~w(conversations incident-rooms schedules)
 
@@ -146,15 +144,10 @@ defmodule Responder.ControlPlane.Router do
     html(conn, 200, "Conversations", HTML.lab_index(options.projection.lab_index.()))
   end
 
-  # A new conversation is an identity, not a record: nothing is written until
-  # the first message, so opening this twice cannot leave two empty chats behind.
-  defp route(%Plug.Conn{method: "GET", path_info: ["conversations", "new"]} = conn, _options) do
-    conn
-    |> put_resp_header("location", "/conversations/#{Ecto.UUID.generate()}")
-    |> send_resp(303, "")
-    |> halt()
-  end
-
+  # A new conversation is an identity, not a record: the live index binds its
+  # composer to a fresh identity and nothing is written until the first
+  # message, so opening it twice cannot leave two empty chats behind. There is
+  # no /conversations/new redirect; "new" is not a conversation and 404s.
   defp route(
          %Plug.Conn{method: "GET", path_info: ["conversations", conversation_id]} = conn,
          options

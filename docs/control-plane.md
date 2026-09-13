@@ -661,7 +661,16 @@ its assessor could not start.
 
 `http://127.0.0.1:4321/conversations` holds direct conversations with the agent,
 without Slack. It is an ordinary way to use the same agent: enter here, receive
-replies here, inspect the exact execution from each message. A submitted message is
+replies here, inspect the exact execution from each message. The page is a
+directory of retained conversations (grouped by recency, times in UTC) beside
+the conversation. The index is an empty draft: its composer is bound to a fresh
+identity and nothing is written until the first message, after which the browser
+opens that conversation; `New` in the directory header returns to the index. Each
+message carries a `View request` link to its own retained execution: an input's
+own admission request (or its pre-episode request inspector, or its recorded
+decision when it was ignored) and a reply's producing work turn. While a message
+is waiting on admission its progress shows beneath it. There is no runtime rail,
+welcome page or `/conversations/new` route. A submitted message is
 normalized as a `control_plane` source input and then crosses the ordinary
 Inbox, Admission, Episode, Work, state-tool, and Delivery boundaries. The
 browser never calls Coop or a model provider directly. Accepted replies and

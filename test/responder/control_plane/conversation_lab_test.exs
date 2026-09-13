@@ -369,6 +369,48 @@ defmodule Responder.ControlPlane.ConversationLabTest do
            ) == {:error, {:invalid_conversation_lab, :message_deleted}}
   end
 
+  test "each projected message carries the exact provenance its inspection link needs" do
+    # lab_inputs/1 selected Entry.id and then dropped it; lab_reply_message/4
+    # dropped episode_id and turn_id. Without them the page could only guess a
+    # target from the newest episode, which is wrong for any message routed
+    # into an earlier one. The id is the current revision's, so an edit that is
+    # still pending admission links its own request, not the original's.
+    assert {:ok, %{entry: original}} =
+             ConversationLab.send_message(
+               @conversation_id,
+               "Which revision is this?",
+               profile(),
+               id_generator: fn -> @event_id end,
+               now: fn -> @now end
+             )
+
+    assert {:ok, sent} = Projection.lab_conversation(@conversation_id)
+    assert [message] = sent.messages
+    assert message.input_id == original.id
+    assert message.native_input_id == original.native_input_id
+    assert message.episode_id == nil
+    assert message.decision_action == nil
+    assert [%{id: progress_id, native_input_id: progress_input}] = sent.admission_progress
+    assert progress_id == original.id
+    assert progress_input == original.native_input_id
+
+    assert {:ok, %{entry: edited}} =
+             ConversationLab.edit_message(
+               @conversation_id,
+               @event_id,
+               "Which revision is this, exactly?",
+               profile(),
+               id_generator: fn -> Ecto.UUID.generate() end,
+               now: fn -> DateTime.add(@now, 1, :second) end
+             )
+
+    assert edited.id != original.id
+    assert {:ok, revised} = Projection.lab_conversation(@conversation_id)
+    assert [%{input_id: input_id, native_input_id: native_input_id}] = revised.messages
+    assert input_id == edited.id
+    assert native_input_id == original.native_input_id
+  end
+
   test "the Lab projects only the current revision of an edited or deleted message" do
     assert {:ok, %{entry: _original}} =
              ConversationLab.send_message(
@@ -866,6 +908,10 @@ defmodule Responder.ControlPlane.ConversationLabTest do
            ]
 
     responder = Enum.find(conversation.messages, &(&1.actor == :responder))
+    # The reply names the turn that produced it and that turn's episode, so its
+    # inspection link cannot drift to a newer episode of the same conversation.
+    assert responder.turn_id == accepted.turn.id
+    assert responder.episode_ref == transition.episode.key
 
     assert Enum.map(responder.cards, &{&1.kind, &1.ref}) == [
              {"task_offer", task_offer.ref},

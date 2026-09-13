@@ -73,7 +73,9 @@ defmodule Responder.ControlPlane.WorkbenchLive do
        lab_token: nil,
        lab_announcement: "",
        lab_items: [],
-       lab_window: nil
+       lab_window: nil,
+       lab_draft_id: nil,
+       lab_placeholder: nil
      )
      |> stream_configure(:activity, dom_id: &dom_id/1)
      |> stream(:activity, [])
@@ -112,8 +114,24 @@ defmodule Responder.ControlPlane.WorkbenchLive do
        page_description: nil,
        observed_at: nil
      )
+     |> assign_conversation_draft(location.path)
      |> refresh(true)}
   end
+
+  # A conversation view is opened once per navigation: the index gets a fresh
+  # identity nothing is written behind, and both get one composer placeholder
+  # that later refreshes never re-roll. Refreshes come through refresh/2, not
+  # here, so a five-second reconcile cannot hand the draft a new identity.
+  defp assign_conversation_draft(socket, "/conversations") do
+    assign(socket, lab_draft_id: Ecto.UUID.generate(), lab_placeholder: LabPage.random_example())
+  end
+
+  defp assign_conversation_draft(socket, "/conversations/" <> id) do
+    assign(socket, lab_draft_id: nil, lab_placeholder: LabPage.example_for(id))
+  end
+
+  defp assign_conversation_draft(socket, _path),
+    do: assign(socket, lab_draft_id: nil, lab_placeholder: nil)
 
   # Reading state belongs to one record. Navigating to a different Timeline must
   # not carry another record's opened bodies, which would load evidence the
@@ -204,6 +222,19 @@ defmodule Responder.ControlPlane.WorkbenchLive do
   end
 
   def handle_event("disclose", _params, socket), do: {:noreply, socket}
+
+  # After the index composer's first message is durable, the browser asks to
+  # open the conversation its form was bound to. This is navigation only: the
+  # id is validated as an identity, and the page shows whatever is retained
+  # under it, which is nothing if the send never happened.
+  def handle_event("open-conversation", %{"id" => id}, socket) when is_binary(id) do
+    case Ecto.UUID.cast(id) do
+      {:ok, id} -> {:noreply, push_patch(socket, to: "/conversations/#{id}")}
+      :error -> {:noreply, socket}
+    end
+  end
+
+  def handle_event("open-conversation", _params, socket), do: {:noreply, socket}
 
   def handle_event("search-activity", params, socket) do
     params =
@@ -384,38 +415,27 @@ defmodule Responder.ControlPlane.WorkbenchLive do
     end
   end
 
+  # The index is an empty draft: the same view as an open conversation, bound
+  # to an identity that has no record yet. The composer is a phx-update=ignore
+  # form, so the identity the browser posts to is the one its first render
+  # carried, which the server cannot see again after a reconnect. Following the
+  # first send is therefore the client's job ("open-conversation" below).
   defp load_detail(socket, options, ["conversations"]) do
-    assign(socket,
-      native: :lab,
-      page_title: "Conversations",
-      lab: nil,
-      lab_items: options.projection.lab_index.()
-    )
+    case Router.lab_snapshot(socket.assigns.lab_draft_id, options) do
+      {:ok, snapshot, token} ->
+        socket
+        |> load_conversation(Map.put(snapshot, :draft, true), token, options)
+        |> assign(lab_announcement: "")
+
+      {:error, _} ->
+        throw({:projection_unavailable, :lab})
+    end
   end
 
   defp load_detail(socket, options, ["conversations", _id]) do
     case Router.lab_snapshot(socket.assigns.params["id"], options) do
       {:ok, snapshot, token} ->
-        reset =
-          is_nil(socket.assigns.lab) or
-            socket.assigns.lab.conversation_id != snapshot.conversation_id
-
-        socket
-        |> sync_lab_window(snapshot, reset, options)
-        |> assign(
-          native: :lab,
-          page_title: "Conversations",
-          lab: snapshot,
-          lab_announcement:
-            if(reset,
-              do: "",
-              else:
-                LabPage.announcement(socket.assigns.lab, snapshot) ||
-                  socket.assigns.lab_announcement
-            ),
-          lab_token: token,
-          lab_items: options.projection.lab_index.()
-        )
+        load_conversation(socket, snapshot, token, options)
 
       {:error, :path_ref} ->
         assign(socket, native: :not_found, page_title: "Not found")
@@ -426,6 +446,29 @@ defmodule Responder.ControlPlane.WorkbenchLive do
   end
 
   defp load_detail(socket, options, _segments), do: load_snapshot(socket, options)
+
+  defp load_conversation(socket, snapshot, token, options) do
+    reset =
+      is_nil(socket.assigns.lab) or
+        socket.assigns.lab.conversation_id != snapshot.conversation_id
+
+    socket
+    |> sync_lab_window(snapshot, reset, options)
+    |> assign(
+      native: :lab,
+      page_title: "Conversations",
+      lab: snapshot,
+      lab_announcement:
+        if(reset,
+          do: "",
+          else:
+            LabPage.announcement(socket.assigns.lab, snapshot) ||
+              socket.assigns.lab_announcement
+        ),
+      lab_token: token,
+      lab_items: options.projection.lab_index.()
+    )
+  end
 
   defp settings_commands(options) do
     Map.take(options.actions, [
@@ -837,13 +880,15 @@ defmodule Responder.ControlPlane.WorkbenchLive do
             timeline={@timeline}
           />
           <LabPage.render
-            :if={@native == :lab}
+            :if={@native == :lab && @lab}
             snapshot={@lab}
             token={@lab_token}
             items={@lab_items}
             messages={@streams.lab_messages}
             history={@lab_window}
             announcement={@lab_announcement}
+            placeholder={@lab_placeholder}
+            now={@observed_at || DateTime.utc_now()}
           />
           <SettingsPage.render
             :if={@native == :settings}

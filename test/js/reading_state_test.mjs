@@ -47,6 +47,8 @@ function fixture(hash = "") {
   // are stubbed. Real LiveView patches are qualified separately in Chromium.
   vm.runInNewContext(source.replace(/^import .*$/gm, ""), {document, window, location,
     sessionStorage: {getItem() { return null }}, Socket: class {}, keyFor: () => null, createRelearnPicker,
+    createConversationControls: () => ({click() {}, keydown() { return false }, refresh() {}, destroy() {}}),
+    followSentDraft: () => null,
     applyFilterChange: () => false,
     // No transcript on this page: the conversation anchor declines ownership.
     ConversationHistory: {}, captureReadingAnchor: () => null, restoreReadingAnchor: () => false,
