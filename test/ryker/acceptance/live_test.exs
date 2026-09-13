@@ -65,7 +65,7 @@ defmodule Ryker.Acceptance.LiveTest do
     assert report.synthetic_inputs
 
     assert_receive {:root, %{"message" => root_message}, "live-acceptance:acceptance:root"}
-    assert root_message =~ "Automated Elixir product acceptance"
+    assert root_message =~ "Automated Ryker product acceptance"
 
     assert_receive {:envelope, first}
     assert_receive {:envelope, followup}
@@ -79,7 +79,11 @@ defmodule Ryker.Acceptance.LiveTest do
              get_in(followup, ["payload", "event", "ts"])
   end
 
-  test "product acceptance proves both turns used a valid remote worker placement" do
+  # The harness asked the configuration for a `runtime_mode` key that assembly
+  # never published; it read the absent key as "component" and so never once
+  # required a remote placement against the fleet it was accepting. The
+  # topology assembly does publish is `execution_mode`.
+  test "fleet acceptance proves both turns used a valid remote worker placement" do
     first_placement = %{generation: 3, state: :active, worker_id: "worker-remote-a"}
     followup_placement = %{generation: 4, state: :active, worker_id: "worker-remote-b"}
 
@@ -94,7 +98,7 @@ defmodule Ryker.Acceptance.LiveTest do
       |> Map.put(:worker_placement, followup_placement)
 
     operations = snapshot_operations(self(), "fleet", first, followup)
-    configuration = Map.put(configuration(), :runtime_mode, :product)
+    configuration = Map.put(configuration(), :execution_mode, :fleet)
 
     assert {:ok, report} =
              Live.run(configuration, "C-TEST",
@@ -345,6 +349,7 @@ defmodule Ryker.Acceptance.LiveTest do
 
   defp configuration do
     %{
+      execution_mode: :direct,
       slack: %{
         default_repository: "ryker",
         identity: %{
@@ -369,6 +374,7 @@ defmodule Ryker.Acceptance.LiveTest do
     {:ok, bot_client} = Client.new(http: http, requester: JSONClient)
 
     configuration = %{
+      execution_mode: :fleet,
       slack: %{
         app_http: http,
         bot_client: bot_client,
