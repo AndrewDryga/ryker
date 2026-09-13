@@ -1272,6 +1272,21 @@ defmodule Responder.ControlPlane.CardLab do
         %{"choices" => [], "question" => "What exact threshold should I use?"}
       ),
       record_state(
+        "remembered",
+        "Answered and remembered",
+        "The host saved the answer globally, so the card that asked carries the receipt instead of the reply claiming it.",
+        "input_request",
+        %{"choices" => [], "question" => "Which GCP project hosts this workload?"},
+        "answered",
+        %{
+          "memory" => %{
+            "applicability" => "the checkout workload in production",
+            "subject" => "GCP project for checkout",
+            "value" => "emisar-project-qa"
+          }
+        }
+      ),
+      record_state(
         "event",
         "Timed event wait",
         "Localized next check and monitoring deadline; verification instructions remain in the episode.",

@@ -107,7 +107,51 @@ defmodule Responder.Slack.ReplyRecords do
     end
   end
 
+  # An answer the host actually remembered is host knowledge, so the card that
+  # asked the question carries the receipt. Without it the only record of a
+  # durable global save was the model's own prose, which a reader cannot check
+  # and which the instructions had to keep policing.
+  defp present_saved_entity(document, %{status: :answered, kind: "input_request", ref: ref}) do
+    case remembered_answer(ref) do
+      nil ->
+        document
+
+      %MemoryEntry{
+        payload: %{"value" => value, "applicability" => applicability},
+        subject: subject
+      }
+      when is_binary(value) and is_binary(applicability) and is_binary(subject) ->
+        Map.put(document, "presentation", %{
+          "memory" => %{
+            "applicability" => applicability,
+            "subject" => subject,
+            "value" => value
+          }
+        })
+
+      _incomplete ->
+        document
+    end
+  end
+
   defp present_saved_entity(document, _record), do: document
+
+  defp remembered_answer(ref) do
+    Repo.one(
+      from(memory in MemoryEntry,
+        where:
+          memory.status == :active and
+            fragment(
+              "? IS NOT NULL AND pg_input_is_valid(?, 'jsonb') AND (?::jsonb ->> 'question_ref') = ?",
+              memory.answer_provenance,
+              memory.answer_provenance,
+              memory.answer_provenance,
+              ^ref
+            ),
+        limit: 1
+      )
+    )
+  end
 
   defp room_url(%IncidentRoom{channel_ref: channel_ref, workspace_ref: workspace_ref})
        when is_binary(channel_ref) and is_binary(workspace_ref) do

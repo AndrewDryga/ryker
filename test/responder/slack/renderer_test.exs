@@ -1968,6 +1968,42 @@ defmodule Responder.Slack.RendererTest do
     assert check["value"] == "publication:published42"
   end
 
+  # The host knows whether remember_answer succeeded; the model was writing
+  # "Remembered X" in prose, which a reader cannot check and the prompt has to
+  # police. The answered question carries the receipt instead.
+  test "an answered question shows what the host actually remembered" do
+    question = %{
+      "kind" => "input_request",
+      "payload" => %{"choices" => [], "question" => "Which GCP project hosts this workload?"},
+      "ref" => "record:input_request:abc123",
+      "status" => "answered"
+    }
+
+    assert {:ok, without} = Renderer.render(%{"message" => "Thanks.", "records" => [question]})
+    refute inspect(without) =~ "Remembered"
+
+    remembered =
+      Map.put(question, "presentation", %{
+        "memory" => %{
+          "applicability" => "the checkout workload in production",
+          "subject" => "GCP project for checkout",
+          "value" => "emisar-project-qa"
+        }
+      })
+
+    assert {:ok, with_memory} =
+             Renderer.render(%{"message" => "Thanks.", "records" => [remembered]})
+
+    text = inspect(with_memory)
+    assert text =~ "Remembered"
+    assert text =~ "emisar-project-qa"
+    assert text =~ "GCP project for checkout"
+    assert text =~ "the checkout workload in production"
+
+    # It is a receipt, not a control: nothing here grants or asks for anything.
+    refute Enum.any?(with_memory["blocks"], &(&1["type"] == "actions"))
+  end
+
   test "renders durable questions and event waits without accepting model-authored controls" do
     assert {:ok, rendered} =
              Renderer.render(%{

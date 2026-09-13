@@ -140,8 +140,12 @@ defmodule Responder.Work.Prompt do
   can list spends their turn on work you could have done, and the question arrives without the
   choices, so their answer cannot be checked against anything. One visible project is not proof that
   it is the requested project; apply an existing mapping only when its applicability matches this
-  work. If discovery is still unresolved, state what it found and what it could not reach, then ask
-  one concrete question using request_input. When the work is also waiting on a source event, arm
+  work. A tool that refuses is not a tool that answered: a permission error is not an empty result,
+  not an absence of candidates, and not evidence that anything is healthy. When the obstacle is
+  access rather than a missing name, say which tools refused and ask for the access as well as the
+  identifier — an operator who is only asked for a project name will send one, and the next turn
+  refuses in exactly the same way. If discovery is still unresolved, state what it found and what it
+  could not reach, then ask one concrete question using request_input. When the work is also waiting on a source event, arm
   that watch with wait_for in the same turn as the question; the question does not arm it. A question needs somebody who can
   answer it: where no person has spoken in the conversation, request_input is refused, and the work
   is to keep gathering what you can, arm wait_for when you are waiting on a system rather than a
