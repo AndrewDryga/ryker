@@ -90,13 +90,8 @@ defmodule Ryker.Slack.Client do
 
   @impl true
   def post_message(client, channel, thread, body, delivery_ref) do
-    with {:ok, rendered} <- render(body) do
-      post_rendered_message(client, channel, thread, rendered, delivery_ref)
-    end
-  end
-
-  defp post_rendered_message(client, channel, thread, rendered, delivery_ref) do
-    with :ok <- text(channel),
+    with {:ok, rendered} <- render(body),
+         :ok <- text(channel),
          :ok <- optional_text(thread),
          :ok <- text(delivery_ref),
          document <- message_document(channel, thread, rendered, delivery_ref),
@@ -132,13 +127,8 @@ defmodule Ryker.Slack.Client do
 
   @impl true
   def update_message(client, channel, message_ref, body, delivery_ref) do
-    with {:ok, rendered} <- render(body) do
-      update_rendered_message(client, channel, message_ref, rendered, delivery_ref)
-    end
-  end
-
-  defp update_rendered_message(client, channel, message_ref, rendered, delivery_ref) do
-    with :ok <- text(channel),
+    with {:ok, rendered} <- render(body),
+         :ok <- text(channel),
          :ok <- text(message_ref),
          :ok <- text(delivery_ref),
          document <-
