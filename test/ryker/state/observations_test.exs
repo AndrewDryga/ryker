@@ -186,15 +186,16 @@ defmodule Ryker.State.ObservationsTest do
              Continuity.model_context(destination, "blitz-infra")["observations"]
 
     assert source == first.id
+    page = MemorySearchPage.first("draft-ai", "current_channel")
 
-    assert [%{"topics" => [], "summary" => @message}] =
-             Continuity.search_context(
-               destination,
-               "blitz-infra",
-               "draft-ai",
-               "current_channel",
-               10
-             )
+    assert {:ok, [%{"topics" => [], "summary" => @message}]} =
+             Repo.transaction(fn ->
+               MemorySearchPage.read(
+                 page,
+                 10,
+                 &Observations.search_page(destination, "blitz-infra", &1)
+               )
+             end)
   end
 
   test "silent notes outlive operational records and expire at the memory horizon" do

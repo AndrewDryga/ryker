@@ -12,8 +12,11 @@ defmodule Ryker.State.ContinuityRecallRegressionTest do
     ConversationRollup,
     ConversationSummary,
     LearningSources,
+    MemorySearchPage,
     Observations
   }
+
+  alias Ryker.State.Continuity.Recall
 
   # Copied verbatim from the "cross-channel operational continuity" behavioral
   # scenario in testdata/eval/scenarios.jsonl. The 64 unrelated rows below are
@@ -291,7 +294,7 @@ defmodule Ryker.State.ContinuityRecallRegressionTest do
                "kind" => "continuity",
                "state" => %{"situation" => @captured_situation}
              }
-           ] = Continuity.search_context(target, "ryker", @captured_query, "workspace", 1)
+           ] = search!(:summary, target, "ryker", @captured_query, "workspace", 1)
   end
 
   test "private newer continuity cannot consume search capacity ahead of an older public match" do
@@ -319,7 +322,7 @@ defmodule Ryker.State.ContinuityRecallRegressionTest do
                "kind" => "continuity",
                "state" => %{"situation" => @captured_situation}
              }
-           ] = Continuity.search_context(target, "ryker", @captured_query, "workspace", 1)
+           ] = search!(:summary, target, "ryker", @captured_query, "workspace", 1)
   end
 
   test "expired newer continuity sources cannot consume search capacity ahead of an older match" do
@@ -356,7 +359,7 @@ defmodule Ryker.State.ContinuityRecallRegressionTest do
                "kind" => "continuity",
                "state" => %{"situation" => @captured_situation}
              }
-           ] = Continuity.search_context(target, "ryker", @captured_query, "workspace", 1)
+           ] = search!(:summary, target, "ryker", @captured_query, "workspace", 1)
   end
 
   test "invalid newer repository rollup scopes cannot crowd out an older public match" do
@@ -393,26 +396,22 @@ defmodule Ryker.State.ContinuityRecallRegressionTest do
                  "kind" => "continuity",
                  "state" => %{"situation" => @captured_situation}
                }
-             ] = Continuity.search_context(public_target, "ryker", @captured_query, scope, 1)
+             ] = search!(:rollup, public_target, "ryker", @captured_query, scope, 1)
     end
 
-    assert [] =
-             Continuity.search_context(
-               public_target,
-               "ryker",
-               @captured_query,
-               "current_channel",
-               1
-             )
+    for kind <- [:summary, :rollup] do
+      assert [] = search!(kind, public_target, "ryker", @captured_query, "current_channel", 1)
 
-    assert [] =
-             Continuity.search_context(
-               target("slack:TFOREIGN:CFOR"),
-               "ryker",
-               @captured_query,
-               "workspace",
-               1
-             )
+      assert [] =
+               search!(
+                 kind,
+                 target("slack:TFOREIGN:CFOR"),
+                 "ryker",
+                 @captured_query,
+                 "workspace",
+                 1
+               )
+    end
   end
 
   defp summary!(suffix, conversation_ref, visibility, situation, source \\ nil) do
@@ -546,6 +545,19 @@ defmodule Ryker.State.ContinuityRecallRegressionTest do
       1 -> [%{"channel_ref" => "CLEFT", "transport" => "slack", "workspace_ref" => "T123"}]
       2 -> [%{"channel_ref" => "C1", "transport" => "github", "workspace_ref" => "T123"}]
     end
+  end
+
+  # Explicit continuity search is one lane of a memory search page, read the
+  # way `Ryker.State.MemorySearch` reads the summary and rollup kinds.
+  defp search!(kind, episode, repository_ref, query, scope, limit) do
+    page = MemorySearchPage.first(query, scope)
+
+    {:ok, found} =
+      Repo.transaction(fn ->
+        MemorySearchPage.read(page, limit, &Recall.search_page(kind, episode, repository_ref, &1))
+      end)
+
+    found
   end
 
   defp target(conversation_ref) do

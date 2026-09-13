@@ -12,6 +12,7 @@ defmodule Ryker.State.GlobalMemoriesTest do
   alias Ryker.Retention.Data
   alias Ryker.Slack.Input, as: SlackInput
   alias Ryker.State.{Memories, MemoryEntry, MemoryEntryChangeset}
+  alias Ryker.State.Memories.{Recall, Reviews}
   alias Ryker.State.{Record, Records, Response}
   alias Ryker.StateTools.{Router, Tools}
   alias Ryker.Work.{Custody, Session, Turn}
@@ -33,7 +34,7 @@ defmodule Ryker.State.GlobalMemoriesTest do
       workspace_ref: "slack:TSECOND"
     }
 
-    assert [fact] = Memories.recall(context)
+    assert [fact] = Recall.recall(context)
     assert fact["memory_ref"] == entry.ref
     assert fact["scope"] == "global"
     assert fact["value"] == "portal-prod"
@@ -42,7 +43,7 @@ defmodule Ryker.State.GlobalMemoriesTest do
     refute Map.has_key?(fact, "source")
     refute Map.has_key?(fact, "source_read")
     refute inspect(fact) =~ "CPRIVATE"
-    assert [^fact] = Memories.search(context, "portal-prod", "global", 20)
+    assert [^fact] = Recall.search(context, "portal-prod", "global", 20)
   end
 
   test "different environments remain separate and explicit forgetting removes the saved value" do
@@ -55,11 +56,11 @@ defmodule Ryker.State.GlobalMemoriesTest do
       workspace_ref: "control-plane:lab:another"
     }
 
-    assert length(Memories.recall(context)) == 2
+    assert length(Recall.recall(context)) == 2
     assert {:ok, forgotten} = Memories.forget(production.ref)
     assert forgotten.status == :deleted
     refute inspect(forgotten.payload) =~ "portal-prod"
-    assert [%{"memory_ref" => ref}] = Memories.recall(context)
+    assert [%{"memory_ref" => ref}] = Recall.recall(context)
     assert ref == staging.ref
   end
 
@@ -82,7 +83,7 @@ defmodule Ryker.State.GlobalMemoriesTest do
     assert Repo.get(MemoryEntry, entry.id),
            "global facts must not expire with conversation history"
 
-    assert [review] = Memories.list_reviews("installation")
+    assert [review] = Reviews.list_reviews("installation")
     assert review["kind"] == "stale"
   end
 
@@ -136,8 +137,8 @@ defmodule Ryker.State.GlobalMemoriesTest do
     entry = insert_fact!("Production portal", "portal-old")
     old = DateTime.add(DateTime.utc_now(), -120, :second)
     Repo.update_all(MemoryEntry, set: [updated_at: old, confirmed_at: old])
-    assert {:ok, %{created: 1}} = Memories.refresh_reviews("installation", 60)
-    assert [review] = Memories.list_reviews("installation")
+    assert {:ok, %{created: 1}} = Reviews.refresh_reviews("installation", 60)
+    assert [review] = Reviews.list_reviews("installation")
 
     assert {:ok, _} =
              Memories.resolve_review(
@@ -157,7 +158,7 @@ defmodule Ryker.State.GlobalMemoriesTest do
     assert changed.answer_provenance == entry.answer_provenance
 
     assert [%{"value" => "portal-current", "applicability" => "Production portal"}] =
-             Memories.recall(%{
+             Recall.recall(%{
                conversation_ref: "slack:TOTHER:CNEW",
                workspace_ref: "slack:TOTHER",
                repository: nil
@@ -240,8 +241,8 @@ defmodule Ryker.State.GlobalMemoriesTest do
     queued = AnswerMemory.answered!("portal-queued", DateTime.add(now, 1, :second))
     assert {:ok, %{memory: memory}} = remember(original, "portal-original")
     Repo.update_all(MemoryEntry, set: [updated_at: now])
-    assert {:ok, %{created: 1}} = Memories.refresh_reviews("installation", 60)
-    assert [review] = Memories.list_reviews("installation")
+    assert {:ok, %{created: 1}} = Reviews.refresh_reviews("installation", 60)
+    assert [review] = Reviews.list_reviews("installation")
 
     assert {:ok, _} =
              Memories.resolve_review(
@@ -309,8 +310,8 @@ defmodule Ryker.State.GlobalMemoriesTest do
             ]
           )
 
-          assert {:ok, %{created: 1}} = Memories.refresh_reviews("installation", 60)
-          assert [review] = Memories.list_reviews("installation")
+          assert {:ok, %{created: 1}} = Reviews.refresh_reviews("installation", 60)
+          assert [review] = Reviews.list_reviews("installation")
 
           assert {:ok, _} =
                    Memories.resolve_review(

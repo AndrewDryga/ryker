@@ -157,15 +157,31 @@ defmodule Ryker.State.KnowledgeTest do
              RecallText.from(second.content)
            ])["knowledge"] == [after_update]
 
-    found = Continuity.search_context(destination, "blitz-infra", "haproxy", "workspace", 10)
-    assert Enum.filter(found, &(&1["kind"] == "conversation_knowledge")) == [after_update]
+    page = MemorySearchPage.first("haproxy", "workspace")
+
+    assert {:ok, [after_update]} ==
+             Repo.transaction(fn ->
+               MemorySearchPage.read(
+                 page,
+                 10,
+                 &Knowledge.search_page(destination, "blitz-infra", &1)
+               )
+             end)
+
     # Explicit historical search also keeps both originals reachable after
     # consolidation; automatic briefing still avoids repeating covered excerpts.
-    assert MapSet.new(
-             for item <- found,
-                 item["kind"] == "conversation_observation",
-                 do: item["source_input_id"]
-           ) ==
+    assert {:ok, originals} =
+             Repo.transaction(fn ->
+               MemorySearchPage.read(
+                 page,
+                 10,
+                 &Observations.search_page(destination, "blitz-infra", &1)
+               )
+             end)
+
+    assert Enum.all?(originals, &(&1["kind"] == "conversation_observation"))
+
+    assert MapSet.new(originals, & &1["source_input_id"]) ==
              MapSet.new([first.id, second.id])
   end
 

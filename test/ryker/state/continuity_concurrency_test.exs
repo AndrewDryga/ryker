@@ -22,6 +22,7 @@ defmodule Ryker.State.ContinuityConcurrencyTest do
     SourceExposure
   }
 
+  alias Ryker.State.Continuity.Recall
   alias Ryker.Work.{Custody, Result, Session, SubmissionBuilder, Turn}
 
   @now ~U[2026-08-28 12:00:00.000000Z]
@@ -140,7 +141,7 @@ defmodule Ryker.State.ContinuityConcurrencyTest do
             send(parent, {:searching, backend_pid()})
 
             Repo.transaction(fn ->
-              Continuity.search_page(
+              Recall.search_page(
                 :summary,
                 second.claim.episode,
                 nil,

@@ -30,6 +30,7 @@ defmodule Ryker.State.ContinuityTest do
     SourceExposure
   }
 
+  alias Ryker.State.Continuity.{Compaction, Recall}
   alias Ryker.Work.{Custody, FinalPreflight, Result, Submission, SubmissionBuilder}
 
   @now ~U[2026-09-04 12:00:00.000000Z]
@@ -74,7 +75,7 @@ defmodule Ryker.State.ContinuityTest do
 
     assert {:ok, {:ok, match, _position}} =
              Repo.transaction(fn ->
-               Continuity.search_page(kind, work.episode, "blitz-infra", page)
+               Recall.search_page(kind, work.episode, "blitz-infra", page)
              end)
 
     saved = Repo.one!(schema)
@@ -103,7 +104,7 @@ defmodule Ryker.State.ContinuityTest do
 
     assert {:ok, :done} =
              Repo.transaction(fn ->
-               Continuity.search_page(kind, work.episode, "blitz-infra", %{
+               Recall.search_page(kind, work.episode, "blitz-infra", %{
                  page
                  | cutoff: DateTime.add(database_time, -1)
                })
@@ -119,7 +120,7 @@ defmodule Ryker.State.ContinuityTest do
     Repo.update_all(ConversationSummary, set: [inserted_at: old, updated_at: old])
 
     assert {:ok, {:ok, 1}} =
-             Repo.transaction(fn -> Continuity.compact_in_transaction(60, 7200) end)
+             Repo.transaction(fn -> Compaction.compact_in_transaction(60, 7200) end)
   end
 
   test "inherited topic roots do not invalidate a warm session or rewrite earlier attribution" do
@@ -223,7 +224,7 @@ defmodule Ryker.State.ContinuityTest do
         )
 
         assert {:ok, {:ok, 1}} =
-                 Repo.transaction(fn -> Continuity.compact_in_transaction(60, 7200) end)
+                 Repo.transaction(fn -> Compaction.compact_in_transaction(60, 7200) end)
       end
 
       schema = if unquote(compact?), do: ConversationRollup, else: ConversationSummary
@@ -240,8 +241,9 @@ defmodule Ryker.State.ContinuityTest do
       assert current["related"] == []
       assert current["rollups"] == []
 
-      assert Continuity.search_context(work.episode, "blitz-infra", "haproxy", "workspace", 20) ==
-               []
+      for kind <- [:summary, :rollup] do
+        assert search!(kind, work.episode, "blitz-infra", "haproxy", "workspace", 20) == []
+      end
 
       frozen = %{
         "context" => %{"operator_context" => %{"continuity" => %{"related" => [document]}}}
@@ -312,7 +314,7 @@ defmodule Ryker.State.ContinuityTest do
     assert [related] = Continuity.model_context(reader, "blitz-infra")["related"]
     assert related["source_ref"] == original.ref
 
-    assert [match] = Continuity.search_context(reader, "blitz-infra", "haproxy", "workspace", 1)
+    assert [match] = search!(:summary, reader, "blitz-infra", "haproxy", "workspace", 1)
     assert match["source_ref"] == original.ref
 
     # Recall sorts newest first; compaction sorts oldest first. Exercise both full windows.
@@ -321,7 +323,7 @@ defmodule Ryker.State.ContinuityTest do
     )
 
     assert {:ok, {:ok, 1}} =
-             Repo.transaction(fn -> Continuity.compact_in_transaction(60, 7200) end)
+             Repo.transaction(fn -> Compaction.compact_in_transaction(60, 7200) end)
 
     rollup = Repo.one!(ConversationRollup)
     assert rollup.source_refs == [original.ref]
@@ -351,7 +353,7 @@ defmodule Ryker.State.ContinuityTest do
       summary = Repo.update!(Ecto.Changeset.change(summary, updated_at: old))
 
       assert {:ok, {:ok, 1}} =
-               Repo.transaction(fn -> Continuity.compact_in_transaction(60, 14 * 86_400) end)
+               Repo.transaction(fn -> Compaction.compact_in_transaction(60, 14 * 86_400) end)
 
       rollup = Repo.one!(ConversationRollup)
       assert rollup.scope_kind == scope_kind
@@ -384,7 +386,7 @@ defmodule Ryker.State.ContinuityTest do
         })
 
       assert {:ok, {:ok, 1}} =
-               Repo.transaction(fn -> Continuity.compact_in_transaction(60, 14 * 86_400) end)
+               Repo.transaction(fn -> Compaction.compact_in_transaction(60, 14 * 86_400) end)
 
       assert Repo.get!(ConversationRollup, rollup.id) == rollup
       assert Repo.get!(ConversationSummary, summary.id) == summary
@@ -463,13 +465,9 @@ defmodule Ryker.State.ContinuityTest do
       assert {:ok, :ok} = Repo.transaction(fn -> Observations.receive_in_transaction(changed) end)
       assert Continuity.model_context(work.episode, "blitz-infra")["current"] == nil
 
-      assert Continuity.search_context(
-               work.episode,
-               "blitz-infra",
-               "nomad-hvn01",
-               "workspace",
-               20
-             ) == []
+      for kind <- [:summary, :rollup] do
+        assert search!(kind, work.episode, "blitz-infra", "nomad-hvn01", "workspace", 20) == []
+      end
     end
   end
 
@@ -903,7 +901,7 @@ defmodule Ryker.State.ContinuityTest do
       Repo.insert!(duplicate)
 
       assert {:ok, {:ok, 0}} =
-               Repo.transaction(fn -> Continuity.compact_in_transaction(60, 7200) end)
+               Repo.transaction(fn -> Compaction.compact_in_transaction(60, 7200) end)
 
       assert Repo.aggregate(ConversationRollup, :count) == 0
       assert Repo.aggregate(ConversationSummary, :count) == 2
@@ -972,10 +970,10 @@ defmodule Ryker.State.ContinuityTest do
       })
 
     assert {:ok, {:ok, 0}} =
-             Repo.transaction(fn -> Continuity.compact_in_transaction(60, 7200) end)
+             Repo.transaction(fn -> Compaction.compact_in_transaction(60, 7200) end)
 
     assert {:ok, {:ok, 1}} =
-             Repo.transaction(fn -> Continuity.compact_in_transaction(60, 7200) end)
+             Repo.transaction(fn -> Compaction.compact_in_transaction(60, 7200) end)
 
     assert Repo.get(ConversationSummary, healthy.id) == nil
     assert Repo.aggregate(ConversationSummary, :count) == 100
@@ -992,7 +990,7 @@ defmodule Ryker.State.ContinuityTest do
     Repo.update!(Ecto.Changeset.change(summary, updated_at: old))
 
     assert {:ok, {:ok, 1}} =
-             Repo.transaction(fn -> Continuity.compact_in_transaction(60, 7200) end)
+             Repo.transaction(fn -> Compaction.compact_in_transaction(60, 7200) end)
 
     rollup = Repo.one!(ConversationRollup)
 
@@ -1012,7 +1010,7 @@ defmodule Ryker.State.ContinuityTest do
     Repo.update_all(ConversationSummary, set: [updated_at: old])
 
     assert {:ok, {:ok, 1}} =
-             Repo.transaction(fn -> Continuity.compact_in_transaction(60, 7200) end)
+             Repo.transaction(fn -> Compaction.compact_in_transaction(60, 7200) end)
 
     assert %{compaction_error_code: "scope_capacity"} = Repo.get!(ConversationSummary, pending.id)
     assert Repo.aggregate(ConversationSummary, :count) == 1
@@ -1040,7 +1038,7 @@ defmodule Ryker.State.ContinuityTest do
     summary = Repo.one!(ConversationSummary)
 
     assert {:ok, {:ok, 1}} =
-             Repo.transaction(fn -> Continuity.compact_in_transaction(60, 7200) end)
+             Repo.transaction(fn -> Compaction.compact_in_transaction(60, 7200) end)
 
     rollup = Repo.one!(ConversationRollup)
 
@@ -1055,7 +1053,7 @@ defmodule Ryker.State.ContinuityTest do
     Repo.insert!(%{summary | id: Ecto.UUID.generate(), ref: "continuity:#{Ecto.UUID.generate()}"})
 
     assert {:ok, {:ok, 1}} =
-             Repo.transaction(fn -> Continuity.compact_in_transaction(60, 7200) end)
+             Repo.transaction(fn -> Compaction.compact_in_transaction(60, 7200) end)
 
     assert Repo.one!(ConversationRollup).state == summary.state
     assert Repo.one!(ConversationRollup).id == rollup.id
@@ -1147,7 +1145,7 @@ defmodule Ryker.State.ContinuityTest do
         )
 
         assert {:ok, {:ok, 1}} =
-                 Repo.transaction(fn -> Continuity.compact_in_transaction(60, 7200) end)
+                 Repo.transaction(fn -> Compaction.compact_in_transaction(60, 7200) end)
       end
 
       schema = if unquote(compact?), do: ConversationRollup, else: ConversationSummary
@@ -1176,7 +1174,7 @@ defmodule Ryker.State.ContinuityTest do
         )
 
         assert {:ok, {:ok, 1}} =
-                 Repo.transaction(fn -> Continuity.compact_in_transaction(60, 3600) end)
+                 Repo.transaction(fn -> Compaction.compact_in_transaction(60, 3600) end)
       end
 
       KnowledgeFixtures.revoke!(source)
@@ -1185,13 +1183,10 @@ defmodule Ryker.State.ContinuityTest do
       assert context["related"] == []
       assert context["rollups"] == []
 
-      assert Continuity.search_context(
-               work.claim.episode,
-               "ryker",
-               "draft-ai-suggestions",
-               "workspace",
-               20
-             ) == []
+      for kind <- [:summary, :rollup] do
+        assert search!(kind, work.claim.episode, "ryker", "draft-ai-suggestions", "workspace", 20) ==
+                 []
+      end
     end
 
     @tag :summary_generation
@@ -1214,7 +1209,7 @@ defmodule Ryker.State.ContinuityTest do
         )
 
         assert {:ok, {:ok, 1}} =
-                 Repo.transaction(fn -> Continuity.compact_in_transaction(60, 3600) end)
+                 Repo.transaction(fn -> Compaction.compact_in_transaction(60, 3600) end)
       end
 
       schema = if unquote(compact?), do: ConversationRollup, else: ConversationSummary
@@ -1330,18 +1325,14 @@ defmodule Ryker.State.ContinuityTest do
     assert recalled["current"]["source_ref"] == summary.ref
     assert Repo.get!(ConversationSummary, summary.id).recall_count == 1
 
-    assert Continuity.search_context(
-             work.claim.episode,
-             "ryker",
-             "does-not-match",
-             "current_channel",
-             20
-           ) == []
+    assert search!(:summary, work.claim.episode, "ryker", "does-not-match", "current_channel", 20) ==
+             []
 
     assert Repo.get!(ConversationSummary, summary.id).recall_count == 1
 
     assert [match] =
-             Continuity.search_context(
+             search!(
+               :summary,
                work.claim.episode,
                "ryker",
                "verify production delivery",
@@ -1353,7 +1344,8 @@ defmodule Ryker.State.ContinuityTest do
     assert Repo.get!(ConversationSummary, summary.id).recall_count == 2
 
     assert [_workspace_match] =
-             Continuity.search_context(
+             search!(
+               :summary,
                work.claim.episode,
                "ryker",
                "verify production delivery",
@@ -1405,12 +1397,10 @@ defmodule Ryker.State.ContinuityTest do
              "rollups" => []
            }
 
-    assert Continuity.search_context(:invalid, nil, "query", "workspace", 20) == []
-
-    assert Continuity.compact_in_transaction(60, 3_600) ==
+    assert Compaction.compact_in_transaction(60, 3_600) ==
              {:error, :conversation_summary_transaction_required}
 
-    assert Continuity.compact_in_transaction(0, 3_600) ==
+    assert Compaction.compact_in_transaction(0, 3_600) ==
              {:error, :invalid_conversation_summary_retention}
 
     assert Continuity.delete_slack_channel_in_transaction("T123", "C223") ==
@@ -1430,7 +1420,10 @@ defmodule Ryker.State.ContinuityTest do
 
     invalid_destination = %{work.claim.episode | destination_transport: nil}
     assert Continuity.model_context(invalid_destination, nil)["current"] == nil
-    assert Continuity.search_context(invalid_destination, nil, "query", "workspace", 20) == []
+
+    for kind <- [:summary, :rollup] do
+      assert search!(kind, invalid_destination, nil, "query", "workspace", 20) == []
+    end
 
     malformed_slack = %{
       work.claim.episode
@@ -1471,19 +1464,13 @@ defmodule Ryker.State.ContinuityTest do
     Repo.update_all(ConversationSummary, set: [inserted_at: old, updated_at: old])
 
     assert {:ok, {:ok, 1}} =
-             Repo.transaction(fn -> Continuity.compact_in_transaction(60, 3_600) end)
+             Repo.transaction(fn -> Compaction.compact_in_transaction(60, 3_600) end)
 
     assert %ConversationRollup{scope_kind: :conversation, visibility: :conversation} =
              Repo.one!(ConversationRollup)
 
     assert [rollup] =
-             Continuity.search_context(
-               work.claim.episode,
-               nil,
-               "universal input",
-               "current_channel",
-               20
-             )
+             search!(:rollup, work.claim.episode, nil, "universal input", "current_channel", 20)
 
     assert rollup["kind"] == "continuity"
   end
@@ -1565,7 +1552,7 @@ defmodule Ryker.State.ContinuityTest do
     Repo.update_all(ConversationSummary, set: [inserted_at: old, updated_at: old])
 
     assert {:ok, {:ok, 1}} =
-             Repo.transaction(fn -> Continuity.compact_in_transaction(60, 3_600) end)
+             Repo.transaction(fn -> Compaction.compact_in_transaction(60, 3_600) end)
 
     assert Repo.aggregate(ConversationSummary, :count) == 0
     assert %ConversationRollup{} = rollup = Repo.one!(ConversationRollup)
@@ -1617,7 +1604,7 @@ defmodule Ryker.State.ContinuityTest do
     Repo.update_all(ConversationSummary, set: [inserted_at: old, updated_at: old])
 
     assert {:ok, {:ok, 1}} =
-             Repo.transaction(fn -> Continuity.compact_in_transaction(60, 60) end)
+             Repo.transaction(fn -> Compaction.compact_in_transaction(60, 60) end)
 
     assert Repo.aggregate(ConversationSummary, :count) == 0
     assert Repo.aggregate(ConversationRollup, :count) == 0
@@ -1639,7 +1626,7 @@ defmodule Ryker.State.ContinuityTest do
     Repo.update_all(ConversationSummary, set: [inserted_at: first_time, updated_at: first_time])
 
     assert {:ok, {:ok, 1}} =
-             Repo.transaction(fn -> Continuity.compact_in_transaction(60, 7_200) end)
+             Repo.transaction(fn -> Compaction.compact_in_transaction(60, 7_200) end)
 
     first_rollup = Repo.one!(ConversationRollup)
 
@@ -1654,7 +1641,7 @@ defmodule Ryker.State.ContinuityTest do
     Repo.update_all(ConversationSummary, set: [inserted_at: second_time, updated_at: second_time])
 
     assert {:ok, {:ok, 1}} =
-             Repo.transaction(fn -> Continuity.compact_in_transaction(60, 7_200) end)
+             Repo.transaction(fn -> Compaction.compact_in_transaction(60, 7_200) end)
 
     rollup = Repo.one!(ConversationRollup)
     assert rollup.id == first_rollup.id
@@ -1666,18 +1653,13 @@ defmodule Ryker.State.ContinuityTest do
     current = open_work!("rollup-search", "slack:T123:C557", nil, "ryker")
 
     assert [match] =
-             Continuity.search_context(
-               current.claim.episode,
-               "ryker",
-               "source:first",
-               "repository",
-               20
-             )
+             search!(:rollup, current.claim.episode, "ryker", "source:first", "repository", 20)
 
     assert match["source_count"] == 2
 
-    assert Continuity.search_context(current.claim.episode, "ryker", "source", "invalid", 20) ==
-             []
+    for kind <- [:summary, :rollup] do
+      assert search!(kind, current.claim.episode, "ryker", "source", "invalid", 20) == []
+    end
   end
 
   test "private continuity crosses threads only inside the same authenticated channel" do
@@ -1909,7 +1891,7 @@ defmodule Ryker.State.ContinuityTest do
     Repo.update_all(ConversationSummary, set: [inserted_at: old, updated_at: old])
 
     assert {:ok, {:ok, 2}} =
-             Repo.transaction(fn -> Continuity.compact_in_transaction(60, 3_600) end)
+             Repo.transaction(fn -> Compaction.compact_in_transaction(60, 3_600) end)
 
     rollup = Repo.one!(ConversationRollup)
     assert byte_size(CanonicalJSON.encode!(rollup.state)) <= 32 * 1_024
@@ -2141,6 +2123,19 @@ defmodule Ryker.State.ContinuityTest do
 
   defp large_values(prefix) do
     Enum.map(1..20, fn index -> "#{prefix}-#{index}-#{String.duplicate("x", 1_350)}" end)
+  end
+
+  # Explicit continuity search is one lane of a memory search page, read the
+  # way `Ryker.State.MemorySearch` reads the summary and rollup kinds.
+  defp search!(kind, episode, repository_ref, query, scope, limit) do
+    page = MemorySearchPage.first(query, scope)
+
+    {:ok, found} =
+      Repo.transaction(fn ->
+        MemorySearchPage.read(page, limit, &Recall.search_page(kind, episode, repository_ref, &1))
+      end)
+
+    found
   end
 
   defp digest(value), do: :crypto.hash(:sha256, value) |> Base.encode16(case: :lower)
