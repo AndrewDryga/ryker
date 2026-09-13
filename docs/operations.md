@@ -564,12 +564,12 @@ Keep the retention runtime enabled in product configurations. It closes and
 discards terminal remote sessions, prunes only terminal and dependency-free
 history, and removes artifacts only after relational custody proves there are
 no live references. Active episodes, schedule occurrences with active child
-work, pending delivery, approvals, publications, and cutover evidence are not
-age-only garbage.
+work, pending delivery, approvals, and publications are not age-only garbage.
 
-Historical import records and their provenance remain in PostgreSQL. The retired
-Go-state import and rollback commands are no longer shipped; removing those tools
-does not remove previously imported work or memory.
+The Go-era SQLite import is gone entirely: its commands left with the Go gates,
+and the ledger that recorded reviewed import runs was dropped on 2026-09-13 by
+migration `20260913000200` after the production tables were confirmed empty
+(0 runs, 0 items). The migration refuses to run over a populated ledger.
 
 Inspect retention failures in the control plane before retrying. A failed close
 or prune remains durable work; do not bypass it with direct deletes.

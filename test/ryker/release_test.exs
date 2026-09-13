@@ -3,28 +3,26 @@ defmodule Ryker.ReleaseTest do
 
   alias Ryker.Release
 
-  test "the Elixir release preserves import history without shipping retired Go migration commands" do
-    # Removing the Go gates left their obsolete importer and rollback command in
-    # every release. Historical provenance is still used by retention and records.
+  test "the Elixir release ships no trace of the retired SQLite import" do
+    # Removing the Go gates left their importer and rollback command in every
+    # release; the ledger schemas and the changeset write paths that only the
+    # importer used followed on 2026-09-13, once the production ledger was
+    # confirmed empty. A module or write path reappearing here would make an
+    # obsolete migration look like a supported runtime operation again.
     for module <- [
           Mix.Tasks.Ryker.Cutover,
           Ryker.Cutover.Importer,
+          Ryker.Cutover.Item,
           Ryker.Cutover.Ledger,
           Ryker.Cutover.LegacySchema,
           Ryker.Cutover.LegacySnapshot,
           Ryker.Cutover.Manifest,
-          Ryker.Cutover.Rollback
+          Ryker.Cutover.Rollback,
+          Ryker.Cutover.Run
         ] do
       refute Code.ensure_loaded?(module)
     end
 
-    assert Code.ensure_loaded?(Ryker.Cutover.Item)
-    assert Code.ensure_loaded?(Ryker.Cutover.Run)
-  end
-
-  test "retained historical schemas do not expose retired import write paths" do
-    # The removed importer was their sole caller; leaving these writes behind
-    # made an obsolete migration look like a supported runtime operation.
     for {module, operation, arity} <- [
           {Ryker.State.MemoryEntryChangeset, :cutover, 1},
           {Ryker.State.BehaviorChangeset, :cutover, 1},
@@ -34,6 +32,16 @@ defmodule Ryker.ReleaseTest do
         ] do
       assert Code.ensure_loaded?(module)
       refute function_exported?(module, operation, arity)
+    end
+
+    for {module, field} <- [
+          {Ryker.State.MemoryEntry, :cutover_item_id},
+          {Ryker.State.Behavior, :cutover_item_id},
+          {Ryker.State.Schedule, :cutover_item_id},
+          {Ryker.State.Record, :cutover_item_id},
+          {Ryker.Episodes.Episode, :cutover_item_id}
+        ] do
+      refute field in module.__schema__(:fields)
     end
   end
 

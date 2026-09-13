@@ -420,17 +420,6 @@ defmodule Ryker.Retention.Policy do
       why: "host-authorized Slack or GitHub action intent and exact provider receipt"
     },
     %{
-      table: "ryker_cutover_items",
-      class: :kept,
-      why:
-        "source-to-target decisions and rollback fingerprints kept after copied legacy bodies expire"
-    },
-    %{
-      table: "ryker_cutover_runs",
-      class: :kept,
-      why: "reviewed legacy-state migration and rollback provenance for this replacement"
-    },
-    %{
       table: "ryker_runtime_progress",
       class: :kept,
       why: "one bounded payload-free current scheduler heartbeat per runtime lane"

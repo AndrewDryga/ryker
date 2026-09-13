@@ -13,7 +13,6 @@ defmodule Ryker.State.MemoryEntry do
 
   schema "operational_memory_entries" do
     belongs_to(:offer_record, Ryker.State.Record)
-    belongs_to(:cutover_item, Ryker.Cutover.Item)
     field(:ref, :string)
 
     field(:kind, Ecto.Enum,

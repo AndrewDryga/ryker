@@ -67,6 +67,7 @@ defmodule Ryker.Ingress.MigrationUpgradeTest do
   @channel_invitations_version 20_260_912_000_300
   @schedule_catch_up_version 20_260_912_000_400
   @rename_version 20_260_913_000_100
+  @retired_ledger_version 20_260_913_000_200
   # Cross-conversation routing migrations stay named as their own group so the
   # ladder can be reconciled with sibling work.
   @routing_versions [
@@ -103,7 +104,8 @@ defmodule Ryker.Ingress.MigrationUpgradeTest do
     @slack_workspace_url_version,
     @channel_invitations_version,
     @schedule_catch_up_version,
-    @rename_version
+    @rename_version,
+    @retired_ledger_version
   ]
   @memory_versions Enum.to_list(20_260_908_000_100..20_260_908_001_100//100) ++
                      [@bounded_sources_version]
@@ -223,8 +225,9 @@ defmodule Ryker.Ingress.MigrationUpgradeTest do
       assert column_exists?(repo, prefix, "episode_schedules", "revision")
       assert column_exists?(repo, prefix, "operator_behaviors", "revision")
       assert table_exists?(repo, prefix, "coop_worker_workspace_checkpoints")
-      assert table_exists?(repo, prefix, "ryker_cutover_runs")
-      assert table_exists?(repo, prefix, "ryker_cutover_items")
+      refute table_exists?(repo, prefix, "ryker_cutover_runs")
+      refute table_exists?(repo, prefix, "ryker_cutover_items")
+      refute column_exists?(repo, prefix, "operational_memory_entries", "cutover_item_id")
       assert table_exists?(repo, prefix, "ryker_runtime_progress")
       assert column_exists?(repo, prefix, "github_binding_settings", "ryker_actor_id")
       assert table_exists?(repo, prefix, "ingress_input_artifact_references")
@@ -1642,11 +1645,12 @@ defmodule Ryker.Ingress.MigrationUpgradeTest do
       # evidence, the session-evidence command kind and the empty settings tables
       # are reversible on their own.
       assert Ecto.Migrator.run(repo, @migrations_path, :down,
-               step: 20 + length(@routing_versions),
+               step: 21 + length(@routing_versions),
                prefix: prefix,
                log: false
              ) ==
                [
+                 @retired_ledger_version,
                  @rename_version,
                  @schedule_catch_up_version,
                  @channel_invitations_version,
@@ -1751,8 +1755,9 @@ defmodule Ryker.Ingress.MigrationUpgradeTest do
       # The worker session evidence and the session-evidence command kind sit
       # above the learning rungs and are empty in this schema, so they roll back
       # on their own first.
-      assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 5, prefix: prefix, log: false) ==
+      assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 6, prefix: prefix, log: false) ==
                [
+                 @retired_ledger_version,
                  @rename_version,
                  @schedule_catch_up_version,
                  @channel_invitations_version,
@@ -2025,7 +2030,8 @@ defmodule Ryker.Ingress.MigrationUpgradeTest do
                  @slack_workspace_url_version,
                  @channel_invitations_version,
                  @schedule_catch_up_version,
-                 @rename_version
+                 @rename_version,
+                 @retired_ledger_version
                ]
 
       assert table_exists?(repo, prefix, "episode_routing_digests")
@@ -2040,11 +2046,12 @@ defmodule Ryker.Ingress.MigrationUpgradeTest do
       # in this schema, which recorded no worker evidence, no settings and no
       # metered learning execution.
       assert Ecto.Migrator.run(repo, @migrations_path, :down,
-               step: 13,
+               step: 14,
                prefix: prefix,
                log: false
              ) ==
                [
+                 @retired_ledger_version,
                  @rename_version,
                  @schedule_catch_up_version,
                  @channel_invitations_version,
@@ -2178,8 +2185,9 @@ defmodule Ryker.Ingress.MigrationUpgradeTest do
 
       # The review digests and the session-evidence command kind sit above this
       # table and hold nothing here.
-      assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 6, prefix: prefix, log: false) ==
+      assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 7, prefix: prefix, log: false) ==
                [
+                 @retired_ledger_version,
                  @rename_version,
                  @schedule_catch_up_version,
                  @channel_invitations_version,
@@ -2222,7 +2230,8 @@ defmodule Ryker.Ingress.MigrationUpgradeTest do
                  @slack_workspace_url_version,
                  @channel_invitations_version,
                  @schedule_catch_up_version,
-                 @rename_version
+                 @rename_version,
+                 @retired_ledger_version
                ]
     after
       SQL.query!(repo, "DROP SCHEMA IF EXISTS #{prefix} CASCADE", [])
@@ -2397,6 +2406,103 @@ defmodule Ryker.Ingress.MigrationUpgradeTest do
     end
   end
 
+  # The SQLite import ledger was retired on 2026-09-13 with 0 runs and 0 items
+  # in production. Dropping tables is the one migration that cannot be undone by
+  # a rollback, so the step must refuse a populated ledger outright, and the
+  # provenance it restores (every behavior, schedule and record born from an
+  # offer inside a turn) must be the NOT NULL the ledger had relaxed rather than
+  # a CHECK that a later writer could satisfy with NULLs.
+  test "retiring the cutover ledger refuses import history and restores offer provenance" do
+    repo = start_migration_repo!()
+    prefix = "retired_ledger_#{System.unique_integer([:positive])}"
+    SQL.query!(repo, "CREATE SCHEMA #{prefix}", [])
+
+    try do
+      Ecto.Migrator.run(repo, @migrations_path, :up,
+        to: @rename_version,
+        prefix: prefix,
+        log: false
+      )
+
+      {run_id, item_id} = insert_cutover_ledger_rows!(repo, prefix)
+
+      assert_raise Postgrex.Error, ~r/the cutover ledger has data/, fn ->
+        Ecto.Migrator.run(repo, @migrations_path, :up, step: 1, prefix: prefix, log: false)
+      end
+
+      assert table_exists?(repo, prefix, "ryker_cutover_items")
+
+      SQL.query!(repo, "DELETE FROM #{prefix}.ryker_cutover_items WHERE id = $1::text::uuid", [
+        item_id
+      ])
+
+      SQL.query!(repo, "DELETE FROM #{prefix}.ryker_cutover_runs WHERE id = $1::text::uuid", [
+        run_id
+      ])
+
+      assert Ecto.Migrator.run(repo, @migrations_path, :up, step: 1, prefix: prefix, log: false) ==
+               [@retired_ledger_version]
+
+      refute table_exists?(repo, prefix, "ryker_cutover_runs")
+      refute table_exists?(repo, prefix, "ryker_cutover_items")
+      assert named_objects(repo, prefix, "%cutover%") == []
+
+      for table <- ~w(operational_memory_entries operator_behaviors episode_schedules
+                      episode_kernel_episodes episode_state_records) do
+        refute column_exists?(repo, prefix, table, "cutover_item_id")
+      end
+
+      refute column_nullable?(repo, prefix, "operator_behaviors", "offer_record_id")
+      refute column_nullable?(repo, prefix, "episode_schedules", "offer_record_id")
+      refute column_nullable?(repo, prefix, "episode_schedules", "source_episode_id")
+      refute column_nullable?(repo, prefix, "episode_state_records", "turn_id")
+      assert column_nullable?(repo, prefix, "operational_memory_entries", "offer_record_id")
+
+      provenance =
+        constraint_definition(
+          repo,
+          prefix,
+          "operational_memory_entries",
+          "operational_memory_provenance_valid"
+        )
+
+      refute provenance =~ "cutover"
+      assert provenance =~ "answer_provenance"
+
+      # An answer-confirmed global fact has no offer record and must still be
+      # writable; the tightened rule only lost its ledger branch.
+      fact_id = insert_global_fact!(repo, prefix)
+
+      assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 1, prefix: prefix, log: false) ==
+               [@retired_ledger_version]
+
+      assert table_exists?(repo, prefix, "ryker_cutover_runs")
+      assert table_exists?(repo, prefix, "ryker_cutover_items")
+
+      for table <- ~w(operational_memory_entries operator_behaviors episode_schedules
+                      episode_kernel_episodes episode_state_records) do
+        assert column_exists?(repo, prefix, table, "cutover_item_id")
+      end
+
+      assert column_nullable?(repo, prefix, "episode_state_records", "turn_id")
+
+      assert triggers(repo, prefix, "ryker_control_plane_changed") ==
+               every_table(repo, prefix) -- ["schema_migrations", "ryker_runtime_progress"]
+
+      assert %{rows: [[1]]} =
+               SQL.query!(
+                 repo,
+                 "SELECT count(*) FROM #{prefix}.operational_memory_entries WHERE id = $1::text::uuid",
+                 [fact_id]
+               )
+
+      assert Ecto.Migrator.run(repo, @migrations_path, :up, all: true, prefix: prefix, log: false) ==
+               [@retired_ledger_version]
+    after
+      SQL.query!(repo, "DROP SCHEMA IF EXISTS #{prefix} CASCADE", [])
+    end
+  end
+
   test "durable settings roll back only while no installation exists" do
     # Rolling the settings tables away under a live installation would silently
     # return the next boot to fresh setup with a new identity; the guard refuses.
@@ -2436,8 +2542,9 @@ defmodule Ryker.Ingress.MigrationUpgradeTest do
       # The session-evidence command kind, the worker session evidence and the
       # repository source column sit above the settings tables and hold nothing
       # here, so they roll back on their own.
-      assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 8, prefix: prefix, log: false) ==
+      assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 9, prefix: prefix, log: false) ==
                [
+                 @retired_ledger_version,
                  @rename_version,
                  @schedule_catch_up_version,
                  @channel_invitations_version,
@@ -2510,7 +2617,8 @@ defmodule Ryker.Ingress.MigrationUpgradeTest do
                  @slack_workspace_url_version,
                  @channel_invitations_version,
                  @schedule_catch_up_version,
-                 @rename_version
+                 @rename_version,
+                 @retired_ledger_version
                ]
     after
       SQL.query!(repo, "DROP SCHEMA IF EXISTS #{prefix} CASCADE", [])
@@ -2740,7 +2848,8 @@ defmodule Ryker.Ingress.MigrationUpgradeTest do
           SELECT to_jsonb(row) - 'learning_run_id' - 'summary_error_code'
             - 'source_exposure_count' - 'knowledge_exposure_count' - 'completion_receipt'
             - 'selected_input_refs' - 'selection_ledger' - 'source_envelope'
-            - 'engagement_receipt' - 'delivery_target' - 'repository_source' AS value
+            - 'engagement_receipt' - 'delivery_target' - 'repository_source'
+            - 'cutover_item_id' AS value
           FROM #{prefix}.#{table} row ORDER BY 1
           """,
           []
@@ -3101,6 +3210,48 @@ defmodule Ryker.Ingress.MigrationUpgradeTest do
       )
 
     nullable?
+  end
+
+  # One applied import run with one applied item, in the shape the ledger's
+  # CHECK constraints accept. Structural fixture: no such import ever ran.
+  defp insert_cutover_ledger_rows!(repo, prefix) do
+    run_id = Ecto.UUID.generate()
+    item_id = Ecto.UUID.generate()
+
+    SQL.query!(
+      repo,
+      """
+      INSERT INTO #{prefix}.ryker_cutover_runs (
+        id, version, status, manifest_sha256, review_sha256, source_kind,
+        source_schema_sha256, source_schema_version, source_sha256, workspace_ref,
+        cutover_at, reviewed_at, operator_ref, summary, item_count, applied_at,
+        inserted_at, updated_at
+      ) VALUES (
+        $1::text::uuid, 1, 'applied', repeat('1', 64), repeat('4', 64), 'responder_sqlite',
+        'e9aaa44b42dac7b2afe4e5740bcf6e4d24b9f93c2c2182781374e12e6643c535', 90, repeat('5', 64),
+        'slack:T123', clock_timestamp(), clock_timestamp(), 'operator:ladder-test',
+        '{"episode":1}', 1, clock_timestamp(), clock_timestamp(), clock_timestamp()
+      )
+      """,
+      [run_id]
+    )
+
+    SQL.query!(
+      repo,
+      """
+      INSERT INTO #{prefix}.ryker_cutover_items (
+        id, run_id, ref, kind, source_table, source_ref, source_sha256, decision, status,
+        data, target_refs, target_fingerprint, inserted_at, updated_at
+      ) VALUES (
+        $1::text::uuid, $2::text::uuid, 'episode:ladder', 'episode', 'work_episodes', 'ladder',
+        repeat('2', 64), 'import', 'applied', '{"objective":"ladder"}', '["episode:ladder"]',
+        repeat('3', 64), clock_timestamp(), clock_timestamp()
+      )
+      """,
+      [item_id, run_id]
+    )
+
+    {run_id, item_id}
   end
 
   defp insert_global_fact!(repo, prefix) do

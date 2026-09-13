@@ -7,7 +7,6 @@ defmodule Ryker.Retention.DataTest do
   alias Ryker.Artifacts
   alias Ryker.CanonicalJSON
   alias Ryker.CoopFleet.{Placement, SessionEvidence, Worker}
-  alias Ryker.Cutover.{Item, Run}
   alias Ryker.Delivery.PlatformAction
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
@@ -521,62 +520,6 @@ defmodule Ryker.Retention.DataTest do
     assert Repo.get!(Ryker.Delivery.Reaction, blocked).status == :blocked
     assert result.audit_rows == 4
     assert Actions.fetch("operator-action:old-operator-action") == :error
-  end
-
-  test "cutover audit keeps fingerprints while expiring copied legacy bodies" do
-    run_id = Ecto.UUID.generate()
-    item_id = Ecto.UUID.generate()
-    manifest_sha256 = String.duplicate("1", 64)
-    source_sha256 = String.duplicate("2", 64)
-    target_fingerprint = String.duplicate("3", 64)
-
-    Repo.insert!(%Run{
-      applied_at: @old,
-      cutover_at: @old,
-      id: run_id,
-      inserted_at: @old,
-      item_count: 1,
-      manifest_sha256: manifest_sha256,
-      operator_ref: "operator:retention-test",
-      review_sha256: String.duplicate("4", 64),
-      reviewed_at: @old,
-      source_kind: "responder_sqlite",
-      source_schema_sha256: "e9aaa44b42dac7b2afe4e5740bcf6e4d24b9f93c2c2182781374e12e6643c535",
-      source_schema_version: 90,
-      source_sha256: String.duplicate("5", 64),
-      status: :applied,
-      summary: %{"episode" => 1},
-      updated_at: @old,
-      version: 1,
-      workspace_ref: "slack:T123"
-    })
-
-    Repo.insert!(%Item{
-      data: %{"objective" => "private legacy incident body"},
-      decision: :import,
-      id: item_id,
-      inserted_at: @old,
-      kind: :episode,
-      ref: "episode:legacy-private",
-      run_id: run_id,
-      source_ref: "legacy-private",
-      source_sha256: source_sha256,
-      source_table: "work_episodes",
-      status: :applied,
-      target_fingerprint: target_fingerprint,
-      target_refs: ["episode:replacement"],
-      updated_at: @old
-    })
-
-    assert {:ok, result} = Data.prune(settings(audit_data_seconds: 60))
-    assert result.cutover_items == 1
-
-    retained = Repo.get!(Item, item_id)
-    assert retained.data == %{"retention" => "pruned"}
-    assert retained.source_sha256 == source_sha256
-    assert retained.target_fingerprint == target_fingerprint
-    assert retained.target_refs == ["episode:replacement"]
-    assert Repo.get!(Run, run_id).manifest_sha256 == manifest_sha256
   end
 
   test "each maintenance transaction mutates only one bounded row batch" do

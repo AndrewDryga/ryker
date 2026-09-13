@@ -9,7 +9,6 @@ defmodule Ryker.State.BehaviorChangeset do
     :confirmed_at,
     :confirmed_by_actor_ref,
     :confirmation_ref,
-    :cutover_item_id,
     :expires_at,
     :edited_at,
     :edited_by_actor_ref,
@@ -36,7 +35,6 @@ defmodule Ryker.State.BehaviorChangeset do
 
   @insert_required @fields --
                      [
-                       :cutover_item_id,
                        :expires_at,
                        :edited_at,
                        :edited_by_actor_ref,
@@ -58,11 +56,8 @@ defmodule Ryker.State.BehaviorChangeset do
     changeset
     |> unique_constraint(:ref)
     |> unique_constraint(:offer_record_id)
-    |> unique_constraint(:cutover_item_id)
     |> unique_constraint(:identity_key, name: :operator_behaviors_active_identity)
     |> foreign_key_constraint(:offer_record_id)
-    |> foreign_key_constraint(:cutover_item_id)
-    |> check_constraint(:offer_record_id, name: :operator_behavior_provenance_valid)
     |> check_constraint(:kind, name: :operator_behavior_valid)
     |> check_constraint(:edited_at, name: :operator_behavior_edit_provenance_valid)
     |> check_constraint(:revision, name: :operator_behavior_revision_valid)

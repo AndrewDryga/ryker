@@ -9,7 +9,6 @@ defmodule Ryker.State.Schedule do
   schema "episode_schedules" do
     belongs_to(:offer_record, Ryker.State.Record)
     belongs_to(:source_episode, Ryker.Episodes.Episode)
-    belongs_to(:cutover_item, Ryker.Cutover.Item)
 
     field(:ref, :string)
     field(:status, Ecto.Enum, values: [:active, :paused, :completed, :expired, :deleted])

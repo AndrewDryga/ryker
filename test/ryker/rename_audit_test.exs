@@ -60,8 +60,6 @@ defmodule Ryker.RenameAuditTest do
      "Go-era SQLite state file: the recorded episode fixtures name it as their harvest provenance (source.database), and the watchdog reads it until its Elixir rewrite lands"},
     {~r{^docs/control-plane\.md$}, ~r/responder_(state|preferences)(?![A-Za-z0-9_])/,
      "Go-era SQLite tables named as the data source of the retained design notes"},
-    {~r{^test/ryker/retention/data_test\.exs$}, ~r/responder_sqlite/,
-     "CHECK-constrained source_kind of the SQLite-to-PostgreSQL cutover ledger (audit text)"},
     {~r{^test/ryker/control_plane/subscription_presentation_test\.exs$}, ~r/responder_emisar/,
      "harvest provenance: the live database's name on the day the rows were taken"},
     {~r{^test/ryker/coop_fleet/protocol_test\.exs$}, ~r/responder-read-only-v1/,

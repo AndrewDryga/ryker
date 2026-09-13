@@ -15,7 +15,6 @@ defmodule Ryker.State.Record do
   schema "episode_state_records" do
     belongs_to(:episode, Ryker.Episodes.Episode)
     belongs_to(:turn, Ryker.Work.Turn)
-    belongs_to(:cutover_item, Ryker.Cutover.Item)
     field(:ref, :string)
     field(:sequence, :integer, read_after_writes: true)
     field(:operation_id, :string)
