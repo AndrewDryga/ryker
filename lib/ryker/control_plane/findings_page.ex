@@ -1,7 +1,10 @@
 defmodule Ryker.ControlPlane.FindingsPage do
   @moduledoc false
   use Phoenix.Component
-  import Ryker.ControlPlane.Components, only: [page_help: 1, result_count: 1]
+
+  import Ryker.ControlPlane.Components,
+    only: [page_help: 1, pager: 1, result_count: 1, timestamp: 1]
+
   alias Ryker.ControlPlane.SlackMarkdown
 
   # Saved investigation conclusions inside the shared shell: the closed help,
@@ -30,10 +33,7 @@ defmodule Ryker.ControlPlane.FindingsPage do
         <article :for={item <- @view.items} class="memory-card finding-card" id={"finding-#{item.id}"}>
           <header>
             <h2>{classification(item.classification)}</h2>
-            <time datetime={DateTime.to_iso8601(item.at)}>{Calendar.strftime(
-              item.at,
-              "%d %b, %H:%M UTC"
-            )}</time>
+            <time datetime={DateTime.to_iso8601(item.at)}>{timestamp(item.at)}</time>
           </header>
           <div class="markdown-preview finding-conclusion">
             {Phoenix.HTML.raw(SlackMarkdown.preview(item.what))}
@@ -56,11 +56,12 @@ defmodule Ryker.ControlPlane.FindingsPage do
           <footer><a href={item.path}>Open investigation →</a></footer>
         </article>
       </div>
-      <nav :if={@view.pages > 1} class="pagination" aria-label="Finding pages">
-        <a :if={@view.page > 1} href={"/findings?page=#{@view.page - 1}"}>← Previous</a>
-        <span>Page {@view.page} of {@view.pages}</span>
-        <a :if={@view.page < @view.pages} href={"/findings?page=#{@view.page + 1}"}>Next →</a>
-      </nav>
+      <.pager
+        page={@view.page}
+        pages={@view.pages}
+        path={&"/findings?page=#{&1}"}
+        label="Finding pages"
+      />
     </div>
     """
   end

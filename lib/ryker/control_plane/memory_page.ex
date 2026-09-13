@@ -1,7 +1,10 @@
 defmodule Ryker.ControlPlane.MemoryPage do
   @moduledoc false
   use Phoenix.Component
-  import Ryker.ControlPlane.Components, only: [filter_toolbar: 1, result_count: 1]
+
+  import Ryker.ControlPlane.Components,
+    only: [filter_toolbar: 1, pager: 1, result_count: 1, timestamp: 1]
+
   alias Ryker.ControlPlane.{CSRF, LearningActivity, SlackMarkdown}
 
   @views [
@@ -59,10 +62,7 @@ defmodule Ryker.ControlPlane.MemoryPage do
         <article :for={item <- @view.items} class="memory-card" id={"memory-#{item.id}"}>
           <header>
             <h2>{if item.title == "", do: item.conversation, else: item.title}</h2>
-            <time datetime={DateTime.to_iso8601(item.at)}>{Calendar.strftime(
-              item.at,
-              "%d %b, %H:%M UTC"
-            )}</time>
+            <time datetime={DateTime.to_iso8601(item.at)}>{timestamp(item.at)}</time>
           </header>
           <p class="memory-source"><a href={item.conversation_path}>{item.conversation}</a>
             <span :if={item.repository}>{item.repository}</span></p>
@@ -132,25 +132,22 @@ defmodule Ryker.ControlPlane.MemoryPage do
           <li :for={revision <- @view.history}>
             <header>
               <strong>Update {revision.version}</strong>
-              <time datetime={DateTime.to_iso8601(revision.at)}>{Calendar.strftime(
-                revision.at,
-                "%d %b, %H:%M UTC"
-              )}</time>
+              <time datetime={DateTime.to_iso8601(revision.at)}>{timestamp(revision.at)}</time>
             </header>
             <div class="markdown-preview">{Phoenix.HTML.raw(preview(revision.text, nil))}</div>
-            <small>Source message · {Calendar.strftime(revision.source_at, "%d %b %Y, %H:%M UTC")}</small>
+            <small>Source message · {timestamp(revision.source_at)}</small>
             <a :if={revision.source} href={revision.source} rel="noopener noreferrer">Open source →</a>
             <a :if={revision.learning_path} href={revision.learning_path}>How this was learned →</a>
           </li>
         </ol>
-        <nav :if={@view.history_pages > 1} class="pagination" aria-label="Update history pages">
-          <a :if={@view.history_page > 1} href={history_path(@view, @view.history_page - 1)}>← Newer updates</a>
-          <span>Page {@view.history_page} of {@view.history_pages}</span>
-          <a
-            :if={@view.history_page < @view.history_pages}
-            href={history_path(@view, @view.history_page + 1)}
-          >Older updates →</a>
-        </nav>
+        <.pager
+          page={@view.history_page}
+          pages={@view.history_pages}
+          path={&history_path(@view, &1)}
+          label="Update history pages"
+          earlier="← Newer updates"
+          later="Older updates →"
+        />
       </section>
       <.learning
         :if={Map.get(@view, :learning_activity)}
@@ -158,11 +155,12 @@ defmodule Ryker.ControlPlane.MemoryPage do
         csrf_secret={Map.get(assigns, :csrf_secret)}
       />
       <Ryker.ControlPlane.LearningReceipt.render :if={@view.learning} receipt={@view.learning} />
-      <nav :if={@view.pages > 1} class="pagination" aria-label="Memory pages">
-        <a :if={@view.page > 1} href={path(@view, @view.kind, @view.page - 1)}>← Previous</a>
-        <span>Page {@view.page} of {@view.pages}</span>
-        <a :if={@view.page < @view.pages} href={path(@view, @view.kind, @view.page + 1)}>Next →</a>
-      </nav>
+      <.pager
+        page={@view.page}
+        pages={@view.pages}
+        path={&path(@view, @view.kind, &1)}
+        label="Memory pages"
+      />
     </div>
     """
   end
@@ -215,21 +213,14 @@ defmodule Ryker.ControlPlane.MemoryPage do
             <a href={failure.request_path}>Inspect work turn →</a>
           </li>
         </ul>
-        <nav
-          :if={@activity.handover_failures.pages > 1}
-          class="pagination"
-          aria-label="Handover failure pages"
-        >
-          <a
-            :if={@activity.handover_failures.page > 1}
-            href={handovers_path(@activity.handover_failures.page - 1)}
-          >← Newer handovers</a>
-          <span>Page {@activity.handover_failures.page} of {@activity.handover_failures.pages}</span>
-          <a
-            :if={@activity.handover_failures.page < @activity.handover_failures.pages}
-            href={handovers_path(@activity.handover_failures.page + 1)}
-          >Older handovers →</a>
-        </nav>
+        <.pager
+          page={@activity.handover_failures.page}
+          pages={@activity.handover_failures.pages}
+          path={&handovers_path/1}
+          label="Handover failure pages"
+          earlier="← Newer handovers"
+          later="Older handovers →"
+        />
       </details>
       <nav class="learning-outcomes" aria-label="Learning outcomes">
         <a href="/memory#learning-activity" aria-current={if @activity.filter == "", do: "page"}>All batches</a>
@@ -256,11 +247,14 @@ defmodule Ryker.ControlPlane.MemoryPage do
           <time datetime={iso(batch.at)}>{date(batch.at)}</time>
         </li>
       </ol>
-      <nav :if={@activity.pages > 1} class="pagination" aria-label="Learning batch pages">
-        <a :if={@activity.page > 1} href={learning_path(@activity, @activity.page - 1)}>← Newer batches</a>
-        <span>Page {@activity.page} of {@activity.pages}</span>
-        <a :if={@activity.page < @activity.pages} href={learning_path(@activity, @activity.page + 1)}>Older batches →</a>
-      </nav>
+      <.pager
+        page={@activity.page}
+        pages={@activity.pages}
+        path={&learning_path(@activity, &1)}
+        label="Learning batch pages"
+        earlier="← Newer batches"
+        later="Older batches →"
+      />
       <article :if={@activity.selected} class="learning-batch-detail">
         <h3>{@activity.selected.label} · {@activity.selected.conversation}</h3>
         <p>
@@ -330,18 +324,14 @@ defmodule Ryker.ControlPlane.MemoryPage do
             <p :if={attempt.error}>{attempt.error}</p>
           </li>
         </ol>
-        <nav
-          :if={@activity.selected.attempt_pages > 1}
-          class="pagination"
-          aria-label="Learning attempt pages"
-        >
-          <a :if={@activity.selected.attempt_page > 1} href={attempts_path(@activity.selected, -1)}>← Newer attempts</a>
-          <span>Page {@activity.selected.attempt_page} of {@activity.selected.attempt_pages}</span>
-          <a
-            :if={@activity.selected.attempt_page < @activity.selected.attempt_pages}
-            href={attempts_path(@activity.selected, 1)}
-          >Older attempts →</a>
-        </nav>
+        <.pager
+          page={@activity.selected.attempt_page}
+          pages={@activity.selected.attempt_pages}
+          path={&attempts_path(@activity.selected, &1)}
+          label="Learning attempt pages"
+          earlier="← Newer attempts"
+          later="Older attempts →"
+        />
         <details :if={@activity.selected.error_code}>
           <summary>Diagnostic code</summary><code>{@activity.selected.error_code}</code>
         </details>
@@ -358,10 +348,10 @@ defmodule Ryker.ControlPlane.MemoryPage do
           "learning_status" => filter || activity.filter
         }) <> "#learning-activity"
 
-  defp attempts_path(batch, offset),
+  defp attempts_path(batch, page),
     do:
       "/memory?" <>
-        URI.encode_query(%{"batch" => batch.id, "attempt_page" => batch.attempt_page + offset}) <>
+        URI.encode_query(%{"batch" => batch.id, "attempt_page" => page}) <>
         "#learning-activity"
 
   defp handovers_path(page),
@@ -374,8 +364,7 @@ defmodule Ryker.ControlPlane.MemoryPage do
   defp count_label(1, label), do: "1 " <> label
   defp count_label(count, label), do: "#{count} #{label}s"
 
-  defp date(nil), do: "Not recorded"
-  defp date(value), do: Calendar.strftime(value, "%d %b %Y, %H:%M UTC")
+  defp date(value), do: timestamp(value)
   defp iso(nil), do: nil
   defp iso(value), do: DateTime.to_iso8601(value)
 

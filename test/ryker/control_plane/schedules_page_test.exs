@@ -56,9 +56,11 @@ defmodule Ryker.ControlPlane.SchedulesPageTest do
     assert LazyHTML.text(secondary) =~ "Slack channel C456"
     assert LazyHTML.query(secondary, "code") |> LazyHTML.text() == "schedule:one"
 
+    # An active schedule is a settled state, like an active rule on /rules: the
+    # same word carries the same tone on every page, never the in-progress one.
     status = LazyHTML.query(row, "td[data-label='Status'] .ui-status")
     assert LazyHTML.text(status) == "Active"
-    assert LazyHTML.attribute(status, "class") == ["ui-status status-active"]
+    assert LazyHTML.attribute(status, "class") == ["ui-status status-done"]
 
     assert LazyHTML.query(row, "td[data-label='Status']") |> LazyHTML.text() |> String.trim() ==
              "Active"
@@ -79,7 +81,7 @@ defmodule Ryker.ControlPlane.SchedulesPageTest do
 
   test "every schedule status keeps its own word and tone, and a paused schedule has no next occurrence" do
     for {status, label, tone} <- [
-          {:active, "Active", "active"},
+          {:active, "Active", "done"},
           {:paused, "Paused", "quiet"},
           {:completed, "Completed", "done"},
           {:expired, "Expired", "quiet"},

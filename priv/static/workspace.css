@@ -444,6 +444,9 @@ details.measurement-notes > summary { cursor:pointer; font-weight:600; color:var
 .filter-toolbar .filter-clear { font-size:14px; padding:8px 0; }
 .filter-toolbar noscript button { height:40px; }
 .ryker-app .result-count { margin:0 0 12px; font-size:13px; line-height:18px; color:var(--secondary); font-variant-numeric:tabular-nums; }
+/* The one pager: 13px metadata under its list, each link a 44px target. */
+.ryker-app .pagination { display:flex; flex-wrap:wrap; align-items:center; gap:0 16px; margin:8px 0 0; padding:0; font-size:13px; line-height:18px; color:var(--secondary); font-variant-numeric:tabular-nums; }
+.ryker-app .pagination a { display:inline-flex; align-items:center; min-height:44px; }
 .page-surface a { color:#517545; }
 .page-surface th { font-size:14px; letter-spacing:0; text-transform:none; font-weight:600; color:#354439; background:#eef2ea; }
 .page-surface td { font-size:15px; line-height:1.5; font-variant-numeric:tabular-nums; }
@@ -986,12 +989,11 @@ details.measurement-notes > summary { cursor:pointer; font-weight:600; color:var
 /* Saved instructions: concise policy rows, with scope and lifecycle always visible. */
 .behavior-library { max-width:1160px; }
 .behavior-links { display:flex; align-items:center; flex-wrap:wrap; gap:10px 20px; }
-.behavior-links a, .behavior-pagination a, .applied-context a { color:#34563e; }
+.behavior-links a, .applied-context a { color:#34563e; }
 .behavior-empty { background:#fff; border:1px solid #dce2d9; border-radius:8px; padding:24px; }
 .behavior-empty h2 { font-size:21px; margin:0 0 8px; }
 .behavior-empty p { color:#525d55; margin:0; max-width:70ch; }
 .behavior-empty > a { display:inline-block; margin-top:12px; }
-.behavior-pagination { display:flex; justify-content:space-between; flex-wrap:wrap; gap:16px; padding:18px 0; }
 .behavior-history { margin-top:28px; }
 .behavior-history h2 { font-size:21px; }
 .behavior-history ol { list-style:none; padding:0; }
@@ -1299,8 +1301,6 @@ details.measurement-notes > summary { cursor:pointer; font-weight:600; color:var
 .channel-page .channel-batches li:first-child { border-top:0; }
 .channel-page .channel-batches p { margin:4px 0; font-size:14px; }
 .channel-page .channel-batches time { font-size:13px; color:var(--secondary); }
-.channel-page .pagination { display:flex; flex-wrap:wrap; align-items:center; gap:0 16px; margin:8px 0 0; font-size:13px; color:var(--secondary); }
-.channel-page .pagination a { display:inline-flex; align-items:center; min-height:44px; }
 .channel-page .empty-state { margin:4px 0 0; font-size:14px; line-height:20px; color:var(--secondary); }
 @media (max-width:580px) {
   .channel-page .channel-facts { grid-template-columns:minmax(0,1fr); }
@@ -1310,7 +1310,7 @@ details.measurement-notes > summary { cursor:pointer; font-weight:600; color:var
 
 /* Configuration pages */
 /* The eight remaining Configuration pages (approved 2026-09-09, slice 3) compose the shared shell — help, one toolbar, quiet count, content, related history — down one left edge with 24px between sections. Each body has one wrapper, so the framed-section rule that still boxes a record view (incident room, schedule, confirmation) never reaches these pages. Comparison tables are unframed: a 13px/18px header row, 15px cells, row lines only. */
-.schedules-page, .subscriptions-page, .channels-page, .repositories-page, .workspaces-page, .memory-page, .findings-view, .configuration-evidence { max-width:1160px; min-width:0; }
+.incident-rooms-page, .schedules-page, .subscriptions-page, .channels-page, .repositories-page, .workspaces-page, .memory-page, .findings-view, .configuration-evidence { max-width:1160px; min-width:0; }
 .ryker-app .empty-state { margin:0 0 24px; max-width:70ch; font-size:16px; line-height:1.5; color:var(--secondary); }
 .ryker-app .data-table { width:100%; margin:0 0 24px; border-collapse:collapse; background:none; font-size:15px; }
 .ryker-app .data-table th { padding:0 16px 10px 0; border-bottom:1px solid var(--stroke); background:none; text-align:left; vertical-align:bottom; font-size:13px; line-height:18px; font-weight:600; letter-spacing:0; text-transform:none; color:var(--secondary); white-space:nowrap; }

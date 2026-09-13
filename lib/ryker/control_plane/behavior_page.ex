@@ -1,7 +1,7 @@
 defmodule Ryker.ControlPlane.BehaviorPage do
   @moduledoc "Human-readable, scoped instructions and their existing lifecycle controls."
   use Phoenix.Component
-  import Ryker.ControlPlane.Components, except: [status: 1]
+  import Ryker.ControlPlane.Components
   alias Ryker.ControlPlane.{BehaviorLibrary, SlackNames}
 
   def title(:standing_assignment), do: "Standing rules"
@@ -106,9 +106,7 @@ defmodule Ryker.ControlPlane.BehaviorPage do
       <div class="behavior-entries">
         <article :for={item <- @view.items} id={"behavior-#{item.ref}"} class="behavior-entry">
           <div class="behavior-heading">
-            <h2>{subject(item)}</h2><span class={"ui-status status-#{status_tone(item.status)}"}><i aria-hidden="true"></i>{status(
-              item.status
-            )}</span>
+            <h2>{subject(item)}</h2><.status lifecycle={item.status} />
           </div>
           <p class="behavior-scope">
             <span title={item.scope_ref}>{scope(item)}</span><span :for={fact <- facts(item)}> · {fact}</span>
@@ -159,12 +157,13 @@ defmodule Ryker.ControlPlane.BehaviorPage do
           </footer>
         </article>
       </div>
-      <nav :if={@view.pages > 1} class="behavior-pagination" aria-label="Saved instruction pages">
-        <a :if={@view.page > 1} href={page_url(@path, @view, @view.page - 1)}>← Previous</a><span>Page {@view.page} of {@view.pages} · {@view.total} entries</span><a
-          :if={@view.page < @view.pages}
-          href={page_url(@path, @view, @view.page + 1)}
-        >Next →</a>
-      </nav>
+      <.pager
+        page={@view.page}
+        pages={@view.pages}
+        path={&page_url(@path, @view, &1)}
+        label="Saved instruction pages"
+        summary={"#{@view.total} entries"}
+      />
       <section :if={@view.kind == :standing_assignment && @view.items != []} class="behavior-history">
         <h2>Recent rule matches</h2><p :if={@view.runs == []}>No recorded matches for these rules.</p>
         <ol :if={@view.runs != []}>
@@ -226,11 +225,6 @@ defmodule Ryker.ControlPlane.BehaviorPage do
 
   defp full_label(:guidance), do: "Show full guidance"
   defp full_label(_kind), do: "Show full instruction"
-
-  defp status("disabled"), do: "Paused"
-  defp status(other), do: label(other)
-  defp status_tone("active"), do: "done"
-  defp status_tone(_other), do: "quiet"
 
   # The 13px line under the title: trigger, sender and repository where they
   # exist, then expiry. A typed rule without a title already names its

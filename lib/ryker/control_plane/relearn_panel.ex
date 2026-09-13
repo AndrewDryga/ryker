@@ -1,7 +1,7 @@
 defmodule Ryker.ControlPlane.RelearnPanel do
   @moduledoc false
   use Phoenix.Component
-  import Ryker.ControlPlane.Components, only: [filter_toolbar: 1]
+  import Ryker.ControlPlane.Components, only: [filter_toolbar: 1, pager: 1, timestamp: 1]
 
   alias Ryker.CanonicalJSON
 
@@ -91,10 +91,7 @@ defmodule Ryker.ControlPlane.RelearnPanel do
                   />
                   <span>
                     <span class="relearn-source-meta">
-                      <time datetime={DateTime.to_iso8601(source.at)}>{Calendar.strftime(
-                        source.at,
-                        "%d %b %Y, %H:%M UTC"
-                      )}</time>
+                      <time datetime={DateTime.to_iso8601(source.at)}>{timestamp(source.at)}</time>
                       <span>{source.actor}</span>
                       <span :if={source.mode}>{source.mode}</span>
                       <span :if={source.suggested}>Connected to earlier sources</span>
@@ -131,11 +128,15 @@ defmodule Ryker.ControlPlane.RelearnPanel do
           </p>
           <button type="submit" class="ui-button primary">{@submission.label}</button>
         </form>
-        <nav :if={@preview.pages > 1} class="pagination" aria-label="Relearning source pages">
-          <a :if={@preview.page > 1} href={path(@preview, @preview.page - 1)}>← Previous messages</a>
-          <span>Page {@preview.page} of {@preview.pages} · {@preview.total} messages</span>
-          <a :if={@preview.page < @preview.pages} href={path(@preview, @preview.page + 1)}>Next messages →</a>
-        </nav>
+        <.pager
+          page={@preview.page}
+          pages={@preview.pages}
+          path={&path(@preview, &1)}
+          label="Relearning source pages"
+          earlier="← Previous messages"
+          later="Next messages →"
+          summary={"#{@preview.total} messages"}
+        />
       </div>
     </details>
     """

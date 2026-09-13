@@ -63,89 +63,140 @@ defmodule Ryker.ControlPlane.HTML do
     ]
   end
 
+  @incident_statuses ~w(requested ready blocked closed)
+
+  # One comparison table: the room's title over its exact reference, its
+  # status as a dot and a word, and the linked publication's state the same
+  # way. The shell owns the title and description.
   def incidents(items, params \\ %{}) do
     rows =
       Enum.map(items, fn item ->
+        {status, tone} = incident_status(item.status)
+
         [
-          "<tr><td><a href=\"/incident-rooms/",
-          segment(item.ref),
-          "\">",
-          escape(item.title),
-          "</a><br><code>",
-          escape(item.ref),
-          "</code></td><td>",
-          escape(item.status),
-          "</td><td>",
+          [
+            "<a href=\"/incident-rooms/",
+            segment(item.ref),
+            "\">",
+            escape(item.title),
+            "</a><span class=\"row-secondary\"><code>",
+            escape(item.ref),
+            "</code></span>"
+          ],
+          Components.status(status, tone),
           escape(item.repository_ref),
-          "</td><td>",
           escape(channel_label(item.workspace_ref, item.channel_ref)),
-          "</td><td>",
-          escape(item.publication_status || "none"),
-          "</td><td>",
-          timestamp(item.updated_at),
-          "</td></tr>"
+          publication_status(item.publication_status),
+          readable_time(item.updated_at)
         ]
       end)
 
     [
+      "<div class=\"incident-rooms-page\">",
       search_form(
         "/incident-rooms",
         "Title, room, repository or channel",
         params,
-        ~w(requested ready blocked closed)
+        @incident_statuses
       ),
-      table(["Incident room", "Status", "Repository", "Channel", "Publication", "Updated"], rows)
+      cond do
+        rows != [] ->
+          [
+            result_count(length(rows), "incident room", "incident rooms"),
+            data_table(
+              ["Incident room", "Status", "Repository", "Channel", "Publication", "Updated"],
+              rows
+            )
+          ]
+
+        filtered?(params, @incident_statuses) ->
+          empty_state("No incident rooms match these filters.")
+
+        true ->
+          empty_state(
+            "No incident rooms yet. A room appears here once Ryker is asked to open one from a conversation."
+          )
+      end,
+      "</div>"
     ]
+  end
+
+  defp incident_status(:requested), do: {"Requested", "active"}
+  defp incident_status(:ready), do: {"Ready", "done"}
+  defp incident_status(:blocked), do: {"Needs attention", "attention"}
+  defp incident_status(:closed), do: {"Closed", "quiet"}
+
+  defp incident_status(status) when is_binary(status) and status in @incident_statuses,
+    do: incident_status(String.to_existing_atom(status))
+
+  defp incident_status(status), do: {Components.label(status), "quiet"}
+
+  defp lifecycle_status(status) do
+    {label, tone} = Components.lifecycle(status)
+    Components.status(label, tone)
+  end
+
+  defp publication_status(nil), do: "None"
+
+  defp publication_status(status) do
+    tone =
+      case to_string(status) do
+        "blocked" -> "attention"
+        "published" -> "done"
+        "discarded" -> "quiet"
+        _pending -> "active"
+      end
+
+    Components.status(Components.label(to_string(status)), tone)
   end
 
   def incident(%{room: room, lifecycle: lifecycle, records: records, publication: publication}) do
     lifecycle_rows =
       Enum.map(lifecycle, fn event ->
         [
-          "<tr><td>",
-          timestamp(event.occurred_at),
-          "</td><td>",
-          escape(event.kind),
-          "</td><td>",
-          escape(event.channel_ref),
-          "</td></tr>"
+          readable_time(event.occurred_at),
+          escape(Components.label(event.kind)),
+          escape(event.channel_ref)
         ]
       end)
 
     record_rows =
       Enum.map(records, fn record ->
         [
-          "<tr><td><code>",
-          escape(record.ref),
-          "</code></td><td>",
+          ["<code>", escape(record.ref), "</code>"],
           escape(record.kind),
-          "</td><td>",
           escape(record.status),
-          "</td><td>",
-          escape(record.subject || "—"),
-          "</td></tr>"
+          escape(record.subject || "—")
         ]
       end)
+
+    {status, tone} = incident_status(room.status)
 
     [
       definition_list([
         {"Reference", room.ref},
-        {"Status", room.status},
+        {"Status", {:safe, Components.status(status, tone)}},
         {"Repository", room.repository_ref},
         {"Workspace", room.workspace_ref},
         {"Source channel", room.source_channel_ref},
-        {"Incident channel", room.channel_ref || "not provisioned"},
-        {"Channel state", room.channel_state},
-        {"Visibility", if(room.private, do: "private", else: "public")},
+        {"Incident channel", room.channel_ref || "Not created yet"},
+        {"Channel state", Components.label(room.channel_state)},
+        {"Visibility", if(room.private, do: "Private", else: "Public")},
         {"Source episode", {:safe, episode_link(room.source_episode_ref)}},
         {"Investigation episode", {:safe, episode_link(room.episode_ref)}},
         {"Requested", room.requested_at},
         {"Updated", room.updated_at}
       ]),
       "<section><h2>Room lifecycle</h2>",
-      table(["At", "Observation", "Channel"], lifecycle_rows),
+      if(lifecycle_rows == [],
+        do: empty_state("No lifecycle events recorded yet."),
+        else: data_table(["At", "Observation", "Channel"], lifecycle_rows)
+      ),
       "</section><section><h2>Evidence-backed records</h2>",
-      table(["Record", "Kind", "Status", "Subject"], record_rows),
+      if(record_rows == [],
+        do: empty_state("No evidence-backed records are linked to this room."),
+        else: data_table(["Record", "Kind", "Status", "Subject"], record_rows)
+      ),
       "</section><section><h2>Publication</h2>",
       publication_detail(publication),
       "</section>"
@@ -161,8 +212,6 @@ defmodule Ryker.ControlPlane.HTML do
   def schedules(items, params \\ %{}) do
     rows =
       Enum.map(items, fn item ->
-        {label, tone} = schedule_status(item.status)
-
         [
           [
             "<a href=\"/schedules/",
@@ -175,7 +224,7 @@ defmodule Ryker.ControlPlane.HTML do
             escape(item.ref),
             "</code></span>"
           ],
-          dot_status(label, tone),
+          lifecycle_status(item.status),
           schedule_next(item),
           escape(item.repository || "None"),
           integer(item.failures)
@@ -204,13 +253,6 @@ defmodule Ryker.ControlPlane.HTML do
     ]
   end
 
-  defp schedule_status(:active), do: {"Active", "active"}
-  defp schedule_status(:paused), do: {"Paused", "quiet"}
-  defp schedule_status(:completed), do: {"Completed", "done"}
-  defp schedule_status(:expired), do: {"Expired", "quiet"}
-  defp schedule_status(:deleted), do: {"Deleted", "quiet"}
-  defp schedule_status(status), do: {Components.label(status), "quiet"}
-
   defp schedule_destination(%{destination_conversation_ref: ref}) when is_binary(ref),
     do: [escape(SlackNames.destination(ref)), " · "]
 
@@ -227,75 +269,77 @@ defmodule Ryker.ControlPlane.HTML do
   defp schedule_next(_item), do: "None scheduled"
 
   def schedule(%{schedule: schedule, occurrences: occurrences}) do
-    rows =
-      Enum.map(occurrences, fn occurrence ->
-        [
-          "<tr><td>",
-          timestamp(occurrence.scheduled_for),
-          "</td><td>",
-          escape(Map.get(occurrence, :trigger, :scheduled)),
-          "</td><td>",
-          escape(occurrence.status),
-          "</td><td>",
-          episode_link(occurrence.episode_ref),
-          "</td><td>",
-          escape(Map.get(occurrence, :episode_state) || "—"),
-          " / ",
-          escape(Map.get(occurrence, :turn_status) || "—"),
-          "</td><td>",
-          timestamp(Map.get(occurrence, :started_at)),
-          " → ",
-          timestamp(
-            Map.get(occurrence, :delivered_at) || Map.get(occurrence, :finished_at) ||
-              Map.get(occurrence, :accepted_at)
-          ),
-          "</td><td>",
-          integer(Map.get(occurrence, :work_attempt_count, 0) || 0),
-          "</td><td>",
-          escape(occurrence_failure(occurrence)),
-          "</td><td>",
-          escape(occurrence.missed_reason || "—"),
-          "</td></tr>"
-        ]
-      end)
+    rows = Enum.map(occurrences, &occurrence_row/1)
 
     [
       "<div class=\"action-controls\">",
       schedule_controls(schedule),
       "<a href=\"/conversations\">Replace in a conversation…</a></div>",
-      definition_list([
-        {"Reference", schedule.ref},
-        {"Status", schedule.status},
-        {"Revision", schedule.revision},
-        {"Recurrence", schedule.recurrence},
-        {"Timezone", schedule.timezone},
-        {"Authority", schedule.authority},
-        {"Repository", schedule.repository || "none"},
-        {"Destination", destination(schedule)},
-        {"Next occurrence", schedule.next_occurrence_at},
-        {"Expires", schedule.expires_at},
-        {"Failures", schedule.failure_count},
-        {"Last failure", schedule.last_error || "none"},
-        {"Source episode", {:safe, episode_link(schedule.source_episode_ref)}}
-      ]),
+      definition_list(schedule_facts(schedule)),
       "<section><h2>What it asks for</h2><pre class=\"record-body\">",
       escape(schedule.task),
       "</pre></section><section><h2>Execution history</h2>",
-      table(
-        [
-          "Due",
-          "Trigger",
-          "Dispatch",
-          "Episode",
-          "Execution",
-          "Timing",
-          "Attempts",
-          "Failure",
-          "Reason"
-        ],
-        rows
+      if(rows == [],
+        do: empty_state("No occurrence has been dispatched or missed yet."),
+        else:
+          data_table(
+            [
+              "Due",
+              "Trigger",
+              "Dispatch",
+              "Episode",
+              "Execution",
+              "Timing",
+              {"row-number", "Attempts"},
+              "Failure",
+              "Reason"
+            ],
+            rows
+          )
       ),
       "</section>"
+    ]
+  end
+
+  defp schedule_facts(schedule) do
+    [
+      {"Reference", schedule.ref},
+      {"Status", {:safe, lifecycle_status(schedule.status)}},
+      {"Revision", schedule.revision},
+      {"Recurrence", schedule.recurrence},
+      {"Timezone", schedule.timezone},
+      {"Authority", Components.label(schedule.authority)},
+      {"Repository", schedule.repository || "None"},
+      {"Destination", destination(schedule)},
+      {"Next occurrence", schedule.next_occurrence_at || "None scheduled"},
+      {"Expires", schedule.expires_at || "Never"},
+      {"Failures", schedule.failure_count},
+      {"Last failure", schedule.last_error || "None"},
+      {"Source episode", {:safe, episode_link(schedule.source_episode_ref)}}
+    ]
+  end
+
+  # One dispatched or missed occurrence: when it was due, how it was triggered
+  # and dispatched, the episode it became and how that execution went.
+  defp occurrence_row(occurrence) do
+    finished =
+      Map.get(occurrence, :delivered_at) || Map.get(occurrence, :finished_at) ||
+        Map.get(occurrence, :accepted_at)
+
+    [
+      readable_time(occurrence.scheduled_for),
+      escape(Components.label(Map.get(occurrence, :trigger, :scheduled))),
+      escape(Components.label(occurrence.status)),
+      episode_link(occurrence.episode_ref),
+      [
+        escape(Map.get(occurrence, :episode_state) || "—"),
+        " / ",
+        escape(Map.get(occurrence, :turn_status) || "—")
+      ],
+      [time_or_dash(Map.get(occurrence, :started_at)), " → ", time_or_dash(finished)],
+      integer(Map.get(occurrence, :work_attempt_count, 0) || 0),
+      escape(occurrence_failure(occurrence)),
+      escape(occurrence.missed_reason || "—")
     ]
   end
 
@@ -380,7 +424,7 @@ defmodule Ryker.ControlPlane.HTML do
             channel_identity(item),
             "</span>"
           ],
-          dot_status(membership, tone),
+          Components.status(membership, tone),
           if(item.participation,
             do: escape(Components.label(item.participation)),
             else: "Not configured"
@@ -564,7 +608,7 @@ defmodule Ryker.ControlPlane.HTML do
         escape(String.capitalize(to_string(item.scope))),
         if(item.applicability, do: [" · ", escape(item.applicability)], else: [])
       ],
-      escape(Components.label(to_string(item.status))),
+      lifecycle_status(item.status),
       Components.action_button("/actions/memory/#{segment(item.ref)}/forget", "Forget", :danger)
     ]
   end
@@ -659,7 +703,7 @@ defmodule Ryker.ControlPlane.HTML do
   end
 
   def failures([]) do
-    [failure_summary([]), "<p class=\"empty\">Nothing needs attention.</p>"]
+    [failure_summary([]), empty_state("Nothing needs attention.")]
     |> IO.iodata_to_binary()
   end
 
@@ -918,7 +962,7 @@ defmodule Ryker.ControlPlane.HTML do
             escape(row.ref),
             "</code></span>"
           ],
-          dot_status(status, tone),
+          Components.status(status, tone),
           [
             "<span title=\"",
             escape(row.summary),
@@ -1553,16 +1597,6 @@ defmodule Ryker.ControlPlane.HTML do
 
   defp empty_state(text), do: ["<p class=\"empty-state\">", escape(text), "</p>"]
 
-  # Dot plus word: the state reads without relying on colour.
-  defp dot_status(label, tone),
-    do: [
-      "<span class=\"ui-status status-",
-      tone,
-      "\"><i aria-hidden=\"true\"></i>",
-      escape(label),
-      "</span>"
-    ]
-
   # A comparison table whose every cell names its column, so a narrow screen
   # can stack a row into label/value pairs without hiding the row's identity
   # (its first column) or its action. A column is a heading, or {class,
@@ -1705,19 +1739,18 @@ defmodule Ryker.ControlPlane.HTML do
     ])
   end
 
-  defp publication_detail(nil),
-    do: "<p class=\"empty\">Nothing was published from this incident.</p>"
+  defp publication_detail(nil), do: empty_state("Nothing was published from this incident.")
 
   defp publication_detail(publication) do
     definition_list([
       {"Reference", publication.ref},
-      {"Status", publication.status},
+      {"Status", {:safe, publication_status(publication.status)}},
       {"Repository", publication.repository},
-      {"Branch", publication.branch_ref || "not created"},
-      {"Commit", publication.commit_sha || "not created"},
-      {"Pull request", publication.pr_number || "not opened"},
-      {"Pull request URL", publication.pr_url || "not opened"},
-      {"Last failure", publication.last_error || "none"},
+      {"Branch", publication.branch_ref || "Not created"},
+      {"Commit", publication.commit_sha || "Not created"},
+      {"Pull request", publication.pr_number || "Not opened"},
+      {"Pull request URL", publication.pr_url || "Not opened"},
+      {"Last failure", publication.last_error || "None"},
       {"Updated", publication.updated_at}
     ])
   end
@@ -1734,7 +1767,7 @@ defmodule Ryker.ControlPlane.HTML do
     [Map.get(occurrence, :failure_code), Map.get(occurrence, :failure_detail)]
     |> Enum.reject(&is_nil/1)
     |> case do
-      [] -> "none"
+      [] -> "None"
       parts -> Enum.join(parts, " / ")
     end
   end
@@ -1754,9 +1787,8 @@ defmodule Ryker.ControlPlane.HTML do
     end
   end
 
-  defp freshness_detail(nil) do
-    "<p class=\"empty\">No frozen freshness-v2 receipt is retained for this repository.</p>"
-  end
+  defp freshness_detail(nil),
+    do: empty_state("No frozen freshness-v2 receipt is retained for this repository.")
 
   defp freshness_detail(freshness) do
     definition_list([
@@ -1803,25 +1835,12 @@ defmodule Ryker.ControlPlane.HTML do
     ]
   end
 
-  defp table(_headings, []), do: "<p class=\"empty\">No durable records.</p>"
-
-  defp table(headings, rows) do
-    [
-      "<div class=\"table-wrap\"><table><thead><tr>",
-      Enum.map(headings, &["<th>", escape(&1), "</th>"]),
-      "</tr></thead><tbody>",
-      rows,
-      "</tbody></table></div>"
-    ]
-  end
-
   defp value({:safe, value}), do: value
-  defp value(%DateTime{} = value), do: timestamp(value)
+  defp value(%DateTime{} = value), do: readable_time(value)
   defp value(value), do: escape(value)
 
-  defp timestamp(%DateTime{} = value), do: escape(DateTime.to_iso8601(value))
-  defp timestamp(nil), do: "—"
-  defp timestamp(value), do: escape(value)
+  defp time_or_dash(nil), do: "—"
+  defp time_or_dash(value), do: readable_time(value)
 
   defp readable_time(%DateTime{} = value),
     do: [

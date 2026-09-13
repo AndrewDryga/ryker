@@ -39,11 +39,133 @@ defmodule Ryker.ControlPlane.Components do
     """
   end
 
+  attr(:state, :any,
+    default: nil,
+    doc: "An episode or work state; its label and tone derive from it"
+  )
+
+  attr(:lifecycle, :any,
+    default: nil,
+    doc: "A status from the enabled/paused family that rules, schedules and memories share"
+  )
+
+  attr(:label, :string, default: nil, doc: "The word, when the status is in neither vocabulary")
+  attr(:tone, :string, default: nil, doc: "attention, active, done or quiet")
+
+  @doc """
+  Dot plus word: the state reads without relying on colour.
+
+  An episode state or a lifecycle status supplies both from the shared
+  vocabularies below; anything else names its own word and tone, so every
+  page's statuses share one markup.
+  """
   def status(assigns) do
+    {label, tone} =
+      cond do
+        assigns.lifecycle != nil -> lifecycle(assigns.lifecycle)
+        assigns.state != nil -> {label(assigns.state), tone(assigns.state)}
+        true -> {nil, nil}
+      end
+
+    assigns = assign(assigns, label: assigns.label || label, tone: assigns.tone || tone)
+
     ~H"""
-    <span class={"ui-status status-#{tone(@state)}"}><i aria-hidden="true"></i>{label(@state)}</span>
+    <span class={"ui-status status-#{@tone}"}><i aria-hidden="true"></i>{@label}</span>
     """
   end
+
+  def status(label, tone) do
+    %{__changed__: nil, state: nil, lifecycle: nil, label: label, tone: tone}
+    |> status()
+    |> Safe.to_iodata()
+  end
+
+  @doc """
+  The word and tone of the enabled/paused family: a rule, schedule or memory
+  that is active is a settled good state, not work in progress, so it carries
+  the done tone; paused and disabled are the same fact and read as Paused.
+  """
+  def lifecycle(status) do
+    case to_string(status) do
+      "active" -> {"Active", "done"}
+      "paused" -> {"Paused", "quiet"}
+      "disabled" -> {"Paused", "quiet"}
+      "completed" -> {"Completed", "done"}
+      other -> {label(other), "quiet"}
+    end
+  end
+
+  attr(:page, :integer, required: true)
+  attr(:pages, :integer, required: true)
+  attr(:path, :any, required: true, doc: "A function from a page number to its href")
+  attr(:label, :string, required: true, doc: "Accessible name, e.g. \"Finding pages\"")
+  attr(:earlier, :string, default: "← Previous")
+  attr(:later, :string, default: "Next →")
+  attr(:summary, :string, default: nil, doc: "Words after the page count, e.g. \"40 entries\"")
+
+  @doc """
+  The one pager of a paged relation; renders nothing for a single page.
+
+  Plain links keep the URL shareable and back/forward honest, and each link
+  is a 44px target. The earlier/later words say what direction means on the
+  page in hand ("Newer updates", "Older batches") rather than assuming a list
+  reads forwards.
+  """
+  def pager(assigns) do
+    ~H"""
+    <nav :if={@pages > 1} class="pagination" aria-label={@label}>
+      <a :if={@page > 1} href={@path.(@page - 1)}>{@earlier}</a>
+      <span>Page {@page} of {@pages}<span :if={@summary}> · {@summary}</span></span>
+      <a :if={@page < @pages} href={@path.(@page + 1)}>{@later}</a>
+    </nav>
+    """
+  end
+
+  attr(:rows, :list, required: true)
+
+  slot :col, required: true do
+    attr(:label, :string, required: true)
+
+    attr(:class, :string,
+      doc: "row-number or row-action when header and cells share an alignment"
+    )
+  end
+
+  @doc """
+  A comparison table whose every cell names its column, so a narrow screen
+  can stack a row into label/value pairs without hiding the row's identity
+  (its first column). Unframed: a header row, row lines, no panel.
+  """
+  def table(assigns) do
+    ~H"""
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th :for={col <- @col} scope="col" {class_attribute(col[:class])}>{col.label}</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr :for={row <- @rows}>
+          <td
+            :for={{col, index} <- Enum.with_index(@col)}
+            data-label={col.label}
+            {class_attribute(cell_class(index, col[:class]))}
+          >
+            <div class="cell-value">{render_slot(col, row)}</div>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+    """
+  end
+
+  defp cell_class(0, nil), do: "row-identity"
+  defp cell_class(0, class), do: "row-identity " <> class
+  defp cell_class(_index, class), do: class
+
+  # An unclassed cell carries no class attribute at all, like the string pages' tables.
+  defp class_attribute(nil), do: []
+  defp class_attribute(class), do: [class: class]
 
   attr(:label, :string, default: "Completed")
 
@@ -214,6 +336,9 @@ defmodule Ryker.ControlPlane.Components do
     """
   end
 
+  # States arrive as the strings the projections cast and as the atoms the
+  # schemas hold; both name the same word and tone.
+  def label(value) when is_atom(value) and not is_nil(value), do: label(Atom.to_string(value))
   def label("pending"), do: "Queued"
   def label("working"), do: "Working"
   def label("not_started"), do: "Couldn’t start"
@@ -228,6 +353,7 @@ defmodule Ryker.ControlPlane.Components do
   def label("reply"), do: "Reply selected"
   def label(value), do: value |> to_string() |> String.replace("_", " ") |> String.capitalize()
 
+  def tone(value) when is_atom(value) and not is_nil(value), do: tone(Atom.to_string(value))
   def tone(value) when value in ["blocked", "waiting_for_input", "not_started"], do: "attention"
   def tone(value) when value in ["working", "pending", "delivery_pending"], do: "active"
   def tone("complete"), do: "done"

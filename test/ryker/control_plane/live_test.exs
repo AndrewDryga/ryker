@@ -332,9 +332,9 @@ defmodule Ryker.ControlPlane.LiveTest do
     document = LazyHTML.from_document(html)
     assert Enum.count(LazyHTML.query(document, "main article.behavior-entry")) == 25
     assert has_element?(view, "main p.result-count", "26 guidance entries")
-    assert has_element?(view, "main nav.behavior-pagination", "Page 1 of 2")
+    assert has_element?(view, "main nav.pagination", "Page 1 of 2")
 
-    assert LazyHTML.query(document, "main nav.behavior-pagination a")
+    assert LazyHTML.query(document, "main nav.pagination a")
            |> LazyHTML.attribute("href") ==
              ["/guidance?page=2&q=&scope=&status=current"]
 
@@ -342,13 +342,13 @@ defmodule Ryker.ControlPlane.LiveTest do
     document = LazyHTML.from_document(render(view))
     assert Enum.count(LazyHTML.query(document, "main article.behavior-entry")) == 1
     assert has_element?(view, "main p.result-count", "26 guidance entries")
-    assert has_element?(view, "main nav.behavior-pagination", "Page 2 of 2")
-    assert has_element?(view, "main nav.behavior-pagination a[href*='page=1']", "Previous")
+    assert has_element?(view, "main nav.pagination", "Page 2 of 2")
+    assert has_element?(view, "main nav.pagination a[href*='page=1']", "Previous")
 
     render_patch(view, "/guidance?page=99")
-    assert has_element?(view, "main nav.behavior-pagination", "Page 2 of 2")
+    assert has_element?(view, "main nav.pagination", "Page 2 of 2")
     render_patch(view, "/guidance?page=abc")
-    assert has_element?(view, "main nav.behavior-pagination", "Page 1 of 2")
+    assert has_element?(view, "main nav.pagination", "Page 1 of 2")
   end
 
   test "a two-thousand-character rule reaches the page whole, and its open disclosures keep their ids across a refresh" do
