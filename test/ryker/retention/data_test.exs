@@ -10,15 +10,19 @@ defmodule Ryker.Retention.DataTest do
   alias Ryker.Delivery.PlatformAction
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
+  alias Ryker.Fixtures.Learning, as: LearningFixtures
   alias Ryker.Ingress.{Inbox, Input}
+  alias Ryker.Learning.FleetSession, as: LearningFleetSession
   alias Ryker.Operator.Actions
   alias Ryker.Repo
-  alias Ryker.Retention.Data
+  alias Ryker.Retention.Custody, as: RetentionCustody
+  alias Ryker.Retention.{Data, Operator, OperatorAction}
   alias Ryker.Slack.Input, as: SlackInput
 
   alias Ryker.State.{
     Behaviors,
     CaseRecord,
+    Learning,
     RecordChangeset,
     Schedule,
     ScheduleChangeset,
@@ -394,6 +398,75 @@ defmodule Ryker.Retention.DataTest do
 
     assert {:ok, _result} = Data.prune(settings())
     assert Repo.get(Placement, placement.id) == nil
+    assert Repo.get(Session, session.id) == nil
+  end
+
+  test "a rearmed learning session outlives its operator decision instead of stalling retention" do
+    # retention_operator_actions.session_id is ON DELETE RESTRICT and the audit
+    # ledger keeps the row for audit_data_seconds. The operational prune deleted
+    # discarded admission and learning sessions without looking, so the first
+    # learning session an operator rearmed made that DELETE raise a day after
+    # its discard — and, being the oldest candidate, on every pass after that,
+    # aborting the operational, closed-work, history and audit phases for good.
+    # Found by reading the foreign keys, before any operator had pressed Rearm.
+    assert {:ok, run} =
+             Learning.prepare(Enum.map(LearningFixtures.inputs!(), & &1.id), %{
+               policy: "recorded-read-only-policy",
+               policy_digest: String.duplicate("a", 64)
+             })
+
+    assert {:ok, _session} = LearningFleetSession.ensure(run)
+    assert {:ok, session} = LearningFleetSession.bind(run, "coop-learning-rearmed")
+
+    run
+    |> Ecto.Changeset.change(
+      remote_stopped_at: DateTime.utc_now(),
+      stop_receipt: %{"kind" => "terminal_turn", "state" => "completed"}
+    )
+    |> Repo.update!()
+
+    assert {:ok, claim} = RetentionCustody.claim_next("cleanup", 60, 0)
+    assert claim.session.id == session.id
+
+    assert {:ok, _blocked} =
+             RetentionCustody.block(
+               session.id,
+               claim.lease_ref,
+               "coop_protocol_error",
+               "close refused"
+             )
+
+    assert {:ok, %{outcome: :rearmed}} =
+             Operator.rearm(session.external_ref, "slack:user:operator", "retention-action:rearm")
+
+    assert {:ok, claim} = RetentionCustody.claim_next("cleanup", 60, 0)
+
+    assert {:ok, _discarded} =
+             RetentionCustody.settle_remote_discarded(
+               session.id,
+               claim.lease_ref,
+               "coop-learning-rearmed"
+             )
+
+    Repo.query!(
+      "UPDATE episode_work_sessions SET updated_at = $1 WHERE id = $2",
+      [@old, uuid!(session.id)]
+    )
+
+    # The decision ledger still names the session, so the session row stays
+    # with it; nothing else in the pass may be skipped because of that.
+    assert {:ok, _result} = Data.prune(settings(audit_data_seconds: 86_400))
+    assert Repo.get(Session, session.id)
+
+    assert Repo.get_by!(OperatorAction, action_ref: "retention-action:rearm").session_id ==
+             session.id
+
+    Repo.query!("UPDATE retention_operator_actions SET inserted_at = $1", [@old])
+
+    assert {:ok, _result} = Data.prune(settings())
+    assert Repo.get_by(OperatorAction, action_ref: "retention-action:rearm") == nil
+
+    assert {:ok, _result} = Data.prune(settings())
     assert Repo.get(Session, session.id) == nil
   end
 

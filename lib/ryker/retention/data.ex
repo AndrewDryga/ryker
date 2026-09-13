@@ -282,6 +282,11 @@ defmodule Ryker.Retention.Data do
         [cutoff]
       )
 
+    # An operator decision (rearm, unmerged discard) names its session and is
+    # audit-class, so the session row stays until the audit prune has removed
+    # the decision. Without this guard, one learning session rearmed from App
+    # Home made this DELETE raise on every pass after its discard, which
+    # aborted this phase and every later one for good.
     _non_work_sessions =
       execute_count(
         """
@@ -303,6 +308,10 @@ defmodule Ryker.Retention.Data do
             AND NOT EXISTS (
               SELECT 1 FROM episode_work_activity activity
               WHERE activity.session_id = session.id AND activity.operational_pruned_at IS NULL
+            )
+            AND NOT EXISTS (
+              SELECT 1 FROM retention_operator_actions action
+              WHERE action.session_id = session.id
             )
           ORDER BY session.updated_at, session.id
           LIMIT 100
