@@ -2,6 +2,7 @@ defmodule Ryker.State.ContinuityConcurrencyTest do
   use Ryker.ConcurrencyCase, async: false
 
   alias Ecto.Adapters.SQL.Sandbox
+  alias Ryker.Accounting.Execution
   alias Ryker.CanonicalJSON
   alias Ryker.Episodes
   alias Ryker.Episodes.{Episode, Event}
@@ -350,6 +351,7 @@ defmodule Ryker.State.ContinuityConcurrencyTest do
     Repo.delete_all(from(event in Event, where: event.episode_id in ^episode_ids))
     Repo.delete_all(from(episode in Episode, where: episode.id in ^episode_ids))
     delete_entries!(from(entry in Entry, where: entry.native_input_id in ^native_input_ids))
+    Repo.delete_all(from(usage in Execution, where: usage.episode_id in ^episode_ids))
   end
 
   defp digest(value), do: :crypto.hash(:sha256, value) |> Base.encode16(case: :lower)
