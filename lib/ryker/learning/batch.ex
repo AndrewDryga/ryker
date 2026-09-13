@@ -32,4 +32,26 @@ defmodule Ryker.Learning.Batch do
     field(:completed_at, :utc_datetime_usec)
     timestamps(type: :utc_datetime_usec)
   end
+
+  @doc "The one key a conversation scope owns a queued or running batch under."
+  @spec scope_key(map()) :: String.t()
+  def scope_key(scope) do
+    scope
+    |> Map.update!(:execution_mode, &Atom.to_string/1)
+    |> Map.new(fn {k, v} -> {Atom.to_string(k), v} end)
+    |> Ryker.CanonicalJSON.digest()
+  end
+
+  @doc """
+  Serializes queue assignment — never model execution — so exclusive
+  membership and the single active scope stay one decision.
+  """
+  @spec lock_queue!() :: :ok
+  def lock_queue! do
+    unless Ryker.Repo.in_transaction?(),
+      do: raise(ArgumentError, "the learning queue lock requires a transaction")
+
+    Ryker.Repo.query!("SELECT pg_advisory_xact_lock(hashtextextended('learning-queue', 0))")
+    :ok
+  end
 end

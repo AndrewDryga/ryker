@@ -152,6 +152,16 @@ defmodule Ryker.State.LearningSources do
     date
   end
 
+  @doc """
+  An input learning may still read: decided, not a deletion, its body neither
+  pruned nor absent. Every learning step re-checks this on the exact rows.
+  """
+  @spec current_entry?(Entry.t()) :: boolean()
+  def current_entry?(%Entry{} = entry) do
+    entry.status == :decided and entry.event_kind != :delete and
+      is_nil(entry.operational_pruned_at) and is_map(entry.content)
+  end
+
   @doc "Derived prose requires at least one source; source-free host tasks do not."
   def sourced?([_ | _]), do: true
   def sourced?(_), do: false
