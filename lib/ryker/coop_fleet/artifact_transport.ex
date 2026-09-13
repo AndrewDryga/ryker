@@ -20,6 +20,7 @@ defmodule Ryker.CoopFleet.ArtifactTransport do
     ControlPlane,
     OutputTransfer,
     Placement,
+    Protocol,
     ReviewPatchTransfer,
     WorkspaceCheckpoint,
     WorkspaceCheckpointBundle,
@@ -31,7 +32,6 @@ defmodule Ryker.CoopFleet.ArtifactTransport do
   @maximum_bytes 8 * 1_024 * 1_024
   @maximum_review_patch_bytes 64 * 1_024 * 1_024
   @media_types ~w(image/png image/jpeg image/webp image/gif)
-  @reference ~r/\A[A-Za-z0-9_.:-]{1,256}\z/
 
   @spec fetch_input(binary(), Ecto.UUID.t(), String.t()) ::
           {:ok, map()} | {:error, term()}
@@ -209,7 +209,7 @@ defmodule Ryker.CoopFleet.ArtifactTransport do
     case Ecto.UUID.cast(command_id) do
       {:ok, command_id} ->
         kinds = if is_list(kind), do: kind, else: [kind]
-        authorized_command(worker_id, command_id, kinds, database_now!())
+        authorized_command(worker_id, command_id, kinds, Repo.now!())
 
       :error ->
         {:error, :coop_worker_artifact_not_authorized}
@@ -259,7 +259,7 @@ defmodule Ryker.CoopFleet.ArtifactTransport do
 
   defp prepare_output(worker_id, command_id, artifact_ref, %{} = attributes) do
     if Map.keys(attributes) |> Enum.sort() == [:data, :media_type, :name, :sha256] and
-         Regex.match?(@reference, artifact_ref) and valid_name?(attributes.name) and
+         Protocol.reference?(artifact_ref) and valid_name?(attributes.name) and
          attributes.media_type in @media_types and digest(attributes.data) == attributes.sha256 and
          byte_size(attributes.data) in 1..@maximum_bytes do
       {:ok,
@@ -286,7 +286,7 @@ defmodule Ryker.CoopFleet.ArtifactTransport do
          data: data,
          sha256: sha256
        }) do
-    if Regex.match?(@reference, artifact_id) and is_binary(data) and
+    if Protocol.reference?(artifact_id) and is_binary(data) and
          byte_size(data) in 1..@maximum_review_patch_bytes and digest(data) == sha256 do
       {:ok,
        %{
@@ -546,11 +546,6 @@ defmodule Ryker.CoopFleet.ArtifactTransport do
   end
 
   defp valid_name?(_value), do: false
-
-  defp database_now! do
-    %{rows: [[now]]} = Repo.query!("SELECT clock_timestamp()")
-    now
-  end
 
   defp digest(data) when is_binary(data),
     do: :crypto.hash(:sha256, data) |> Base.encode16(case: :lower)

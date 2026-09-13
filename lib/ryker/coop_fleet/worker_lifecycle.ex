@@ -11,11 +11,10 @@ defmodule Ryker.CoopFleet.WorkerLifecycle do
   import Ecto.Changeset
   import Ecto.Query
 
-  alias Ryker.CoopFleet.{Certificate, EnrollmentToken, Placement, Worker}
+  alias Ryker.CoopFleet.{Certificate, EnrollmentToken, Placement, Protocol, Worker}
   alias Ryker.Repo
 
   @current_placement_states [:assigning, :active, :draining, :revoking]
-  @reference ~r/\A[A-Za-z0-9_.:-]+\z/
 
   @type result :: %{status: :draining | :duplicate | :resumed | :revoked, worker: Worker.t()}
 
@@ -23,7 +22,7 @@ defmodule Ryker.CoopFleet.WorkerLifecycle do
   def drain(worker_id, operator_ref) do
     with :ok <- reference(worker_id, :worker_id),
          :ok <- reference(operator_ref, :operator_ref) do
-      transaction(fn -> drain_locked(worker_id, operator_ref) end)
+      Repo.transaction(fn -> drain_locked(worker_id, operator_ref) end)
     end
   end
 
@@ -31,7 +30,7 @@ defmodule Ryker.CoopFleet.WorkerLifecycle do
   def resume(worker_id, operator_ref) do
     with :ok <- reference(worker_id, :worker_id),
          :ok <- reference(operator_ref, :operator_ref) do
-      transaction(fn -> resume_locked(worker_id) end)
+      Repo.transaction(fn -> resume_locked(worker_id) end)
     end
   end
 
@@ -39,7 +38,7 @@ defmodule Ryker.CoopFleet.WorkerLifecycle do
   def revoke(worker_id, operator_ref) do
     with :ok <- reference(worker_id, :worker_id),
          :ok <- reference(operator_ref, :operator_ref) do
-      transaction(fn -> revoke_locked(worker_id, operator_ref) end)
+      Repo.transaction(fn -> revoke_locked(worker_id, operator_ref) end)
     end
   end
 
@@ -54,7 +53,7 @@ defmodule Ryker.CoopFleet.WorkerLifecycle do
         %{status: :duplicate, worker: worker}
 
       true ->
-        now = database_now!()
+        now = Repo.now!()
 
         updated =
           worker
@@ -103,7 +102,7 @@ defmodule Ryker.CoopFleet.WorkerLifecycle do
     if worker.state == :revoked do
       %{status: :duplicate, worker: worker}
     else
-      now = database_now!()
+      now = Repo.now!()
 
       Repo.update_all(
         from(certificate in Certificate,
@@ -150,22 +149,9 @@ defmodule Ryker.CoopFleet.WorkerLifecycle do
   end
 
   defp reference(value, field) do
-    if is_binary(value) and byte_size(value) in 1..256 and String.valid?(value) and
-         Regex.match?(@reference, value),
-       do: :ok,
-       else: {:error, {:invalid_coop_worker_lifecycle, field}}
-  end
-
-  defp database_now! do
-    %{rows: [[%DateTime{} = now]]} = Repo.query!("SELECT clock_timestamp()")
-    now
-  end
-
-  defp transaction(fun) do
-    case Repo.transaction(fun) do
-      {:ok, value} -> {:ok, value}
-      {:error, reason} -> {:error, reason}
-    end
+    if Protocol.reference?(value),
+      do: :ok,
+      else: {:error, {:invalid_coop_worker_lifecycle, field}}
   end
 
   defp unwrap_write({:ok, value}), do: value

@@ -136,7 +136,6 @@ defmodule Ryker.Work.Custody do
         {:error, reason} -> Repo.rollback(reason)
       end
     end)
-    |> transaction_result()
   end
 
   @doc false
@@ -357,7 +356,6 @@ defmodule Ryker.Work.Custody do
          :ok <- positive_integer(lease_seconds, :lease_seconds),
          :ok <- claim_phase(phase) do
       Repo.transaction(fn -> claim_locked(worker_ref, lease_seconds, phase) end)
-      |> transaction_result()
     end
   end
 
@@ -374,7 +372,6 @@ defmodule Ryker.Work.Custody do
       Repo.transaction(fn ->
         freeze_locked(episode_id, turn_ref, lease_ref, submission, fingerprint, evidence)
       end)
-      |> transaction_result()
     end
   end
 
@@ -415,7 +412,6 @@ defmodule Ryker.Work.Custody do
         |> Repo.update()
         |> unwrap_or_rollback(:work_final_preflight)
       end)
-      |> transaction_result()
     end
   end
 
@@ -448,7 +444,6 @@ defmodule Ryker.Work.Custody do
           artifact_refs
         )
       end)
-      |> transaction_result()
     end
   end
 
@@ -499,7 +494,6 @@ defmodule Ryker.Work.Custody do
       Repo.transaction(fn ->
         bind_state_tools_locked(episode_id, turn_ref, lease_ref, endpoint, token_sha256)
       end)
-      |> transaction_result()
     end
   end
 
@@ -536,7 +530,6 @@ defmodule Ryker.Work.Custody do
           coop_session_id
         )
       end)
-      |> transaction_result()
     end
   end
 
@@ -556,7 +549,6 @@ defmodule Ryker.Work.Custody do
       Repo.transaction(fn ->
         advance_session_create_locked(episode_id, turn_ref, lease_ref, expected_generation)
       end)
-      |> transaction_result()
     end
   end
 
@@ -582,7 +574,6 @@ defmodule Ryker.Work.Custody do
         {_session, turn} = leased!(episode_id, turn_ref, lease_ref)
         clear_remote_operation!(turn, "create_session", operation_key)
       end)
-      |> transaction_result()
     end
   end
 
@@ -603,7 +594,6 @@ defmodule Ryker.Work.Custody do
       Repo.transaction(fn ->
         rotate_session_locked(episode_id, turn_ref, lease_ref, expected_generation)
       end)
-      |> transaction_result()
     end
   end
 
@@ -633,7 +623,6 @@ defmodule Ryker.Work.Custody do
           :placement_lost
         )
       end)
-      |> transaction_result()
     end
   end
 
@@ -672,7 +661,6 @@ defmodule Ryker.Work.Custody do
           coop_turn_id
         )
       end)
-      |> transaction_result()
     end
   end
 
@@ -689,7 +677,6 @@ defmodule Ryker.Work.Custody do
       Repo.transaction(fn ->
         advance_turn_submit_locked(episode_id, turn_ref, lease_ref, expected_generation)
       end)
-      |> transaction_result()
     end
   end
 
@@ -743,7 +730,6 @@ defmodule Ryker.Work.Custody do
           candidate_attempt
         )
       end)
-      |> transaction_result()
     end
   end
 
@@ -790,7 +776,6 @@ defmodule Ryker.Work.Custody do
           fingerprint
         )
       end)
-      |> transaction_result()
     end
   end
 
@@ -829,7 +814,6 @@ defmodule Ryker.Work.Custody do
           expected_generation
         )
       end)
-      |> transaction_result()
     end
   end
 
@@ -879,7 +863,6 @@ defmodule Ryker.Work.Custody do
           measurement
         )
       end)
-      |> transaction_result()
     end
   end
 
@@ -911,7 +894,6 @@ defmodule Ryker.Work.Custody do
           receipt_fingerprint
         )
       end)
-      |> transaction_result()
     end
   end
 
@@ -988,7 +970,6 @@ defmodule Ryker.Work.Custody do
       Repo.transaction(fn ->
         record_completion_locked(episode_id, turn_ref, lease_ref, receipt)
       end)
-      |> transaction_result()
     end
   end
 
@@ -1016,7 +997,6 @@ defmodule Ryker.Work.Custody do
       Repo.transaction(fn ->
         block_completion_locked(episode_id, turn_ref, lease_ref, receipt, code, detail)
       end)
-      |> transaction_result()
     end
   end
 
@@ -1072,7 +1052,6 @@ defmodule Ryker.Work.Custody do
       Repo.transaction(fn ->
         pause_destination_locked(episode_id, episode_key, intent, fingerprint)
       end)
-      |> transaction_result()
     end
   end
 
@@ -1092,7 +1071,6 @@ defmodule Ryker.Work.Custody do
       reason = destination_pause_reason(pause_ref)
 
       Repo.transaction(fn -> resume_destination_locked(episode_id, episode_key, reason) end)
-      |> transaction_result()
     end
   end
 
@@ -1138,7 +1116,6 @@ defmodule Ryker.Work.Custody do
     with :ok <- reference(episode_key, :episode_key),
          :ok <- reference(expected_recovery, :expected_recovery) do
       Repo.transaction(fn -> retry_blocked_locked(episode_key, expected_recovery) end)
-      |> transaction_result()
     end
   end
 
@@ -1181,7 +1158,6 @@ defmodule Ryker.Work.Custody do
       Repo.transaction(fn ->
         advance_cancellation_locked(episode_id, turn_ref, lease_ref, expected_generation)
       end)
-      |> transaction_result()
     end
   end
 
@@ -1208,7 +1184,6 @@ defmodule Ryker.Work.Custody do
           observed_revision
         )
       end)
-      |> transaction_result()
     end
   end
 
@@ -1257,7 +1232,6 @@ defmodule Ryker.Work.Custody do
           fingerprint
         )
       end)
-      |> transaction_result()
     end
   end
 
@@ -1277,7 +1251,6 @@ defmodule Ryker.Work.Custody do
       Repo.transaction(fn ->
         renew_locked(episode_id, turn_ref, lease_ref, lease_seconds)
       end)
-      |> transaction_result()
     end
   end
 
@@ -1363,7 +1336,6 @@ defmodule Ryker.Work.Custody do
         request.operation_revision
       )
     end)
-    |> transaction_result()
     |> mutation_authorization_result()
   end
 
@@ -1495,7 +1467,6 @@ defmodule Ryker.Work.Custody do
           error_detail
         )
       end)
-      |> transaction_result()
     end
   end
 
@@ -1521,7 +1492,6 @@ defmodule Ryker.Work.Custody do
       Repo.transaction(fn ->
         block_delivery_locked(episode_id, turn_ref, lease_ref, error_code, error_detail)
       end)
-      |> transaction_result()
     end
   end
 
@@ -1535,7 +1505,6 @@ defmodule Ryker.Work.Custody do
          :ok <- reference(turn_ref, :turn_ref),
          :ok <- reference(delivery_ref, :delivery_ref) do
       Repo.transaction(fn -> retry_delivery_locked(episode_id, turn_ref, delivery_ref) end)
-      |> transaction_result()
     end
   end
 
@@ -1555,7 +1524,6 @@ defmodule Ryker.Work.Custody do
       Repo.transaction(fn ->
         yield_progress_locked(episode_id, turn_ref, lease_ref, retry_seconds)
       end)
-      |> transaction_result()
     end
   end
 
@@ -1614,7 +1582,7 @@ defmodule Ryker.Work.Custody do
   end
 
   defp claim_locked(worker_ref, lease_seconds, phase) do
-    now = database_now!()
+    now = Repo.now!()
 
     case eligible_episode(now, phase) do
       nil ->
@@ -1678,7 +1646,7 @@ defmodule Ryker.Work.Custody do
        when status in [:pending, :cancel_pending] do
     # Both claimers lock the session. Recheck after that lock as the selection
     # query may have started before the other claimant committed its lease.
-    now = database_now!()
+    now = Repo.now!()
 
     Repo.exists?(
       from(publication in Publication,
@@ -2178,7 +2146,7 @@ defmodule Ryker.Work.Custody do
           body: turn.candidate,
           sha256: turn.candidate_sha256,
           byte_size: bytes,
-          recorded_at: database_now!()
+          recorded_at: Repo.now!()
         })
 
       %CandidateResponse{operational_pruned_at: pruned} when not is_nil(pruned) ->
@@ -2318,7 +2286,7 @@ defmodule Ryker.Work.Custody do
     case validation_intent_ready(intent) do
       :ok ->
         turn
-        |> TurnChangeset.prepare_validation(intent, fingerprint, database_now!())
+        |> TurnChangeset.prepare_validation(intent, fingerprint, Repo.now!())
         |> Repo.update()
         |> unwrap_or_rollback(:work_validation_intent)
 
@@ -2431,7 +2399,6 @@ defmodule Ryker.Work.Custody do
         lease_ref
       )
     end)
-    |> transaction_result()
   end
 
   defp request_cancellation_locked(
@@ -2580,7 +2547,7 @@ defmodule Ryker.Work.Custody do
   end
 
   defp pause_destination_delivery(episode, intent) do
-    now = database_now!()
+    now = Repo.now!()
 
     case lock_delivery_turn(episode.id, episode.owner_ref) do
       {:ok, %Turn{status: :delivery_pending} = turn} ->
@@ -2724,7 +2691,7 @@ defmodule Ryker.Work.Custody do
     with {:ok, intent} <- Cancellation.new_transfer(new_turn_ref, transfer_ref),
          {:ok, [transition]} <-
            Episodes.apply_batch_in_transaction(
-             [Cancellation.command(intent, episode, database_now!())],
+             [Cancellation.command(intent, episode, Repo.now!())],
              settled_work_turn_id: turn.id
            ),
          {:ok, turn} <-
@@ -2980,10 +2947,10 @@ defmodule Ryker.Work.Custody do
   defp exact_internal_lease(_turn, nil), do: :ok
 
   defp exact_internal_lease(turn, lease_ref),
-    do: current_turn_lease(turn, lease_ref, database_now!())
+    do: current_turn_lease(turn, lease_ref, Repo.now!())
 
   defp replace_settled_block(episode, session, turn, intent, fingerprint) do
-    now = database_now!()
+    now = Repo.now!()
 
     with :ok <- exact_cancellation_proof(turn.cancellation_receipt, session, turn),
          {:ok, settled_episode} <-
@@ -3031,7 +2998,7 @@ defmodule Ryker.Work.Custody do
     do: turn.cancellation_intent != nil and turn.cancellation_intent_fingerprint != fingerprint
 
   defp settle_local_cancellation(episode, nil, intent, _fingerprint) do
-    command = Cancellation.command(intent, episode, database_now!())
+    command = Cancellation.command(intent, episode, Repo.now!())
 
     case Episodes.apply_batch_in_transaction([command]) do
       {:ok, [transition]} -> %{episode: transition.episode, status: :settled, turn: nil}
@@ -3095,7 +3062,7 @@ defmodule Ryker.Work.Custody do
          receipt,
          receipt_fingerprint
        ) do
-    now = database_now!()
+    now = Repo.now!()
 
     if cancellation_already_settled?(turn, receipt_fingerprint) do
       %{episode: episode, turn: turn}
@@ -3286,7 +3253,7 @@ defmodule Ryker.Work.Custody do
   defp renew_locked(episode_id, turn_ref, lease_ref, lease_seconds) do
     case turn_for_lease(episode_id, turn_ref, lease_ref) do
       {:ok, _session, turn} ->
-        now = database_now!()
+        now = Repo.now!()
         requested_expiry = DateTime.add(now, lease_seconds, :second)
         lease_expires_at = later_datetime(turn.lease_expires_at, requested_expiry)
 
@@ -3309,7 +3276,7 @@ defmodule Ryker.Work.Custody do
          error_detail
        ) do
     {_session, turn} = leased!(episode_id, turn_ref, lease_ref)
-    now = database_now!()
+    now = Repo.now!()
 
     turn
     |> TurnChangeset.defer(%{
@@ -3389,7 +3356,7 @@ defmodule Ryker.Work.Custody do
 
   defp yield_progress_locked(episode_id, turn_ref, lease_ref, retry_seconds) do
     {_session, turn} = leased!(episode_id, turn_ref, lease_ref)
-    now = database_now!()
+    now = Repo.now!()
 
     case progress_attempt(turn) do
       {field, count} when count > 0 ->
@@ -3544,7 +3511,7 @@ defmodule Ryker.Work.Custody do
          result,
          measurement
        ) do
-    now = database_now!()
+    now = Repo.now!()
     result_ref = "result:#{turn.id}"
     delivery_ref = if result.delivery == :reply, do: "delivery:#{turn.id}"
     delivery_target = if result.delivery == :reply, do: reply_target(episode, turn)
@@ -3633,7 +3600,7 @@ defmodule Ryker.Work.Custody do
          external_receipt,
          receipt_fingerprint
        ) do
-    now = database_now!()
+    now = Repo.now!()
 
     with :ok <- exact_delivery_ref(turn, external_receipt),
          :ok <- exact_delivery_destination(episode, turn, external_receipt) do
@@ -3828,7 +3795,7 @@ defmodule Ryker.Work.Custody do
   defp validation_intent_ready(intent) do
     case ValidationIntent.result(intent) do
       {:ok, nil} -> :ok
-      {:ok, result} -> Result.validate_at(result, database_now!())
+      {:ok, result} -> Result.validate_at(result, Repo.now!())
       {:error, _reason} -> {:error, :work_validation_intent_invalid}
     end
   end
@@ -3925,9 +3892,6 @@ defmodule Ryker.Work.Custody do
   defp persistence_result({:error, changeset}, kind) do
     {:error, {:persistence_failed, kind, changeset.errors}}
   end
-
-  defp transaction_result({:ok, value}), do: {:ok, value}
-  defp transaction_result({:error, reason}), do: {:error, reason}
 
   defp later_datetime(nil, requested), do: requested
 
@@ -4100,11 +4064,6 @@ defmodule Ryker.Work.Custody do
       {:ok, normalized} -> {:ok, normalized}
       :error -> {:error, {:invalid_work_custody, field}}
     end
-  end
-
-  defp database_now! do
-    %{rows: [[%DateTime{} = now]]} = Repo.query!("SELECT clock_timestamp()")
-    DateTime.truncate(now, :microsecond)
   end
 
   defp positive_integer(value, _field) when is_integer(value) and value > 0, do: :ok
