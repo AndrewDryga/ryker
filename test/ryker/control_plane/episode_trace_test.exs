@@ -1,6 +1,7 @@
 defmodule Ryker.ControlPlane.EpisodeTraceTest do
   alias Ryker.ControlPlane.EpisodeTrace
   alias Ryker.ControlPlane.ModelRequests
+  alias Ryker.ControlPlane.SlackNames
   use Ryker.DataCase, async: true
 
   import Ecto.Query
@@ -373,13 +374,12 @@ defmodule Ryker.ControlPlane.EpisodeTraceTest do
     # message text verbatim. The case message already knows its workspace;
     # the title resolves the same way the body does.
     start_supervised!(
-      {Ryker.ControlPlane.SlackNames,
-       workspace: "TC9F5B40D364C", fetch: fn _ref -> {:ok, "emisar"} end}
+      {SlackNames, workspace: "TC9F5B40D364C", fetch: fn _ref -> {:ok, "emisar"} end}
     )
 
     {entry, episode} = admitted_input!()
-    Ryker.ControlPlane.SlackNames.name("TC9F5B40D364C", "U1")
-    assert :ok = GenServer.call(Ryker.ControlPlane.SlackNames, :refresh)
+    SlackNames.name("TC9F5B40D364C", "U1")
+    assert :ok = GenServer.call(SlackNames, :refresh)
 
     Repo.update_all(from(i in Entry, where: i.id == ^entry.id),
       set: [content: %{"text" => "<@U1> is checkout healthy?"}]
