@@ -689,25 +689,20 @@ defmodule Ryker.State.Continuity do
     }
 
     if LearningSources.sourced?(attributes.source_dependencies) do
-      persist_summary(attributes, context.identity_key)
+      persist_summary(attributes)
     else
       {:error, {:conversation_summary_unavailable, "no_sources"}}
     end
   end
 
-  defp persist_summary(attributes, identity_key) do
-    case Repo.one(
-           from(summary in ConversationSummary,
-             where: summary.identity_key == ^identity_key,
-             lock: "FOR UPDATE"
-           )
-         ) do
-      nil -> insert_summary(attributes)
-      %ConversationSummary{} = summary -> update_summary(summary, attributes)
-    end
-  end
-
-  defp insert_summary(attributes) do
+  # One upsert on the identity key. A read-then-write let two episodes on the
+  # same destination — a pull request, a lab, a direct message; anything the
+  # channel fence does not serialize — both find no summary, and the second
+  # insert failed on the unique index, which rolled the accepted reply back
+  # with it. The unique index is the fence: the later writer waits for the
+  # earlier one to commit and then replaces its state, and the row keeps its
+  # first identity.
+  defp persist_summary(attributes) do
     id = Ecto.UUID.generate()
     now = database_now!()
 
@@ -715,15 +710,10 @@ defmodule Ryker.State.Continuity do
     |> Map.merge(%{id: id, ref: "continuity:#{id}"})
     |> summary_changeset(%ConversationSummary{})
     |> Changeset.change(inserted_at: now, updated_at: now)
-    |> Repo.insert()
-    |> persistence_result()
-  end
-
-  defp update_summary(summary, attributes) do
-    attributes
-    |> summary_changeset(summary)
-    |> Changeset.force_change(:updated_at, database_now!())
-    |> Repo.update()
+    |> Repo.insert(
+      conflict_target: :identity_key,
+      on_conflict: {:replace_all_except, [:id, :ref, :inserted_at]}
+    )
     |> persistence_result()
   end
 
