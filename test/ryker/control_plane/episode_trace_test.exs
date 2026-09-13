@@ -2,12 +2,14 @@ defmodule Ryker.ControlPlane.EpisodeTraceTest do
   alias Ryker.ControlPlane.EpisodeTrace
   alias Ryker.ControlPlane.ModelRequests
   alias Ryker.ControlPlane.SlackNames
-  use Ryker.DataCase, async: true
+  # Starts the globally named `SlackNames` cache, so it cannot share the VM
+  # with other running suites the way an async module would.
+  use Ryker.DataCase, async: false
 
   import Ecto.Query
   import Phoenix.LiveViewTest
 
-  alias Ryker.ControlPlane.{EpisodePage, SlackNames}
+  alias Ryker.ControlPlane.EpisodePage
   alias Ryker.Work.Custody
   alias Ryker.Work.Turn
 

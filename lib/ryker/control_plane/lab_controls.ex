@@ -10,7 +10,7 @@ defmodule Ryker.ControlPlane.LabControls do
   one the router will accept, and nothing else is.
   """
 
-  alias Ryker.ControlPlane.{CSRF, PathRef, Projection}
+  alias Ryker.ControlPlane.{ConversationProjection, CSRF, PathRef}
 
   @send_action "conversation_lab:send"
   @message_action "conversation_lab:message"
@@ -144,7 +144,7 @@ defmodule Ryker.ControlPlane.LabControls do
       conversation_id: conversation_id,
       conversation_ref: "control-plane:lab:#{conversation_id}",
       episodes: [],
-      history: %{before: nil, exhausted: true, page_size: Projection.lab_page_size()},
+      history: %{before: nil, exhausted: true, page_size: ConversationProjection.page_size()},
       live: false,
       messages: [],
       pending: 0
