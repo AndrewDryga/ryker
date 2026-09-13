@@ -504,6 +504,45 @@ defmodule Ryker.Retention.DataTest do
     assert Repo.get(IncidentRoom, room.id) == nil
   end
 
+  test "standing runs, rule inventories and status receipts follow their episode, not the calendar" do
+    # Three rows carried an episode owner and were pruned by age alone: the
+    # standing-assignment run (the dedupe receipt that stops one input firing
+    # an assignment twice), the rule inventory recorded for the episode's
+    # input, and the receipts of what Slack acknowledged for the episode. An
+    # incident open longer than the history horizon lost all three while it
+    # was still working.
+    work = settled_work!("standing-owner")
+
+    Repo.query!("UPDATE episode_kernel_episodes SET state = 'working' WHERE id = $1", [
+      uuid!(work.episode.id)
+    ])
+
+    entry = record_input_for!(work.episode.id, "standing-owner")
+    insert_open_record!(work)
+    run = insert_decided_standing_run!(work.episode.id, entry)
+    inventory = Behaviors.rule_inventory(Inbox.ref(entry))
+    Repo.query!("UPDATE standing_rule_inventories SET recorded_at = $1", [@old])
+    receipt = insert_status_receipt!(work.episode.id)
+
+    assert {:ok, _result} =
+             Data.prune(settings(episode_history_seconds: 60, operational_data_seconds: 60))
+
+    assert Repo.get(Ryker.State.StandingAssignmentRun, run.id)
+    assert Repo.get(StandingRuleInventory, inventory.id)
+    assert Repo.get(Ryker.Slack.ThreadStatusReceipts, receipt.id)
+
+    Repo.query!("UPDATE episode_kernel_episodes SET state = 'complete' WHERE id = $1", [
+      uuid!(work.episode.id)
+    ])
+
+    assert {:ok, _result} =
+             Data.prune(settings(episode_history_seconds: 60, operational_data_seconds: 60))
+
+    assert Repo.get(Ryker.State.StandingAssignmentRun, run.id) == nil
+    assert Repo.get(StandingRuleInventory, inventory.id) == nil
+    assert Repo.get(Ryker.Slack.ThreadStatusReceipts, receipt.id) == nil
+  end
+
   test "episode history is indivisible, pinned while live work depends on it, and audit survives longer" do
     eligible = settled_work!("history") |> discard_session!()
     pinned = settled_work!("pinned") |> discard_session!()
@@ -953,6 +992,119 @@ defmodule Ryker.Retention.DataTest do
     })
 
     room
+  end
+
+  # One inbox entry admitted into the episode, the way admission binds it.
+  defp record_input_for!(episode_id, suffix) do
+    assert {:ok, input} =
+             SlackInput.new(%{
+               actor: %{kind: :user, ref: "U123"},
+               channel_ref: "C456",
+               content: %{"text" => "Input for #{suffix}."},
+               event_kind: :message,
+               event_ref: "Ev-#{suffix}",
+               message_ref: "1787832000.000100",
+               occurred_at: ~U[2026-08-30 12:00:00.000000Z],
+               revision: 1,
+               thread_ref: nil,
+               workspace_ref: "T123"
+             })
+
+    assert {:ok, %{entry: entry}} = Inbox.record(input)
+
+    Repo.query!(
+      """
+      UPDATE ingress_inbox_entries
+      SET status = 'decided', decision_ref = $1, decision_fingerprint = $2,
+          decision_action = 'start_episode', decision_document = '{"action":"start_episode"}',
+          episode_id = $3
+      WHERE id = $4
+      """,
+      [
+        "decision:#{suffix}",
+        String.duplicate("d", 64),
+        uuid!(episode_id),
+        uuid!(entry.id)
+      ]
+    )
+
+    entry
+  end
+
+  # A standing assignment that fired on `entry` and started `episode_id`.
+  defp insert_decided_standing_run!(episode_id, entry) do
+    behavior_id = Ecto.UUID.generate()
+
+    %{
+      confirmation_ref: "confirmation:standing:#{behavior_id}",
+      confirmed_at: @old,
+      confirmed_by_actor_ref: "slack:user:U123",
+      expires_at: nil,
+      id: behavior_id,
+      identity_key: "standing:#{behavior_id}",
+      kind: :standing_assignment,
+      offer_record_id: Repo.get_by!(Ryker.State.Record, episode_id: episode_id).id,
+      payload: %{
+        "action" => "verify_deployment",
+        "repository" => nil,
+        "scope" => "conversation",
+        "subject" => "deployments",
+        "trigger" => "deployment",
+        "visibility" => "conversation"
+      },
+      ref: "behavior:#{behavior_id}",
+      revision: 1,
+      scope_kind: :conversation,
+      scope_ref: "slack:T123:C456",
+      source_conversation_ref: "slack:T123:C456",
+      source_message_ref: "1787832001.000200",
+      source_thread_ref: nil,
+      source_transport: "slack",
+      status: :active,
+      workspace_ref: "slack:T123"
+    }
+    |> Ryker.State.BehaviorChangeset.insert()
+    |> Repo.insert!()
+
+    run_id = Ecto.UUID.generate()
+
+    run =
+      %{
+        assignment_id: behavior_id,
+        decision_action: :start_episode,
+        decision_ref: "decision:#{run_id}",
+        episode_id: episode_id,
+        id: run_id,
+        outcome: :decided,
+        ref: "standing-run:#{run_id}",
+        source_event_ref: entry.event_ref,
+        source_input_ref: Inbox.ref(entry)
+      }
+      |> Ryker.State.StandingAssignmentRunChangeset.insert()
+      |> Repo.insert!()
+
+    Repo.query!("UPDATE standing_assignment_runs SET inserted_at = $1 WHERE id = $2", [
+      @old,
+      uuid!(run.id)
+    ])
+
+    run
+  end
+
+  defp insert_status_receipt!(episode_id) do
+    Repo.insert!(%Ryker.Slack.ThreadStatusReceipts{
+      channel_ref: "C456",
+      generation: 1,
+      id: Ecto.UUID.generate(),
+      inserted_at: @old,
+      lease_ref: Ecto.UUID.generate(),
+      origin_id: episode_id,
+      origin_kind: "episode",
+      phase: "investigating",
+      text: "Investigating.",
+      thread_ref: "1787832000.000100",
+      workspace_ref: "T123"
+    })
   end
 
   defp insert_open_record!(work) do

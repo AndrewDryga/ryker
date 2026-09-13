@@ -429,14 +429,34 @@ defmodule Ryker.Retention.Data do
       FROM candidates WHERE attempt.id = candidates.id
       """)
 
+    # A receipt is the trace's evidence of what Slack acknowledged for its
+    # episode (directly, or through one of the episode's inputs); it stays
+    # while that episode is open.
     _status_receipts =
       execute_count(
         """
-        DELETE FROM slack_thread_status_receipts WHERE id IN (
-          SELECT id FROM slack_thread_status_receipts
-          WHERE inserted_at < clock_timestamp() - ($1 * interval '1 second')
-          ORDER BY inserted_at LIMIT 1000
+        WITH candidates AS (
+          SELECT receipt.id
+          FROM slack_thread_status_receipts AS receipt
+          WHERE receipt.inserted_at < clock_timestamp() - ($1 * interval '1 second')
+            AND NOT EXISTS (
+              SELECT 1 FROM episode_kernel_episodes AS episode
+              WHERE episode.state NOT IN ('complete', 'cancelled')
+                AND episode.id = CASE receipt.origin_kind
+                  WHEN 'episode' THEN receipt.origin_id
+                  WHEN 'input' THEN (
+                    SELECT input.episode_id FROM ingress_inbox_entries AS input
+                    WHERE input.id = receipt.origin_id
+                  )
+                END
+            )
+          ORDER BY receipt.inserted_at, receipt.id
+          LIMIT 1000
+          FOR UPDATE SKIP LOCKED
         )
+        DELETE FROM slack_thread_status_receipts AS receipt
+        USING candidates
+        WHERE receipt.id = candidates.id
         """,
         [cutoff]
       )
@@ -690,6 +710,11 @@ defmodule Ryker.Retention.Data do
           FROM standing_assignment_runs
           WHERE outcome = ANY($1)
             AND inserted_at < clock_timestamp() - ($2 * interval '1 second')
+            AND NOT EXISTS (
+              SELECT 1 FROM episode_kernel_episodes AS episode
+              WHERE episode.id = standing_assignment_runs.episode_id
+                AND episode.state NOT IN ('complete', 'cancelled')
+            )
           ORDER BY inserted_at, id
           LIMIT 100
           FOR UPDATE SKIP LOCKED
@@ -701,14 +726,22 @@ defmodule Ryker.Retention.Data do
         [~w(decided superseded), settings.episode_history_seconds]
       )
 
+    # The inventory expires with its input's history: never while the episode
+    # that input started or joined is still open.
     rule_inventories =
       execute_count(
         """
         WITH candidates AS (
-          SELECT id
-          FROM standing_rule_inventories
-          WHERE recorded_at < clock_timestamp() - ($1 * interval '1 second')
-          ORDER BY recorded_at, id
+          SELECT inventory.id
+          FROM standing_rule_inventories AS inventory
+          WHERE inventory.recorded_at < clock_timestamp() - ($1 * interval '1 second')
+            AND NOT EXISTS (
+              SELECT 1 FROM ingress_inbox_entries AS input
+              JOIN episode_kernel_episodes AS episode ON episode.id = input.episode_id
+              WHERE inventory.source_input_ref = 'ingress-input:' || input.id::text
+                AND episode.state NOT IN ('complete', 'cancelled')
+            )
+          ORDER BY inventory.recorded_at, inventory.id
           LIMIT 100
           FOR UPDATE SKIP LOCKED
         )
