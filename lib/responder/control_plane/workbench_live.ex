@@ -3,9 +3,12 @@ defmodule Responder.ControlPlane.WorkbenchLive do
   use Phoenix.LiveView, layout: false
   require Logger
 
+  alias Phoenix.HTML.Safe
+
   alias Responder.ControlPlane.{
     Activity,
     ActivityPage,
+    ChannelPage,
     Components,
     Endpoint,
     EpisodePage,
@@ -339,7 +342,11 @@ defmodule Responder.ControlPlane.WorkbenchLive do
       assign(socket,
         native: :instructions,
         page_title: SlackNames.name(workspace, channel),
-        body: HTML.channel(snapshot) |> IO.iodata_to_binary(),
+        page_description: ChannelPage.description(snapshot),
+        body:
+          ChannelPage.render(%{__changed__: nil, view: snapshot})
+          |> Safe.to_iodata()
+          |> IO.iodata_to_binary(),
         instructions: view,
         instruction_scope: {:channel, workspace, channel},
         save_instructions: options.actions.save_instructions
@@ -621,7 +628,7 @@ defmodule Responder.ControlPlane.WorkbenchLive do
             error={@settings_error}
           />
           <div :if={@native == :instructions} class="secondary-page instructions-page">
-            <Components.page_header title={@page_title} />
+            <Components.page_header title={@page_title} description={@page_description} />
             <.live_component
               module={Responder.ControlPlane.InstructionsEditor}
               id={"instructions-#{@instructions.setting.scope_ref}"}

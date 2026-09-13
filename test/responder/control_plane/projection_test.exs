@@ -2116,16 +2116,17 @@ defmodule Responder.ControlPlane.ProjectionTest do
              Projection.channels(%{"q" => "C456"})
 
     assert {:ok, channel} = Projection.channel("T123", "C456")
-    assert channel.channel.configuration_revision == configuration.revision
-    assert channel.channel.membership == membership.status
-    assert Enum.any?(channel.schedules, &(&1.ref == schedule.ref))
-    assert Enum.any?(channel.episodes, &(&1.ref == source.episode.key))
+    assert channel.channel.configuration.revision == configuration.revision
+    assert channel.channel.membership.status == membership.status
+    assert Enum.any?(channel.schedules.items, &(&1.ref == schedule.ref))
+    assert Enum.any?(channel.episodes.items, &(&1.ref == source.episode.key))
 
     assert {:ok, incident_channel} = Projection.channel("T123", "CINCIDENT")
-    assert incident_channel.channel.incident_room
-    assert incident_channel.channel.channel_state == :active
-    assert incident_channel.channel.private
-    assert incident_channel.channel.repository_ref == "responder"
+    assert incident_channel.channel.kind == :incident_room
+    assert incident_channel.channel.incident_room.channel_state == :active
+    assert incident_channel.channel.incident_room.private
+    assert incident_channel.channel.repository == %{ref: "responder", source: :incident_room}
+    refute inspect(incident_channel) =~ "private-incident-marker"
 
     assert [%{ref: "responder", freshness: receipt} = repository] =
              Projection.repositories(%{"q" => "respond"})
