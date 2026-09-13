@@ -1,7 +1,7 @@
 defmodule Responder.ControlPlane.FindingsPageTest do
   use Responder.DataCase, async: false
   import Phoenix.LiveViewTest
-  alias Responder.ControlPlane.{FindingsPage, HTML, Projection}
+  alias Responder.ControlPlane.{FindingsPage, HTML, Projection, Router}
   alias Responder.Episodes
   alias Responder.Fixtures.Episodes, as: Fixtures
   alias Responder.Repo
@@ -74,6 +74,101 @@ defmodule Responder.ControlPlane.FindingsPageTest do
     refute html =~ "does not currently expose a tool"
   end
 
+  test "the findings page is a closed help disclosure, a quiet count and the entries down one column" do
+    # Before 2026-09-13 the body opened with its own "What was found" h2 inside
+    # a bare page-help div — a second heading under the shell's "Findings" with
+    # two paragraphs of always-visible prose — and the count was a bespoke
+    # element the other pages did not share.
+    document = render_stub(%{items: [], total: 0, page: 1, pages: 1})
+
+    assert outline(document, "div.findings-view > *") == [
+             "details.page-help",
+             "p.empty-state",
+             "div.memory-cards"
+           ]
+
+    assert Enum.empty?(
+             LazyHTML.query(document, "h1, h2, div.page-help, .findings-count, a[href='/lab']")
+           )
+
+    help = LazyHTML.query(document, "details.page-help#findings-help:not([open])")
+
+    assert LazyHTML.query(help, "summary") |> LazyHTML.text() ==
+             "How findings are saved and followed up"
+
+    assert LazyHTML.text(help) =~ "not a second list of episodes"
+    assert LazyHTML.text(help) =~ "Ask Responder to investigate"
+
+    assert String.replace(LazyHTML.text(help), ~r/\s+/, " ") =~
+             "does not create an incident or send a message"
+
+    # An empty list states itself once; the shared count renders nothing at zero.
+    assert Enum.empty?(LazyHTML.query(document, "p.result-count"))
+    assert LazyHTML.query(document, "p.empty-state") |> LazyHTML.text() =~ "No findings yet"
+
+    populated =
+      render_stub(%{
+        total: 1,
+        page: 1,
+        pages: 1,
+        items: [
+          %{
+            id: "finding-1",
+            classification: "explained",
+            what: "Latency came from the retry storm",
+            reason: "Every timeout retried three times",
+            scope: "Portal API",
+            at: ~U[2026-09-10 09:00:00Z],
+            path: "/timeline/episode%3Aone#event-record-1",
+            evidence: [
+              %{
+                text: "Retry counter climbed to 3",
+                label: "Open evidence",
+                path: "/timeline/episode%3Aone#event-record-2"
+              }
+            ]
+          }
+        ]
+      })
+
+    assert LazyHTML.query(populated, "p.result-count") |> LazyHTML.text() == "1 finding"
+    assert Enum.empty?(LazyHTML.query(populated, "p.empty-state"))
+    card = LazyHTML.query(populated, "article.finding-card#finding-finding-1")
+    assert LazyHTML.query(card, "header h2") |> LazyHTML.text() == "Explained by evidence"
+    assert LazyHTML.text(card) =~ "Latency came from the retry storm"
+    assert LazyHTML.text(card) =~ "Scope: Portal API"
+
+    assert LazyHTML.query(
+             card,
+             ".finding-evidence a[href='/timeline/episode%3Aone#event-record-2']"
+           )
+           |> LazyHTML.text() =~ "Open evidence"
+
+    assert LazyHTML.query(card, "footer a[href='/timeline/episode%3Aone#event-record-1']")
+           |> LazyHTML.text() =~ "Open investigation"
+
+    paged = render_stub(%{items: [], total: 60, page: 2, pages: 2})
+    assert LazyHTML.query(paged, "p.result-count") |> LazyHTML.text() == "60 findings"
+    assert outline(paged, "div.findings-view > *") |> List.last() == "nav.pagination"
+
+    assert LazyHTML.query(paged, "nav.pagination a[href='/findings?page=1']") |> LazyHTML.text() =~
+             "Previous"
+  end
+
+  test "the findings route carries the shell's title and description" do
+    page =
+      Router.snapshot("/findings", "", %{
+        projection: %{findings: fn _params -> %{items: [], total: 0, page: 1, pages: 1} end}
+      })
+
+    assert page.title == "Findings"
+    assert page.description =~ "Saved investigation conclusions"
+
+    assert LazyHTML.from_fragment(page.body)
+           |> LazyHTML.query("div.findings-view details.page-help")
+           |> Enum.count() == 1
+  end
+
   test "older findings stay readable without dead jumps beyond the episode record window" do
     {claim, options} = claim!()
 
@@ -134,6 +229,25 @@ defmodule Responder.ControlPlane.FindingsPageTest do
     assert html =~ "Not explained yet"
     assert {:ok, episode} = Projection.episode(claim.episode.key)
     refute inspect(episode.trace.steps) =~ "findings-hidden-secret"
+  end
+
+  defp render_stub(view) do
+    render_component(&FindingsPage.render/1, view: view) |> LazyHTML.from_fragment()
+  end
+
+  # "tag.first-class" for each matched element, in document order.
+  defp outline(document, selector) do
+    nodes = LazyHTML.query(document, selector)
+
+    nodes
+    |> LazyHTML.tag()
+    |> Enum.zip(LazyHTML.attributes(nodes))
+    |> Enum.map(fn {tag, attributes} ->
+      case List.keyfind(attributes, "class", 0) do
+        {"class", class} -> tag <> "." <> hd(String.split(class))
+        nil -> tag
+      end
+    end)
   end
 
   defp claim! do

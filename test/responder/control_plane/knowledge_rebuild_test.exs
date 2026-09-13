@@ -191,6 +191,38 @@ defmodule Responder.ControlPlane.KnowledgeRebuildTest do
     assert html =~ ~r/<details[^>]*class="knowledge-rebuild"[^>]*\bopen\b/
   end
 
+  test "the source search is the shared toolbar bound to this topic, not the page's own search" do
+    # The picker's search used the retired search-form layout with its own
+    # visible label and button. It now shares the toolbar contract — search on
+    # Enter, hidden fields carrying the topic — while its field name keeps the
+    # page search and the source search apart in one URL.
+    preview = preview()
+    document = preview |> Map.put(:q, "decision") |> render() |> LazyHTML.from_fragment()
+
+    toolbar =
+      LazyHTML.query(document, "details.knowledge-rebuild form.filter-toolbar[method=get]")
+
+    assert LazyHTML.attribute(toolbar, "action") == ["/memory#relearn"]
+
+    assert LazyHTML.query(toolbar, "input[type=hidden][name=kind]") |> LazyHTML.attribute("value") ==
+             ["knowledge"]
+
+    assert LazyHTML.query(toolbar, "input[type=hidden][name=item]") |> LazyHTML.attribute("value") ==
+             [preview.topic_id]
+
+    assert LazyHTML.query(toolbar, "input#relearn-search[type=search][name=rebuild_q]")
+           |> LazyHTML.attribute("value") == ["decision"]
+
+    assert Enum.empty?(
+             LazyHTML.query(toolbar, "input[name=q], button:not(noscript button), a.filter-clear")
+           )
+
+    assert Enum.empty?(LazyHTML.query(document, "form.search-form, .filter-field"))
+    # The submission that acts is still the separate POST with the CSRF token.
+    assert Enum.count(LazyHTML.query(document, "details.knowledge-rebuild form[method=post]")) ==
+             1
+  end
+
   test "relearning forms bind the topic version and generation before any source mutation" do
     preview = preview()
     path = "/actions/knowledge/#{preview.topic_id}/relearn"

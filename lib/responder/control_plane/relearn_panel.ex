@@ -1,6 +1,7 @@
 defmodule Responder.ControlPlane.RelearnPanel do
   @moduledoc false
   use Phoenix.Component
+  import Responder.ControlPlane.Components, only: [filter_toolbar: 1]
 
   alias Responder.CanonicalJSON
 
@@ -38,22 +39,15 @@ defmodule Responder.ControlPlane.RelearnPanel do
       </p>
       <p :if={!@preview.eligible?} class="memory-unavailable">{reason(@preview.reason)}</p>
       <div :if={@preview.eligible?}>
-        <form method="get" action="/memory#relearn" class="search-form">
-          <input type="hidden" name="kind" value="knowledge" />
-          <input type="hidden" name="item" value={@preview.topic_id} />
-          <div class="filter-field filter-search">
-            <label for="relearn-search">Find current source messages</label>
-            <input
-              id="relearn-search"
-              type="search"
-              name="rebuild_q"
-              maxlength="200"
-              value={Map.get(@preview, :q, "")}
-              placeholder="Search messages in this conversation"
-            />
-          </div>
-          <button type="submit" class="ui-button secondary">Find messages</button>
-        </form>
+        <.filter_toolbar
+          id="relearn-search"
+          path="/memory#relearn"
+          label="Find current source messages"
+          name="rebuild_q"
+          placeholder="Search messages in this conversation"
+          query={Map.get(@preview, :q, "")}
+          hidden={[{"kind", "knowledge"}, {"item", @preview.topic_id}]}
+        />
         <p :if={@sources == []} class="empty-state">
           No eligible current messages match. Try another search or wait for new source messages.
         </p>

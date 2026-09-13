@@ -1,11 +1,23 @@
 defmodule Responder.ControlPlane.MemoryPage do
   @moduledoc false
   use Phoenix.Component
+  import Responder.ControlPlane.Components, only: [filter_toolbar: 1, result_count: 1]
   alias Responder.ControlPlane.{CSRF, LearningActivity, SlackMarkdown}
 
+  @views [
+    {"knowledge", "Current knowledge", "knowledge topic", "knowledge topics"},
+    {"notes", "Source excerpts", "source excerpt", "source excerpts"},
+    {"summaries", "Conversation handovers", "conversation handover", "conversation handovers"}
+  ]
+
+  # What Responder learned from conversations: the learning state line (it is
+  # functional state, so it stays visible), the three views as compact tabs,
+  # the one toolbar that searches within the chosen view, a quiet count, the
+  # entries with their recall warnings, then the related history and learning
+  # activity beneath. The shell renders the title, description and help.
   def render(assigns) do
     ~H"""
-    <section class="conversation-memory" aria-label="Learned from conversations">
+    <div class="conversation-memory" role="region" aria-label="Learned from conversations">
       <div :if={Map.get(@view, :learning_activity)} class="learning-summary">
         <strong>{learning_state(@view.learning_activity)}</strong>
         <span>{count_label(@view.learning_activity.waiting_inputs, "message")} waiting</span>
@@ -14,41 +26,31 @@ defmodule Responder.ControlPlane.MemoryPage do
         </a>
         <a href="#learning-activity">Inspect learning activity →</a>
       </div>
-      <nav class="memory-totals" aria-label="Conversation memory views">
+      <nav class="memory-views" aria-label="Conversation memory views">
         <a
-          :for={
-            {kind, label} <- [
-              {"knowledge", "Current knowledge"},
-              {"notes", "Source excerpts"},
-              {"summaries", "Conversation handovers"}
-            ]
-          }
+          :for={{kind, label, _one, _many} <- views()}
           href={path(@view, kind, 1)}
           aria-current={if @view.kind == kind, do: "page"}
         >
-          <span>{label}</span><strong>{Map.fetch!(@view.counts, String.to_existing_atom(kind))}</strong>
+          {label} <span>{Map.fetch!(@view.counts, String.to_existing_atom(kind))}</span>
         </a>
       </nav>
-      <form class="search-form" method="get" action="/memory">
-        <input type="hidden" name="kind" value={@view.kind} />
-        <div class="filter-field filter-search">
-          <label for="memory-search">Search</label>
-          <input
-            id="memory-search"
-            type="search"
-            name="q"
-            value={@view.q}
-            maxlength="200"
-            placeholder="Topics, decisions or context"
-          />
-        </div>
-        <button type="submit" class="ui-button primary">Search</button>
-        <a
-          :if={@view.q != ""}
-          class="ui-button secondary"
-          href={path(%{@view | q: ""}, @view.kind, 1)}
-        >Clear search</a>
-      </form>
+      <.filter_toolbar
+        id="memory-search"
+        path="/memory"
+        label="Search conversation memory"
+        placeholder="Topics, decisions or context"
+        query={@view.q}
+        filtered={@view.q != ""}
+        hidden={[{"kind", @view.kind}]}
+        clear={"/memory?" <> URI.encode_query(%{"kind" => @view.kind})}
+      />
+      <.result_count
+        :if={@view.total > 0}
+        count={@view.total}
+        one={noun(@view.kind, 2)}
+        many={noun(@view.kind, 3)}
+      />
       <p :if={@view.selected}><a href={path(@view, "knowledge", 1)}>← All knowledge</a></p>
       <p :if={@view.total == 0} class="empty-state">
         {if @view.q != "", do: "No matching conversation memory.", else: "Nothing learned here yet."}
@@ -161,7 +163,7 @@ defmodule Responder.ControlPlane.MemoryPage do
         <span>Page {@view.page} of {@view.pages}</span>
         <a :if={@view.page < @view.pages} href={path(@view, @view.kind, @view.page + 1)}>Next →</a>
       </nav>
-    </section>
+    </div>
     """
   end
 
@@ -169,9 +171,7 @@ defmodule Responder.ControlPlane.MemoryPage do
     ~H"""
     <section id="learning-activity" class="learning-activity" aria-label="Learning activity">
       <header class="learning-activity-heading">
-        <div>
-          <p class="ui-eyebrow">LEARNING WITHOUT REPLYING</p><h2>Learning activity</h2>
-        </div>
+        <h2>Learning activity</h2>
         <p>
           {cond do
             not @activity.enabled -> "Learning is disabled"
@@ -366,6 +366,10 @@ defmodule Responder.ControlPlane.MemoryPage do
 
   defp handovers_path(page),
     do: "/memory?" <> URI.encode_query(%{"handover_page" => page}) <> "#handover-failures"
+
+  defp views, do: @views
+
+  defp noun(kind, index), do: @views |> List.keyfind!(kind, 0) |> elem(index)
 
   defp count_label(1, label), do: "1 " <> label
   defp count_label(count, label), do: "#{count} #{label}s"
