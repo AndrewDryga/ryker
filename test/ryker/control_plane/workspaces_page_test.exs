@@ -6,7 +6,7 @@ defmodule Ryker.ControlPlane.WorkspacesPageTest do
   """
   use ExUnit.Case, async: true
 
-  alias Ryker.ControlPlane.{HTML, Router}
+  alias Ryker.ControlPlane.{HTML, Pages}
 
   @blocked %{
     action: :rearm,
@@ -241,7 +241,7 @@ defmodule Ryker.ControlPlane.WorkspacesPageTest do
 
   test "the route renders the shell's title and description around one body" do
     page =
-      Router.snapshot("/workspaces", "", %{
+      Pages.page(["workspaces"], %{}, %{
         projection: %{
           workspaces: fn _params -> [@blocked] end,
           workspace_storage: fn -> @storage end

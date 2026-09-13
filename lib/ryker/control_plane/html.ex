@@ -1,25 +1,28 @@
 defmodule Ryker.ControlPlane.HTML do
-  alias Ryker.ControlPlane.Card
-  alias Ryker.ControlPlane.CodeEditingSetup
-  alias Ryker.ControlPlane.Components
-  alias Ryker.ControlPlane.ConversationLab
-  alias Ryker.ControlPlane.FailurePage
-  alias Ryker.ControlPlane.FindingsPage
-  alias Ryker.ControlPlane.SlackNames
-  alias Ryker.ControlPlane.SubscriptionPresentation
-  alias Ryker.ControlPlane.SubscriptionsPage
-  alias Ryker.ControlPlane.UsagePage
-  alias Ryker.ControlPlane.UsageProjection
   @moduledoc false
 
-  @spec page(String.t(), String.t() | nil, iodata()) :: binary()
   alias Phoenix.HTML.Safe
-  alias Ryker.ControlPlane.ConfigurationHelp
-  alias Ryker.ControlPlane.Layouts
-  alias Ryker.ControlPlane.MemoryPage
-  alias Ryker.ControlPlane.SlackMarkdown
+
+  alias Ryker.ControlPlane.{
+    Card,
+    CodeEditingSetup,
+    Components,
+    ConfigurationHelp,
+    ConversationLab,
+    FailurePage,
+    FindingsPage,
+    Layouts,
+    MemoryPage,
+    SlackMarkdown,
+    SlackNames,
+    SubscriptionPresentation,
+    SubscriptionsPage,
+    UsagePage,
+    UsageProjection
+  }
 
   # The title and description are the shell's header; the body owns the rest.
+  @spec page(String.t(), String.t() | nil, iodata()) :: binary()
   def page(title, description, body) do
     %{__changed__: nil, title: title, description: description, body: IO.iodata_to_binary(body)}
     |> Layouts.static()
@@ -27,148 +30,17 @@ defmodule Ryker.ControlPlane.HTML do
     |> IO.iodata_to_binary()
   end
 
-  def overview(%{counts: counts, needs_attention: attention} = snapshot) do
-    cards =
-      ([
-         {"Active", Map.get(counts, :active, 0)},
-         {"Waiting", Map.get(counts, :waiting, 0)},
-         {"Blocked", Map.get(counts, :blocked, 0)},
-         {"Delivery pending", Map.get(counts, :delivery_pending, 0)}
-       ] ++ progress_cards(Map.get(snapshot, :progress)) ++ fleet_cards(Map.get(snapshot, :fleet)))
-      |> Enum.map(fn {label, value} ->
-        [
-          "<article class=\"metric\"><strong>",
-          escape(value),
-          "</strong><span>",
-          escape(label),
-          "</span></article>"
-        ]
-      end)
-
+  # The one body a missing page, record or action renders under the shell's
+  # "Not found" title, on the live shell and the static one alike. Before
+  # 2026-09-13 an unknown URL said "No durable records in this view" under a
+  # heading that was just the word "Page".
+  @spec not_found(String.t()) :: iodata()
+  def not_found(subject) do
     [
-      "<section class=\"metrics\">",
-      cards,
-      "</section><section><h2>What needs attention</h2>",
-      attention_list(attention),
-      "</section>"
-    ]
-  end
-
-  defp fleet_cards(%{required: true, unavailable: true}) do
-    [{"Fleet health", "unavailable"}]
-  end
-
-  defp fleet_cards(%{required: true} = fleet) do
-    [
-      {"Eligible Coop workers", Map.get(fleet, :eligible_workers, 0)},
-      {"Free turn slots", get_in(fleet, [:capacity, :turn, :free]) || 0},
-      {"Current placements", Map.get(fleet, :current_placements, 0)}
-    ]
-  end
-
-  defp fleet_cards(_direct_or_missing), do: []
-
-  defp progress_cards(%{admission: admission, slack_status: slack_status}) do
-    [
-      {"Admission queued", Map.get(admission, :queued, 0)},
-      {"Admission deciding", Map.get(admission, :admitting, 0)},
-      {"Admission retrying", Map.get(admission, :retrying, 0)},
-      {"Oldest active admission", duration(Map.get(admission, :oldest_active_ms, 0))},
-      {"Slack status writes pending", Map.get(slack_status, :pending, 0)},
-      {"Oldest Slack status write", duration(Map.get(slack_status, :oldest_pending_ms, 0))}
-    ]
-  end
-
-  defp progress_cards(_missing), do: []
-
-  def lab_index(items) do
-    rows =
-      Enum.map(items, fn item ->
-        [
-          "<tr><td><a href=\"/conversations/",
-          segment(item.id),
-          "\"><code>",
-          escape(item.id),
-          "</code></a></td><td>",
-          integer(item.message_count),
-          "</td><td>",
-          timestamp(item.updated_at),
-          "</td></tr>"
-        ]
-      end)
-
-    [
-      "<section class=\"lab-hero\"><div><p class=\"eyebrow\">Real runtime · local surface</p>",
-      "<h2>Talk to Ryker without posting to Slack</h2>",
-      "<p>Messages enter the ordinary ingress, admission, episode, Work, state-tool, and delivery pipeline. Restart recovery and policy boundaries are identical to platform traffic.</p></div></section>",
-      "<section><h2>Recent conversations</h2>",
-      table(["Conversation", "Conversation inputs", "Updated"], rows),
-      "</section>"
-    ]
-  end
-
-  def lab_conversation(snapshot, csrf_token) do
-    messages =
-      case snapshot.messages do
-        [] -> "<p class=\"empty\">Send the first message to begin this durable conversation.</p>"
-        rows -> Enum.map(rows, &lab_message/1)
-      end
-
-    episodes =
-      Enum.map(snapshot.episodes, fn episode ->
-        [
-          "<li><a href=\"/timeline/",
-          segment(episode.ref),
-          "\">",
-          escape(episode.ref),
-          "</a><span>",
-          escape(episode.state),
-          " · ",
-          escape(episode.next_action),
-          "</span>",
-          if(episode.work_status == :blocked,
-            do: [
-              "<a class=\"quiet-link\" href=\"/failures/work/",
-              segment(episode.ref),
-              "\">Review failure</a>"
-            ],
-            else: ""
-          ),
-          "</li>"
-        ]
-      end)
-
-    [
-      "<section class=\"lab-shell\"><div class=\"lab-heading\"><div><p class=\"eyebrow\">Conversation</p><h2>Local model conversation</h2>",
-      "<p><code>",
-      escape(snapshot.conversation_id),
-      "</code></p></div><div class=\"status-cluster\" data-lab-status aria-live=\"polite\">",
-      status_badge(snapshot),
-      "<a class=\"quiet-link\" href=\"/conversations/",
-      segment(snapshot.conversation_id),
-      "\">Refresh</a></div></div>",
-      "<p class=\"lab-safety-note\"><strong>Same conversational product as Slack.</strong> Messages, attachments, generated images, state and Emisar tools, questions, waits, tasks, local incidents, publication cards, confirmation controls, reactions, and additional posts use the same durable runtime. Slack-owned API effects are emulated and labelled here; repository and Emisar authority still follows the configured Work policy.</p>",
-      "<div class=\"lab-stream\" data-lab-stream data-live=\"",
-      if(snapshot.live, do: "true", else: "false"),
-      "\" aria-live=\"polite\"><div class=\"messages\">",
-      messages,
-      "</div><aside class=\"custody-strip\"><strong>Durable custody</strong>",
-      lab_admission_progress(Map.get(snapshot, :admission_progress, [])),
-      if(episodes == [] and Map.get(snapshot, :admission_progress, []) == [],
-        do: "<p>Awaiting admission.</p>",
-        else: ["<ul>", episodes, "</ul>"]
-      ),
-      "</aside></div>",
-      "<form id=\"lab-composer\" phx-update=\"ignore\" class=\"composer\" method=\"post\" enctype=\"multipart/form-data\" action=\"/conversations/",
-      segment(snapshot.conversation_id),
-      "/messages\"><input type=\"hidden\" name=\"_token\" value=\"",
-      escape(csrf_token),
-      "\"><label for=\"lab-message\">Message</label>",
-      "<textarea id=\"lab-message\" name=\"message\" maxlength=\"20000\" data-max-bytes=\"20000\" rows=\"5\" placeholder=\"Ask Ryker to investigate, explain, remember, schedule, or continue work…\"></textarea>",
-      "<label class=\"attachment-label\" for=\"lab-attachments\">Attachments</label>",
-      "<input class=\"attachment-input\" id=\"lab-attachments\" name=\"attachments[]\" type=\"file\" multiple accept=\"image/png,image/jpeg,image/webp,image/gif,text/plain,text/markdown,text/csv,application/json,application/yaml,application/x-yaml,application/pdf\">",
-      "<p class=\"composer-status\" role=\"status\" hidden></p><div class=\"composer-actions\"><span>Message or up to 2 files · 8 MiB total · durable on submit</span><button type=\"submit\">Send through Ryker</button></div></form></section>",
-      "<script src=\"/static/lab.js\" defer></script>"
+      "<section class=\"document-unavailable\"><p>This ",
+      escape(String.downcase(subject)),
+      " does not exist or is no longer available. Check the link, or start again from Activity.</p>",
+      "<a class=\"ui-button secondary\" href=\"/\">Back to activity</a></section>"
     ]
   end
 
@@ -1178,16 +1050,6 @@ defmodule Ryker.ControlPlane.HTML do
     end
   end
 
-  def generic(title, rows) when is_list(rows) do
-    body =
-      case rows do
-        [] -> "<p class=\"empty\">No durable records in this view.</p>"
-        _ -> Enum.map(rows, &generic_row/1)
-      end
-
-    ["<section><h2>", escape(title), "</h2>", body, "</section>"]
-  end
-
   def findings(view), do: FindingsPage.render(%{view: view}) |> Safe.to_iodata()
 
   # Read-only evidence of what the running process assembled: one heading,
@@ -1360,18 +1222,6 @@ defmodule Ryker.ControlPlane.HTML do
     """
   end
 
-  defp attention_list([]), do: "<p class=\"empty\">Nothing needs attention.</p>"
-
-  defp attention_list(rows) do
-    [
-      "<ul>",
-      Enum.map(rows, fn row ->
-        ["<li><strong>", escape(row.title), "</strong> — ", escape(row.kind), "</li>"]
-      end),
-      "</ul>"
-    ]
-  end
-
   @doc false
   def lab_message_extras(message) do
     [
@@ -1397,79 +1247,6 @@ defmodule Ryker.ControlPlane.HTML do
       Enum.map(files, &lab_attachment/1),
       "</div></section>"
     ]
-  end
-
-  defp lab_message(message) do
-    refs =
-      (message.record_refs ++ message.artifact_refs)
-      |> Enum.map(&["<code>", escape(&1), "</code>"])
-
-    cards = Map.get(message, :cards, []) |> Enum.map(&lab_card/1)
-    reactions = Map.get(message, :reactions, []) |> Enum.map(&lab_reaction/1)
-    attachments = Map.get(message, :attachments, []) |> Enum.map(&lab_attachment/1)
-    message_controls = [lab_message_editor(message), lab_message_actions(message)]
-    reaction_controls = lab_reaction_pills(message)
-
-    [
-      "<article class=\"message ",
-      lab_actor_class(message.actor),
-      "\"><div class=\"message-head\"><strong>",
-      lab_actor_label(message.actor),
-      "</strong><span>",
-      escape(lab_message_status(message)),
-      " · ",
-      timestamp(message.occurred_at),
-      "</span></div><div class=\"message-body\">",
-      escape(message.text),
-      "</div>",
-      if(reactions == [],
-        do: "",
-        else: ["<div class=\"message-reactions\">", reactions, "</div>"]
-      ),
-      if(attachments == [],
-        do: "",
-        else: ["<div class=\"message-attachments\">", attachments, "</div>"]
-      ),
-      if(cards == [], do: "", else: ["<div class=\"message-cards\">", cards, "</div>"]),
-      if(refs == [], do: "", else: ["<div class=\"message-refs\">", refs, "</div>"]),
-      reaction_controls,
-      message_controls,
-      "</article>"
-    ]
-  end
-
-  defp lab_actor_class(:operator), do: "operator"
-  defp lab_actor_class(:integration), do: "integration"
-  defp lab_actor_class(_actor), do: "ryker"
-
-  defp lab_actor_label(:operator), do: "You"
-  defp lab_actor_label(:integration), do: "Integration"
-  defp lab_actor_label(_actor), do: "Ryker"
-
-  defp lab_message_status(%{event_kind: :edit, status: status}), do: "#{status} · edited"
-  defp lab_message_status(%{event_kind: :delete, status: status}), do: "#{status} · deleted"
-  defp lab_message_status(%{status: status}), do: to_string(status)
-
-  defp lab_admission_progress(items) do
-    Enum.map(items, fn item ->
-      [
-        "<article class=\"lab-admission-progress\"><header><strong>",
-        escape(item.phase),
-        "</strong><span>",
-        duration(item.elapsed_ms),
-        " since receipt</span></header><p>",
-        escape(item.title),
-        "</p><small>",
-        escape(item.target || "Execution target not yet observed"),
-        " · execution ",
-        escape(item.generation),
-        " · ",
-        escape(item.claims),
-        " lease claims (not model calls)</small><p><a href=\"",
-        escape(item.href),
-        "\">Inspect request and observed progress →</a></p></article>"
-      ]
-    end)
   end
 
   @doc false
@@ -1792,18 +1569,6 @@ defmodule Ryker.ControlPlane.HTML do
       ]
     end
   end
-
-  defp status_badge(%{blocked: true}),
-    do: "<span class=\"status blocked\">Needs attention</span>"
-
-  defp status_badge(%{live: true, pending: pending}),
-    do: ["<span class=\"status live\">Working · ", integer(pending), " queued</span>"]
-
-  defp status_badge(%{episodes: [%{state: state} | _rest]})
-       when state in [:waiting_for_input, :waiting_for_event],
-       do: ["<span class=\"status waiting\">", escape(state), "</span>"]
-
-  defp status_badge(_snapshot), do: "<span class=\"status\">Settled</span>"
 
   defp failure_episode(row) do
     case Map.get(row, :episode_ref) do
@@ -2151,21 +1916,6 @@ defmodule Ryker.ControlPlane.HTML do
     ]
   end
 
-  defp generic_row(row) when is_map(row) do
-    safe =
-      Map.take(row, [:kind, :ref, :state, :status, :summary, :title, :updated_at, :value, :key])
-
-    [
-      "<article class=\"metric\"><dl>",
-      Enum.map(safe, fn {key, value} ->
-        ["<dt>", escape(key), "</dt><dd>", value(value), "</dd>"]
-      end),
-      "</dl></article>"
-    ]
-  end
-
-  defp generic_row(_row), do: ""
-
   defp value({:safe, value}), do: value
   defp value(%DateTime{} = value), do: timestamp(value)
   defp value(value), do: escape(value)
@@ -2195,11 +1945,6 @@ defmodule Ryker.ControlPlane.HTML do
   defp readable_time(nil), do: "Time not recorded"
 
   defp segment(value), do: value |> to_string() |> URI.encode(&URI.char_unreserved?/1)
-
-  defp duration(nil), do: "unmeasured"
-
-  defp duration(milliseconds),
-    do: :erlang.float_to_binary(milliseconds / 1_000, decimals: 2) <> " s"
 
   defp integer(value) when is_integer(value), do: Integer.to_string(value)
   defp integer(value), do: to_string(value)

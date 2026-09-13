@@ -16,6 +16,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
     HTML,
     LabPage,
     Navigation,
+    Pages,
     Projection,
     RequestFilters,
     RequestPage,
@@ -38,7 +39,6 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
      socket
      |> assign(
        path: "/",
-       query: "",
        params: %{},
        body: "",
        page_title: "Activity",
@@ -101,7 +101,6 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
      socket
      |> assign(
        path: location.path,
-       query: location.query || "",
        domain: domain,
        params: params,
        filter_draft: filter_draft,
@@ -515,8 +514,12 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
     |> IO.iodata_to_binary()
   end
 
+  # A secondary page is prepared whole by Pages from the path as the browser
+  # sent it; a 503 keeps the last observed page on screen rather than
+  # replacing it with an error page that would read as the record's state.
   defp load_snapshot(socket, options) do
-    page = Router.snapshot(socket.assigns.path, socket.assigns.query, options)
+    segments = String.split(socket.assigns.path, "/", trim: true)
+    page = Pages.page(segments, socket.assigns.params, options)
     if page.status >= 500, do: throw({:projection_unavailable, :secondary})
 
     assign(socket,

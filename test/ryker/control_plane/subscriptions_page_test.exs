@@ -3,7 +3,7 @@ defmodule Ryker.ControlPlane.SubscriptionsPageTest do
 
   alias Ryker.ControlPlane.HTML
   alias Ryker.ControlPlane.Navigation
-  alias Ryker.ControlPlane.Router
+  alias Ryker.ControlPlane.Pages
   alias Ryker.ControlPlane.SubscriptionsPage
   import Phoenix.LiveViewTest
 
@@ -147,7 +147,7 @@ defmodule Ryker.ControlPlane.SubscriptionsPageTest do
     # The page title is the shell's one heading; the body carries no second
     # intro heading of its own, so the name can only come from the route.
     page =
-      Router.snapshot("/subscriptions", "", %{projection: %{subscriptions: fn _ -> [item] end}})
+      Pages.page(["subscriptions"], %{}, %{projection: %{subscriptions: fn _ -> [item] end}})
 
     assert page.title == "Waits"
     content = LazyHTML.from_fragment(page.body)

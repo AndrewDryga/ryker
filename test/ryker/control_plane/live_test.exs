@@ -648,6 +648,7 @@ defmodule Ryker.ControlPlane.LiveTest do
     assert has_element?(view, ".lab-directory-heading h1", "Conversations")
     assert has_element?(view, ".lab-directory-heading a[href='/conversations']", "New")
     refute has_element?(view, ".lab-directory-heading form, .lab-directory-heading [phx-click]")
+    refute html =~ "/conversations/new"
 
     {:ok, profile} =
       WorkProfile.new(%{
@@ -952,7 +953,14 @@ defmodule Ryker.ControlPlane.LiveTest do
 
     conn = build_conn() |> Map.put(:host, "localhost")
     unsent = Ecto.UUID.generate()
-    {:ok, _view, _html} = live(conn, "/conversations/#{unsent}")
+    {:ok, unsent_view, _html} = live(conn, "/conversations/#{unsent}")
+    assert page_title(unsent_view) == "Conversations · Ryker"
+
+    assert has_element?(
+             unsent_view,
+             "form.lab-native-composer[action='/conversations/#{unsent}/messages']"
+           )
+
     assert Projection.lab_conversation(unsent) == :not_found
     refute Enum.any?(Projection.lab_index(), &(&1.id == unsent))
 

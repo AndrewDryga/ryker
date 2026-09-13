@@ -8,7 +8,7 @@ defmodule Ryker.ControlPlane.MemoryPageTest do
   use ExUnit.Case, async: true
   import Phoenix.LiveViewTest
 
-  alias Ryker.ControlPlane.{HTML, MemoryPage, Router}
+  alias Ryker.ControlPlane.{HTML, MemoryPage, Pages}
 
   @at ~U[2026-09-10 09:00:00Z]
 
@@ -266,7 +266,7 @@ defmodule Ryker.ControlPlane.MemoryPageTest do
 
   test "the route keeps the shell's title and description" do
     page =
-      Router.snapshot("/memory", "kind=notes&q=deploy", %{
+      Pages.page(["memory"], %{"kind" => "notes", "q" => "deploy"}, %{
         csrf_secret: String.duplicate("s", 32),
         projection: %{
           memory: fn params ->

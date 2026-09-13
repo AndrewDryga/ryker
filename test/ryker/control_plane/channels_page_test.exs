@@ -6,7 +6,7 @@ defmodule Ryker.ControlPlane.ChannelsPageTest do
   """
   use ExUnit.Case, async: true
 
-  alias Ryker.ControlPlane.{HTML, Router}
+  alias Ryker.ControlPlane.{HTML, Pages}
 
   @channel %{
     channel_ref: "C456",
@@ -136,7 +136,7 @@ defmodule Ryker.ControlPlane.ChannelsPageTest do
 
   test "the route keeps the shell's title and description and carries the search into the toolbar" do
     page =
-      Router.snapshot("/channels", "q=infra", %{
+      Pages.page(["channels"], %{"q" => "infra"}, %{
         projection: %{channels: fn _params -> [@channel] end}
       })
 

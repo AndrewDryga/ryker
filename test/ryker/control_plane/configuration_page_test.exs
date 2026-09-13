@@ -7,7 +7,7 @@ defmodule Ryker.ControlPlane.ConfigurationPageTest do
   """
   use ExUnit.Case, async: true
 
-  alias Ryker.ControlPlane.{HTML, Router}
+  alias Ryker.ControlPlane.{HTML, SettingsPage}
 
   @source "durable settings"
 
@@ -125,21 +125,14 @@ defmodule Ryker.ControlPlane.ConfigurationPageTest do
              "No effective settings were published"
   end
 
-  test "the static route renders the evidence under the shell's Settings title and description" do
-    page =
-      Router.snapshot("/configuration", "", %{
-        projection: %{
-          operator_configuration: fn ->
-            %{rows: [row("admission", "enabled")], grants: [], source: @source}
-          end
-        }
-      })
-
-    assert page.title == "Settings"
-    assert page.description =~ "What this installation decided"
-    document = LazyHTML.from_fragment(page.body)
+  test "the evidence renders as one block under the Settings page's title and description" do
+    # The Settings page is native: WorkbenchLive renders this evidence beneath
+    # SettingsPage's own header, so the page carries the title once.
+    assert SettingsPage.description() =~ "What this installation decided"
+    document = render([row("admission", "enabled")])
     assert Enum.count(LazyHTML.query(document, "div.configuration-evidence")) == 1
     assert Enum.count(LazyHTML.query(document, "h2")) == 3
+    assert Enum.empty?(LazyHTML.query(document, "h1"))
   end
 
   defp row(key, value), do: %{key: key, value: value, source: @source}

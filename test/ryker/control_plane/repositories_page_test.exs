@@ -6,7 +6,7 @@ defmodule Ryker.ControlPlane.RepositoriesPageTest do
   """
   use ExUnit.Case, async: true
 
-  alias Ryker.ControlPlane.{HTML, Router}
+  alias Ryker.ControlPlane.{HTML, Pages}
 
   @repository %{
     channels: 1,
@@ -152,7 +152,7 @@ defmodule Ryker.ControlPlane.RepositoriesPageTest do
 
   test "the route keeps the shell's title and description" do
     page =
-      Router.snapshot("/repositories", "q=resp", %{
+      Pages.page(["repositories"], %{"q" => "resp"}, %{
         projection: %{repositories: fn _params -> [@repository] end}
       })
 
