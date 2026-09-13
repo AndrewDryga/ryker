@@ -1439,7 +1439,10 @@ defmodule Responder.ControlPlane.ConversationLabTest do
     assert [%{next_action: "external_event", state: :waiting_for_event}] = conversation.episodes
   end
 
-  test "the bounded Lab transcript retains the newest durable messages" do
+  test "the Lab opens on its latest page and every older message stays reachable" do
+    # Until 2026-09-13 this test pinned a 200-message window; message 0 of a
+    # 201-message conversation was simply gone from the page. The page is now
+    # a window with a boundary cursor, never a cap on retained history.
     Enum.each(0..200, fn index ->
       assert {:ok, %{status: :recorded}} =
                ConversationLab.send_message(
@@ -1452,9 +1455,24 @@ defmodule Responder.ControlPlane.ConversationLabTest do
     end)
 
     assert {:ok, conversation} = Projection.lab_conversation(@conversation_id)
-    assert length(conversation.messages) == 200
-    refute Enum.any?(conversation.messages, &(&1.text == "Bounded transcript message 0"))
+    assert length(conversation.messages) == 50
     assert List.last(conversation.messages).text == "Bounded transcript message 200"
+    assert hd(conversation.messages).text == "Bounded transcript message 151"
+    assert conversation.history.exhausted == false
+
+    assert {:ok, older} = Projection.lab_history(@conversation_id, conversation.history.before)
+    assert hd(older.messages).text == "Bounded transcript message 101"
+    assert List.last(older.messages).text == "Bounded transcript message 150"
+
+    assert {:ok, oldest} =
+             Enum.reduce_while(1..10, older, fn _step, page ->
+               if page.exhausted,
+                 do: {:halt, {:ok, page}},
+                 else: {:cont, elem(Projection.lab_history(@conversation_id, page.before), 1)}
+             end)
+
+    assert hd(oldest.messages).text == "Bounded transcript message 0"
+    assert oldest.before == nil
   end
 
   defp profile do
