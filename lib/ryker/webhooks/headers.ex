@@ -1,6 +1,8 @@
 defmodule Ryker.Webhooks.Headers do
   @moduledoc """
-  The `x-responder-*` request headers an external sender sets on a webhook.
+  The request headers an external sender sets on a webhook, from
+  `x-responder-timestamp` and `x-responder-signature` to the five event
+  headers below.
 
   The names are a contract with configured senders and stay as they are. The
   five event headers are read the same way whether they are being signed or
