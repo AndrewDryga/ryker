@@ -534,3 +534,12 @@ make release-check
 
 See [`docs/testing.md`](docs/testing.md) for test boundaries and
 [`docs/releasing.md`](docs/releasing.md) for the tag and publication contract.
+
+## License
+
+Ryker is source-available under the [Business Source License 1.1](LICENSE). Non-production
+use is free; production use requires a commercial license. Each version converts to the Apache
+License 2.0 on its Change Date, currently 2030-09-14. Third-party fonts, artwork, dependencies,
+and other materials distributed with separate license notices remain under those licenses.
+
+For commercial licensing, contact `licensing@emisar.dev`.
