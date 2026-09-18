@@ -186,14 +186,11 @@ defmodule Ryker.Slack.Renderer.TaskPublication do
 
   defp publication_branch_line(_status, _branch), do: ""
 
-  defp publication_controls(controls) when is_list(controls) do
-    if controls == Enum.uniq(controls) and length(controls) <= length(@publication_controls) and
-         Enum.all?(controls, &(&1 in @publication_controls)),
-       do: :ok,
-       else: {:error, :invalid_publication_controls}
+  defp publication_controls(controls) do
+    if unique_subset?(controls, @publication_controls),
+      do: :ok,
+      else: {:error, :invalid_publication_controls}
   end
-
-  defp publication_controls(_controls), do: {:error, :invalid_publication_controls}
 
   defp publication_control_identity(
          controls,
