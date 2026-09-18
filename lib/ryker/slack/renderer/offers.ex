@@ -71,8 +71,10 @@ defmodule Ryker.Slack.Renderer.Offers do
     "*#{label}:* #{shown}#{more}"
   end
 
-  defp offer_sources(refs) when is_list(refs) and refs != [],
-    do: "*Evidence:* #{length(refs)} sources"
+  defp offer_sources(refs) when is_list(refs) and refs != [] do
+    count = length(refs)
+    "*Evidence:* #{count} #{plural(count, "source", "sources")}"
+  end
 
   defp offer_sources(_refs), do: nil
 

@@ -1075,7 +1075,7 @@ defmodule Ryker.Slack.RendererTest do
           "branch",
           "Traefik stays under its limit",
           "Never deploy",
-          "1 sources"
+          "*Evidence:* 1 source"
         ] do
       assert inspect(open) =~ kept
       assert inspect(confirmed) =~ kept
@@ -1117,6 +1117,40 @@ defmodule Ryker.Slack.RendererTest do
     end
 
     assert inspect(incident_confirmed) =~ "✓ Investigating in this thread."
+  end
+
+  # The brief counted its evidence without looking at the count, so every offer
+  # that cited a single source asked the person authorizing it to trust
+  # "1 sources" — the card that grants authority read like a template.
+  test "an offer that cites one source counts it in the singular" do
+    payload = %{
+      "authority_limits" => ["Never deploy"],
+      "instruction_ref" => "record:instruction:aa11",
+      "kind" => "engineering",
+      "prompt" => "Raise the memory limit.",
+      "repository" => "blitz-infra",
+      "repository_source" => nil,
+      "source_refs" => ["record:evidence:bb22"],
+      "success_checks" => ["Traefik stays under its limit"],
+      "title" => "Prevent the next Traefik OOM"
+    }
+
+    offer = %{
+      "kind" => "task_offer",
+      "payload" => payload,
+      "ref" => "record:task_offer:abc123",
+      "status" => "open"
+    }
+
+    assert {:ok, one} = Renderer.render(%{"message" => "Want me to?", "records" => [offer]})
+    assert Jason.encode!(one) =~ "*Evidence:* 1 source"
+    refute Jason.encode!(one) =~ "1 sources"
+
+    two =
+      put_in(offer, ["payload", "source_refs"], ["record:evidence:bb22", "record:evidence:cc33"])
+
+    assert {:ok, rendered} = Renderer.render(%{"message" => "Want me to?", "records" => [two]})
+    assert Jason.encode!(rendered) =~ "*Evidence:* 2 sources"
   end
 
   test "renders an inert publication offer with a host-owned review control" do
