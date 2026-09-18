@@ -1,6 +1,6 @@
 .DEFAULT_GOAL := dev-check
 
-.PHONY: retention-simulation product-e2e elixir-product-e2e live-acceptance live-acceptance-wrapper-check eval-world-pack eval-world-smoke eval-world eval-host-replay eval-replay model-release-check eval-trend customer-check elixir-unit elixir-test elixir-check coverage elixir-release elixir-release-check elixir-install elixir-activate elixir-candidate-check control-plane-js-check shellcheck watchdog-check dev-check check release-check clean
+.PHONY: retention-simulation product-e2e elixir-product-e2e live-acceptance live-acceptance-wrapper-check eval-world-pack eval-world-smoke eval-world eval-host-replay eval-replay model-release-check eval-trend customer-check elixir-unit elixir-test elixir-check coverage elixir-release elixir-release-check elixir-install elixir-activate elixir-candidate-check control-plane-js-check shellcheck watchdog-check test-db-ready dev-check check release-check clean
 
 ELIXIR_INSTALL_PREFIX ?= $(HOME)/.local/lib/ryker-elixir
 RYKER_ELIXIR_RELEASE ?= $(ELIXIR_INSTALL_PREFIX)/current/bin/ryker
@@ -150,6 +150,12 @@ shellcheck:
 watchdog-check:
 	scripts/watchdog_test.sh
 
+# A fresh Compose project cannot safely be created by two `up` processes at
+# once. The full gate fans out two Elixir targets, so establish their shared
+# PostgreSQL service before that fan-out; each target still gets its own DB.
+test-db-ready:
+	docker compose --project-name ryker-kernel --file compose.test.yml up --detach --wait episode-db >/dev/null
+
 # The commit and deploy gate: everything deterministic that the suite itself
 # proves, minus the `slow` capacity tests, and nothing that is already inside
 # it. The full gate runs the suite complete, the host replay again in its own
@@ -158,7 +164,7 @@ dev-check:
 	+$(MAKE) --no-print-directory -j$(DEV_CHECK_JOBS) ELIXIR_CHECK_ARGS="--exclude slow" \
 		elixir-check control-plane-js-check shellcheck
 
-check:
+check: test-db-ready
 	+$(MAKE) --no-print-directory -j$(DEV_CHECK_JOBS) \
 		elixir-check control-plane-js-check shellcheck eval-replay watchdog-check live-acceptance-wrapper-check
 	+$(MAKE) --no-print-directory retention-simulation
