@@ -300,6 +300,14 @@ defmodule Ryker.ControlPlane.OperatorUsabilityTest do
 
     assert html =~ "The worker did not take or finish"
     refute html =~ "No recognized error explanation"
+
+    # A learning cleanup from before a policy re-pin could not be placed back
+    # on its worker, and read as unexplained too.
+    unplaceable = %{row | summary: "coop_session_replacement_required"}
+    html = [unplaceable] |> HTML.failures() |> IO.iodata_to_binary()
+
+    assert html =~ "can no longer take it back"
+    refute html =~ "No recognized error explanation"
   end
 
   test "failure summary counts listed operations and distinct requests without nesting the cards" do
