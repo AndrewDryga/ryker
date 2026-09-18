@@ -60,7 +60,7 @@ defmodule Ryker.Slack.Renderer.TaskPublication do
       }) do
     detail =
       if is_binary(url) and is_integer(number),
-        do: " · <#{url}|Open draft PR ##{number}>",
+        do: " · #{link(url, "Open draft PR ##{number}")}",
         else: ""
 
     summary =
@@ -182,7 +182,7 @@ defmodule Ryker.Slack.Renderer.TaskPublication do
   # publishes no URL for. Only the blocked state needs it: every other state
   # either links the pull request or has no branch worth naming yet.
   defp publication_branch_line("blocked", branch) when is_binary(branch) and branch != "",
-    do: " · `#{branch}`"
+    do: " · `#{escape(branch)}`"
 
   defp publication_branch_line(_status, _branch), do: ""
 
