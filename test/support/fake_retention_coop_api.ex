@@ -36,8 +36,6 @@ defmodule Ryker.FakeRetentionCoopAPI do
 
   def calls(agent), do: Agent.get(agent, &Enum.reverse(&1.calls))
 
-  def clear_calls(agent), do: Agent.update(agent, &%{&1 | calls: []})
-
   def remote_session(agent, session_id), do: Agent.get(agent, & &1.sessions[session_id])
 
   @doc "Simulate a worker outage: every call fails as an unreachable transport."
