@@ -27,6 +27,22 @@ if [[ ! -x $release ]]; then
   exit 1
 fi
 
+case $(uname -s) in
+  Darwin) default_runtime_env="$HOME/.local/state/ryker/emisar/runtime.env" ;;
+  *) default_runtime_env=/etc/ryker/ryker.env ;;
+esac
+runtime_env=${RYKER_RUNTIME_ENV:-$default_runtime_env}
+
+if [[ ! -r $runtime_env ]]; then
+  echo "deployment runtime environment is unavailable at $runtime_env" >&2
+  exit 1
+fi
+
+set -a
+# shellcheck source=/dev/null
+source "$runtime_env"
+set +a
+
 RYKER_LIVE_CHANNEL=$channel_ref \
 RYKER_LIVE_TIMEOUT_SECONDS=$timeout_seconds \
   "$release" eval 'Ryker.Acceptance.Live.run_from_env!()'
