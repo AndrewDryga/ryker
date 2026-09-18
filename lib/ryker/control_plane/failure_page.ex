@@ -150,6 +150,9 @@ defmodule Ryker.ControlPlane.FailurePage do
   def cause(%{summary: code}) when code in ~w(coop_unavailable coop_transport_error),
     do: "Ryker could not reach the worker to finish this operation."
 
+  def cause(%{summary: "coop_worker_command_timeout"}),
+    do: "The worker did not take or finish this operation's command in time."
+
   def cause(%{diagnosis: %{http_status: status}}) when status >= 500,
     do: "Coop returned a server error before Ryker could confirm the operation."
 
@@ -175,8 +178,9 @@ defmodule Ryker.ControlPlane.FailurePage do
 
   defp request_outcome(_row), do: nil
 
-  defp next_step(%{summary: code}) when code in ~w(coop_unavailable coop_transport_error),
-    do: "Restore the worker connection, then retry the interrupted step."
+  defp next_step(%{summary: code})
+       when code in ~w(coop_unavailable coop_transport_error coop_worker_command_timeout),
+       do: "Restore the worker connection, then retry the interrupted step."
 
   defp next_step(%{diagnosis: %{code: code}})
        when code in ~w(invalid_session_state session_not_found),
