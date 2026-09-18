@@ -201,403 +201,384 @@ defmodule Ryker.Retention.Data do
     %{result | conversation_memory: memory + compacted + rollups + observations + knowledge}
   end
 
+  @prune_slack_thread_statuses """
+    WITH candidates AS (
+      SELECT id
+      FROM slack_thread_statuses
+      WHERE status = 'delivered'
+        AND desired_text = ''
+        AND updated_at < clock_timestamp() - ($1 * interval '1 second')
+      ORDER BY updated_at, id
+      LIMIT 100
+      FOR UPDATE SKIP LOCKED
+    )
+    DELETE FROM slack_thread_statuses AS status
+    USING candidates
+    WHERE status.id = candidates.id
+  """
+
+  @prune_worker_enrollment_tokens """
+    WITH candidates AS (
+      SELECT id
+      FROM coop_worker_enrollment_tokens
+      WHERE (consumed_at IS NOT NULL OR expires_at <= clock_timestamp())
+        AND inserted_at < clock_timestamp() - ($1 * interval '1 second')
+      ORDER BY inserted_at, id
+      LIMIT 100
+      FOR UPDATE SKIP LOCKED
+    )
+    DELETE FROM coop_worker_enrollment_tokens AS token
+    USING candidates
+    WHERE token.id = candidates.id
+  """
+
+  @prune_worker_commands """
+    WITH candidates AS (
+      SELECT command.id
+      FROM coop_worker_commands AS command
+      JOIN episode_work_sessions AS session ON session.id = command.session_id
+      WHERE command.status IN ('succeeded', 'failed')
+        AND command.updated_at < clock_timestamp() - ($1 * interval '1 second')
+        AND session.cleanup_status = 'discarded'
+      ORDER BY command.updated_at, command.id
+      LIMIT 100
+      FOR UPDATE OF command SKIP LOCKED
+    )
+    DELETE FROM coop_worker_commands AS command
+    USING candidates
+    WHERE command.id = candidates.id
+  """
+
+  @prune_worker_events """
+    WITH candidates AS (
+      SELECT event.id
+      FROM coop_worker_events AS event
+      JOIN episode_work_sessions AS session ON session.id = event.session_id
+      WHERE event.inserted_at < clock_timestamp() - ($1 * interval '1 second')
+        AND session.cleanup_status = 'discarded'
+      ORDER BY event.inserted_at, event.id
+      LIMIT 100
+      FOR UPDATE OF event SKIP LOCKED
+    )
+    DELETE FROM coop_worker_events AS event
+    USING candidates
+    WHERE event.id = candidates.id
+  """
+
+  # An operator decision (rearm, unmerged discard) names its session and is
+  # audit-class, so the session row stays until the audit prune has removed
+  # the decision. Without this guard, one learning session rearmed from App
+  # Home made this DELETE raise on every pass after its discard, which
+  # aborted this phase and every later one for good.
+  @prune_non_work_sessions """
+    WITH candidates AS (
+      SELECT session.id
+      FROM episode_work_sessions AS session
+      WHERE session.execution_kind IN ('admission', 'learning')
+        AND session.cleanup_status = 'discarded'
+        AND NOT session.activity_sync_pending
+        AND session.updated_at < clock_timestamp() - ($1 * interval '1 second')
+        AND NOT EXISTS (
+          SELECT 1 FROM coop_worker_commands command
+          WHERE command.session_id = session.id
+        )
+        AND NOT EXISTS (
+          SELECT 1 FROM coop_worker_events event
+          WHERE event.session_id = session.id
+        )
+        AND NOT EXISTS (
+          SELECT 1 FROM episode_work_activity activity
+          WHERE activity.session_id = session.id AND activity.operational_pruned_at IS NULL
+        )
+        AND NOT EXISTS (
+          SELECT 1 FROM retention_operator_actions action
+          WHERE action.session_id = session.id
+        )
+      ORDER BY session.updated_at, session.id
+      LIMIT 100
+      FOR UPDATE OF session SKIP LOCKED
+    ), retired_activity AS (
+      DELETE FROM episode_work_activity AS activity
+      USING candidates WHERE activity.session_id = candidates.id
+      RETURNING activity.session_id
+    ), retired_placements AS (
+      DELETE FROM coop_session_placements AS placement
+      USING candidates
+      WHERE placement.session_id = candidates.id
+      RETURNING placement.session_id
+    )
+    DELETE FROM episode_work_sessions AS session
+    USING candidates
+    WHERE session.id = candidates.id
+  """
+
+  @prune_reactions """
+    WITH candidates AS (
+      SELECT id
+      FROM delivery_reactions
+      WHERE status = 'delivered'
+        AND updated_at < clock_timestamp() - ($1 * interval '1 second')
+      ORDER BY updated_at, id
+      LIMIT 100
+      FOR UPDATE SKIP LOCKED
+    )
+    DELETE FROM delivery_reactions AS reaction
+    USING candidates
+    WHERE reaction.id = candidates.id
+  """
+
+  @prune_configuration_sessions """
+    WITH candidates AS (
+      SELECT id
+      FROM slack_configuration_sessions
+      WHERE (
+        status = ANY($1)
+        AND updated_at < clock_timestamp() - ($2 * interval '1 second')
+      ) OR expires_at < clock_timestamp() - ($2 * interval '1 second')
+      ORDER BY updated_at, id
+      LIMIT 100
+      FOR UPDATE SKIP LOCKED
+    )
+    DELETE FROM slack_configuration_sessions AS session
+    USING candidates
+    WHERE session.id = candidates.id
+  """
+
+  # A learning batch that is leased, or whose run is still out at the model,
+  # needs the exact bodies it was given; pruning them fenced the turn as
+  # learning_source_stale and wasted the start. A queued batch retires a
+  # pruned input on its own and keeps the rest.
+  @prune_operational_inputs """
+    WITH candidates AS (
+      SELECT input.id
+      FROM ingress_inbox_entries AS input
+      WHERE input.operational_pruned_at IS NULL
+        AND input.status = ANY($1)
+        AND input.updated_at < clock_timestamp() - ($2 * interval '1 second')
+        AND NOT EXISTS (
+          SELECT 1 FROM delivery_reactions reaction
+          WHERE reaction.input_id = input.id AND reaction.status <> 'delivered'
+        )
+        AND (
+          input.episode_id IS NULL
+          OR NOT EXISTS (
+            SELECT 1 FROM episode_work_sessions session
+            WHERE session.episode_id = input.episode_id
+              AND session.cleanup_status <> 'discarded'
+          )
+        )
+        AND NOT EXISTS (
+          SELECT 1 FROM conversation_learning_inputs AS membership
+          JOIN conversation_learning_batches AS batch ON batch.id = membership.batch_id
+          WHERE membership.input_id = input.id
+            AND (
+              batch.status = 'running'
+              OR EXISTS (
+                SELECT 1 FROM conversation_learning_runs AS run
+                WHERE run.batch_id = batch.id
+                  AND run.started_at IS NOT NULL AND run.remote_stopped_at IS NULL
+              )
+            )
+        )
+      ORDER BY input.updated_at, input.id
+      LIMIT 100
+      FOR UPDATE OF input SKIP LOCKED
+    )
+    UPDATE ingress_inbox_entries AS input
+    SET content = '{"retention":"pruned"}',
+        source_envelope = CASE WHEN source_envelope IS NULL THEN NULL ELSE '{"retention":"pruned"}' END,
+        admission_context = NULL,
+        admission_context_fingerprint = NULL,
+        decision_document = '{"retention":"pruned"}',
+        operational_pruned_at = clock_timestamp()
+    FROM candidates
+    WHERE input.id = candidates.id
+  """
+
+  @prune_admission_artifacts """
+    WITH candidates AS (
+      SELECT attempt.id FROM admission_attempts attempt
+      JOIN ingress_inbox_entries input ON input.id = attempt.input_id
+      WHERE attempt.operational_pruned_at IS NULL AND input.operational_pruned_at IS NOT NULL
+      ORDER BY attempt.inserted_at, attempt.id LIMIT 100
+      FOR UPDATE OF attempt SKIP LOCKED
+    )
+    UPDATE admission_attempts attempt
+    SET submission = CASE WHEN submission IS NULL THEN NULL ELSE '{"retention":"pruned"}' END,
+        response = CASE WHEN response IS NULL THEN NULL ELSE '{"retention":"pruned"}' END,
+        operational_pruned_at = clock_timestamp()
+    FROM candidates WHERE attempt.id = candidates.id
+  """
+
+  # A receipt is the trace's evidence of what Slack acknowledged for its
+  # episode (directly, or through one of the episode's inputs); it stays
+  # while that episode is open.
+  @prune_status_receipts """
+    WITH candidates AS (
+      SELECT receipt.id
+      FROM slack_thread_status_receipts AS receipt
+      WHERE receipt.inserted_at < clock_timestamp() - ($1 * interval '1 second')
+        AND NOT EXISTS (
+          SELECT 1 FROM episode_kernel_episodes AS episode
+          WHERE episode.state NOT IN ('complete', 'cancelled')
+            AND episode.id = CASE receipt.origin_kind
+              WHEN 'episode' THEN receipt.origin_id
+              WHEN 'input' THEN (
+                SELECT input.episode_id FROM ingress_inbox_entries AS input
+                WHERE input.id = receipt.origin_id
+              )
+            END
+        )
+      ORDER BY receipt.inserted_at, receipt.id
+      LIMIT 1000
+      FOR UPDATE SKIP LOCKED
+    )
+    DELETE FROM slack_thread_status_receipts AS receipt
+    USING candidates
+    WHERE receipt.id = candidates.id
+  """
+
+  @prune_operational_turns """
+    WITH candidates AS (
+      SELECT turn.id, clock_timestamp() AS pruned_at
+      FROM episode_work_turns AS turn
+      JOIN episode_work_sessions AS session ON session.id = turn.session_id
+      WHERE turn.operational_pruned_at IS NULL
+        AND turn.status = ANY($1)
+        AND turn.updated_at < clock_timestamp() - ($2 * interval '1 second')
+        AND session.cleanup_status = 'discarded'
+      ORDER BY turn.updated_at, turn.id
+      LIMIT 100
+      FOR UPDATE OF turn SKIP LOCKED
+    ), response_bodies AS (
+      UPDATE work_candidate_responses AS response
+      SET body = NULL, operational_pruned_at = candidates.pruned_at
+      FROM candidates
+      WHERE response.turn_id = candidates.id
+        AND response.operational_pruned_at IS NULL
+      RETURNING response.turn_id
+    )
+    UPDATE episode_work_turns AS turn
+    SET submission = CASE WHEN submission IS NULL THEN NULL ELSE '{"retention":"pruned"}' END,
+        candidate = CASE WHEN candidate IS NULL THEN NULL ELSE '{"retention":"pruned"}' END,
+        validation_intent = CASE WHEN validation_intent IS NULL THEN NULL ELSE '{"retention":"pruned"}' END,
+        completion_receipt = NULL,
+        cancellation_intent = CASE WHEN cancellation_intent IS NULL THEN NULL ELSE '{"retention":"pruned"}' END,
+        delivery_document = CASE WHEN delivery_document IS NULL THEN NULL ELSE '{"retention":"pruned"}' END,
+        continuation = CASE WHEN continuation IS NULL THEN NULL ELSE '{"retention":"pruned"}' END,
+        operational_pruned_at = candidates.pruned_at
+    FROM candidates
+    WHERE turn.id = candidates.id
+  """
+
+  @prune_input_artifact_references """
+    WITH candidates AS (
+      SELECT reference.input_id, reference.artifact_id
+      FROM ingress_input_artifact_references AS reference
+      JOIN ingress_inbox_entries AS input ON input.id = reference.input_id
+      WHERE input.operational_pruned_at IS NOT NULL
+      ORDER BY reference.input_id, reference.artifact_id
+      LIMIT 500
+      FOR UPDATE OF reference SKIP LOCKED
+    )
+    DELETE FROM ingress_input_artifact_references AS reference
+    USING candidates
+    WHERE reference.input_id = candidates.input_id
+      AND reference.artifact_id = candidates.artifact_id
+  """
+
+  @prune_work_artifact_references """
+    WITH candidates AS (
+      SELECT reference.turn_id, reference.artifact_id
+      FROM work_input_artifact_references AS reference
+      JOIN episode_work_turns AS turn ON turn.id = reference.turn_id
+      WHERE turn.operational_pruned_at IS NOT NULL
+      ORDER BY reference.turn_id, reference.artifact_id
+      LIMIT 500
+      FOR UPDATE OF reference SKIP LOCKED
+    )
+    DELETE FROM work_input_artifact_references AS reference
+    USING candidates
+    WHERE reference.turn_id = candidates.turn_id
+      AND reference.artifact_id = candidates.artifact_id
+  """
+
+  @prune_output_artifacts """
+    WITH candidates AS (
+      SELECT artifact.id
+      FROM work_output_artifacts AS artifact
+      JOIN episode_work_turns AS turn ON turn.id = artifact.turn_id
+      WHERE turn.operational_pruned_at IS NOT NULL
+        AND artifact.updated_at < clock_timestamp() - ($1 * interval '1 second')
+      ORDER BY artifact.updated_at, artifact.id
+      LIMIT 100
+      FOR UPDATE OF artifact SKIP LOCKED
+    )
+    DELETE FROM work_output_artifacts AS artifact
+    USING candidates
+    WHERE artifact.id = candidates.id
+  """
+
+  @prune_input_artifacts """
+    WITH candidates AS (
+      SELECT artifact.id
+      FROM input_artifacts AS artifact
+      WHERE artifact.updated_at < clock_timestamp() - ($1 * interval '1 second')
+        AND NOT EXISTS (
+          SELECT 1 FROM ingress_input_artifact_references AS reference
+          WHERE reference.artifact_id = artifact.id
+        )
+        AND NOT EXISTS (
+          SELECT 1 FROM work_input_artifact_references AS reference
+          WHERE reference.artifact_id = artifact.id
+        )
+      ORDER BY artifact.updated_at, artifact.id
+      LIMIT 100
+      FOR UPDATE OF artifact SKIP LOCKED
+    )
+    DELETE FROM input_artifacts AS artifact
+    USING candidates
+    WHERE artifact.id = candidates.id
+  """
+
   defp prune_operational(result, settings) do
     cutoff = settings.operational_data_seconds
 
-    _slack_thread_statuses =
-      execute_count(
-        """
-        WITH candidates AS (
-          SELECT id
-          FROM slack_thread_statuses
-          WHERE status = 'delivered'
-            AND desired_text = ''
-            AND updated_at < clock_timestamp() - ($1 * interval '1 second')
-          ORDER BY updated_at, id
-          LIMIT 100
-          FOR UPDATE SKIP LOCKED
-        )
-        DELETE FROM slack_thread_statuses AS status
-        USING candidates
-        WHERE status.id = candidates.id
-        """,
-        [cutoff]
-      )
+    _slack_thread_statuses = execute_count(@prune_slack_thread_statuses, [cutoff])
 
-    _worker_enrollment_tokens =
-      execute_count(
-        """
-        WITH candidates AS (
-          SELECT id
-          FROM coop_worker_enrollment_tokens
-          WHERE (consumed_at IS NOT NULL OR expires_at <= clock_timestamp())
-            AND inserted_at < clock_timestamp() - ($1 * interval '1 second')
-          ORDER BY inserted_at, id
-          LIMIT 100
-          FOR UPDATE SKIP LOCKED
-        )
-        DELETE FROM coop_worker_enrollment_tokens AS token
-        USING candidates
-        WHERE token.id = candidates.id
-        """,
-        [cutoff]
-      )
+    _worker_enrollment_tokens = execute_count(@prune_worker_enrollment_tokens, [cutoff])
 
-    worker_commands =
-      execute_count(
-        """
-        WITH candidates AS (
-          SELECT command.id
-          FROM coop_worker_commands AS command
-          JOIN episode_work_sessions AS session ON session.id = command.session_id
-          WHERE command.status IN ('succeeded', 'failed')
-            AND command.updated_at < clock_timestamp() - ($1 * interval '1 second')
-            AND session.cleanup_status = 'discarded'
-          ORDER BY command.updated_at, command.id
-          LIMIT 100
-          FOR UPDATE OF command SKIP LOCKED
-        )
-        DELETE FROM coop_worker_commands AS command
-        USING candidates
-        WHERE command.id = candidates.id
-        """,
-        [cutoff]
-      )
+    worker_commands = execute_count(@prune_worker_commands, [cutoff])
 
-    worker_events =
-      execute_count(
-        """
-        WITH candidates AS (
-          SELECT event.id
-          FROM coop_worker_events AS event
-          JOIN episode_work_sessions AS session ON session.id = event.session_id
-          WHERE event.inserted_at < clock_timestamp() - ($1 * interval '1 second')
-            AND session.cleanup_status = 'discarded'
-          ORDER BY event.inserted_at, event.id
-          LIMIT 100
-          FOR UPDATE OF event SKIP LOCKED
-        )
-        DELETE FROM coop_worker_events AS event
-        USING candidates
-        WHERE event.id = candidates.id
-        """,
-        [cutoff]
-      )
+    worker_events = execute_count(@prune_worker_events, [cutoff])
 
-    # An operator decision (rearm, unmerged discard) names its session and is
-    # audit-class, so the session row stays until the audit prune has removed
-    # the decision. Without this guard, one learning session rearmed from App
-    # Home made this DELETE raise on every pass after its discard, which
-    # aborted this phase and every later one for good.
-    _non_work_sessions =
-      execute_count(
-        """
-        WITH candidates AS (
-          SELECT session.id
-          FROM episode_work_sessions AS session
-          WHERE session.execution_kind IN ('admission', 'learning')
-            AND session.cleanup_status = 'discarded'
-            AND NOT session.activity_sync_pending
-            AND session.updated_at < clock_timestamp() - ($1 * interval '1 second')
-            AND NOT EXISTS (
-              SELECT 1 FROM coop_worker_commands command
-              WHERE command.session_id = session.id
-            )
-            AND NOT EXISTS (
-              SELECT 1 FROM coop_worker_events event
-              WHERE event.session_id = session.id
-            )
-            AND NOT EXISTS (
-              SELECT 1 FROM episode_work_activity activity
-              WHERE activity.session_id = session.id AND activity.operational_pruned_at IS NULL
-            )
-            AND NOT EXISTS (
-              SELECT 1 FROM retention_operator_actions action
-              WHERE action.session_id = session.id
-            )
-          ORDER BY session.updated_at, session.id
-          LIMIT 100
-          FOR UPDATE OF session SKIP LOCKED
-        ), retired_activity AS (
-          DELETE FROM episode_work_activity AS activity
-          USING candidates WHERE activity.session_id = candidates.id
-          RETURNING activity.session_id
-        ), retired_placements AS (
-          DELETE FROM coop_session_placements AS placement
-          USING candidates
-          WHERE placement.session_id = candidates.id
-          RETURNING placement.session_id
-        )
-        DELETE FROM episode_work_sessions AS session
-        USING candidates
-        WHERE session.id = candidates.id
-        """,
-        [cutoff]
-      )
+    _non_work_sessions = execute_count(@prune_non_work_sessions, [cutoff])
 
-    reactions =
-      execute_count(
-        """
-        WITH candidates AS (
-          SELECT id
-          FROM delivery_reactions
-          WHERE status = 'delivered'
-            AND updated_at < clock_timestamp() - ($1 * interval '1 second')
-          ORDER BY updated_at, id
-          LIMIT 100
-          FOR UPDATE SKIP LOCKED
-        )
-        DELETE FROM delivery_reactions AS reaction
-        USING candidates
-        WHERE reaction.id = candidates.id
-        """,
-        [cutoff]
-      )
+    reactions = execute_count(@prune_reactions, [cutoff])
 
     configuration_sessions =
-      execute_count(
-        """
-        WITH candidates AS (
-          SELECT id
-          FROM slack_configuration_sessions
-          WHERE (
-            status = ANY($1)
-            AND updated_at < clock_timestamp() - ($2 * interval '1 second')
-          ) OR expires_at < clock_timestamp() - ($2 * interval '1 second')
-          ORDER BY updated_at, id
-          LIMIT 100
-          FOR UPDATE SKIP LOCKED
-        )
-        DELETE FROM slack_configuration_sessions AS session
-        USING candidates
-        WHERE session.id = candidates.id
-        """,
-        [~w(saved cancelled expired), cutoff]
-      )
+      execute_count(@prune_configuration_sessions, [~w(saved cancelled expired), cutoff])
 
-    # A learning batch that is leased, or whose run is still out at the model,
-    # needs the exact bodies it was given; pruning them fenced the turn as
-    # learning_source_stale and wasted the start. A queued batch retires a
-    # pruned input on its own and keeps the rest.
     operational_inputs =
-      execute_count(
-        """
-        WITH candidates AS (
-          SELECT input.id
-          FROM ingress_inbox_entries AS input
-          WHERE input.operational_pruned_at IS NULL
-            AND input.status = ANY($1)
-            AND input.updated_at < clock_timestamp() - ($2 * interval '1 second')
-            AND NOT EXISTS (
-              SELECT 1 FROM delivery_reactions reaction
-              WHERE reaction.input_id = input.id AND reaction.status <> 'delivered'
-            )
-            AND (
-              input.episode_id IS NULL
-              OR NOT EXISTS (
-                SELECT 1 FROM episode_work_sessions session
-                WHERE session.episode_id = input.episode_id
-                  AND session.cleanup_status <> 'discarded'
-              )
-            )
-            AND NOT EXISTS (
-              SELECT 1 FROM conversation_learning_inputs AS membership
-              JOIN conversation_learning_batches AS batch ON batch.id = membership.batch_id
-              WHERE membership.input_id = input.id
-                AND (
-                  batch.status = 'running'
-                  OR EXISTS (
-                    SELECT 1 FROM conversation_learning_runs AS run
-                    WHERE run.batch_id = batch.id
-                      AND run.started_at IS NOT NULL AND run.remote_stopped_at IS NULL
-                  )
-                )
-            )
-          ORDER BY input.updated_at, input.id
-          LIMIT 100
-          FOR UPDATE OF input SKIP LOCKED
-        )
-        UPDATE ingress_inbox_entries AS input
-        SET content = '{"retention":"pruned"}',
-            source_envelope = CASE WHEN source_envelope IS NULL THEN NULL ELSE '{"retention":"pruned"}' END,
-            admission_context = NULL,
-            admission_context_fingerprint = NULL,
-            decision_document = '{"retention":"pruned"}',
-            operational_pruned_at = clock_timestamp()
-        FROM candidates
-        WHERE input.id = candidates.id
-        """,
-        [~w(decided superseded), cutoff]
-      )
+      execute_count(@prune_operational_inputs, [~w(decided superseded), cutoff])
 
     learning_artifacts = Learning.prune_in_transaction(settings.conversation_memory_seconds)
 
-    _admission_artifacts =
-      execute_count("""
-      WITH candidates AS (
-        SELECT attempt.id FROM admission_attempts attempt
-        JOIN ingress_inbox_entries input ON input.id = attempt.input_id
-        WHERE attempt.operational_pruned_at IS NULL AND input.operational_pruned_at IS NOT NULL
-        ORDER BY attempt.inserted_at, attempt.id LIMIT 100
-        FOR UPDATE OF attempt SKIP LOCKED
-      )
-      UPDATE admission_attempts attempt
-      SET submission = CASE WHEN submission IS NULL THEN NULL ELSE '{"retention":"pruned"}' END,
-          response = CASE WHEN response IS NULL THEN NULL ELSE '{"retention":"pruned"}' END,
-          operational_pruned_at = clock_timestamp()
-      FROM candidates WHERE attempt.id = candidates.id
-      """)
+    _admission_artifacts = execute_count(@prune_admission_artifacts)
 
-    # A receipt is the trace's evidence of what Slack acknowledged for its
-    # episode (directly, or through one of the episode's inputs); it stays
-    # while that episode is open.
-    _status_receipts =
-      execute_count(
-        """
-        WITH candidates AS (
-          SELECT receipt.id
-          FROM slack_thread_status_receipts AS receipt
-          WHERE receipt.inserted_at < clock_timestamp() - ($1 * interval '1 second')
-            AND NOT EXISTS (
-              SELECT 1 FROM episode_kernel_episodes AS episode
-              WHERE episode.state NOT IN ('complete', 'cancelled')
-                AND episode.id = CASE receipt.origin_kind
-                  WHEN 'episode' THEN receipt.origin_id
-                  WHEN 'input' THEN (
-                    SELECT input.episode_id FROM ingress_inbox_entries AS input
-                    WHERE input.id = receipt.origin_id
-                  )
-                END
-            )
-          ORDER BY receipt.inserted_at, receipt.id
-          LIMIT 1000
-          FOR UPDATE SKIP LOCKED
-        )
-        DELETE FROM slack_thread_status_receipts AS receipt
-        USING candidates
-        WHERE receipt.id = candidates.id
-        """,
-        [cutoff]
-      )
+    _status_receipts = execute_count(@prune_status_receipts, [cutoff])
 
-    operational_turns =
-      execute_count(
-        """
-        WITH candidates AS (
-          SELECT turn.id, clock_timestamp() AS pruned_at
-          FROM episode_work_turns AS turn
-          JOIN episode_work_sessions AS session ON session.id = turn.session_id
-          WHERE turn.operational_pruned_at IS NULL
-            AND turn.status = ANY($1)
-            AND turn.updated_at < clock_timestamp() - ($2 * interval '1 second')
-            AND session.cleanup_status = 'discarded'
-          ORDER BY turn.updated_at, turn.id
-          LIMIT 100
-          FOR UPDATE OF turn SKIP LOCKED
-        ), response_bodies AS (
-          UPDATE work_candidate_responses AS response
-          SET body = NULL, operational_pruned_at = candidates.pruned_at
-          FROM candidates
-          WHERE response.turn_id = candidates.id
-            AND response.operational_pruned_at IS NULL
-          RETURNING response.turn_id
-        )
-        UPDATE episode_work_turns AS turn
-        SET submission = CASE WHEN submission IS NULL THEN NULL ELSE '{"retention":"pruned"}' END,
-            candidate = CASE WHEN candidate IS NULL THEN NULL ELSE '{"retention":"pruned"}' END,
-            validation_intent = CASE WHEN validation_intent IS NULL THEN NULL ELSE '{"retention":"pruned"}' END,
-            completion_receipt = NULL,
-            cancellation_intent = CASE WHEN cancellation_intent IS NULL THEN NULL ELSE '{"retention":"pruned"}' END,
-            delivery_document = CASE WHEN delivery_document IS NULL THEN NULL ELSE '{"retention":"pruned"}' END,
-            continuation = CASE WHEN continuation IS NULL THEN NULL ELSE '{"retention":"pruned"}' END,
-            operational_pruned_at = candidates.pruned_at
-        FROM candidates
-        WHERE turn.id = candidates.id
-        """,
-        [@terminal_turn_states, cutoff]
-      )
+    operational_turns = execute_count(@prune_operational_turns, [@terminal_turn_states, cutoff])
 
     _activity_evidence = ActivityRetention.prune()
 
-    _input_artifact_references =
-      execute_count("""
-      WITH candidates AS (
-        SELECT reference.input_id, reference.artifact_id
-        FROM ingress_input_artifact_references AS reference
-        JOIN ingress_inbox_entries AS input ON input.id = reference.input_id
-        WHERE input.operational_pruned_at IS NOT NULL
-        ORDER BY reference.input_id, reference.artifact_id
-        LIMIT 500
-        FOR UPDATE OF reference SKIP LOCKED
-      )
-      DELETE FROM ingress_input_artifact_references AS reference
-      USING candidates
-      WHERE reference.input_id = candidates.input_id
-        AND reference.artifact_id = candidates.artifact_id
-      """)
+    _input_artifact_references = execute_count(@prune_input_artifact_references)
 
-    _work_artifact_references =
-      execute_count("""
-      WITH candidates AS (
-        SELECT reference.turn_id, reference.artifact_id
-        FROM work_input_artifact_references AS reference
-        JOIN episode_work_turns AS turn ON turn.id = reference.turn_id
-        WHERE turn.operational_pruned_at IS NOT NULL
-        ORDER BY reference.turn_id, reference.artifact_id
-        LIMIT 500
-        FOR UPDATE OF reference SKIP LOCKED
-      )
-      DELETE FROM work_input_artifact_references AS reference
-      USING candidates
-      WHERE reference.turn_id = candidates.turn_id
-        AND reference.artifact_id = candidates.artifact_id
-      """)
+    _work_artifact_references = execute_count(@prune_work_artifact_references)
 
-    output_artifacts =
-      execute_count(
-        """
-        WITH candidates AS (
-          SELECT artifact.id
-          FROM work_output_artifacts AS artifact
-          JOIN episode_work_turns AS turn ON turn.id = artifact.turn_id
-          WHERE turn.operational_pruned_at IS NOT NULL
-            AND artifact.updated_at < clock_timestamp() - ($1 * interval '1 second')
-          ORDER BY artifact.updated_at, artifact.id
-          LIMIT 100
-          FOR UPDATE OF artifact SKIP LOCKED
-        )
-        DELETE FROM work_output_artifacts AS artifact
-        USING candidates
-        WHERE artifact.id = candidates.id
-        """,
-        [cutoff]
-      )
+    output_artifacts = execute_count(@prune_output_artifacts, [cutoff])
 
-    input_artifacts =
-      execute_count(
-        """
-        WITH candidates AS (
-          SELECT artifact.id
-          FROM input_artifacts AS artifact
-          WHERE artifact.updated_at < clock_timestamp() - ($1 * interval '1 second')
-            AND NOT EXISTS (
-              SELECT 1 FROM ingress_input_artifact_references AS reference
-              WHERE reference.artifact_id = artifact.id
-            )
-            AND NOT EXISTS (
-              SELECT 1 FROM work_input_artifact_references AS reference
-              WHERE reference.artifact_id = artifact.id
-            )
-          ORDER BY artifact.updated_at, artifact.id
-          LIMIT 100
-          FOR UPDATE OF artifact SKIP LOCKED
-        )
-        DELETE FROM input_artifacts AS artifact
-        USING candidates
-        WHERE artifact.id = candidates.id
-        """,
-        [cutoff]
-      )
+    input_artifacts = execute_count(@prune_input_artifacts, [cutoff])
 
     %{
       result
