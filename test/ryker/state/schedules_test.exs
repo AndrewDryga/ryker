@@ -624,7 +624,6 @@ defmodule Ryker.State.SchedulesTest do
     assert {:error, _reason} = Schedules.run_now("", "", "", %{}, :not_a_resolver)
     assert {:error, _reason} = Schedules.run_now_for_operator("", "", "", :not_a_resolver)
     assert Schedules.set_status("missing-schedule", :active) == {:error, :schedule_not_found}
-    assert Schedules.list_for_destination("slack", "slack:T123:C456") == []
   end
 
   defp delivered_offer!(suffix, options \\ []) do

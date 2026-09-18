@@ -13,7 +13,6 @@ defmodule Ryker.State.Memories.Reviews do
   import Ecto.Query
 
   alias Ryker.CanonicalJSON
-  alias Ryker.Reference
   alias Ryker.Repo
 
   alias Ryker.State.{
@@ -141,18 +140,6 @@ defmodule Ryker.State.Memories.Reviews do
     end
   end
 
-  @spec home_review_count(String.t(), String.t()) :: non_neg_integer()
-  def home_review_count(workspace_ref, actor_ref) do
-    with :ok <- Memories.reference(workspace_ref, :workspace_ref),
-         :ok <- Memories.reference(actor_ref, :actor_ref) do
-      workspace_ref
-      |> home_review_query(actor_ref, :pending)
-      |> Repo.aggregate(:count, :id)
-    else
-      {:error, _reason} -> 0
-    end
-  end
-
   @spec pending_reviews(pos_integer()) :: [map()]
   def pending_reviews(limit \\ 20)
 
@@ -168,18 +155,6 @@ defmodule Ryker.State.Memories.Reviews do
   end
 
   def pending_reviews(_limit), do: []
-
-  @spec fetch_review(String.t()) :: {:ok, map()} | :error
-  def fetch_review(ref) do
-    if Reference.valid?(ref) do
-      case Repo.one(from(review in MemoryReviewItem, where: review.ref == ^ref)) do
-        %MemoryReviewItem{} = review -> {:ok, review_document(review)}
-        nil -> :error
-      end
-    else
-      :error
-    end
-  end
 
   @doc "Fetches one pending review only when every entry is safe for this App Home actor."
   @spec fetch_home_review(String.t(), String.t(), String.t()) ::

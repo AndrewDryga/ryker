@@ -222,19 +222,6 @@ defmodule Ryker.State.Schedules do
   def run_now_for_operator(_schedule_ref, _actor_ref, _action_ref, _policy_resolver),
     do: {:error, {:invalid_schedule, :run_now}}
 
-  @spec list_for_destination(String.t(), String.t()) :: [Schedule.t()]
-  def list_for_destination(transport, conversation_ref) do
-    Repo.all(
-      from(schedule in Schedule,
-        where:
-          schedule.destination_transport == ^transport and
-            schedule.destination_conversation_ref == ^conversation_ref and
-            schedule.status != :deleted,
-        order_by: [asc: schedule.next_occurrence_at, asc: schedule.inserted_at, asc: schedule.id]
-      )
-    )
-  end
-
   defp confirm_locked(attributes) do
     with {:ok, record, source_episode, source_turn} <- lock_offer(attributes.record_ref),
          :ok <- delivered_from?(source_episode, source_turn, attributes.target) do
