@@ -1,11 +1,12 @@
 # Ryker Development
 
-## Ryker identity and rename
+## Ryker identity
 
-The approved target identity is Ryker. Before branding, UI, naming or rename work, read
-`.agent/kb/rules/ryker-brand.md` and the repo-local sources it names. Use supplied artwork and
-Ryker mint, not the umbrella orange. The full code/repository/runtime rename is queued in the
-redesign task; documentation or imported assets alone do not mean it has shipped.
+The product is Ryker. Before branding, UI or naming work, read `.agent/kb/rules/ryker-brand.md`
+and the repo-local sources it names. Use supplied artwork and Ryker mint, not the umbrella orange.
+The rename shipped on 2026-09-13. The few identifiers that keep the old spelling are contracts
+another party owns, listed in docs/operations.md, and `test/ryker/rename_audit_test.exs` fails on
+any other.
 
 ## Slack-card design and review
 
