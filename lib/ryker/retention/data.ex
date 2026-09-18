@@ -978,7 +978,31 @@ defmodule Ryker.Retention.Data do
     schedule_runs
   end
 
+  @prune_settled_interaction_audits """
+  WITH candidates AS (
+    SELECT id FROM slack_interaction_audit
+    WHERE repaint_status IN ('none', 'settled', 'blocked')
+      AND inserted_at < clock_timestamp() - ($1 * interval '1 second')
+    ORDER BY inserted_at, id LIMIT 100 FOR UPDATE SKIP LOCKED
+  )
+  DELETE FROM slack_interaction_audit AS audit
+  USING candidates WHERE audit.id = candidates.id
+  """
+
+  @prune_resolved_memory_reviews """
+  WITH candidates AS (
+    SELECT id FROM memory_review_items
+    WHERE status <> 'pending'
+      AND updated_at < clock_timestamp() - ($1 * interval '1 second')
+    ORDER BY updated_at, id LIMIT 100 FOR UPDATE SKIP LOCKED
+  )
+  DELETE FROM memory_review_items AS review
+  USING candidates WHERE review.id = candidates.id
+  """
+
   defp prune_audit(result, settings) do
+    cutoff = settings.audit_data_seconds
+
     worker_certificates =
       execute_count(
         """
@@ -996,122 +1020,21 @@ defmodule Ryker.Retention.Data do
         USING candidates
         WHERE certificate.sha256 = candidates.sha256
         """,
-        [settings.audit_data_seconds]
+        [cutoff]
       )
 
     audit_rows =
-      execute_count(
-        """
-        WITH candidates AS (
-          SELECT id FROM settings_edits
-          WHERE inserted_at < clock_timestamp() - ($1 * interval '1 second')
-          ORDER BY inserted_at, id LIMIT 100 FOR UPDATE SKIP LOCKED
-        )
-        DELETE FROM settings_edits AS edit
-        USING candidates WHERE edit.id = candidates.id
-        """,
-        [settings.audit_data_seconds]
-      ) +
-        execute_count(
-          """
-          WITH candidates AS (
-            SELECT id FROM model_instruction_edits
-            WHERE inserted_at < clock_timestamp() - ($1 * interval '1 second')
-            ORDER BY inserted_at, id LIMIT 100 FOR UPDATE SKIP LOCKED
-          )
-          DELETE FROM model_instruction_edits AS edit
-          USING candidates WHERE edit.id = candidates.id
-          """,
-          [settings.audit_data_seconds]
-        ) +
-        execute_count(
-          """
-          WITH candidates AS (
-            SELECT id FROM settings_import_receipts
-            WHERE inserted_at < clock_timestamp() - ($1 * interval '1 second')
-            ORDER BY inserted_at, id LIMIT 100 FOR UPDATE SKIP LOCKED
-          )
-          DELETE FROM settings_import_receipts AS receipt
-          USING candidates WHERE receipt.id = candidates.id
-          """,
-          [settings.audit_data_seconds]
-        ) +
-        execute_count(
-          """
-          WITH candidates AS (
-            SELECT id FROM slack_channel_setting_audit
-            WHERE inserted_at < clock_timestamp() - ($1 * interval '1 second')
-            ORDER BY inserted_at, id LIMIT 100 FOR UPDATE SKIP LOCKED
-          )
-          DELETE FROM slack_channel_setting_audit AS audit
-          USING candidates WHERE audit.id = candidates.id
-          """,
-          [settings.audit_data_seconds]
-        ) +
-        execute_count(
-          """
-          WITH candidates AS (
-            SELECT id FROM slack_interaction_audit
-            WHERE repaint_status IN ('none', 'settled', 'blocked')
-              AND inserted_at < clock_timestamp() - ($1 * interval '1 second')
-            ORDER BY inserted_at, id LIMIT 100 FOR UPDATE SKIP LOCKED
-          )
-          DELETE FROM slack_interaction_audit AS audit
-          USING candidates WHERE audit.id = candidates.id
-          """,
-          [settings.audit_data_seconds]
-        ) +
-        execute_count(
-          """
-          WITH candidates AS (
-            SELECT id FROM slack_channel_membership_events
-            WHERE inserted_at < clock_timestamp() - ($1 * interval '1 second')
-            ORDER BY inserted_at, id LIMIT 100 FOR UPDATE SKIP LOCKED
-          )
-          DELETE FROM slack_channel_membership_events AS event
-          USING candidates WHERE event.id = candidates.id
-          """,
-          [settings.audit_data_seconds]
-        ) +
-        execute_count(
-          """
-          WITH candidates AS (
-            SELECT id FROM ryker_operator_actions
-            WHERE inserted_at < clock_timestamp() - ($1 * interval '1 second')
-            ORDER BY inserted_at, id LIMIT 100 FOR UPDATE SKIP LOCKED
-          )
-          DELETE FROM ryker_operator_actions AS action
-          USING candidates WHERE action.id = candidates.id
-          """,
-          [settings.audit_data_seconds]
-        ) +
-        execute_count(
-          """
-          WITH candidates AS (
-            SELECT id FROM retention_operator_actions
-            WHERE inserted_at < clock_timestamp() - ($1 * interval '1 second')
-            ORDER BY inserted_at, id LIMIT 100 FOR UPDATE SKIP LOCKED
-          )
-          DELETE FROM retention_operator_actions AS action
-          USING candidates WHERE action.id = candidates.id
-          """,
-          [settings.audit_data_seconds]
-        ) +
-        execute_count(
-          """
-          WITH candidates AS (
-            SELECT id FROM memory_review_items
-            WHERE status <> 'pending'
-              AND updated_at < clock_timestamp() - ($1 * interval '1 second')
-            ORDER BY updated_at, id LIMIT 100 FOR UPDATE SKIP LOCKED
-          )
-          DELETE FROM memory_review_items AS review
-          USING candidates WHERE review.id = candidates.id
-          """,
-          [settings.audit_data_seconds]
-        )
+      prune_aged_ledger("settings_edits", cutoff) +
+        prune_aged_ledger("model_instruction_edits", cutoff) +
+        prune_aged_ledger("settings_import_receipts", cutoff) +
+        prune_aged_ledger("slack_channel_setting_audit", cutoff) +
+        execute_count(@prune_settled_interaction_audits, [cutoff]) +
+        prune_aged_ledger("slack_channel_membership_events", cutoff) +
+        prune_aged_ledger("ryker_operator_actions", cutoff) +
+        prune_aged_ledger("retention_operator_actions", cutoff) +
+        execute_count(@prune_resolved_memory_reviews, [cutoff])
 
-    ids = audit_candidates(settings.audit_data_seconds)
+    ids = audit_candidates(cutoff)
     prune_audit_ids(ids)
 
     orphan_inputs =
@@ -1133,7 +1056,7 @@ defmodule Ryker.Retention.Data do
         USING candidates
         WHERE input.id = candidates.id
         """,
-        [settings.audit_data_seconds]
+        [cutoff]
       )
 
     %{
@@ -1141,6 +1064,24 @@ defmodule Ryker.Retention.Data do
       | audit_episodes: length(ids),
         audit_rows: audit_rows + orphan_inputs + worker_certificates
     }
+  end
+
+  # An audit ledger kept for the audit horizon and no longer: each pass removes
+  # its oldest hundred rows past it. Table names come from the literals above,
+  # never from data.
+  defp prune_aged_ledger(table, cutoff) do
+    execute_count(
+      """
+      WITH candidates AS (
+        SELECT id FROM #{table}
+        WHERE inserted_at < clock_timestamp() - ($1 * interval '1 second')
+        ORDER BY inserted_at, id LIMIT 100 FOR UPDATE SKIP LOCKED
+      )
+      DELETE FROM #{table} AS ledger
+      USING candidates WHERE ledger.id = candidates.id
+      """,
+      [cutoff]
+    )
   end
 
   defp audit_candidates(horizon) do
