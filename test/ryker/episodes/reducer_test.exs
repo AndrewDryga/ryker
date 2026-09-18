@@ -53,7 +53,7 @@ defmodule Ryker.Episodes.ReducerTest do
       assert Snapshot.from_episode(transition.episode) == %{
                "active_inputs" => [Command.dedupe_key(command)],
                "destination" => %{
-                 "conversation_ref" => "C-alerts",
+                 "conversation_ref" => EpisodeFixtures.conversation_ref(),
                  "thread_ref" => "1787832000.000100",
                  "transport" => "slack"
                },
@@ -233,7 +233,7 @@ defmodule Ryker.Episodes.ReducerTest do
       moved =
         EpisodeFixtures.admit_input(%{
           destination: %{
-            conversation_ref: "C-alerts",
+            conversation_ref: EpisodeFixtures.conversation_ref(),
             thread_ref: nil,
             transport: "slack"
           },

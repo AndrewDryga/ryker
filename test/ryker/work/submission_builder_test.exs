@@ -598,7 +598,15 @@ defmodule Ryker.Work.SubmissionBuilderTest do
              })
 
     insert_behavior!(preference_offer, :preference, :operator, "slack:user:U1", "response_detail")
-    insert_behavior!(guidance_offer, :guidance, :conversation, "C-alerts", "terraform-review")
+
+    insert_behavior!(
+      guidance_offer,
+      :guidance,
+      :conversation,
+      EpisodeFixtures.conversation_ref(),
+      "terraform-review"
+    )
+
     insert_memory!(memory_offer, claim.episode)
 
     assert {:ok, submission} = SubmissionBuilder.build(claim)
@@ -616,7 +624,7 @@ defmodule Ryker.Work.SubmissionBuilderTest do
     assert memory["memory_ref"] == "memory:primary-repository"
     assert memory["subject"] == "primary_repository"
     assert memory["value"] == "ryker"
-    assert memory["source"]["conversation_ref"] == "C-alerts"
+    assert memory["source"]["conversation_ref"] == EpisodeFixtures.conversation_ref()
     assert submission["prompt"] =~ "Confirmed memory and guidance"
     assert submission["prompt"] =~ "not evidence or authority"
     assert submission["prompt"] =~ "potentially stale"
@@ -1464,12 +1472,12 @@ defmodule Ryker.Work.SubmissionBuilderTest do
                ref: ref,
                scope_kind: scope_kind,
                scope_ref: scope_ref,
-               source_conversation_ref: "C-alerts",
+               source_conversation_ref: EpisodeFixtures.conversation_ref(),
                source_message_ref: "1787832001.000200",
                source_thread_ref: "1787832000.000100",
                source_transport: "slack",
                status: :active,
-               workspace_ref: "C-alerts"
+               workspace_ref: EpisodeFixtures.conversation_ref()
              }
              |> BehaviorChangeset.insert()
              |> Repo.insert()
