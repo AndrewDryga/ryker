@@ -18,7 +18,9 @@ defmodule Ryker.Slack.Renderer.WorkCards do
   @goal_outcome 200
   @incident_statuses ~w(provisioning investigating action_required waiting_for_input waiting_for_event stopping resolved cancelled paused)
   @task_statuses ~w(queued working waiting_for_input waiting_for_event action_required stopping reviewing ready_to_publish published completed cancelled)
-  @task_fields ~w(action_needed confirmed_at confirmed_by controls episode_state publication repository resume_ref session_generation stages status summary task_ref title ui_revision updated_at work_state)
+  # Every key a task card may carry. The function head requires all but the
+  # optional links, the request and the resume reference.
+  @task_fields ~w(action_needed confirmed_at confirmed_by controls episode_state publication question_url repository repository_url request resume_ref session_generation stages status summary task_ref title ui_revision updated_at work_state)
   # The work document is shared with the control-plane card, which owns diff
   # reading. `view_diff` stays a valid document control there and never becomes
   # a Slack control: Slack links out and never pages a patch.
@@ -64,6 +66,8 @@ defmodule Ryker.Slack.Renderer.WorkCards do
          :ok <- incident_goals(goals),
          :ok <- incident_generation(session_generation),
          :ok <- work_controls(controls),
+         # An incident card carries no recovery fingerprint to resume against.
+         :ok <- resume_reference(nil, controls),
          :ok <- positive_integer(ui_revision),
          :ok <- iso8601(opened_at),
          :ok <- iso8601(updated_at) do
@@ -75,8 +79,8 @@ defmodule Ryker.Slack.Renderer.WorkCards do
         if session_generation, do: Integer.to_string(session_generation), else: "pending"
 
       text =
-        "Incident #{short}: #{title}. #{label}. #{summary}" <>
-          if(action_needed, do: " Action needed: #{action_needed}", else: "")
+        "Incident #{short}: #{escape(title)}. #{label}. #{escape(summary)}" <>
+          action_needed_text(action_needed)
 
       blocks =
         [
@@ -88,7 +92,7 @@ defmodule Ryker.Slack.Renderer.WorkCards do
           incident_alert_block(alert),
           incident_goals_block(goals),
           incident_action_block(action_needed),
-          work_controls_block(room_ref, controls, :incident),
+          work_controls_block(room_ref, controls, :incident, nil),
           section(
             "Source: channel `#{escape(source["channel_ref"])}` · message `#{escape(source["message_ref"])}`#{incident_thread(source["thread_ref"])}\nOpened by: `#{escape(opened_by)}` · Incident: `#{escape(short)}`"
           ),
@@ -107,8 +111,8 @@ defmodule Ryker.Slack.Renderer.WorkCards do
   def incident_room(_room), do: {:error, {:invalid_slack_render, :incident_room}}
 
   # "What have we actually established" is the whole question on an incident
-  # card, and it carried only a prose summary. Each goal with where it stands,
-  # bounded, in the order the investigation set them.
+  # card, so it lists each goal with where it stands, bounded, in the order the
+  # investigation set them.
   defp incident_goals_block([]), do: nil
 
   defp incident_goals_block(goals) do
@@ -147,7 +151,7 @@ defmodule Ryker.Slack.Renderer.WorkCards do
       when status in @task_statuses do
     repository_url = Map.get(task, "repository_url")
 
-    with true <- Map.keys(task) -- (@task_fields ++ ~w(question_url repository_url request)) == [],
+    with true <- Map.keys(task) -- @task_fields == [],
          :ok <- work_controls(controls),
          :ok <- resume_reference(task["resume_ref"], controls),
          true <- TaskCardDetails.valid?(task),
@@ -168,11 +172,9 @@ defmodule Ryker.Slack.Renderer.WorkCards do
       label = task_status_label(status)
 
       # Slack truncates a notification, so what survives is the front of this
-      # string. It used to open with eight characters of the task ref, which
-      # names the work to nobody; the title is how a person recognizes it.
+      # string: the title, which is how a person recognizes the work.
       text =
-        "#{title}: #{label}. #{summary}" <>
-          if(action_needed, do: " Action needed: #{action_needed}", else: "")
+        "#{escape(title)}: #{label}. #{escape(summary)}" <> action_needed_text(action_needed)
 
       blocks =
         ([section("*#{escape(title)}*")] ++
@@ -200,14 +202,9 @@ defmodule Ryker.Slack.Renderer.WorkCards do
       else: {:error, :invalid_task_reference}
   end
 
-  defp work_controls(controls) when is_list(controls) do
-    if controls == Enum.uniq(controls) and length(controls) <= length(@work_controls) and
-         Enum.all?(controls, &(&1 in @work_controls)),
-       do: :ok,
-       else: {:error, :invalid_work_controls}
+  defp work_controls(controls) do
+    if unique_subset?(controls, @work_controls), do: :ok, else: {:error, :invalid_work_controls}
   end
-
-  defp work_controls(_controls), do: {:error, :invalid_work_controls}
 
   # A resume button is only as safe as the fingerprint it carries, so the card
   # may not offer the control without one, and may not carry one it cannot use.
@@ -227,8 +224,6 @@ defmodule Ryker.Slack.Renderer.WorkCards do
   end
 
   defp resume_reference(_reference, _controls), do: {:error, :invalid_work_controls}
-
-  defp work_controls_block(work_ref, controls, kind, resume_ref \\ nil)
 
   defp work_controls_block(_work_ref, [], _kind, _resume_ref), do: nil
 
@@ -378,6 +373,11 @@ defmodule Ryker.Slack.Renderer.WorkCards do
   defp incident_action_block(nil), do: nil
   defp incident_action_block(value), do: section(":warning: *Action needed*\n#{escape(value)}")
 
+  # Slack reads the notification line as markup too, so it escapes the same
+  # values the blocks do.
+  defp action_needed_text(nil), do: ""
+  defp action_needed_text(value), do: " Action needed: #{escape(value)}"
+
   defp incident_signals(%{"firing" => firing, "total" => total} = signals)
        when map_size(signals) == 2 do
     if Enum.all?([firing, total], &(is_nil(&1) or (is_integer(&1) and &1 >= 0))),
@@ -433,6 +433,6 @@ defmodule Ryker.Slack.Renderer.WorkCards do
   defp incident_reference(value) do
     if is_binary(value) and Regex.match?(~r/\Aincident-room:[0-9a-f-]{36}\z/, value),
       do: :ok,
-      else: {:error, {:invalid_slack_render, :incident_room}}
+      else: {:error, :invalid_incident_reference}
   end
 end

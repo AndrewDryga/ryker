@@ -8,6 +8,9 @@ defmodule Ryker.Slack.Renderer.ChannelCards do
   import Ryker.Slack.Renderer.Blocks
   import Ryker.Slack.Renderer.Fields
 
+  @greeting "Hey there, I'm your AI teammate. I'm here to help with work in this channel."
+  @settings_sources ~w(channel incident_room installation)
+
   @spec welcome(map()) :: {:ok, map()} | {:error, term()}
   def welcome(
         %{
@@ -72,12 +75,9 @@ defmodule Ryker.Slack.Renderer.ChannelCards do
 
   def settings(_view), do: {:error, {:invalid_slack_render, :channel_settings}}
 
-  # Welcome and settings prose is generated from the same effective-settings
-  # projection, so the hello, the post-Q&A re-render and settings on request
-  # can never disagree about what Ryker does in a channel.
   defp welcome_paragraphs(settings, bot_user_ref, notice) do
     [
-      "Hey there, I'm your AI teammate. I'm here to help with work in this channel.",
+      @greeting,
       repository_access(settings),
       "*#{heading("How to work with me")}*\n" <>
         conversation_sentence(settings, bot_user_ref) <>
@@ -93,7 +93,7 @@ defmodule Ryker.Slack.Renderer.ChannelCards do
 
   defp welcome_text(settings, notice) do
     [
-      "Hey there, I'm your AI teammate. I'm here to help with work in this channel.",
+      @greeting,
       participation_summary(settings),
       alert_summary(settings),
       notice_fallback(notice)
@@ -112,23 +112,20 @@ defmodule Ryker.Slack.Renderer.ChannelCards do
 
   defp repository_access(%{"repositories" => repositories} = settings) do
     links = Enum.map(repositories, &repository_link/1)
-    {head, [last]} = Enum.split(links, -1)
 
-    "I have access to #{length(repositories)} repositories: #{Enum.join(head, ", ")} and #{last}." <>
+    "I have access to #{length(repositories)} repositories: #{join_names(links)}." <>
       default_repository_sentence(settings)
   end
 
   defp default_repository_sentence(%{"default_repository" => nil}), do: ""
 
-  defp default_repository_sentence(%{"default_repository" => ref, "repositories" => repositories}) do
-    case Enum.find(repositories, &(&1["ref"] == ref)) do
-      nil ->
-        ""
+  defp default_repository_sentence(settings),
+    do:
+      " I'll use #{repository_link(default_repository(settings))} for coding tasks when you don't name one."
 
-      repository ->
-        " I'll use #{repository_link(repository)} for coding tasks when you don't name one."
-    end
-  end
+  # Validation holds the default to one of the connected repositories.
+  defp default_repository(%{"default_repository" => ref, "repositories" => repositories}),
+    do: Enum.find(repositories, &(&1["ref"] == ref))
 
   defp conversation_sentence(%{"observation" => %{"on" => true}}, bot_user_ref),
     do:
@@ -183,12 +180,10 @@ defmodule Ryker.Slack.Renderer.ChannelCards do
 
   defp notice_line(notice), do: "*#{escape(notice)}*"
 
-  defp override_sentence(%{"participation" => %{"source" => "channel", "value" => value}})
-       when value in ~w(proactive shadow) do
-    setting = if value == "shadow", do: "shadow", else: "proactive"
-
-    "This channel has its own `#{setting}` setting, so it no longer follows the installation default. `/ryker #{setting} inherit` returns it to the default."
-  end
+  defp override_sentence(%{"participation" => %{"source" => "channel", "value" => setting}})
+       when setting in ~w(proactive shadow),
+       do:
+         "This channel has its own `#{setting}` setting, so it no longer follows the installation default. `/ryker #{setting} inherit` returns it to the default."
 
   defp override_sentence(_settings), do: nil
 
@@ -241,9 +236,7 @@ defmodule Ryker.Slack.Renderer.ChannelCards do
   defp repositories_fact(%{"repositories" => repositories}), do: repositories
 
   defp default_repository_fact(%{"default_repository" => nil}), do: "None"
-
-  defp default_repository_fact(%{"default_repository" => ref, "repositories" => repositories}),
-    do: Enum.find(repositories, %{"ref" => ref, "url" => nil}, &(&1["ref"] == ref))
+  defp default_repository_fact(settings), do: default_repository(settings)
 
   defp observation_fact(%{"observation" => %{"on" => true, "source" => "incident_room"}}),
     do: "On (incident room)"
@@ -314,8 +307,6 @@ defmodule Ryker.Slack.Renderer.ChannelCards do
       ])
     ]
   end
-
-  @settings_sources ~w(channel incident_room installation)
 
   defp channel_settings(
          %{
@@ -391,12 +382,9 @@ defmodule Ryker.Slack.Renderer.ChannelCards do
   # is escaped against invented mentions, and this exact pair is the only shape
   # that may render a real one.
   defp optional_notice(%{"actor_ref" => actor, "at" => at} = notice) when map_size(notice) == 2 do
-    with :ok <- slack_user(actor),
-         {:ok, _at, 0} <- DateTime.from_iso8601(at) do
-      :ok
-    else
-      _invalid -> {:error, :invalid_notice}
-    end
+    if slack_user(actor) == :ok and iso8601(at) == :ok,
+      do: :ok,
+      else: {:error, :invalid_notice}
   end
 
   defp optional_notice(notice) do

@@ -21,10 +21,9 @@ defmodule Ryker.Delivery.ReactionCustody do
   @spec enqueue_in_transaction(Entry.t()) :: {:ok, Reaction.t() | nil} | {:error, term()}
   def enqueue_in_transaction(%Entry{status: :decided, decision_action: :react} = entry) do
     with :ok <- transaction_open(),
-         %{"reaction" => %{} = document} <- entry.decision_document,
-         fingerprint <- CanonicalJSON.digest(document) do
-      Ecto.UUID.generate()
-      |> then(&ReactionChangeset.insert(entry, &1, document, fingerprint))
+         %{"reaction" => %{} = document} <- entry.decision_document do
+      entry
+      |> ReactionChangeset.insert(Ecto.UUID.generate(), document, CanonicalJSON.digest(document))
       |> Repo.insert()
       |> persistence_result(:delivery_reaction)
     else
@@ -36,26 +35,11 @@ defmodule Ryker.Delivery.ReactionCustody do
   def enqueue_in_transaction(%Entry{status: :decided}), do: {:ok, nil}
   def enqueue_in_transaction(_entry), do: {:error, {:invalid_delivery_reaction, :entry}}
 
-  @spec fetch_by_input(Ecto.UUID.t()) :: {:ok, Reaction.t()} | :error
-  def fetch_by_input(input_id) do
-    case uuid(input_id) do
-      {:ok, input_id} ->
-        case Repo.get_by(Reaction, input_id: input_id) do
-          %Reaction{} = reaction -> {:ok, reaction}
-          nil -> :error
-        end
-
-      :error ->
-        :error
-    end
-  end
-
   @spec claim_next(String.t(), pos_integer()) :: {:ok, claim() | nil} | {:error, term()}
   def claim_next(worker_ref, lease_seconds) do
     with :ok <- reference(worker_ref, :worker_ref),
          :ok <- positive_integer(lease_seconds, :lease_seconds) do
       Repo.transaction(fn -> claim_locked(worker_ref, lease_seconds) end)
-      |> transaction_result()
     end
   end
 
@@ -83,8 +67,15 @@ defmodule Ryker.Delivery.ReactionCustody do
     with :ok <- reference(delivery_ref, :delivery_ref),
          :ok <- reference(lease_ref, :lease_ref),
          :ok <- positive_integer(lease_seconds, :lease_seconds) do
-      Repo.transaction(fn -> renew_locked(delivery_ref, lease_ref, lease_seconds) end)
-      |> transaction_result()
+      mutate_claim(delivery_ref, lease_ref, fn reaction, now ->
+        requested_expiry = DateTime.add(now, lease_seconds, :second)
+        lease_expires_at = later_datetime(reaction.lease_expires_at, requested_expiry)
+
+        reaction
+        |> ReactionChangeset.renew(lease_expires_at)
+        |> Repo.update()
+        |> unwrap_or_rollback(:delivery_renewal)
+      end)
     end
   end
 
@@ -95,8 +86,20 @@ defmodule Ryker.Delivery.ReactionCustody do
          :ok <- reference(lease_ref, :lease_ref),
          :ok <- bounded_text(error_code, 128, :error_code),
          :ok <- bounded_text(error_detail, 4_096, :error_detail) do
-      Repo.transaction(fn -> block_locked(delivery_ref, lease_ref, error_code, error_detail) end)
-      |> transaction_result()
+      mutate_claim(delivery_ref, lease_ref, fn reaction, _now ->
+        reaction
+        |> ReactionChangeset.block(%{
+          last_error_code: error_code,
+          last_error_detail: error_detail,
+          lease_expires_at: nil,
+          lease_owner: nil,
+          lease_ref: nil,
+          next_attempt_at: nil,
+          status: :blocked
+        })
+        |> Repo.update()
+        |> unwrap_or_rollback(:delivery_block)
+      end)
     end
   end
 
@@ -107,7 +110,6 @@ defmodule Ryker.Delivery.ReactionCustody do
   def retry(delivery_ref) do
     with :ok <- reference(delivery_ref, :delivery_ref) do
       Repo.transaction(fn -> retry_locked(delivery_ref) end)
-      |> transaction_result()
     end
   end
 
@@ -119,16 +121,19 @@ defmodule Ryker.Delivery.ReactionCustody do
          :ok <- positive_integer(retry_seconds, :retry_seconds),
          :ok <- bounded_text(error_code, 128, :error_code),
          :ok <- bounded_text(error_detail, 4_096, :error_detail) do
-      Repo.transaction(fn ->
-        defer_locked(
-          delivery_ref,
-          lease_ref,
-          retry_seconds,
-          error_code,
-          error_detail
-        )
+      mutate_claim(delivery_ref, lease_ref, fn reaction, now ->
+        reaction
+        |> ReactionChangeset.defer(%{
+          last_error_code: error_code,
+          last_error_detail: error_detail,
+          lease_expires_at: nil,
+          lease_owner: nil,
+          lease_ref: nil,
+          next_attempt_at: DateTime.add(now, retry_seconds, :second)
+        })
+        |> Repo.update()
+        |> unwrap_or_rollback(:delivery_defer)
       end)
-      |> transaction_result()
     end
   end
 
@@ -143,12 +148,11 @@ defmodule Ryker.Delivery.ReactionCustody do
       Repo.transaction(fn ->
         confirm_locked(delivery_ref, lease_ref, receipt, fingerprint)
       end)
-      |> transaction_result()
     end
   end
 
   defp claim_locked(worker_ref, lease_seconds) do
-    now = database_now!()
+    now = Repo.now!()
 
     case Repo.one(
            from(reaction in Reaction,
@@ -167,88 +171,35 @@ defmodule Ryker.Delivery.ReactionCustody do
       %Reaction{} = reaction ->
         lease_ref = "reaction-lease:#{Ecto.UUID.generate()}"
 
-        reaction
-        |> ReactionChangeset.claim(%{
-          attempt_count: reaction.attempt_count + 1,
-          last_error_code: nil,
-          last_error_detail: nil,
-          lease_expires_at: DateTime.add(now, lease_seconds, :second),
-          lease_owner: worker_ref,
-          lease_ref: lease_ref,
-          next_attempt_at: nil
-        })
-        |> Repo.update()
-        |> case do
-          {:ok, claimed} ->
-            %{lease_ref: lease_ref, reaction: claimed}
+        claimed =
+          reaction
+          |> ReactionChangeset.claim(%{
+            attempt_count: reaction.attempt_count + 1,
+            last_error_code: nil,
+            last_error_detail: nil,
+            lease_expires_at: DateTime.add(now, lease_seconds, :second),
+            lease_owner: worker_ref,
+            lease_ref: lease_ref,
+            next_attempt_at: nil
+          })
+          |> Repo.update()
+          |> unwrap_or_rollback(:delivery_claim)
 
-          {:error, changeset} ->
-            Repo.rollback({:persistence_failed, :delivery_claim, changeset.errors})
-        end
+        %{lease_ref: lease_ref, reaction: claimed}
     end
   end
 
-  defp defer_locked(delivery_ref, lease_ref, retry_seconds, error_code, error_detail) do
-    now = database_now!()
+  # Every change to a claimed reaction happens under its row lock and only
+  # while the caller still holds the lease it was given.
+  defp mutate_claim(delivery_ref, lease_ref, callback) do
+    Repo.transaction(fn ->
+      now = Repo.now!()
 
-    case leased_reaction(delivery_ref, lease_ref, now) do
-      {:ok, reaction} ->
-        reaction
-        |> ReactionChangeset.defer(%{
-          last_error_code: error_code,
-          last_error_detail: error_detail,
-          lease_expires_at: nil,
-          lease_owner: nil,
-          lease_ref: nil,
-          next_attempt_at: DateTime.add(now, retry_seconds, :second)
-        })
-        |> Repo.update()
-        |> unwrap_or_rollback(:delivery_defer)
-
-      {:error, reason} ->
-        Repo.rollback(reason)
-    end
-  end
-
-  defp renew_locked(delivery_ref, lease_ref, lease_seconds) do
-    now = database_now!()
-
-    case leased_reaction(delivery_ref, lease_ref, now) do
-      {:ok, reaction} ->
-        requested_expiry = DateTime.add(now, lease_seconds, :second)
-        lease_expires_at = later_datetime(reaction.lease_expires_at, requested_expiry)
-
-        reaction
-        |> ReactionChangeset.renew(lease_expires_at)
-        |> Repo.update()
-        |> unwrap_or_rollback(:delivery_renewal)
-
-      {:error, reason} ->
-        Repo.rollback(reason)
-    end
-  end
-
-  defp block_locked(delivery_ref, lease_ref, error_code, error_detail) do
-    now = database_now!()
-
-    case leased_reaction(delivery_ref, lease_ref, now) do
-      {:ok, reaction} ->
-        reaction
-        |> ReactionChangeset.block(%{
-          last_error_code: error_code,
-          last_error_detail: error_detail,
-          lease_expires_at: nil,
-          lease_owner: nil,
-          lease_ref: nil,
-          next_attempt_at: nil,
-          status: :blocked
-        })
-        |> Repo.update()
-        |> unwrap_or_rollback(:delivery_block)
-
-      {:error, reason} ->
-        Repo.rollback(reason)
-    end
+      case leased_reaction(delivery_ref, lease_ref, now) do
+        {:ok, reaction} -> callback.(reaction, now)
+        {:error, reason} -> Repo.rollback(reason)
+      end
+    end)
   end
 
   defp retry_locked(delivery_ref) do
@@ -271,7 +222,7 @@ defmodule Ryker.Delivery.ReactionCustody do
   end
 
   defp confirm_locked(delivery_ref, lease_ref, receipt, fingerprint) do
-    now = database_now!()
+    now = Repo.now!()
 
     case lock_reaction(delivery_ref) do
       %Reaction{status: :delivered, external_receipt_fingerprint: ^fingerprint} = reaction ->
@@ -339,11 +290,6 @@ defmodule Ryker.Delivery.ReactionCustody do
        else: {:error, :delivery_reaction_receipt_mismatch}
   end
 
-  defp database_now! do
-    %{rows: [[%DateTime{} = now]]} = Repo.query!("SELECT clock_timestamp()")
-    DateTime.truncate(now, :microsecond)
-  end
-
   defp later_datetime(nil, requested), do: requested
 
   defp later_datetime(current, requested) do
@@ -359,11 +305,6 @@ defmodule Ryker.Delivery.ReactionCustody do
 
   defp unwrap_or_rollback({:error, changeset}, operation),
     do: Repo.rollback({:persistence_failed, operation, changeset.errors})
-
-  defp transaction_result({:ok, result}), do: {:ok, result}
-  defp transaction_result({:error, reason}), do: {:error, reason}
-
-  defp uuid(value), do: Ecto.UUID.cast(value)
 
   defp transaction_open do
     if Repo.in_transaction?(),

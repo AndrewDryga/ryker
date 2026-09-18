@@ -5,7 +5,7 @@ defmodule Ryker.Delivery.WorkerTest do
 
   alias Ryker.Admission
   alias Ryker.Admission.Decision
-  alias Ryker.Delivery.{Adapters, ReactionCustody, Worker}
+  alias Ryker.Delivery.{Adapters, Reaction, Worker}
   alias Ryker.Ingress.Inbox
   alias Ryker.Slack.Input
   alias Ryker.Work.DeliveryReceipt
@@ -62,10 +62,10 @@ defmodule Ryker.Delivery.WorkerTest do
     assert request.document == %{"emoji_name" => "eyes"}
 
     assert eventually(fn ->
-             case ReactionCustody.fetch_by_input(pending.input_id) do
-               {:ok, %{status: :delivered, lease_ref: nil}} -> true
-               _other -> false
-             end
+             match?(
+               %{status: :delivered, lease_ref: nil},
+               Repo.get_by(Reaction, input_id: pending.input_id)
+             )
            end)
 
     assert Process.alive?(worker)
@@ -150,8 +150,7 @@ defmodule Ryker.Delivery.WorkerTest do
              })
 
     assert {:ok, _result} = Admission.commit(context, decision, "decision:worker-reaction")
-    assert {:ok, pending} = ReactionCustody.fetch_by_input(entry.id)
-    pending
+    Repo.get_by!(Reaction, input_id: entry.id)
   end
 
   defp adapters!(test_pid) do

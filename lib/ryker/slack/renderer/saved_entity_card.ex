@@ -10,6 +10,10 @@ defmodule Ryker.Slack.Renderer.SavedEntityCard do
 
   @saved_entity_kinds ~w(schedule standing_rule preference guidance memory)
   @saved_entity_statuses ~w(active paused disabled completed expired deleted superseded)
+  @maximum_title_characters 300
+  @maximum_instructions_characters 2_000
+  @maximum_facts 10
+  @maximum_fact_characters 1_000
 
   @spec blocks(map()) :: [map()]
   def blocks(entity) do
@@ -32,7 +36,8 @@ defmodule Ryker.Slack.Renderer.SavedEntityCard do
         "#{heading(label)}: #{fact_text(value)}"
       end)
 
-    "#{entity["notice"]}: #{entity["title"]}\n#{entity["instructions"] || ""}\n#{facts}"
+    "#{escape(entity["notice"])}: #{escape(entity["title"])}\n" <>
+      "#{escape(entity["instructions"] || "")}\n#{facts}"
   end
 
   defp provenance(entity) do
@@ -140,7 +145,7 @@ defmodule Ryker.Slack.Renderer.SavedEntityCard do
       kind in @saved_entity_kinds and status in @saved_entity_statuses and
         is_boolean(removable) and is_boolean(resumable) and
         texts?(title, instructions, notice, saved_by) and
-        match?({:ok, _, 0}, DateTime.from_iso8601(saved_at)) and
+        iso8601(saved_at) == :ok and
         ref?(kind, ref, revision) and facts?(facts)
 
     if valid, do: :ok, else: {:error, :invalid_saved_entity}
@@ -149,33 +154,32 @@ defmodule Ryker.Slack.Renderer.SavedEntityCard do
   def validate(_entity), do: {:error, :invalid_saved_entity}
 
   defp texts?(title, instructions, notice, saved_by) do
-    text?(title) and String.length(title) <= 300 and
-      (is_nil(instructions) or (text?(instructions) and String.length(instructions) <= 2_000)) and
+    text?(title) and String.length(title) <= @maximum_title_characters and
+      (is_nil(instructions) or
+         (text?(instructions) and String.length(instructions) <= @maximum_instructions_characters)) and
       text?(notice) and text?(saved_by)
   end
 
   defp ref?("memory", "memory:" <> _rest = ref, nil), do: entity_ref?(ref)
 
   defp ref?("schedule", "schedule:" <> _rest = ref, revision),
-    do: entity_ref?(ref) and positive?(revision)
+    do: entity_ref?(ref) and positive_integer(revision) == :ok
 
   defp ref?(kind, "behavior:" <> _rest = ref, revision)
        when kind in ~w(standing_rule preference guidance),
-       do: entity_ref?(ref) and positive?(revision)
+       do: entity_ref?(ref) and positive_integer(revision) == :ok
 
   defp ref?(_kind, _ref, _revision), do: false
 
   defp entity_ref?(ref), do: Regex.match?(~r/\A[a-z]+:[A-Za-z0-9_.:-]{1,240}\z/, ref)
 
-  defp positive?(value), do: is_integer(value) and value > 0
-
-  defp facts?(facts) when is_list(facts) and length(facts) <= 10 do
+  defp facts?(facts) when is_list(facts) and length(facts) <= @maximum_facts do
     Enum.all?(facts, fn
       [label, %{"channel_ref" => channel_ref} = value] when map_size(value) == 1 ->
         text?(label) and is_binary(channel_ref)
 
       [label, value] ->
-        text?(label) and text?(value) and String.length(value) <= 1_000
+        text?(label) and text?(value) and String.length(value) <= @maximum_fact_characters
 
       _other ->
         false

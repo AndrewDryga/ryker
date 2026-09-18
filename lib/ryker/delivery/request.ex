@@ -21,6 +21,11 @@ defmodule Ryker.Delivery.Request do
   @fields @enforce_keys ++ [:artifacts]
   @required_fields Enum.sort(@enforce_keys)
   @all_fields Enum.sort(@fields)
+  @maximum_document_bytes 512 * 1_024
+  @maximum_message_characters 20_000
+  @maximum_records 64
+  @maximum_artifacts 5
+  @maximum_artifact_bytes 8 * 1_024 * 1_024
   defstruct @enforce_keys ++ [artifacts: []]
 
   @type t :: %__MODULE__{
@@ -37,7 +42,7 @@ defmodule Ryker.Delivery.Request do
   @spec new(map() | keyword()) :: {:ok, t()} | {:error, term()}
   def new(attributes) do
     with {:ok, attributes} <- normalize_attributes(attributes),
-         request <- struct!(__MODULE__, attributes),
+         request = struct!(__MODULE__, attributes),
          :ok <- validate(request) do
       {:ok, request}
     end
@@ -68,7 +73,7 @@ defmodule Ryker.Delivery.Request do
          :ok <- reference(request.conversation_ref, :conversation_ref),
          :ok <- optional_reference(request.thread_ref, :thread_ref),
          :ok <- artifacts(request.artifacts),
-         :ok <- CanonicalJSON.validate(request.document, max_bytes: 512 * 1_024) do
+         :ok <- CanonicalJSON.validate(request.document, max_bytes: @maximum_document_bytes) do
       validate_kind(request)
     else
       {:error, {:invalid_delivery_request, _field}} = error -> error
@@ -77,18 +82,11 @@ defmodule Ryker.Delivery.Request do
   end
 
   defp validate_kind(%__MODULE__{
-         document: %{"message" => message} = document,
+         document: %{"message" => _message} = document,
          kind: :message,
          source_item_ref: nil
-       }) do
-    with :ok <- message_document(document),
-         true <- text?(message) do
-      :ok
-    else
-      {:error, _reason} = error -> error
-      false -> {:error, {:invalid_delivery_request, :message}}
-    end
-  end
+       }),
+       do: message_document(document)
 
   defp validate_kind(%__MODULE__{
          document: %{"emoji_name" => emoji_name} = document,
@@ -123,23 +121,23 @@ defmodule Ryker.Delivery.Request do
 
   defp reaction_document(_document), do: {:error, {:invalid_delivery_request, :reaction}}
 
-  defp message_document(%{"message" => _message} = document) when map_size(document) == 1,
-    do: bounded_message(document["message"])
+  defp message_document(%{"message" => message} = document) when map_size(document) == 1,
+    do: bounded_message(message)
 
-  defp message_document(%{"message" => _message, "records" => records} = document)
+  defp message_document(%{"message" => message, "records" => records} = document)
        when map_size(document) == 2 do
-    with :ok <- bounded_message(document["message"]), do: validate_records(records)
+    with :ok <- bounded_message(message), do: validate_records(records)
   end
 
   defp message_document(_document), do: {:error, {:invalid_delivery_request, :document}}
 
   defp bounded_message(message) do
-    if text?(message) and String.length(message) <= 20_000,
+    if text?(message) and String.length(message) <= @maximum_message_characters,
       do: :ok,
       else: {:error, {:invalid_delivery_request, :message}}
   end
 
-  defp validate_records(records) when is_list(records) and length(records) <= 64 do
+  defp validate_records(records) when is_list(records) and length(records) <= @maximum_records do
     if Enum.all?(records, &valid_record?/1),
       do: :ok,
       else: {:error, {:invalid_delivery_request, :records}}
@@ -161,8 +159,8 @@ defmodule Ryker.Delivery.Request do
 
   defp valid_record?(_record), do: false
 
-  defp artifacts(values) when is_list(values) and length(values) <= 5 do
-    if Enum.sum(Enum.map(values, &artifact_bytes/1)) <= 8 * 1_024 * 1_024 and
+  defp artifacts(values) when is_list(values) and length(values) <= @maximum_artifacts do
+    if Enum.sum(Enum.map(values, &artifact_bytes/1)) <= @maximum_artifact_bytes and
          Enum.all?(values, &artifact?/1) and unique_artifacts?(values) do
       :ok
     else
@@ -185,7 +183,7 @@ defmodule Ryker.Delivery.Request do
        when map_size(artifact) == 6 and is_integer(bytes) and is_binary(data) and
               is_binary(media_type) and is_binary(name) and is_binary(ref) and is_binary(sha256) do
     Enum.all?([
-      bytes in 1..(8 * 1_024 * 1_024),
+      bytes in 1..@maximum_artifact_bytes,
       bytes == byte_size(data),
       safe_name?(name),
       reference?(ref),
@@ -198,7 +196,7 @@ defmodule Ryker.Delivery.Request do
   defp artifact?(_artifact), do: false
 
   defp artifact_bytes(%{"bytes" => bytes}) when is_integer(bytes) and bytes > 0, do: bytes
-  defp artifact_bytes(_artifact), do: 8 * 1_024 * 1_024 + 1
+  defp artifact_bytes(_artifact), do: @maximum_artifact_bytes + 1
 
   defp unique_artifacts?(artifacts) do
     refs = Enum.map(artifacts, & &1["ref"])
