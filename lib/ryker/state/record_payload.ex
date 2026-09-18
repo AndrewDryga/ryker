@@ -1,6 +1,7 @@
 defmodule Ryker.State.RecordPayload do
   @moduledoc false
 
+  alias Ryker.Reference
   alias Ryker.CanonicalJSON
   alias Ryker.Emisar.ApprovalContract
   alias Ryker.Slack.SourceRef
@@ -593,10 +594,9 @@ defmodule Ryker.State.RecordPayload do
   end
 
   defp text(value, maximum, field) do
-    if is_binary(value) and String.valid?(value) and byte_size(value) in 1..maximum and
-         :binary.match(value, <<0>>) == :nomatch and String.trim(value) != "",
-       do: :ok,
-       else: {:error, {:invalid_state_record, field}}
+    if Reference.valid?(value, maximum),
+      do: :ok,
+      else: {:error, {:invalid_state_record, field}}
   end
 
   defp reference(value, field) do

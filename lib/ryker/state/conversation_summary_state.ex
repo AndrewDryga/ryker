@@ -1,6 +1,7 @@
 defmodule Ryker.State.ConversationSummaryState do
   @moduledoc false
 
+  alias Ryker.Reference
   alias Ryker.CanonicalJSON
 
   @fields ~w(active_topics decisions evidence_refs goal open_loops participants purpose situation topology unresolved_questions)
@@ -91,10 +92,7 @@ defmodule Ryker.State.ConversationSummaryState do
       else: {:error, {:invalid_conversation_summary, field}}
   end
 
-  defp text?(value, maximum) do
-    is_binary(value) and String.valid?(value) and byte_size(value) in 1..maximum and
-      :binary.match(value, <<0>>) == :nomatch and String.trim(value) != ""
-  end
+  defp text?(value, maximum), do: Reference.valid?(value, maximum)
 
   defp canonical(state) do
     case CanonicalJSON.validate(state, max_bytes: @maximum_bytes) do

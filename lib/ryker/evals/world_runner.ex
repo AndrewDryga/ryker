@@ -13,6 +13,8 @@ defmodule Ryker.Evals.WorldRunner do
   disposable database around the whole run.
   """
 
+  alias Ryker.Reference
+
   alias Ryker.Evals.{
     WorldAssertions,
     WorldCase,
@@ -181,14 +183,8 @@ defmodule Ryker.Evals.WorldRunner do
       else: {:error, {:invalid_world_runner, :options}}
   end
 
-  defp reference(value, _field) when is_binary(value) and byte_size(value) in 1..2_048 do
-    if String.valid?(value) and String.trim(value) != "" and
-         :binary.match(value, <<0>>) == :nomatch,
-       do: :ok,
-       else: {:error, :reference}
-  end
-
-  defp reference(_value, field), do: {:error, field}
+  defp reference(value, field),
+    do: if(Reference.valid?(value, 2_048), do: :ok, else: {:error, field})
 
   defp digest?(value), do: is_binary(value) and Regex.match?(~r/\A[0-9a-f]{64}\z/, value)
 

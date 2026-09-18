@@ -795,10 +795,9 @@ defmodule Ryker.State.Automations do
   end
 
   defp text(value, maximum, field) do
-    if is_binary(value) and String.valid?(value) and byte_size(value) in 1..maximum and
-         :binary.match(value, <<0>>) == :nomatch and String.trim(value) != "",
-       do: :ok,
-       else: {:error, {:invalid_automation_confirmation, field}}
+    if Reference.valid?(value, maximum),
+      do: :ok,
+      else: {:error, {:invalid_automation_confirmation, field}}
   end
 
   defp enum(value, values) do
