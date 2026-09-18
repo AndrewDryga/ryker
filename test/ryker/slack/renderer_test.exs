@@ -2121,6 +2121,58 @@ defmodule Ryker.Slack.RendererTest do
     refute inspect(rendered) =~ ~s("deployment" => "ryker")
   end
 
+  test "a timed wait names the host's next check only while it is before the deadline" do
+    wait = %{
+      "kind" => "event_wait",
+      "payload" => %{
+        "deadline_at" => "2026-08-29T12:00:00.000000Z",
+        "event_matcher" => %{
+          "delay" => "30m",
+          "on_timeout" => "Report the rollout state.",
+          "type" => "after"
+        },
+        "kind" => "deployment_health",
+        "verification" => "Verify the new allocation is healthy."
+      },
+      "presentation" => %{"next_check_at" => "2026-08-28T12:30:00.000000Z"},
+      "ref" => "record:event_wait:timer",
+      "status" => "open"
+    }
+
+    next_check = DateTime.to_unix(~U[2026-08-28 12:30:00Z])
+    deadline = DateTime.to_unix(~U[2026-08-29 12:00:00Z])
+
+    assert {:ok, rendered} = Renderer.render(%{"message" => "Watching.", "records" => [wait]})
+
+    assert [_message, %{"type" => "context", "elements" => [%{"text" => text}]}] =
+             rendered["blocks"]
+
+    assert text ==
+             "Next check <!date^#{next_check}^{date_short_pretty} at {time}|2026-08-28 12:30 UTC>" <>
+               " · Monitoring deadline <!date^#{deadline}^{date_short_pretty} at {time}|2026-08-29 12:00 UTC>"
+
+    late = put_in(wait, ["presentation", "next_check_at"], "2026-08-30T00:00:00.000000Z")
+    assert {:ok, rendered} = Renderer.render(%{"message" => "Watching.", "records" => [late]})
+
+    assert [_message, %{"elements" => [%{"text" => "Monitoring deadline " <> _}]}] =
+             rendered["blocks"]
+
+    assert {:ok, rendered} =
+             Renderer.render(%{
+               "message" => "Done.",
+               "records" => [%{wait | "status" => "answered"}]
+             })
+
+    assert [_message] = rendered["blocks"]
+
+    for invalid <- ["tomorrow", "2026-08-28T14:30:00+02:00"] do
+      forged = put_in(wait, ["presentation", "next_check_at"], invalid)
+
+      assert Renderer.render(%{"message" => "Watching.", "records" => [forged]}) ==
+               {:error, {:invalid_slack_render, :record}}
+    end
+  end
+
   test "long answers remain readable and many choices require explicit submission" do
     # Proposed stress copy from question__many-long-options in the native catalog;
     # these are UI examples, not harvested answers or a saved retention policy.

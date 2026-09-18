@@ -8,6 +8,11 @@ defmodule Ryker.Slack.Renderer.Offers do
   import Ryker.Slack.Renderer.Blocks
   import Ryker.Slack.Renderer.Fields
 
+  # A task brief shows this many checks and limits, each cut to this length,
+  # and counts the rest.
+  @brief_items 4
+  @brief_item_characters 200
+
   @doc "The blocks of an open offer of `kind`, from its prepared payload."
   @spec blocks(String.t(), String.t(), map()) :: [map()]
   def blocks("task_offer", ref, offer), do: task_offer(ref, offer)
@@ -15,7 +20,10 @@ defmodule Ryker.Slack.Renderer.Offers do
   def blocks("schedule_offer", ref, offer), do: schedule_offer(ref, offer)
   def blocks("automation_change_offer", ref, offer), do: automation_change_offer(ref, offer)
   def blocks("memory_offer", ref, offer), do: memory_offer(ref, offer)
-  def blocks(kind, ref, offer), do: behavior_offer(kind, ref, offer)
+
+  def blocks(kind, ref, offer)
+      when kind in ~w(preference_offer guidance_offer standing_assignment_offer),
+      do: behavior_offer(kind, ref, offer)
 
   defp task_offer(ref, %{"kind" => "engineering", "repository" => repository} = offer),
     do: [section(offer_summary(offer)), actions(ref, engineering_button(ref, repository))]
@@ -47,27 +55,32 @@ defmodule Ryker.Slack.Renderer.Offers do
 
   # What the task will do, from the fields the host validated. The offer's
   # `prompt` is the worker's own instruction and never appears here: this card
-  # carries a button that grants authority, and d98b1d9f keeps model-authored
-  # instructions off that surface. Checks, limits and the exact source say what
-  # is being authorized without quoting what the worker was told.
+  # carries a button that grants authority, so model-authored instructions stay
+  # off it. Checks, limits and the exact source say what is being authorized
+  # without quoting what the worker was told.
   defp offer_brief(%{"success_checks" => checks, "authority_limits" => limits} = offer)
        when is_list(checks) and is_list(limits) do
     [
-      offer_list("Checks", checks, 4),
-      offer_list("Will not", limits, 4),
+      offer_list("Checks", checks),
+      offer_list("Will not", limits),
       offer_sources(offer["source_refs"])
     ]
     |> Enum.reject(&is_nil/1)
   end
 
+  # Offers saved before tasks carried checks and limits have no brief.
   defp offer_brief(_offer), do: []
 
-  defp offer_list(_label, [], _limit), do: nil
+  defp offer_list(_label, []), do: nil
 
-  defp offer_list(label, values, limit) do
-    shown = values |> Enum.take(limit) |> Enum.map_join("; ", &(&1 |> truncate(200) |> escape()))
-    remainder = length(values) - min(length(values), limit)
-    more = if remainder > 0, do: " · #{remainder} more", else: ""
+  defp offer_list(label, values) do
+    shown =
+      values
+      |> Enum.take(@brief_items)
+      |> Enum.map_join("; ", &(&1 |> truncate(@brief_item_characters) |> escape()))
+
+    hidden = length(values) - @brief_items
+    more = if hidden > 0, do: " · #{hidden} more", else: ""
     "*#{label}:* #{shown}#{more}"
   end
 
@@ -318,13 +331,11 @@ defmodule Ryker.Slack.Renderer.Offers do
   end
 
   defp behavior_offer("preference_offer", ref, payload) do
-    repository = if payload["repository"], do: " · `#{escape(payload["repository"])}`", else: ""
-
     summary =
       [
         "*Behavior preference*",
         "`#{payload["key"]}=#{payload["value"]}`",
-        "Scope: `#{payload["scope"]}`#{repository} · Expires: `#{payload["expires_in"]}`",
+        "Scope: `#{payload["scope"]}`#{repository_suffix(payload["repository"])} · Expires: `#{payload["expires_in"]}`",
         "_This is only an offer; behavior has not changed._"
       ]
       |> compact_lines()
@@ -333,13 +344,11 @@ defmodule Ryker.Slack.Renderer.Offers do
   end
 
   defp behavior_offer("guidance_offer", ref, payload) do
-    repository = if payload["repository"], do: " · `#{escape(payload["repository"])}`", else: ""
-
     summary =
       [
         "*Remember guidance · #{escape(payload["subject"])}*",
         escape(payload["text"]),
-        "Scope: `#{payload["scope"]}`#{repository} · Visibility: `#{payload["visibility"]}` · Expires: `#{payload["expires_in"]}`",
+        "Scope: `#{payload["scope"]}`#{repository_suffix(payload["repository"])} · Visibility: `#{payload["visibility"]}` · Expires: `#{payload["expires_in"]}`",
         "_Advisory only: this cannot trigger work, prove a fact, or grant authority._"
       ]
       |> compact_lines()
@@ -386,13 +395,11 @@ defmodule Ryker.Slack.Renderer.Offers do
   end
 
   defp memory_offer(ref, payload) do
-    repository = if payload["repository"], do: " · `#{escape(payload["repository"])}`", else: ""
-
     summary =
       [
         "*Remember operational mapping · #{escape(payload["subject"])}*",
         escape(payload["value"]),
-        "Kind: `#{payload["kind"]}` · Scope: `#{payload["scope"]}`#{repository}",
+        "Kind: `#{payload["kind"]}` · Scope: `#{payload["scope"]}`#{repository_suffix(payload["repository"])}",
         "Visibility: `#{payload["visibility"]}` · Expires: `#{payload["expires_in"]}`",
         "_Potentially stale hint only: live evidence, current repositories, and host policy take precedence._"
       ]
@@ -414,6 +421,9 @@ defmodule Ryker.Slack.Renderer.Offers do
       )
     ]
   end
+
+  defp repository_suffix(nil), do: ""
+  defp repository_suffix(repository), do: " · `#{escape(repository)}`"
 
   defp behavior_actions(ref, label) do
     actions(
