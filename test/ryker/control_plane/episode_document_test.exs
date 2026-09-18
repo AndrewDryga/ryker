@@ -627,7 +627,8 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
     html = render_episode(snapshot, [])
     document = LazyHTML.from_fragment(html)
 
-    assert LazyHTML.query(document, ".case-actions > a") |> LazyHTML.attribute("href") == [
+    assert LazyHTML.query(document, ".episode-location > a:first-of-type")
+           |> LazyHTML.attribute("href") == [
              "#story-message-accepted-reply"
            ]
 
@@ -638,6 +639,63 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
            |> String.trim() == "Hi! How can I help?"
 
     refute html =~ "End of retained execution"
+  end
+
+  test "the header keeps state, actions and navigation in their operator-facing order" do
+    # The completed badge occupied the only useful action position, while the
+    # review control sat below the metrics and source navigation replaced the
+    # page the operator was reading. This is the exact completed state from the
+    # manual review, including both source and Ryker thread links.
+    {:ok, %{episode: episode}} = Episodes.apply(EpisodeFixtures.admit_input())
+    {:ok, _} = Episodes.apply(EpisodeFixtures.accept_result())
+    {:ok, _} = Episodes.apply(EpisodeFixtures.confirm_delivery())
+    {:ok, snapshot} = Projection.episode(episode.key)
+
+    snapshot =
+      put_in(snapshot, [:trace, :source], %{
+        href: "https://slack.com/archives/C456/p1787832000001000",
+        label: "Open source message",
+        transport: "Slack"
+      })
+
+    document = snapshot |> render_episode([]) |> LazyHTML.from_fragment()
+
+    assert Enum.empty?(LazyHTML.query(document, ".episode-title-row .ui-status"))
+
+    assert LazyHTML.query(document, ".episode-location .ui-status") |> LazyHTML.text() ==
+             "Completed"
+
+    assert LazyHTML.query(document, ".episode-title-actions button") |> LazyHTML.text() =~
+             "Mark ending reviewed"
+
+    links = LazyHTML.query(document, ".episode-location > a")
+
+    assert Enum.map(links, &LazyHTML.text/1) == [
+             "Jump to latest outcome ↓",
+             "Open source message →",
+             "All activity in this conversation →",
+             "This Slack thread →"
+           ]
+
+    blank_links = LazyHTML.query(document, ".episode-location > a[target='_blank']")
+
+    assert Enum.map(blank_links, &LazyHTML.text/1) == [
+             "Open source message →",
+             "This Slack thread →"
+           ]
+
+    assert LazyHTML.attribute(blank_links, "rel") == [
+             "noopener noreferrer",
+             "noopener noreferrer"
+           ]
+
+    assert LazyHTML.query(
+             document,
+             ".episode-location > a:not([target]):nth-of-type(3)"
+           )
+           |> LazyHTML.text() == "All activity in this conversation →"
+
+    assert Enum.empty?(LazyHTML.query(document, ".case-actions"))
   end
 
   test "untimed historical events do not inflate elapsed time" do
@@ -710,7 +768,8 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
 
       document = render_episode(page, []) |> LazyHTML.from_fragment()
 
-      assert LazyHTML.query(document, ".case-actions > a") |> LazyHTML.attribute("href") == [
+      assert LazyHTML.query(document, ".episode-location > a:first-of-type")
+             |> LazyHTML.attribute("href") == [
                "#event-turn-silent-accepted"
              ]
 

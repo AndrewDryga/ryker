@@ -25,14 +25,35 @@ defmodule Ryker.ControlPlane.EpisodePage do
       <div class="episode-page-intro">
         <.link navigate="/" class="back-to-activity">← Activity</.link>
         <div class="episode-title-row">
-          <h1>{@snapshot.trace.case_file.title}</h1><.status state={
-            if(@startup, do: "not_started", else: to_string(@snapshot.episode.state))
-          } />
+          <h1>{@snapshot.trace.case_file.title}</h1>
+          <.status :if={@startup} state="not_started" />
+          <nav
+            :if={!@startup && @snapshot.trace.actions != []}
+            class="episode-title-actions"
+            aria-label="Execution actions"
+          >
+            <.action_button
+              :for={action <- @snapshot.trace.actions}
+              path={action.href}
+              label={action.label}
+              tone={action.tone}
+            />
+          </nav>
         </div>
         <p class="episode-location">
+          <.status :if={!@startup} state={to_string(@snapshot.episode.state)} />
           <span :if={@snapshot.trace.case_file.repository}>{@snapshot.trace.case_file.repository}</span>
           <time>{timestamp(@snapshot.trace.received_at)}</time>
-          <a :if={@snapshot.trace.source} href={@snapshot.trace.source.href} rel="noopener noreferrer">{@snapshot.trace.source.label} →</a>
+          <a
+            :if={!@startup}
+            href={if(@requests, do: base(@snapshot), else: "") <> outcome_anchor(@snapshot)}
+          >Jump to latest outcome ↓</a>
+          <a
+            :if={@snapshot.trace.source}
+            href={@snapshot.trace.source.href}
+            target="_blank"
+            rel="noopener noreferrer"
+          >{@snapshot.trace.source.label} →</a>
           <a
             :if={@snapshot.episode[:conversation_ref]}
             href={
@@ -51,6 +72,8 @@ defmodule Ryker.ControlPlane.EpisodePage do
                 @snapshot.episode.thread_ref
               )
             }
+            target="_blank"
+            rel="noopener noreferrer"
           >This Slack thread →</a>
         </p>
       </div>
@@ -127,15 +150,6 @@ defmodule Ryker.ControlPlane.EpisodePage do
           Saved content was removed by retention on {timestamp(@snapshot.trace.case_file.expired_at)}. The remaining timeline still shows when the request ran and finished.
         </p>
       </section>
-      <nav :if={!@startup} class="case-actions" aria-label="Execution actions">
-        <a href={if(@requests, do: base(@snapshot), else: "") <> outcome_anchor(@snapshot)}>Jump to latest outcome ↓</a>
-        <.action_button
-          :for={action <- @snapshot.trace.actions}
-          path={action.href}
-          label={action.label}
-          tone={action.tone}
-        />
-      </nav>
       <section :if={@snapshot.trace.stopped && !@startup} class="story-stop">
         <p class="ui-eyebrow">NEXT ACTION</p><h3>{@snapshot.trace.stopped.headline}</h3>
         <p>{@snapshot.trace.stopped.reason}</p><strong>{@snapshot.trace.stopped.action}</strong>
@@ -423,16 +437,8 @@ defmodule Ryker.ControlPlane.EpisodePage do
           :if={@entry.kind == :event && @entry.step.stage == "Tool call"}
           step={@entry.step}
         />
-        <.participation_settings
-          :if={@entry.kind == :event && @entry.step.stage == "Participation settings"}
-          step={@entry.step}
-        />
-        <.standing_rules
-          :if={@entry.kind == :event && @entry.step.stage == "Standing rules"}
-          step={@entry.step}
-        />
-        <.engagement_decision
-          :if={@entry.kind == :event && @entry.step.stage == "Engagement"}
+        <.participation
+          :if={@entry.kind == :event && @entry.step.stage == "Participation"}
           step={@entry.step}
         />
         <.input_queue
@@ -455,9 +461,7 @@ defmodule Ryker.ControlPlane.EpisodePage do
     do:
       stage in [
         "Tool call",
-        "Participation settings",
-        "Standing rules",
-        "Engagement",
+        "Participation",
         "Input queue",
         "Work setup"
       ]
@@ -575,43 +579,93 @@ defmodule Ryker.ControlPlane.EpisodePage do
     """
   end
 
-  # Effective proactive and shadow values with the source each one won from.
-  # Settings are configuration facts, shown apart from the evaluated predicates
-  # on the Engagement card so a reader never mistakes one for the other.
-  defp participation_settings(assigns) do
+  # One input, one explanation: decision first, then the processing-time
+  # settings and full rule inventory that supported it. Detailed predicates
+  # remain available without competing with the headline answer.
+  defp participation(assigns) do
     ~H"""
-    <div class="case-event-content participation-settings" data-state={@step.participation.state}>
+    <div
+      class="case-event-content participation"
+      data-state={@step.engagement.state}
+      data-rules-state={@step.rules.state}
+    >
       <div class="case-event-heading">
-        <h3>Participation settings</h3>
-      </div>
-      <p :if={@step.participation.settings == []} class="case-event-summary">
-        {@step.participation.summary}
-      </p>
-      <dl :if={@step.participation.settings != []} class="event-facts participation-facts">
-        <div :for={setting <- @step.participation.settings}>
-          <dt>{setting.label}</dt><dd><strong>{setting.value}</strong> · {setting.source}</dd>
-        </div>
-      </dl>
-    </div>
-    """
-  end
-
-  # Result and plain reason first; the actual checks behind a disclosure. A
-  # predicate the gate never reached says "Not checked", never "No".
-  defp engagement_decision(assigns) do
-    ~H"""
-    <div class="case-event-content engagement-decision" data-state={@step.engagement.state}>
-      <div class="case-event-heading">
-        <h3>Engagement</h3>
+        <h3>Participation</h3>
         <span :if={@step.engagement.result != ""} class={"event-state tone-#{@step.tone}"}>
           {@step.engagement.result}
         </span>
       </div>
       <p class="case-event-summary">{@step.engagement.reason}</p>
+
+      <section class="participation-section" aria-label="Channel settings at processing time">
+        <h4>Channel settings at processing time</h4>
+        <p :if={@step.participation.settings == []} class="case-event-summary">
+          {@step.participation.summary}
+        </p>
+        <dl :if={@step.participation.settings != []} class="event-facts participation-facts">
+          <div :for={setting <- @step.participation.settings}>
+            <dt>{setting.label}</dt><dd><strong>{setting.value}</strong> · {setting.source}</dd>
+          </div>
+        </dl>
+      </section>
+
+      <section
+        class="participation-section participation-rules"
+        aria-label="Standing rules at processing time"
+      >
+        <div class="participation-section-heading">
+          <h4>Standing rules</h4>
+          <span :if={@step.rules.state == :recorded && @step.rules.rule_count > 0}>
+            {@step.rules.matched_count} matched · {@step.rules.rule_count - @step.rules.matched_count} other
+          </span>
+        </div>
+        <p class="case-event-summary">{@step.rules.summary}</p>
+        <p :if={@step.rules.truncated} class="action-error">
+          Only the first {length(@step.rules.entries)} of {@step.rules.rule_count} rules were recorded; the rest were not inspected.
+        </p>
+        <ul :if={@step.rules.entries != []} class="standing-rule-list">
+          <li
+            :for={rule <- @step.rules.entries}
+            class={"standing-rule verdict-#{rule.verdict}"}
+            data-verdict={rule.verdict}
+          >
+            <div class="standing-rule-heading">
+              <strong>{rule.title}</strong>
+              <.status
+                label={verdict_label(rule.verdict)}
+                tone={if rule.verdict == "matched", do: "done", else: "quiet"}
+              />
+            </div>
+            <p>{rule.reason}</p>
+            <details
+              :if={rule.ref}
+              class="standing-rule-definition"
+              id={"rule-#{@step.id}-#{rule.ref}"}
+            >
+              <summary>Rule details</summary>
+              <dl class="event-facts">
+                <div>
+                  <dt>Rule</dt><dd>{rule.ref}</dd>
+                </div>
+                <div>
+                  <dt>Revision at the time</dt><dd>{rule.revision || "Not recorded"}</dd>
+                </div>
+                <div>
+                  <dt>Status at the time</dt><dd>{rule.status}</dd>
+                </div>
+                <div :if={rule.scope_ref}>
+                  <dt>Scope</dt><dd>{rule.scope_ref}</dd>
+                </div>
+              </dl>
+            </details>
+          </li>
+        </ul>
+      </section>
+
       <details
         :if={@step.engagement.state == :recorded}
-        class="case-event-details"
-        id={"engagement-details-#{@step.id}"}
+        class="case-event-details participation-decision"
+        id={"participation-details-#{@step.id}"}
       >
         <summary>Decision details</summary>
         <dl class="event-facts">
@@ -625,64 +679,7 @@ defmodule Ryker.ControlPlane.EpisodePage do
             <dt>Execution mode</dt><dd>{label(@step.engagement.execution_mode)}</dd>
           </div>
         </dl>
-        <p :if={@step.engagement.checks != []}>
-          Rule matching for this input is shown in full on the Standing rules card above.
-        </p>
       </details>
-    </div>
-    """
-  end
-
-  # Every rule that existed, matches first, each with the verdict it actually got.
-  # Non-matches are ordinary information, so they get neutral styling; only a
-  # match is green. An absent inventory is a distinct, visible state: it is not
-  # zero rules and it is not zero matches.
-  defp standing_rules(assigns) do
-    ~H"""
-    <div class="case-event-content standing-rules" data-rules-state={@step.rules.state}>
-      <div class="case-event-heading">
-        <h3>Standing rules</h3>
-        <span :if={@step.rules.state == :recorded && @step.rules.rule_count > 0}>
-          {@step.rules.matched_count} matched · {@step.rules.rule_count - @step.rules.matched_count} other
-        </span>
-      </div>
-      <p class="case-event-summary">{@step.summary}</p>
-      <p :if={@step.rules.truncated} class="action-error">
-        Only the first {length(@step.rules.entries)} of {@step.rules.rule_count} rules were recorded; the rest were not inspected.
-      </p>
-      <ul :if={@step.rules.entries != []} class="standing-rule-list">
-        <li
-          :for={rule <- @step.rules.entries}
-          class={"standing-rule verdict-#{rule.verdict}"}
-          data-verdict={rule.verdict}
-        >
-          <div class="standing-rule-heading">
-            <strong>{rule.title}</strong>
-            <.status
-              label={verdict_label(rule.verdict)}
-              tone={if rule.verdict == "matched", do: "done", else: "quiet"}
-            />
-          </div>
-          <p>{rule.reason}</p>
-          <details :if={rule.ref} class="standing-rule-definition" id={"rule-#{@step.id}-#{rule.ref}"}>
-            <summary>Rule details</summary>
-            <dl class="event-facts">
-              <div>
-                <dt>Rule</dt><dd>{rule.ref}</dd>
-              </div>
-              <div>
-                <dt>Revision at the time</dt><dd>{rule.revision || "Not recorded"}</dd>
-              </div>
-              <div>
-                <dt>Status at the time</dt><dd>{rule.status}</dd>
-              </div>
-              <div :if={rule.scope_ref}>
-                <dt>Scope</dt><dd>{rule.scope_ref}</dd>
-              </div>
-            </dl>
-          </details>
-        </li>
-      </ul>
     </div>
     """
   end

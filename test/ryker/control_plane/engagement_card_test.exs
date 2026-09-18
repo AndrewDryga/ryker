@@ -1,11 +1,11 @@
 defmodule Ryker.ControlPlane.EngagementCardTest do
   @moduledoc """
-  Participation settings and the Engagement decision in Getting ready.
+  The consolidated Participation explanation in Getting ready.
 
   The gate's answer used to be invisible, and the tempting reconstruction --
   today's channel settings plus a fresh run of the predicates -- would explain
-  an old decision with facts that did not exist when it was made. These cards
-  read the receipt written at decision time or say that none was written.
+  an old decision with facts that did not exist when it was made. This card
+  reads the receipt written at decision time or says that none was written.
   """
   use Ryker.DataCase, async: true
 
@@ -39,13 +39,23 @@ defmodule Ryker.ControlPlane.EngagementCardTest do
     "execution_mode" => "live"
   }
 
-  test "the cards follow the approved order: settings, rules, engagement" do
+  test "one Participation card precedes Input queue" do
     {_entry, episode} = admitted!(engagement_receipt: @rule_receipt)
     html = rendered(episode)
+    document = LazyHTML.from_document(html)
+
+    assert Enum.count(LazyHTML.query(document, ".participation")) == 1
+    assert LazyHTML.query(document, ".participation h3") |> LazyHTML.text() == "Participation"
+    refute html =~ "<h3>Participation settings</h3>"
+    refute html =~ "<h3>Engagement</h3>"
 
     positions =
-      for label <- ["Participation settings", "Standing rules", "Engagement"],
-          do: :binary.match(html, "<h3>" <> label) |> elem(0)
+      for marker <- [
+            ~s(class="case-message-text markdown-preview"),
+            ~s(class="case-event-content participation"),
+            ~s(class="case-event-content input-queue")
+          ],
+          do: :binary.match(html, marker) |> elem(0)
 
     assert positions == Enum.sort(positions)
   end
@@ -55,7 +65,9 @@ defmodule Ryker.ControlPlane.EngagementCardTest do
     html = rendered(episode)
 
     facts =
-      LazyHTML.from_document(html) |> LazyHTML.query(".participation-facts") |> LazyHTML.text()
+      LazyHTML.from_document(html)
+      |> LazyHTML.query(".participation .participation-facts")
+      |> LazyHTML.text()
 
     assert facts =~ "Proactive"
     assert facts =~ "Off · Saved channel setup"
@@ -63,21 +75,41 @@ defmodule Ryker.ControlPlane.EngagementCardTest do
     assert facts =~ "Off · Deployment default"
   end
 
-  test "the engagement decision shows the result, the reason and only the checks the gate made" do
+  test "the Participation card shows the result, reason and only the checks the gate made" do
     {_entry, episode} = admitted!(engagement_receipt: @rule_receipt)
     html = rendered(episode)
-    card = LazyHTML.from_document(html) |> LazyHTML.query(".engagement-decision")
+    card = LazyHTML.from_document(html) |> LazyHTML.query(".participation")
 
     assert LazyHTML.text(card) =~ "Process"
     assert LazyHTML.text(card) =~ "A standing rule matched this message."
 
-    details = LazyHTML.query(card, ".event-facts") |> LazyHTML.text()
+    details = LazyHTML.query(card, ".participation-decision .event-facts") |> LazyHTML.text()
+    assert details =~ "Direct message / mention"
+    assert details =~ "Existing episode thread"
     assert details =~ "Standing rule"
     assert details =~ "Matched"
-    # The gate stopped at the rule; proactive participation was never evaluated.
-    assert details =~ "Not checked"
+    # The gate stopped at the rule; an absent predicate is not reconstructed
+    # from today's configuration or rendered as if it had been evaluated.
     refute details =~ "Proactive participation\n"
-    assert LazyHTML.text(card) =~ "Standing rules card above"
+    refute LazyHTML.text(card) =~ "Standing rules card above"
+  end
+
+  test "a predicate explicitly recorded without an outcome remains Not checked" do
+    receipt =
+      Map.update!(@rule_receipt, "checks", fn checks ->
+        checks ++ [%{"check" => "proactive_participation", "outcome" => nil}]
+      end)
+
+    {_entry, episode} = admitted!(engagement_receipt: receipt)
+
+    details =
+      rendered(episode)
+      |> LazyHTML.from_document()
+      |> LazyHTML.query(".participation-decision .event-facts")
+      |> LazyHTML.text()
+
+    assert details =~ "Proactive participation"
+    assert details =~ "Not checked"
   end
 
   test "an explicit direct-conversation submission says it bypassed channel settings instead of inventing checks" do
@@ -95,12 +127,16 @@ defmodule Ryker.ControlPlane.EngagementCardTest do
     html = rendered(episode)
     document = LazyHTML.from_document(html)
 
-    assert LazyHTML.query(document, ".participation-settings") |> LazyHTML.text() =~
+    assert LazyHTML.query(
+             document,
+             ".participation section[aria-label='Channel settings at processing time']"
+           )
+           |> LazyHTML.text() =~
              "Not applicable: an explicit direct-conversation submission bypasses channel participation settings."
 
     # The recorded reason is history: a receipt written before the rename
     # keeps its own words, and the page shows exactly what was recorded.
-    engagement = LazyHTML.query(document, ".engagement-decision") |> LazyHTML.text()
+    engagement = LazyHTML.query(document, ".participation") |> LazyHTML.text()
     assert engagement =~ "Explicitly submitted through Conversation Lab."
     refute engagement =~ "Direct message / mention"
   end
@@ -110,10 +146,14 @@ defmodule Ryker.ControlPlane.EngagementCardTest do
     html = rendered(episode)
     document = LazyHTML.from_document(html)
 
-    assert LazyHTML.query(document, ".participation-settings") |> LazyHTML.text() =~
+    assert LazyHTML.query(
+             document,
+             ".participation section[aria-label='Channel settings at processing time']"
+           )
+           |> LazyHTML.text() =~
              "Effective participation settings were not recorded for this input."
 
-    assert LazyHTML.query(document, ".engagement-decision") |> LazyHTML.text() =~
+    assert LazyHTML.query(document, ".participation") |> LazyHTML.text() =~
              "The engagement decision was not recorded for this input."
 
     refute html =~ "Decision details"
@@ -134,8 +174,7 @@ defmodule Ryker.ControlPlane.EngagementCardTest do
     {_entry, episode} = admitted!(engagement_receipt: receipt)
     html = rendered(episode)
 
-    card =
-      LazyHTML.from_document(html) |> LazyHTML.query(".engagement-decision") |> LazyHTML.text()
+    card = LazyHTML.from_document(html) |> LazyHTML.query(".participation") |> LazyHTML.text()
 
     assert card =~ "Evaluate only"
     assert card =~ "Shadow mode is enabled"

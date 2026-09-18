@@ -54,7 +54,7 @@ defmodule Ryker.ControlPlane.IsolatedFailureTest do
 
     html = rendered(episode)
 
-    assert html =~ "Participation settings"
+    assert html =~ "Participation"
     assert html =~ "Standing rules"
     assert html =~ "Input queue"
   end
