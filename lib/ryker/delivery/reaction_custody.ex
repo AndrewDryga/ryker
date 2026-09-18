@@ -21,10 +21,9 @@ defmodule Ryker.Delivery.ReactionCustody do
   @spec enqueue_in_transaction(Entry.t()) :: {:ok, Reaction.t() | nil} | {:error, term()}
   def enqueue_in_transaction(%Entry{status: :decided, decision_action: :react} = entry) do
     with :ok <- transaction_open(),
-         %{"reaction" => %{} = document} <- entry.decision_document,
-         fingerprint <- CanonicalJSON.digest(document) do
-      Ecto.UUID.generate()
-      |> then(&ReactionChangeset.insert(entry, &1, document, fingerprint))
+         %{"reaction" => %{} = document} <- entry.decision_document do
+      entry
+      |> ReactionChangeset.insert(Ecto.UUID.generate(), document, CanonicalJSON.digest(document))
       |> Repo.insert()
       |> persistence_result(:delivery_reaction)
     else
@@ -55,7 +54,6 @@ defmodule Ryker.Delivery.ReactionCustody do
     with :ok <- reference(worker_ref, :worker_ref),
          :ok <- positive_integer(lease_seconds, :lease_seconds) do
       Repo.transaction(fn -> claim_locked(worker_ref, lease_seconds) end)
-      |> transaction_result()
     end
   end
 
@@ -84,7 +82,6 @@ defmodule Ryker.Delivery.ReactionCustody do
          :ok <- reference(lease_ref, :lease_ref),
          :ok <- positive_integer(lease_seconds, :lease_seconds) do
       Repo.transaction(fn -> renew_locked(delivery_ref, lease_ref, lease_seconds) end)
-      |> transaction_result()
     end
   end
 
@@ -96,7 +93,6 @@ defmodule Ryker.Delivery.ReactionCustody do
          :ok <- bounded_text(error_code, 128, :error_code),
          :ok <- bounded_text(error_detail, 4_096, :error_detail) do
       Repo.transaction(fn -> block_locked(delivery_ref, lease_ref, error_code, error_detail) end)
-      |> transaction_result()
     end
   end
 
@@ -107,7 +103,6 @@ defmodule Ryker.Delivery.ReactionCustody do
   def retry(delivery_ref) do
     with :ok <- reference(delivery_ref, :delivery_ref) do
       Repo.transaction(fn -> retry_locked(delivery_ref) end)
-      |> transaction_result()
     end
   end
 
@@ -128,7 +123,6 @@ defmodule Ryker.Delivery.ReactionCustody do
           error_detail
         )
       end)
-      |> transaction_result()
     end
   end
 
@@ -143,12 +137,11 @@ defmodule Ryker.Delivery.ReactionCustody do
       Repo.transaction(fn ->
         confirm_locked(delivery_ref, lease_ref, receipt, fingerprint)
       end)
-      |> transaction_result()
     end
   end
 
   defp claim_locked(worker_ref, lease_seconds) do
-    now = database_now!()
+    now = Repo.now!()
 
     case Repo.one(
            from(reaction in Reaction,
@@ -189,7 +182,7 @@ defmodule Ryker.Delivery.ReactionCustody do
   end
 
   defp defer_locked(delivery_ref, lease_ref, retry_seconds, error_code, error_detail) do
-    now = database_now!()
+    now = Repo.now!()
 
     case leased_reaction(delivery_ref, lease_ref, now) do
       {:ok, reaction} ->
@@ -211,7 +204,7 @@ defmodule Ryker.Delivery.ReactionCustody do
   end
 
   defp renew_locked(delivery_ref, lease_ref, lease_seconds) do
-    now = database_now!()
+    now = Repo.now!()
 
     case leased_reaction(delivery_ref, lease_ref, now) do
       {:ok, reaction} ->
@@ -229,7 +222,7 @@ defmodule Ryker.Delivery.ReactionCustody do
   end
 
   defp block_locked(delivery_ref, lease_ref, error_code, error_detail) do
-    now = database_now!()
+    now = Repo.now!()
 
     case leased_reaction(delivery_ref, lease_ref, now) do
       {:ok, reaction} ->
@@ -271,7 +264,7 @@ defmodule Ryker.Delivery.ReactionCustody do
   end
 
   defp confirm_locked(delivery_ref, lease_ref, receipt, fingerprint) do
-    now = database_now!()
+    now = Repo.now!()
 
     case lock_reaction(delivery_ref) do
       %Reaction{status: :delivered, external_receipt_fingerprint: ^fingerprint} = reaction ->
@@ -339,11 +332,6 @@ defmodule Ryker.Delivery.ReactionCustody do
        else: {:error, :delivery_reaction_receipt_mismatch}
   end
 
-  defp database_now! do
-    %{rows: [[%DateTime{} = now]]} = Repo.query!("SELECT clock_timestamp()")
-    DateTime.truncate(now, :microsecond)
-  end
-
   defp later_datetime(nil, requested), do: requested
 
   defp later_datetime(current, requested) do
@@ -359,9 +347,6 @@ defmodule Ryker.Delivery.ReactionCustody do
 
   defp unwrap_or_rollback({:error, changeset}, operation),
     do: Repo.rollback({:persistence_failed, operation, changeset.errors})
-
-  defp transaction_result({:ok, result}), do: {:ok, result}
-  defp transaction_result({:error, reason}), do: {:error, reason}
 
   defp uuid(value), do: Ecto.UUID.cast(value)
 

@@ -21,7 +21,7 @@ defmodule Ryker.Delivery.BinaryClient do
   @spec new(keyword() | map()) :: {:ok, t()} | {:error, term()}
   def new(attributes) do
     with {:ok, attributes} <- normalize(attributes),
-         client <- struct!(__MODULE__, attributes),
+         client = struct!(__MODULE__, attributes),
          :ok <- validate(client) do
       {:ok, client}
     end

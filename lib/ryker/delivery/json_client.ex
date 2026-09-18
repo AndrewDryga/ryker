@@ -28,7 +28,7 @@ defmodule Ryker.Delivery.JSONClient do
   @spec new(keyword() | map()) :: {:ok, t()} | {:error, term()}
   def new(attributes) do
     with {:ok, attributes} <- normalize_attributes(attributes),
-         client <- struct!(__MODULE__, attributes),
+         client = struct!(__MODULE__, attributes),
          :ok <- validate(client) do
       {:ok, %{client | base_url: String.trim_trailing(client.base_url, "/")}}
     end
