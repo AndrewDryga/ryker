@@ -65,7 +65,7 @@ defmodule Ryker.Slack.Renderer.Offers do
   defp offer_list(_label, [], _limit), do: nil
 
   defp offer_list(label, values, limit) do
-    shown = values |> Enum.take(limit) |> Enum.map_join("; ", &truncate(escape(&1), 200))
+    shown = values |> Enum.take(limit) |> Enum.map_join("; ", &(&1 |> truncate(200) |> escape()))
     remainder = length(values) - min(length(values), limit)
     more = if remainder > 0, do: " · #{remainder} more", else: ""
     "*#{label}:* #{shown}#{more}"
