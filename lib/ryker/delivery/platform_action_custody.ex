@@ -116,21 +116,11 @@ defmodule Ryker.Delivery.PlatformActionCustody do
     with :ok <- reference(action_ref, :action_ref),
          {:ok, lease_ref} <- uuid(lease_ref, :lease_ref),
          :ok <- positive(lease_seconds, :lease_seconds) do
-      Repo.transaction(fn -> renew_locked(action_ref, lease_ref, lease_seconds) end)
-    end
-  end
-
-  defp renew_locked(action_ref, lease_ref, lease_seconds) do
-    now = Repo.now!()
-
-    case leased_action(action_ref, lease_ref, now) do
-      {:ok, action} ->
+      mutate_claim(action_ref, lease_ref, fn action, now ->
         requested = DateTime.add(now, lease_seconds, :second)
         expiry = later_datetime(action.lease_expires_at, requested)
         update!(action, %{lease_expires_at: expiry}, :renew)
-
-      {:error, reason} ->
-        Repo.rollback(reason)
+      end)
     end
   end
 
