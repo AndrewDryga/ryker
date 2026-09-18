@@ -57,15 +57,6 @@ else
   control_port=80
 fi
 
-# The one-time macOS cutover from the Responder on-host layout. Until it has
-# happened the live database is reached through the old deployment's
-# runtime.env, and its backups land beside it so they move with the root.
-cutover=0
-rehearsal_env=$runtime_env
-backup_root=$state_root
-old_state_root="$HOME/.local/state/responder"
-old_deployment="$old_state_root/emisar"
-
 if [[ -n $(git status --porcelain) ]]; then
   echo "deploy: refusing to deploy a dirty tree — commit first" >&2
   exit 1
@@ -88,33 +79,12 @@ case $manager in
       echo "deploy: launchctl is required by the macOS deployment" >&2
       exit 1
     }
-    if [[ -r $old_deployment/runtime.env && ! -e $runtime_env ]]; then
-      # Still on the old layout: prove the archive against it, then let
-      # scripts/rename-cutover.sh move everything across after the install.
-      cutover=1
-      rehearsal_env="$old_deployment/runtime.env"
-      backup_root="$old_deployment"
-      echo "deploy: cutover: old layout at $old_deployment will be cut over to $state_root after the archive is proven"
-    elif [[ -r $runtime_env && ! -e $old_deployment && ! -e $state_root/backups/rename-cutover.done ]] &&
-      compgen -G "$state_root/backups/pre-rename-*.runtime.env" >/dev/null; then
-      echo "deploy: cutover: a previous cutover did not complete; run scripts/rename-cutover.sh prepare to resume it, then deploy again" >&2
+    [[ -r $runtime_env ]] || {
+      echo "deploy: $runtime_env is missing; the launchd job sources it before every start" >&2
       exit 1
-    else
-      [[ -r $runtime_env ]] || {
-        echo "deploy: $runtime_env is missing; the launchd job sources it before every start" >&2
-        exit 1
-      }
-    fi
+    }
     ;;
 esac
-
-rename_cutover() {
-  # rename_cutover prepare|finish: the cutover with the paths computed above.
-  OLD_STATE_ROOT="$old_state_root" OLD_DEPLOYMENT="$old_deployment" \
-    NEW_STATE_ROOT="$(dirname "$state_root")" NEW_DEPLOYMENT="$state_root" \
-    NEW_LABEL="$label" LAUNCH_AGENTS="$launch_agents" \
-    scripts/rename-cutover.sh "$1"
-}
 
 run_privileged() {
   if [[ $manager != systemd || $(id -u) -eq 0 ]]; then
@@ -189,10 +159,10 @@ pending_migrations() {
 # rows. When this archive carries migrations the live database has not applied,
 # back the live database up and run them on a restored copy in the disposable
 # test PostgreSQL first. Most deploys carry none and skip this after one check.
-if [[ -r $rehearsal_env ]]; then
-  database_url=$(env_value "$rehearsal_env" DATABASE_URL)
+if [[ -r $runtime_env ]]; then
+  database_url=$(env_value "$runtime_env" DATABASE_URL)
   [[ -n $database_url ]] || {
-    echo "deploy: $rehearsal_env does not define DATABASE_URL" >&2
+    echo "deploy: $runtime_env does not define DATABASE_URL" >&2
     exit 1
   }
 
@@ -204,7 +174,7 @@ if [[ -r $rehearsal_env ]]; then
 
   if [[ $pending -gt 0 ]]; then
     echo "deploy: $pending pending migration(s); backing up the live database and rehearsing them on a restored copy"
-    backup_dir="$backup_root/backups"
+    backup_dir="$state_root/backups"
     mkdir -p "$backup_dir"
     chmod 0700 "$backup_dir"
     backup="$backup_dir/pre-$version-$(date -u +%Y%m%dT%H%M%SZ).dump"
@@ -239,7 +209,7 @@ if [[ -r $rehearsal_env ]]; then
     echo "deploy: no pending migrations"
   fi
 else
-  echo "deploy: $rehearsal_env is not readable; skipping the migration rehearsal"
+  echo "deploy: $runtime_env is not readable; skipping the migration rehearsal"
 fi
 
 # The installer writes an immutable version directory and atomically moves only
@@ -247,14 +217,6 @@ fi
 # database-compatible rollback.
 run_privileged scripts/install-elixir-release.sh \
   "$archive" "$version" "$digest" "$prefix" --local-build
-
-# With the archive proven and installed, the old release, its sidecars, the
-# database, and the state root move to their new names. From here on the old
-# job is stopped; the restart below loads the new one against the moved
-# deployment.
-if [[ $cutover == 1 ]]; then
-  rename_cutover prepare
-fi
 
 stop_unmanaged_listener() {
   # A release started by hand (`bin/ryker daemon`) is not a launchd job.
@@ -345,14 +307,6 @@ if [[ $installed_version != "ryker $version" ]]; then
 fi
 
 scripts/check-running-elixir-release.sh "$health_url" "$version"
-
-# Only once the new release is verifiably serving do the Responder-era plists
-# go. This also picks up the retirement when a cutover deploy failed after
-# `prepare` and was redone, which is why it is not tied to this run alone.
-if [[ $manager == launchd ]] &&
-  { [[ $cutover == 1 ]] || compgen -G "$launch_agents/ai.emisar.responder*.plist*" >/dev/null; }; then
-  rename_cutover finish
-fi
 
 # Keep a few immutable installs for rollback; each is tens of megabytes and a
 # hundred of them once filled the disk. Release directories are named by the

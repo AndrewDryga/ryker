@@ -205,18 +205,6 @@ test("an editor reopens with its draft after a reconnect, without stealing focus
   assert.equal(m.textarea.focused, 0)
 })
 
-test("an editor opened and a draft typed before the rename come back after the deploy's reconnect", () => {
-  const m = editableMessage(uuid, "Body")
-  const f = page([m])
-  f.store.set("responder:editing:/conversations/c", uuid)
-  f.store.set(`responder:draft:/conversations/c:/conversations/c/messages/${uuid}/edit:message`, "Typed before the rename")
-  f.controls.restore()
-  assert.equal(m.form.hidden, false)
-  assert.equal(m.textarea.value, "Typed before the rename")
-  assert.equal(f.store.has("responder:editing:/conversations/c"), false)
-  assert.equal(f.store.has(`responder:draft:/conversations/c:/conversations/c/messages/${uuid}/edit:message`), false)
-})
-
 test("edit drafts are keyed by message and never share the composer's key", () => {
   const m = editableMessage(uuid, "Body")
   assert.equal(draftKey(m.textarea, "/conversations/c"), `ryker:draft:/conversations/c:/conversations/c/messages/${uuid}/edit:message`)

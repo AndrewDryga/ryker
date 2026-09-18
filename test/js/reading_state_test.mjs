@@ -46,7 +46,7 @@ function fixture(hash = "") {
   // Evaluate the shipped hook module itself with its sibling modules stubbed.
   // Real LiveView patches are qualified separately in Chromium.
   hook = vm.runInNewContext(source.replace(/^import .*$/gm, "").replace(/^export /gm, "") + "\ncreateReadingStateHook()",
-    {document, window, location, sessionStorage: {getItem() { return null }}, keyFor: () => null, transferLegacyDraft: () => null,
+    {document, window, location, sessionStorage: {getItem() { return null }}, keyFor: () => null,
       createRelearnPicker,
       createConversationControls: () => ({click() {}, keydown() { return false }, input() { return false }, submit() { return false }, restore() { return false }, refresh() {}, destroy() {}}),
       createComposer: () => ({input() {}, submit() { return false }}),

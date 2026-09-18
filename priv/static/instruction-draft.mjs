@@ -1,4 +1,3 @@
-import {adoptRetiredKey} from "./drafts.mjs"
 import {createLeaveGuard} from "./leave-guard.mjs"
 
 const normalize = text => text.trim() === "" ? "" : text.replaceAll("\r\n", "\n")
@@ -18,9 +17,6 @@ export function createInstructionDraft(form, recover, environment = {}) {
     } catch (_) { /* Saving remains possible when browser storage is disabled. */ }
   }
   try {
-    // Remove after 2026-09-20: carries a draft stored under the pre-rename
-    // key (2026-09-13); a tab open since before then has closed by that date.
-    adoptRetiredKey(key, storage())
     const saved = JSON.parse(storage().getItem(key))
     if (saved && typeof saved.text === "string" && /^\d+$/.test(saved.revision)) {
       text().value = saved.text
