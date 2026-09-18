@@ -52,458 +52,572 @@ defmodule Ryker.ControlPlane.ChannelPage do
 
     ~H"""
     <div class="channel-page">
-      <section id="configuration" class="channel-section">
-        <h2>Configuration</h2>
-        <dl class="channel-facts">
-          <.fact label="Workspace">
-            {SlackNames.name(@view.scope.workspace_ref, @view.scope.workspace_ref)}
-            <code>{@view.scope.workspace_ref}</code>
-            <code>{@view.scope.canonical_workspace_ref}</code>
-          </.fact>
-          <.fact label="Channel">
-            {SlackNames.name(@view.scope.workspace_ref, @view.scope.channel_ref)}
-            <code>{@view.scope.channel_ref}</code>
-            <code>{@view.scope.conversation_ref}</code>
-          </.fact>
-          <.fact label="Kind">{kind(@view.channel.kind)}</.fact>
-          <.fact label="Membership">{membership(@view.channel.membership)}</.fact>
-          <.fact label="Visibility">
-            {tri_state(@view.channel.membership, :private, "Private", "Public")}
-          </.fact>
-          <.fact label="Externally shared">
-            {tri_state(@view.channel.membership, :external_shared, "Yes", "No")}
-          </.fact>
-          <.fact label="Participation">
-            {configured(@view.channel.configuration, :participation, &label/1)}
-          </.fact>
-          <.fact label="Repository">{repository(@view.channel.repository)}</.fact>
-          <.fact label="Alert policy">
-            {configured(@view.channel.configuration, :alert_policy, &label/1)}
-          </.fact>
-          <.fact label="Additional users">
-            {configured_list(@view.channel.configuration, :invite_user_refs, &person(&1, @view.scope))}
-          </.fact>
-          <.fact label="User groups">
-            {configured_list(
-              @view.channel.configuration,
-              :invite_user_group_refs,
-              &Function.identity/1
-            )}
-          </.fact>
-          <.fact label="Configured by">
-            {configured(@view.channel.configuration, :actor_ref, &person(&1, @view.scope))}
-          </.fact>
-          <.fact label="Revision">
-            {configured(@view.channel.configuration, :revision, &Integer.to_string/1)}
-          </.fact>
-          <.fact label="Saved">
-            {configured(@view.channel.configuration, :saved_at, &timestamp/1)}
-          </.fact>
-          <%= if @view.channel.incident_room do %>
-            <.fact label="Incident room">
-              <a href={"/incident-rooms/" <> encode(@view.channel.incident_room.ref)}>
-                {@view.channel.incident_room.title}
-              </a>
-              · {label(@view.channel.incident_room.status)}
-            </.fact>
-            <.fact label="Room state">{label(@view.channel.incident_room.channel_state)}</.fact>
-            <.fact label="Requested as">
-              {if @view.channel.incident_room.private, do: "Private", else: "Public"}
-            </.fact>
-            <.fact :if={@view.channel.incident_room.episode_ref} label="Investigation">
-              <a href={"/timeline/" <> encode(@view.channel.incident_room.episode_ref)}>
-                {@view.channel.incident_room.episode_ref}
-              </a>
-            </.fact>
-          <% end %>
-        </dl>
-      </section>
-      <section id="participation" class="channel-section">
-        <h2>Effective participation</h2>
-        <p :if={is_nil(@view.participation)} class="channel-unavailable">
-          The effective participation could not be resolved for this conversation.
-        </p>
-        <.table :if={@view.participation} rows={@view.participation}>
-          <:col :let={item} label="Setting">{label(item.setting)}</:col>
-          <:col :let={item} label="Value">{if item.value, do: "On", else: "Off"}</:col>
-          <:col :let={item} label="Decided by">{decided_by(item.scope)}</:col>
-          <:col :let={item} label="Revision">{item.revision || "—"}</:col>
-          <:col :let={item} label="Updated">{timestamp(item.updated_at)}</:col>
-        </.table>
-      </section>
-      <.relation
-        id="schedules"
-        base={@base}
-        params={@view.params}
-        title="Schedules"
-        relation={@view.schedules}
-        one="schedule"
-        many="schedules"
-        empty="No schedules target this channel."
-      >
-        <.table rows={@view.schedules.items}>
-          <:col :let={item} label="Schedule">
-            <a href={"/schedules/" <> encode(item.ref)}>{item.title}</a>
-          </:col>
-          <:col :let={item} label="Status"><.status lifecycle={item.status} /></:col>
-          <:col :let={item} label="Next run">{timestamp(item.next_occurrence_at)}</:col>
-        </.table>
-      </.relation>
-      <.relation
-        id="episodes"
-        base={@base}
-        params={@view.params}
-        title="Related episodes"
-        relation={@view.episodes}
-        one="episode"
-        many="episodes"
-        empty="No episodes were delivered to this channel."
-      >
-        <.table rows={@view.episodes.items}>
-          <:col :let={item} label="Episode">
-            <a href={"/timeline/" <> encode(item.ref)}>{item.title || item.ref}</a>
-            <code :if={item.title}>{item.ref}</code>
-          </:col>
-          <:col :let={item} label="State"><.status state={item.state} /></:col>
-          <:col :let={item} label="Mode">{label(item.execution_mode)}</:col>
-          <:col :let={item} label="Thread">{item.thread_ref || "Channel root"}</:col>
-          <:col :let={item} label="Updated">{timestamp(item.updated_at)}</:col>
-        </.table>
-      </.relation>
-      <.relation
-        id="summaries"
-        base={@base}
-        params={@view.params}
-        title="Conversation summaries"
-        relation={@view.summaries}
-        one="summary"
-        many="summaries"
-        empty="No conversation summaries are retained for this channel."
-      >
-        <:health>
-          <p
-            :if={@view.continuity.drafts > 0 or @view.continuity.handover_failures > 0}
-            class="channel-health"
-          >
-            <span :if={@view.continuity.drafts > 0}>
-              {count(@view.continuity.drafts, "summary draft", "summary drafts")} in flight
-            </span>
-            <a :if={@view.continuity.handover_failures > 0} href="/memory#handover-failures">
-              {count(@view.continuity.handover_failures, "handover", "handovers")} not saved →
-            </a>
-          </p>
-        </:health>
-        <article
-          :for={item <- @view.summaries.items}
-          class="channel-entry"
-          id={"summary-" <> item.ref}
-        >
-          <header>
-            <h3>{item.title}</h3>
-            <time datetime={DateTime.to_iso8601(item.updated_at)}>{timestamp(item.updated_at)}</time>
-          </header>
-          <p class="channel-entry-meta">
-            <span>{if item.thread_ref, do: "Thread " <> item.thread_ref, else: "Channel root"}</span>
-            <span :if={item.repository_ref}>{item.repository_ref}</span>
-            <span>{recalled(item)}</span>
-          </p>
-          <p :if={item.recall_warning} class="channel-unavailable">
-            Not used for recall · {if item.recall_warning == :missing_source_history,
-              do: "no complete source history was saved.",
-              else: "source history is invalid."} Kept for inspection.
-          </p>
-          <p :if={item.maintenance_error} class="channel-unavailable">
-            Handover maintenance: {item.maintenance_error}
-            <span :if={item.maintenance_retry_at}>
-              Next check {timestamp(item.maintenance_retry_at)}.
-            </span>
-          </p>
-          <p :if={item.text != ""} class="channel-entry-text">{item.text}</p>
-          <.facts
-            id={"summary-" <> item.ref <> "-facts"}
-            groups={item.groups}
-            label="Decisions, open work and questions"
-          />
-          <footer>
-            <a :if={item.request_path} href={item.request_path}>Source request →</a>
-            <a :if={item.source} href={item.source} rel="noopener noreferrer">Source message →</a>
-            <span :if={item.expires_at}>Retained until {timestamp(item.expires_at)}</span>
-            <code>{item.ref}</code>
-          </footer>
-        </article>
-      </.relation>
-      <.relation
-        id="rollups"
-        base={@base}
-        params={@view.params}
-        title="Conversation rollups"
-        relation={@view.rollups}
-        one="rollup"
-        many="rollups"
-        empty="No compacted continuity is retained for this channel."
-      >
-        <article :for={item <- @view.rollups.items} class="channel-entry" id={"rollup-" <> item.ref}>
-          <header>
-            <h3>{item.title}</h3>
-            <time datetime={DateTime.to_iso8601(item.period_end)}>
-              {timestamp(item.period_start)} – {timestamp(item.period_end)}
-            </time>
-          </header>
-          <p class="channel-entry-meta">
-            <span>{count(item.source_count, "source", "sources")}</span>
-            <span :if={item.repository_ref}>{item.repository_ref}</span>
-            <span>{recalled(item)}</span>
-            <span>Expires {timestamp(item.expires_at)}</span>
-          </p>
-          <p :if={item.text != ""} class="channel-entry-text">{item.text}</p>
-          <.facts
-            id={"rollup-" <> item.ref <> "-facts"}
-            groups={item.groups}
-            label="Decisions, open work and questions"
-          />
-          <footer><code>{item.ref}</code></footer>
-        </article>
-      </.relation>
-      <.relation
-        id="knowledge"
-        base={@base}
-        params={@view.params}
-        title="Learned knowledge"
-        relation={@view.knowledge}
-        one="topic"
-        many="topics"
-        empty="Nothing has been learned from this channel yet."
-      >
-        <article
-          :for={item <- @view.knowledge.items}
-          class="channel-entry"
-          id={"knowledge-" <> item.id}
-        >
-          <header>
-            <h3>{item.title}</h3>
-            <time datetime={DateTime.to_iso8601(item.updated_at)}>{timestamp(item.updated_at)}</time>
-          </header>
-          <p :if={!item.available} class="channel-unavailable">
-            Not used for recall · a supporting source changed, was removed, or expired.
-          </p>
-          <p :if={item.text != ""} class="channel-entry-text">{item.text}</p>
-          <footer>
-            <a href={item.path}>
-              Update history · {item.version} {if item.version == 1, do: "revision", else: "revisions"} →
-            </a>
-            <a :if={item.request_path} href={item.request_path}>Source request →</a>
-            <span :if={item.source_at}>Latest source {timestamp(item.source_at)}</span>
-            <span :if={item.expires_at}>Retained until {timestamp(item.expires_at)}</span>
-          </footer>
-        </article>
-      </.relation>
-      <.relation
-        id="learning"
-        base={@base}
-        params={@view.params}
-        title="Learning"
-        relation={@view.learning}
-        one="batch"
-        many="batches"
-        empty="No learning batches have been formed from this channel."
-      >
-        <:health>
-          <p class="channel-health">
-            <span :if={!@view.learning.enabled}>Learning is disabled</span>
-            <span>{@view.learning.counts.queued} queued</span>
-            <span>{@view.learning.counts.running} learning</span>
-            <span>{@view.learning.counts.deferred} needs attention</span>
-            <span>{count(@view.learning.waiting_inputs, "message", "messages")} waiting</span>
-          </p>
-        </:health>
-        <ol class="channel-batches">
-          <li :for={batch <- @view.learning.items} id={"batch-" <> batch.id}>
-            <div>
-              <a href={batch.path}><strong>{batch.label}</strong></a>
-              · {count(batch.input_count, "message", "messages")} · {label(batch.mode)}
-              <span :if={batch.repository}> · {batch.repository}</span>
-            </div>
-            <p :if={batch.error} class={learning_note(batch)}>{batch.error}</p>
-            <p :if={batch.next_attempt_at}>Next check {timestamp(batch.next_attempt_at)}</p>
-            <time datetime={DateTime.to_iso8601(batch.at)}>{timestamp(batch.at)}</time>
-          </li>
-        </ol>
-      </.relation>
-      <.relation
-        id="rules"
-        base={@base}
-        params={@view.params}
-        title="Standing rules"
-        relation={@view.rules}
-        one="rule"
-        many="rules"
-        empty="No standing rules target this channel."
-      >
-        <article :for={item <- @view.rules.items} class="channel-entry" id={"rule-" <> item.ref}>
-          <header>
-            <h3>{item.title}</h3>
-            <.status lifecycle={item.status} />
-          </header>
-          <p class="channel-entry-meta">
-            <span>When: {label(item.trigger || "Source event")}</span>
-            <span :if={item.source_filter}>From: {sender(item.source_filter)}</span>
-            <span :if={item.repository}>{item.repository}</span>
-            <span>{expiry(item.expires_at)}</span>
-            <span>{used(item)}</span>
-          </p>
-          <p :if={item.task} class="channel-entry-text">{item.task}</p>
-          <footer>
-            <a href={item.library_path}>Open in Standing rules →</a>
-            <a :if={item.source_url} href={item.source_url} rel="noopener noreferrer">
-              Original conversation →
-            </a>
-            <span>Confirmed {timestamp(item.confirmed_at)}</span>
-          </footer>
-        </article>
-      </.relation>
-      <.relation
-        id="preferences"
-        base={@base}
-        params={@view.params}
-        title="Preferences"
-        relation={@view.preferences}
-        one="preference"
-        many="preferences"
-        empty="No confirmed preferences apply here. Ryker is using its defaults."
-      >
-        <article
-          :for={item <- @view.preferences.items}
-          class="channel-entry"
-          id={"preference-" <> item.ref}
-        >
-          <header>
-            <h3>{label(item.key || "Preference")}</h3>
-            <span class="channel-scope">{scope(item)}</span>
-          </header>
-          <p class="channel-entry-text">{label(item.value || "Not recorded")}</p>
-          <p class="channel-entry-meta">
-            <span>{expiry(item.expires_at)}</span>
-            <span>{used(item)}</span>
-          </p>
-          <footer>
-            <a href={item.library_path}>Open in Preferences →</a>
-            <a :if={item.source_url} href={item.source_url} rel="noopener noreferrer">
-              Original conversation →
-            </a>
-            <span>Confirmed {timestamp(item.confirmed_at)}</span>
-          </footer>
-        </article>
-      </.relation>
-      <.relation
-        id="guidance"
-        base={@base}
-        params={@view.params}
-        title="Guidance"
-        relation={@view.guidance}
-        one="guidance entry"
-        many="guidance entries"
-        empty="No confirmed guidance is recalled here."
-      >
-        <article
-          :for={item <- @view.guidance.items}
-          class="channel-entry"
-          id={"guidance-" <> item.ref}
-        >
-          <header>
-            <h3>{item.title}</h3>
-            <span class="channel-scope">{scope(item)}</span>
-          </header>
-          <p class="channel-entry-meta">
-            <span>{visibility(item.visibility)}</span>
-            <span>{expiry(item.expires_at)}</span>
-            <span>{used(item)}</span>
-          </p>
-          <p :if={item.summary} class="channel-entry-text">{item.summary}</p>
-          <details
-            :if={item.text}
-            id={"guidance-" <> item.ref <> "-text"}
-            class="channel-facts-disclosure"
-          >
-            <summary>Full guidance</summary>
-            <p class="channel-entry-text">{item.text}</p>
-          </details>
-          <footer>
-            <a href={item.library_path}>Open in Guidance →</a>
-            <a :if={item.source_url} href={item.source_url} rel="noopener noreferrer">
-              Original conversation →
-            </a>
-            <span>Confirmed {timestamp(item.confirmed_at)}</span>
-          </footer>
-        </article>
-      </.relation>
-      <.relation
-        id="memory"
-        base={@base}
-        params={@view.params}
-        title="Operational memory"
-        relation={@view.memory}
-        one="memory"
-        many="memories"
-        empty="No confirmed operational memory applies here."
-      >
-        <article :for={item <- @view.memory.items} class="channel-entry" id={"memory-" <> item.ref}>
-          <header>
-            <h3>{item.subject}</h3>
-            <span class="channel-scope">{scope(item)}</span>
-          </header>
-          <p class="channel-entry-text">{item.value || "Not recorded"}</p>
-          <p class="channel-entry-meta">
-            <span>{label(item.kind)}</span>
-            <span>{visibility(item.visibility)}</span>
-            <span :if={item.applicability}>{item.applicability}</span>
-            <span>{expiry(item.expires_at)}</span>
-            <span>{recalled(item)}</span>
-          </p>
-          <footer>
-            <a href={item.library_path}>Open in Memory →</a>
-            <a :if={item.source_url} href={item.source_url} rel="noopener noreferrer">
-              Original conversation →
-            </a>
-            <span>Confirmed {timestamp(item.confirmed_at)}</span>
-          </footer>
-        </article>
-      </.relation>
-      <section id="usage" class="channel-section">
-        <h2>Usage</h2>
-        <p class="channel-entry-meta">
-          <span>{window(@view.usage.window)}</span>
-          <span>{mode(@view.usage.mode)}</span>
-          <span>Per Coop turn, from the same ledger as Usage &amp; cost</span>
-        </p>
-        <p :if={@view.usage.executions == 0} class="empty-state">
-          No executions were recorded for this conversation in this window.
-        </p>
-        <dl :if={@view.usage.executions > 0} class="channel-facts">
-          <.fact label="Executions">{count(@view.usage.executions, "execution", "executions")}</.fact>
-          <.fact label="Tokens">
-            <%= if @view.usage.measured > 0 do %>
-              {number(@view.usage.input_tokens)} input · {number(@view.usage.cached_input_tokens)} cached input
-              · {number(@view.usage.output_tokens)} output · {number(@view.usage.reasoning_tokens)} reasoning
-            <% else %>
-              Not recorded
-            <% end %>
-            <span class="channel-coverage">
-              {@view.usage.measured} of {@view.usage.executions} reported tokens
-            </span>
-          </.fact>
-          <.fact label="Cost">
-            {if @view.usage.cost_usd, do: money(@view.usage.cost_usd), else: "Not recorded"}
-            <span class="channel-coverage">
-              {@view.usage.costed} of {@view.usage.executions} recorded a cost
-            </span>
-          </.fact>
-        </dl>
-        <p class="channel-links">
-          <a href={@view.usage.link}>Requests in this window →</a>
-          <a href={@view.usage.usage_path}>Usage &amp; cost →</a>
-        </p>
-      </section>
+      <.configuration view={@view} />
+      <.participation view={@view} />
+      <.schedules view={@view} base={@base} />
+      <.episodes view={@view} base={@base} />
+      <.summaries view={@view} base={@base} />
+      <.rollups view={@view} base={@base} />
+      <.knowledge view={@view} base={@base} />
+      <.learning view={@view} base={@base} />
+      <.rules view={@view} base={@base} />
+      <.preferences view={@view} base={@base} />
+      <.guidance view={@view} base={@base} />
+      <.memories view={@view} base={@base} />
+      <.usage view={@view} />
     </div>
+    """
+  end
+
+  attr(:view, :map, required: true)
+
+  defp configuration(assigns) do
+    ~H"""
+    <section id="configuration" class="channel-section">
+      <h2>Configuration</h2>
+      <dl class="channel-facts">
+        <.fact label="Workspace">
+          {SlackNames.name(@view.scope.workspace_ref, @view.scope.workspace_ref)}
+          <code>{@view.scope.workspace_ref}</code>
+          <code>{@view.scope.canonical_workspace_ref}</code>
+        </.fact>
+        <.fact label="Channel">
+          {SlackNames.name(@view.scope.workspace_ref, @view.scope.channel_ref)}
+          <code>{@view.scope.channel_ref}</code>
+          <code>{@view.scope.conversation_ref}</code>
+        </.fact>
+        <.fact label="Kind">{kind(@view.channel.kind)}</.fact>
+        <.fact label="Membership">{membership(@view.channel.membership)}</.fact>
+        <.fact label="Visibility">
+          {tri_state(@view.channel.membership, :private, "Private", "Public")}
+        </.fact>
+        <.fact label="Externally shared">
+          {tri_state(@view.channel.membership, :external_shared, "Yes", "No")}
+        </.fact>
+        <.fact label="Participation">
+          {configured(@view.channel.configuration, :participation, &label/1)}
+        </.fact>
+        <.fact label="Repository">{repository(@view.channel.repository)}</.fact>
+        <.fact label="Alert policy">
+          {configured(@view.channel.configuration, :alert_policy, &label/1)}
+        </.fact>
+        <.fact label="Additional users">
+          {configured_list(@view.channel.configuration, :invite_user_refs, &person(&1, @view.scope))}
+        </.fact>
+        <.fact label="User groups">
+          {configured_list(
+            @view.channel.configuration,
+            :invite_user_group_refs,
+            &Function.identity/1
+          )}
+        </.fact>
+        <.fact label="Configured by">
+          {configured(@view.channel.configuration, :actor_ref, &person(&1, @view.scope))}
+        </.fact>
+        <.fact label="Revision">
+          {configured(@view.channel.configuration, :revision, &Integer.to_string/1)}
+        </.fact>
+        <.fact label="Saved">
+          {configured(@view.channel.configuration, :saved_at, &timestamp/1)}
+        </.fact>
+        <%= if @view.channel.incident_room do %>
+          <.fact label="Incident room">
+            <a href={"/incident-rooms/" <> encode(@view.channel.incident_room.ref)}>
+              {@view.channel.incident_room.title}
+            </a>
+            · {label(@view.channel.incident_room.status)}
+          </.fact>
+          <.fact label="Room state">{label(@view.channel.incident_room.channel_state)}</.fact>
+          <.fact label="Requested as">
+            {if @view.channel.incident_room.private, do: "Private", else: "Public"}
+          </.fact>
+          <.fact :if={@view.channel.incident_room.episode_ref} label="Investigation">
+            <a href={"/timeline/" <> encode(@view.channel.incident_room.episode_ref)}>
+              {@view.channel.incident_room.episode_ref}
+            </a>
+          </.fact>
+        <% end %>
+      </dl>
+    </section>
+    """
+  end
+
+  attr(:view, :map, required: true)
+
+  defp participation(assigns) do
+    ~H"""
+    <section id="participation" class="channel-section">
+      <h2>Effective participation</h2>
+      <p :if={is_nil(@view.participation)} class="channel-unavailable">
+        The effective participation could not be resolved for this conversation.
+      </p>
+      <.table :if={@view.participation} rows={@view.participation}>
+        <:col :let={item} label="Setting">{label(item.setting)}</:col>
+        <:col :let={item} label="Value">{if item.value, do: "On", else: "Off"}</:col>
+        <:col :let={item} label="Decided by">{decided_by(item.scope)}</:col>
+        <:col :let={item} label="Revision">{item.revision || "—"}</:col>
+        <:col :let={item} label="Updated">{timestamp(item.updated_at)}</:col>
+      </.table>
+    </section>
+    """
+  end
+
+  attr(:view, :map, required: true)
+  attr(:base, :string, required: true)
+
+  defp schedules(assigns) do
+    ~H"""
+    <.relation
+      id="schedules"
+      base={@base}
+      params={@view.params}
+      title="Schedules"
+      relation={@view.schedules}
+      one="schedule"
+      many="schedules"
+      empty="No schedules target this channel."
+    >
+      <.table rows={@view.schedules.items}>
+        <:col :let={item} label="Schedule">
+          <a href={"/schedules/" <> encode(item.ref)}>{item.title}</a>
+        </:col>
+        <:col :let={item} label="Status"><.status lifecycle={item.status} /></:col>
+        <:col :let={item} label="Next run">{timestamp(item.next_occurrence_at)}</:col>
+      </.table>
+    </.relation>
+    """
+  end
+
+  attr(:view, :map, required: true)
+  attr(:base, :string, required: true)
+
+  defp episodes(assigns) do
+    ~H"""
+    <.relation
+      id="episodes"
+      base={@base}
+      params={@view.params}
+      title="Related episodes"
+      relation={@view.episodes}
+      one="episode"
+      many="episodes"
+      empty="No episodes were delivered to this channel."
+    >
+      <.table rows={@view.episodes.items}>
+        <:col :let={item} label="Episode">
+          <a href={"/timeline/" <> encode(item.ref)}>{item.title || item.ref}</a>
+          <code :if={item.title}>{item.ref}</code>
+        </:col>
+        <:col :let={item} label="State"><.status state={item.state} /></:col>
+        <:col :let={item} label="Mode">{label(item.execution_mode)}</:col>
+        <:col :let={item} label="Thread">{item.thread_ref || "Channel root"}</:col>
+        <:col :let={item} label="Updated">{timestamp(item.updated_at)}</:col>
+      </.table>
+    </.relation>
+    """
+  end
+
+  attr(:view, :map, required: true)
+  attr(:base, :string, required: true)
+
+  defp summaries(assigns) do
+    ~H"""
+    <.relation
+      id="summaries"
+      base={@base}
+      params={@view.params}
+      title="Conversation summaries"
+      relation={@view.summaries}
+      one="summary"
+      many="summaries"
+      empty="No conversation summaries are retained for this channel."
+    >
+      <:health>
+        <p
+          :if={@view.continuity.drafts > 0 or @view.continuity.handover_failures > 0}
+          class="channel-health"
+        >
+          <span :if={@view.continuity.drafts > 0}>
+            {count(@view.continuity.drafts, "summary draft", "summary drafts")} in flight
+          </span>
+          <a :if={@view.continuity.handover_failures > 0} href="/memory#handover-failures">
+            {count(@view.continuity.handover_failures, "handover", "handovers")} not saved →
+          </a>
+        </p>
+      </:health>
+      <article
+        :for={item <- @view.summaries.items}
+        class="channel-entry"
+        id={"summary-" <> item.ref}
+      >
+        <header>
+          <h3>{item.title}</h3>
+          <time datetime={DateTime.to_iso8601(item.updated_at)}>{timestamp(item.updated_at)}</time>
+        </header>
+        <p class="channel-entry-meta">
+          <span>{if item.thread_ref, do: "Thread " <> item.thread_ref, else: "Channel root"}</span>
+          <span :if={item.repository_ref}>{item.repository_ref}</span>
+          <span>{recalled(item)}</span>
+        </p>
+        <p :if={item.recall_warning} class="channel-unavailable">
+          Not used for recall · {if item.recall_warning == :missing_source_history,
+            do: "no complete source history was saved.",
+            else: "source history is invalid."} Kept for inspection.
+        </p>
+        <p :if={item.maintenance_error} class="channel-unavailable">
+          Handover maintenance: {item.maintenance_error}
+          <span :if={item.maintenance_retry_at}>
+            Next check {timestamp(item.maintenance_retry_at)}.
+          </span>
+        </p>
+        <p :if={item.text != ""} class="channel-entry-text">{item.text}</p>
+        <.facts
+          id={"summary-" <> item.ref <> "-facts"}
+          groups={item.groups}
+          label="Decisions, open work and questions"
+        />
+        <footer>
+          <a :if={item.request_path} href={item.request_path}>Source request →</a>
+          <a :if={item.source} href={item.source} rel="noopener noreferrer">Source message →</a>
+          <span :if={item.expires_at}>Retained until {timestamp(item.expires_at)}</span>
+          <code>{item.ref}</code>
+        </footer>
+      </article>
+    </.relation>
+    """
+  end
+
+  attr(:view, :map, required: true)
+  attr(:base, :string, required: true)
+
+  defp rollups(assigns) do
+    ~H"""
+    <.relation
+      id="rollups"
+      base={@base}
+      params={@view.params}
+      title="Conversation rollups"
+      relation={@view.rollups}
+      one="rollup"
+      many="rollups"
+      empty="No compacted continuity is retained for this channel."
+    >
+      <article :for={item <- @view.rollups.items} class="channel-entry" id={"rollup-" <> item.ref}>
+        <header>
+          <h3>{item.title}</h3>
+          <time datetime={DateTime.to_iso8601(item.period_end)}>
+            {timestamp(item.period_start)} – {timestamp(item.period_end)}
+          </time>
+        </header>
+        <p class="channel-entry-meta">
+          <span>{count(item.source_count, "source", "sources")}</span>
+          <span :if={item.repository_ref}>{item.repository_ref}</span>
+          <span>{recalled(item)}</span>
+          <span>Expires {timestamp(item.expires_at)}</span>
+        </p>
+        <p :if={item.text != ""} class="channel-entry-text">{item.text}</p>
+        <.facts
+          id={"rollup-" <> item.ref <> "-facts"}
+          groups={item.groups}
+          label="Decisions, open work and questions"
+        />
+        <footer><code>{item.ref}</code></footer>
+      </article>
+    </.relation>
+    """
+  end
+
+  attr(:view, :map, required: true)
+  attr(:base, :string, required: true)
+
+  defp knowledge(assigns) do
+    ~H"""
+    <.relation
+      id="knowledge"
+      base={@base}
+      params={@view.params}
+      title="Learned knowledge"
+      relation={@view.knowledge}
+      one="topic"
+      many="topics"
+      empty="Nothing has been learned from this channel yet."
+    >
+      <article
+        :for={item <- @view.knowledge.items}
+        class="channel-entry"
+        id={"knowledge-" <> item.id}
+      >
+        <header>
+          <h3>{item.title}</h3>
+          <time datetime={DateTime.to_iso8601(item.updated_at)}>{timestamp(item.updated_at)}</time>
+        </header>
+        <p :if={!item.available} class="channel-unavailable">
+          Not used for recall · a supporting source changed, was removed, or expired.
+        </p>
+        <p :if={item.text != ""} class="channel-entry-text">{item.text}</p>
+        <footer>
+          <a href={item.path}>
+            Update history · {item.version} {if item.version == 1, do: "revision", else: "revisions"} →
+          </a>
+          <a :if={item.request_path} href={item.request_path}>Source request →</a>
+          <span :if={item.source_at}>Latest source {timestamp(item.source_at)}</span>
+          <span :if={item.expires_at}>Retained until {timestamp(item.expires_at)}</span>
+        </footer>
+      </article>
+    </.relation>
+    """
+  end
+
+  attr(:view, :map, required: true)
+  attr(:base, :string, required: true)
+
+  defp learning(assigns) do
+    ~H"""
+    <.relation
+      id="learning"
+      base={@base}
+      params={@view.params}
+      title="Learning"
+      relation={@view.learning}
+      one="batch"
+      many="batches"
+      empty="No learning batches have been formed from this channel."
+    >
+      <:health>
+        <p class="channel-health">
+          <span :if={!@view.learning.enabled}>Learning is disabled</span>
+          <span>{@view.learning.counts.queued} queued</span>
+          <span>{@view.learning.counts.running} learning</span>
+          <span>{@view.learning.counts.deferred} needs attention</span>
+          <span>{count(@view.learning.waiting_inputs, "message", "messages")} waiting</span>
+        </p>
+      </:health>
+      <ol class="channel-batches">
+        <li :for={batch <- @view.learning.items} id={"batch-" <> batch.id}>
+          <div>
+            <a href={batch.path}><strong>{batch.label}</strong></a>
+            · {count(batch.input_count, "message", "messages")} · {label(batch.mode)}
+            <span :if={batch.repository}> · {batch.repository}</span>
+          </div>
+          <p :if={batch.error} class={learning_note(batch)}>{batch.error}</p>
+          <p :if={batch.next_attempt_at}>Next check {timestamp(batch.next_attempt_at)}</p>
+          <time datetime={DateTime.to_iso8601(batch.at)}>{timestamp(batch.at)}</time>
+        </li>
+      </ol>
+    </.relation>
+    """
+  end
+
+  attr(:view, :map, required: true)
+  attr(:base, :string, required: true)
+
+  defp rules(assigns) do
+    ~H"""
+    <.relation
+      id="rules"
+      base={@base}
+      params={@view.params}
+      title="Standing rules"
+      relation={@view.rules}
+      one="rule"
+      many="rules"
+      empty="No standing rules target this channel."
+    >
+      <article :for={item <- @view.rules.items} class="channel-entry" id={"rule-" <> item.ref}>
+        <header>
+          <h3>{item.title}</h3>
+          <.status lifecycle={item.status} />
+        </header>
+        <p class="channel-entry-meta">
+          <span>When: {label(item.trigger || "Source event")}</span>
+          <span :if={item.source_filter}>From: {sender(item.source_filter)}</span>
+          <span :if={item.repository}>{item.repository}</span>
+          <span>{expiry(item.expires_at)}</span>
+          <span>{used(item)}</span>
+        </p>
+        <p :if={item.task} class="channel-entry-text">{item.task}</p>
+        <footer>
+          <a href={item.library_path}>Open in Standing rules →</a>
+          <a :if={item.source_url} href={item.source_url} rel="noopener noreferrer">
+            Original conversation →
+          </a>
+          <span>Confirmed {timestamp(item.confirmed_at)}</span>
+        </footer>
+      </article>
+    </.relation>
+    """
+  end
+
+  attr(:view, :map, required: true)
+  attr(:base, :string, required: true)
+
+  defp preferences(assigns) do
+    ~H"""
+    <.relation
+      id="preferences"
+      base={@base}
+      params={@view.params}
+      title="Preferences"
+      relation={@view.preferences}
+      one="preference"
+      many="preferences"
+      empty="No confirmed preferences apply here. Ryker is using its defaults."
+    >
+      <article
+        :for={item <- @view.preferences.items}
+        class="channel-entry"
+        id={"preference-" <> item.ref}
+      >
+        <header>
+          <h3>{label(item.key || "Preference")}</h3>
+          <span class="channel-scope">{scope(item)}</span>
+        </header>
+        <p class="channel-entry-text">{label(item.value || "Not recorded")}</p>
+        <p class="channel-entry-meta">
+          <span>{expiry(item.expires_at)}</span>
+          <span>{used(item)}</span>
+        </p>
+        <footer>
+          <a href={item.library_path}>Open in Preferences →</a>
+          <a :if={item.source_url} href={item.source_url} rel="noopener noreferrer">
+            Original conversation →
+          </a>
+          <span>Confirmed {timestamp(item.confirmed_at)}</span>
+        </footer>
+      </article>
+    </.relation>
+    """
+  end
+
+  attr(:view, :map, required: true)
+  attr(:base, :string, required: true)
+
+  defp guidance(assigns) do
+    ~H"""
+    <.relation
+      id="guidance"
+      base={@base}
+      params={@view.params}
+      title="Guidance"
+      relation={@view.guidance}
+      one="guidance entry"
+      many="guidance entries"
+      empty="No confirmed guidance is recalled here."
+    >
+      <article
+        :for={item <- @view.guidance.items}
+        class="channel-entry"
+        id={"guidance-" <> item.ref}
+      >
+        <header>
+          <h3>{item.title}</h3>
+          <span class="channel-scope">{scope(item)}</span>
+        </header>
+        <p class="channel-entry-meta">
+          <span>{visibility(item.visibility)}</span>
+          <span>{expiry(item.expires_at)}</span>
+          <span>{used(item)}</span>
+        </p>
+        <p :if={item.summary} class="channel-entry-text">{item.summary}</p>
+        <details
+          :if={item.text}
+          id={"guidance-" <> item.ref <> "-text"}
+          class="channel-facts-disclosure"
+        >
+          <summary>Full guidance</summary>
+          <p class="channel-entry-text">{item.text}</p>
+        </details>
+        <footer>
+          <a href={item.library_path}>Open in Guidance →</a>
+          <a :if={item.source_url} href={item.source_url} rel="noopener noreferrer">
+            Original conversation →
+          </a>
+          <span>Confirmed {timestamp(item.confirmed_at)}</span>
+        </footer>
+      </article>
+    </.relation>
+    """
+  end
+
+  attr(:view, :map, required: true)
+  attr(:base, :string, required: true)
+
+  defp memories(assigns) do
+    ~H"""
+    <.relation
+      id="memory"
+      base={@base}
+      params={@view.params}
+      title="Operational memory"
+      relation={@view.memory}
+      one="memory"
+      many="memories"
+      empty="No confirmed operational memory applies here."
+    >
+      <article :for={item <- @view.memory.items} class="channel-entry" id={"memory-" <> item.ref}>
+        <header>
+          <h3>{item.subject}</h3>
+          <span class="channel-scope">{scope(item)}</span>
+        </header>
+        <p class="channel-entry-text">{item.value || "Not recorded"}</p>
+        <p class="channel-entry-meta">
+          <span>{label(item.kind)}</span>
+          <span>{visibility(item.visibility)}</span>
+          <span :if={item.applicability}>{item.applicability}</span>
+          <span>{expiry(item.expires_at)}</span>
+          <span>{recalled(item)}</span>
+        </p>
+        <footer>
+          <a href={item.library_path}>Open in Memory →</a>
+          <a :if={item.source_url} href={item.source_url} rel="noopener noreferrer">
+            Original conversation →
+          </a>
+          <span>Confirmed {timestamp(item.confirmed_at)}</span>
+        </footer>
+      </article>
+    </.relation>
+    """
+  end
+
+  attr(:view, :map, required: true)
+
+  defp usage(assigns) do
+    ~H"""
+    <section id="usage" class="channel-section">
+      <h2>Usage</h2>
+      <p class="channel-entry-meta">
+        <span>{window(@view.usage.window)}</span>
+        <span>{mode(@view.usage.mode)}</span>
+        <span>Per Coop turn, from the same ledger as Usage &amp; cost</span>
+      </p>
+      <p :if={@view.usage.executions == 0} class="empty-state">
+        No executions were recorded for this conversation in this window.
+      </p>
+      <dl :if={@view.usage.executions > 0} class="channel-facts">
+        <.fact label="Executions">{count(@view.usage.executions, "execution", "executions")}</.fact>
+        <.fact label="Tokens">
+          <%= if @view.usage.measured > 0 do %>
+            {number(@view.usage.input_tokens)} input · {number(@view.usage.cached_input_tokens)} cached input
+            · {number(@view.usage.output_tokens)} output · {number(@view.usage.reasoning_tokens)} reasoning
+          <% else %>
+            Not recorded
+          <% end %>
+          <span class="channel-coverage">
+            {@view.usage.measured} of {@view.usage.executions} reported tokens
+          </span>
+        </.fact>
+        <.fact label="Cost">
+          {if @view.usage.cost_usd, do: money(@view.usage.cost_usd), else: "Not recorded"}
+          <span class="channel-coverage">
+            {@view.usage.costed} of {@view.usage.executions} recorded a cost
+          </span>
+        </.fact>
+      </dl>
+      <p class="channel-links">
+        <a href={@view.usage.link}>Requests in this window →</a>
+        <a href={@view.usage.usage_path}>Usage &amp; cost →</a>
+      </p>
+    </section>
     """
   end
 
