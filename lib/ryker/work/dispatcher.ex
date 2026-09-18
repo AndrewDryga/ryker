@@ -164,8 +164,8 @@ defmodule Ryker.Work.Dispatcher do
   defp retry_class({:work_generation_spent, _phase, _reason}), do: :transient
   defp retry_class({:work_cancellation_unresolved, _reason}), do: :transient
   defp retry_class({:coop_mutation_response_unresolved, _phase, _reason}), do: :transient
-  defp retry_class({:coop_timeout, _phase}), do: :transient
   defp retry_class({:coop_unavailable, _detail}), do: :transient
+  defp retry_class({:coop_worker_command_timeout, _command_id}), do: :transient
   defp retry_class({:coop_upgrade_required, :repository_freshness_v2}), do: :transient
   defp retry_class({:coop_transport_error, _detail}), do: :transient
   defp retry_class({:coop_error, 429, _code, _detail}), do: :transient
