@@ -28,6 +28,7 @@ defmodule Ryker.ControlPlane.Router do
   }
 
   alias Ryker.Learning.Operator, as: LearningOperator
+  alias Ryker.Observability
 
   @behaviour Plug
   @maximum_form_bytes 4_096
@@ -69,8 +70,11 @@ defmodule Ryker.ControlPlane.Router do
 
   defp route(%Plug.Conn{method: "GET", path_info: ["readyz"]} = conn, options) do
     case options.observability.ready.() do
-      {:ok, _readiness} -> text(conn, 200, "ready\n")
-      {:error, _reason} -> text(conn, 503, "not ready\n")
+      {:ok, _readiness} ->
+        text(conn, 200, "ready\n")
+
+      {:error, reason} ->
+        text(conn, 503, "not ready: " <> Enum.join(Observability.problems(reason), "; ") <> "\n")
     end
   end
 

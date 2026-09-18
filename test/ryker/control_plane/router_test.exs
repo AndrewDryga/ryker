@@ -1107,7 +1107,32 @@ defmodule Ryker.ControlPlane.RouterTest do
       |> then(&request_with_options(:get, "/readyz", nil, &1))
 
     assert unavailable.status == 503
-    assert unavailable.resp_body == "not ready\n"
+    assert unavailable.resp_body == "not ready: readiness check failed\n"
+
+    # From 2026-09-13 to 2026-09-18 production answered a bare "not ready"
+    # for four and a half days while its only Coop worker was gone; the words
+    # that said why were in the readiness map and never left the process. The
+    # body names the fixed reasons, never an identifier, a message or a term.
+    fleet_down =
+      options()
+      |> put_in([:observability, :ready], fn ->
+        {:error,
+         %{
+           fleet_issues: [:no_eligible_workers, :no_session_capacity],
+           missing_runtimes: [:slack],
+           settings: %{failure: nil, unconfigured: []},
+           stale_progress_lanes: [:retention],
+           stalled_active_leases: [],
+           stalled_queues: [:work]
+         }}
+      end)
+      |> then(&request_with_options(:get, "/readyz", nil, &1))
+
+    assert fleet_down.status == 503
+
+    assert fleet_down.resp_body ==
+             "not ready: runtime not running: slack; no_eligible_workers; no_session_capacity; " <>
+               "lane not cycling: retention; queue not draining: work\n"
 
     health_unavailable =
       options()

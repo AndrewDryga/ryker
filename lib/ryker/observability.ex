@@ -86,6 +86,33 @@ defmodule Ryker.Observability do
     end
   end
 
+  @doc """
+  The fixed reasons a failed readiness check reports, safe to print on `/readyz`.
+
+  Only reason codes and lane, queue or runtime names: never an identifier, a
+  message or an inspected term, so the endpoint stays payload-free while still
+  saying why a deployment is not ready.
+  """
+  @spec problems(map() | term()) :: [String.t()]
+  def problems(%{fleet_issues: _} = readiness) do
+    Enum.map(readiness.missing_runtimes, &"runtime not running: #{&1}") ++
+      Enum.map(readiness.fleet_issues, &to_string/1) ++
+      Enum.map(readiness.stale_progress_lanes, &"lane not cycling: #{&1}") ++
+      Enum.map(readiness.stalled_active_leases, &"lease held too long: #{&1}") ++
+      Enum.map(readiness.stalled_queues, &"queue not draining: #{&1}") ++
+      settings_problems(readiness.settings)
+  end
+
+  def problems(reason) when is_tuple(reason) and elem(reason, 0) == :database_unavailable,
+    do: ["database unavailable"]
+
+  def problems(_reason), do: ["readiness check failed"]
+
+  defp settings_problems(settings) do
+    failure = if settings.failure, do: ["settings not applied: #{settings.failure}"], else: []
+    failure ++ Enum.map(settings.unconfigured, &"not configured: #{&1}")
+  end
+
   @spec metrics() :: {:ok, binary()} | {:error, term()}
   def metrics do
     with {:ok, snapshot} <- snapshot(@default_stall_after_seconds) do
