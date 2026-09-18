@@ -8,7 +8,13 @@ defmodule Ryker.Evals.TestDatabaseIsolationTest do
     test "the canonical gate isolates its database and preserves exit #{@exit_status}" do
       # A draft migration had already been applied to ryker_test. The full
       # gate skipped the edited migration and failed hundreds of unrelated tests.
-      {commands, 0} = System.cmd("make", ["-s", "-n", "elixir-check"], cd: @repository)
+      # Read the recipe with a clean make environment: inside `make check` this
+      # child would otherwise inherit the parent's jobserver flags and warn.
+      {commands, 0} =
+        System.cmd("make", ["-s", "-n", "elixir-check"],
+          cd: @repository,
+          env: [{"MAKEFLAGS", nil}, {"MFLAGS", nil}, {"MAKELEVEL", nil}]
+        )
 
       command =
         commands

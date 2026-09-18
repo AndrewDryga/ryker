@@ -16,7 +16,7 @@ defmodule Ryker.Episodes.CorrectionsTest do
   alias Ryker.Ingress.Input
   alias Ryker.Repo
   alias Ryker.Slack.Input, as: SlackInput
-  alias Ryker.Work.{Session, Turn}
+  alias Ryker.Work.Session
 
   @now ~U[2026-09-11 12:00:00.000000Z]
 

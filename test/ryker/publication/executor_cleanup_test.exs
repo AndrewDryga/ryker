@@ -150,7 +150,11 @@ defmodule Ryker.Publication.ExecutorCleanupTest do
     {owner, owner_monitor} = spawn_monitor(operation)
 
     try do
-      assert_receive {:held_callback, callback}
+      # The executor claims, leases and calls out before the callback exists;
+      # under the full gate's parallel load that took longer than the default
+      # 100ms and failed make check on 2026-09-18. The bound is for liveness,
+      # not the invariant, which is what happens to the callback afterwards.
+      assert_receive {:held_callback, callback}, 5_000
       assert_callback_stops_with_owner(owner, owner_monitor, callback)
     after
       stop_process(owner, owner_monitor)
@@ -162,7 +166,7 @@ defmodule Ryker.Publication.ExecutorCleanupTest do
 
     try do
       Process.exit(owner, :kill)
-      assert_receive {:DOWN, ^owner_monitor, :process, ^owner, :killed}
+      assert_receive {:DOWN, ^owner_monitor, :process, ^owner, :killed}, 1_000
 
       assert_receive {:DOWN, ^callback_monitor, :process, ^callback, _reason},
                      1_000,
