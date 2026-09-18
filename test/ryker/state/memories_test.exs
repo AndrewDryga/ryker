@@ -337,10 +337,7 @@ defmodule Ryker.State.MemoriesTest do
     assert Reviews.list_reviews("", limit: 20) == []
     assert Reviews.list_reviews("slack:T123", :invalid) == []
     assert Memories.home_reviews("", "slack:user:U123") == %{items: [], total: 0}
-    assert Reviews.home_review_count("", "slack:user:U123") == 0
     assert Memories.pending_reviews(0) == []
-    assert Reviews.fetch_review("") == :error
-    assert Reviews.fetch_review("memory-review:missing") == :error
 
     assert Memories.fetch_home_review("", "slack:T123", "slack:user:U123") ==
              {:error, :memory_review_not_found}
@@ -684,7 +681,7 @@ defmodule Ryker.State.MemoriesTest do
              Memories.home_reviews("slack:T123", "slack:user:U123", limit: 5).items
 
     assert get_in(visible, ["entries", Access.at(0), "memory_ref"]) == workspace.memory.ref
-    assert Reviews.home_review_count("slack:T123", "slack:user:U123") == 1
+    assert Reviews.home_reviews("slack:T123", "slack:user:U123").total == 1
 
     assert {:ok, fetched} =
              Memories.fetch_home_review(
