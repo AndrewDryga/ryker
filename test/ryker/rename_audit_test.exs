@@ -55,9 +55,9 @@ defmodule Ryker.RenameAuditTest do
     {~r//, ~r{AndrewDryga/responder},
      "GitHub repository identity (badges, clone URLs, sigstore signer identity) until the repository is renamed"},
     # --- evidence and history named outside the immutable paths
-    {~r{^lib/ryker/episodes/replay\.ex$|^test/ryker/(admission|episodes)/replay_test\.exs$|^scripts/watchdog(_test)?\.sh$},
+    {~r{^lib/ryker/episodes/replay\.ex$|^test/ryker/(admission|episodes)/replay_test\.exs$},
      ~r/responder\.db/,
-     "Go-era SQLite state file: the recorded episode fixtures name it as their harvest provenance (source.database), and the watchdog reads it until its Elixir rewrite lands"},
+     "Go-era SQLite state file: the recorded episode fixtures name it as their harvest provenance (source.database)"},
     {~r{^docs/control-plane\.md$}, ~r/responder_(state|preferences)(?![A-Za-z0-9_])/,
      "Go-era SQLite tables named as the data source of the retained design notes"},
     {~r{^test/ryker/control_plane/subscription_presentation_test\.exs$}, ~r/responder_emisar/,

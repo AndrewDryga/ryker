@@ -230,6 +230,36 @@ episode, and Work lifecycle state plus the bounded accepted `decision_reason`
 that says what the shadow model would have done; it never returns captured
 content or unreleased model output.
 
+
+## Watchdog
+
+`scripts/watchdog.sh` runs every minute as the launch agent
+`ai.emisar.ryker.watchdog` and asks each deployment it finds two questions over
+the loopback control plane: is `/readyz` answering 200, and has new work become
+blocked (`ryker_*_total{status="blocked"}` in `/metrics`)? Three consecutive
+bad readiness checks raise "Ryker NAME is not working" with the reasons the
+503 body names, repeated every 30 minutes while it lasts and followed by one
+"recovered" message. Newly blocked work alarms at once and again only when the
+count grows; open `/failures` to act on it. An unreachable control plane is
+itself the alarm, and a run that finds no deployment fails loudly.
+
+A deployment is a launch agent whose working directory (or the parent of its
+log directory) holds a `runtime.env` naming `RYKER_CONTROL_PORT`; the Coop
+worker and the watchdog itself are skipped by that fact. Install or reinstall
+it with
+
+```bash
+scripts/install-watchdog.sh --slack-channel U0BHTNFCW6S
+```
+
+which bootstraps the agent and refuses to report success unless launchd has it
+registered. With `--slack-channel` each alarm is also posted to that user or
+channel with the deployment's own `SLACK_BOT_TOKEN`, read from `runtime.env` at
+alarm time and never logged. It logs to `~/.local/state/ryker-watchdog/watchdog.log`
+and touches `heartbeat` there on every run, so a dead watchdog is visible as a
+stale heartbeat. `scripts/watchdog_test.sh` (part of `make check` on macOS)
+drives every alarm against a stand-in control plane.
+
 ## Set up code editing
 
 “Couldn’t start” with the workspace-checkpoint connection error means the host
