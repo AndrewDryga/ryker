@@ -153,6 +153,10 @@ defmodule Ryker.ControlPlane.FailurePage do
   def cause(%{summary: "coop_worker_command_timeout"}),
     do: "The worker did not take or finish this operation's command in time."
 
+  def cause(%{summary: "coop_session_replacement_required"}),
+    do:
+      "The worker that held this session can no longer take it back: it is gone, full, or no longer offers the session's exact policy."
+
   def cause(%{diagnosis: %{http_status: status}}) when status >= 500,
     do: "Coop returned a server error before Ryker could confirm the operation."
 
@@ -185,6 +189,10 @@ defmodule Ryker.ControlPlane.FailurePage do
   defp next_step(%{diagnosis: %{code: code}})
        when code in ~w(invalid_session_state session_not_found),
        do: "Check this session in Coop and resolve its state or availability before retrying."
+
+  defp next_step(%{summary: "coop_session_replacement_required"}),
+    do:
+      "Bring that worker back with the session's policy and free capacity, then retry. Retrying before that stops here again."
 
   defp next_step(%{kind: "retention"}),
     do:
