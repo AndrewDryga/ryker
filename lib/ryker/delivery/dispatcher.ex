@@ -14,6 +14,7 @@ defmodule Ryker.Delivery.Dispatcher do
   alias Ryker.Work.Custody
 
   @maximum_error_detail_bytes 4_096
+  @options ~w(adapters kind lease_seconds max_attempts retry_base_seconds retry_max_seconds worker_ref)a
 
   @type result ::
           {:ok,
@@ -340,8 +341,8 @@ defmodule Ryker.Delivery.Dispatcher do
     end
   end
 
-  defp delivery_error(reason, defer_reason),
-    do: {:error, {:delivery_dispatch_failed, reason, defer_reason}}
+  defp delivery_error(reason, custody_reason),
+    do: {:error, {:delivery_dispatch_failed, reason, custody_reason}}
 
   defp retryable_error?({:delivery_credentials_unavailable, _reason}), do: true
   defp retryable_error?({:delivery_publisher_crashed, _kind, _reason}), do: true
@@ -418,36 +419,29 @@ defmodule Ryker.Delivery.Dispatcher do
   defp error_atom(atom) when is_atom(atom), do: atom
   defp error_atom(_reason), do: :delivery_failed
 
-  defp settings(options) when is_list(options) do
-    allowed = [
-      :adapters,
-      :kind,
-      :lease_seconds,
-      :max_attempts,
-      :retry_base_seconds,
-      :retry_max_seconds,
-      :worker_ref
-    ]
-
-    if Keyword.keyword?(options) and Enum.uniq(Keyword.keys(options)) == Keyword.keys(options) and
-         Keyword.keys(options) -- allowed == [] do
+  defp settings(options) do
+    with true <- Keyword.keyword?(options) and known_unique_keys?(options),
+         {:ok, adapters} <- Keyword.fetch(options, :adapters),
+         {:ok, kind} <- Keyword.fetch(options, :kind),
+         {:ok, worker_ref} <- Keyword.fetch(options, :worker_ref) do
       validate_settings(%{
-        adapters: Keyword.fetch!(options, :adapters),
-        kind: Keyword.fetch!(options, :kind),
+        adapters: adapters,
+        kind: kind,
         lease_seconds: Keyword.get(options, :lease_seconds, 60),
         max_attempts: Keyword.get(options, :max_attempts, 8),
         retry_base_seconds: Keyword.get(options, :retry_base_seconds, 1),
         retry_max_seconds: Keyword.get(options, :retry_max_seconds, 60),
-        worker_ref: Keyword.fetch!(options, :worker_ref)
+        worker_ref: worker_ref
       })
     else
-      {:error, {:invalid_delivery_dispatcher, :options}}
+      _invalid -> {:error, {:invalid_delivery_dispatcher, :options}}
     end
-  rescue
-    KeyError -> {:error, {:invalid_delivery_dispatcher, :options}}
   end
 
-  defp settings(_options), do: {:error, {:invalid_delivery_dispatcher, :options}}
+  defp known_unique_keys?(options) do
+    keys = Keyword.keys(options)
+    keys == Enum.uniq(keys) and keys -- @options == []
+  end
 
   defp validate_settings(settings) do
     with :ok <- setting(is_map(settings.adapters) and map_size(settings.adapters) > 0, :adapters),
