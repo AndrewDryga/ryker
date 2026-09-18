@@ -43,6 +43,13 @@ defmodule Ryker.Work.FailureCause do
             "Make a worker for this repository available again — enrolled, reporting and not draining — then retry this task."
         }
 
+      String.contains?(detail, "coop_worker_command_timeout") ->
+        %{
+          cause: "The worker did not take or finish one of this task's commands in time.",
+          next_step:
+            "Check that the worker is connected and polling, then retry this task. The command is saved, so the retry picks up the same one."
+        }
+
       String.contains?(detail, "work_remote_operation_in_flight") ->
         %{
           cause:

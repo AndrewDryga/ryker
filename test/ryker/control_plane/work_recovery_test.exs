@@ -340,6 +340,23 @@ defmodule Ryker.ControlPlane.WorkRecoveryTest do
     refute in_flight.cause =~ "work_remote_operation_in_flight"
   end
 
+  # Harvested from the turn blocked on 2026-09-18, when the only worker stopped
+  # polling for ninety seconds: its request page, its task card and the
+  # Failures list all told the operator no cause was recorded.
+  test "a worker that stopped taking a task's commands is named as the cause" do
+    stalled =
+      blocked(
+        ~S|coop_worker_command_timeout: {:coop_worker_command_timeout, "cd9cfbb8-da8c-4f42-82a8-4a78c007cc9b"}|
+      )
+
+    assert stalled.cause =~ "worker did not take"
+    assert stalled.explained
+    assert stalled.next_step =~ "polling"
+    refute stalled.cause =~ "does not establish a specific cause"
+    refute inspect(stalled) =~ "cd9cfbb8"
+    refute stalled.cause =~ "coop_worker_command_timeout"
+  end
+
   test "a refusal the host repeats is bounded, and one that names nothing stays generic" do
     flood =
       blocked(
@@ -352,6 +369,7 @@ defmodule Ryker.ControlPlane.WorkRecoveryTest do
 
     silent = blocked("work_execution_failed: {:work_execution_failed, :unknown}")
     assert silent.cause =~ "does not establish a specific cause"
+    refute silent.explained
     assert silent.next_step =~ "Inspect the saved response"
   end
 

@@ -156,6 +156,10 @@ defmodule Ryker.ControlPlane.FailurePage do
   def cause(%{diagnosis: %{http_status: 429}}),
     do: "Coop asked Ryker to slow down. Automatic retries have stopped."
 
+  # A blocked turn's recovery brief already reads its saved error through
+  # FailureCause; this list says the same thing rather than calling it unknown.
+  def cause(%{kind: "work", work_recovery: %{explained: true, cause: cause}}), do: cause
+
   def cause(_row),
     do:
       "The operation stopped before Ryker could confirm it had finished. No recognized error explanation is available in the saved record."
