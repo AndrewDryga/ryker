@@ -167,6 +167,22 @@ defmodule Ryker.Slack.RendererTest do
     end
   end
 
+  # The repository step checked that its choices were a list and never what
+  # was in it, so one malformed choice raised inside the renderer instead of
+  # refusing the setup card.
+  test "a setup step with a malformed repository choice is refused, not a crash" do
+    document =
+      setup_document(Ecto.UUID.generate())
+      |> put_in(["channel_setup", "step"], "repository")
+
+    for choices <- [[nil], ["ryker", 42], [" "]] do
+      malformed = put_in(document, ["channel_setup", "draft", "repository_options"], choices)
+      assert Renderer.render(malformed) == {:error, {:invalid_slack_render, :channel_setup}}
+    end
+
+    assert {:ok, _rendered} = Renderer.render(document)
+  end
+
   test "renders host-authorized typed mentions into native Slack controls" do
     authority = %{
       "broadcasts" => [],
