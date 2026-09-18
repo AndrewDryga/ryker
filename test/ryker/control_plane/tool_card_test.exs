@@ -6,7 +6,7 @@ defmodule Ryker.ControlPlane.ToolCardTest do
   test "a completed citation points to the saved observation instead of repeating it" do
     # The real HAProxy episode repeated a full paragraph in adjacent record and
     # tool cards, making one saved observation look like two separate findings.
-    fixture = File.read!("testdata/control-plane/oom-evidence-link.json") |> Jason.decode!()
+    fixture = File.read!("testdata/control_plane/oom-evidence-link.json") |> Jason.decode!()
     payload = hd(fixture["activities"])["payload"]
     anchor = "#event-record-" <> fixture["record"]["id"]
     completed = Map.put(step(payload), :saved_evidence, anchor)
@@ -36,7 +36,7 @@ defmodule Ryker.ControlPlane.ToolCardTest do
   test "recorded evidence and conversation tools explain the change without a metadata table" do
     # The OOM replay showed an MCP JSON blob, then an unexplained 'Evidence: Open'.
     events =
-      File.stream!("testdata/control-plane/oom-activity.jsonl") |> Enum.map(&Jason.decode!/1)
+      File.stream!("testdata/control_plane/oom-activity.jsonl") |> Enum.map(&Jason.decode!/1)
 
     for {tool, title, body} <- [
           {"cite_source", "Evidence recorded",
@@ -56,7 +56,7 @@ defmodule Ryker.ControlPlane.ToolCardTest do
 
   test "a started tool does not present proposed observations as recorded work" do
     event =
-      File.stream!("testdata/control-plane/oom-activity.jsonl")
+      File.stream!("testdata/control_plane/oom-activity.jsonl")
       |> Enum.map(&Jason.decode!/1)
       |> Enum.find(&(get_in(&1, ["payload", "input", "tool"]) == "cite_source"))
 

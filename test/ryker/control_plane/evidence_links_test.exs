@@ -6,7 +6,7 @@ defmodule Ryker.ControlPlane.EvidenceLinksTest do
   alias Ryker.Work.{ActivityEvent, Turn}
 
   setup do
-    fixture = File.read!("testdata/control-plane/oom-evidence-link.json") |> Jason.decode!()
+    fixture = File.read!("testdata/control_plane/oom-evidence-link.json") |> Jason.decode!()
     events = Enum.map(fixture["activities"], &load(ActivityEvent, &1))
     steps = Enum.map(events, &%{id: "activity-" <> &1.id, at: &1.occurred_at})
 
