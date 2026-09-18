@@ -8,7 +8,7 @@ defmodule Ryker.State.MemorySearchPage do
   def first(query, scope) do
     # Operator edits use the database clock. Comparing them with the host clock
     # intermittently hides an edit from a search immediately after confirmation.
-    %{rows: [[cutoff]]} = Repo.query!("SELECT clock_timestamp()")
+    cutoff = Repo.now!()
 
     %{
       query: String.trim(query),

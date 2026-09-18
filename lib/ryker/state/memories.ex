@@ -29,7 +29,8 @@ defmodule Ryker.State.Memories do
     MemorySourceLink,
     Record,
     RecordChangeset,
-    Response
+    Response,
+    Scope
   }
 
   alias Ryker.StateTools.Binding
@@ -57,7 +58,6 @@ defmodule Ryker.State.Memories do
         lock_review_maintenance!()
         confirm_locked(%{attributes | occurred_at: occurred_at, target: target})
       end)
-      |> transaction_result()
     end
   end
 
@@ -164,7 +164,7 @@ defmodule Ryker.State.Memories do
 
   defp insert_answer(record, response, entry, intent, value, confirmation_ref) do
     id = Ecto.UUID.generate()
-    now = database_now!()
+    now = Repo.now!()
     payload = %{"value" => value, "applicability" => intent["applicability"]}
 
     prepared = %{
@@ -247,7 +247,6 @@ defmodule Ryker.State.Memories do
         dismiss_orphan_reviews("system:memory-forget")
         entry
       end)
-      |> transaction_result()
     end
   end
 
@@ -261,7 +260,6 @@ defmodule Ryker.State.Memories do
         dismiss_orphan_reviews("system:memory-forget", workspace_ref)
         entry
       end)
-      |> transaction_result()
     end
   end
 
@@ -276,7 +274,6 @@ defmodule Ryker.State.Memories do
         lock_review_maintenance!()
         forget_home_locked(ref, actor_ref, workspace_ref)
       end)
-      |> transaction_result()
     end
   end
 
@@ -349,8 +346,7 @@ defmodule Ryker.State.Memories do
     recall(%{
       conversation_ref: episode.destination_conversation_ref,
       repository: repository,
-      workspace_ref:
-        workspace_ref(episode.destination_transport, episode.destination_conversation_ref)
+      workspace_ref: Scope.workspace_ref(episode)
     })
   end
 
@@ -366,7 +362,6 @@ defmodule Ryker.State.Memories do
         lock_review_maintenance!()
         refresh_reviews_locked(workspace_ref, stale_seconds)
       end)
-      |> transaction_result()
     end
   end
 
@@ -545,7 +540,6 @@ defmodule Ryker.State.Memories do
         lock_review_maintenance!()
         resolve_review_locked(review_ref, action, actor_ref, workspace_ref, replacement, :any)
       end)
-      |> transaction_result()
     end
   end
 
@@ -570,7 +564,6 @@ defmodule Ryker.State.Memories do
           {:home_actor, actor_ref}
         )
       end)
-      |> transaction_result()
     end
   end
 
@@ -678,7 +671,7 @@ defmodule Ryker.State.Memories do
   defp authorize_wide_offer(_record, _episode), do: :ok
 
   defp refresh_reviews_locked(workspace_ref, stale_seconds) do
-    now = database_now!()
+    now = Repo.now!()
     stale_before = DateTime.add(now, -stale_seconds, :second)
 
     memory_entries =
@@ -871,7 +864,7 @@ defmodule Ryker.State.Memories do
                |> MemoryReviewItemChangeset.resolve(%{
                  action: action,
                  replacement: review_audit_replacement(action, replacement),
-                 reviewed_at: database_now!(),
+                 reviewed_at: Repo.now!(),
                  reviewed_by_actor_ref: actor_ref,
                  status: review_status(action)
                })
@@ -949,7 +942,7 @@ defmodule Ryker.State.Memories do
 
   defp apply_review_action(_review, entries, action, _replacement, _actor_ref)
        when action in [:keep, :dismiss] do
-    now = database_now!()
+    now = Repo.now!()
     Enum.each(entries, &review_source!(&1, now))
     :ok
   end
@@ -967,7 +960,7 @@ defmodule Ryker.State.Memories do
          _actor_ref
        ) do
     [keep | duplicates] = Enum.sort_by(entries, &review_survivor_rank/1)
-    now = database_now!()
+    now = Repo.now!()
     review_source!(keep, now)
     Enum.each(duplicates, &redact_review_source!(&1, :superseded, "merged_payload_sha256"))
     :ok
@@ -989,7 +982,7 @@ defmodule Ryker.State.Memories do
     do: {:error, :memory_review_cannot_edit}
 
   defp dismiss_orphan_reviews(actor_ref, workspace_ref \\ nil) do
-    now = database_now!()
+    now = Repo.now!()
 
     query = from(review in MemoryReviewItem, where: review.status == :pending, lock: "FOR UPDATE")
 
@@ -1024,7 +1017,7 @@ defmodule Ryker.State.Memories do
 
   defp dismiss_superseded_reviews(review, entries, _action, actor_ref) do
     refs = MapSet.new(entries, &review_entry_ref/1)
-    now = database_now!()
+    now = Repo.now!()
 
     Repo.all(
       from(item in MemoryReviewItem,
@@ -1251,7 +1244,7 @@ defmodule Ryker.State.Memories do
       replacement["subject"],
       payload,
       fingerprint,
-      database_now!(),
+      Repo.now!(),
       actor_ref,
       review.ref
     )
@@ -1260,7 +1253,7 @@ defmodule Ryker.State.Memories do
   end
 
   defp edit_review_source(%{type: :guidance, record: behavior}, review, replacement, actor_ref) do
-    now = database_now!()
+    now = Repo.now!()
 
     payload =
       behavior.payload
@@ -1403,7 +1396,7 @@ defmodule Ryker.State.Memories do
   end
 
   defp prepare(payload, episode, attributes) do
-    workspace = workspace_ref(episode.destination_transport, episode.destination_conversation_ref)
+    workspace = Scope.workspace_ref(episode)
     scope_kind = String.to_existing_atom(payload["scope"])
 
     scope_ref =
@@ -1427,7 +1420,7 @@ defmodule Ryker.State.Memories do
   end
 
   defp capacity(prepared) do
-    now = database_now!()
+    now = Repo.now!()
 
     existing? = existing_memory?(prepared)
     total = active_memory_count(prepared.workspace_ref, now)
@@ -1535,7 +1528,7 @@ defmodule Ryker.State.Memories do
 
   defp insert_entry(record, episode, attributes, prepared) do
     id = Ecto.UUID.generate()
-    now = database_now!()
+    now = Repo.now!()
 
     prepared
     |> Map.merge(%{
@@ -1669,7 +1662,7 @@ defmodule Ryker.State.Memories do
   defp account_search_result(:done), do: :done
 
   defp visible_entries(context) do
-    now = database_now!()
+    now = Repo.now!()
 
     Repo.all(
       from(entry in MemoryEntry,
@@ -1683,7 +1676,7 @@ defmodule Ryker.State.Memories do
   end
 
   defp account_memory(entries) do
-    now = database_now!()
+    now = Repo.now!()
 
     unchanged =
       Enum.reduce(entries, dynamic(false), fn entry, condition ->
@@ -1833,22 +1826,6 @@ defmodule Ryker.State.Memories do
     end
   end
 
-  defp workspace_ref("slack", conversation_ref) do
-    case String.split(conversation_ref, ":", parts: 3) do
-      ["slack", workspace_ref, _channel_ref] -> "slack:#{workspace_ref}"
-      _invalid -> conversation_ref
-    end
-  end
-
-  defp workspace_ref("github", conversation_ref) do
-    case String.split(conversation_ref, ":", parts: 3) do
-      ["github", binding_ref, _rest] -> "github:#{binding_ref}"
-      _invalid -> conversation_ref
-    end
-  end
-
-  defp workspace_ref(_transport, conversation_ref), do: conversation_ref
-
   defp expires_at(confirmed_at, "7d"), do: DateTime.add(confirmed_at, 7, :day)
   defp expires_at(confirmed_at, "30d"), do: DateTime.add(confirmed_at, 30, :day)
   defp expires_at(confirmed_at, "90d"), do: DateTime.add(confirmed_at, 90, :day)
@@ -1909,12 +1886,4 @@ defmodule Ryker.State.Memories do
     is_binary(value) and String.valid?(value) and byte_size(value) in 1..1_024 and
       :binary.match(value, <<0>>) == :nomatch and String.trim(value) != ""
   end
-
-  defp database_now! do
-    {:ok, %{rows: [[%DateTime{} = now]]}} = Repo.query("SELECT clock_timestamp()")
-    now
-  end
-
-  defp transaction_result({:ok, result}), do: {:ok, result}
-  defp transaction_result({:error, reason}), do: {:error, reason}
 end

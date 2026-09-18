@@ -868,7 +868,7 @@ defmodule Ryker.State.Knowledge do
     id = if existing, do: existing.id, else: Ecto.UUID.generate()
     roots = LearningSources.expand(dependencies)
     reference = [LearningSources.knowledge_reference(id, generation, version)]
-    %{rows: [[now]]} = Repo.query!("SELECT clock_timestamp()")
+    now = Repo.now!()
 
     attrs =
       Map.merge(

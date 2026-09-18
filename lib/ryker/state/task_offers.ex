@@ -38,7 +38,6 @@ defmodule Ryker.State.TaskOffers do
       Repo.transaction(fn ->
         confirm_locked(%{attributes | occurred_at: occurred_at, policy: policy, target: target})
       end)
-      |> transaction_result()
     end
   end
 
@@ -308,7 +307,4 @@ defmodule Ryker.State.TaskOffers do
   end
 
   defp utc_datetime(_value), do: {:error, {:invalid_task_offer_confirmation, :occurred_at}}
-
-  defp transaction_result({:ok, result}), do: {:ok, result}
-  defp transaction_result({:error, reason}), do: {:error, reason}
 end

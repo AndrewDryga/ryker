@@ -111,7 +111,6 @@ defmodule Ryker.State.InputRequests do
       Repo.transaction(fn ->
         answer_locked(%{attributes | occurred_at: occurred_at, target: target})
       end)
-      |> transaction_result()
     end
   end
 
@@ -361,7 +360,4 @@ defmodule Ryker.State.InputRequests do
   end
 
   defp utc_datetime(_value), do: {:error, {:invalid_input_request_answer, :occurred_at}}
-
-  defp transaction_result({:ok, result}), do: {:ok, result}
-  defp transaction_result({:error, reason}), do: {:error, reason}
 end

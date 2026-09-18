@@ -30,7 +30,6 @@ defmodule Ryker.State.SlackPostOffers do
       Repo.transaction(fn ->
         confirm_locked(%{attributes | occurred_at: occurred_at, target: target})
       end)
-      |> transaction_result()
     end
   end
 
@@ -191,7 +190,4 @@ defmodule Ryker.State.SlackPostOffers do
        do: :ok,
        else: {:error, {:invalid_slack_post_confirmation, field}}
   end
-
-  defp transaction_result({:ok, result}), do: {:ok, result}
-  defp transaction_result({:error, reason}), do: {:error, reason}
 end

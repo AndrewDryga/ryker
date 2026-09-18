@@ -84,7 +84,6 @@ defmodule Ryker.Retention.Custody do
       Repo.transaction(fn ->
         claim_locked(worker_ref, lease_seconds, closed_session_grace_seconds, exclude)
       end)
-      |> transaction_result()
     end
   end
 
@@ -364,7 +363,7 @@ defmodule Ryker.Retention.Custody do
   def reconsider_reconnected_workers(error_codes, stale_seconds)
       when is_list(error_codes) and is_integer(stale_seconds) and stale_seconds > 0 do
     if Enum.all?(error_codes, &(bounded_text(&1, 128, :error_code) == :ok)) do
-      cutoff = DateTime.add(database_now!(), -stale_seconds, :second)
+      cutoff = DateTime.add(Repo.now!(), -stale_seconds, :second)
 
       reconnected =
         from(placement in Placement,
@@ -412,7 +411,7 @@ defmodule Ryker.Retention.Custody do
   end
 
   defp claim_locked(worker_ref, lease_seconds, grace_seconds, exclude) do
-    now = database_now!()
+    now = Repo.now!()
 
     case candidate(now, exclude) do
       nil ->
@@ -660,7 +659,7 @@ defmodule Ryker.Retention.Custody do
         Repo.rollback(:retention_plan_operation_missing)
 
       true ->
-        fingerprint = fingerprint(plan)
+        fingerprint = CanonicalJSON.digest(plan)
         workspace = plan["workspace"]
 
         {status, retained_reason} =
@@ -702,7 +701,7 @@ defmodule Ryker.Retention.Custody do
       cleanup_lease_ref: nil,
       cleanup_next_attempt_at: nil,
       cleanup_receipt: receipt,
-      cleanup_receipt_fingerprint: fingerprint(receipt),
+      cleanup_receipt_fingerprint: CanonicalJSON.digest(receipt),
       cleanup_status: :discarded,
       discarded_at: now,
       retained_reason: nil
@@ -819,7 +818,6 @@ defmodule Ryker.Retention.Custody do
       {session, now} = leased!(session_id, lease_ref, statuses)
       callback.(session, now)
     end)
-    |> transaction_result()
   end
 
   defp leased!(session_id, lease_ref, statuses) do
@@ -847,7 +845,7 @@ defmodule Ryker.Retention.Custody do
     session =
       Repo.one!(from(session in Session, where: session.id == ^session_id, lock: "FOR UPDATE"))
 
-    now = database_now!()
+    now = Repo.now!()
 
     if owner_finished?(owner) and session.cleanup_status in statuses and
          session.cleanup_lease_ref == lease_ref and
@@ -883,21 +881,6 @@ defmodule Ryker.Retention.Custody do
       {:error, changeset} -> Repo.rollback({:retention_persistence_failed, changeset})
     end
   end
-
-  defp fingerprint(document) do
-    document
-    |> CanonicalJSON.encode!()
-    |> then(fn bytes -> :crypto.hash(:sha256, bytes) end)
-    |> Base.encode16(case: :lower)
-  end
-
-  defp database_now! do
-    %{rows: [[%DateTime{} = now]]} = Repo.query!("SELECT clock_timestamp()")
-    now
-  end
-
-  defp transaction_result({:ok, value}), do: {:ok, value}
-  defp transaction_result({:error, reason}), do: {:error, reason}
 
   defp uuid(value, _field) when is_binary(value) do
     case Ecto.UUID.cast(value) do

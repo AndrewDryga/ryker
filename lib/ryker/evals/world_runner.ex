@@ -108,7 +108,7 @@ defmodule Ryker.Evals.WorldRunner do
         settings
       end
 
-    world_started_at = database_now!()
+    world_started_at = Repo.now!()
 
     with {:ok, adapters} <- eval_adapters(delivery_agent),
          :ok <- join_scenario_channels(inputs, world_started_at),
@@ -258,7 +258,7 @@ defmodule Ryker.Evals.WorldRunner do
   @doc false
   @spec terminalize_waiting_episodes() :: :ok | {:error, term()}
   def terminalize_waiting_episodes do
-    now = database_now!()
+    now = Repo.now!()
 
     Episode
     |> where([episode], episode.state in [:waiting_for_input, :waiting_for_event])
@@ -345,11 +345,6 @@ defmodule Ryker.Evals.WorldRunner do
     quoted = ~s("#{String.replace(table, "\"", "\"\"")}")
     %{rows: [[empty]]} = Repo.query!("SELECT NOT EXISTS (SELECT 1 FROM #{quoted} LIMIT 1)")
     empty
-  end
-
-  defp database_now! do
-    %{rows: [[%DateTime{} = now]]} = Repo.query!("SELECT clock_timestamp()")
-    now
   end
 
   defp input_events(%WorldCase{actors: actors} = scenario) do
@@ -542,7 +537,8 @@ defmodule Ryker.Evals.WorldRunner do
              DateTime.diff(source_occurred_at, clock_started_at, :microsecond),
              :microsecond
            ),
-         occurred_at <- max_datetime(rebased_at, DateTime.add(database_now!(), 1, :microsecond)),
+         occurred_at <-
+           max_datetime(rebased_at, DateTime.add(Repo.now!(), 1, :microsecond)),
          {:ok, destination} <- input_destination(event),
          {:ok, actor_kind} <- input_atom(profile["actor"]["kind"], :actor_kind),
          {:ok, event_kind} <- input_atom(profile["event_kind"], :event_kind),
@@ -652,7 +648,7 @@ defmodule Ryker.Evals.WorldRunner do
 
   defp admit_world_input(input, index, scenario, settings, expected_episode_id) do
     with {:ok, %{entry: entry}} <- Inbox.record(input),
-         now <- database_now!(),
+         now <- Repo.now!(),
          {:ok, %{entry: claimed, lease_ref: lease_ref}} <-
            Inbox.claim_next("#{settings.worker_ref}:admission:#{index}", now, 300),
          true <- claimed.id == entry.id or {:error, :crossed_world_input_claim},

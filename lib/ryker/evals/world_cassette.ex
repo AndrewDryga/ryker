@@ -40,7 +40,7 @@ defmodule Ryker.Evals.WorldCassette do
       when is_binary(tool) and is_map(arguments) do
     call = %{
       arguments: Evidence.sanitize(arguments),
-      arguments_sha256: sha256(CanonicalJSON.encode!(arguments)),
+      arguments_sha256: CanonicalJSON.digest(arguments),
       tool: tool
     }
 
@@ -65,7 +65,7 @@ defmodule Ryker.Evals.WorldCassette do
 
     call = %{
       arguments: Evidence.sanitize(arguments),
-      arguments_sha256: sha256(CanonicalJSON.encode!(arguments)),
+      arguments_sha256: CanonicalJSON.digest(arguments),
       outcome: :inert,
       result: %{"error" => "model_world_external_tool_disabled"},
       tool: tool
@@ -106,6 +106,4 @@ defmodule Ryker.Evals.WorldCassette do
 
   defp result({:ok, value}), do: Evidence.sanitize(value)
   defp result({:error, value}), do: Evidence.sanitize(%{"error" => value})
-
-  defp sha256(value), do: :crypto.hash(:sha256, value) |> Base.encode16(case: :lower)
 end

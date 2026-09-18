@@ -41,7 +41,6 @@ defmodule Ryker.State.EventSubscriptions do
   @spec reconcile() :: {:ok, non_neg_integer()} | {:error, term()}
   def reconcile do
     Repo.transaction(&reconcile_in_transaction/0)
-    |> transaction_result()
   end
 
   defp reconcile_in_transaction do
@@ -85,7 +84,7 @@ defmodule Ryker.State.EventSubscriptions do
         when field in [:deadline, :poll_after, :timer_deadline, :source_kind, :cursor] ->
           Repo.update_all(
             from(record in Record, where: record.id == ^record_id and record.status == :open),
-            set: [wait_error: Atom.to_string(field), updated_at: database_now!()]
+            set: [wait_error: Atom.to_string(field), updated_at: Repo.now!()]
           )
 
           count
@@ -117,7 +116,7 @@ defmodule Ryker.State.EventSubscriptions do
         )
       )
 
-    now = database_now!()
+    now = Repo.now!()
 
     Enum.each(stale, fn item ->
       Repo.update_all(
@@ -169,7 +168,7 @@ defmodule Ryker.State.EventSubscriptions do
       when is_binary(wait_ref) and
              resolution_kind in [:input, :poll_fallback, :timer, :deadline, :cancelled] do
     if Repo.in_transaction?() do
-      now = database_now!()
+      now = Repo.now!()
       {status, observation} = resolution(resolution_kind, wait_ref)
 
       query =
@@ -373,12 +372,4 @@ defmodule Ryker.State.EventSubscriptions do
 
   defp resolution(kind, wait_ref),
     do: {:resolved, %{"event_wait_ref" => wait_ref, "kind" => Atom.to_string(kind)}}
-
-  defp database_now! do
-    %{rows: [[%DateTime{} = now]]} = Repo.query!("SELECT clock_timestamp()")
-    now
-  end
-
-  defp transaction_result({:ok, value}), do: {:ok, value}
-  defp transaction_result({:error, reason}), do: {:error, reason}
 end

@@ -232,7 +232,7 @@ defmodule Ryker.Learning.Rebuilds do
       execution_mode = hd(entries).execution_mode
       ensure_idle!(topic, nil, execution_mode)
       scope = batch_scope(topic, execution_mode)
-      now = now!()
+      now = Repo.now!()
 
       batch =
         Repo.insert!(
@@ -294,7 +294,7 @@ defmodule Ryker.Learning.Rebuilds do
         next_attempt_at: nil,
         completed_at: nil,
         error_code: nil,
-        updated_at: now!()
+        updated_at: Repo.now!()
       )
       |> Repo.update!()
 
@@ -522,10 +522,5 @@ defmodule Ryker.Learning.Rebuilds do
   defp queue_lock! do
     unless Repo.in_transaction?(), do: raise(ArgumentError, "operator audit transaction required")
     Repo.query!("SELECT pg_advisory_xact_lock(hashtextextended('learning-queue', 0))")
-  end
-
-  defp now! do
-    %{rows: [[now]]} = Repo.query!("SELECT clock_timestamp()")
-    now
   end
 end
