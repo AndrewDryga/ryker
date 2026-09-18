@@ -37,7 +37,7 @@ defmodule Ryker.Delivery.Request do
   @spec new(map() | keyword()) :: {:ok, t()} | {:error, term()}
   def new(attributes) do
     with {:ok, attributes} <- normalize_attributes(attributes),
-         request <- struct!(__MODULE__, attributes),
+         request = struct!(__MODULE__, attributes),
          :ok <- validate(request) do
       {:ok, request}
     end
