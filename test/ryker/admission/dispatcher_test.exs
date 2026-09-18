@@ -121,6 +121,36 @@ defmodule Ryker.Admission.DispatcherTest do
     assert retried.result.entry.id == first.id
   end
 
+  test "a Coop turn still running when every decision window closes is waited on, never blocked" do
+    # On 2026-09-18 each admission turn spent two minutes starting before Codex
+    # answered in eight seconds. Every thirty-second decision window that closed
+    # on the live turn spent one of the input's eight attempts, so a Slack
+    # mention was blocked for an operator while Coop was still producing the
+    # answer. Coop's own turn timeout, not this budget, bounds a live turn.
+    entry = record_input!("Ev-live-turn-outlasts-attempts")
+    input_ref = Inbox.ref(entry)
+
+    # Each claim reads the turn about ten times before its window closes, so a
+    # turn that stays running for a hundred reads outlasts the attempt budget.
+    {:ok, fake} = FakeAPI.start_link([decision()], turn_wait_polls: 100)
+
+    {waits, [decided | _idle]} =
+      0..19
+      |> Enum.map(fn claim ->
+        at = DateTime.add(@now, claim * 61, :second)
+        Dispatcher.run_once(real_options(fake, at))
+      end)
+      |> Enum.split_while(&match?({:ok, {:deferred, _input_ref, _reason}}, &1))
+
+    assert length(waits) > 8
+    assert Enum.all?(waits, &match?({:ok, {:deferred, ^input_ref, {:coop_timeout, :turn}}}, &1))
+    assert {:ok, {:decided, execution}} = decided
+    assert execution.result.entry.id == entry.id
+    # Only the claim that decided counts; the waits spent nothing.
+    assert execution.result.entry.attempt_count == 1
+    assert FakeAPI.state(fake).submit_count == 1
+  end
+
   test "a persistently stale routing context eventually releases its conversation without calling a model" do
     entry = record_input!("Ev-admission-overflow")
     reason = {:admission_rejected, :context_stale}

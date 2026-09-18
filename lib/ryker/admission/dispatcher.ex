@@ -59,6 +59,13 @@ defmodule Ryker.Admission.Dispatcher do
         # the next occurrence for an explicit retry after operator repair.
         block(claim, input_ref, reason, :execution)
 
+      {:error, {:coop_timeout, _phase} = reason} ->
+        # Coop was still creating the session or running the turn when this
+        # claim's decision window closed, and the next claim reattaches to the
+        # same operation. Waiting is not failing: Coop's turn timeout ends a
+        # turn that never finishes, and readiness names an input left pending.
+        wait(claim, input_ref, reason, settings, settings.now.())
+
       {:error, reason} ->
         if claim.entry.attempt_count >= @maximum_attempts do
           # A pending predecessor prevents every later input in its conversation
@@ -103,6 +110,25 @@ defmodule Ryker.Admission.Dispatcher do
 
       {:error, defer_reason} ->
         {:error, {:admission_dispatch_failed, reported_reason, defer_reason}}
+    end
+  end
+
+  defp wait(claim, input_ref, reason, settings, now) do
+    {error_code, error_detail} = describe_error(reason)
+
+    case Inbox.wait(
+           input_ref,
+           claim.lease_ref,
+           now,
+           settings.retry_base_ms,
+           error_code,
+           error_detail
+         ) do
+      {:ok, _entry} ->
+        {:ok, {:deferred, input_ref, reason}}
+
+      {:error, wait_reason} ->
+        {:error, {:admission_dispatch_failed, reason, wait_reason}}
     end
   end
 
