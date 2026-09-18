@@ -255,6 +255,9 @@ defmodule Ryker.Retention.DispatcherTest do
       {:coop_mutation_response_unresolved, :plan, :lost_response},
       {:coop_transport_error, :closed},
       {:coop_worker_capacity_unavailable, "session-capacity"},
+      # On 2026-09-18 two learning cleanups were blocked for an operator after
+      # one attempt because the only worker stopped polling for ninety seconds.
+      {:coop_worker_command_timeout, "3b0c6f7e-8f1e-4d53-9c1f-2f4f0d7f9a11"},
       {:coop_error, 429, "rate_limited", "later"},
       {:coop_error, 503, "unavailable", "later"}
     ]
