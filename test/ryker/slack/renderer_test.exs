@@ -1164,6 +1164,36 @@ defmodule Ryker.Slack.RendererTest do
     assert Jason.encode!(rendered) =~ "*Evidence:* 2 sources"
   end
 
+  # The brief escaped each check and limit before cutting it to length, so a
+  # cut could land inside an entity: the person deciding whether to grant the
+  # task read a stray `&a…` where the limit had said `&`.
+  test "an offer's brief is cut to length before it is escaped" do
+    limit = String.duplicate("a", 197) <> "&" <> String.duplicate("x", 10)
+
+    offer = %{
+      "kind" => "task_offer",
+      "payload" => %{
+        "authority_limits" => [limit],
+        "instruction_ref" => "record:instruction:aa11",
+        "kind" => "engineering",
+        "prompt" => "Raise the memory limit.",
+        "repository" => "blitz-infra",
+        "repository_source" => nil,
+        "source_refs" => [],
+        "success_checks" => ["Traefik stays under its limit"],
+        "title" => "Prevent the next Traefik OOM"
+      },
+      "ref" => "record:task_offer:abc123",
+      "status" => "open"
+    }
+
+    assert {:ok, rendered} = Renderer.render(%{"message" => "Want me to?", "records" => [offer]})
+    [_message, summary, _actions] = rendered["blocks"]
+
+    assert summary["text"]["text"] =~
+             "*Will not:* #{String.duplicate("a", 197)}&amp;x…"
+  end
+
   test "renders an inert publication offer with a host-owned review control" do
     assert {:ok, rendered} =
              Renderer.render(%{
