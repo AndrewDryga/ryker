@@ -281,6 +281,27 @@ defmodule Ryker.ControlPlane.OperatorUsabilityTest do
     assert html =~ "No recognized error explanation"
   end
 
+  test "a stalled worker is named as the cause of any stopped operation" do
+    # Three learning cleanups stopped on 2026-09-18 when the only worker quit
+    # polling for ninety seconds, and each read "No recognized error
+    # explanation" here while the saved code said exactly what happened.
+    row = %{
+      kind: "retention",
+      ref: "ryker-learning:one",
+      action: :rearm,
+      attempt_count: 1,
+      execution_kind: :learning,
+      status: :blocked,
+      summary: "coop_worker_command_timeout",
+      updated_at: nil
+    }
+
+    html = [row] |> HTML.failures() |> IO.iodata_to_binary()
+
+    assert html =~ "The worker did not take or finish"
+    refute html =~ "No recognized error explanation"
+  end
+
   test "failure summary counts listed operations and distinct requests without nesting the cards" do
     # Two cleanup failures in one request were buried in a second large panel;
     # missing zero counts left it unclear whether other failure types were healthy.
