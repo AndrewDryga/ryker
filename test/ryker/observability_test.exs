@@ -307,6 +307,36 @@ defmodule Ryker.ObservabilityTest do
     assert readiness.stalled_queues == []
   end
 
+  test "a failed readiness names fixed reasons and nothing it read" do
+    # /readyz printed "not ready" alone for four and a half days of a missing
+    # worker; an operator (and the watchdog) could not tell a stopped fleet
+    # from an unapplied setting without attaching to the node.
+    readiness = %{
+      fleet_issues: [:no_eligible_workers],
+      missing_runtimes: [:github],
+      settings: %{failure: "settings_apply_failed", unconfigured: [:slack]},
+      stale_progress_lanes: [:learning],
+      stalled_active_leases: [:delivery],
+      stalled_queues: [:ingress]
+    }
+
+    assert Observability.problems(readiness) == [
+             "runtime not running: github",
+             "no_eligible_workers",
+             "lane not cycling: learning",
+             "lease held too long: delivery",
+             "queue not draining: ingress",
+             "settings not applied: settings_apply_failed",
+             "not configured: slack"
+           ]
+
+    assert Observability.problems({:database_unavailable, :error, "secret connection detail"}) ==
+             ["database unavailable"]
+
+    assert Observability.problems({:observability_query_failed, "row 42 said something"}) ==
+             ["readiness check failed"]
+  end
+
   test "a saved revision that could not be applied is not a ready service" do
     # Readiness that only looks at what assembled would call a failed apply
     # healthy, which is exactly how an operator ends up debugging the wrong
