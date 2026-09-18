@@ -1,25 +1,41 @@
 #!/bin/bash
-# Proves the watchdog fires, stays quiet, and recovers.
+# Proves the watchdog fires, stays quiet, recovers, and speaks where a person
+# will see it.
 #
 # A watchdog is the one piece of software whose failure mode is silence, and
 # silence is also what it looks like when everything is fine. The only way to
 # know it works is to break something on purpose and watch it complain.
 #
-# The stalled case reproduces 2026-08-13 exactly: runs sitting in pending, due
-# now, created twelve minutes ago, against a deployment whose HTTP endpoint
-# still answers.
+# The not-ready case reproduces 2026-09-13 to 2026-09-18: the deployment's
+# control plane answering 503 with its fleet gone, for days, while the previous
+# watchdog looked for a database file that no longer existed and said nothing.
 set -uo pipefail
+
+# The watchdog is a launchd agent and reads launch agents with plutil; it only
+# exists on macOS, so that is the only place its self-test means anything.
+if [[ $(uname -s) != Darwin ]]; then
+  echo "skip: the watchdog is a launchd agent; its self-test runs on macOS"
+  exit 0
+fi
 
 root=$(cd "$(dirname "$0")/.." && pwd)
 work=$(mktemp -d)
-trap 'rm -rf "$work"' EXIT
+server_pid=""
+cleanup() {
+  if [[ -n $server_pid ]]; then
+    kill "$server_pid" 2>/dev/null
+    wait "$server_pid" 2>/dev/null
+  fi
+  rm -rf "$work"
+}
+trap cleanup EXIT
 
 export WATCHDOG_AGENTS="$work/agents"
 export WATCHDOG_STATE="$work/state"
 export WATCHDOG_NO_NOTIFY=1
 export WATCHDOG_STRIKES=2
-export WATCHDOG_RENOTIFY_MINUTES=0
-mkdir -p "$WATCHDOG_AGENTS" "$work/deploy/.ryker/state"
+export WATCHDOG_RENOTIFY_MINUTES=30
+unset WATCHDOG_SLACK_CHANNEL WATCHDOG_SLACK_API
 
 failures=0
 check() {
@@ -44,380 +60,212 @@ refute() {
   fi
 }
 
-count_check() {
-  local what="$1" want="$2" needle="$3" actual="$4" got
-  got=$(printf '%s\n' "$actual" | grep -Fc -- "$needle") || true
-  if [[ $got -eq $want ]]; then
-    printf 'ok   %s\n' "$what"
-  else
-    printf 'FAIL %s\n     wanted %s of: %s\n     got %s\n' "$what" "$want" "$needle" "$got"
-    failures=$((failures + 1))
-  fi
-}
+# A stand-in control plane: /readyz and /metrics answer from files the cases
+# rewrite, and every POST — the Slack API — is recorded with its bearer token
+# and whether its body parsed as JSON.
+fake="$work/fake"
+mkdir -p "$fake"
+cat > "$work/server.py" <<'PY'
+import http.server, json, os, sys
 
-/usr/bin/plutil -create xml1 "$WATCHDOG_AGENTS/ai.emisar.ryker.probe.plist"
-/usr/bin/plutil -insert StandardErrorPath -string \
-  "$work/deploy/.ryker/state/ryker.stderr.log" \
-  "$WATCHDOG_AGENTS/ai.emisar.ryker.probe.plist"
-printf 'listen: 127.0.0.1:59999\n' > "$work/deploy/.ryker/ryker.yaml"
+base = sys.argv[1]
 
-db="$work/deploy/.ryker/state/responder.db"
-# seed <state> <created-minutes-ago> [failure_count] [next-attempt modifier].
-# The columns are the real ones — failure_count, started_at, completed_at —
-# because the watchdog now reads all three and a fabricated table that is
-# missing one reads as "database unreadable" rather than as the case under
-# test.
-seed() {
-  rm -f "$db"
-  /usr/bin/sqlite3 "$db" "
-    CREATE TABLE agent_runs (id TEXT, state TEXT, failure_count INTEGER NOT NULL DEFAULT 0,
-      created_at TEXT, next_attempt_at TEXT, started_at TEXT, completed_at TEXT,
-      last_error TEXT NOT NULL DEFAULT '');
-    INSERT INTO agent_runs (id, state, failure_count, created_at, next_attempt_at)
-    VALUES
-      ('run_stalled', '$1', ${3:-0}, strftime('%Y-%m-%dT%H:%M:%f', 'now', '-$2 minutes'),
-       strftime('%Y-%m-%dT%H:%M:%f', 'now', '${4:--1 minutes}'));"
-}
+def read(name, default=""):
+    try:
+        with open(os.path.join(base, name)) as handle:
+            return handle.read()
+    except FileNotFoundError:
+        return default
 
-# backoff pushes the seeded run into a retry backoff of the given length, which
-# is the single move that made the watchdog report recovery during the outage.
-backoff() {
-  /usr/bin/sqlite3 "$db" "
-    UPDATE agent_runs
-    SET next_attempt_at = strftime('%Y-%m-%dT%H:%M:%f', 'now', '+$1 seconds'),
-        failure_count = failure_count + 1;"
-}
+class Handler(http.server.BaseHTTPRequestHandler):
+    def respond(self, code, body):
+        data = body.encode()
+        self.send_response(code)
+        self.send_header("Content-Type", "text/plain")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
 
-# attempted marks the seeded run as one that has already reached running once
-# and come back to pending: the shape a deferral leaves behind.
-attempted() {
-  /usr/bin/sqlite3 "$db" "UPDATE agent_runs SET started_at = created_at;"
-}
-
-# rate_limited stamps the seeded run with the provider-throttle error the real
-# retry path records, so the classifier has the same evidence production gives it.
-rate_limited() {
-  /usr/bin/sqlite3 "$db" "UPDATE agent_runs SET last_error = 'provider rate limited the turn';"
-}
-
-# due_again brings the run back out of backoff at the age the log recorded, so
-# the replay walks the same minute counts the outage did.
-due_again() {
-  /usr/bin/sqlite3 "$db" "
-    UPDATE agent_runs
-    SET next_attempt_at = strftime('%Y-%m-%dT%H:%M:%f', 'now', '-1 minutes'),
-        created_at = strftime('%Y-%m-%dT%H:%M:%f', 'now', '-$1 minutes');"
-}
-
-run() { bash "$root/scripts/watchdog.sh" >/dev/null 2>&1; cat "$WATCHDOG_STATE/watchdog.log" 2>/dev/null; }
-
-# A queue that is moving says nothing, however loudly the endpoint is missing —
-# because a drained queue on an unreachable port is still checked, so this also
-# proves the two signals are independent.
-seed running 30
-bash "$root/scripts/watchdog.sh" >/dev/null 2>&1
-check "running work does not count as stalled" "not ready" "$(cat "$WATCHDOG_STATE/watchdog.log")"
-
-# Twelve minutes of due, unmoved work: the outage.
-rm -rf "$WATCHDOG_STATE"; seed pending 12
-first=$(run)
-check "first bad check is a strike, not an alarm" "strike 1/2" "$first"
-if [[ $first == *ALERT* ]]; then
-  printf 'FAIL alarmed on the first bad check\n'; failures=$((failures + 1))
-else
-  printf 'ok   silent on the first bad check\n'
-fi
-
-second=$(run)
-check "a persistent stall raises the alarm" "ALERT Ryker probe is not working" "$second"
-check "the alarm says what is wrong" "waited 12m and nothing has ever run" "$second"
-
-# Provider weather is named, not disguised as a host stall. On 2026-08-15 the
-# alarm said "178m without moving" for three hours of rate limiting — true,
-# useless, and indistinguishable from the wedges fixed the same evening.
-rm -rf "$WATCHDOG_STATE"; seed pending 12 3
-rate_limited
-run >/dev/null
-weather=$(run)
-check "a rate-limited stall names the weather" "waiting on provider rate limits" "$weather"
-check "the weather alarm blames the quota, not the host" "the host is healthy, the quota is not" "$weather"
-refute "the weather alarm does not read as an unexplained stall" "without moving" "$weather"
-
-# Recovery: the queue drains. The endpoint is still unreachable, so this also
-# proves an unreachable deployment is reported rather than passed over.
-seed running 30
-recovered=$(run)
-check "an unreachable endpoint is still reported" "not ready: unreachable" "$recovered"
-
-# With the port answering and the queue drained, it goes quiet and forgets.
-rm -rf "$WATCHDOG_STATE"; seed running 30
-printf 'listen: 127.0.0.1:0\n' > "$work/deploy/.ryker/ryker.yaml"
-/usr/bin/python3 -c "
-import http.server, threading, sys
-class H(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
-        self.send_response(200); self.send_header('Content-Type','application/json'); self.end_headers()
-        self.wfile.write(b'{\"ready\":true,\"reason\":\"ready\"}')
-    def log_message(self, *a): pass
-s = http.server.HTTPServer(('127.0.0.1', 0), H)
-open('$work/port', 'w').write(str(s.server_address[1]))
-threading.Thread(target=s.serve_forever, daemon=True).start()
-import time; time.sleep(12)
-" &
-server=$!
-sleep 1
-printf 'listen: 127.0.0.1:%s\n' "$(cat "$work/port")" > "$work/deploy/.ryker/ryker.yaml"
-healthy=$(run)
-kill $server 2>/dev/null; wait $server 2>/dev/null
-if [[ -z $healthy ]]; then
-  printf 'ok   a healthy deployment is entirely silent\n'
-else
-  printf 'FAIL a healthy deployment logged: %s\n' "$healthy"; failures=$((failures + 1))
-fi
+        if self.path == "/readyz":
+            self.respond(int(read("readyz.code", "200")), read("readyz.body", "ready\n"))
+        elif self.path == "/metrics":
+            self.respond(200, read("metrics"))
+        else:
+            self.respond(404, "not found\n")
 
-# The alarm also lands as a Slack DM to the deployment's operator, with the
-# deployment's own bot token — the toast alone let an 11-hour stall pass
-# unseen. Proven by watching the request arrive, not by trusting that it
-# would: the API base is pointed at a local server that records what it is
-# sent.
-rm -rf "$WATCHDOG_STATE"; seed pending 12
-printf 'listen: 127.0.0.1:59999\nslack:\n  operators:\n    - UWATCHOP1\n' \
-  > "$work/deploy/.ryker/ryker.yaml"
-printf 'SLACK_BOT_TOKEN=xoxb-watchdog-test-token\n' > "$work/deploy/.ryker/local.env"
-/usr/bin/python3 -c "
-import http.server, threading, time
-class H(http.server.BaseHTTPRequestHandler):
     def do_POST(self):
-        body = self.rfile.read(int(self.headers.get('Content-Length', 0)))
-        with open('$work/slack-posts', 'ab') as f:
-            f.write(self.path.encode() + b' ' + self.headers.get('Authorization','').encode() + b' ' + body + b'\n')
-        self.send_response(200); self.send_header('Content-Type','application/json'); self.end_headers()
-        self.wfile.write(b'{\"ok\":true}')
-    def log_message(self, *a): pass
-s = http.server.HTTPServer(('127.0.0.1', 0), H)
-open('$work/slack-port', 'w').write(str(s.server_address[1]))
-threading.Thread(target=s.serve_forever, daemon=True).start()
-time.sleep(12)
-" &
-slack_server=$!
-sleep 1
-slack_port=$(cat "$work/slack-port")
-export WATCHDOG_SLACK_API="http://127.0.0.1:$slack_port"
-run >/dev/null
-run >/dev/null
-kill $slack_server 2>/dev/null; wait $slack_server 2>/dev/null
-unset WATCHDOG_SLACK_API
-posts=$(cat "$work/slack-posts" 2>/dev/null)
-check "the alarm reaches Slack as a DM to the operator" "\"channel\":\"UWATCHOP1\"" "$posts"
-check "the DM says what is wrong" "is not working" "$posts"
-check "the DM authenticates with the deployment's token" "Bearer xoxb-watchdog-test-token" "$posts"
+        body = self.rfile.read(int(self.headers.get("Content-Length", "0"))).decode()
+        try:
+            json.loads(body)
+            parsed = "json"
+        except ValueError:
+            parsed = "INVALID-JSON"
+        with open(os.path.join(base, "slack-posts"), "a") as handle:
+            handle.write(f"{self.path} {self.headers.get('Authorization', '')} {parsed} {body}\n")
+        self.respond(200, '{"ok":true}')
 
-# A deployment without Slack credentials keeps the toast and says why, rather
-# than failing the check.
-rm -rf "$WATCHDOG_STATE"; rm -f "$work/deploy/.ryker/local.env"; seed pending 12
-run >/dev/null
-nodm=$(run)
-check "a deployment without credentials skips the DM and says so" "slack DM skipped" "$nodm"
+    def log_message(self, *args):
+        pass
+
+server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+with open(os.path.join(base, "port"), "w") as handle:
+    handle.write(str(server.server_address[1]))
+server.serve_forever()
+PY
+python3 "$work/server.py" "$fake" &
+server_pid=$!
+for _ in $(seq 1 50); do [[ -s $fake/port ]] && break; sleep 0.1; done
+port=$(cat "$fake/port")
+
+ready() { printf '200' > "$fake/readyz.code"; printf 'ready\n' > "$fake/readyz.body"; }
+not_ready() { printf '503' > "$fake/readyz.code"; printf 'not ready: %s\n' "$1" > "$fake/readyz.body"; }
+metrics() { printf '%s\n' "$@" > "$fake/metrics"; }
+
+# The deployment exactly as this host lays it out: the release's launch agent
+# names its state root as WorkingDirectory, and the root holds runtime.env.
+deploy="$work/deploy/emisar"
+mkdir -p "$WATCHDOG_AGENTS" "$deploy/log" "$deploy/coop-worker/log"
+cat > "$deploy/runtime.env" <<ENV
+RYKER_CONTROL_IP=0.0.0.0
+RYKER_CONTROL_PORT=$port
+export SLACK_BOT_TOKEN="xoxb-watchdog-test-token"
+ENV
+agent() {
+  local label="$1" key="$2" value="$3"
+  /usr/bin/plutil -create xml1 "$WATCHDOG_AGENTS/$label.plist"
+  /usr/bin/plutil -insert Label -string "$label" "$WATCHDOG_AGENTS/$label.plist"
+  /usr/bin/plutil -insert "$key" -string "$value" "$WATCHDOG_AGENTS/$label.plist"
+}
+agent ai.emisar.ryker WorkingDirectory "$deploy"
+/usr/bin/plutil -insert StandardErrorPath -string "$deploy/log/ryker.stderr.log" \
+  "$WATCHDOG_AGENTS/ai.emisar.ryker.plist"
+# Neighbours under the same prefix that are not deployments: the Coop worker,
+# the watchdog itself, and a staged copy left by an interrupted install.
+agent ai.emisar.ryker.emisar-coop-worker StandardErrorPath "$deploy/coop-worker/log/worker.stderr.log"
+agent ai.emisar.ryker.watchdog StandardErrorPath "$WATCHDOG_STATE/stderr.log"
+cp "$WATCHDOG_AGENTS/ai.emisar.ryker.plist" "$WATCHDOG_AGENTS/ai.emisar.ryker.plist.staged-abc123"
+
+# run prints only the log lines this run wrote, then its exit status.
+run() {
+  local before=0 status
+  [[ -f $WATCHDOG_STATE/watchdog.log ]] && before=$(wc -l < "$WATCHDOG_STATE/watchdog.log")
+  bash "$root/scripts/watchdog.sh"
+  status=$?
+  [[ -f $WATCHDOG_STATE/watchdog.log ]] && tail -n +"$((before + 1))" "$WATCHDOG_STATE/watchdog.log"
+  echo "exit=$status"
+}
+reset() { rm -rf "$WATCHDOG_STATE" "$fake/slack-posts"; }
 
 # ---------------------------------------------------------------------------
-# The 2026-08-13 flap: a retry backoff is the stall, not recovery from it.
-#
-# During the buildkit-corruption outage every failing run was pushed into a
-# 30s-128s retry backoff, and the stall query counted only runs due right now.
-# So each time the backoff swallowed the queue the watchdog logged "recovered —
-# Queue is moving again" and cleared the strike count. The real log shows a
-# 71-minute stall alerting at 21:00:34Z, "recovered" at 21:01:43Z, and the SAME
-# stall back at strike 1/3 with 73m at 21:03:01Z — cycling for two hours
-# (71m → 76m → 105m → 118m) while nothing moved. Both halves cost the operator:
-# the log lied about the deployment, and every false recovery re-armed the
-# three-strike delay so the alarm had to climb back from nothing.
-#
-# These run against a deployment whose /readyz answers ready, because that is
-# exactly what the outage looked like — Coop's control API kept answering while
-# no turn could run — which leaves the queue as the only signal in play.
-cat > "$work/ready-server.py" <<'PY'
-import http.server, sys
-port_file = sys.argv[1]
-class H(http.server.BaseHTTPRequestHandler):
-    def do_GET(self):
-        self.send_response(200)
-        self.send_header('Content-Type', 'application/json')
-        self.end_headers()
-        self.wfile.write(b'{"ready":true,"reason":"ready"}')
-    def log_message(self, *a): pass
-s = http.server.HTTPServer(('127.0.0.1', 0), H)
-with open(port_file, 'w') as f:
-    f.write(str(s.server_address[1]))
-s.serve_forever()
-PY
-/usr/bin/python3 "$work/ready-server.py" "$work/ready-port" &
-ready_server=$!
-for _ in 1 2 3 4 5 6 7 8 9 10; do
-  [[ -s $work/ready-port ]] && break
-  sleep 0.3
-done
-printf 'listen: 127.0.0.1:%s\n' "$(cat "$work/ready-port")" > "$work/deploy/.ryker/ryker.yaml"
+# A healthy deployment is silent, and the heartbeat proves the check ran.
+reset; ready; metrics 'ryker_queue_claimable{queue="work"} 0' 'ryker_work_total{status="settled"} 9'
+out="$(run)$(run)"
+refute "a healthy deployment raises nothing" "ALERT" "$out"
+check "a healthy deployment exits cleanly" "exit=0" "$out"
+check "the heartbeat records that the check ran" "T" "$(cat "$WATCHDOG_STATE/heartbeat" 2>/dev/null)"
+refute "the Coop worker, the watchdog and a staged copy are not deployments" "coop-worker" "$out"
 
-# Unrelated work is activity, not recovery of the stalled cohort. The live
-# false positives came from a daily review and Rivals messages moving while the
-# original provider-limited run remained pending.
-rm -rf "$WATCHDOG_STATE"; seed pending 12 3; attempted; rate_limited
+# ---------------------------------------------------------------------------
+# 2026-09-13 to 09-18: the fleet was gone and /readyz said so for days.
+reset; not_ready "no_eligible_workers; no_session_capacity"
+first=$(run)
+check "one bad check is a strike" "strike 1/2): not ready: no_eligible_workers; no_session_capacity" "$first"
+refute "one bad check is not an alarm" "ALERT" "$first"
+second=$(run)
+check "consecutive bad checks alarm with the host's own reasons" \
+  "ALERT Ryker emisar is not working — not ready: no_eligible_workers; no_session_capacity" "$second"
+third=$(run)
+refute "a standing outage does not alarm every minute" "ALERT" "$third"
+fourth=$(WATCHDOG_RENOTIFY_MINUTES=0 run)
+check "a standing outage is repeated once the renotify interval passes" "ALERT Ryker emisar is not working" "$fourth"
+
+ready
+recovered=$(run)
+check "the first ready check after an alarm says so" "ALERT Ryker emisar recovered" "$recovered"
+again=$(run)
+refute "recovery is announced once" "ALERT" "$again"
+
+# A deploy restarts the release and drops readiness for about a minute: one
+# bad check between good ones is neither an alarm nor a recovery.
+reset; ready; run >/dev/null
+not_ready "lane not cycling: work"; blip=$(run)
+ready; after=$(run)
+refute "a single bad check during a deploy stays quiet" "ALERT" "$blip$after"
+
+# ---------------------------------------------------------------------------
+# A control plane that does not answer is the alarm itself; the watchdog
+# needs nothing from the process it watches.
+reset
+printf 'RYKER_CONTROL_IP=127.0.0.1\nRYKER_CONTROL_PORT=%s\n' "$((port + 1))" > "$deploy/runtime.env.down"
+cp "$deploy/runtime.env" "$deploy/runtime.env.up"
+cp "$deploy/runtime.env.down" "$deploy/runtime.env"
+run >/dev/null
+down=$(run)
+check "an unreachable control plane alarms" \
+  "ALERT Ryker emisar is not working — control plane unreachable at http://127.0.0.1:$((port + 1))" "$down"
+cp "$deploy/runtime.env.up" "$deploy/runtime.env"
+
+# ---------------------------------------------------------------------------
+# Work whose retries are spent waits for a person on the Failures page. That
+# is a durable state, so it alarms when it appears and when it grows, not on
+# strikes and not every half hour; retention's own blocked gauge is a
+# workspace kept for review on purpose and never counts.
+reset; ready
+metrics 'ryker_work_total{status="blocked"} 1' 'ryker_retention_blocked 4' \
+  'ryker_retention_sessions{status="blocked"} 4'
+blocked=$(run)
+check "newly blocked work alarms at once" \
+  "ALERT Ryker emisar needs attention — 1 request is blocked and waiting for an operator: http://127.0.0.1:$port/failures" \
+  "$blocked"
+same=$(run)
+refute "the same blocked work is not repeated" "ALERT" "$same"
+metrics 'ryker_work_total{status="blocked"} 1' 'ryker_ingress_total{status="blocked"} 2' 'ryker_retention_blocked 4'
+grew=$(run)
+check "more blocked work alarms again with the new total" "3 requests are blocked" "$grew"
+metrics 'ryker_work_total{status="settled"} 3' 'ryker_retention_blocked 4'
+cleared=$(run)
+refute "resolved blocked work raises nothing" "ALERT" "$cleared"
+check "resolved blocked work is noted" "blocked requests fell from 3 to 0" "$cleared"
+metrics 'ryker_retention_blocked 4' 'ryker_retention_sessions{status="blocked"} 4'
+reset; retained=$(run)
+refute "a workspace kept for review is not blocked work" "needs attention" "$retained"
+
+# ---------------------------------------------------------------------------
+# The alarm reaches Slack as a DM sent with the deployment's own token, and a
+# reason carrying a quote still makes valid JSON.
+reset; metrics 'ryker_work_total{status="settled"} 1'
+not_ready 'settings not applied: "quoted"'
+export WATCHDOG_SLACK_CHANNEL=UWATCHOP1 WATCHDOG_SLACK_API="http://127.0.0.1:$port"
 run >/dev/null; run >/dev/null
-/usr/bin/sqlite3 "$db" "
-  INSERT INTO agent_runs (id, state, failure_count, created_at, next_attempt_at, started_at, completed_at)
-  VALUES ('run_unrelated', 'completed', 0,
-    strftime('%Y-%m-%dT%H:%M:%f', 'now', '-2 minutes'), '',
-    strftime('%Y-%m-%dT%H:%M:%f', 'now', '-2 minutes'),
-    strftime('%Y-%m-%dT%H:%M:%f', 'now'));"
-partial=$(run)
-check "unrelated activity names the provider-limited work still blocked" \
-  "Activity resumed, but 1 provider-limited run remains blocked" "$partial"
-refute "unrelated activity is not recovery of the stalled cohort" \
-  "ALERT Ryker probe recovered" "$partial"
+posts=$(cat "$fake/slack-posts" 2>/dev/null)
+check "the alarm is posted to chat.postMessage" "/chat.postMessage" "$posts"
+check "the DM goes to the configured operator" '"channel":"UWATCHOP1"' "$posts"
+check "the DM authenticates with the deployment's token" "Bearer xoxb-watchdog-test-token" "$posts"
+check "the DM says what is wrong" "is not working" "$posts"
+refute "a quote in the reason still makes valid JSON" "INVALID-JSON" "$posts"
 
-/usr/bin/sqlite3 "$db" "
-  UPDATE agent_runs SET state = 'completed', next_attempt_at = '',
-    completed_at = strftime('%Y-%m-%dT%H:%M:%f', 'now')
-  WHERE id = 'run_stalled';"
-cohort_recovered=$(run)
-check "the watchdog recovers when the stalled cohort moves" \
-  "ALERT Ryker probe recovered" "$cohort_recovered"
+# Without a token or a channel the alarm stays local and the log says why.
+reset
+grep -v SLACK_BOT_TOKEN "$deploy/runtime.env.up" > "$deploy/runtime.env"
+run >/dev/null; notoken=$(run)
+check "a deployment without a bot token skips the DM and says so" "no SLACK_BOT_TOKEN" "$notoken"
+cp "$deploy/runtime.env.up" "$deploy/runtime.env"
+unset WATCHDOG_SLACK_CHANNEL
+reset; run >/dev/null; nochannel=$(run)
+check "no configured channel skips the DM and says so" "WATCHDOG_SLACK_CHANNEL is not set" "$nochannel"
+unset WATCHDOG_SLACK_API
 
-# Failing work waiting out its backoff is the stall, not an exemption from it.
-rm -rf "$WATCHDOG_STATE"; seed pending 12 3 '+45 seconds'
-run >/dev/null
-backing_off=$(run)
-check "a failing run waiting out its backoff is stalled, not healthy" \
-  "waited 12m and nothing has ever run" "$backing_off"
+# ---------------------------------------------------------------------------
+# A watchdog with nothing to watch is itself a failure, not a quiet success.
+reset; ready
+empty="$work/empty-agents"; mkdir -p "$empty"
+nothing=$(WATCHDOG_AGENTS="$empty" run)
+check "nothing to watch alarms" "ALERT Ryker watchdog found nothing to watch" "$nothing"
+check "nothing to watch fails the run" "exit=1" "$nothing"
 
-# The provider rate-limiting a turn defers it back to pending with a later
-# next_attempt_at and spends no attempt, so failure_count stays 0 — a stall
-# query that asked only about failures would still have called this healthy.
-# Harvested from blitz on 2026-08-15, where a run had sat 139 minutes in
-# exactly this shape while the queue behind it went nowhere.
-rm -rf "$WATCHDOG_STATE"; seed pending 12 0 '+45 seconds'; attempted
-run >/dev/null
-deferred=$(run)
-check "a deferred run that spent no attempt is stalled too" \
-  "no run has started or finished in 12m" "$deferred"
-
-# A queue that is visibly working is not stalled, however old its slowest
-# member. At 2026-08-15T03:19Z the alarm said "queued 208m without moving"
-# eight minutes after a three-hour-starved run completed and three minutes
-# after a fresh run started: the 208m was the oldest run's age, and movement
-# was only ever consulted for recovery, never for firing.
-rm -rf "$WATCHDOG_STATE"; seed pending 20 4
-/usr/bin/sqlite3 "$db" "
-  INSERT INTO agent_runs (id, state, failure_count, created_at, next_attempt_at, started_at, completed_at)
-  VALUES ('run_flowing', 'completed', 0,
-    strftime('%Y-%m-%dT%H:%M:%f', 'now', '-9 minutes'), '',
-    strftime('%Y-%m-%dT%H:%M:%f', 'now', '-8 minutes'),
-    strftime('%Y-%m-%dT%H:%M:%f', 'now', '-2 minutes'));"
-run >/dev/null
-flowing=$(run)
-refute "an old run behind a moving queue is not an outage" "ALERT Ryker probe is not working" "$flowing"
-check "the waiting work is still logged, gated on movement" "but runs are moving" "$flowing"
-
-# A first attempt genuinely scheduled for the future is not a stall. Without
-# this the fix above would alarm on every debounced turn ever queued.
-rm -rf "$WATCHDOG_STATE"; seed pending 12 0 '+45 seconds'
-run >/dev/null
-not_yet_due=$(run)
-if [[ -z $not_yet_due ]]; then
-  printf 'ok   a first attempt scheduled for the future is not a stall\n'
-else
-  printf 'FAIL a first attempt scheduled for the future was reported: %s\n' "$not_yet_due"
-  failures=$((failures + 1))
+if [[ $failures -gt 0 ]]; then
+  echo "$failures watchdog check(s) failed"
+  exit 1
 fi
-
-# Recovery means something moved, not that the queue momentarily read empty.
-# The rows vanish here without any run starting or finishing, which is the one
-# shape the stall query alone cannot tell apart from a queue that drained.
-rm -rf "$WATCHDOG_STATE"; seed pending 12 1
-run >/dev/null
-alarmed=$(run)
-check "a due stall still alarms" "ALERT Ryker probe is not working" "$alarmed"
-/usr/bin/sqlite3 "$db" "DELETE FROM agent_runs;"
-dipped=$(run)
-refute "a due count that dips to zero without movement is not recovery" \
-  "ALERT Ryker probe recovered" "$dipped"
-held=$(cat "$WATCHDOG_STATE/probe.strikes" 2>/dev/null || echo 0)
-if [[ $held -ge 2 ]]; then
-  printf 'ok   an unmoved queue keeps its strikes instead of re-climbing\n'
-else
-  printf 'FAIL strikes were reset to %s without movement\n' "$held"
-  failures=$((failures + 1))
-fi
-
-# And when a run really does finish, recovery is announced.
-/usr/bin/sqlite3 "$db" "
-  INSERT INTO agent_runs (id, state, failure_count, created_at, next_attempt_at, started_at, completed_at)
-  VALUES ('run_stalled', 'completed', 1, strftime('%Y-%m-%dT%H:%M:%f', 'now', '-12 minutes'), '',
-          strftime('%Y-%m-%dT%H:%M:%f', 'now', '-2 minutes'), strftime('%Y-%m-%dT%H:%M:%f', 'now'));"
-moved=$(run)
-check "recovery is logged once a run has actually moved" \
-  "ALERT Ryker probe recovered" "$moved"
-
-# A hold must not outlive the thing it watched. When the queue has read clear
-# for a whole stall window with nothing left to move — rows pruned, work
-# cancelled out from under it — the watchdog forgets the stall instead of
-# holding a strike and logging a line every minute forever, and it does not
-# dress that up as recovery either. The clock is fabricated because the
-# alternative is a ten-minute test.
-rm -rf "$WATCHDOG_STATE"; seed pending 12 1
-run >/dev/null; run >/dev/null
-/usr/bin/sqlite3 "$db" "DELETE FROM agent_runs;"
-printf '%s %s\n' "$(($(date +%s) - 700))" "" > "$WATCHDOG_STATE/probe.stalled-at"
-expired=$(run)
-check "a hold that outlasts the stall window is dropped" \
-  "clearing strikes without calling it recovery" "$expired"
-refute "and dropping a hold is never announced as recovery" \
-  "ALERT Ryker probe recovered" "$expired"
-if [[ ! -f $WATCHDOG_STATE/probe.strikes ]]; then
-  printf 'ok   a dropped hold releases its strikes\n'
-else
-  printf 'FAIL a dropped hold kept its strikes\n'
-  failures=$((failures + 1))
-fi
-
-# The outage timeline itself, walked backoff phase by backoff phase at the ages
-# the log recorded: one alarm, and not one word of recovery until work moves.
-rm -rf "$WATCHDOG_STATE"
-export WATCHDOG_RENOTIFY_MINUTES=30
-seed pending 71 4                              # 21:00:34Z — 71m of failing work, due now
-run >/dev/null; run >/dev/null                 # the alarm
-backoff 30;    run >/dev/null                  # 21:01:43Z — "recovered" in the real log
-due_again 73;  run >/dev/null; run >/dev/null  # 21:03:01Z — strike 1/3 again, then alarm again
-backoff 64;    run >/dev/null
-due_again 76;  run >/dev/null; run >/dev/null
-backoff 128;   run >/dev/null
-due_again 105; run >/dev/null; run >/dev/null
-backoff 128
-replay=$(run)
-count_check "two hours of backoff flapping raises exactly one alarm" 1 \
-  "ALERT Ryker probe is not working" "$replay"
-count_check "and never once claims recovery while nothing moves" 0 \
-  "ALERT Ryker probe recovered" "$replay"
-/usr/bin/sqlite3 "$db" "
-  UPDATE agent_runs SET state = 'completed', next_attempt_at = '',
-    completed_at = strftime('%Y-%m-%dT%H:%M:%f', 'now');"
-resumed=$(run)
-count_check "recovery is announced when the queue moves again, once" 1 \
-  "ALERT Ryker probe recovered" "$resumed"
-export WATCHDOG_RENOTIFY_MINUTES=0
-kill $ready_server 2>/dev/null; wait $ready_server 2>/dev/null
-
-# Nothing to watch is itself a failure: a watchdog pointed at an empty
-# directory reports success forever, which is the most dangerous state it has.
-rm -rf "$WATCHDOG_STATE" "$WATCHDOG_AGENTS"; mkdir -p "$WATCHDOG_AGENTS"
-bash "$root/scripts/watchdog.sh" >/dev/null 2>&1
-status=$?
-check "watching nothing is reported" "found nothing to watch" "$(cat "$WATCHDOG_STATE/watchdog.log" 2>/dev/null)"
-if [[ $status -ne 0 ]]; then
-  printf 'ok   watching nothing exits non-zero\n'
-else
-  printf 'FAIL watching nothing exited 0\n'; failures=$((failures + 1))
-fi
-
-printf '\n%s\n' "$([[ $failures -eq 0 ]] && echo 'watchdog: all checks passed' || echo "watchdog: $failures check(s) failed")"
-exit $((failures > 0))
+echo "watchdog self-test passed"
