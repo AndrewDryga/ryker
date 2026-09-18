@@ -120,7 +120,7 @@ defmodule Ryker.Slack.Renderer.Blocks do
 
   # The same facts as notification text, where markup is noise.
   def fact_text(values) when is_list(values), do: Enum.map_join(values, ", ", &fact_text/1)
-  def fact_text(%{"ref" => ref}), do: ref
+  def fact_text(%{"ref" => ref}), do: escape(ref)
   def fact_text(%{"channel_ref" => channel_ref}), do: channel_mention(channel_ref)
   def fact_text({:markup, text}), do: text
   def fact_text(value), do: escape(value)

@@ -2365,6 +2365,75 @@ defmodule Ryker.Slack.RendererTest do
              {:error, {:invalid_slack_render, :task_card}}
   end
 
+  # Every card escaped its model-authored values in the blocks, but the task,
+  # incident, saved-entity and governed-review cards built their notification
+  # line from the same title, summary, question and reviewer text raw. That line
+  # is what Slack reads for the push notification, so a `<!channel>` a worker
+  # wrote into a title was one post away from paging the whole channel.
+  test "a card's notification text never turns its values into Slack markup" do
+    forged = "<!channel> & <https://example.invalid|urgent>"
+    inert = "&lt;!channel&gt; &amp; &lt;https://example.invalid|urgent&gt;"
+
+    task = %{
+      task_document("action_required")
+      | "action_needed" => forged,
+        "summary" => forged,
+        "title" => forged
+    }
+
+    room = %{
+      incident_document("waiting_for_input")
+      | "action_needed" => forged,
+        "summary" => forged,
+        "title" => forged
+    }
+
+    entity = %{paused_rule() | "instructions" => forged, "notice" => forged, "title" => forged}
+
+    review =
+      approval_status(
+        "success",
+        nil,
+        review(%{
+          "status" => "approved",
+          "required_approvals" => 1,
+          "approved_count" => 1,
+          "decisions" => [approve("<!here>")]
+        })
+      )
+
+    settings =
+      put_in(settings_document(), ["repositories"], [%{"ref" => "<!here>", "url" => nil}])
+      |> put_in(["default_repository"], nil)
+
+    documents = [
+      %{"task_card" => task},
+      %{"incident_room" => room},
+      %{"saved_entity" => entity},
+      %{"emisar_approval_status" => review},
+      %{
+        "channel_settings" => %{
+          "audience" => "thread",
+          "bot_user_ref" => "UBOT",
+          "configuration_ref" => nil,
+          "revision" => nil,
+          "settings" => %{settings | "configuration_ref" => nil, "revision" => nil}
+        }
+      }
+    ]
+
+    for document <- documents do
+      assert {:ok, %{"text" => text}} = Renderer.render(document)
+      refute text =~ "<!", "#{inspect(Map.keys(document))} notification: #{text}"
+      refute text =~ "<https://", "#{inspect(Map.keys(document))} notification: #{text}"
+    end
+
+    for document <- Enum.take(documents, 3) do
+      assert {:ok, %{"text" => text}} = Renderer.render(document)
+      assert text =~ inert
+    end
+  end
+
   test "renders every task and incident lifecycle label from host-owned state" do
     task_statuses =
       ~w(waiting_for_input waiting_for_event action_required stopping reviewing ready_to_publish completed cancelled)

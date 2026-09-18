@@ -134,10 +134,11 @@ defmodule Ryker.Slack.Renderer.EmisarReview do
   defp pending_review?(%{"status" => status}), do: status == "pending_approval"
 
   defp review_text(status, nil),
-    do: "Emisar review · #{status["action_id"]} · #{ApprovalStatus.label(status["status"])}"
+    do:
+      "Emisar review · #{escape(status["action_id"])} · #{ApprovalStatus.label(status["status"])}"
 
   defp review_text(status, %{summary: summary}),
-    do: "Emisar review · #{status["action_id"]} · #{summary}"
+    do: "Emisar review · #{escape(status["action_id"])} · #{escape(summary)}"
 
   # The first card of a governed review, before the monitor has polled anything.
   # It is the SAME card the authoritative status repaints, so the operator sees

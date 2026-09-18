@@ -32,7 +32,8 @@ defmodule Ryker.Slack.Renderer.SavedEntityCard do
         "#{heading(label)}: #{fact_text(value)}"
       end)
 
-    "#{entity["notice"]}: #{entity["title"]}\n#{entity["instructions"] || ""}\n#{facts}"
+    "#{escape(entity["notice"])}: #{escape(entity["title"])}\n" <>
+      "#{escape(entity["instructions"] || "")}\n#{facts}"
   end
 
   defp provenance(entity) do

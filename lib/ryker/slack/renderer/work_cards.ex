@@ -75,8 +75,8 @@ defmodule Ryker.Slack.Renderer.WorkCards do
         if session_generation, do: Integer.to_string(session_generation), else: "pending"
 
       text =
-        "Incident #{short}: #{title}. #{label}. #{summary}" <>
-          if(action_needed, do: " Action needed: #{action_needed}", else: "")
+        "Incident #{short}: #{escape(title)}. #{label}. #{escape(summary)}" <>
+          action_needed_text(action_needed)
 
       blocks =
         [
@@ -168,11 +168,9 @@ defmodule Ryker.Slack.Renderer.WorkCards do
       label = task_status_label(status)
 
       # Slack truncates a notification, so what survives is the front of this
-      # string. It used to open with eight characters of the task ref, which
-      # names the work to nobody; the title is how a person recognizes it.
+      # string: the title, which is how a person recognizes the work.
       text =
-        "#{title}: #{label}. #{summary}" <>
-          if(action_needed, do: " Action needed: #{action_needed}", else: "")
+        "#{escape(title)}: #{label}. #{escape(summary)}" <> action_needed_text(action_needed)
 
       blocks =
         ([section("*#{escape(title)}*")] ++
@@ -377,6 +375,11 @@ defmodule Ryker.Slack.Renderer.WorkCards do
 
   defp incident_action_block(nil), do: nil
   defp incident_action_block(value), do: section(":warning: *Action needed*\n#{escape(value)}")
+
+  # Slack reads the notification line as markup too, so it escapes the same
+  # values the blocks do.
+  defp action_needed_text(nil), do: ""
+  defp action_needed_text(value), do: " Action needed: #{escape(value)}"
 
   defp incident_signals(%{"firing" => firing, "total" => total} = signals)
        when map_size(signals) == 2 do
