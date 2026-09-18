@@ -5,6 +5,8 @@ defmodule Ryker.Slack.QuestionEndToEndTest do
 
   @moduletag isolation: "REPEATABLE READ"
 
+  import Ecto.Query
+
   alias Ryker.Admission.Dispatcher, as: AdmissionDispatcher
   alias Ryker.Delivery.{Adapters, Dispatcher}
   alias Ryker.Episodes
@@ -351,6 +353,36 @@ defmodule Ryker.Slack.QuestionEndToEndTest do
     assert duplicate.memory.id == remembered.memory.id
     assert duplicate.status == :duplicate
     assert Repo.aggregate(MemoryEntry, :count) == 1
+
+    # Twelve paid world-eval executions died after the model repeated this
+    # exact retained watch on the answer turn. A semantic retry must return the
+    # original watch: two open copies make subscription custody raise before
+    # the otherwise valid continuation can be accepted.
+    assert {:ok, repeated_watch} =
+             Tools.call(
+               "wait_for",
+               %{
+                 "deadline" => nil,
+                 "on_timeout" => nil,
+                 "trigger" => %{
+                   "type" => "source_event",
+                   "source_kind" => "slack",
+                   "match" => matcher,
+                   "poll_after" => nil
+                 },
+                 "verification" => "Read the exact run and report material changes."
+               },
+               options
+             )
+
+    assert repeated_watch["record_ref"] == watch.ref
+
+    assert Repo.aggregate(
+             from(record in Record,
+               where: record.episode_id == ^episode.id and record.kind == "event_wait"
+             ),
+             :count
+           ) == 1
 
     assert_recalled_in_new_channel!(remembered.memory, continuation_claim.session.id)
 

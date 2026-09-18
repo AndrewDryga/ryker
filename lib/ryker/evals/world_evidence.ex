@@ -3,8 +3,8 @@ defmodule Ryker.Evals.WorldEvidence do
   Builds the report a model-world run leaves behind: the retained state
   records and their history, per-turn runtime evidence with the rebased input
   clock and provenance, the deliveries the evaluation adapters settled, the
-  recorded source calls, and finally the judge's verdict or the execution
-  error that stopped the run.
+  recorded source and state calls, and finally the judge's verdict or the
+  execution error that stopped the run.
   """
 
   import Ecto.Query
@@ -13,7 +13,7 @@ defmodule Ryker.Evals.WorldEvidence do
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Repo
   alias Ryker.State.{Record, Records}
-  alias Ryker.Work.{Measurement, Turn}
+  alias Ryker.Work.{ActivityEvent, Measurement, Turn}
 
   @doc """
   The full report for a run, before any assertion or judgment settles its
@@ -31,7 +31,10 @@ defmodule Ryker.Evals.WorldEvidence do
       quality: %{status: :unrun},
       record_history: if(episode_id, do: record_history(episode_id), else: []),
       records: if(episode_id, do: Records.retained_records(episode_id), else: []),
-      runtime: runtime_evidence(scenario, executions, settings, skipped),
+      runtime:
+        scenario
+        |> runtime_evidence(executions, settings, skipped)
+        |> Map.put(:state_calls, if(episode_id, do: state_calls(episode_id), else: [])),
       scenario_id: scenario.id,
       source_calls: if(settings.cassette, do: WorldCassette.calls(settings.cassette), else: []),
       status: :unrun,
@@ -109,6 +112,38 @@ defmodule Ryker.Evals.WorldEvidence do
   def current_submission_input(%{turn: %{submission: %{"context" => context}}}) do
     context |> current_submission_inputs() |> List.last()
   end
+
+  @doc false
+  @spec state_calls(Ecto.UUID.t()) :: [map()]
+  def state_calls(episode_id) when is_binary(episode_id) do
+    Repo.all(
+      from(event in ActivityEvent,
+        where: event.episode_id == ^episode_id and event.kind == "tool.completed",
+        order_by: [
+          asc: event.occurred_at,
+          asc: event.session_id,
+          asc: event.sequence,
+          asc: event.id
+        ],
+        select: event.payload
+      )
+    )
+    |> Enum.flat_map(fn
+      %{"input" => %{"server" => "responder-state", "tool" => tool}} = payload
+      when is_binary(tool) and tool != "" ->
+        outcome =
+          if payload["status"] == "completed" and get_in(payload, ["output", "error"]) == nil,
+            do: "succeeded",
+            else: "failed"
+
+        [%{"outcome" => outcome, "tool" => tool}]
+
+      _other ->
+        []
+    end)
+  end
+
+  def state_calls(_episode_id), do: []
 
   defp execution_failure(report, reason) do
     report =

@@ -33,7 +33,7 @@ defmodule Ryker.Evals.WorldJudgeCase do
       "evidence" => evidence(scenario, report),
       "instructions" => [
         "Judge only the delivered human-language result against each rubric criterion.",
-        "Treat trusted source events, source calls, and durable records as the complete evidence boundary.",
+        "Treat trusted source events, source calls, state calls, and durable records as the complete evidence boundary.",
         "Input clocks separate historical source dates from simulated host receipt and wakeup times. Judge source chronology using original source dates; shifted receipt times do not date a deployment or establish present-day health.",
         "Do not override host safety or trajectory checks and do not reward unsupported claims.",
         "Return exactly one criterion result for every zero-based rubric index."
@@ -90,12 +90,16 @@ defmodule Ryker.Evals.WorldJudgeCase do
       "records" => sanitize(report[:records]),
       "input_clocks" => sanitize(input_clocks(report)),
       "source_events" => sanitize(scenario.events),
-      "source_calls" => sanitize(report[:source_calls])
+      "source_calls" => sanitize(report[:source_calls]),
+      "state_calls" => sanitize(state_calls(report))
     }
   end
 
   defp input_clocks(%{runtime: %{turns: turns}}), do: Enum.map(turns, & &1.input_clock)
   defp input_clocks(_report), do: []
+
+  defp state_calls(%{runtime: %{state_calls: calls}}), do: calls
+  defp state_calls(_report), do: []
 
   defp sanitize(value) do
     value
