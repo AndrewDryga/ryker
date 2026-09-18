@@ -59,14 +59,6 @@ defmodule Ryker.Delivery.PlatformActionCustody do
   def enqueue_confirmed_record_in_transaction(_record, _attributes),
     do: {:error, :platform_action_not_authorized}
 
-  @spec fetch(String.t()) :: {:ok, PlatformAction.t()} | {:error, :platform_action_not_found}
-  def fetch(action_ref) do
-    case Repo.get_by(PlatformAction, action_ref: action_ref) do
-      %PlatformAction{} = action -> {:ok, action}
-      nil -> {:error, :platform_action_not_found}
-    end
-  end
-
   @spec claim_next(String.t(), pos_integer()) :: {:ok, claim() | nil} | {:error, term()}
   def claim_next(worker_ref, lease_seconds) do
     with :ok <- reference(worker_ref, :worker_ref),

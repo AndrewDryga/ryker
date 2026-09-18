@@ -17,12 +17,7 @@ defmodule Ryker.ControlPlane.ConversationLabEndToEndTest do
     Publisher
   }
 
-  alias Ryker.Delivery.{
-    Adapters,
-    PlatformAction,
-    Reaction,
-    ReactionCustody
-  }
+  alias Ryker.Delivery.{Adapters, PlatformAction, Reaction}
 
   alias Ryker.Episodes.Episode
   alias Ryker.Ingress.WorkProfile
@@ -298,8 +293,8 @@ defmodule Ryker.ControlPlane.ConversationLabEndToEndTest do
     assert {:ok, {:delivered, :reaction, delivery_ref}} =
              Ryker.Delivery.Dispatcher.run_once(delivery_options("reaction", :reaction))
 
-    assert {:ok, %Reaction{status: :delivered}} =
-             ReactionCustody.fetch_by_input(admitted.result.entry.id)
+    assert %Reaction{status: :delivered} =
+             Repo.get_by!(Reaction, input_id: admitted.result.entry.id)
 
     assert {:ok, conversation} = Projection.lab_conversation(@conversation_id)
     assert [message] = Enum.filter(conversation.messages, &(&1.actor == :operator))
