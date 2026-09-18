@@ -38,7 +38,7 @@ if [[ $status -ne 0 ]] || [[ $output != *"live-acceptance-env-ok"* ]]; then
 fi
 
 set +e
-output=$(RYKER_ELIXIR_RELEASE="$work/missing-release" \
+output=$(RYKER_RUNTIME_ENV="$runtime_env" RYKER_ELIXIR_RELEASE="$work/missing-release" \
   "$root/scripts/elixir-live-acceptance.sh" C0BLU1GACKC 2>&1)
 status=$?
 set -e
@@ -50,7 +50,7 @@ if [[ $status -ne 1 ]] || [[ $output != *"installed Elixir release is unavailabl
 fi
 
 set +e
-output=$(RYKER_ELIXIR_RELEASE="$work/missing-release" \
+output=$(RYKER_RUNTIME_ENV="$runtime_env" RYKER_ELIXIR_RELEASE="$work/missing-release" \
   "$root/scripts/elixir-live-acceptance.sh" invalid/channel 2>&1)
 status=$?
 set -e
