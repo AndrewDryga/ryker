@@ -285,7 +285,7 @@ defmodule Ryker.State.Observations do
     end
   rescue
     error in Postgrex.Error ->
-      if error.postgres[:code] in [:serialization_failure, :deadlock_detected],
+      if Repo.conflict?(error),
         do: {:error, {:admission_rejected, :context_stale}},
         else: reraise(error, __STACKTRACE__)
   end
