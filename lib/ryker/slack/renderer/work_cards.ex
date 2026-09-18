@@ -64,6 +64,8 @@ defmodule Ryker.Slack.Renderer.WorkCards do
          :ok <- incident_goals(goals),
          :ok <- incident_generation(session_generation),
          :ok <- work_controls(controls),
+         # An incident card carries no recovery fingerprint to resume against.
+         :ok <- resume_reference(nil, controls),
          :ok <- positive_integer(ui_revision),
          :ok <- iso8601(opened_at),
          :ok <- iso8601(updated_at) do
@@ -88,7 +90,7 @@ defmodule Ryker.Slack.Renderer.WorkCards do
           incident_alert_block(alert),
           incident_goals_block(goals),
           incident_action_block(action_needed),
-          work_controls_block(room_ref, controls, :incident),
+          work_controls_block(room_ref, controls, :incident, nil),
           section(
             "Source: channel `#{escape(source["channel_ref"])}` · message `#{escape(source["message_ref"])}`#{incident_thread(source["thread_ref"])}\nOpened by: `#{escape(opened_by)}` · Incident: `#{escape(short)}`"
           ),
@@ -225,8 +227,6 @@ defmodule Ryker.Slack.Renderer.WorkCards do
   end
 
   defp resume_reference(_reference, _controls), do: {:error, :invalid_work_controls}
-
-  defp work_controls_block(work_ref, controls, kind, resume_ref \\ nil)
 
   defp work_controls_block(_work_ref, [], _kind, _resume_ref), do: nil
 

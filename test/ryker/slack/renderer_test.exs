@@ -928,6 +928,17 @@ defmodule Ryker.Slack.RendererTest do
              {:error, {:invalid_slack_render, :incident_room}}
   end
 
+  # A resume button is only as safe as the recovery fingerprint it carries, and
+  # an incident card has none. The incident document still accepted `resume`, so
+  # it rendered a Resume button with no value at all: a press the interaction
+  # layer refuses, on the card an operator is reading mid-incident.
+  test "an incident card refuses a resume control it has no fingerprint for" do
+    room = %{incident_document("action_required") | "controls" => ["resume", "close"]}
+
+    assert Renderer.render(%{"incident_room" => room}) ==
+             {:error, {:invalid_slack_render, :incident_room}}
+  end
+
   test "incident offers use operator confirmation and model text cannot create controls" do
     assert {:ok, plain} =
              Renderer.render(%{
