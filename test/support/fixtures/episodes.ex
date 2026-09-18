@@ -4,11 +4,34 @@ defmodule Ryker.Fixtures.Episodes do
 
   @occurred_at ~U[2026-08-27 12:00:00.000000Z]
 
+  @doc """
+  The conversation an episode lands in unless a test names one: one per test,
+  shared with the Tasks that test starts.
+
+  Every async suite that took the default once shared "C-alerts". Its
+  conversation lock, held for a whole sandboxed test, then serialized those
+  suites across the run and deadlocked whenever two tests took a second lock in
+  the other order.
+  """
+  def conversation_ref do
+    owner = List.last(Process.get(:"$callers", [])) || self()
+
+    suffix =
+      owner
+      |> :erlang.pid_to_list()
+      |> to_string()
+      |> String.trim_leading("<")
+      |> String.trim_trailing(">")
+      |> String.replace(".", "-")
+
+    "C-alerts-" <> suffix
+  end
+
   def admit_input(overrides \\ %{}) do
     defaults = %{
       actor_ref: "slack:user:U1",
       destination: %{
-        conversation_ref: "C-alerts",
+        conversation_ref: conversation_ref(),
         thread_ref: "1787832000.000100",
         transport: "slack"
       },
