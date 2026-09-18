@@ -35,20 +35,6 @@ defmodule Ryker.Delivery.ReactionCustody do
   def enqueue_in_transaction(%Entry{status: :decided}), do: {:ok, nil}
   def enqueue_in_transaction(_entry), do: {:error, {:invalid_delivery_reaction, :entry}}
 
-  @spec fetch_by_input(Ecto.UUID.t()) :: {:ok, Reaction.t()} | :error
-  def fetch_by_input(input_id) do
-    case uuid(input_id) do
-      {:ok, input_id} ->
-        case Repo.get_by(Reaction, input_id: input_id) do
-          %Reaction{} = reaction -> {:ok, reaction}
-          nil -> :error
-        end
-
-      :error ->
-        :error
-    end
-  end
-
   @spec claim_next(String.t(), pos_integer()) :: {:ok, claim() | nil} | {:error, term()}
   def claim_next(worker_ref, lease_seconds) do
     with :ok <- reference(worker_ref, :worker_ref),
@@ -347,8 +333,6 @@ defmodule Ryker.Delivery.ReactionCustody do
 
   defp unwrap_or_rollback({:error, changeset}, operation),
     do: Repo.rollback({:persistence_failed, operation, changeset.errors})
-
-  defp uuid(value), do: Ecto.UUID.cast(value)
 
   defp transaction_open do
     if Repo.in_transaction?(),
