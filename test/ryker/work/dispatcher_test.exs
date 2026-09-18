@@ -150,7 +150,11 @@ defmodule Ryker.Work.DispatcherTest do
       {:work_generation_spent, :turn_submit, {:coop_error, 409, "revision_conflict", "stale"}},
       {:work_cancellation_unresolved, :remote_still_running},
       {:coop_upgrade_required, :repository_freshness_v2},
-      {:coop_timeout, :turn},
+      # On 2026-09-18 the only worker stopped polling for ninety seconds while
+      # one slow command ran. A Work turn waiting on its next, durable and
+      # idempotent command was stopped and blocked for an operator, although
+      # retrying reconciles that same command once the worker polls again.
+      {:coop_worker_command_timeout, "3b0c6f7e-8f1e-4d53-9c1f-2f4f0d7f9a11"},
       {:coop_transport_error, :closed},
       {:coop_error, 429, "rate_limited", "try later"},
       {:coop_error, 503, "unavailable", "try later"}
@@ -204,10 +208,11 @@ defmodule Ryker.Work.DispatcherTest do
     end
 
     dispatcher_options =
-      options({:error, {:coop_timeout, :turn}})
+      options({:error, {:coop_unavailable, :simulated}})
       |> Keyword.update!(:executor_options, &Keyword.put(&1, :before_return, before_return))
 
-    assert {:error, {:work_dispatch_failed, {:coop_timeout, :turn}, :work_turn_not_found}} =
+    assert {:error,
+            {:work_dispatch_failed, {:coop_unavailable, :simulated}, :work_turn_not_found}} =
              Dispatcher.run_once(dispatcher_options)
   end
 

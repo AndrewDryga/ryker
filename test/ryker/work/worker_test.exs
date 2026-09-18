@@ -141,7 +141,7 @@ defmodule Ryker.Work.WorkerTest do
 
   defmodule DeferredExecutor do
     @moduledoc false
-    def run(_claim, _options), do: {:error, {:coop_timeout, :turn}}
+    def run(_claim, _options), do: {:error, {:coop_unavailable, :simulated}}
   end
 
   defmodule ConcurrentExecutor do
