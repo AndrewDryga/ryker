@@ -96,15 +96,6 @@ test("source selection starts empty and never stores message prose", () => {
   assert.deepEqual(saved.items, [item(1)])
 })
 
-test("a selection saved before the 2026-09-13 rename is adopted once under the current key", () => {
-  const store = storage()
-  store.values.set("responder:relearn-selection:v1", JSON.stringify({items: [item(1)], scope}))
-  const f = fixture([item(1)], store)
-  assert.deepEqual(f.values(), [item(1).value])
-  assert.equal(store.values.has("responder:relearn-selection:v1"), false)
-  assert.equal(store.values.has("ryker:relearn-selection:v1"), true)
-})
-
 test("explicit selections span source pages and searches without intercepting native POST", async () => {
   // The previous picker discarded the first page's decision when an operator
   // navigated to the correction. The actual reading-state hook is exercised.

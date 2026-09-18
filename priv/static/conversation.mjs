@@ -1,5 +1,3 @@
-import {transferLegacyDraft, adoptRetiredKey} from "./drafts.mjs"
-
 // Conversation page controls that live in the browser: the narrow-screen
 // directory drawer, the Examples fill-in, following the first send of an
 // index draft to the conversation it created, and the inline message editor.
@@ -103,14 +101,8 @@ export const createConversationControls = (root, options = {}) => {
   let saving = false
 
   const store = {
-    // Remove the carry-over after 2026-09-20: a key written before the
-    // 2026-09-13 rename is moved on first read; a tab open since before then
-    // has closed by that date.
     get(key) {
-      try {
-        if (key.startsWith("ryker:draft:")) transferLegacyDraft(key, storage()); else adoptRetiredKey(key, storage())
-        return storage().getItem(key)
-      } catch (_) { return null }
+      try { return storage().getItem(key) } catch (_) { return null }
     },
     set(key, value) { try { storage().setItem(key, value) } catch (_) { /* A storage failure loses nothing typed. */ } },
     remove(key) { try { storage().removeItem(key) } catch (_) {} }

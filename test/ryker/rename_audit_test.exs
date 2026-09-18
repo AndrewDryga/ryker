@@ -25,17 +25,15 @@ defmodule Ryker.RenameAuditTest do
     {~r{^CHANGELOG\.md$}, "append-only release history"},
     {~r{^lib/ryker/retained\.ex$},
      "the one module that names retained stored values (Work session external_ref prefix, system source ref, Slack action prefix); each constant carries its own reason"},
-    {~r{^test/ryker/rename_audit_test\.exs$}, "this allowlist"},
-    {~r{^scripts/rename-cutover(_test)?\.sh$},
-     "the one-time on-host cutover moves the old layout by name: labels, database, role, state root, runtime.env keys"}
+    {~r{^test/ryker/rename_audit_test\.exs$}, "this allowlist"}
   ]
 
-  # One document section that must name the pre-rename layout in full: the
-  # cutover runbook. It runs from its heading to the next heading of the same
-  # level; nothing outside it in that file is exempt.
+  # One document section that must name the remaining pre-rename names in
+  # full. It runs from its heading to the next heading of the same level;
+  # nothing outside it in that file is exempt.
   @immutable_sections [
-    {"docs/operations.md", "## One-time rename cutover on this macOS host",
-     "the runbook of the one-time host cutover names every old label, database, role, path and residual contract it moves or leaves"}
+    {"docs/operations.md", "## Names that still say responder",
+     "the operator's list of pre-rename names another party owns (repository, Slack app, co:op, webhook senders) and the stored values the code still recognises"}
   ]
 
   # Tokens allowed everywhere else. `path` narrows an entry to the files where
@@ -76,14 +74,7 @@ defmodule Ryker.RenameAuditTest do
     {~r{^test/ryker/slack/(gateway|interaction|interaction_feedback)_test\.exs$},
      ~r{responder_(confirm_memory|home_open|investigate_message)|"/responder"},
      "action, callback and command ids registered before the rename, answered by the explicit retired paths"},
-    {~r{^priv/static/drafts\.mjs$|^test/js/}, ~r/responder:/,
-     "retired sessionStorage prefix; unsent drafts under it are carried to the ryker: key once"},
-    # --- the cutover runbook and the deploy script name the old on-host layout they move
-    {~r{^scripts/deploy\.sh$|^docs/operations\.md$},
-     ~r{ai\.emisar\.responder|responder_emisar|responder-emisar-coop|\.local/(state|lib)/responder|responder-elixir|responder-coop|RESPONDER_[A-Z_]+|responder\.(std(out|err)\.log|env)|\bResponder\b},
-     "the one-time cutover from the pre-rename layout: old launchd labels, database and role, state root, install prefix, runtime.env keys, and the prose that names that layout"},
-    # --- prose that dates the rename, and the one manifest assertion about it
-    {~r//, ~r/Responder to Ryker/, "comments and tests that date the rename"},
+    # --- the one manifest assertion about the rename
     {~r{^docs/slack-app\.md$}, ~r{`/responder`},
      "the manifest update step names the command it replaces"},
     {~r{^test/ryker/slack/app_manifest_test\.exs$}, ~r/"responder"/,

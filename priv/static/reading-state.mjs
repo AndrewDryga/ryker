@@ -1,4 +1,4 @@
-import {draftKey as keyFor, transferLegacyDraft} from "./drafts.mjs"
+import {draftKey as keyFor} from "./drafts.mjs"
 import {createRelearnPicker} from "./relearn-selection.mjs"
 import {createConversationControls} from "./conversation.mjs"
 import {createComposer} from "./composer.mjs"
@@ -123,10 +123,6 @@ export function createReadingStateHook(environment = {}) {
         if (key && element !== doc.activeElement) {
           // A storage failure leaves whatever is already typed in place.
           try {
-            // Remove after 2026-09-20: carries a draft stored under a key the
-            // two renames of 2026-09-13 retired; a tab open since before then
-            // has closed by that date.
-            transferLegacyDraft(key, storage())
             const value = storage().getItem(key)
             if (value !== null) element.value = value
           } catch (_) {}
