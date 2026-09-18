@@ -363,7 +363,9 @@ One admission execution also has a host-owned elapsed budget, 30 seconds by defa
 and turn polling share that deadline as well as the existing poll-count bound. Crossing it releases the
 dispatcher back to durable Inbox retry/backoff rather than occupying the admission worker indefinitely;
 the frozen input, context, execution generation, and Coop operation keys remain available for exact
-reconciliation on the next attempt.
+reconciliation on the next attempt. Because Coop was still creating the session or running the turn,
+that release is a wait, not a failure: it does not count against the input's eight attempts. Coop's
+turn timeout ends a turn that never finishes, and readiness names an input left pending.
 
 After a decision, Coop has already parked and cleaned the provider runtime. Ryker also asks Coop to
 close the isolated admission session. Episode Work sessions are separately owned by the retention

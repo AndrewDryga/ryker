@@ -169,6 +169,19 @@ defmodule Ryker.Ingress.Inbox do
   end
 
   @doc """
+  Releases a claim whose Coop operation or turn was still running when the
+  claim's decision window closed.
+
+  The next claim reattaches to the same operation keys. Waiting is not failing,
+  so the claim is not counted against the input's retry attempts.
+  """
+  @spec wait(String.t(), String.t(), DateTime.t(), non_neg_integer(), String.t(), String.t()) ::
+          {:ok, Entry.t()} | {:error, term()}
+  def wait(input_ref, lease_ref, now, delay_ms, error_code, error_detail) do
+    defer(input_ref, lease_ref, now, delay_ms, error_code, error_detail, :wait)
+  end
+
+  @doc """
   Releases a claim after a confirmed terminal Coop result and advances its operation keys.
 
   Ambiguous transport failures must use `defer/6` so they reconcile the same keys.
@@ -365,6 +378,7 @@ defmodule Ryker.Ingress.Inbox do
 
         attributes =
           %{
+            attempt_count: spent_attempts(entry, generation),
             execution_generation: execution_generation,
             last_error_code: error_code,
             last_error_detail: error_detail,
@@ -394,8 +408,12 @@ defmodule Ryker.Ingress.Inbox do
   defp next_generations(entry, :validation),
     do: {entry.execution_generation, entry.validation_generation + 1}
 
-  defp next_generations(entry, :same),
+  defp next_generations(entry, generation) when generation in [:same, :wait],
     do: {entry.execution_generation, entry.validation_generation}
+
+  # The claim counted an attempt when it took the lease; a wait gives it back.
+  defp spent_attempts(entry, :wait), do: entry.attempt_count - 1
+  defp spent_attempts(entry, _generation), do: entry.attempt_count
 
   defp maybe_clear_context(attributes, :execution) do
     Map.merge(attributes, %{admission_context: nil, admission_context_fingerprint: nil})
