@@ -28,7 +28,7 @@ CI still runs the full gate independently on a clean runner.
 
 Before the first release:
 
-1. create `AndrewDryga/responder` and configure this checkout's `origin`;
+1. create `AndrewDryga/ryker` and configure this checkout's `origin`;
 2. enable GitHub private vulnerability reporting;
 3. protect `main`, require the CI `check` and `release-snapshot` jobs, require current branches,
    and block force pushes and branch deletion;

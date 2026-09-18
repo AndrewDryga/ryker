@@ -48,7 +48,7 @@ elif [[ -n $third && -n $fourth && -n $fifth && -n $sixth ]]; then
   cosign verify-blob "$checksums" \
     --bundle "$bundle" \
     --certificate-identity \
-    "https://github.com/AndrewDryga/responder/.github/workflows/release.yml@refs/tags/$tag" \
+    "https://github.com/AndrewDryga/ryker/.github/workflows/release.yml@refs/tags/$tag" \
     --certificate-oidc-issuer https://token.actions.githubusercontent.com >/dev/null
 
   archive_name=${archive##*/}
@@ -69,8 +69,8 @@ elif [[ -n $third && -n $fourth && -n $fifth && -n $sixth ]]; then
   }
 
   gh attestation verify "$archive" \
-    --repo AndrewDryga/responder \
-    --signer-workflow AndrewDryga/responder/.github/workflows/release.yml \
+    --repo AndrewDryga/ryker \
+    --signer-workflow AndrewDryga/ryker/.github/workflows/release.yml \
     --source-ref "refs/tags/$tag" >/dev/null
 else
   usage

@@ -109,12 +109,6 @@ cut over the same day: launchd `ai.emisar.ryker`, state root
 the old spelling because another party owns them; each changes only together
 with that party.
 
-- GitHub repository: `AndrewDryga/responder` until it is renamed to
-  `AndrewDryga/ryker`. Then update `origin`, the README badges, the site's clone
-  links and the sigstore signer identity in `scripts/install-elixir-release.sh`,
-  `scripts/check-release.sh`, `docs/releasing.md` and this file. The checkout
-  path `/Users/andrewdryga/Projects/os/responder` moves only together with the
-  companion entries that name it in the live `session-policies.yaml`.
 - Slack app: apply `deploy/slack-app-manifest.yaml` (app and bot `Ryker`,
   `/ryker`, shortcut `ryker_investigate_message`) and upload
   `deploy/slack-app-icon.png`, the Ryker avatar, under Basic Information.
@@ -640,7 +634,7 @@ archive=ryker_${version}_elixir_linux_amd64.tar.gz
 cosign verify-blob checksums.txt \
   --bundle checksums.txt.bundle \
   --certificate-identity \
-  "https://github.com/AndrewDryga/responder/.github/workflows/release.yml@refs/tags/$tag" \
+  "https://github.com/AndrewDryga/ryker/.github/workflows/release.yml@refs/tags/$tag" \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 
 for helper in install-elixir-release.sh check-elixir-release.sh activate-elixir-release.sh; do
@@ -649,8 +643,8 @@ for helper in install-elixir-release.sh check-elixir-release.sh activate-elixir-
 done
 
 gh attestation verify "$archive" \
-  --repo AndrewDryga/responder \
-  --signer-workflow AndrewDryga/responder/.github/workflows/release.yml \
+  --repo AndrewDryga/ryker \
+  --signer-workflow AndrewDryga/ryker/.github/workflows/release.yml \
   --source-ref "refs/tags/$tag"
 
 sudo ./install-elixir-release.sh \
