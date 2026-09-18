@@ -1,9 +1,9 @@
 defmodule Ryker.Learning.Runtime do
   @moduledoc "A small supervised learning pool, configured by the host rather than incoming messages."
   use Supervisor
-  alias Ryker.Reference
   alias Ryker.Coop.Client
   alias Ryker.Learning.Worker
+  alias Ryker.Reference
 
   @fields ~w(api client socket policy policy_digest worker_ref concurrency batch_size quiet_seconds
     maximum_delay_seconds poll_interval_ms receive_timeout_ms execution_timeout_seconds)a

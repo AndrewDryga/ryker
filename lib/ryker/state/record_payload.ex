@@ -1,9 +1,9 @@
 defmodule Ryker.State.RecordPayload do
   @moduledoc false
 
-  alias Ryker.Reference
   alias Ryker.CanonicalJSON
   alias Ryker.Emisar.ApprovalContract
+  alias Ryker.Reference
   alias Ryker.Slack.SourceRef
   alias Ryker.State.EventWaitTiming
   alias Ryker.State.InvestigationPayload

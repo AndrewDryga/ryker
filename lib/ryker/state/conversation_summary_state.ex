@@ -1,8 +1,8 @@
 defmodule Ryker.State.ConversationSummaryState do
   @moduledoc false
 
-  alias Ryker.Reference
   alias Ryker.CanonicalJSON
+  alias Ryker.Reference
 
   @fields ~w(active_topics decisions evidence_refs goal open_loops participants purpose situation topology unresolved_questions)
   @list_fields ~w(active_topics decisions evidence_refs open_loops participants topology unresolved_questions)

@@ -1,8 +1,8 @@
 defmodule Ryker.State.InvestigationPayload do
   @moduledoc false
 
-  alias Ryker.Reference
   alias Ryker.CanonicalJSON
+  alias Ryker.Reference
 
   @maximum_payload_bytes 32 * 1_024
   @reference ~r/\A[A-Za-z0-9_.:-]{1,256}\z/
