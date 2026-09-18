@@ -93,7 +93,7 @@ defmodule Ryker.Publication.GitCommand do
 
     extras =
       Enum.map(extra_env, fn {name, value} ->
-        {String.to_charlist(name), String.to_charlist(value)}
+        {Atom.to_charlist(name), String.to_charlist(value)}
       end)
 
     inherited ++ passthrough ++ fixed ++ extras
