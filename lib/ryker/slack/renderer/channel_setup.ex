@@ -11,6 +11,8 @@ defmodule Ryker.Slack.Renderer.ChannelSetup do
 
   @setup_statuses ~w(asking confirming saved cancelled expired)
   @setup_steps ~w(participation repository alerts audience confirm)
+  # Repository choices wrap into rows of this many buttons.
+  @repository_buttons_per_row 5
 
   @spec render(map()) :: {:ok, map()} | {:error, term()}
   def render(
@@ -174,10 +176,9 @@ defmodule Ryker.Slack.Renderer.ChannelSetup do
   end
 
   defp setup_blocks("confirming", "confirm", draft, session_ref, presentation) do
-    case setup_draft?(draft) do
-      true -> setup_confirmation(draft, session_ref, presentation)
-      false -> {:error, {:invalid_slack_render, :channel_setup}}
-    end
+    if setup_draft?(draft),
+      do: setup_confirmation(draft, session_ref, presentation),
+      else: {:error, {:invalid_slack_render, :channel_setup}}
   end
 
   defp setup_blocks("saved", _step, _draft, _session_ref, _presentation),
@@ -271,18 +272,14 @@ defmodule Ryker.Slack.Renderer.ChannelSetup do
 
   defp setup_action_groups(session_ref, buttons) do
     buttons
-    |> Enum.chunk_every(5)
+    |> Enum.chunk_every(@repository_buttons_per_row)
     |> Enum.with_index()
     |> Enum.map(fn {group, index} -> actions("setup:#{session_ref}:#{index}", group) end)
   end
 
   defp setup_button(action_id, label, session_ref, style) do
-    %{
-      "action_id" => action_id,
-      "text" => plain_text(label),
-      "type" => "button",
-      "value" => session_ref
-    }
+    action_id
+    |> plain_button(label, session_ref)
     |> maybe_button_style(style)
   end
 end
