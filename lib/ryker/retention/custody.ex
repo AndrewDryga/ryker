@@ -30,16 +30,19 @@ defmodule Ryker.Retention.Custody do
   # The durable moment a session became claimable for cleanup, by phase. Ageing
   # from insertion counted conversation time and the intentional grace period as
   # stall; ageing from the last claim would hide a real backlog instead. A
-  # retained workspace is eligible again at its scheduled recheck, or when its
+  # pending phase is claimable no earlier than its retry time: a failed step
+  # that came due, or one an operator resumed, aged from the phase's first
+  # eligibility and read as a stall the moment it could run again. A retained
+  # workspace is eligible again at its scheduled recheck, or when its
   # publication became durable.
   defmacrop eligible_at(session, episode, learning) do
     quote do
       fragment(
         """
         CASE
-          WHEN ? IN ('active', 'close_pending') THEN COALESCE(?, ?, ?)
+          WHEN ? IN ('active', 'close_pending') THEN GREATEST(COALESCE(?, ?, ?), ?)
           WHEN ? = 'grace' THEN COALESCE(?, ?)
-          WHEN ? IN ('plan_pending', 'discard_pending') THEN COALESCE(?, ?)
+          WHEN ? IN ('plan_pending', 'discard_pending') THEN GREATEST(COALESCE(?, ?), ?)
           WHEN ? = 'retained' THEN COALESCE(
             ?,
             (SELECT max(published.published_at) FROM episode_publications AS published
@@ -53,12 +56,14 @@ defmodule Ryker.Retention.Custody do
         unquote(learning).remote_stopped_at,
         unquote(episode).updated_at,
         unquote(session).updated_at,
+        unquote(session).cleanup_next_attempt_at,
         unquote(session).cleanup_status,
         unquote(session).discard_after,
         unquote(session).updated_at,
         unquote(session).cleanup_status,
         unquote(session).discard_after,
         unquote(session).updated_at,
+        unquote(session).cleanup_next_attempt_at,
         unquote(session).cleanup_status,
         unquote(session).cleanup_next_attempt_at,
         unquote(session).id,

@@ -133,7 +133,8 @@ defmodule Ryker.Retention.Operator do
         cleanup_lease_expires_at: nil,
         cleanup_lease_owner: nil,
         cleanup_lease_ref: nil,
-        cleanup_next_attempt_at: nil,
+        # Due now, and due from now: readiness ages a resumed step from here.
+        cleanup_next_attempt_at: Repo.now!(),
         cleanup_status: session.cleanup_blocked_from
       })
 
@@ -180,7 +181,8 @@ defmodule Ryker.Retention.Operator do
             cleanup_lease_expires_at: nil,
             cleanup_lease_owner: nil,
             cleanup_lease_ref: nil,
-            cleanup_next_attempt_at: nil,
+            # Due now, and due from now: readiness ages the decision from here.
+            cleanup_next_attempt_at: Repo.now!(),
             cleanup_status: :plan_pending,
             discard_plan: nil,
             discard_plan_accept_unmerged: true,
