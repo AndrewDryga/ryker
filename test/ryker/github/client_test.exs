@@ -552,6 +552,29 @@ defmodule Ryker.GitHub.ClientTest do
     assert create_body["head"] == "ryker/fix-123"
   end
 
+  test "finds an open pull request when GitHub's list response omits merged" do
+    sha = String.duplicate("a", 40)
+
+    pull =
+      pull_request_document()
+      |> Map.put("head", %{"ref" => "ryker/fix-123", "sha" => sha})
+      |> Map.delete("merged")
+
+    {:ok, requester} = FakeRequester.start([response(200, [pull])])
+
+    assert {:ok, found} =
+             Client.find_open_pull_request(
+               client(requester),
+               "octo/example",
+               "octo",
+               "ryker/fix-123"
+             )
+
+    assert found["number"] == 42
+    assert found["state"] == "open"
+    refute found["merged"]
+  end
+
   test "pull request APIs reject crossed and malformed GitHub identities" do
     malformed = %{
       "base" => %{"ref" => "main"},

@@ -239,7 +239,9 @@ defmodule Ryker.GitHub.Client do
           :not_found
 
         %{body: [pull], status: 200} ->
-          pull_request(pull)
+          pull
+          |> Map.put_new("merged", false)
+          |> pull_request()
 
         %{body: pulls, status: 200} when is_list(pulls) ->
           {:error, {:github_protocol_error, {:multiple_pull_requests, length(pulls)}}}
