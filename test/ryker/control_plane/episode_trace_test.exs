@@ -201,6 +201,55 @@ defmodule Ryker.ControlPlane.EpisodeTraceTest do
     assert metric.value == "2.3m"
   end
 
+  test "headline response metrics resolve the selected input and ignore later episode updates" do
+    {entry, episode} = admitted_input!()
+    {:ok, _session} = Custody.pin_episode(episode.id, "trace-test", String.duplicate("a", 64))
+    {:ok, claim} = Custody.claim_next("trace-test", 60, :work)
+
+    [input_ref] =
+      Repo.all(
+        from(event in Ryker.Episodes.Event,
+          where: event.episode_id == ^episode.id and event.kind == :input_admitted,
+          select: event.dedupe_key
+        )
+      )
+
+    delivered_at = DateTime.add(entry.occurred_at, 120)
+    document = %{"delivery" => "reply", "message" => "Done"}
+    digest = CanonicalJSON.digest(document)
+
+    Repo.update_all(from(turn in Turn, where: turn.id == ^claim.turn.id),
+      set: [
+        selected_input_refs: [input_ref],
+        accepted_at: DateTime.add(entry.occurred_at, 90),
+        candidate: Jason.encode!(document),
+        candidate_sha256: digest,
+        candidate_attempt: 1,
+        continuation: %{},
+        delivered_at: delivered_at,
+        delivery_document: document,
+        delivery_ref: "delivery:metrics",
+        delivery_fingerprint: digest,
+        external_receipt: %{"message_ref" => "reply:metrics"},
+        external_receipt_fingerprint: digest,
+        result_ref: "result:metrics",
+        validation_intent: %{},
+        validation_intent_fingerprint: digest,
+        validation_receipt: "receipt:metrics"
+      ]
+    )
+
+    Repo.update_all(from(saved in Episode, where: saved.id == ^episode.id),
+      set: [updated_at: DateTime.add(entry.occurred_at, 1_200)]
+    )
+
+    assert {:ok, detail} = Projection.episode(episode.key)
+    assert detail.trace.response_metrics.wall.milliseconds == 120_000
+    assert detail.trace.response_metrics.messages == %{received: 1, sent: 1, total: 2}
+    assert detail.trace.response_metrics.response.measured == 1
+    assert detail.trace.response_metrics.response.average_ms == 120_000
+  end
+
   test "preparation events do not acquire later admission and cleanup state" do
     # The replay showed admission 'decided' before routing and 'Settled' on turn preparation.
     {_entry, episode} = admitted_input!()

@@ -372,7 +372,8 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
     assert summaries =~ "Episode input history"
     assert Enum.empty?(LazyHTML.query(document, ".prompt-assembly details details details"))
     assert Enum.empty?(LazyHTML.query(document, ".request-input-parts > details"))
-    assert html =~ "$.work.operator_context.guidance"
+    refute LazyHTML.text(document) =~ "$.work.operator_context.guidance"
+    assert html =~ "data-source=\"guidance\""
     assert html =~ "Retained host policy &lt;not markup&gt;"
   end
 
@@ -560,8 +561,9 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
     assert html =~ "Episode input history"
     assert html =~ "Retained instructions &lt;not HTML&gt;"
     refute html =~ "<not HTML>"
-    assert html =~ "$.instructions"
-    assert html =~ "$.work.inputs"
+    visible = LazyHTML.from_fragment(html) |> LazyHTML.text()
+    refute visible =~ "$.instructions"
+    refute visible =~ "$.work.inputs"
     assert Enum.empty?(LazyHTML.from_fragment(html) |> LazyHTML.query(".request-evidence[open]"))
 
     assert Enum.empty?(LazyHTML.from_fragment(html) |> LazyHTML.query(".prompt-source[open]"))
@@ -604,7 +606,7 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
     end
   end
 
-  test "the outcome shortcut lands on the reply and elapsed time uses minutes and seconds" do
+  test "the outcome shortcut lands on the reply and wall time uses minutes and seconds" do
     # Jumping past the answer left the operator at a bookkeeping footer instead.
     {:ok, %{episode: episode}} = Episodes.apply(EpisodeFixtures.admit_input())
     {:ok, snapshot} = Projection.episode(episode.key)
@@ -622,6 +624,11 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
       snapshot
       |> put_in([:trace, :case_file, :conversation], [reply])
       |> put_in([:trace, :case_file, :awaiting_reply], false)
+      |> put_in([:trace, :response_metrics, :wall], %{
+        state: :complete,
+        milliseconds: 84_000,
+        reason: nil
+      })
       |> put_in([:episode, :updated_at], reply.at)
 
     html = render_episode(snapshot, [])
@@ -698,8 +705,8 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
     assert Enum.empty?(LazyHTML.query(document, ".case-actions"))
   end
 
-  test "untimed historical events do not inflate elapsed time" do
-    # Unknown timestamps must sort last without turning elapsed time into centuries.
+  test "untimed historical events do not inflate the projected wall time" do
+    # Unknown timeline timestamps and late episode bookkeeping are not timing boundaries.
     {:ok, %{episode: episode}} = Episodes.apply(EpisodeFixtures.admit_input())
     {:ok, snapshot} = Projection.episode(episode.key)
     [step | _] = snapshot.trace.steps
@@ -707,7 +714,12 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
     snapshot =
       snapshot
       |> put_in([:trace, :steps], [%{step | at: nil}])
-      |> put_in([:episode, :updated_at], DateTime.add(snapshot.trace.received_at, 84))
+      |> put_in([:trace, :response_metrics, :wall], %{
+        state: :complete,
+        milliseconds: 84_000,
+        reason: nil
+      })
+      |> put_in([:episode, :updated_at], DateTime.add(snapshot.trace.received_at, 1_200))
 
     document = render_episode(snapshot, []) |> LazyHTML.from_fragment()
     assert LazyHTML.query(document, ".episode-metrics") |> LazyHTML.text() =~ "1m 24s"
@@ -858,6 +870,89 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
       assert html =~ "Continue with the new messages"
       assert html =~ status
     end
+  end
+
+  test "the episode headline answers cost, wall time, messages and response latency" do
+    {:ok, %{episode: episode}} = Episodes.apply(EpisodeFixtures.admit_input())
+    {:ok, snapshot} = Projection.episode(episode.key)
+
+    metrics = %{
+      wall: %{state: :complete, milliseconds: 120_000, reason: nil},
+      messages: %{received: 2, sent: 1, total: 3},
+      response: %{
+        minimum_ms: 60_000,
+        average_ms: 90_000,
+        maximum_ms: 120_000,
+        measured: 2,
+        expected: 3
+      }
+    }
+
+    snapshot =
+      snapshot
+      |> put_in([:trace, :response_metrics], metrics)
+      |> Map.put(:accounting, %{
+        cost_usd: Decimal.new("0.125"),
+        estimated_cost_usd: Decimal.new("0.025"),
+        costed: 1,
+        estimated: 1,
+        attempts: 3
+      })
+
+    document = render_episode(snapshot, []) |> LazyHTML.from_fragment()
+    headline = LazyHTML.query(document, ".episode-metrics")
+    text = LazyHTML.text(headline)
+
+    assert text =~ "Total cost"
+    assert text =~ "≈ $0.15"
+    assert text =~ "1 reported · 1 estimated / 3 requests"
+    assert text =~ "Total wall time"
+    assert text =~ "2m"
+    assert text =~ "Messages"
+    assert text =~ "3"
+    assert text =~ "2 received · 1 sent"
+    assert text =~ "Response time"
+    assert text =~ "min 1m"
+    assert text =~ "avg 1m 30s"
+    assert text =~ "max 2m"
+    assert text =~ "2 of 3 responses timed"
+    refute text =~ "Elapsed"
+    refute text =~ "Work turns"
+    refute text =~ "Tool calls"
+  end
+
+  test "unknown response measurements remain unknown instead of reading as zero" do
+    {:ok, %{episode: episode}} = Episodes.apply(EpisodeFixtures.admit_input())
+    {:ok, snapshot} = Projection.episode(episode.key)
+
+    metrics = %{
+      wall: %{
+        state: :unknown,
+        milliseconds: nil,
+        reason: "No accepted or delivered outcome time was recorded."
+      },
+      messages: %{received: 1, sent: 0, total: 1},
+      response: %{
+        minimum_ms: nil,
+        average_ms: nil,
+        maximum_ms: nil,
+        measured: 0,
+        expected: 1
+      }
+    }
+
+    document =
+      snapshot
+      |> put_in([:trace, :response_metrics], metrics)
+      |> render_episode([])
+      |> LazyHTML.from_fragment()
+
+    headline = LazyHTML.query(document, ".episode-metrics")
+    text = LazyHTML.text(headline)
+    assert text =~ "Not measured"
+    assert text =~ "No completed responses"
+    assert text =~ "0 of 1 responses timed"
+    refute text =~ "min 0s"
   end
 
   defp render_request(kind, phase, sections) do

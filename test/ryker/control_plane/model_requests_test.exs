@@ -28,7 +28,7 @@ defmodule Ryker.ControlPlane.ModelRequestsTest do
         path: "/timeline/#{URI.encode_www_form(episode.key)}/model-calls"
       )
 
-    assert html =~ "$.work.inputs"
+    refute LazyHTML.from_fragment(html) |> LazyHTML.text() =~ "$.work.inputs"
     assert html =~ "&lt;script&gt;"
     refute html =~ "<script>"
     refute html =~ "xoxb-recorded-credential"
@@ -375,9 +375,10 @@ defmodule Ryker.ControlPlane.ModelRequestsTest do
     # The old flat prompt hid which host/context source shaped the answer.
     assert html =~ "data-source=\"instructions\""
     assert html =~ "Ryker instructions"
-    assert html =~ "$.instructions"
-    assert html =~ "$.work.inputs"
-    assert html =~ "$.work.responder_state_tools"
+    visible = LazyHTML.from_document(html) |> LazyHTML.text()
+    refute visible =~ "$.instructions"
+    refute visible =~ "$.work.inputs"
+    refute visible =~ "$.work.responder_state_tools"
     assert html =~ "data-source=\"inputs\""
     assert html =~ "source message &lt;script&gt;"
     refute html =~ "aria-label=\"Request contents\""

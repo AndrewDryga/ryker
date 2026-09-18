@@ -24,7 +24,9 @@ defmodule Ryker.ControlPlane.RequestContextHTMLTest do
     # said anything without opening the workspace text.
     assert html =~ "Global instructions"
     assert html =~ "Channel instructions"
-    assert html =~ "Saved with this request"
+    assert html =~ "Workspace text at send time"
+    assert html =~ "Channel text at send time; overrides global"
+    refute html =~ "Saved with this request"
     assert html =~ "Saved global"
     assert html =~ "Revision 7"
     assert html =~ "slack:T1:C1"
@@ -32,6 +34,36 @@ defmodule Ryker.ControlPlane.RequestContextHTMLTest do
     refute html =~ "<script>text</script>"
     expired = InspectionRedactor.artifact(nil, expired: true)
     assert RequestContextHTML.assembly(expired, "$.work", "instructions") == []
+  end
+
+  test "instruction estimates count text only and empty scopes have no estimate or visible path" do
+    artifact =
+      InspectionRedactor.artifact(%{
+        "custom_instructions" => %{
+          "global" => %{
+            "scope" => String.duplicate("workspace-metadata-", 20),
+            "revision" => 77,
+            "text" => "abcd"
+          },
+          "channel" => %{"scope" => "slack:T1:C1", "revision" => 3, "text" => ""}
+        }
+      })
+
+    document =
+      artifact
+      |> RequestContextHTML.assembly("$.work", "instructions")
+      |> IO.iodata_to_binary()
+      |> LazyHTML.from_fragment()
+
+    global = LazyHTML.query(document, ".prompt-source[data-source=global]")
+    channel = LazyHTML.query(document, ".prompt-source[data-source=channel]")
+
+    assert LazyHTML.text(global) =~ "≈ 1 estimated tokens"
+    refute LazyHTML.text(global) =~ "≈ 100"
+    refute LazyHTML.text(channel) =~ "estimated tokens"
+    assert LazyHTML.text(channel) =~ "No instruction saved at this scope"
+    refute LazyHTML.text(document) =~ "$.work.custom_instructions"
+    assert Enum.empty?(LazyHTML.query(document, ".prompt-source-path"))
   end
 
   test "Slack addressing is a collapsed message component with its exact retained source" do
@@ -49,7 +81,7 @@ defmodule Ryker.ControlPlane.RequestContextHTMLTest do
     assert LazyHTML.text(messages) =~ "Messages"
     assert LazyHTML.text(messages) =~ "Who this Slack message addresses"
     component = LazyHTML.query(messages, "[data-source=slack_addressing]")
-    assert LazyHTML.text(component) =~ "$.context.slack_addressing"
+    refute LazyHTML.text(component) =~ "$.context.slack_addressing"
     assert LazyHTML.text(component) =~ "ambient"
     assert LazyHTML.text(component) =~ "UBOT"
     assert LazyHTML.text(component) =~ "first receipt"
@@ -191,7 +223,8 @@ defmodule Ryker.ControlPlane.RequestContextHTMLTest do
     assert html =~ "data-source=\"future.layer\""
     assert html =~ "Additional retained field"
     assert html =~ "Empty in request"
-    assert html =~ "$.work.operator_context.memory"
+    refute html =~ "$.work.operator_context.memory"
+    assert html =~ "data-source=\"memory\""
     assert html =~ "Conversation memory"
     assert html =~ "&lt;script&gt;opaque&lt;/script&gt;"
     refute html =~ "<script>"
@@ -222,9 +255,12 @@ defmodule Ryker.ControlPlane.RequestContextHTMLTest do
     # because Raw context carries the exact submitted bytes.
     assert html =~ "What it was allowed to do"
     assert html =~ "Raw context"
-    assert html =~ "$.work.operator_context.guidance"
-    assert html =~ "$.work.operator_context.memory"
-    assert html =~ "$.work.offer_confirmation_supported"
+    refute html =~ "$.work.operator_context.guidance"
+    refute html =~ "$.work.operator_context.memory"
+    refute html =~ "$.work.offer_confirmation_supported"
+    assert html =~ "&quot;guidance&quot;: []"
+    assert html =~ "&quot;memory&quot;: []"
+    assert html =~ "&quot;offer_confirmation_supported&quot;: false"
     assert html =~ "false"
     assert html =~ "&lt;script&gt;opaque&lt;/script&gt;"
     refute html =~ "<script>"
@@ -232,9 +268,13 @@ defmodule Ryker.ControlPlane.RequestContextHTMLTest do
 
     empty_context = InspectionRedactor.artifact(%{"operator_context" => %{}})
 
-    assert empty_context
-           |> RequestContextHTML.assembly("$.work", "request-1")
-           |> IO.iodata_to_binary() =~ "$.work.operator_context"
+    empty_html =
+      empty_context
+      |> RequestContextHTML.assembly("$.work", "request-1")
+      |> IO.iodata_to_binary()
+
+    refute empty_html =~ "$.work.operator_context"
+    assert empty_html =~ "&quot;operator_context&quot;: {}"
 
     assert RequestContextHTML.assembly(
              InspectionRedactor.artifact(nil, expired: true),
@@ -388,5 +428,122 @@ defmodule Ryker.ControlPlane.RequestContextHTMLTest do
 
     assert body =~ "Host OOM kills"
     assert body =~ "RESOLVED - 1 alert"
+  end
+
+  test "admission candidates lead with a readable objective, evidence and rationale" do
+    preview = fn text, at, truncated ->
+      %{
+        "content_preview" =>
+          Jason.encode!(%{
+            "actor" => %{"ref" => "slack:user:U1"},
+            "content" => %{"text" => text},
+            "event_kind" => "message"
+          }),
+        "occurred_at" => at,
+        "truncated" => truncated
+      }
+    end
+
+    candidate = %{
+      "episode_ref" => "candidate:opaque-reference",
+      "state" => "complete",
+      "allowed_relations" => ["history_only"],
+      "digest" => %{
+        "objective" => "Restore the production deployment",
+        "input_count" => 4,
+        "conversations" => 2,
+        "covered_through" => "2026-09-18T18:10:00Z",
+        "freshness" => "current",
+        "latest_development" => "The replacement allocation became healthy."
+      },
+      "first_input" => preview.("Deployment is failing", "2026-09-18T17:00:00Z", false),
+      "latest_input" => preview.("Replacement is healthy", "2026-09-18T18:10:00Z", true),
+      "match" => %{
+        "same_thread" => true,
+        "topic_fit" => 0.91,
+        "direct_references" => 1
+      }
+    }
+
+    document =
+      %{"candidates" => [candidate]}
+      |> InspectionRedactor.artifact()
+      |> RequestContextHTML.assembly("$.context", "admission")
+      |> IO.iodata_to_binary()
+      |> LazyHTML.from_fragment()
+
+    option = LazyHTML.query(document, ".context-candidate")
+    text = LazyHTML.text(option)
+    assert text =~ "Completed - background only"
+    assert text =~ "Restore the production deployment"
+    assert text =~ "4 messages"
+    assert text =~ "2 conversations"
+    assert text =~ "Current"
+    assert text =~ "The replacement allocation became healthy."
+    assert text =~ "First message"
+    assert text =~ "Deployment is failing"
+    assert text =~ "Latest message"
+    assert text =~ "Replacement is healthy"
+    assert text =~ "truncated"
+    assert text =~ "Why offered"
+    assert text =~ "same thread"
+    assert text =~ "direct reference"
+    assert text =~ "Technical details"
+    refute LazyHTML.text(option) =~ "Allowed relations"
+    assert Enum.empty?(LazyHTML.query(option, ".context-field"))
+  end
+
+  test "candidate previews omit duplicates and sparse or malformed history stays bounded" do
+    preview = %{
+      "content_preview" => Jason.encode!(%{"content" => %{"text" => "Same message"}}),
+      "occurred_at" => "2026-09-18T17:00:00Z",
+      "truncated" => false
+    }
+
+    candidates = [
+      %{
+        "episode_ref" => "candidate:sparse",
+        "state" => "active",
+        "allowed_relations" => ["same_work", "history_only"],
+        "digest" => %{"objective" => "Continue the incident"},
+        "first_input" => preview,
+        "latest_input" => preview
+      },
+      %{
+        "episode_ref" => "candidate:truncated",
+        "state" => "cancelled",
+        "allowed_relations" => ["history_only"],
+        "digest" => %{"objective" => "Retained partial history"},
+        "first_input" => %{
+          "content_preview" => ~s({"content":{"text":"Readable prefix from a partial preview"),
+          "occurred_at" => "2026-09-17T17:00:00Z",
+          "truncated" => true
+        }
+      },
+      %{"state" => %{}, "allowed_relations" => 1},
+      String.duplicate("legacy-value-", 100)
+    ]
+
+    document =
+      %{"candidates" => candidates}
+      |> InspectionRedactor.artifact()
+      |> RequestContextHTML.assembly("$.context", "admission")
+      |> IO.iodata_to_binary()
+      |> LazyHTML.from_fragment()
+
+    options = LazyHTML.query(document, ".context-candidate")
+    assert Enum.count(options) == 4
+
+    sparse = Enum.at(options, 0)
+    assert LazyHTML.text(sparse) =~ "Active - may continue or provide background"
+    assert Enum.count(LazyHTML.query(sparse, ".candidate-preview")) == 1
+
+    truncated = Enum.at(options, 1) |> LazyHTML.text()
+    assert truncated =~ "Readable prefix from a partial preview"
+    assert truncated =~ "truncated"
+
+    malformed = options |> Enum.drop(2) |> Enum.map_join(&LazyHTML.text/1)
+    assert malformed =~ "Historical candidate - retained shape unavailable"
+    assert String.length(malformed) < 1_000
   end
 end
