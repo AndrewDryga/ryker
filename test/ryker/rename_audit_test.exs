@@ -6,7 +6,7 @@ defmodule Ryker.RenameAuditTest do
   of the old name that remains in the tracked tree is either immutable evidence
   (harvested fixtures, recorded corpora, historical migrations, append-only logs)
   or a contract with another party that this repository cannot rename alone
-  (co:op wire names, inbound webhook headers, the GitHub repository URL). Each is
+  (co:op wire names and inbound webhook headers). Each is
   listed below with its reason; anything else is a rename that was missed, and
   this test fails on it so the old name cannot creep back through a new file,
   a pasted snippet or a "temporary" alias.
@@ -33,7 +33,7 @@ defmodule Ryker.RenameAuditTest do
   # nothing outside it in that file is exempt.
   @immutable_sections [
     {"docs/operations.md", "## Names that still say responder",
-     "the operator's list of pre-rename names another party owns (repository, Slack app, co:op, webhook senders) and the stored values the code still recognises"}
+     "the operator's list of pre-rename names another party owns (co:op and webhook senders) and the stored values the code still recognises"}
   ]
 
   # Tokens allowed everywhere else. `path` narrows an entry to the files where
@@ -52,8 +52,6 @@ defmodule Ryker.RenameAuditTest do
      "inbound webhook event type set by external senders"},
     {~r//, ~r/responder-delivery:/,
      "GitHub comment marker that keeps already-posted comments idempotent; changing it would repost every delivered comment"},
-    {~r//, ~r{AndrewDryga/responder},
-     "GitHub repository identity (badges, clone URLs, sigstore signer identity) until the repository is renamed"},
     # --- evidence and history named outside the immutable paths
     {~r{^lib/ryker/episodes/replay\.ex$|^test/ryker/(admission|episodes)/replay_test\.exs$},
      ~r/responder\.db/,

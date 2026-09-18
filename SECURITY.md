@@ -4,7 +4,7 @@
 
 Do not include credentials, incident evidence, customer logs, or working exploit details in a
 public issue. Use the repository's
-[private vulnerability report](https://github.com/AndrewDryga/responder/security/advisories/new)
+[private vulnerability report](https://github.com/AndrewDryga/ryker/security/advisories/new)
 with the affected version, impact, and a minimal reproduction.
 
 ## Trust boundaries

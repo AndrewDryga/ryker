@@ -1,7 +1,7 @@
 # Ryker
 
-[![CI](https://github.com/AndrewDryga/responder/actions/workflows/ci.yml/badge.svg)](https://github.com/AndrewDryga/responder/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/github/v/release/AndrewDryga/responder?sort=semver)](https://github.com/AndrewDryga/responder/releases/latest)
+[![CI](https://github.com/AndrewDryga/ryker/actions/workflows/ci.yml/badge.svg)](https://github.com/AndrewDryga/ryker/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/AndrewDryga/ryker?sort=semver)](https://github.com/AndrewDryga/ryker/releases/latest)
 
 Ryker is a persistent engineering and operations teammate backed by isolated
 [Coop](https://github.com/AndrewDryga/coop) sessions and governed Emisar access. Its core is
@@ -85,7 +85,7 @@ artifact="ryker_${version}_elixir_linux_amd64.tar.gz"
 cosign verify-blob checksums.txt \
   --bundle checksums.txt.bundle \
   --certificate-identity \
-  "https://github.com/AndrewDryga/responder/.github/workflows/release.yml@refs/tags/${tag}" \
+  "https://github.com/AndrewDryga/ryker/.github/workflows/release.yml@refs/tags/${tag}" \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 for helper in install-elixir-release.sh check-elixir-release.sh activate-elixir-release.sh; do
   awk -v file="$helper" '$2 == file { print }' checksums.txt | sha256sum --check
