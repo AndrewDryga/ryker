@@ -141,7 +141,7 @@ defmodule Ryker.Slack.Renderer.SavedEntityCard do
       kind in @saved_entity_kinds and status in @saved_entity_statuses and
         is_boolean(removable) and is_boolean(resumable) and
         texts?(title, instructions, notice, saved_by) and
-        match?({:ok, _, 0}, DateTime.from_iso8601(saved_at)) and
+        iso8601(saved_at) == :ok and
         ref?(kind, ref, revision) and facts?(facts)
 
     if valid, do: :ok, else: {:error, :invalid_saved_entity}

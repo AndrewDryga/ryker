@@ -30,7 +30,7 @@ defmodule Ryker.Slack.Renderer.ChannelSetup do
              is_integer(revision) and revision > 0 and is_map(draft) do
     with :ok <- slack_user(bot_user_ref),
          {:ok, _uuid} <- Ecto.UUID.cast(session_ref),
-         {:ok, _datetime, 0} <- DateTime.from_iso8601(expires_at),
+         :ok <- iso8601(expires_at),
          {:ok, blocks, text} <-
            setup_blocks(status, step, draft, session_ref, %{
              bot_user_ref: bot_user_ref,

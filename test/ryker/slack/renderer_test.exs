@@ -145,6 +145,28 @@ defmodule Ryker.Slack.RendererTest do
              {:error, {:invalid_slack_render, :saved_entity}}
   end
 
+  # Three cards parsed a time without looking at its type, so a document
+  # missing one raised inside the renderer, taking the reply or the list with
+  # it, where every other malformed field is refused.
+  test "a card missing a time is refused, not a crash" do
+    for at <- [nil, 1_787_832_000, "yesterday"] do
+      assert Renderer.render(%{"saved_entity" => %{paused_rule() | "saved_at" => at}}) ==
+               {:error, {:invalid_slack_render, :saved_entity}}
+
+      setup = put_in(setup_document(Ecto.UUID.generate()), ["channel_setup", "expires_at"], at)
+
+      assert Renderer.render(setup) == {:error, {:invalid_slack_render, :channel_setup}}
+
+      welcome =
+        welcome_document(Ecto.UUID.generate(), settings_document(), %{
+          "actor_ref" => "U123",
+          "at" => at
+        })
+
+      assert Renderer.render(welcome) == {:error, {:invalid_slack_render, :channel_welcome}}
+    end
+  end
+
   test "renders host-authorized typed mentions into native Slack controls" do
     authority = %{
       "broadcasts" => [],
