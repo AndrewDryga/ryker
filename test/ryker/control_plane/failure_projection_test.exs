@@ -7,10 +7,14 @@ defmodule Ryker.ControlPlane.FailureProjectionTest do
 
   alias Ryker.Admission
   alias Ryker.Admission.Decision
-  alias Ryker.ControlPlane.Projection
+  alias Ryker.ControlPlane.{FailureProjection, HTML, Projection, WorkspaceProjection}
   alias Ryker.Delivery.ReactionCustody
+  alias Ryker.Fixtures.Learning, as: LearningFixtures
   alias Ryker.Ingress.Inbox
+  alias Ryker.Learning.FleetSession, as: LearningFleetSession
+  alias Ryker.Retention.Custody, as: RetentionCustody
   alias Ryker.Slack.Input, as: SlackInput
+  alias Ryker.State.Learning
 
   @now ~U[2026-08-28 12:00:00.000000Z]
 
@@ -72,5 +76,66 @@ defmodule Ryker.ControlPlane.FailureProjectionTest do
     assert row.destination == "slack:TBLOCKEDREACTION:C456 / 1787832000.000100"
     assert row.source == "slack:TBLOCKEDREACTION · Ev-blocked-reaction"
     refute inspect(row) =~ "private reaction diagnostic"
+  end
+
+  # A learning session has no episode, and every retention row here was read
+  # through an inner join on one. On 2026-09-18 three learning cleanups sat
+  # blocked in the metrics while this page said nothing needed attention, and
+  # no operator could open one to retry it.
+  test "a blocked learning cleanup is listed and can be opened for retry" do
+    assert {:ok, run} =
+             Learning.prepare(Enum.map(LearningFixtures.inputs!(), & &1.id), %{
+               policy: "recorded-read-only-policy",
+               policy_digest: String.duplicate("a", 64)
+             })
+
+    assert {:ok, _session} = LearningFleetSession.ensure(run)
+    remote_id = "coop-learning-blocked-#{System.unique_integer([:positive])}"
+    assert {:ok, session} = LearningFleetSession.bind(run, remote_id)
+
+    run
+    |> Ecto.Changeset.change(
+      remote_stopped_at: DateTime.utc_now(),
+      stop_receipt: %{"kind" => "terminal_turn", "state" => "completed"}
+    )
+    |> Repo.update!()
+
+    assert {:ok, claim} = RetentionCustody.claim_next("cleanup:learning-blocked", 60)
+    assert claim.session.id == session.id
+
+    assert {:ok, _blocked} =
+             RetentionCustody.block(
+               session.id,
+               claim.lease_ref,
+               "coop_protocol_error",
+               "close refused"
+             )
+
+    assert {:ok, failures} = Projection.failures(%{})
+    assert %{} = row = Enum.find(failures, &(&1.ref == session.external_ref))
+    assert row.kind == "retention"
+    assert row.action == :rearm
+
+    html = [row] |> HTML.failures() |> IO.iodata_to_binary()
+    assert html =~ "Background learning"
+    refute html =~ "Before admission"
+
+    assert {:ok, %{kind: "retention", action: :rearm} = exact} =
+             FailureProjection.fetch("retention", session.external_ref)
+
+    detail = exact |> HTML.failure() |> IO.iodata_to_binary()
+    assert detail =~ "/actions/retention/"
+    refute detail =~ "Related request"
+
+    # The Workspaces page promises every retained worker session, and read
+    # them through the same inner join.
+    assert %{action: :rearm} =
+             workspace =
+             Enum.find(WorkspaceProjection.list(%{}), &(&1.ref == session.external_ref))
+
+    storage = %{budget: %{}, preview: [], workers: []}
+    page = [workspace] |> HTML.workspaces(storage) |> IO.iodata_to_binary()
+    assert page =~ "Background learning"
+    assert page =~ "/actions/retention/"
   end
 end

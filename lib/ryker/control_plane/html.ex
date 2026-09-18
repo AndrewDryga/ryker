@@ -970,7 +970,7 @@ defmodule Ryker.ControlPlane.HTML do
             escape(workspace_reason(row)),
             "</span>"
           ],
-          escape(Components.label(to_string(row.state))),
+          workspace_request_state(row),
           readable_time(row.updated_at),
           action
         ]
@@ -1006,6 +1006,10 @@ defmodule Ryker.ControlPlane.HTML do
       "</div>"
     ]
   end
+
+  # A learning working copy belongs to no request; its column says what owns it.
+  defp workspace_request_state(%{execution_kind: :learning}), do: "Background learning"
+  defp workspace_request_state(row), do: escape(Components.label(to_string(row.state)))
 
   defp workspace_request_label(row) do
     title = row[:request_title] || "Open request →"
@@ -1512,6 +1516,8 @@ defmodule Ryker.ControlPlane.HTML do
       ]
     end
   end
+
+  defp failure_episode(%{execution_kind: :learning}), do: "Background learning"
 
   defp failure_episode(row) do
     case Map.get(row, :episode_ref) do
