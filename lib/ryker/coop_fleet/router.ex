@@ -5,6 +5,8 @@ defmodule Ryker.CoopFleet.Router do
 
   import Plug.Conn
 
+  require Logger
+
   alias Ryker.CoopFleet.{
     ArtifactTransport,
     ControlPlane,
@@ -133,9 +135,9 @@ defmodule Ryker.CoopFleet.Router do
       {:error, :client_certificate} -> json_error(conn, 401, "unauthorized")
       {:error, :content_type} -> json_error(conn, 415, "unsupported_media_type")
       {:error, :document_too_large, conn} -> json_error(conn, 413, "document_too_large")
-      {:error, _reason} -> json_error(conn, 400, "invalid_request")
+      {:error, reason} -> reject(conn, "checkpoint upload", reason)
       :error -> json_error(conn, 500, "checkpoint_custody_not_configured")
-      false -> json_error(conn, 400, "invalid_request")
+      false -> reject(conn, "checkpoint upload", :byte_size_mismatch)
     end
   end
 
@@ -164,8 +166,8 @@ defmodule Ryker.CoopFleet.Router do
       {:error, :document_too_large, conn} ->
         json_error(conn, 413, "document_too_large")
 
-      {:error, _reason} ->
-        json_error(conn, 400, "invalid_request")
+      {:error, reason} ->
+        reject(conn, "enrollment", reason)
     end
   end
 
@@ -185,7 +187,7 @@ defmodule Ryker.CoopFleet.Router do
       {:error, :client_certificate} -> json_error(conn, 401, "unauthorized")
       {:error, :content_type} -> json_error(conn, 415, "unsupported_media_type")
       {:error, :document_too_large, conn} -> json_error(conn, 413, "document_too_large")
-      {:error, _reason} -> json_error(conn, 400, "invalid_request")
+      {:error, reason} -> reject(conn, "renewal", reason)
     end
   end
 
@@ -207,7 +209,7 @@ defmodule Ryker.CoopFleet.Router do
       {:error, :client_certificate} -> json_error(conn, 401, "unauthorized")
       {:error, :content_type} -> json_error(conn, 415, "unsupported_media_type")
       {:error, :document_too_large, conn} -> json_error(conn, 413, "document_too_large")
-      {:error, _reason} -> json_error(conn, 400, "invalid_request")
+      {:error, reason} -> reject(conn, "poll", reason)
     end
   end
 
@@ -272,8 +274,8 @@ defmodule Ryker.CoopFleet.Router do
       {:error, :client_certificate} -> json_error(conn, 401, "unauthorized")
       {:error, :content_type} -> json_error(conn, 415, "unsupported_media_type")
       {:error, :document_too_large, conn} -> json_error(conn, 413, "document_too_large")
-      {:error, _reason} -> json_error(conn, 400, "invalid_request")
-      false -> json_error(conn, 400, "invalid_request")
+      {:error, reason} -> reject(conn, "review patch upload", reason)
+      false -> reject(conn, "review patch upload", :byte_size_mismatch)
     end
   end
 
@@ -315,8 +317,8 @@ defmodule Ryker.CoopFleet.Router do
       {:error, :client_certificate} -> json_error(conn, 401, "unauthorized")
       {:error, :content_type} -> json_error(conn, 415, "unsupported_media_type")
       {:error, :document_too_large, conn} -> json_error(conn, 413, "document_too_large")
-      {:error, _reason} -> json_error(conn, 400, "invalid_request")
-      false -> json_error(conn, 400, "invalid_request")
+      {:error, reason} -> reject(conn, "artifact upload", reason)
+      false -> reject(conn, "artifact upload", :byte_size_mismatch)
     end
   end
 
@@ -462,6 +464,26 @@ defmodule Ryker.CoopFleet.Router do
   defp json_error(conn, status, code) do
     json_response(conn, status, %{"error" => %{"code" => code}})
   end
+
+  # The worker only ever sees "invalid_request". On 2026-09-18 the worker
+  # logged two of them while the fleet stalled and nothing on this side said
+  # why. Log the reason's codes and never its values: requests carry command
+  # results, session evidence and artifact bytes.
+  defp reject(conn, request, reason) do
+    Logger.warning("coop worker #{request} rejected: #{reason_codes(reason)}")
+    json_error(conn, 400, "invalid_request")
+  end
+
+  defp reason_codes(reason) when is_atom(reason), do: Atom.to_string(reason)
+
+  defp reason_codes(reason) when is_tuple(reason) do
+    case reason |> Tuple.to_list() |> Enum.filter(&is_atom/1) do
+      [] -> "unrecognized"
+      codes -> Enum.map_join(codes, " ", &Atom.to_string/1)
+    end
+  end
+
+  defp reason_codes(_reason), do: "unrecognized"
 
   defp enrollment_authority(options) do
     Keyword.fetch!(options, :enrollment_authority)
