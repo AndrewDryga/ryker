@@ -22,6 +22,11 @@ defmodule Ryker.Slack.Renderer.Fields do
   def optional_bounded_text(nil, _maximum), do: :ok
   def optional_bounded_text(value, maximum), do: bounded_text(value, maximum)
 
+  @doc "Whether `values` is a list naming members of `allowed`, each at most once."
+  @spec unique_subset?(term(), [String.t()]) :: boolean()
+  def unique_subset?(values, allowed),
+    do: is_list(values) and values == Enum.uniq(values) and Enum.all?(values, &(&1 in allowed))
+
   @spec positive_integer(term()) :: :ok | {:error, :invalid_positive_integer}
   def positive_integer(value) when is_integer(value) and value > 0, do: :ok
   def positive_integer(_value), do: {:error, :invalid_positive_integer}
