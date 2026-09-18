@@ -249,6 +249,38 @@ defmodule Ryker.ControlPlane.OperatorUsabilityTest do
     refute html =~ "No recognized error explanation"
   end
 
+  test "a stuck task on the Failures list says why, in its recovery brief's words" do
+    # On 2026-09-18 a task blocked by a stalled worker read "No recognized
+    # error explanation" on this list while its own recovery brief, one click
+    # away, named the cause. Two surfaces describing one failure differently
+    # is the defect FailureCause exists to prevent.
+    row = %{
+      kind: "work",
+      ref: "episode:one",
+      episode_ref: "episode:one",
+      action: :retry,
+      attempt_count: 1,
+      status: :blocked,
+      summary: "work_execution_blocked",
+      updated_at: nil,
+      work_recovery: %{
+        action_label: "Retry work",
+        cause: "The worker did not take or finish one of this task's commands in time.",
+        explained: true
+      }
+    }
+
+    html = [row] |> HTML.failures() |> IO.iodata_to_binary()
+
+    assert html =~ "The worker did not take or finish one of this task"
+    refute html =~ "No recognized error explanation"
+
+    # A brief that names nothing leaves this list its own generic sentence.
+    unexplained = put_in(row, [:work_recovery, :explained], false)
+    html = [unexplained] |> HTML.failures() |> IO.iodata_to_binary()
+    assert html =~ "No recognized error explanation"
+  end
+
   test "failure summary counts listed operations and distinct requests without nesting the cards" do
     # Two cleanup failures in one request were buried in a second large panel;
     # missing zero counts left it unclear whether other failure types were healthy.

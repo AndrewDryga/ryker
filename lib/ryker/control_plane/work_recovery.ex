@@ -3,6 +3,10 @@ defmodule Ryker.ControlPlane.WorkRecovery do
   alias Ryker.ControlPlane.{CodeEditingSetup, InspectionRedactor}
   alias Ryker.Work.{Custody, FailureCause, Turn}
 
+  # What a brief says when the saved error names no cause. A surface with its
+  # own sentence for that case reads `explained` instead of comparing text.
+  @unexplained_cause "The saved error does not establish a specific cause. The worker’s final response, if available below, may describe a separate task blocker."
+
   @doc """
   The brief for a live turn, with the host facts every surface must share.
 
@@ -63,7 +67,8 @@ defmodule Ryker.ControlPlane.WorkRecovery do
       retry_effect: retry_effect(finalizing, resumable)
     }
 
-    startup_explanation(brief, checkpoint_supported?)
+    brief = startup_explanation(brief, checkpoint_supported?)
+    Map.put(brief, :explained, brief.cause != @unexplained_cause)
   end
 
   defp completion_pending?(%Turn{completion_receipt: receipt, result_ref: nil, delivery_ref: nil})
@@ -225,7 +230,7 @@ defmodule Ryker.ControlPlane.WorkRecovery do
         {cause, next_step}
 
       nil ->
-        {"The saved error does not establish a specific cause. The worker’s final response, if available below, may describe a separate task blocker.",
+        {@unexplained_cause,
          "Inspect the saved response and technical details. Correct the underlying problem and preserve unfinished changes before retrying."}
     end
   end
