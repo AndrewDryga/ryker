@@ -1,6 +1,7 @@
 defmodule Ryker.State.InvestigationPayload do
   @moduledoc false
 
+  alias Ryker.Reference
   alias Ryker.CanonicalJSON
 
   @maximum_payload_bytes 32 * 1_024
@@ -371,10 +372,9 @@ defmodule Ryker.State.InvestigationPayload do
   defp boolean(value, field), do: if(is_boolean(value), do: :ok, else: invalid(field))
 
   defp text(value, maximum, field) do
-    if is_binary(value) and String.valid?(value) and byte_size(value) in 1..maximum and
-         :binary.match(value, <<0>>) == :nomatch and String.trim(value) != "",
-       do: :ok,
-       else: invalid(field)
+    if Reference.valid?(value, maximum),
+      do: :ok,
+      else: invalid(field)
   end
 
   defp reference(value, maximum, field) do

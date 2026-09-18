@@ -1,6 +1,7 @@
 defmodule Ryker.State.Learning do
   @moduledoc "Resumable, learning-only judgments over retained inputs; never reroutes or delivers."
   import Ecto.Query
+  alias Ryker.Reference
   alias Ryker.CanonicalJSON
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Learning.{Batches, Rebuilds}
@@ -445,11 +446,7 @@ defmodule Ryker.State.Learning do
       )
   end
 
-  defp valid_remote_ref?(value),
-    do:
-      is_binary(value) and String.valid?(value) and
-        byte_size(value) in 1..1024 and String.trim(value) != "" and
-        not String.contains?(value, <<0>>)
+  defp valid_remote_ref?(value), do: Reference.valid?(value)
 
   defp raw_sha256(value), do: :crypto.hash(:sha256, value) |> Base.encode16(case: :lower)
 

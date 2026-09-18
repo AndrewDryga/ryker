@@ -1,6 +1,7 @@
 defmodule Ryker.State.ScheduleRuntime do
   @moduledoc false
 
+  alias Ryker.Reference
   alias Ryker.State.ScheduleWorker
 
   @fields [
@@ -125,8 +126,7 @@ defmodule Ryker.State.ScheduleRuntime do
   end
 
   defp validate_ref!(value, field) do
-    unless is_binary(value) and String.valid?(value) and byte_size(value) in 1..1_024 and
-             :binary.match(value, <<0>>) == :nomatch and String.trim(value) != "",
-           do: raise(ArgumentError, "schedule #{field} must be a bounded nonblank string")
+    unless Reference.valid?(value),
+      do: raise(ArgumentError, "schedule #{field} must be a bounded nonblank string")
   end
 end

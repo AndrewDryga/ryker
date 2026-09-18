@@ -1,6 +1,7 @@
 defmodule Ryker.Learning.Runtime do
   @moduledoc "A small supervised learning pool, configured by the host rather than incoming messages."
   use Supervisor
+  alias Ryker.Reference
   alias Ryker.Coop.Client
   alias Ryker.Learning.Worker
 
@@ -92,9 +93,8 @@ defmodule Ryker.Learning.Runtime do
   end
 
   defp validate_reference!(value, key) do
-    unless is_binary(value) and String.valid?(value) and byte_size(value) in 1..160 and
-             String.trim(value) != "" and not String.contains?(value, <<0>>),
-           do: raise(ArgumentError, "learning #{key} must be a bounded nonblank reference")
+    unless Reference.valid?(value, 160),
+      do: raise(ArgumentError, "learning #{key} must be a bounded nonblank reference")
   end
 
   defp adapter!(%{socket: socket} = config, timeout) do

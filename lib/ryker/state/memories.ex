@@ -67,8 +67,7 @@ defmodule Ryker.State.Memories do
   @doc "Save only the normalized answer to an explicitly reusable, delivered question."
   def confirm_answer(binding, record_ref, value, authorize)
       when is_binary(record_ref) and is_binary(value) and is_function(authorize, 1) do
-    if String.valid?(value) and String.trim(value) != "" and byte_size(value) <= 4_000 and
-         not String.contains?(value, <<0>>) do
+    if Reference.valid?(value, 4_000) do
       Repo.transaction(fn -> confirm_answer_locked(binding, record_ref, value, authorize) end)
     else
       {:error, :invalid_answer_memory}
