@@ -1,6 +1,7 @@
 defmodule Ryker.CoopFleet.RouterTest do
   use Ryker.DataCase, async: true
 
+  import ExUnit.CaptureLog
   import Plug.Conn
   import Plug.Test
 
@@ -105,6 +106,35 @@ defmodule Ryker.CoopFleet.RouterTest do
 
     assert unauthenticated.status == 401
     refute unauthenticated.resp_body =~ "worker-a"
+  end
+
+  test "a rejected worker poll names its reason in the host log and nothing it carried" do
+    # On 2026-09-18 the worker logged two HTTP 400s from this endpoint while
+    # the fleet stalled, and Ryker logged nothing, so the only trace of why
+    # was on the worker's side. The reason's codes are enough to act on; the
+    # document itself carries session evidence and command results.
+    certificate = authorize_and_poll!()
+
+    skewed =
+      poll()
+      |> put_in(["worker", "clock_at"], "2020-01-01T00:00:00Z")
+      |> put_in(["worker", "build_version"], "coop-build-sentinel")
+
+    log =
+      capture_log(fn ->
+        conn =
+          :post
+          |> conn("/v1/coop-workers/poll", Jason.encode!(skewed))
+          |> put_req_header("content-type", "application/json")
+          |> put_peer_data(%{address: {127, 0, 0, 1}, port: 1234, ssl_cert: certificate})
+          |> Router.call([])
+
+        assert conn.status == 400
+        assert Jason.decode!(conn.resp_body) == %{"error" => %{"code" => "invalid_request"}}
+      end)
+
+    assert log =~ "coop worker poll rejected: coop_worker_clock_skew"
+    refute log =~ "coop-build-sentinel"
   end
 
   test "the public state-tools route accepts only the exact leased turn binding" do
