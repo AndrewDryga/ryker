@@ -382,12 +382,9 @@ defmodule Ryker.Slack.Renderer.ChannelCards do
   # is escaped against invented mentions, and this exact pair is the only shape
   # that may render a real one.
   defp optional_notice(%{"actor_ref" => actor, "at" => at} = notice) when map_size(notice) == 2 do
-    with :ok <- slack_user(actor),
-         {:ok, _at, 0} <- DateTime.from_iso8601(at) do
-      :ok
-    else
-      _invalid -> {:error, :invalid_notice}
-    end
+    if slack_user(actor) == :ok and iso8601(at) == :ok,
+      do: :ok,
+      else: {:error, :invalid_notice}
   end
 
   defp optional_notice(notice) do
