@@ -272,16 +272,15 @@ defmodule Ryker.CoopFleet.Protocol do
   defp refusal_reason(_allocation, _reason),
     do: {:error, {:invalid_coop_worker_protocol, :refusal_reason}}
 
+  # Never stricter than Coop's worker is with itself: it does not bound the
+  # bytes it attributes to workspaces by the volume, so neither can this.
   defp storage_bounds(document) do
     cond do
       document["low_watermark_bytes"] > document["high_watermark_bytes"] or
           document["high_watermark_bytes"] > document["capacity_bytes"] ->
         {:error, {:invalid_coop_worker_protocol, :storage_watermarks}}
 
-      Enum.any?(
-        ~w(free_bytes reserve_bytes disposable_bytes protected_bytes),
-        &(document[&1] > document["capacity_bytes"])
-      ) ->
+      Enum.any?(~w(free_bytes reserve_bytes), &(document[&1] > document["capacity_bytes"])) ->
         {:error, {:invalid_coop_worker_protocol, :storage_capacity}}
 
       true ->

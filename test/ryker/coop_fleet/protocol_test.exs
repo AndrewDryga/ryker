@@ -34,6 +34,22 @@ defmodule Ryker.CoopFleet.ProtocolTest do
     assert explicit["worker"]["storage"] == nil
   end
 
+  test "workspace bytes above the volume are a valid report, as Coop's own contract allows" do
+    # Coop bounds free space, the reserve and the watermarks by the volume but
+    # not the bytes it attributes to workspaces. A receiver stricter than its
+    # sender turns one such report into a rejected poll twice a second, and
+    # every placement on that worker expires while it lasts.
+    poll = @storage_fixture |> File.read!() |> Jason.decode!() |> Map.fetch!("poll")
+    capacity = poll["worker"]["storage"]["capacity_bytes"]
+
+    for field <- ~w(disposable_bytes protected_bytes) do
+      assert {:ok, prepared} =
+               Protocol.poll(put_in(poll, ["worker", "storage", field], capacity + 1))
+
+      assert prepared["worker"]["storage"][field] == capacity + 1
+    end
+  end
+
   test "malformed worker storage fails before any durable fleet mutation" do
     poll = @storage_fixture |> File.read!() |> Jason.decode!() |> Map.fetch!("poll")
 
