@@ -23,18 +23,12 @@ defmodule Ryker.State.MemorySearch do
   @maximum_bytes 65_536
   @maximum_visits 64
   @cursor_lifetime 3600
-  @budget_errors [
-    :query_canceled,
-    :lock_not_available,
-    :deadlock_detected,
-    :serialization_failure
-  ]
 
   def search(binding, arguments, secret) when is_binary(secret) and byte_size(secret) >= 16 do
     Repo.transaction(fn -> search_in_transaction(binding, arguments, secret) end)
   rescue
     error in Postgrex.Error ->
-      if error.postgres[:code] in @budget_errors,
+      if Repo.budget_exhausted?(error),
         do: {:error, :memory_search_budget_exceeded},
         else: reraise(error, __STACKTRACE__)
   end
@@ -75,7 +69,7 @@ defmodule Ryker.State.MemorySearch do
     end)
   rescue
     error in Postgrex.Error ->
-      if error.postgres[:code] in @budget_errors,
+      if Repo.budget_exhausted?(error),
         do: {:error, :memory_search_budget_exceeded},
         else: reraise(error, __STACKTRACE__)
   end
@@ -184,8 +178,9 @@ defmodule Ryker.State.MemorySearch do
 
   # ChannelFence deliberately uses non-bang queries; preserve its SQL failure
   # before another query runs in the aborted transaction and hides the cause.
-  defp search_error(%Postgrex.Error{postgres: %{code: code}}) when code in @budget_errors,
-    do: :memory_search_budget_exceeded
+  defp search_error(%Postgrex.Error{} = error) do
+    if Repo.budget_exhausted?(error), do: :memory_search_budget_exceeded, else: error
+  end
 
   defp search_error({:store_failed, :configuration_lock, reason}), do: search_error(reason)
   defp search_error(reason), do: reason

@@ -20,14 +20,9 @@ defmodule Ryker.StateTools.LookupContext do
     Repo.transaction(fn -> enrich_in_transaction(arguments, binding, result, source_tools) end)
   rescue
     error in Postgrex.Error ->
-      if error.postgres[:code] in [
-           :query_canceled,
-           :lock_not_available,
-           :deadlock_detected,
-           :serialization_failure
-         ],
-         do: {:error, "memory_search_budget_exceeded"},
-         else: reraise(error, __STACKTRACE__)
+      if Repo.budget_exhausted?(error),
+        do: {:error, "memory_search_budget_exceeded"},
+        else: reraise(error, __STACKTRACE__)
   end
 
   def enrich(_name, _arguments, _binding, result, _source_tools), do: {:ok, result}

@@ -517,9 +517,7 @@ defmodule Ryker.State.KnowledgeSnapshot do
     end
   rescue
     error in Postgrex.Error ->
-      if error.postgres[:code] in [:serialization_failure, :deadlock_detected],
-        do: @stale,
-        else: reraise(error, __STACKTRACE__)
+      if Repo.conflict?(error), do: @stale, else: reraise(error, __STACKTRACE__)
   end
 
   def reauthorize(_, _, _), do: @stale
