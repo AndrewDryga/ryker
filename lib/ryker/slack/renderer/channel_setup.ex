@@ -91,32 +91,9 @@ defmodule Ryker.Slack.Renderer.ChannelSetup do
          _presentation
        )
        when is_list(repositories) and length(repositories) in 1..32 do
-    buttons =
-      repositories
-      |> Enum.with_index()
-      |> Enum.map(fn {repository, index} ->
-        setup_button(
-          "ryker_setup_repository_#{index}",
-          truncate(repository, maximum_button_characters()),
-          session_ref,
-          nil
-        )
-      end)
-
-    text = "Which repo should I use for coding tasks when you don't name one?"
-
-    explanation =
-      [
-        "*#{heading("2 · Repositories")}*",
-        text,
-        "",
-        Enum.map_join(repositories, "   ", &"*#{escape(&1)}*"),
-        "",
-        "You can still ask me to work in any other connected repo. This only sets the default; it doesn't give me access to anything new."
-      ]
-
-    {:ok, [section(Enum.join(explanation, "\n"))] ++ setup_action_groups(session_ref, buttons),
-     text}
+    if Enum.all?(repositories, &text?/1),
+      do: repository_step(repositories, session_ref),
+      else: {:error, {:invalid_slack_render, :channel_setup}}
   end
 
   defp setup_blocks("asking", "alerts", _draft, session_ref, _presentation) do
@@ -202,6 +179,35 @@ defmodule Ryker.Slack.Renderer.ChannelSetup do
 
   defp setup_blocks(_status, _step, _draft, _session_ref, _presentation),
     do: {:error, {:invalid_slack_render, :channel_setup}}
+
+  defp repository_step(repositories, session_ref) do
+    buttons =
+      repositories
+      |> Enum.with_index()
+      |> Enum.map(fn {repository, index} ->
+        setup_button(
+          "ryker_setup_repository_#{index}",
+          truncate(repository, maximum_button_characters()),
+          session_ref,
+          nil
+        )
+      end)
+
+    text = "Which repo should I use for coding tasks when you don't name one?"
+
+    explanation =
+      [
+        "*#{heading("2 · Repositories")}*",
+        text,
+        "",
+        Enum.map_join(repositories, "   ", &"*#{escape(&1)}*"),
+        "",
+        "You can still ask me to work in any other connected repo. This only sets the default; it doesn't give me access to anything new."
+      ]
+
+    {:ok, [section(Enum.join(explanation, "\n"))] ++ setup_action_groups(session_ref, buttons),
+     text}
+  end
 
   defp setup_confirmation(draft, session_ref, presentation) do
     text = "Here's how I'll work in this channel:"
