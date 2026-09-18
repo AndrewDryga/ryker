@@ -39,4 +39,24 @@ defmodule Ryker.Publication.GitCommandTest do
       File.rm_rf(directory)
     end
   end
+
+  test "passes the atom-keyed environment used by publication commits and GitHub auth" do
+    directory = Path.join(System.tmp_dir!(), "ryker-git-command-env-#{Ecto.UUID.generate()}")
+    File.mkdir!(directory)
+
+    try do
+      assert {:ok, "configured\n"} =
+               GitCommand.run(
+                 directory,
+                 ["config", "--get", "ryker.publication"],
+                 env: [
+                   GIT_CONFIG_COUNT: "1",
+                   GIT_CONFIG_KEY_0: "ryker.publication",
+                   GIT_CONFIG_VALUE_0: "configured"
+                 ]
+               )
+    after
+      File.rm_rf(directory)
+    end
+  end
 end
