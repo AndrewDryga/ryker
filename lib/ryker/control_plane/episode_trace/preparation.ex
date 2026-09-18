@@ -1,9 +1,9 @@
 defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
   @moduledoc """
-  "Getting ready": per input, the participation settings, standing-rule
-  inventory, engagement decision and queue position recorded when it was
-  accepted; per Work turn, the setup that was selected against the session,
-  worker and workspace it actually ran on.
+  "Getting ready": per input, the participation decision with its recorded
+  settings and standing-rule inventory, followed by the queue position; per
+  Work turn, the setup selected against the session, worker and workspace it
+  actually ran on.
   """
 
   import Ecto.Query
@@ -19,14 +19,12 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
   alias Ryker.Work.{Session, Turn}
 
   @doc """
-  Getting ready, per input and in the approved order: Participation settings,
-  then the complete Standing rules inventory, then the Engagement decision,
-  then the Input queue. All four sit at the moment the input was accepted;
-  the list order is the tie-break, so the sequence survives identical
-  timestamps.
+  Getting ready, per input and in the approved order: one Participation card,
+  then the Input queue. Both sit at the moment the input was accepted; list
+  order is the tie-break, so the sequence survives identical timestamps.
 
-  The Standing rules card is always present. It carries the complete inventory
-  recorded when that input processed, or says plainly that none was recorded.
+  Participation carries the complete standing-rule inventory recorded when
+  that input processed, or says plainly that none was recorded.
   It never reads today's rules: a rule edited since would quietly rewrite the
   old explanation.
   """
@@ -39,6 +37,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
       receipt = input.engagement_receipt
       inventory = Map.get(inventories, "ingress-input:#{input.id}")
       rules = rule_inventory(inventory)
+      rules = Map.put(rules, :summary, rule_summary(rules))
       participation = participation(receipt)
       engagement = engagement(receipt)
       queue = queue(input, Map.get(attempts, input.id), now)
@@ -49,35 +48,13 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
           owner: {:input, input.id},
           input_id: input.id,
           participation: participation,
-          details: [],
-          stage: "Participation settings",
-          state: "",
-          summary: participation.summary,
-          title: "Participation settings",
-          tone: nil
-        }),
-        step("rules-#{input.id}", :ready, input.inserted_at, %{
-          actor: "Ryker",
-          owner: {:input, input.id},
-          input_id: input.id,
+          engagement: engagement,
           rules: rules,
           details: [],
-          stage: "Standing rules",
-          state: "",
-          summary: rule_summary(rules),
-          title: "Standing rules",
-          tone: nil
-        }),
-        step("engagement-#{input.id}", :ready, input.inserted_at, %{
-          actor: "Ryker",
-          owner: {:input, input.id},
-          input_id: input.id,
-          engagement: engagement,
-          details: [],
-          stage: "Engagement",
+          stage: "Participation",
           state: engagement.result,
           summary: engagement.reason,
-          title: "Engagement",
+          title: "Participation",
           tone: engagement.tone
         }),
         step("queue-#{input.id}", :ready, input.inserted_at, %{
@@ -337,14 +314,6 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
   # The decision as it was made: result, plain reason, and every predicate the
   # gate reached. A predicate it never reached is "not checked" -- the receipt
   # does not know its answer and neither does anyone else.
-  @engagement_checks [
-    {"direct_or_mention", "Direct message / mention"},
-    {"existing_episode_thread", "Existing episode thread"},
-    {"standing_rule", "Standing rule"},
-    {"proactive_participation", "Proactive participation"},
-    {"shadow_evaluation", "Shadow evaluation"}
-  ]
-
   defp engagement(nil),
     do: %{
       state: :not_recorded,
@@ -359,20 +328,16 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
     # A receipt is retained JSON written by an older version of the gate. One
     # whose shape no longer parses is one card's absence; crashing here would
     # take the whole page with it.
-    recorded =
+    checks =
       receipt["checks"]
       |> List.wrap()
       |> Enum.filter(&is_map/1)
-      |> Map.new(&{&1["check"], &1["outcome"]})
-
-    checks =
-      if recorded == %{} do
-        []
-      else
-        Enum.map(@engagement_checks, fn {key, label} ->
-          %{label: label, outcome: check_outcome(Map.get(recorded, key))}
-        end)
-      end
+      |> Enum.map(fn check ->
+        %{
+          label: engagement_check_label(check["check"]),
+          outcome: check_outcome(check["outcome"])
+        }
+      end)
 
     %{
       state: :recorded,
@@ -392,6 +357,13 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
   defp engagement_result("evaluate_only"), do: "Evaluate only"
   defp engagement_result("not_engaged"), do: "Not picked up"
   defp engagement_result(other), do: human(to_string(other))
+
+  defp engagement_check_label("direct_or_mention"), do: "Direct message / mention"
+  defp engagement_check_label("existing_episode_thread"), do: "Existing episode thread"
+  defp engagement_check_label("standing_rule"), do: "Standing rule"
+  defp engagement_check_label("proactive_participation"), do: "Proactive participation"
+  defp engagement_check_label("shadow_evaluation"), do: "Shadow evaluation"
+  defp engagement_check_label(other), do: other |> to_string() |> human()
 
   defp check_outcome(nil), do: "Not checked"
   defp check_outcome("yes"), do: "Yes"

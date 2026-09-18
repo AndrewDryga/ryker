@@ -1,8 +1,8 @@
 defmodule Ryker.ControlPlane.StandingRulesCardTest do
   @moduledoc """
-  The Standing rules card in Getting ready.
+  The Standing rules section inside Participation in Getting ready.
 
-  It is always there, before the engagement decision, and it says one of three
+  It is always there below the participation decision, and it says one of three
   different things: here is every rule and its verdict; no rules existed; or
   nobody recorded the evaluation. The last two used to be the same blank, and
   an operator who reads "nobody recorded it" as "no rules existed" stops
@@ -88,6 +88,21 @@ defmodule Ryker.ControlPlane.StandingRulesCardTest do
     assert html =~ ~s(data-rules-state="not_recorded")
   end
 
+  test "a truncated inventory says exactly how much was retained" do
+    {entry, episode} = admitted!()
+
+    inventory!(
+      entry,
+      [rule("Review Terraform plans", "matched", "A terraform plan from app.")],
+      rule_count: 4,
+      truncated: true
+    )
+
+    html = rendered(episode)
+    assert html =~ "Only the first 1 of 4 rules were recorded; the rest were not inspected."
+    assert html =~ "Review Terraform plans"
+  end
+
   test "a later rule change does not rewrite the recorded explanation" do
     {entry, episode} = admitted!()
     inventory!(entry, [rule("Review Terraform plans", "matched", "A terraform plan from app.")])
@@ -118,16 +133,16 @@ defmodule Ryker.ControlPlane.StandingRulesCardTest do
     }
   end
 
-  defp inventory!(entry, entries) do
+  defp inventory!(entry, entries, options \\ []) do
     Repo.insert!(%StandingRuleInventory{
       id: Ecto.UUID.generate(),
       source_input_ref: "ingress-input:#{entry.id}",
       source_event_ref: entry.event_ref,
       workspace_ref: "slack:TC9F5B40D364C",
       conversation_ref: "slack:TC9F5B40D364C:C456",
-      rule_count: length(entries),
+      rule_count: Keyword.get(options, :rule_count, length(entries)),
       matched_count: Enum.count(entries, &(&1["verdict"] == "matched")),
-      truncated: false,
+      truncated: Keyword.get(options, :truncated, false),
       entries: entries,
       recorded_at: DateTime.add(@now, 1, :second)
     })

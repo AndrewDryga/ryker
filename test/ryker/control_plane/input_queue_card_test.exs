@@ -2,7 +2,7 @@ defmodule Ryker.ControlPlane.InputQueueCardTest do
   @moduledoc """
   The Input queue card: saved or not, waiting for what, handed to routing or not.
 
-  The queue used to be invisible between Engagement and the Routing briefing,
+  The queue used to be invisible between Participation and the Routing briefing,
   so "Ryker never saw this message" and "Ryker saved it and it is
   waiting behind an earlier message" read identically. The card reads only the
   durable custody row and the admission attempt that claimed it. Timing that
@@ -24,12 +24,12 @@ defmodule Ryker.ControlPlane.InputQueueCardTest do
 
   @now ~U[2026-09-04 22:51:44.000000Z]
 
-  test "the queue card follows Engagement inside Getting ready" do
+  test "the queue card follows Participation inside Getting ready" do
     {_entry, episode} = decided!()
     html = rendered(episode)
 
     positions =
-      for label <- ["Participation settings", "Standing rules", "Engagement", "Input queue"],
+      for label <- ["Participation", "Input queue"],
           do: :binary.match(html, "<h3>" <> label) |> elem(0)
 
     assert positions == Enum.sort(positions)
@@ -163,7 +163,7 @@ defmodule Ryker.ControlPlane.InputQueueCardTest do
     {entry, _input} = pending!()
     html = standalone(entry)
 
-    for label <- ["Participation settings", "Standing rules", "Engagement", "Input queue"] do
+    for label <- ["Participation", "Input queue"] do
       assert html =~ "<h3>" <> label
     end
   end

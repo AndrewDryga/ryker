@@ -28,7 +28,7 @@ defmodule Ryker.ControlPlane.WorkerEvidenceCard do
   attr(:episode_id, :string, default: nil)
 
   def render(assigns) do
-    assigns = assign(assigns, :cards, cards(assigns.episode_id))
+    assigns = assign(assigns, :cards, cards(assigns.episode_id) |> Enum.reject(&empty?/1))
 
     ~H"""
     <section
@@ -41,9 +41,6 @@ defmodule Ryker.ControlPlane.WorkerEvidenceCard do
         <p :if={card.state == :unreadable} class="evidence-unavailable">
           {card.availability.label}: recorded evidence from {card.worker} could not be read.
         </p>
-        <p :if={card.state == :recorded && quiet?(card)} class="case-event-summary">
-          {quiet_line(card)}
-        </p>
         <.access :if={card.state == :recorded && !quiet?(card)} card={card} />
         <.network :if={card.state == :recorded && !quiet?(card)} card={card} />
         <.coop_task :if={card.state == :recorded && card.task.state != :unbound} card={card} />
@@ -52,18 +49,13 @@ defmodule Ryker.ControlPlane.WorkerEvidenceCard do
     """
   end
 
-  # A session that ran open and unfiltered has no policy and no observation to
-  # show, and rendering both headed blocks anyway produced two paragraphs of
-  # nothing — repeated per worker, at the top of the page, before anything a
-  # reader came for. One line says the same thing.
+  defp empty?(%{state: :recorded, task: %{state: :unbound}} = card), do: quiet?(card)
+  defp empty?(_card), do: false
+
   defp quiet?(card) do
     card.access.availability.state != :recorded and
       card.network.availability.state != :recorded and
       is_nil(card.access.reason) and is_nil(card.network.reason)
-  end
-
-  defp quiet_line(card) do
-    "Network access #{card.access.headline} · nothing to enforce or observe, so no policy or traffic was captured."
   end
 
   defp cards(episode_id) when is_binary(episode_id), do: WorkerEvidence.for_episode(episode_id)

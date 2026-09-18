@@ -222,17 +222,15 @@ defmodule Ryker.ControlPlane.ProjectionTest do
     assert {:ok, detail} = Projection.episode(target.episode.key)
     assert detail.episode.ref == target.episode.key
     assert Enum.map(detail.events, & &1.summary) == ["input admitted", "input wait started"]
-    # Getting ready always carries the Standing rules card for the input, even
-    # when nothing else happened yet: an absent card would read as "no rules".
+    # Getting ready always carries Participation, including its recorded or
+    # explicitly absent standing-rule inventory.
     assert Enum.map(detail.trace.chapters, & &1.title) == ["What came in", "Getting ready"]
 
     assert Enum.map(detail.trace.steps, & &1.title) ==
              [
                "Input admitted",
                "Input wait started",
-               "Participation settings",
-               "Standing rules",
-               "Engagement",
+               "Participation",
                "Input queue"
              ]
 

@@ -216,7 +216,7 @@ defmodule Ryker.ControlPlane.WorkerEvidenceCardTest do
     assert html(session.episode_id) =~ ~r|<dt>Refusals</dt><dd>None</dd>|
   end
 
-  test "a session that never ran filtered says so rather than showing an empty network" do
+  test "an open unbound capture renders no empty worker evidence" do
     session = session!("open-render")
 
     {:ok, _stored} =
@@ -229,12 +229,32 @@ defmodule Ryker.ControlPlane.WorkerEvidenceCardTest do
 
     rendered = html(session.episode_id)
 
-    # One line, not two headed blocks of nothing repeated per worker.
-    assert rendered =~ "nothing to enforce or observe"
+    assert String.trim(rendered) == ""
+  end
+
+  test "an open capture with a bound task renders only the task" do
+    session = session!("open-bound-task")
+
+    capture =
+      fixture(@open, %{
+        "session_id" => "remote_01j9zq3f8m0c7e6kq9y2s4x1nt",
+        "task" => fixture(@filtered)["task"]
+      })
+
+    {:ok, _stored} =
+      SessionEvidence.record(session.id, capture,
+        worker_id: "worker-a",
+        placement_generation: 1
+      )
+
+    rendered = html(session.episode_id)
+
+    assert rendered =~ "Worker evidence"
+    assert rendered =~ "Coop task"
+    assert rendered =~ "Fix API timeout"
+    refute rendered =~ "nothing to enforce or observe"
     refute rendered =~ "<h3>Network access</h3>"
-    assert rendered =~ "Open"
-    # No task was ever bound, so no Coop task card is invented for it.
-    refute rendered =~ "Coop task"
+    refute rendered =~ "<h3>Network</h3>"
   end
 
   test "an episode with no capture renders no evidence section at all" do
