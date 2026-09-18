@@ -54,6 +54,19 @@ defmodule Ryker.Evals.WorldJudgeCaseTest do
     assert applied["payload"]["run_id"] == "run-okjyXsDYXyMqqBYY"
   end
 
+  test "the judge sees sanitized trusted state-tool outcomes" do
+    {:ok, scenario} = WorldCase.fetch("missing-project-answer-is-remembered")
+    {:ok, judge} = WorldJudgeCase.new(scenario, report())
+
+    prompt = Jason.decode!(judge.prompt)
+
+    assert prompt["evidence"]["state_calls"] == [
+             %{"outcome" => "succeeded", "tool" => "remember_answer"}
+           ]
+
+    assert Enum.any?(prompt["instructions"], &String.contains?(&1, "state calls"))
+  end
+
   test "malformed quality judgments are repaired through the same bounded contract" do
     {:ok, scenario} = WorldCase.fetch("va1-health-review-repairs-and-finishes")
     {:ok, judge} = WorldJudgeCase.new(scenario, report())
@@ -116,7 +129,11 @@ defmodule Ryker.Evals.WorldJudgeCaseTest do
           outcome: :result,
           tool: "monitoring.query"
         }
-      ]
+      ],
+      runtime: %{
+        state_calls: [%{outcome: :succeeded, tool: "remember_answer"}],
+        turns: []
+      }
     }
   end
 end

@@ -58,9 +58,21 @@ defmodule Ryker.StateTools.RecordWriter do
     do: prefix <> ":" <> binary_part(CanonicalJSON.digest(arguments), 0, 32)
 
   defp create(binding, tool, arguments, kind, payload) do
-    Records.create(binding.state_token, operation_id(binding, tool, arguments), kind, payload,
-      parallel_goal_limit: parallel_goal_limit(binding.session)
-    )
+    options = [parallel_goal_limit: parallel_goal_limit(binding.session)]
+    operation_id = operation_id(binding, tool, arguments)
+
+    case {tool, kind} do
+      {"wait_for", "event_wait"} ->
+        Records.create_reusing_open_source_wait(
+          binding.state_token,
+          operation_id,
+          payload,
+          options
+        )
+
+      _other ->
+        Records.create(binding.state_token, operation_id, kind, payload, options)
+    end
   end
 
   defp result(record, kind) do

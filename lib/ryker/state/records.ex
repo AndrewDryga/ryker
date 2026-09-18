@@ -45,6 +45,17 @@ defmodule Ryker.State.Records do
   @spec create(String.t(), String.t(), String.t(), map()) ::
           {:ok, Record.t()} | {:error, term()}
   def create(state_token, operation_id, kind, payload, options \\ []) do
+    create(state_token, operation_id, kind, payload, options, false)
+  end
+
+  @doc false
+  @spec create_reusing_open_source_wait(String.t(), String.t(), map(), keyword() | map()) ::
+          {:ok, Record.t()} | {:error, term()}
+  def create_reusing_open_source_wait(state_token, operation_id, payload, options \\ []) do
+    create(state_token, operation_id, "event_wait", payload, options, true)
+  end
+
+  defp create(state_token, operation_id, kind, payload, options, reuse_open_source_wait?) do
     with {:ok, turn_id} <- turn_id(state_token),
          :ok <- operation_id(operation_id),
          :ok <- known_kind(kind),
@@ -57,7 +68,8 @@ defmodule Ryker.State.Records do
           operation_id,
           kind,
           payload,
-          parallel_goal_limit
+          parallel_goal_limit,
+          reuse_open_source_wait?
         )
       end)
     end
@@ -69,7 +81,8 @@ defmodule Ryker.State.Records do
          operation_id,
          kind,
          payload,
-         parallel_goal_limit
+         parallel_goal_limit,
+         reuse_open_source_wait?
        ) do
     with {:ok, episode} <- lock_episode(episode_id),
          {:ok, turn} <- lock_turn(turn_id, episode_id),
@@ -84,7 +97,8 @@ defmodule Ryker.State.Records do
              kind,
              ref,
              prepared,
-             parallel_goal_limit
+             parallel_goal_limit,
+             reuse_open_source_wait?
            ),
          :ok <- validate_timer(record),
          :ok <- Approvals.ensure_registered_in_transaction(record) do
@@ -447,7 +461,8 @@ defmodule Ryker.State.Records do
          kind,
          ref,
          prepared,
-         parallel_goal_limit
+         parallel_goal_limit,
+         reuse_open_source_wait?
        ) do
     fingerprint =
       CanonicalJSON.digest(%{
@@ -461,32 +476,26 @@ defmodule Ryker.State.Records do
            )
          ) do
       nil ->
-        with :ok <- validate_temporal(kind, prepared.continuation),
-             :ok <-
-               validate_relationships(
-                 episode.id,
-                 kind,
-                 prepared.payload,
-                 parallel_goal_limit
-               ),
-             :ok <- record_capacity(turn.id),
-             :ok <- supersede_prior_record(episode.id, turn.id, kind, prepared.payload) do
-          %{
-            continuation: prepared.continuation,
-            episode_id: episode.id,
-            id: Ecto.UUID.generate(),
-            kind: kind,
-            operation_id: operation_id,
-            payload: prepared.payload,
-            payload_fingerprint: fingerprint,
-            ref: ref,
-            status: :open,
-            subject_ref: prepared.subject_ref,
-            turn_id: turn.id
-          }
-          |> RecordChangeset.insert()
-          |> Repo.insert()
-          |> persistence_result()
+        case reusable_open_source_wait(
+               episode.id,
+               kind,
+               prepared.payload,
+               reuse_open_source_wait?
+             ) do
+          %Record{} = record ->
+            {:ok, record}
+
+          nil ->
+            insert_new_record(
+              episode,
+              turn,
+              operation_id,
+              kind,
+              ref,
+              prepared,
+              fingerprint,
+              parallel_goal_limit
+            )
         end
 
       %Record{kind: ^kind, payload_fingerprint: ^fingerprint} = record ->
@@ -496,6 +505,61 @@ defmodule Ryker.State.Records do
         {:error, :state_record_operation_conflict}
     end
   end
+
+  defp insert_new_record(
+         episode,
+         turn,
+         operation_id,
+         kind,
+         ref,
+         prepared,
+         fingerprint,
+         parallel_goal_limit
+       ) do
+    with :ok <- validate_temporal(kind, prepared.continuation),
+         :ok <- validate_relationships(episode.id, kind, prepared.payload, parallel_goal_limit),
+         :ok <- record_capacity(turn.id),
+         :ok <- supersede_prior_record(episode.id, turn.id, kind, prepared.payload) do
+      %{
+        continuation: prepared.continuation,
+        episode_id: episode.id,
+        id: Ecto.UUID.generate(),
+        kind: kind,
+        operation_id: operation_id,
+        payload: prepared.payload,
+        payload_fingerprint: fingerprint,
+        ref: ref,
+        status: :open,
+        subject_ref: prepared.subject_ref,
+        turn_id: turn.id
+      }
+      |> RecordChangeset.insert()
+      |> Repo.insert()
+      |> persistence_result()
+    end
+  end
+
+  defp reusable_open_source_wait(
+         episode_id,
+         "event_wait",
+         %{
+           "deadline_at" => nil,
+           "event_matcher" => %{"type" => "source_event"}
+         } = payload,
+         true
+       ) do
+    Repo.one(
+      from(record in Record,
+        where:
+          record.episode_id == ^episode_id and record.kind == "event_wait" and
+            record.status == :open and is_nil(record.wait_error) and record.payload == ^payload,
+        order_by: [asc: record.sequence],
+        limit: 1
+      )
+    )
+  end
+
+  defp reusable_open_source_wait(_episode_id, _kind, _payload, _reuse?), do: nil
 
   defp record_ref(turn_id, operation_id, kind) do
     digest =
