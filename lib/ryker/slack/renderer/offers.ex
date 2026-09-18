@@ -310,7 +310,7 @@ defmodule Ryker.Slack.Renderer.Offers do
   # "sending or reconciling" the post forever, even long after it had landed.
   # The link is the only honest way to say it is sent.
   defp confirmed_slack_post_summary(%{"message_url" => url} = payload) when is_binary(url) do
-    "*Additional Slack post sent*\nDestination: `#{escape(payload["destination_ref"])}` · <#{url}|Open message>"
+    "*Additional Slack post sent*\nDestination: `#{escape(payload["destination_ref"])}` · #{link(url, "Open message")}"
   end
 
   defp confirmed_slack_post_summary(payload) do

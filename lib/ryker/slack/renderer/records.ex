@@ -480,14 +480,9 @@ defmodule Ryker.Slack.Renderer.Records do
     url = get_in(record, ["presentation", "source_url"])
     label = payload["target"] || payload["source_name"]
     label = if label == payload["source_id"], do: "Source", else: label
-    label = escape(label)
+    link = if ReplyRecords.safe_url?(url), do: link(url, label)
 
-    if ReplyRecords.safe_url?(url) do
-      link = "<#{escape(url)}|#{String.replace(label, "|", "&#124;")}>"
-      if String.length(link) <= 2_980, do: [{url, link}], else: []
-    else
-      []
-    end
+    if link && String.length(link) <= 2_980, do: [{url, link}], else: []
   end
 
   defp reference(value) do
