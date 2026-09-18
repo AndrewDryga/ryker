@@ -4,7 +4,7 @@ defmodule Ryker.State.ObservationsTest do
   import Ecto.Query
   alias Ryker.{Admission, Repo}
   alias Ryker.Admission.{Context, Decision, Executor, Prompt}
-  alias Ryker.ControlPlane.{ConversationMemory, HTML, Projection}
+  alias Ryker.ControlPlane.{Components, ConversationMemory, HTML, Projection}
   alias Ryker.Episodes.Episode
   alias Ryker.Fixtures.DatabaseClock
   alias Ryker.Ingress.Inbox
@@ -86,7 +86,7 @@ defmodule Ryker.State.ObservationsTest do
     assert item.expires_at == DateTime.add(saved.updated_at, 7_776_000)
     html = HTML.memory(Projection.memory(), "test-secret") |> IO.iodata_to_binary()
     assert html =~ "Retention"
-    assert html =~ Calendar.strftime(item.expires_at, "%d %b %Y")
+    assert html =~ "Retention: until #{Components.timestamp(item.expires_at)}"
     Application.delete_env(:ryker, :retention)
     [item] = ConversationMemory.project(%{"kind" => "notes"}).items
     assert item.expires_at == nil
