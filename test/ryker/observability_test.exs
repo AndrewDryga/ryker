@@ -5,6 +5,7 @@ defmodule Ryker.ObservabilityTest do
 
   alias Ryker.CoopFleet.{Client, ControlPlane, Worker}
   alias Ryker.Episodes
+  alias Ryker.Episodes.Episode
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.Learning, as: LearningFixtures
   alias Ryker.Ingress.Inbox
@@ -13,10 +14,11 @@ defmodule Ryker.ObservabilityTest do
   alias Ryker.Observability
   alias Ryker.Observability.Progress
   alias Ryker.Repo
+  alias Ryker.Retention.Operator, as: RetentionOperator
   alias Ryker.Runtime.Owner
   alias Ryker.Settings
   alias Ryker.Slack.Input, as: SlackInput
-  alias Ryker.State.Learning
+  alias Ryker.State.{Learning, LearningRun}
   alias Ryker.Work.Custody
   alias Ryker.Work.Session
 
@@ -615,6 +617,61 @@ defmodule Ryker.ObservabilityTest do
              Ryker.Retention.Custody.claim_next("observability-retention", 60)
 
     assert claimed in [session.id, learning.id]
+  end
+
+  test "a cleanup that just came due again is not a stalled queue" do
+    # On 2026-09-18 an operator resumed three blocked learning cleanups whose
+    # runs had stopped hours or days before. Readiness aged them from that
+    # stop, so the resume itself read as a stall for three minutes and the
+    # watchdog told the operator Ryker was not working. A retry that comes due
+    # is the same: it becomes claimable when its backoff ends, not before.
+    learning = stopped_learning_session!()
+    now = database_now!()
+
+    # Structural fixture: the run stopped two days ago and its cleanup blocked.
+    Repo.update_all(
+      from(run in LearningRun, where: run.id == ^learning.learning_run_id),
+      set: [remote_stopped_at: DateTime.add(now, -2 * 86_400, :second)]
+    )
+
+    Repo.update_all(
+      from(row in Session, where: row.id == ^learning.id),
+      set: [cleanup_status: :blocked, cleanup_blocked_from: :close_pending]
+    )
+
+    assert {:ok, %{outcome: :rearmed}} =
+             RetentionOperator.rearm(
+               learning.external_ref,
+               "slack:user:operator",
+               "retention-action:#{Ecto.UUID.generate()}"
+             )
+
+    # A Work cleanup whose episode ended an hour ago, and whose failed close
+    # comes due from its backoff thirty seconds ago.
+    work = terminal_work_session!("retry-due")
+
+    Repo.update_all(
+      from(episode in Episode, where: episode.id == ^work.episode_id),
+      set: [updated_at: DateTime.add(now, -3_600, :second)]
+    )
+
+    Repo.update_all(
+      from(row in Session, where: row.id == ^work.id),
+      set: [
+        cleanup_status: :close_pending,
+        cleanup_next_attempt_at: DateTime.add(now, -30, :second),
+        updated_at: DateTime.add(now, -3_600, :second)
+      ]
+    )
+
+    assert {:ok, snapshot} = Observability.snapshot(900)
+    retention = Enum.find(snapshot.queues, &(&1.name == :retention))
+    assert retention.claimable == 2
+
+    assert retention.oldest_age_seconds <= 120,
+           "a cleanup is due from its resume or its retry, not from when it first became eligible"
+
+    refute :retention in snapshot.stalled_queues
   end
 
   # Production went silent for every Slack message on 2026-09-13: Coop refused
