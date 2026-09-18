@@ -67,7 +67,15 @@ defmodule Ryker.Delivery.ReactionCustody do
     with :ok <- reference(delivery_ref, :delivery_ref),
          :ok <- reference(lease_ref, :lease_ref),
          :ok <- positive_integer(lease_seconds, :lease_seconds) do
-      Repo.transaction(fn -> renew_locked(delivery_ref, lease_ref, lease_seconds) end)
+      mutate_claim(delivery_ref, lease_ref, fn reaction, now ->
+        requested_expiry = DateTime.add(now, lease_seconds, :second)
+        lease_expires_at = later_datetime(reaction.lease_expires_at, requested_expiry)
+
+        reaction
+        |> ReactionChangeset.renew(lease_expires_at)
+        |> Repo.update()
+        |> unwrap_or_rollback(:delivery_renewal)
+      end)
     end
   end
 
@@ -78,7 +86,20 @@ defmodule Ryker.Delivery.ReactionCustody do
          :ok <- reference(lease_ref, :lease_ref),
          :ok <- bounded_text(error_code, 128, :error_code),
          :ok <- bounded_text(error_detail, 4_096, :error_detail) do
-      Repo.transaction(fn -> block_locked(delivery_ref, lease_ref, error_code, error_detail) end)
+      mutate_claim(delivery_ref, lease_ref, fn reaction, _now ->
+        reaction
+        |> ReactionChangeset.block(%{
+          last_error_code: error_code,
+          last_error_detail: error_detail,
+          lease_expires_at: nil,
+          lease_owner: nil,
+          lease_ref: nil,
+          next_attempt_at: nil,
+          status: :blocked
+        })
+        |> Repo.update()
+        |> unwrap_or_rollback(:delivery_block)
+      end)
     end
   end
 
@@ -100,14 +121,18 @@ defmodule Ryker.Delivery.ReactionCustody do
          :ok <- positive_integer(retry_seconds, :retry_seconds),
          :ok <- bounded_text(error_code, 128, :error_code),
          :ok <- bounded_text(error_detail, 4_096, :error_detail) do
-      Repo.transaction(fn ->
-        defer_locked(
-          delivery_ref,
-          lease_ref,
-          retry_seconds,
-          error_code,
-          error_detail
-        )
+      mutate_claim(delivery_ref, lease_ref, fn reaction, now ->
+        reaction
+        |> ReactionChangeset.defer(%{
+          last_error_code: error_code,
+          last_error_detail: error_detail,
+          lease_expires_at: nil,
+          lease_owner: nil,
+          lease_ref: nil,
+          next_attempt_at: DateTime.add(now, retry_seconds, :second)
+        })
+        |> Repo.update()
+        |> unwrap_or_rollback(:delivery_defer)
       end)
     end
   end
@@ -146,88 +171,35 @@ defmodule Ryker.Delivery.ReactionCustody do
       %Reaction{} = reaction ->
         lease_ref = "reaction-lease:#{Ecto.UUID.generate()}"
 
-        reaction
-        |> ReactionChangeset.claim(%{
-          attempt_count: reaction.attempt_count + 1,
-          last_error_code: nil,
-          last_error_detail: nil,
-          lease_expires_at: DateTime.add(now, lease_seconds, :second),
-          lease_owner: worker_ref,
-          lease_ref: lease_ref,
-          next_attempt_at: nil
-        })
-        |> Repo.update()
-        |> case do
-          {:ok, claimed} ->
-            %{lease_ref: lease_ref, reaction: claimed}
+        claimed =
+          reaction
+          |> ReactionChangeset.claim(%{
+            attempt_count: reaction.attempt_count + 1,
+            last_error_code: nil,
+            last_error_detail: nil,
+            lease_expires_at: DateTime.add(now, lease_seconds, :second),
+            lease_owner: worker_ref,
+            lease_ref: lease_ref,
+            next_attempt_at: nil
+          })
+          |> Repo.update()
+          |> unwrap_or_rollback(:delivery_claim)
 
-          {:error, changeset} ->
-            Repo.rollback({:persistence_failed, :delivery_claim, changeset.errors})
-        end
+        %{lease_ref: lease_ref, reaction: claimed}
     end
   end
 
-  defp defer_locked(delivery_ref, lease_ref, retry_seconds, error_code, error_detail) do
-    now = Repo.now!()
+  # Every change to a claimed reaction happens under its row lock and only
+  # while the caller still holds the lease it was given.
+  defp mutate_claim(delivery_ref, lease_ref, callback) do
+    Repo.transaction(fn ->
+      now = Repo.now!()
 
-    case leased_reaction(delivery_ref, lease_ref, now) do
-      {:ok, reaction} ->
-        reaction
-        |> ReactionChangeset.defer(%{
-          last_error_code: error_code,
-          last_error_detail: error_detail,
-          lease_expires_at: nil,
-          lease_owner: nil,
-          lease_ref: nil,
-          next_attempt_at: DateTime.add(now, retry_seconds, :second)
-        })
-        |> Repo.update()
-        |> unwrap_or_rollback(:delivery_defer)
-
-      {:error, reason} ->
-        Repo.rollback(reason)
-    end
-  end
-
-  defp renew_locked(delivery_ref, lease_ref, lease_seconds) do
-    now = Repo.now!()
-
-    case leased_reaction(delivery_ref, lease_ref, now) do
-      {:ok, reaction} ->
-        requested_expiry = DateTime.add(now, lease_seconds, :second)
-        lease_expires_at = later_datetime(reaction.lease_expires_at, requested_expiry)
-
-        reaction
-        |> ReactionChangeset.renew(lease_expires_at)
-        |> Repo.update()
-        |> unwrap_or_rollback(:delivery_renewal)
-
-      {:error, reason} ->
-        Repo.rollback(reason)
-    end
-  end
-
-  defp block_locked(delivery_ref, lease_ref, error_code, error_detail) do
-    now = Repo.now!()
-
-    case leased_reaction(delivery_ref, lease_ref, now) do
-      {:ok, reaction} ->
-        reaction
-        |> ReactionChangeset.block(%{
-          last_error_code: error_code,
-          last_error_detail: error_detail,
-          lease_expires_at: nil,
-          lease_owner: nil,
-          lease_ref: nil,
-          next_attempt_at: nil,
-          status: :blocked
-        })
-        |> Repo.update()
-        |> unwrap_or_rollback(:delivery_block)
-
-      {:error, reason} ->
-        Repo.rollback(reason)
-    end
+      case leased_reaction(delivery_ref, lease_ref, now) do
+        {:ok, reaction} -> callback.(reaction, now)
+        {:error, reason} -> Repo.rollback(reason)
+      end
+    end)
   end
 
   defp retry_locked(delivery_ref) do
