@@ -188,7 +188,7 @@ defmodule Ryker.Webhooks.EndToEndTest do
   end
 
   test "an arbitrary signed webhook can exercise the full product through Conversation Lab without Slack traffic" do
-    conversation_id = "018f3ef7-1f62-7ee0-a83c-0c12f21d83e6"
+    conversation_id = "018f3ef7-1f62-7ee0-a83c-0c12f21dc4e6"
     assert {:ok, conversation_ref} = ConversationLab.conversation_ref(conversation_id)
 
     body =

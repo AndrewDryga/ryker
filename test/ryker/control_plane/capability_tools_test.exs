@@ -12,7 +12,7 @@ defmodule Ryker.ControlPlane.CapabilityToolsTest do
   alias Ryker.StateTools.LookupContext
   alias Ryker.Work.Custody
 
-  @conversation_id "018f3ef7-1f62-7ee0-a83c-0c12f21d83e6"
+  @conversation_id "018f3ef7-1f62-7ee0-a83c-0c12f21dc1e6"
   @conversation_ref "control-plane:lab:#{@conversation_id}"
   @now ~U[2026-09-02 20:00:00.000000Z]
   @policy_digest String.duplicate("a", 64)

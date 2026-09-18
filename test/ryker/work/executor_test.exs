@@ -441,6 +441,7 @@ defmodule Ryker.Work.ExecutorTest do
              Ryker.Instructions.save(:global, "Explain the evidence.", 0, "operator:test")
 
     claim = claim_episode!("valid")
+    session_id = "remote_work_#{System.unique_integer([:positive])}"
 
     activity = [
       %{
@@ -448,15 +449,18 @@ defmodule Ryker.Work.ExecutorTest do
         "occurred_at" => DateTime.to_iso8601(@now),
         "payload" => %{"text" => "Checking the requested evidence."},
         "sequence" => 1,
-        "session_id" => "remote_work",
-        "turn_id" => "work_turn_remote_work_1",
+        "session_id" => session_id,
+        "turn_id" => "work_turn_#{session_id}_1",
         "type" => "model.thought",
         "version" => 1
       }
     ]
 
     {:ok, fake} =
-      FakeAPI.start_link([reply("Investigation complete.")], activity_events: activity)
+      FakeAPI.start_link([reply("Investigation complete.")],
+        activity_events: activity,
+        session_id: session_id
+      )
 
     assert {:ok, execution} = Executor.run(claim, options(fake))
     assert execution.status == :accepted
@@ -474,7 +478,7 @@ defmodule Ryker.Work.ExecutorTest do
     assert Enum.map(state.validations, & &1.verdict) == [:accept]
     assert state.submissions |> hd() |> Map.fetch!(:schema) == Final.json_schema()
     refute state.submissions |> hd() |> Map.fetch!(:prompt) =~ ~s("$schema")
-    assert [{"remote_work", 0, 1_000} | _rest] = state.activity_requests
+    assert [{^session_id, 0, 1_000} | _rest] = state.activity_requests
 
     assert [%{kind: "model.thought"}] = Activity.list_for_episode(claim.episode.id)
   end
@@ -490,7 +494,8 @@ defmodule Ryker.Work.ExecutorTest do
     assert {:ok, %{status: :accepted, turn: %{status: :delivery_pending}}} =
              Executor.run(claim, options(fake))
 
-    assert [{"remote_work", 0, 1_000} | _rest] = FakeAPI.state(fake).activity_requests
+    session_id = FakeAPI.state(fake).session["id"]
+    assert [{^session_id, 0, 1_000} | _rest] = FakeAPI.state(fake).activity_requests
     assert Activity.list_for_episode(claim.episode.id) == []
   end
 

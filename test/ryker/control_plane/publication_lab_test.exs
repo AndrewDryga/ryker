@@ -13,7 +13,7 @@ defmodule Ryker.ControlPlane.PublicationLabTest do
 
   alias Ryker.Work.{Cancellation, Custody, DeliveryReceipt, Result, SubmissionBuilder}
 
-  @conversation_id "018f3ef7-1f62-7ee0-a83c-0c12f21d83e6"
+  @conversation_id "018f3ef7-1f62-7ee0-a83c-0c12f21dc3e6"
   @now ~U[2026-08-30 18:00:00.000000Z]
   @digest String.duplicate("a", 64)
   @git String.duplicate("b", 40)
@@ -95,7 +95,7 @@ defmodule Ryker.ControlPlane.PublicationLabTest do
     assert approved.publication.status == :publish_pending
 
     assert actions.act_on_lab_record.(
-             "018f3ef7-1f62-7ee0-a83c-0c12f21d83e7",
+             "018f3ef7-1f62-7ee0-a83c-0c12f21dc3e7",
              fixture.record.ref,
              :approve_publication,
              nil
