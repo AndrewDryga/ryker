@@ -50,10 +50,12 @@ defmodule Ryker.ControlPlane.FailureProjection do
       )
       |> Enum.map(&admission_item/1)
 
+    # A learning session has no episode; an inner join hid every blocked
+    # learning cleanup from this page and from its retry.
     retention =
       Repo.all(
         from(session in Session,
-          join: episode in Episode,
+          left_join: episode in Episode,
           on: episode.id == session.episode_id,
           where: session.cleanup_status == :blocked,
           order_by: [desc: session.updated_at, desc: session.id],
@@ -154,7 +156,7 @@ defmodule Ryker.ControlPlane.FailureProjection do
   defp failure_exact("retention", ref) when is_binary(ref) and byte_size(ref) <= 1_024 do
     case Repo.one(
            from(session in Session,
-             join: episode in Episode,
+             left_join: episode in Episode,
              on: episode.id == session.episode_id,
              where: session.external_ref == ^ref and session.cleanup_status == :blocked,
              select: {session, episode}
@@ -346,19 +348,20 @@ defmodule Ryker.ControlPlane.FailureProjection do
     }
   end
 
-  defp retention_item({%Session{} = session, %Episode{} = episode}) do
+  defp retention_item({%Session{} = session, episode}) do
     %{
       action: :rearm,
       attempt_count: session.cleanup_attempt_count,
       detail: FailureDetail.project(session.cleanup_last_error_detail),
       diagnosis: FailureDetail.facts(session.cleanup_last_error_detail),
       cleanup_phase: session.cleanup_blocked_from,
-      request_state: episode.state,
+      request_state: episode && episode.state,
       closed_at: session.closed_at,
       discarded_at: session.discarded_at,
-      destination: failure_destination(episode),
-      episode_id: episode.id,
-      episode_ref: episode.key,
+      destination: episode && failure_destination(episode),
+      episode_id: episode && episode.id,
+      episode_ref: episode && episode.key,
+      execution_kind: session.execution_kind,
       kind: "retention",
       ref: session.external_ref,
       source: session.repository_ref || "no repository",

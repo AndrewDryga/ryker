@@ -16,10 +16,14 @@ defmodule Ryker.ControlPlane.WorkspaceProjection do
 
   @doc "The newest hundred worker sessions with their cleanup state and safe action."
   def list(_params) do
+    # A learning session has no episode; an inner join left every learning
+    # working copy, and any blocked cleanup of one, off this page. Admission
+    # sessions are routing, not working copies a task or a learning run keeps.
     Repo.all(
       from(session in Session,
-        join: episode in Episode,
+        left_join: episode in Episode,
         on: episode.id == session.episode_id,
+        where: session.execution_kind in [:work, :learning],
         order_by: [desc: session.updated_at, desc: session.id],
         limit: 100,
         select: {session, episode.state, episode.key}
@@ -33,9 +37,10 @@ defmodule Ryker.ControlPlane.WorkspaceProjection do
   def fetch(ref) when is_binary(ref) and byte_size(ref) <= 1_024 do
     case Repo.one(
            from(session in Session,
-             join: episode in Episode,
+             left_join: episode in Episode,
              on: episode.id == session.episode_id,
              where: session.external_ref == ^ref,
+             where: session.execution_kind in [:work, :learning],
              select: {session, episode.state, episode.key}
            )
          ) do
@@ -138,6 +143,7 @@ defmodule Ryker.ControlPlane.WorkspaceProjection do
       action: workspace_action(session),
       kind: "coop_session",
       episode_ref: episode_ref,
+      execution_kind: session.execution_kind,
       repository: session.repository_ref,
       discard_after: session.discard_after,
       ref: session.external_ref,
