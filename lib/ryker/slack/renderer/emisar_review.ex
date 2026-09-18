@@ -30,6 +30,17 @@ defmodule Ryker.Slack.Renderer.EmisarReview do
     end
   end
 
+  @doc """
+  The first card of a governed review, posted from the durable record before
+  the monitor has polled anything.
+  """
+  @spec approval_blocks(String.t(), map()) :: [map()]
+  def approval_blocks(ref, payload) do
+    status = Map.merge(payload, %{"remote_error" => nil, "review" => nil, "run_url" => nil})
+
+    review_blocks(status, ApprovalStatus.review_summary(status), ref)
+  end
+
   # One governed-review message, whether it is being posted from the durable
   # record or repainted from the authoritative poll. Both render the same card,
   # so the operator watches one message change rather than reading two designs.
@@ -139,14 +150,4 @@ defmodule Ryker.Slack.Renderer.EmisarReview do
 
   defp review_text(status, %{summary: summary}),
     do: "Emisar review · #{escape(status["action_id"])} · #{escape(summary)}"
-
-  # The first card of a governed review, before the monitor has polled anything.
-  # It is the SAME card the authoritative status repaints, so the operator sees
-  # one message gain its decisions rather than two different designs.
-  @spec approval_blocks(String.t(), map()) :: [map()]
-  def approval_blocks(ref, payload) do
-    status = Map.merge(payload, %{"remote_error" => nil, "review" => nil, "run_url" => nil})
-
-    review_blocks(status, ApprovalStatus.review_summary(status), ref)
-  end
 end
