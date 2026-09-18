@@ -60,7 +60,6 @@ defmodule Ryker.State.Records do
           parallel_goal_limit
         )
       end)
-      |> transaction_result()
     end
   end
 
@@ -522,8 +521,7 @@ defmodule Ryker.State.Records do
          %{"deadline_at" => deadline_at, "kind" => "wait", "wait_kind" => "event"}
        ) do
     with {:ok, deadline, 0} <- DateTime.from_iso8601(deadline_at),
-         {:ok, %{rows: [[%DateTime{} = now]]}} <- Repo.query("SELECT clock_timestamp()"),
-         :gt <- DateTime.compare(deadline, now) do
+         :gt <- DateTime.compare(deadline, Repo.now!()) do
       :ok
     else
       _elapsed_or_invalid -> {:error, :deadline_elapsed}
@@ -949,7 +947,4 @@ defmodule Ryker.State.Records do
 
   defp persistence_result({:error, %Ecto.Changeset{} = changeset}),
     do: {:error, {:state_record_persistence_failed, changeset.errors}}
-
-  defp transaction_result({:ok, record}), do: {:ok, record}
-  defp transaction_result({:error, reason}), do: {:error, reason}
 end

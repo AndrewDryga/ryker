@@ -24,6 +24,7 @@ defmodule Ryker.State.Automations do
     ScheduleChangeset,
     ScheduleOccurrence,
     ScheduleRecurrence,
+    Scope,
     StandingAssignmentRun
   }
 
@@ -37,7 +38,7 @@ defmodule Ryker.State.Automations do
 
   @spec list_for_episode(Episode.t()) :: [map()]
   def list_for_episode(%Episode{} = episode) do
-    workspace = workspace_ref(episode)
+    workspace = Scope.workspace_ref(episode)
 
     schedules =
       Repo.all(
@@ -121,7 +122,6 @@ defmodule Ryker.State.Automations do
       Repo.transaction(fn ->
         confirm_locked(%{attributes | occurred_at: occurred_at, target: target})
       end)
-      |> transaction_result()
     end
   end
 
@@ -649,7 +649,7 @@ defmodule Ryker.State.Automations do
   end
 
   defp visible_behavior_query(episode, automation_id) do
-    workspace = workspace_ref(episode)
+    workspace = Scope.workspace_ref(episode)
 
     from(behavior in Behavior,
       where:
@@ -816,25 +816,8 @@ defmodule Ryker.State.Automations do
       else: {:error, :invalid_arguments}
   end
 
-  defp workspace_ref(%Episode{
-         destination_transport: "slack",
-         destination_conversation_ref: "slack:" <> rest
-       }),
-       do: "slack:" <> (rest |> String.split(":", parts: 2) |> hd())
-
-  defp workspace_ref(%Episode{
-         destination_transport: "github",
-         destination_conversation_ref: "github:" <> rest
-       }),
-       do: "github:" <> (rest |> String.split(":", parts: 2) |> hd())
-
-  defp workspace_ref(%Episode{} = episode), do: episode.destination_conversation_ref
-
   defp persistence_result({:ok, resource}, _kind), do: {:ok, resource}
 
   defp persistence_result({:error, %Ecto.Changeset{} = changeset}, kind),
     do: {:error, {:automation_persistence_failed, kind, changeset.errors}}
-
-  defp transaction_result({:ok, result}), do: {:ok, result}
-  defp transaction_result({:error, reason}), do: {:error, reason}
 end

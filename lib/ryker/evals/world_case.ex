@@ -231,7 +231,7 @@ defmodule Ryker.Evals.WorldCase do
          provenance: scenario["provenance"],
          tags: scenario["tags"],
          tool_catalog: catalog,
-         tool_catalog_digest: sha256(CanonicalJSON.encode!(catalog)),
+         tool_catalog_digest: CanonicalJSON.digest(catalog),
          world: scenario["world"]
        }}
     else
@@ -605,7 +605,7 @@ defmodule Ryker.Evals.WorldCase do
          {:ok, entries} <- repository_entries(path, path, []),
          true <- entries != [] and length(entries) <= @maximum_repository_files,
          true <- Enum.sum(Enum.map(entries, & &1["bytes"])) <= @maximum_repository_bytes do
-      {:ok, entries |> CanonicalJSON.encode!() |> sha256()}
+      {:ok, CanonicalJSON.digest(entries)}
     else
       _invalid -> {:error, :repository_digest}
     end

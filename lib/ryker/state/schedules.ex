@@ -42,7 +42,6 @@ defmodule Ryker.State.Schedules do
       Repo.transaction(fn ->
         confirm_locked(%{attributes | occurred_at: occurred_at, target: target})
       end)
-      |> transaction_result()
     end
   end
 
@@ -51,7 +50,6 @@ defmodule Ryker.State.Schedules do
     with :ok <- reference(worker_ref, :worker_ref),
          :ok <- positive(lease_seconds, :lease_seconds) do
       Repo.transaction(fn -> claim_due_locked(worker_ref, lease_seconds, 0) end)
-      |> transaction_result()
     end
   end
 
@@ -70,7 +68,6 @@ defmodule Ryker.State.Schedules do
       Repo.transaction(fn ->
         dispatch_locked(schedule_ref, lease_ref, policy_resolver, misfire_grace_seconds)
       end)
-      |> transaction_result()
     end
   end
 
@@ -83,7 +80,6 @@ defmodule Ryker.State.Schedules do
          :ok <- reference(lease_ref, :lease_ref),
          :ok <- positive(lease_seconds, :lease_seconds) do
       Repo.transaction(fn -> renew_locked(schedule_ref, lease_ref, lease_seconds) end)
-      |> transaction_result()
     end
   end
 
@@ -94,7 +90,6 @@ defmodule Ryker.State.Schedules do
          :ok <- reference(lease_ref, :lease_ref),
          :ok <- positive(delay_seconds, :delay_seconds) do
       Repo.transaction(fn -> defer_locked(schedule_ref, lease_ref, delay_seconds, reason) end)
-      |> transaction_result()
     end
   end
 
@@ -103,7 +98,6 @@ defmodule Ryker.State.Schedules do
   def set_status(schedule_ref, status) when status in [:paused, :active, :deleted] do
     with :ok <- reference(schedule_ref, :schedule_ref) do
       Repo.transaction(fn -> set_status_locked(schedule_ref, status, nil) end)
-      |> transaction_result()
     end
   end
 
@@ -115,7 +109,6 @@ defmodule Ryker.State.Schedules do
     with :ok <- reference(schedule_ref, :schedule_ref),
          {:ok, scope} <- status_scope(scope) do
       Repo.transaction(fn -> set_status_locked(schedule_ref, status, scope) end)
-      |> transaction_result()
     end
   end
 
@@ -324,7 +317,7 @@ defmodule Ryker.State.Schedules do
   end
 
   defp claim_due_locked(worker_ref, lease_seconds, skipped) when skipped < 100 do
-    now = database_now!()
+    now = Repo.now!()
 
     schedule =
       Repo.one(
@@ -370,7 +363,7 @@ defmodule Ryker.State.Schedules do
   defp claim_due_locked(_worker_ref, _lease_seconds, _skipped), do: nil
 
   defp renew_locked(schedule_ref, lease_ref, lease_seconds) do
-    now = database_now!()
+    now = Repo.now!()
 
     case live_schedule_lease(schedule_ref, lease_ref, now) do
       {:ok, schedule} ->
@@ -384,7 +377,7 @@ defmodule Ryker.State.Schedules do
   end
 
   defp defer_locked(schedule_ref, lease_ref, delay_seconds, reason) do
-    now = database_now!()
+    now = Repo.now!()
 
     case live_schedule_lease(schedule_ref, lease_ref, now) do
       {:ok, schedule} ->
@@ -403,7 +396,7 @@ defmodule Ryker.State.Schedules do
   end
 
   defp dispatch_locked(schedule_ref, lease_ref, policy_resolver, misfire_grace_seconds) do
-    now = database_now!()
+    now = Repo.now!()
 
     case live_schedule_lease(schedule_ref, lease_ref, now) do
       {:ok, schedule} ->
@@ -697,7 +690,7 @@ defmodule Ryker.State.Schedules do
         {:error, :schedule_not_found}
 
       %Schedule{} = schedule ->
-        run_now_schedule(schedule, database_now!(), scope, policy_resolver)
+        run_now_schedule(schedule, Repo.now!(), scope, policy_resolver)
     end
   end
 
@@ -707,7 +700,7 @@ defmodule Ryker.State.Schedules do
         {:error, :schedule_not_found}
 
       %Schedule{} = schedule ->
-        now = database_now!()
+        now = Repo.now!()
 
         cond do
           not schedule_in_scope?(schedule, scope) ->
@@ -956,12 +949,4 @@ defmodule Ryker.State.Schedules do
     value = inspect(reason, limit: 20, printable_limit: 3_500, width: 120)
     if byte_size(value) <= 4_096, do: value, else: String.byte_slice(value, 0, 4_093) <> "..."
   end
-
-  defp database_now! do
-    {:ok, %{rows: [[%DateTime{} = now]]}} = Repo.query("SELECT clock_timestamp()")
-    now
-  end
-
-  defp transaction_result({:ok, result}), do: {:ok, result}
-  defp transaction_result({:error, reason}), do: {:error, reason}
 end

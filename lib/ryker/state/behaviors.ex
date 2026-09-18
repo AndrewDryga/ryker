@@ -25,6 +25,7 @@ defmodule Ryker.State.Behaviors do
     MemorySourceLink,
     Record,
     RecordChangeset,
+    Scope,
     SourceEventMatcher,
     StandingAssignmentRun,
     StandingAssignmentRunChangeset,
@@ -52,7 +53,6 @@ defmodule Ryker.State.Behaviors do
       Repo.transaction(fn ->
         confirm_locked(%{attributes | occurred_at: occurred_at, target: target})
       end)
-      |> transaction_result()
     end
   end
 
@@ -61,7 +61,6 @@ defmodule Ryker.State.Behaviors do
   def set_status(ref, status) when status in [:active, :disabled, :deleted] do
     with :ok <- reference(ref, :behavior_ref) do
       Repo.transaction(fn -> set_status_locked(ref, status, nil) end)
-      |> transaction_result()
     end
   end
 
@@ -73,7 +72,6 @@ defmodule Ryker.State.Behaviors do
     with :ok <- reference(ref, :behavior_ref),
          :ok <- reference(workspace_ref, :workspace_ref) do
       Repo.transaction(fn -> set_status_locked(ref, status, workspace_ref) end)
-      |> transaction_result()
     end
   end
 
@@ -88,7 +86,6 @@ defmodule Ryker.State.Behaviors do
          :ok <- reference(actor_ref, :actor_ref),
          :ok <- reference(workspace_ref, :workspace_ref) do
       Repo.transaction(fn -> set_home_status_locked(ref, status, actor_ref, workspace_ref) end)
-      |> transaction_result()
     end
   end
 
@@ -207,7 +204,7 @@ defmodule Ryker.State.Behaviors do
   @spec assignments_for_channel(String.t(), String.t()) :: [Behavior.t()]
   def assignments_for_channel(workspace_ref, conversation_ref) do
     if reference_value?(workspace_ref) and reference_value?(conversation_ref) do
-      now = database_now!()
+      now = Repo.now!()
 
       Repo.all(
         from(behavior in Behavior,
@@ -236,7 +233,6 @@ defmodule Ryker.State.Behaviors do
       Repo.transaction(fn ->
         manage_assignment_locked(ref, status, workspace_ref, conversation_ref)
       end)
-      |> transaction_result()
     end
   end
 
@@ -300,8 +296,7 @@ defmodule Ryker.State.Behaviors do
       conversation_ref: episode.destination_conversation_ref,
       operator_ref: operator_ref,
       repository: repository,
-      workspace_ref:
-        workspace_ref(episode.destination_transport, episode.destination_conversation_ref)
+      workspace_ref: Scope.workspace_ref(episode)
     }
 
     %{
@@ -357,7 +352,7 @@ defmodule Ryker.State.Behaviors do
   defp account_guidance([]), do: []
 
   defp account_guidance(behaviors) do
-    now = database_now!()
+    now = Repo.now!()
 
     unchanged =
       Enum.reduce(behaviors, dynamic(false), fn behavior, condition ->
@@ -525,8 +520,11 @@ defmodule Ryker.State.Behaviors do
     do: {:error, {:invalid_standing_rule_inventory, :input}}
 
   defp record_rule_inventory_locked(input, input_ref) do
-    now = database_now!()
-    workspace = workspace_ref(input.destination.transport, input.destination.conversation_ref)
+    now = Repo.now!()
+
+    workspace =
+      Scope.workspace_ref(input.destination.transport, input.destination.conversation_ref)
+
     rules = workspace_rules(workspace)
     listed = Enum.take(rules, @inventory_limit)
 
@@ -814,7 +812,7 @@ defmodule Ryker.State.Behaviors do
          episode,
          attributes
        ) do
-    workspace = workspace_ref(episode.destination_transport, episode.destination_conversation_ref)
+    workspace = Scope.workspace_ref(episode)
 
     with {:ok, expires_at} <- source_event_expiry(payload["expires_at"], attributes.occurred_at) do
       {:ok,
@@ -835,7 +833,7 @@ defmodule Ryker.State.Behaviors do
          episode,
          attributes
        ) do
-    workspace = workspace_ref(episode.destination_transport, episode.destination_conversation_ref)
+    workspace = Scope.workspace_ref(episode)
 
     {:ok,
      %{
@@ -850,7 +848,7 @@ defmodule Ryker.State.Behaviors do
   end
 
   defp prepare_scoped(kind, identity_key, payload, episode, attributes) do
-    workspace = workspace_ref(episode.destination_transport, episode.destination_conversation_ref)
+    workspace = Scope.workspace_ref(episode)
     scope_kind = scope_kind(payload["scope"])
 
     scope_ref =
@@ -874,7 +872,7 @@ defmodule Ryker.State.Behaviors do
   end
 
   defp capacity(prepared) do
-    now = database_now!()
+    now = Repo.now!()
 
     existing? = existing_behavior?(prepared)
     total = active_behavior_count(prepared.workspace_ref, now)
@@ -931,7 +929,7 @@ defmodule Ryker.State.Behaviors do
               behavior.scope_ref == ^prepared.scope_ref and
               behavior.identity_key == ^prepared.identity_key and behavior.status == :active
         ),
-        set: [status: :superseded, updated_at: database_now!()],
+        set: [status: :superseded, updated_at: Repo.now!()],
         inc: [revision: 1]
       )
 
@@ -940,7 +938,7 @@ defmodule Ryker.State.Behaviors do
 
   defp insert_behavior(record, episode, attributes, prepared) do
     id = Ecto.UUID.generate()
-    now = database_now!()
+    now = Repo.now!()
 
     prepared
     |> Map.merge(%{
@@ -991,7 +989,7 @@ defmodule Ryker.State.Behaviors do
   end
 
   defp active_for_context(kind, context) do
-    now = database_now!()
+    now = Repo.now!()
 
     scope_filter =
       Enum.reduce(context_clauses(context), dynamic([behavior], false), fn {scope_kind, scope_ref},
@@ -1080,7 +1078,7 @@ defmodule Ryker.State.Behaviors do
   end
 
   defp matching_assignments(input, lock?) do
-    query = runtime_candidates(input, database_now!())
+    query = runtime_candidates(input, Repo.now!())
     query = if lock?, do: from(behavior in query, lock: "FOR SHARE"), else: query
 
     query
@@ -1092,7 +1090,8 @@ defmodule Ryker.State.Behaviors do
   # inventory recorder so "not considered" there means precisely "outside this
   # window", never a second opinion about eligibility.
   defp runtime_candidates(input, now) do
-    workspace = workspace_ref(input.destination.transport, input.destination.conversation_ref)
+    workspace =
+      Scope.workspace_ref(input.destination.transport, input.destination.conversation_ref)
 
     from(behavior in Behavior,
       where:
@@ -1149,7 +1148,7 @@ defmodule Ryker.State.Behaviors do
   end
 
   defp finalize_assignment_runs_locked(input_ref, action, decision_ref, episode, outcome) do
-    now = database_now!()
+    now = Repo.now!()
     episode_id = if action in [:start_episode, :continue_episode, :reply], do: episode.id
 
     Repo.all(
@@ -1209,7 +1208,6 @@ defmodule Ryker.State.Behaviors do
       {:ok, callback.()}
     else
       Repo.transaction(callback)
-      |> transaction_result()
     end
   end
 
@@ -1340,22 +1338,6 @@ defmodule Ryker.State.Behaviors do
     end
   end
 
-  defp workspace_ref("slack", conversation_ref) do
-    case String.split(conversation_ref, ":", parts: 3) do
-      ["slack", workspace_ref, _channel_ref] -> "slack:#{workspace_ref}"
-      _invalid -> conversation_ref
-    end
-  end
-
-  defp workspace_ref("github", conversation_ref) do
-    case String.split(conversation_ref, ":", parts: 3) do
-      ["github", binding_ref, _rest] -> "github:#{binding_ref}"
-      _invalid -> conversation_ref
-    end
-  end
-
-  defp workspace_ref(_transport, conversation_ref), do: conversation_ref
-
   defp expires_at(confirmed_at, "7d"), do: DateTime.add(confirmed_at, 7, :day)
   defp expires_at(confirmed_at, "30d"), do: DateTime.add(confirmed_at, 30, :day)
   defp expires_at(confirmed_at, "90d"), do: DateTime.add(confirmed_at, 90, :day)
@@ -1436,12 +1418,4 @@ defmodule Ryker.State.Behaviors do
     is_binary(value) and String.valid?(value) and byte_size(value) in 1..1_024 and
       :binary.match(value, <<0>>) == :nomatch and String.trim(value) != ""
   end
-
-  defp database_now! do
-    {:ok, %{rows: [[%DateTime{} = now]]}} = Repo.query("SELECT clock_timestamp()")
-    now
-  end
-
-  defp transaction_result({:ok, result}), do: {:ok, result}
-  defp transaction_result({:error, reason}), do: {:error, reason}
 end

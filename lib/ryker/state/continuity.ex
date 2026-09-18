@@ -46,7 +46,6 @@ defmodule Ryker.State.Continuity do
     with {:ok, state} <- ConversationSummaryState.prepare(state),
          {:ok, turn_id} <- Ecto.UUID.cast(turn_id) do
       Repo.transaction(fn -> stage_locked(turn_id, state) end)
-      |> transaction_result()
     else
       :error -> {:error, :conversation_summary_unauthorized}
       {:error, _reason} = error -> error
@@ -306,8 +305,8 @@ defmodule Ryker.State.Continuity do
   defp account_search_result({:ok, item, position}, kind, context) do
     if continuity_search_candidate_visible?({kind, item}, context) do
       if kind == :summary,
-        do: mark_summaries_recalled([item], database_now!()),
-        else: mark_rollups_recalled([item], database_now!())
+        do: mark_summaries_recalled([item], Repo.now!()),
+        else: mark_rollups_recalled([item], Repo.now!())
 
       {:ok, continuity_search_document({kind, item}), position}
     else
@@ -318,7 +317,7 @@ defmodule Ryker.State.Continuity do
   defp account_search_result(:done, _kind, _context), do: :done
 
   defp compact_locked(summary_age_seconds, rollup_retention_seconds) do
-    before = DateTime.add(database_now!(), -summary_age_seconds, :second)
+    before = DateTime.add(Repo.now!(), -summary_age_seconds, :second)
 
     from(summary in ConversationSummary,
       as: :summary,
@@ -702,7 +701,7 @@ defmodule Ryker.State.Continuity do
   # first identity.
   defp persist_summary(attributes) do
     id = Ecto.UUID.generate()
-    now = database_now!()
+    now = Repo.now!()
 
     attributes
     |> Map.merge(%{id: id, ref: "continuity:#{id}"})
@@ -768,7 +767,7 @@ defmodule Ryker.State.Continuity do
 
     related = related_summaries(context)
     rollups = related_rollups(context)
-    now = database_now!()
+    now = Repo.now!()
 
     mark_summaries_recalled(Enum.reject([current | related], &is_nil/1), now)
     mark_rollups_recalled(rollups, now)
@@ -1217,7 +1216,7 @@ defmodule Ryker.State.Continuity do
     do: defer_compaction(sources, "scope_capacity")
 
   defp complete_compaction(existing, sources, attributes) do
-    if DateTime.after?(attributes.expires_at, database_now!()) do
+    if DateTime.after?(attributes.expires_at, Repo.now!()) do
       persist_and_delete_compacted(existing, sources, attributes)
     else
       delete_expired_rollup(existing)
@@ -1228,7 +1227,7 @@ defmodule Ryker.State.Continuity do
 
   defp defer_compaction(sources, reason) do
     ids = Enum.map(sources, & &1.id)
-    retry_at = DateTime.add(database_now!(), 3600, :second)
+    retry_at = DateTime.add(Repo.now!(), 3600, :second)
 
     Repo.update_all(from(s in ConversationSummary, where: s.id in ^ids),
       set: [compaction_error_code: reason, compaction_retry_at: retry_at]
@@ -1259,7 +1258,7 @@ defmodule Ryker.State.Continuity do
 
   defp persist_rollup(nil, attributes) do
     id = Ecto.UUID.generate()
-    now = database_now!()
+    now = Repo.now!()
 
     attributes
     |> Map.merge(%{id: id, ref: "continuity-rollup:#{id}"})
@@ -1272,7 +1271,7 @@ defmodule Ryker.State.Continuity do
   defp persist_rollup(rollup, attributes) do
     attributes
     |> rollup_changeset(rollup)
-    |> Changeset.force_change(:updated_at, database_now!())
+    |> Changeset.force_change(:updated_at, Repo.now!())
     |> Repo.update()
     |> rollup_result()
   end
@@ -1506,12 +1505,4 @@ defmodule Ryker.State.Continuity do
   end
 
   defp empty_context, do: %{"current" => nil, "related" => [], "rollups" => []}
-
-  defp database_now! do
-    {:ok, %{rows: [[%DateTime{} = now]]}} = Repo.query("SELECT clock_timestamp()")
-    now
-  end
-
-  defp transaction_result({:ok, result}), do: {:ok, result}
-  defp transaction_result({:error, reason}), do: {:error, reason}
 end

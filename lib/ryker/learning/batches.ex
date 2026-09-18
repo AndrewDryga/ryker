@@ -15,7 +15,7 @@ defmodule Ryker.Learning.Batches do
 
   def claim(worker, settings) do
     Repo.transaction(fn ->
-      now = now!()
+      now = Repo.now!()
       # Only queue assignment is serialized, never model execution. This keeps
       # exclusive membership and the single active scope invariant one decision.
       Repo.query!("SELECT pg_advisory_xact_lock(hashtextextended('learning-queue', 0))")
@@ -27,7 +27,11 @@ defmodule Ryker.Learning.Batches do
   def renew(claim, seconds) do
     Repo.transaction(fn ->
       batch = owned!(claim)
-      save(batch, heartbeat_at: now!(), lease_expires_at: DateTime.add(now!(), seconds))
+
+      save(batch,
+        heartbeat_at: Repo.now!(),
+        lease_expires_at: DateTime.add(Repo.now!(), seconds)
+      )
     end)
   end
 
@@ -56,7 +60,10 @@ defmodule Ryker.Learning.Batches do
   defp start_once(batch, %{started_at: nil} = run) do
     if batch.start_count >= batch.start_limit, do: Repo.rollback(:learning_retry_exhausted)
     save(batch, start_count: batch.start_count + 1)
-    run |> Ecto.Changeset.change(started_at: now!(), batch_id: batch.id) |> Repo.update!()
+
+    run
+    |> Ecto.Changeset.change(started_at: Repo.now!(), batch_id: batch.id)
+    |> Repo.update!()
   end
 
   defp start_once(_batch, run), do: run
@@ -73,7 +80,7 @@ defmodule Ryker.Learning.Batches do
           from(m in InputMembership,
             where: m.batch_id == ^batch.id and is_nil(m.terminal_reason)
           ),
-          set: [terminal_reason: code, updated_at: now!()]
+          set: [terminal_reason: code, updated_at: Repo.now!()]
         )
       end
 
@@ -84,8 +91,8 @@ defmodule Ryker.Learning.Batches do
         status: if(terminal, do: :deferred, else: :queued),
         error_code: code,
         # The failing conversation rests; unrelated conversations remain eligible.
-        next_attempt_at: DateTime.add(now!(), if(terminal, do: 3600, else: delay_seconds)),
-        completed_at: if(terminal, do: now!())
+        next_attempt_at: DateTime.add(Repo.now!(), if(terminal, do: 3600, else: delay_seconds)),
+        completed_at: if(terminal, do: Repo.now!())
       )
     end)
   end
@@ -113,7 +120,7 @@ defmodule Ryker.Learning.Batches do
 
       Repo.update_all(
         from(m in InputMembership, where: m.batch_id == ^batch.id and is_nil(m.terminal_reason)),
-        set: [terminal_reason: reason || Atom.to_string(status), updated_at: now!()]
+        set: [terminal_reason: reason || Atom.to_string(status), updated_at: Repo.now!()]
       )
 
       save(batch,
@@ -122,7 +129,7 @@ defmodule Ryker.Learning.Batches do
         lease_expires_at: nil,
         status: status,
         error_code: reason,
-        completed_at: now!(),
+        completed_at: Repo.now!(),
         next_attempt_at: deferred_until(status, reason)
       )
     end)
@@ -133,7 +140,7 @@ defmodule Ryker.Learning.Batches do
   defp deferred_until(:deferred, reason)
        when reason in ~w(knowledge_rebuild_conflict learning_batch_mismatch), do: nil
 
-  defp deferred_until(:deferred, _reason), do: DateTime.add(now!(), 3600)
+  defp deferred_until(:deferred, _reason), do: DateTime.add(Repo.now!(), 3600)
   defp deferred_until(_status, _reason), do: nil
 
   def authorize(claim), do: Repo.transaction(fn -> owned!(claim) end)
@@ -259,7 +266,7 @@ defmodule Ryker.Learning.Batches do
     # bill. Unused starts from a failed grant do not accumulate. The independent
     # version prevents stale-form ABA when this ceiling gets smaller.
     Repo.update_all(from(m in members, where: m.input_id in ^valid_ids),
-      set: [terminal_reason: nil, updated_at: now!()]
+      set: [terminal_reason: nil, updated_at: Repo.now!()]
     )
 
     changed =
@@ -323,7 +330,7 @@ defmodule Ryker.Learning.Batches do
     valid_ids = entries |> Enum.filter(&learnable_entry?(&1, batch)) |> Enum.map(& &1.id)
 
     Repo.update_all(from(m in members, where: m.input_id not in ^valid_ids),
-      set: [terminal_reason: "source_unavailable", updated_at: now!()]
+      set: [terminal_reason: "source_unavailable", updated_at: Repo.now!()]
     )
 
     valid_ids
@@ -371,7 +378,7 @@ defmodule Ryker.Learning.Batches do
         lease_ref: nil,
         lease_owner: nil,
         lease_expires_at: nil,
-        next_attempt_at: DateTime.add(now!(), delay_seconds)
+        next_attempt_at: DateTime.add(Repo.now!(), delay_seconds)
       )
     end)
   end
@@ -686,7 +693,7 @@ defmodule Ryker.Learning.Batches do
     batch = Repo.one(from(b in Batch, where: b.id == ^claim.batch.id, lock: "FOR UPDATE"))
 
     unless batch && batch.status == :running && batch.lease_ref == claim.lease_ref &&
-             DateTime.compare(batch.lease_expires_at, now!()) == :gt,
+             DateTime.compare(batch.lease_expires_at, Repo.now!()) == :gt,
            do: Repo.rollback(:learning_lease_lost)
 
     batch
@@ -703,9 +710,4 @@ defmodule Ryker.Learning.Batches do
       |> CanonicalJSON.digest()
 
   defp save(row, attrs), do: row |> Ecto.Changeset.change(attrs) |> Repo.update!()
-
-  defp now! do
-    %{rows: [[now]]} = Repo.query!("SELECT clock_timestamp()")
-    now
-  end
 end

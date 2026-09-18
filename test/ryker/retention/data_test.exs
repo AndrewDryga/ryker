@@ -18,18 +18,22 @@ defmodule Ryker.Retention.DataTest do
   alias Ryker.Repo
   alias Ryker.Retention.Custody, as: RetentionCustody
   alias Ryker.Retention.{Data, Operator, OperatorAction}
-  alias Ryker.Slack.{IncidentRoom, IncidentRoomLifecycleEvent}
+  alias Ryker.Slack.{IncidentRoom, IncidentRoomLifecycleEvent, ThreadStatusReceipts}
   alias Ryker.Slack.Input, as: SlackInput
 
   alias Ryker.State.{
+    BehaviorChangeset,
     Behaviors,
     CaseRecord,
     Learning,
+    Record,
     RecordChangeset,
     Schedule,
     ScheduleChangeset,
     ScheduleOccurrence,
     ScheduleOccurrenceChangeset,
+    StandingAssignmentRun,
+    StandingAssignmentRunChangeset,
     StandingRuleInventory
   }
 
@@ -481,7 +485,7 @@ defmodule Ryker.Retention.DataTest do
     source = settled_work!("room-source")
     linked = settled_work!("room-linked") |> discard_session!()
     insert_open_record!(source)
-    record = Repo.get_by!(Ryker.State.Record, episode_id: source.episode.id)
+    record = Repo.get_by!(Record, episode_id: source.episode.id)
 
     Repo.query!("UPDATE episode_kernel_episodes SET state = 'waiting_for_input' WHERE id = $1", [
       uuid!(source.episode.id)
@@ -528,9 +532,9 @@ defmodule Ryker.Retention.DataTest do
     assert {:ok, _result} =
              Data.prune(settings(episode_history_seconds: 60, operational_data_seconds: 60))
 
-    assert Repo.get(Ryker.State.StandingAssignmentRun, run.id)
+    assert Repo.get(StandingAssignmentRun, run.id)
     assert Repo.get(StandingRuleInventory, inventory.id)
-    assert Repo.get(Ryker.Slack.ThreadStatusReceipts, receipt.id)
+    assert Repo.get(ThreadStatusReceipts, receipt.id)
 
     Repo.query!("UPDATE episode_kernel_episodes SET state = 'complete' WHERE id = $1", [
       uuid!(work.episode.id)
@@ -539,9 +543,9 @@ defmodule Ryker.Retention.DataTest do
     assert {:ok, _result} =
              Data.prune(settings(episode_history_seconds: 60, operational_data_seconds: 60))
 
-    assert Repo.get(Ryker.State.StandingAssignmentRun, run.id) == nil
+    assert Repo.get(StandingAssignmentRun, run.id) == nil
     assert Repo.get(StandingRuleInventory, inventory.id) == nil
-    assert Repo.get(Ryker.Slack.ThreadStatusReceipts, receipt.id) == nil
+    assert Repo.get(ThreadStatusReceipts, receipt.id) == nil
   end
 
   test "an input a learning run is still judging keeps its body past the operational horizon" do
@@ -1102,7 +1106,7 @@ defmodule Ryker.Retention.DataTest do
       id: behavior_id,
       identity_key: "standing:#{behavior_id}",
       kind: :standing_assignment,
-      offer_record_id: Repo.get_by!(Ryker.State.Record, episode_id: episode_id).id,
+      offer_record_id: Repo.get_by!(Record, episode_id: episode_id).id,
       payload: %{
         "action" => "verify_deployment",
         "repository" => nil,
@@ -1122,7 +1126,7 @@ defmodule Ryker.Retention.DataTest do
       status: :active,
       workspace_ref: "slack:T123"
     }
-    |> Ryker.State.BehaviorChangeset.insert()
+    |> BehaviorChangeset.insert()
     |> Repo.insert!()
 
     run_id = Ecto.UUID.generate()
@@ -1139,7 +1143,7 @@ defmodule Ryker.Retention.DataTest do
         source_event_ref: entry.event_ref,
         source_input_ref: Inbox.ref(entry)
       }
-      |> Ryker.State.StandingAssignmentRunChangeset.insert()
+      |> StandingAssignmentRunChangeset.insert()
       |> Repo.insert!()
 
     Repo.query!("UPDATE standing_assignment_runs SET inserted_at = $1 WHERE id = $2", [
@@ -1151,7 +1155,7 @@ defmodule Ryker.Retention.DataTest do
   end
 
   defp insert_status_receipt!(episode_id) do
-    Repo.insert!(%Ryker.Slack.ThreadStatusReceipts{
+    Repo.insert!(%ThreadStatusReceipts{
       channel_ref: "C456",
       generation: 1,
       id: Ecto.UUID.generate(),

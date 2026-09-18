@@ -121,7 +121,7 @@ defmodule Ryker.State.Observations do
              entry.destination_conversation_ref
            ),
          {:ok, scope} <- Continuity.destination_context(entry, entry.repository_ref) do
-      now = Keyword.get_lazy(options, :received_at, &database_now!/0)
+      now = Keyword.get_lazy(options, :received_at, &Repo.now!/0)
       scope = Map.put(scope, :visibility, Keyword.get(options, :visibility, scope.visibility))
 
       # Keep a revision tombstone even when an edit has nothing to remember. A
@@ -512,9 +512,4 @@ defmodule Ryker.State.Observations do
       is_binary(value) and String.valid?(value) and
         String.length(value) <= maximum and String.trim(value) != "" and
         not String.contains?(value, <<0>>)
-
-  defp database_now! do
-    %{rows: [[now]]} = Repo.query!("SELECT clock_timestamp()")
-    now
-  end
 end

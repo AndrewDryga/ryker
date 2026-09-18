@@ -66,7 +66,6 @@ defmodule Ryker.Retention.Operator do
           request_fingerprint
         )
       end)
-      |> transaction_result()
     end
   end
 
@@ -207,7 +206,7 @@ defmodule Ryker.Retention.Operator do
          previous_status,
          previous_plan_fingerprint
        ) do
-    occurred_at = database_now!()
+    occurred_at = Repo.now!()
 
     %OperatorAction{}
     |> Ecto.Changeset.cast(
@@ -274,11 +273,6 @@ defmodule Ryker.Retention.Operator do
     |> Repo.update!()
   end
 
-  defp database_now! do
-    %{rows: [[%DateTime{} = now]]} = Repo.query!("SELECT clock_timestamp()")
-    now
-  end
-
   defp reference(value, _field) when is_binary(value) do
     if String.valid?(value) and :binary.match(value, <<0>>) == :nomatch and
          String.trim(value) != "" and byte_size(value) <= 1_024,
@@ -298,7 +292,4 @@ defmodule Ryker.Retention.Operator do
 
   defp optional_fingerprint(_value),
     do: {:error, {:invalid_retention_operator, :expected_plan_fingerprint}}
-
-  defp transaction_result({:ok, value}), do: {:ok, value}
-  defp transaction_result({:error, reason}), do: {:error, reason}
 end

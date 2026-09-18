@@ -13,7 +13,8 @@ defmodule Ryker.State.MemorySearch do
     Memories,
     MemorySearchPage,
     MemorySourceLink,
-    Observations
+    Observations,
+    Scope
   }
 
   alias Ryker.StateTools.Binding
@@ -337,17 +338,11 @@ defmodule Ryker.State.MemorySearch do
     do: Continuity.search_page(:rollup, binding.episode, binding.session.repository_ref, page)
 
   defp context(binding) do
-    episode = binding.episode
-    ref = episode.destination_conversation_ref
-
-    workspace =
-      case {episode.destination_transport, String.split(ref, ":", parts: 3)} do
-        {"slack", ["slack", id, _]} -> "slack:#{id}"
-        {"github", ["github", id, _]} -> "github:#{id}"
-        _ -> ref
-      end
-
-    %{conversation_ref: ref, repository: binding.session.repository_ref, workspace_ref: workspace}
+    %{
+      conversation_ref: binding.episode.destination_conversation_ref,
+      repository: binding.session.repository_ref,
+      workspace_ref: Scope.workspace_ref(binding.episode)
+    }
   end
 
   defp latest_operator_ref(episode) do

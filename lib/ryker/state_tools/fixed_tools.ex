@@ -672,16 +672,14 @@ defmodule Ryker.StateTools.FixedTools do
   defp tool_binding(_options), do: {:error, :unauthorized}
 
   defp operation_id(binding, tool, arguments) do
-    digest(
-      CanonicalJSON.encode!(%{
+    "host:" <>
+      CanonicalJSON.digest(%{
         "contract_version" => @contract_version,
         "episode_id" => binding.episode.id,
         "host_slot" => host_slot(tool, arguments),
         "tool" => tool,
         "turn_id" => binding.turn.id
       })
-    )
-    |> then(&("host:" <> &1))
   end
 
   defp host_slot("request_input", _arguments), do: "question-set"
@@ -703,9 +701,9 @@ defmodule Ryker.StateTools.FixedTools do
   defp host_slot("record_feedback", arguments),
     do: [arguments["target_message_ref"], arguments["category"]]
 
-  defp host_slot("validate_final", arguments), do: digest(CanonicalJSON.encode!(arguments))
+  defp host_slot("validate_final", arguments), do: CanonicalJSON.digest(arguments)
   defp host_slot("propose_automation:" <> index, _arguments), do: index
-  defp host_slot(_tool, arguments), do: digest(CanonicalJSON.encode!(arguments))
+  defp host_slot(_tool, arguments), do: CanonicalJSON.digest(arguments)
 
   defp exact_schema(name, arguments, options) do
     case Enum.find(list(options), &(&1["name"] == name)) do
@@ -915,7 +913,7 @@ defmodule Ryker.StateTools.FixedTools do
   end
 
   defp subject_ref(prefix, arguments),
-    do: prefix <> ":" <> binary_part(digest(CanonicalJSON.encode!(arguments)), 0, 32)
+    do: prefix <> ":" <> binary_part(CanonicalJSON.digest(arguments), 0, 32)
 
   defp memory_repository("repository", binding), do: binding.session.repository_ref
   defp memory_repository(_scope, _binding), do: nil
@@ -978,8 +976,6 @@ defmodule Ryker.StateTools.FixedTools do
       true -> "365d"
     end
   end
-
-  defp digest(value), do: :crypto.hash(:sha256, value) |> Base.encode16(case: :lower)
 
   defp get_work_state_tool do
     tool(

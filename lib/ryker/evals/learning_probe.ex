@@ -94,9 +94,8 @@ defmodule Ryker.Evals.LearningProbe do
                repository_ref: source.repository_ref
              }
            ),
-         %{rows: [[now]]} <- Repo.query!("SELECT clock_timestamp()"),
          {:ok, %{entry: %{id: claimed_id}, lease_ref: lease}} <-
-           Inbox.claim_next("learning-probe-admission", now, 300),
+           Inbox.claim_next("learning-probe-admission", Repo.now!(), 300),
          true <- claimed_id == entry.id,
          {:ok, context} <-
            Admission.context(Inbox.ref(entry),
