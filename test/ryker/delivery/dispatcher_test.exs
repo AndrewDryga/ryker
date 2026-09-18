@@ -16,8 +16,9 @@ defmodule Ryker.Delivery.DispatcherTest do
     Adapters,
     Dispatcher,
     Operator,
+    PlatformAction,
     PlatformActionCustody,
-    ReactionCustody
+    Reaction
   }
 
   alias Ryker.Episodes
@@ -258,7 +259,7 @@ defmodule Ryker.Delivery.DispatcherTest do
              Dispatcher.run_once(dispatcher_options(:reaction, publisher))
 
     assert delivery_ref == pending.delivery_ref
-    assert {:ok, deferred} = ReactionCustody.fetch_by_input(pending.input_id)
+    deferred = Repo.get_by!(Reaction, input_id: pending.input_id)
     assert deferred.status == :pending
     assert deferred.lease_ref == nil
     assert deferred.attempt_count == 1
@@ -269,7 +270,7 @@ defmodule Ryker.Delivery.DispatcherTest do
     assert {:ok, {:delivered, :reaction, ^delivery_ref}} =
              Dispatcher.run_once(dispatcher_options(:reaction, publisher))
 
-    assert {:ok, delivered} = ReactionCustody.fetch_by_input(pending.input_id)
+    delivered = Repo.get_by!(Reaction, input_id: pending.input_id)
     assert delivered.status == :delivered
     assert delivered.attempt_count == 2
 
@@ -292,7 +293,7 @@ defmodule Ryker.Delivery.DispatcherTest do
     assert request.ref == action_ref
     assert request.document == %{"action" => "add", "emoji_name" => "eyes"}
 
-    assert {:ok, delivered} = PlatformActionCustody.fetch(action_ref)
+    delivered = Repo.get_by!(PlatformAction, action_ref: action_ref)
     assert delivered.status == :delivered
     assert delivered.external_receipt["delivery_ref"] == action_ref
   end
@@ -526,7 +527,7 @@ defmodule Ryker.Delivery.DispatcherTest do
              Dispatcher.run_once(options)
 
     assert delivery_ref == pending.delivery_ref
-    assert {:ok, blocked} = ReactionCustody.fetch_by_input(pending.input_id)
+    blocked = Repo.get_by!(Reaction, input_id: pending.input_id)
     assert blocked.status == :blocked
     assert {:ok, :idle} = Dispatcher.run_once(options)
 
@@ -1002,8 +1003,7 @@ defmodule Ryker.Delivery.DispatcherTest do
              })
 
     assert {:ok, _result} = Admission.commit(context, decision, "decision:#{suffix}")
-    assert {:ok, pending} = ReactionCustody.fetch_by_input(entry.id)
-    pending
+    Repo.get_by!(Reaction, input_id: entry.id)
   end
 
   defp platform_action_pending!(suffix) do

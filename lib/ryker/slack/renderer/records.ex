@@ -17,6 +17,13 @@ defmodule Ryker.Slack.Renderer.Records do
   alias Ryker.State.RecordPayload
 
   @maximum_records 64
+  # Investigation records render nothing; at most this many of the rest may
+  # present on one reply.
+  @maximum_presented_records 20
+  # Slack bounds a context element at 3,000 characters, and one source link has
+  # to fit in it beside the "Sources · " prefix.
+  @maximum_context_characters 3_000
+  @maximum_source_link_characters 2_980
   @reference ~r/\A(?:record|publication):[A-Za-z0-9_.:-]{1,240}\z/
   @investigation_kinds ~w(evidence coverage finding progress goal goal_state alert_assessment)
   @confirmation_kinds ~w(automation_change_offer guidance_offer memory_offer preference_offer schedule_offer standing_assignment_offer)
@@ -26,7 +33,9 @@ defmodule Ryker.Slack.Renderer.Records do
 
   @spec validate(term()) :: :ok | {:error, term()}
   def validate(values) when is_list(values) and length(values) <= @maximum_records do
-    if Enum.count(values, &(is_map(&1) and &1["kind"] not in @investigation_kinds)) <= 20,
+    presented = Enum.count(values, &(is_map(&1) and &1["kind"] not in @investigation_kinds))
+
+    if presented <= @maximum_presented_records,
       do: :ok,
       else: {:error, {:invalid_slack_render, :records}}
   end
@@ -55,19 +64,20 @@ defmodule Ryker.Slack.Renderer.Records do
       else: {:error, {:invalid_slack_render, :record}}
   end
 
+  # The host adds the next scheduled check it already knows; without it the
+  # wait's own matcher says when the next check is.
   defp render_record(
          %{"kind" => "event_wait", "presentation" => %{"next_check_at" => at} = meta} = record
        )
        when map_size(record) == 5 and map_size(meta) == 1 and is_binary(at) do
-    with {:ok, _blocks} <- render_record(Map.delete(record, "presentation")),
-         {:ok, _time, 0} <- DateTime.from_iso8601(at) do
-      if record["status"] == "open",
-        do: {:ok, event_wait_blocks(record["payload"], at)},
-        else: {:ok, []}
-    else
+    case DateTime.from_iso8601(at) do
+      {:ok, _time, 0} -> event_wait(Map.delete(record, "presentation"), at)
       _invalid -> {:error, {:invalid_slack_render, :record}}
     end
   end
+
+  defp render_record(%{"kind" => "event_wait"} = record) when map_size(record) == 4,
+    do: event_wait(record, nil)
 
   defp render_record(%{"kind" => kind} = record)
        when kind in ["publication_review", "publication_result"] do
@@ -216,24 +226,19 @@ defmodule Ryker.Slack.Renderer.Records do
     end
   end
 
-  defp render_record(
-         %{
-           "kind" => "event_wait",
-           "payload" => payload,
-           "ref" => ref,
-           "status" => status
-         } = record
-       )
-       when map_size(record) == 4 and status in ["open", "answered", "superseded", "dismissed"] do
+  defp render_record(_record), do: {:error, {:invalid_slack_render, :record}}
+
+  defp event_wait(%{"payload" => payload, "ref" => ref, "status" => status}, next_check)
+       when status in ["open", "answered", "superseded", "dismissed"] do
     with :ok <- reference(ref),
          {:ok, %{payload: prepared}} <- RecordPayload.prepare("event_wait", payload, ref) do
-      {:ok, if(status == "open", do: event_wait_blocks(prepared), else: [])}
+      {:ok, if(status == "open", do: event_wait_blocks(prepared, next_check), else: [])}
     else
       _invalid -> {:error, {:invalid_slack_render, :record}}
     end
   end
 
-  defp render_record(_record), do: {:error, {:invalid_slack_render, :record}}
+  defp event_wait(_record, _next_check), do: {:error, {:invalid_slack_render, :record}}
 
   defp publication_blocks("publication_review", ref, payload) do
     findings = payload["policy_findings"] ++ payload["reasons"]
@@ -417,7 +422,6 @@ defmodule Ryker.Slack.Renderer.Records do
   defp question_status("dismissed"), do: "Question closed"
   defp question_status("superseded"), do: "Replaced by a newer question"
 
-  defp event_wait_blocks(payload, next_check \\ nil)
   defp event_wait_blocks(%{"deadline_at" => nil}, _next_check), do: []
 
   defp event_wait_blocks(%{"deadline_at" => deadline, "event_matcher" => matcher}, next_check) do
@@ -447,14 +451,15 @@ defmodule Ryker.Slack.Renderer.Records do
   end
 
   defp source_blocks(records) do
+    evidence =
+      Enum.filter(records, &(&1["kind"] == "evidence" and &1["status"] in ["open", "confirmed"]))
+
     superseded =
-      records
-      |> Enum.filter(&(&1["kind"] == "evidence" and &1["status"] in ["open", "confirmed"]))
+      evidence
       |> Enum.flat_map(&(get_in(&1, ["payload", "supersedes"]) || []))
       |> MapSet.new()
 
-    records
-    |> Enum.filter(&(&1["kind"] == "evidence" and &1["status"] in ["open", "confirmed"]))
+    evidence
     |> Enum.reject(&MapSet.member?(superseded, &1["ref"]))
     |> Enum.flat_map(&source_link/1)
     |> Enum.uniq_by(&elem(&1, 0))
@@ -469,7 +474,7 @@ defmodule Ryker.Slack.Renderer.Records do
   defp source_chunk(link, text) do
     next = text <> " · " <> link
 
-    if String.length(next) <= 3_000,
+    if String.length(next) <= @maximum_context_characters,
       do: {:cont, next},
       else: {:cont, text, "Sources · " <> link}
   end
@@ -480,14 +485,11 @@ defmodule Ryker.Slack.Renderer.Records do
     url = get_in(record, ["presentation", "source_url"])
     label = payload["target"] || payload["source_name"]
     label = if label == payload["source_id"], do: "Source", else: label
-    label = escape(label)
+    link = if ReplyRecords.safe_url?(url), do: link(url, label)
 
-    if ReplyRecords.safe_url?(url) do
-      link = "<#{escape(url)}|#{String.replace(label, "|", "&#124;")}>"
-      if String.length(link) <= 2_980, do: [{url, link}], else: []
-    else
-      []
-    end
+    if link && String.length(link) <= @maximum_source_link_characters,
+      do: [{url, link}],
+      else: []
   end
 
   defp reference(value) do
@@ -496,22 +498,20 @@ defmodule Ryker.Slack.Renderer.Records do
       else: {:error, {:invalid_slack_render, :record}}
   end
 
-  # The host knows whether the answer was saved; before this the model wrote
-  # "Remembered X" in prose, which a reader cannot check and which the
-  # instructions had to keep policing. This is a receipt, never a control.
+  # The host knows whether the answer was saved, so what was remembered comes
+  # from its receipt, not from prose a reader cannot check. It is a receipt,
+  # never a control.
   defp remembered_presentation(presentation) when map_size(presentation) == 0, do: :ok
 
-  defp remembered_presentation(%{"memory" => memory} = presentation)
-       when map_size(presentation) == 1 and map_size(memory) == 3 do
-    case memory do
-      %{"applicability" => applicability, "subject" => subject, "value" => value}
-      when is_binary(applicability) and is_binary(subject) and is_binary(value) ->
-        :ok
-
-      _other ->
-        {:error, :invalid_remembered_presentation}
-    end
-  end
+  defp remembered_presentation(
+         %{
+           "memory" =>
+             %{"applicability" => applicability, "subject" => subject, "value" => value} = memory
+         } = presentation
+       )
+       when map_size(presentation) == 1 and map_size(memory) == 3 and is_binary(applicability) and
+              is_binary(subject) and is_binary(value),
+       do: :ok
 
   defp remembered_presentation(_presentation), do: {:error, :invalid_remembered_presentation}
 

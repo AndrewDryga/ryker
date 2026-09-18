@@ -69,12 +69,15 @@ defmodule Ryker.Slack.Renderer.Blocks do
       else: "`#{escape(channel_ref)}`"
   end
 
-  # A repository is a typed link: label and URL are separate values. Ordinary
-  # text is escaped and never becomes clickable Slack markup.
-  def repository_link(%{"ref" => ref, "url" => nil}), do: "`#{escape(ref)}`"
+  # A link's destination and label are separate values the host validated. Both
+  # are escaped, and a `|` in the label stays part of the label.
+  def link(url, label),
+    do: "<#{escape(url)}|#{label |> escape() |> String.replace("|", "&#124;")}>"
 
-  def repository_link(%{"ref" => ref, "url" => url}),
-    do: "<#{escape(url)}|#{ref |> escape() |> String.replace("|", "&#124;")}>"
+  # A repository is a typed link. Ordinary text is escaped and never becomes
+  # clickable Slack markup.
+  def repository_link(%{"ref" => ref, "url" => nil}), do: "`#{escape(ref)}`"
+  def repository_link(%{"ref" => ref, "url" => url}), do: link(url, ref)
 
   # --- blocks -------------------------------------------------------------
 
@@ -120,7 +123,7 @@ defmodule Ryker.Slack.Renderer.Blocks do
 
   # The same facts as notification text, where markup is noise.
   def fact_text(values) when is_list(values), do: Enum.map_join(values, ", ", &fact_text/1)
-  def fact_text(%{"ref" => ref}), do: ref
+  def fact_text(%{"ref" => ref}), do: escape(ref)
   def fact_text(%{"channel_ref" => channel_ref}), do: channel_mention(channel_ref)
   def fact_text({:markup, text}), do: text
   def fact_text(value), do: escape(value)

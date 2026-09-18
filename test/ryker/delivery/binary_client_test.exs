@@ -93,7 +93,11 @@ defmodule Ryker.Delivery.BinaryClientTest do
     assert BinaryClient.get(unavailable, "https://files.slack.com/file", 64) ==
              {:error, {:delivery_credentials_unavailable, :vault_down}}
 
-    for token_provider <- [fn -> :unexpected end, fn -> raise "vault crashed" end] do
+    for token_provider <- [
+          fn -> {:ok, "   "} end,
+          fn -> :unexpected end,
+          fn -> raise "vault crashed" end
+        ] do
       assert {:ok, invalid_token} = BinaryClient.new(%{valid | token_provider: token_provider})
 
       assert {:error, {:delivery_credentials_unavailable, _reason}} =

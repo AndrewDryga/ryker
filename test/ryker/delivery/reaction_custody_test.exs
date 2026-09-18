@@ -24,7 +24,7 @@ defmodule Ryker.Delivery.ReactionCustodyTest do
     assert {:ok, applied} = Admission.commit(context, reaction, "decision:reaction-custody")
     assert applied.entry.status == :decided
 
-    assert {:ok, pending} = ReactionCustody.fetch_by_input(entry.id)
+    pending = Repo.get_by!(Reaction, input_id: entry.id)
     assert pending.status == :pending
     assert pending.delivery_ref == "ingress-reaction:#{entry.id}"
     assert pending.decision_ref == "decision:reaction-custody"
@@ -121,7 +121,7 @@ defmodule Ryker.Delivery.ReactionCustodyTest do
 
     assert applied.entry.execution_mode == :shadow
     assert applied.entry.decision_action == :react
-    assert :error = ReactionCustody.fetch_by_input(entry.id)
+    refute Repo.get_by(Reaction, input_id: entry.id)
     assert Repo.aggregate(Reaction, :count) == 0
   end
 
@@ -180,13 +180,11 @@ defmodule Ryker.Delivery.ReactionCustodyTest do
              Admission.commit(context!(entry), ignore!(), "decision:ignore-custody")
 
     assert ignored.entry.status == :decided
-    assert :error = ReactionCustody.fetch_by_input(entry.id)
+    refute Repo.get_by(Reaction, input_id: entry.id)
     assert Repo.aggregate(Reaction, :count) == 0
   end
 
   test "invalid custody references are rejected before touching the queue" do
-    assert :error = ReactionCustody.fetch_by_input("not-a-uuid")
-
     assert {:error, {:invalid_delivery_reaction, :worker_ref}} =
              ReactionCustody.claim_next("", 60)
 
@@ -199,7 +197,7 @@ defmodule Ryker.Delivery.ReactionCustodyTest do
     assert {:ok, _applied} =
              Admission.commit(context!(entry), reaction!("eyes"), "decision:document-constraint")
 
-    assert {:ok, reaction} = ReactionCustody.fetch_by_input(entry.id)
+    reaction = Repo.get_by!(Reaction, input_id: entry.id)
 
     error =
       assert_raise Postgrex.Error, fn ->

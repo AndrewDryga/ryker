@@ -145,6 +145,44 @@ defmodule Ryker.Slack.RendererTest do
              {:error, {:invalid_slack_render, :saved_entity}}
   end
 
+  # Three cards parsed a time without looking at its type, so a document
+  # missing one raised inside the renderer, taking the reply or the list with
+  # it, where every other malformed field is refused.
+  test "a card missing a time is refused, not a crash" do
+    for at <- [nil, 1_787_832_000, "yesterday"] do
+      assert Renderer.render(%{"saved_entity" => %{paused_rule() | "saved_at" => at}}) ==
+               {:error, {:invalid_slack_render, :saved_entity}}
+
+      setup = put_in(setup_document(Ecto.UUID.generate()), ["channel_setup", "expires_at"], at)
+
+      assert Renderer.render(setup) == {:error, {:invalid_slack_render, :channel_setup}}
+
+      welcome =
+        welcome_document(Ecto.UUID.generate(), settings_document(), %{
+          "actor_ref" => "U123",
+          "at" => at
+        })
+
+      assert Renderer.render(welcome) == {:error, {:invalid_slack_render, :channel_welcome}}
+    end
+  end
+
+  # The repository step checked that its choices were a list and never what
+  # was in it, so one malformed choice raised inside the renderer instead of
+  # refusing the setup card.
+  test "a setup step with a malformed repository choice is refused, not a crash" do
+    document =
+      setup_document(Ecto.UUID.generate())
+      |> put_in(["channel_setup", "step"], "repository")
+
+    for choices <- [[nil], ["ryker", 42], [" "]] do
+      malformed = put_in(document, ["channel_setup", "draft", "repository_options"], choices)
+      assert Renderer.render(malformed) == {:error, {:invalid_slack_render, :channel_setup}}
+    end
+
+    assert {:ok, _rendered} = Renderer.render(document)
+  end
+
   test "renders host-authorized typed mentions into native Slack controls" do
     authority = %{
       "broadcasts" => [],
@@ -928,6 +966,17 @@ defmodule Ryker.Slack.RendererTest do
              {:error, {:invalid_slack_render, :incident_room}}
   end
 
+  # A resume button is only as safe as the recovery fingerprint it carries, and
+  # an incident card has none. The incident document still accepted `resume`, so
+  # it rendered a Resume button with no value at all: a press the interaction
+  # layer refuses, on the card an operator is reading mid-incident.
+  test "an incident card refuses a resume control it has no fingerprint for" do
+    room = %{incident_document("action_required") | "controls" => ["resume", "close"]}
+
+    assert Renderer.render(%{"incident_room" => room}) ==
+             {:error, {:invalid_slack_render, :incident_room}}
+  end
+
   test "incident offers use operator confirmation and model text cannot create controls" do
     assert {:ok, plain} =
              Renderer.render(%{
@@ -1075,7 +1124,7 @@ defmodule Ryker.Slack.RendererTest do
           "branch",
           "Traefik stays under its limit",
           "Never deploy",
-          "1 sources"
+          "*Evidence:* 1 source"
         ] do
       assert inspect(open) =~ kept
       assert inspect(confirmed) =~ kept
@@ -1117,6 +1166,70 @@ defmodule Ryker.Slack.RendererTest do
     end
 
     assert inspect(incident_confirmed) =~ "✓ Investigating in this thread."
+  end
+
+  # The brief counted its evidence without looking at the count, so every offer
+  # that cited a single source asked the person authorizing it to trust
+  # "1 sources" — the card that grants authority read like a template.
+  test "an offer that cites one source counts it in the singular" do
+    payload = %{
+      "authority_limits" => ["Never deploy"],
+      "instruction_ref" => "record:instruction:aa11",
+      "kind" => "engineering",
+      "prompt" => "Raise the memory limit.",
+      "repository" => "blitz-infra",
+      "repository_source" => nil,
+      "source_refs" => ["record:evidence:bb22"],
+      "success_checks" => ["Traefik stays under its limit"],
+      "title" => "Prevent the next Traefik OOM"
+    }
+
+    offer = %{
+      "kind" => "task_offer",
+      "payload" => payload,
+      "ref" => "record:task_offer:abc123",
+      "status" => "open"
+    }
+
+    assert {:ok, one} = Renderer.render(%{"message" => "Want me to?", "records" => [offer]})
+    assert Jason.encode!(one) =~ "*Evidence:* 1 source"
+    refute Jason.encode!(one) =~ "1 sources"
+
+    two =
+      put_in(offer, ["payload", "source_refs"], ["record:evidence:bb22", "record:evidence:cc33"])
+
+    assert {:ok, rendered} = Renderer.render(%{"message" => "Want me to?", "records" => [two]})
+    assert Jason.encode!(rendered) =~ "*Evidence:* 2 sources"
+  end
+
+  # The brief escaped each check and limit before cutting it to length, so a
+  # cut could land inside an entity: the person deciding whether to grant the
+  # task read a stray `&a…` where the limit had said `&`.
+  test "an offer's brief is cut to length before it is escaped" do
+    limit = String.duplicate("a", 197) <> "&" <> String.duplicate("x", 10)
+
+    offer = %{
+      "kind" => "task_offer",
+      "payload" => %{
+        "authority_limits" => [limit],
+        "instruction_ref" => "record:instruction:aa11",
+        "kind" => "engineering",
+        "prompt" => "Raise the memory limit.",
+        "repository" => "blitz-infra",
+        "repository_source" => nil,
+        "source_refs" => [],
+        "success_checks" => ["Traefik stays under its limit"],
+        "title" => "Prevent the next Traefik OOM"
+      },
+      "ref" => "record:task_offer:abc123",
+      "status" => "open"
+    }
+
+    assert {:ok, rendered} = Renderer.render(%{"message" => "Want me to?", "records" => [offer]})
+    [_message, summary, _actions] = rendered["blocks"]
+
+    assert summary["text"]["text"] =~
+             "*Will not:* #{String.duplicate("a", 197)}&amp;x…"
   end
 
   test "renders an inert publication offer with a host-owned review control" do
@@ -2046,6 +2159,58 @@ defmodule Ryker.Slack.RendererTest do
     refute inspect(rendered) =~ ~s("deployment" => "ryker")
   end
 
+  test "a timed wait names the host's next check only while it is before the deadline" do
+    wait = %{
+      "kind" => "event_wait",
+      "payload" => %{
+        "deadline_at" => "2026-08-29T12:00:00.000000Z",
+        "event_matcher" => %{
+          "delay" => "30m",
+          "on_timeout" => "Report the rollout state.",
+          "type" => "after"
+        },
+        "kind" => "deployment_health",
+        "verification" => "Verify the new allocation is healthy."
+      },
+      "presentation" => %{"next_check_at" => "2026-08-28T12:30:00.000000Z"},
+      "ref" => "record:event_wait:timer",
+      "status" => "open"
+    }
+
+    next_check = DateTime.to_unix(~U[2026-08-28 12:30:00Z])
+    deadline = DateTime.to_unix(~U[2026-08-29 12:00:00Z])
+
+    assert {:ok, rendered} = Renderer.render(%{"message" => "Watching.", "records" => [wait]})
+
+    assert [_message, %{"type" => "context", "elements" => [%{"text" => text}]}] =
+             rendered["blocks"]
+
+    assert text ==
+             "Next check <!date^#{next_check}^{date_short_pretty} at {time}|2026-08-28 12:30 UTC>" <>
+               " · Monitoring deadline <!date^#{deadline}^{date_short_pretty} at {time}|2026-08-29 12:00 UTC>"
+
+    late = put_in(wait, ["presentation", "next_check_at"], "2026-08-30T00:00:00.000000Z")
+    assert {:ok, rendered} = Renderer.render(%{"message" => "Watching.", "records" => [late]})
+
+    assert [_message, %{"elements" => [%{"text" => "Monitoring deadline " <> _}]}] =
+             rendered["blocks"]
+
+    assert {:ok, rendered} =
+             Renderer.render(%{
+               "message" => "Done.",
+               "records" => [%{wait | "status" => "answered"}]
+             })
+
+    assert [_message] = rendered["blocks"]
+
+    for invalid <- ["tomorrow", "2026-08-28T14:30:00+02:00"] do
+      forged = put_in(wait, ["presentation", "next_check_at"], invalid)
+
+      assert Renderer.render(%{"message" => "Watching.", "records" => [forged]}) ==
+               {:error, {:invalid_slack_render, :record}}
+    end
+  end
+
   test "long answers remain readable and many choices require explicit submission" do
     # Proposed stress copy from question__many-long-options in the native catalog;
     # these are UI examples, not harvested answers or a saved retention policy.
@@ -2363,6 +2528,75 @@ defmodule Ryker.Slack.RendererTest do
 
     assert Renderer.render(%{"task_card" => over_bound}) ==
              {:error, {:invalid_slack_render, :task_card}}
+  end
+
+  # Every card escaped its model-authored values in the blocks, but the task,
+  # incident, saved-entity and governed-review cards built their notification
+  # line from the same title, summary, question and reviewer text raw. That line
+  # is what Slack reads for the push notification, so a `<!channel>` a worker
+  # wrote into a title was one post away from paging the whole channel.
+  test "a card's notification text never turns its values into Slack markup" do
+    forged = "<!channel> & <https://example.invalid|urgent>"
+    inert = "&lt;!channel&gt; &amp; &lt;https://example.invalid|urgent&gt;"
+
+    task = %{
+      task_document("action_required")
+      | "action_needed" => forged,
+        "summary" => forged,
+        "title" => forged
+    }
+
+    room = %{
+      incident_document("waiting_for_input")
+      | "action_needed" => forged,
+        "summary" => forged,
+        "title" => forged
+    }
+
+    entity = %{paused_rule() | "instructions" => forged, "notice" => forged, "title" => forged}
+
+    review =
+      approval_status(
+        "success",
+        nil,
+        review(%{
+          "status" => "approved",
+          "required_approvals" => 1,
+          "approved_count" => 1,
+          "decisions" => [approve("<!here>")]
+        })
+      )
+
+    settings =
+      put_in(settings_document(), ["repositories"], [%{"ref" => "<!here>", "url" => nil}])
+      |> put_in(["default_repository"], nil)
+
+    documents = [
+      %{"task_card" => task},
+      %{"incident_room" => room},
+      %{"saved_entity" => entity},
+      %{"emisar_approval_status" => review},
+      %{
+        "channel_settings" => %{
+          "audience" => "thread",
+          "bot_user_ref" => "UBOT",
+          "configuration_ref" => nil,
+          "revision" => nil,
+          "settings" => %{settings | "configuration_ref" => nil, "revision" => nil}
+        }
+      }
+    ]
+
+    for document <- documents do
+      assert {:ok, %{"text" => text}} = Renderer.render(document)
+      refute text =~ "<!", "#{inspect(Map.keys(document))} notification: #{text}"
+      refute text =~ "<https://", "#{inspect(Map.keys(document))} notification: #{text}"
+    end
+
+    for document <- Enum.take(documents, 3) do
+      assert {:ok, %{"text" => text}} = Renderer.render(document)
+      assert text =~ inert
+    end
   end
 
   test "renders every task and incident lifecycle label from host-owned state" do

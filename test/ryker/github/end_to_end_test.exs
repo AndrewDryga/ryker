@@ -7,7 +7,7 @@ defmodule Ryker.GitHub.EndToEndTest do
   import Plug.Test
 
   alias Ryker.Admission.Dispatcher, as: AdmissionDispatcher
-  alias Ryker.Delivery.{Adapters, Reaction, ReactionCustody}
+  alias Ryker.Delivery.{Adapters, Reaction}
   alias Ryker.Fixtures.Publication, as: PublicationFixture
   alias Ryker.GitHub.{Auth, Binding, Client, Publisher, Router}
   alias Ryker.Ingress.Inbox
@@ -162,7 +162,7 @@ defmodule Ryker.GitHub.EndToEndTest do
                delivery_options(:reaction, requester, "reaction")
              )
 
-    assert {:ok, delivered} = ReactionCustody.fetch_by_input(admitted.result.entry.id)
+    delivered = Repo.get_by!(Reaction, input_id: admitted.result.entry.id)
     assert delivered.status == :delivered
     assert delivered.delivery_ref == delivery_ref
 

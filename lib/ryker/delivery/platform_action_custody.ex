@@ -38,7 +38,6 @@ defmodule Ryker.Delivery.PlatformActionCustody do
          {:ok, request} <- request_attributes(attributes),
          :ok <- live_binding_shape(binding) do
       Repo.transaction(fn -> enqueue_locked(binding, attributes, request) end)
-      |> transaction_result()
     end
   end
 
@@ -60,20 +59,11 @@ defmodule Ryker.Delivery.PlatformActionCustody do
   def enqueue_confirmed_record_in_transaction(_record, _attributes),
     do: {:error, :platform_action_not_authorized}
 
-  @spec fetch(String.t()) :: {:ok, PlatformAction.t()} | {:error, :platform_action_not_found}
-  def fetch(action_ref) do
-    case Repo.get_by(PlatformAction, action_ref: action_ref) do
-      %PlatformAction{} = action -> {:ok, action}
-      nil -> {:error, :platform_action_not_found}
-    end
-  end
-
   @spec claim_next(String.t(), pos_integer()) :: {:ok, claim() | nil} | {:error, term()}
   def claim_next(worker_ref, lease_seconds) do
     with :ok <- reference(worker_ref, :worker_ref),
          :ok <- positive(lease_seconds, :lease_seconds) do
       Repo.transaction(fn -> claim_locked(worker_ref, lease_seconds) end)
-      |> transaction_result()
     end
   end
 
@@ -126,22 +116,11 @@ defmodule Ryker.Delivery.PlatformActionCustody do
     with :ok <- reference(action_ref, :action_ref),
          {:ok, lease_ref} <- uuid(lease_ref, :lease_ref),
          :ok <- positive(lease_seconds, :lease_seconds) do
-      Repo.transaction(fn -> renew_locked(action_ref, lease_ref, lease_seconds) end)
-      |> transaction_result()
-    end
-  end
-
-  defp renew_locked(action_ref, lease_ref, lease_seconds) do
-    now = database_now!()
-
-    case leased_action(action_ref, lease_ref, now) do
-      {:ok, action} ->
+      mutate_claim(action_ref, lease_ref, fn action, now ->
         requested = DateTime.add(now, lease_seconds, :second)
         expiry = later_datetime(action.lease_expires_at, requested)
         update!(action, %{lease_expires_at: expiry}, :renew)
-
-      {:error, reason} ->
-        Repo.rollback(reason)
+      end)
     end
   end
 
@@ -199,7 +178,6 @@ defmodule Ryker.Delivery.PlatformActionCustody do
   def retry(action_ref) do
     with :ok <- reference(action_ref, :action_ref) do
       Repo.transaction(fn -> retry_locked(action_ref) end)
-      |> transaction_result()
     end
   end
 
@@ -239,7 +217,6 @@ defmodule Ryker.Delivery.PlatformActionCustody do
       fingerprint = DeliveryReceipt.fingerprint(receipt)
 
       Repo.transaction(fn -> confirm_locked(action_ref, lease_ref, receipt, fingerprint) end)
-      |> transaction_result()
     end
   end
 
@@ -329,7 +306,7 @@ defmodule Ryker.Delivery.PlatformActionCustody do
   end
 
   defp enqueue_locked(binding, attributes, request) do
-    now = database_now!()
+    now = Repo.now!()
 
     episode =
       Repo.one(
@@ -348,13 +325,9 @@ defmodule Ryker.Delivery.PlatformActionCustody do
       )
 
     case live_binding(episode, turn, binding, now) do
-      :ok -> enqueue_for_turn(episode, turn, attributes, request)
+      :ok -> enqueue_for_ids(episode.id, turn.id, attributes, request)
       {:error, reason} -> Repo.rollback(reason)
     end
-  end
-
-  defp enqueue_for_turn(episode, turn, attributes, request) do
-    enqueue_for_ids(episode.id, turn.id, attributes, request)
   end
 
   defp enqueue_for_ids(episode_id, turn_id, attributes, request) do
@@ -403,7 +376,7 @@ defmodule Ryker.Delivery.PlatformActionCustody do
   end
 
   defp claim_locked(worker_ref, lease_seconds) do
-    now = database_now!()
+    now = Repo.now!()
 
     case Repo.one(
            from(action in PlatformAction,
@@ -443,18 +416,17 @@ defmodule Ryker.Delivery.PlatformActionCustody do
 
   defp mutate_claim(action_ref, lease_ref, callback) do
     Repo.transaction(fn ->
-      now = database_now!()
+      now = Repo.now!()
 
       case leased_action(action_ref, lease_ref, now) do
         {:ok, action} -> callback.(action, now)
         {:error, reason} -> Repo.rollback(reason)
       end
     end)
-    |> transaction_result()
   end
 
   defp confirm_locked(action_ref, lease_ref, receipt, fingerprint) do
-    now = database_now!()
+    now = Repo.now!()
 
     case lock_action(action_ref) do
       %PlatformAction{status: :delivered, external_receipt_fingerprint: ^fingerprint} = action ->
@@ -629,11 +601,6 @@ defmodule Ryker.Delivery.PlatformActionCustody do
     |> Ecto.Changeset.foreign_key_constraint(:turn_id)
   end
 
-  defp database_now! do
-    %{rows: [[%DateTime{} = now]]} = Repo.query!("SELECT clock_timestamp()")
-    DateTime.truncate(now, :microsecond)
-  end
-
   defp later_datetime(nil, requested), do: requested
 
   defp later_datetime(current, requested) do
@@ -644,9 +611,6 @@ defmodule Ryker.Delivery.PlatformActionCustody do
 
   defp unwrap_or_rollback({:error, changeset}, operation),
     do: Repo.rollback({:platform_action_persistence_failed, operation, changeset.errors})
-
-  defp transaction_result({:ok, result}), do: {:ok, result}
-  defp transaction_result({:error, reason}), do: {:error, reason}
 
   defp uuid(value, field) do
     case Ecto.UUID.cast(value) do
