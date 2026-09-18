@@ -53,7 +53,13 @@ defmodule Ryker.TestSupport.FakeWorkCoopAPI do
           "authority_digest" => Keyword.get(options, :authority_digest),
           "companions" => Keyword.get(options, :companions, []),
           "external_ref" => nil,
-          "id" => "remote_work",
+          # A remote session ID is unique across the whole store, and async
+          # suites share one database: a fixed ID made every test that bound a
+          # session wait on whichever other test had bound it first.
+          "id" =>
+            Keyword.get_lazy(options, :session_id, fn ->
+              "remote_work_#{System.unique_integer([:positive])}"
+            end),
           "policy" => nil,
           "policy_digest" => String.duplicate("a", 64),
           "project_env" => Keyword.get(options, :project_env, false),

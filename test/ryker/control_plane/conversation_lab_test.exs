@@ -1204,6 +1204,8 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
           {FakeWorkCoopAPI, :start_link, [[], [changes: [first_page, final_page, first_page]]]}
       })
 
+    remote_id = FakeWorkCoopAPI.state(coop).session["id"]
+
     unbound_view =
       Actions.callbacks(
         profile(),
@@ -1225,7 +1227,7 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
                task_claim.lease_ref,
                task_claim.session.generation,
                task_claim.session.create_generation,
-               "remote_work"
+               remote_id
              )
 
     view_actions =
@@ -1367,9 +1369,9 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
            ) == {:error, :work_diff_snapshot_changed}
 
     assert FakeWorkCoopAPI.state(coop).changes_page_requests == [
-             {"remote_work", 0, WorkChanges.page_bytes()},
-             {"remote_work", page_boundary, WorkChanges.page_bytes()},
-             {"remote_work", 0, WorkChanges.page_bytes()}
+             {remote_id, 0, WorkChanges.page_bytes()},
+             {remote_id, page_boundary, WorkChanges.page_bytes()},
+             {remote_id, 0, WorkChanges.page_bytes()}
            ]
 
     assert view_actions.view_lab_task_record.(

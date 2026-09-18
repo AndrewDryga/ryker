@@ -39,12 +39,12 @@ defmodule Ryker.ControlPlane.ConversationLabEndToEndTest do
     Turn
   }
 
-  @conversation_id "018f3ef7-1f62-7ee0-a83c-0c12f21d83e6"
-  @first_event_id "018f3ef7-1f62-7ee0-a83c-0c12f21d83e7"
-  @second_event_id "018f3ef7-1f62-7ee0-a83c-0c12f21d83e8"
-  @reaction_event_id "018f3ef7-1f62-7ee0-a83c-0c12f21d83e9"
-  @artifact_event_id "018f3ef7-1f62-7ee0-a83c-0c12f21d83ea"
-  @capability_event_id "018f3ef7-1f62-7ee0-a83c-0c12f21d83eb"
+  @conversation_id "018f3ef7-1f62-7ee0-a83c-0c12f21dc2e6"
+  @first_event_id "018f3ef7-1f62-7ee0-a83c-0c12f21dc2e7"
+  @second_event_id "018f3ef7-1f62-7ee0-a83c-0c12f21dc2e8"
+  @reaction_event_id "018f3ef7-1f62-7ee0-a83c-0c12f21dc2e9"
+  @artifact_event_id "018f3ef7-1f62-7ee0-a83c-0c12f21dc2ea"
+  @capability_event_id "018f3ef7-1f62-7ee0-a83c-0c12f21dc2eb"
   @now ~U[2026-08-30 18:00:00.000000Z]
   @digest String.duplicate("a", 64)
 
