@@ -14,6 +14,13 @@ defmodule Ryker.ControlPlane.EpisodePage do
     assigns =
       assign(
         assigns,
+        :response_metrics,
+        assigns.snapshot.trace[:response_metrics] || empty_response_metrics()
+      )
+
+    assigns =
+      assign(
+        assigns,
         :related,
         assigns.snapshot[:related_episodes] || %{items: [], truncated: false}
       )
@@ -105,18 +112,32 @@ defmodule Ryker.ControlPlane.EpisodePage do
       </section>
       <dl :if={!@startup} class="episode-metrics">
         <div>
-          <dt title="First message to the latest recorded change">Elapsed</dt><dd>
-            {elapsed(@snapshot)}
+          <dt>Total cost</dt><dd>{cost(@snapshot[:accounting])}</dd>
+          <p class="metric-note">{coverage(@snapshot[:accounting])}</p>
+        </div>
+        <div>
+          <dt>Total wall time</dt><dd title={wall_reason(@response_metrics.wall)}>
+            {wall_time(@response_metrics.wall)}
           </dd>
+          <p class="metric-note">{wall_note(@response_metrics.wall)}</p>
         </div>
         <div>
-          <dt>Model cost</dt><dd>{cost(@snapshot[:accounting])}</dd>
+          <dt>Messages</dt><dd>{@response_metrics.messages.total}</dd>
+          <p class="metric-note">
+            {@response_metrics.messages.received} received · {@response_metrics.messages.sent} sent
+          </p>
         </div>
         <div>
-          <dt>Work turns</dt><dd>{metric(@snapshot.trace.metrics, "Turns")}</dd>
-        </div>
-        <div>
-          <dt>Tool calls</dt><dd>{metric(@snapshot.trace.metrics, "Tool calls")}</dd>
+          <dt>Response time</dt>
+          <dd :if={@response_metrics.response.measured == 0} class="response-time-empty">
+            No completed responses
+          </dd>
+          <dd :if={@response_metrics.response.measured > 0} class="response-time-values">
+            <span><small>min</small> {duration_ms(@response_metrics.response.minimum_ms)}</span>
+            <span><small>avg</small> {duration_ms(@response_metrics.response.average_ms)}</span>
+            <span><small>max</small> {duration_ms(@response_metrics.response.maximum_ms)}</span>
+          </dd>
+          <p class="metric-note">{response_coverage(@response_metrics.response)}</p>
         </div>
       </dl>
       <section
@@ -999,13 +1020,6 @@ defmodule Ryker.ControlPlane.EpisodePage do
   defp chapter_description(:maintenance),
     do: "What happened to the temporary worker session and workspace afterwards."
 
-  defp metric(metrics, label) do
-    case Enum.find(metrics, &(&1.label == label)) do
-      nil -> "—"
-      metric -> metric.value
-    end
-  end
-
   defp duration(ms) when ms < 1_000, do: "#{ms} ms"
   defp duration(ms), do: "#{Float.round(ms / 1_000, 1)} s"
 
@@ -1180,19 +1194,41 @@ defmodule Ryker.ControlPlane.EpisodePage do
     end
   end
 
-  defp elapsed(%{trace: %{received_at: nil}}), do: "Not recorded"
+  defp wall_time(%{milliseconds: milliseconds}) when is_integer(milliseconds),
+    do: duration_ms(milliseconds)
 
-  defp elapsed(snapshot) do
-    latest =
-      [snapshot.episode.updated_at | Enum.map(snapshot.trace.steps, & &1.at)]
-      |> Enum.reject(&is_nil/1)
-      |> Enum.map(&unix/1)
-      |> Enum.max(fn -> unix(snapshot.trace.received_at) end)
+  defp wall_time(_wall), do: "Not measured"
 
-    seconds = max(div(latest - unix(snapshot.trace.received_at), 1_000_000), 0)
+  defp wall_note(%{state: :active}), do: "So far · first message to now"
+  defp wall_note(%{state: :complete}), do: "First message to latest visible outcome"
+  defp wall_note(%{reason: reason}) when is_binary(reason), do: reason
+  defp wall_note(_wall), do: "Episode span not measured"
 
-    if seconds == 0, do: "< 1s", else: duration_seconds(seconds)
+  defp wall_reason(%{reason: reason}) when is_binary(reason), do: reason
+  defp wall_reason(_wall), do: nil
+
+  defp response_coverage(%{measured: measured, expected: expected}),
+    do: "#{measured} of #{expected} responses timed"
+
+  defp empty_response_metrics do
+    %{
+      messages: %{received: 0, sent: 0, total: 0},
+      response: %{
+        average_ms: nil,
+        expected: 0,
+        maximum_ms: nil,
+        measured: 0,
+        minimum_ms: nil
+      },
+      wall: %{state: :unknown, milliseconds: nil, reason: "Timing was not projected."}
+    }
   end
+
+  defp duration_ms(milliseconds) when is_integer(milliseconds) and milliseconds < 1_000,
+    do: "< 1s"
+
+  defp duration_ms(milliseconds) when is_integer(milliseconds),
+    do: duration_seconds(round(milliseconds / 1_000))
 
   defp chapter_span(chapter, started) do
     times =

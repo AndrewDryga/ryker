@@ -14,7 +14,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace do
   import Ecto.Query
   import Ryker.ControlPlane.EpisodeTrace.Step
 
-  alias Ryker.ControlPlane.{EpisodeCausality, EvidenceLinks, WorkRecovery}
+  alias Ryker.ControlPlane.{EpisodeCausality, EpisodeResponseMetrics, EvidenceLinks, WorkRecovery}
 
   alias Ryker.ControlPlane.EpisodeTrace.{
     CaseFile,
@@ -64,6 +64,11 @@ defmodule Ryker.ControlPlane.EpisodeTrace do
     causality =
       EpisodeCausality.index(input_rows, turns, activity_page.events,
         input_refs: Input.input_refs(events, inputs)
+      )
+
+    response_metrics =
+      EpisodeResponseMetrics.project(episode, input_rows, turns, causality.input_by_ref,
+        now: Keyword.get(options, :now, DateTime.utc_now())
       )
 
     activity =
@@ -124,6 +129,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace do
       metrics: metrics(episode, received_at, activity_page, totals, steps),
       next_action: next_action(episode, current_turn),
       received_at: received_at,
+      response_metrics: response_metrics,
       review: review,
       source: source,
       stats: stats(steps, activity_page, totals),
