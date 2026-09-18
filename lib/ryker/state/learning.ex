@@ -1,10 +1,10 @@
 defmodule Ryker.State.Learning do
   @moduledoc "Resumable, learning-only judgments over retained inputs; never reroutes or delivers."
   import Ecto.Query
-  alias Ryker.Reference
   alias Ryker.CanonicalJSON
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Learning.{Batches, Rebuilds}
+  alias Ryker.Reference
   alias Ryker.Repo
 
   alias Ryker.State.{
