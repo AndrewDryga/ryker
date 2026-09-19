@@ -1323,6 +1323,199 @@
           "name": "propose_memory"
         },
         {
+          "description": "Offer one normalized response preference for human confirmation. Call only when a person explicitly asks to save a preference; never infer a durable preference from ordinary feedback or conversation.",
+          "inputSchema": {
+            "oneOf": [
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "expires_at": {
+                    "anyOf": [
+                      {
+                        "format": "date-time",
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "explicit_request": {
+                    "const": true,
+                    "type": "boolean"
+                  },
+                  "key": {
+                    "const": "health_check_depth",
+                    "type": "string"
+                  },
+                  "scope": {
+                    "enum": [
+                      "current_channel",
+                      "repository",
+                      "workspace",
+                      "mine"
+                    ],
+                    "type": "string"
+                  },
+                  "source_refs": {
+                    "items": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "pattern": "^[A-Za-z0-9_.:-]+$",
+                      "type": "string"
+                    },
+                    "maxItems": 20,
+                    "minItems": 1,
+                    "type": "array",
+                    "uniqueItems": true
+                  },
+                  "value": {
+                    "enum": [
+                      "quick",
+                      "standard",
+                      "deep"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "expires_at",
+                  "explicit_request",
+                  "key",
+                  "scope",
+                  "source_refs",
+                  "value"
+                ],
+                "type": "object"
+              },
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "expires_at": {
+                    "anyOf": [
+                      {
+                        "format": "date-time",
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "explicit_request": {
+                    "const": true,
+                    "type": "boolean"
+                  },
+                  "key": {
+                    "const": "response_detail",
+                    "type": "string"
+                  },
+                  "scope": {
+                    "enum": [
+                      "current_channel",
+                      "repository",
+                      "workspace",
+                      "mine"
+                    ],
+                    "type": "string"
+                  },
+                  "source_refs": {
+                    "items": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "pattern": "^[A-Za-z0-9_.:-]+$",
+                      "type": "string"
+                    },
+                    "maxItems": 20,
+                    "minItems": 1,
+                    "type": "array",
+                    "uniqueItems": true
+                  },
+                  "value": {
+                    "enum": [
+                      "concise",
+                      "standard",
+                      "detailed"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "expires_at",
+                  "explicit_request",
+                  "key",
+                  "scope",
+                  "source_refs",
+                  "value"
+                ],
+                "type": "object"
+              },
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "expires_at": {
+                    "anyOf": [
+                      {
+                        "format": "date-time",
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "explicit_request": {
+                    "const": true,
+                    "type": "boolean"
+                  },
+                  "key": {
+                    "const": "response_location",
+                    "type": "string"
+                  },
+                  "scope": {
+                    "enum": [
+                      "current_channel",
+                      "workspace",
+                      "mine"
+                    ],
+                    "type": "string"
+                  },
+                  "source_refs": {
+                    "items": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "pattern": "^[A-Za-z0-9_.:-]+$",
+                      "type": "string"
+                    },
+                    "maxItems": 20,
+                    "minItems": 1,
+                    "type": "array",
+                    "uniqueItems": true
+                  },
+                  "value": {
+                    "enum": [
+                      "follow_context",
+                      "prefer_thread",
+                      "prefer_channel"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "expires_at",
+                  "explicit_request",
+                  "key",
+                  "scope",
+                  "source_refs",
+                  "value"
+                ],
+                "type": "object"
+              }
+            ]
+          },
+          "name": "propose_preference"
+        },
+        {
           "description": "Save the normalized answer to an explicitly reusable request_input question in this episode. Call only when the authenticated reply actually supplies that fact; an unrelated or ambiguous reply needs clarification. The host verifies the exact answered question, original revision and operator authority, and derives installation-global applicability from the question. No second memory confirmation is needed. Existing proposals still use propose_memory. Say remembered only after this tool succeeds; saved facts never grant action authority or prove current health.",
           "inputSchema": {
             "additionalProperties": false,

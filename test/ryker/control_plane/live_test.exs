@@ -154,7 +154,7 @@ defmodule Ryker.ControlPlane.LiveTest do
              document,
              "main header.page-header > .page-heading + p.page-description"
            )
-           |> LazyHTML.text() =~ "Instructions that run"
+           |> LazyHTML.text() =~ "Standing rules let Ryker watch for specific events"
 
     assert outline(document, "main .secondary-page > *") == [
              "header.page-header",
@@ -177,7 +177,7 @@ defmodule Ryker.ControlPlane.LiveTest do
 
     send(view.pid, :reconcile)
     assert has_element?(view, "main header.page-header h1", "Standing rules")
-    assert has_element?(view, "main details.page-help summary", "How to add and manage rules")
+    assert has_element?(view, "main details.page-help summary", "How to create a standing rule")
   end
 
   test "filters live in the URL, so a shared or back-navigated address reproduces the list and changes nothing" do

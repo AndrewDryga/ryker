@@ -160,17 +160,17 @@ defmodule Ryker.ControlPlane.InstructionsEditor do
         <label id="instructions-label" for="instructions-text">{if @scope == :global,
           do: "Global instructions",
           else: "Channel instructions"}</label>
-        <p id="instructions-help">
+        <p id="instructions-editor-help">
           {if @scope == :global,
             do: "These instructions guide Ryker in every conversation.",
             else:
-              "Adds instructions for this channel. Channel instructions take priority if they conflict with global instructions."}
+              "These instructions are sent with global instructions and are more specific for conflicting behavioral guidance in this channel. They cannot change permissions or fixed system rules."}
         </p>
         <textarea
           id="instructions-text"
           name="text"
           rows="8"
-          aria-describedby="instructions-help instructions-count instructions-timing"
+          aria-describedby="instructions-editor-help instructions-count instructions-timing"
           aria-invalid={to_string(not is_nil(@error))}
           placeholder={
             if @scope == :global,

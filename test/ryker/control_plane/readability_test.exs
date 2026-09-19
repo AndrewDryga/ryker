@@ -31,6 +31,17 @@ defmodule Ryker.ControlPlane.ReadabilityTest do
     end
   end
 
+  test "configuration help keeps the approved subtitle gap and wraps at narrow widths" do
+    css = Assets.call(Plug.Test.conn(:get, "/workspace.css"), []).resp_body
+    [_, help] = Regex.run(~r/\.configuration-help \{([^}]+)\}/, css)
+    [_, summary] = Regex.run(~r/\.page-surface \.configuration-help > summary \{([^}]+)\}/, css)
+    assert help =~ "margin-top:-16px"
+    assert help =~ "max-width:76ch"
+    assert summary =~ "padding:0"
+    assert css =~ "@media (max-width:600px)"
+    assert css =~ "overflow-wrap:anywhere"
+  end
+
   test "prompt and action headings cannot inherit the dark application banner" do
     css = Assets.call(Plug.Test.conn(:get, "/workspace.css"), []).resp_body
 

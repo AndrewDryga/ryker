@@ -20,7 +20,7 @@ defmodule Mix.Tasks.Ryker.Eval do
   matches a reviewed production policy binding, so an evaluation cannot inherit
   production repository or mutation authority.
 
-  A world matrix is 30 scenarios × 3 repeats × 2 lanes, 180 observations at
+  A world matrix is 31 scenarios × 3 repeats × 2 lanes, 186 observations at
   about 93 seconds each, so `scripts/elixir-world-eval.sh` runs it as shards:
   separate VMs, each on its own campaign database and listener ports, each
   running the slice `--shard I/N` deals it from the same ordered plan and

@@ -31,6 +31,7 @@ defmodule Ryker.ControlPlane.SchedulesPageTest do
     document = render([@schedule, %{@schedule | ref: "schedule:two", title: "Weekly review"}])
 
     assert outline(document, "div.schedules-page > *") == [
+             "details.page-help",
              "form.filter-toolbar",
              "p.result-count",
              "table.data-table"
@@ -140,7 +141,10 @@ defmodule Ryker.ControlPlane.SchedulesPageTest do
       })
 
     assert page.title == "Schedules"
-    assert page.description =~ "Recurring and one-shot work"
+
+    assert page.description ==
+             "Schedules let Ryker run a task once at a future time or repeat it on a regular schedule."
+
     document = LazyHTML.from_fragment(page.body)
 
     assert LazyHTML.query(document, "form.filter-toolbar input[name=q]")

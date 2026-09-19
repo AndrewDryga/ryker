@@ -766,6 +766,7 @@ defmodule Ryker.State.Behaviors do
              episode.destination_conversation_ref
            ),
          :ok <- authorize_wide_guidance(record, episode),
+         :ok <- authorize_operator_preference(record, turn, attributes.actor_ref),
          :ok <- delivered_from?(episode, turn, attributes.target) do
       case Repo.one(from(behavior in Behavior, where: behavior.offer_record_id == ^record.id)) do
         %Behavior{} = behavior ->
@@ -794,6 +795,44 @@ defmodule Ryker.State.Behaviors do
   end
 
   defp authorize_wide_guidance(_record, _episode), do: :ok
+
+  defp authorize_operator_preference(
+         %Record{kind: "preference_offer", payload: %{"scope" => "operator"}},
+         %Turn{submission: submission},
+         actor_ref
+       ) do
+    case current_human_actors(submission) do
+      [^actor_ref] -> :ok
+      _other -> {:error, :behavior_offer_actor_mismatch}
+    end
+  end
+
+  defp authorize_operator_preference(_record, _turn, _actor_ref), do: :ok
+
+  defp current_human_actors(%{"context" => %{"mode" => "full", "inputs" => %{"items" => items}}}) do
+    items
+    |> Enum.filter(&(&1["current"] == true))
+    |> human_actor_refs()
+  end
+
+  defp current_human_actors(%{
+         "context" => %{"mode" => "continuation", "current_inputs" => %{"items" => items}}
+       }),
+       do: human_actor_refs(items)
+
+  defp current_human_actors(_submission), do: []
+
+  defp human_actor_refs(items) do
+    items
+    |> Enum.flat_map(fn
+      %{"actor_ref" => actor_ref} when is_binary(actor_ref) ->
+        if String.contains?(actor_ref, ":user:"), do: [actor_ref], else: []
+
+      _invalid ->
+        []
+    end)
+    |> Enum.uniq()
+  end
 
   defp create_behavior(record, episode, attributes) do
     with {:ok, prepared} <- prepare_behavior(record, episode, attributes),

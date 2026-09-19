@@ -11,6 +11,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
     ChannelDetail,
     ChannelPage,
     Components,
+    ConfigurationGuide,
     ConversationProjection,
     Endpoint,
     EpisodePage,
@@ -389,7 +390,11 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
     assign(socket,
       native: :instructions,
       page_title: "Instructions",
-      body_lead: "",
+      page_description: ConfigurationGuide.description(:instructions),
+      body_lead:
+        ConfigurationGuide.render(%{__changed__: nil, page: :instructions})
+        |> Safe.to_iodata()
+        |> IO.iodata_to_binary(),
       body: "",
       instructions: view,
       instruction_scope: :global,

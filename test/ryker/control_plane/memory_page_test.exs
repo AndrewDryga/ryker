@@ -209,13 +209,10 @@ defmodule Ryker.ControlPlane.MemoryPageTest do
     help = LazyHTML.query(document, "details.page-help#memory-help:not([open])")
     assert LazyHTML.query(help, "summary") |> LazyHTML.text() == "How memory works"
     assert LazyHTML.text(help) =~ "even when it does not reply"
-    assert LazyHTML.text(help) =~ "To create or correct"
-    assert LazyHTML.text(help) =~ "oldest supporting source"
+    assert LazyHTML.text(help) =~ "To correct learned knowledge"
+    assert LazyHTML.text(help) =~ "does not grant permission"
     assert LazyHTML.text(help) =~ "confirm the proposal"
-
-    for path <- ["/rules", "/preferences", "/guidance"] do
-      assert Enum.count(LazyHTML.query(help, "a[href='#{path}']")) == 1, path
-    end
+    assert Enum.empty?(LazyHTML.query(help, "a[href]"))
 
     assert Enum.empty?(
              LazyHTML.query(
@@ -276,7 +273,10 @@ defmodule Ryker.ControlPlane.MemoryPageTest do
       })
 
     assert page.title == "Memory"
-    assert page.description =~ "What Ryker learned from conversations"
+
+    assert page.description ==
+             "Memory shows what Ryker learned from conversations and the reusable facts people explicitly asked it to remember."
+
     document = LazyHTML.from_fragment(page.body)
 
     assert LazyHTML.query(document, "form.filter-toolbar input[name=q]")

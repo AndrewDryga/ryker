@@ -87,6 +87,7 @@ defmodule Ryker.Evals.WorldRunnerTest do
     {"material-rollout-choice-asks-once", "request_input"},
     {"airflow-verification-arms-wait", "wait_for"},
     {"confirmed-guidance-becomes-memory", "propose_memory"},
+    {"explicit-response-preference-needs-confirmation", "propose_preference"},
     {"weekly-health-review-offers-schedule", "propose_automation"}
   ]
 
@@ -2468,6 +2469,24 @@ defmodule Ryker.Evals.WorldRunnerTest do
              )
 
     {record_ref, "complete", "Prepared the deployment-verification guidance for confirmation."}
+  end
+
+  defp record_state_tool!("propose_preference", claim) do
+    assert {:ok, %{"record_ref" => record_ref}} =
+             Tools.call(
+               "propose_preference",
+               %{
+                 "explicit_request" => true,
+                 "expires_at" => nil,
+                 "key" => "response_detail",
+                 "scope" => "mine",
+                 "source_refs" => ["input:trusted:1"],
+                 "value" => "concise"
+               },
+               binding_options(claim)
+             )
+
+    {record_ref, "complete", "Prepared the concise-replies preference for confirmation."}
   end
 
   defp record_incident_task_tool!(claim) do

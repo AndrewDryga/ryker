@@ -54,6 +54,27 @@ defmodule Ryker.ControlPlane.ToolCardTest do
     end
   end
 
+  test "a preference proposal is named as inert confirmation work" do
+    payload = %{
+      "input" => %{
+        "server" => "responder-state",
+        "tool" => "propose_preference",
+        "arguments" => %{
+          "explicit_request" => true,
+          "expires_at" => nil,
+          "key" => "response_detail",
+          "scope" => "mine",
+          "source_refs" => ["input:preference"],
+          "value" => "concise"
+        }
+      }
+    }
+
+    html = render_component(&ToolCard.render/1, step: step(payload))
+    assert html =~ "Preference proposed"
+    assert html =~ "for confirmation"
+  end
+
   test "a started tool does not present proposed observations as recorded work" do
     event =
       File.stream!("testdata/control_plane/oom-activity.jsonl")

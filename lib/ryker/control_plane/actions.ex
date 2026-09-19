@@ -472,7 +472,7 @@ defmodule Ryker.ControlPlane.Actions do
          action_ref
        )
        when kind in ["preference_offer", "guidance_offer", "standing_assignment_offer"],
-       do: confirm_record(Behaviors, record, target, action_ref)
+       do: confirm_behavior(record, target, action_ref)
 
   defp perform_lab_record_action(
          %Record{kind: "schedule_offer"} = record,
@@ -713,6 +713,25 @@ defmodule Ryker.ControlPlane.Actions do
   defp confirm_record(module, record, target, action_ref) do
     module.confirm(%{
       actor_ref: @actor_ref,
+      confirmation_ref: action_ref,
+      occurred_at: now(),
+      record_ref: record.ref,
+      target: target
+    })
+  end
+
+  defp confirm_behavior(record, target, action_ref) do
+    actor_ref =
+      case record do
+        %Record{kind: "preference_offer", payload: %{"scope" => "operator"}} ->
+          ConversationLab.operator_actor_ref()
+
+        _other ->
+          @actor_ref
+      end
+
+    Behaviors.confirm(%{
+      actor_ref: actor_ref,
       confirmation_ref: action_ref,
       occurred_at: now(),
       record_ref: record.ref,

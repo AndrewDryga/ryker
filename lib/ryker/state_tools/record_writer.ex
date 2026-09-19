@@ -105,6 +105,9 @@ defmodule Ryker.StateTools.RecordWriter do
   defp host_slot("propose_memory", arguments),
     do: [arguments["scope"], arguments["kind"], arguments["subject"]]
 
+  defp host_slot("propose_preference", arguments),
+    do: [arguments["scope"], arguments["key"]]
+
   defp host_slot("record_feedback", arguments),
     do: [arguments["target_message_ref"], arguments["category"]]
 

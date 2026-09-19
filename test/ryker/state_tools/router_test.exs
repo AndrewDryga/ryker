@@ -15,6 +15,7 @@ defmodule Ryker.StateTools.RouterTest do
   alias Ryker.Slack.ChannelMembership
 
   alias Ryker.State.{
+    Behavior,
     BehaviorChangeset,
     KnowledgeSnapshot,
     Record,
@@ -60,6 +61,7 @@ defmodule Ryker.StateTools.RouterTest do
              "request_task",
              "search_memory",
              "propose_memory",
+             "propose_preference",
              "remember_answer",
              "update_conversation_summary",
              "record_feedback",
@@ -67,8 +69,8 @@ defmodule Ryker.StateTools.RouterTest do
            ]
 
     refute Enum.any?(tools, fn tool ->
-             properties = tool["inputSchema"]["properties"]
-             Map.has_key?(properties, "state_token") or Map.has_key?(properties, "operation_id")
+             schema_property?(tool["inputSchema"], "state_token") or
+               schema_property?(tool["inputSchema"], "operation_id")
            end)
 
     response =
@@ -1693,7 +1695,7 @@ defmodule Ryker.StateTools.RouterTest do
     assert "wait_for" in names
     refute "offer_publication" in names
     refute "offer_schedule" in names
-    assert length(names) == 17
+    assert length(names) == 18
 
     automation =
       list.resp_body
@@ -1734,6 +1736,7 @@ defmodule Ryker.StateTools.RouterTest do
     assert "plan_goal" in names
     assert "update_goal" in names
     assert "propose_memory" in names
+    assert "propose_preference" in names
     assert "request_task" in names
 
     assert "request_input" in names
@@ -1757,6 +1760,98 @@ defmodule Ryker.StateTools.RouterTest do
                },
                bound_options(claim)
              )
+  end
+
+  test "explicit preference requests create typed inert offers and reject inference or invalid scope" do
+    claim = claim!("typed-preferences")
+    options = bound_options(claim)
+
+    cases = [
+      {"response_detail", "concise", "mine", "operator", nil},
+      {"response_detail", "standard", "current_channel", "conversation", nil},
+      {"response_detail", "detailed", "repository", "repository", "ryker"},
+      {"health_check_depth", "quick", "mine", "operator", nil},
+      {"health_check_depth", "standard", "current_channel", "conversation", nil},
+      {"health_check_depth", "deep", "workspace", "workspace", nil},
+      {"response_location", "follow_context", "mine", "operator", nil},
+      {"response_location", "prefer_thread", "current_channel", "conversation", nil},
+      {"response_location", "prefer_channel", "workspace", "workspace", nil}
+    ]
+
+    for {key, value, requested_scope, stored_scope, repository} <- cases do
+      arguments = %{
+        "explicit_request" => true,
+        "expires_at" => nil,
+        "key" => key,
+        "scope" => requested_scope,
+        "source_refs" => ["input:explicit-preference"],
+        "value" => value
+      }
+
+      assert {:ok,
+              %{
+                "kind" => "preference_offer",
+                "proposal" => %{
+                  "key" => ^key,
+                  "value" => ^value,
+                  "scope" => ^stored_scope,
+                  "repository" => ^repository
+                }
+              }} = Tools.call("propose_preference", arguments, options)
+    end
+
+    assert Enum.count(Records.retained_records(claim.episode.id), fn record ->
+             record["kind"] == "preference_offer"
+           end) == length(cases)
+
+    assert Repo.aggregate(Behavior, :count, :id) == 0,
+           "proposing a preference must not make it effective before confirmation"
+
+    valid = %{
+      "explicit_request" => true,
+      "expires_at" => nil,
+      "key" => "response_detail",
+      "scope" => "mine",
+      "source_refs" => ["input:explicit-preference"],
+      "value" => "concise"
+    }
+
+    assert Tools.call("propose_preference", %{valid | "explicit_request" => false}, options) ==
+             {:error, "invalid_arguments"}
+
+    assert Tools.call("propose_preference", %{valid | "value" => "verbose"}, options) ==
+             {:error, "invalid_arguments"}
+
+    assert Tools.call(
+             "propose_preference",
+             %{
+               valid
+               | "key" => "response_location",
+                 "scope" => "repository",
+                 "value" => "prefer_thread"
+             },
+             options
+           ) == {:error, "invalid_arguments"}
+
+    assert Tools.call("propose_preference", valid, []) == {:error, "unauthorized"}
+
+    assert {:ok, _transition} =
+             Episodes.apply(%Ryker.Episodes.Command.AcceptResult{
+               decision_reason: "Preference proposals remain inert until confirmed.",
+               delivery: :none,
+               delivery_ref: nil,
+               episode_key: claim.episode.key,
+               expected_turn_ref: claim.episode.owner_ref,
+               next_turn_ref: nil,
+               occurred_at: DateTime.utc_now(),
+               result_ref: "result:typed-preferences"
+             })
+
+    assert Tools.call(
+             "propose_preference",
+             %{valid | "key" => "health_check_depth", "value" => "deep"},
+             options
+           ) == {:error, "unauthorized"}
   end
 
   test "Conversation Lab sessions expose the same confirmable state offers as Slack" do
@@ -2602,4 +2697,20 @@ defmodule Ryker.StateTools.RouterTest do
       workspace_ref: workspace_ref
     })
   end
+
+  defp schema_property?(schema, name) when is_map(schema) do
+    properties = Map.get(schema, "properties", %{})
+
+    Map.has_key?(properties, name) or
+      Enum.any?(Map.values(properties), &schema_property?(&1, name)) or
+      Enum.any?(~w(oneOf anyOf allOf), fn composition ->
+        schema |> Map.get(composition, []) |> schema_property?(name)
+      end) or
+      schema_property?(schema["items"], name)
+  end
+
+  defp schema_property?(schemas, name) when is_list(schemas),
+    do: Enum.any?(schemas, &schema_property?(&1, name))
+
+  defp schema_property?(_schema, _name), do: false
 end

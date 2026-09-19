@@ -118,13 +118,10 @@ defmodule Ryker.ControlPlane.SubscriptionsPageTest do
 
     help = LazyHTML.query(document, "details.page-help#waits-help:not([open])")
 
-    assert LazyHTML.query(help, "summary") |> LazyHTML.text() ==
-             "How waits are listed and searched"
-
-    assert LazyHTML.text(help) =~ "up to 100 waits"
-    assert LazyHTML.text(help) =~ "active waits first"
-    assert LazyHTML.text(help) =~ "exact subscription reference"
-    assert LazyHTML.text(help) =~ "all history"
+    assert LazyHTML.query(help, "summary") |> LazyHTML.text() == "How waits work"
+    assert LazyHTML.text(help) =~ "when active work cannot continue yet"
+    assert LazyHTML.text(help) =~ "Continue when this pull request is merged"
+    assert LazyHTML.text(help) =~ "This page is read-only"
 
     assert LazyHTML.query(document, "div.subscriptions-view[aria-label=Waits]") |> Enum.count() ==
              1

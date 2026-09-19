@@ -116,6 +116,9 @@ defmodule Ryker.Work.PromptTest do
     assert instructions =~ "work.responder_state_tools"
     assert instructions =~ "Resources and resource templates are not the tool catalog"
     assert instructions =~ "propose_automation"
+    assert instructions =~ "propose_preference"
+    assert instructions =~ "only when a person explicitly asks"
+    assert instructions =~ "never infer a durable preference"
     assert instructions =~ "An offer awaiting confirmation is a complete proposal"
     assert instructions =~ ~s("candidate":)
     assert instructions =~ ~s("outcome":)

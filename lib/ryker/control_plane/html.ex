@@ -7,6 +7,7 @@ defmodule Ryker.ControlPlane.HTML do
     Card,
     CodeEditingSetup,
     Components,
+    ConfigurationGuide,
     ConfigurationHelp,
     ConversationLab,
     FailurePage,
@@ -233,6 +234,7 @@ defmodule Ryker.ControlPlane.HTML do
 
     [
       "<div class=\"schedules-page\">",
+      configuration_guide(:schedules),
       search_form("/schedules", "Title, repository or destination", params, @schedule_statuses),
       cond do
         rows != [] ->
@@ -376,10 +378,7 @@ defmodule Ryker.ControlPlane.HTML do
   def subscriptions(items, params \\ %{}) do
     [
       "<div class=\"subscriptions-page\">",
-      page_help("waits-help", "How waits are listed and searched", [
-        "<p>A wait is work that paused for a timer or for the next matching update from Slack, GitHub, Emisar or another source. Only that update, the timer or the wait’s own deadline resumes it; nothing here predicts what the source will report.</p>",
-        "<p>This list shows up to 100 waits in the selected status, active waits first. Search narrows what is shown; an exact subscription reference finds that wait across all history within the status.</p>"
-      ]),
+      configuration_guide(:subscriptions),
       search_form(
         "/subscriptions",
         "Request, target, source or reference",
@@ -565,13 +564,7 @@ defmodule Ryker.ControlPlane.HTML do
 
     [
       "<div class=\"memory-page\">",
-      page_help("memory-help", "How memory works", [
-        "<p>Current knowledge keeps one evolving summary per subject, with source-linked updates. When background learning is enabled, Ryker maintains useful decisions, intentions and changes even when it does not reply, including in shadow mode. Not every message needs a new memory: a learning batch can finish with no change. Related topics are recalled for later routing and work. Source excerpts retain original message text; conversation handovers summarize completed work.</p>",
-        "<p>To create or correct conversation knowledge, explain the fact or change in the original Slack conversation or direct conversation. Related updates maintain the same topic. Edits, deletions and expiry invalidate knowledge that depended on the old source; invalidated items remain inspectable but are not recalled. Retention follows the oldest supporting source, so a new update cannot keep an expired fact alive indefinitely.</p>",
-        "<p>Learning activity below shows waiting messages, outcomes and the exact saved attempts. If a batch needs attention, inspect its error before granting one additional model start. A retry does not reset its spent starts or bypass source and execution checks.</p>",
-        "<p>For a deliberate saved fact, ask Ryker to remember it and confirm the proposal. When a question explicitly says the answer will be remembered, an operator's answer confirms that fact without another click. These global mappings apply across conversations in this installation and survive ordinary history cleanup. Operational memory shows each saved value and where it applies; use Forget to remove one. Knowledge is context, not an instruction, permission or proof of current health.</p>",
-        "<p>Saved instructions live on their own pages: <a href=\"/rules\">Standing rules →</a> <a href=\"/preferences\">Preferences →</a> <a href=\"/guidance\">Guidance →</a></p>"
-      ]),
+      configuration_guide(:memory),
       if(snapshot[:conversation_memory],
         do:
           MemoryPage.render(%{
@@ -1601,6 +1594,12 @@ defmodule Ryker.ControlPlane.HTML do
       ]
     }
     |> Components.page_help()
+    |> Safe.to_iodata()
+  end
+
+  defp configuration_guide(page) do
+    %{__changed__: nil, page: page}
+    |> ConfigurationGuide.render()
     |> Safe.to_iodata()
   end
 

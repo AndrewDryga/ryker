@@ -32,6 +32,7 @@ defmodule Ryker.Evals.OperatorTaskTest do
                "creative-request-needs-no-fake-evidence",
                "current-uptime-check-uses-fresh-source",
                "explicit-operator-incident-offer",
+               "explicit-response-preference-needs-confirmation",
                "github-pr-review-remains-in-thread",
                "grafana-firing-resolved-stays-in-cycle",
                "material-rollout-choice-asks-once",

@@ -88,6 +88,36 @@ defmodule Ryker.ControlPlane.InstructionsLiveTest do
     assert Instructions.get(:global).text == ""
   end
 
+  test "global instructions put the approved help directly below the subtitle" do
+    {:ok, _view, html} = open("/instructions")
+    document = LazyHTML.from_document(html)
+    page = LazyHTML.query(document, ".instructions-page")
+
+    assert LazyHTML.query(page, ".page-description") |> LazyHTML.text() ==
+             "Every time Ryker decides, works, or learns, it receives the global instructions and any instructions saved for the current Slack channel."
+
+    help =
+      LazyHTML.query(page, "details.page-help.configuration-help#instructions-help:not([open])")
+
+    assert LazyHTML.query(help, "summary") |> LazyHTML.text() == "How instructions work"
+
+    assert help |> LazyHTML.query(".page-help-body p") |> Enum.map(&LazyHTML.text/1) == [
+             "Use global instructions for stable defaults that should apply everywhere. Add channel instructions from a channel’s page when something should apply only there.",
+             "Both sets of instructions are sent to Ryker. If they give different guidance about the same behavior, Ryker treats the channel instruction as more specific for work in that channel.",
+             "Instructions can shape choices such as style and level of detail. They cannot change permissions, available tools, confirmation requirements, or other fixed system rules. Changes apply to the next model turn."
+           ]
+
+    assert page
+           |> LazyHTML.query(
+             "header.page-header, details.configuration-help, section.instructions-editor"
+           )
+           |> Enum.map(fn node -> node |> LazyHTML.tag() |> hd() end) == [
+             "header",
+             "details",
+             "section"
+           ]
+  end
+
   test "channel page has its own editor and inherited preview without leaking text into the roster" do
     join!()
     start_supervised!({SlackNames, workspace: "TINSTRUCTIONS", fetch: fn _ -> {:ok, "test"} end})
@@ -100,6 +130,9 @@ defmodule Ryker.ControlPlane.InstructionsLiveTest do
     {:ok, view, html} = open("/channels/TINSTRUCTIONS/CTEST")
     assert has_element?(view, ".instructions-page h1", "#test")
     assert html =~ "Channel instructions"
+    assert html =~ "more specific for conflicting behavioral guidance in this channel"
+    assert html =~ "They cannot change permissions or fixed system rules."
+    refute html =~ "take priority"
     assert has_element?(view, "#inherited-instructions", "Global <script>plain text</script>")
     refute html =~ "<script>plain text</script>"
     assert has_element?(view, "a[href='/instructions']", "Edit global instructions")

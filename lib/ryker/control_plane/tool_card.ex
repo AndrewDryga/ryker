@@ -29,6 +29,9 @@ defmodule Ryker.ControlPlane.ToolCard do
     "propose_memory" =>
       {"Propose a memory", "Memory proposed",
        "Prepares a remembered fact or instruction for confirmation."},
+    "propose_preference" =>
+      {"Propose a preference", "Preference proposed",
+       "Prepares a response preference for confirmation."},
     "request_task" =>
       {"Prepare a task", "Task proposed", "Prepares follow-up work for confirmation."},
     "record_feedback" =>

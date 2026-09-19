@@ -110,9 +110,9 @@ defmodule Ryker.ControlPlane.OperatorUsabilityTest do
 
   test "findings explain their scope and supported creation workflow" do
     html = HTML.findings(%{items: [], total: 0, page: 1, pages: 1}) |> IO.iodata_to_binary()
-    assert html =~ "How findings are saved and followed up"
-    assert html =~ "not a second list of episodes"
-    assert html =~ "Ask Ryker to investigate"
+    assert html =~ "How findings work"
+    assert html =~ "Routine lookups, raw alerts, and unchanged repeated conclusions"
+    assert html =~ "continue the source investigation"
     refute html =~ "Create finding"
   end
 

@@ -34,7 +34,7 @@ defmodule Ryker.ControlPlane.BehaviorPageTest do
     refute html =~ "No guidance yet"
   end
 
-  test "creation help is a closed disclosure under the description that links only to surviving pages" do
+  test "creation help is a closed disclosure with the approved instructions" do
     # The Standing rules screenshot Andrew sent on 2026-09-09 showed the
     # creation help floated into a right-hand column beside three 30px status
     # counts, always open, linking into the Card Lab and /lab surfaces that
@@ -42,19 +42,21 @@ defmodule Ryker.ControlPlane.BehaviorPageTest do
     # to say an entry is proposed and confirmed in a conversation; it now
     # lives under the description as a specifically labelled disclosure that
     # points only at pages that survive.
-    for {kind, label} <- [
-          {:standing_assignment, "How to add and manage rules"},
-          {:preference, "How to save and manage preferences"},
-          {:guidance, "How to add and manage guidance"}
+    for {kind, label, marker} <- [
+          {:standing_assignment, "How to create a standing rule",
+           "Ryker shows the exact rule for confirmation before saving it."},
+          {:preference, "How to save a preference",
+           "Reply-location preferences cannot be limited to a repository."},
+          {:guidance, "How to add guidance",
+           "Ryker shows the guidance for confirmation before saving it."}
         ] do
       html = render_component(&BehaviorPage.render/1, view: view(kind, []))
       document = LazyHTML.from_fragment(html)
       help = LazyHTML.query(document, "details.page-help:not([open])")
       assert Enum.count(help) == 1
       assert help |> LazyHTML.query("summary") |> LazyHTML.text() == label
-      assert LazyHTML.text(help) =~ "Review and confirm the proposed card"
-      assert LazyHTML.text(help) =~ "Pause or Resume"
-      assert "/channels" in (help |> LazyHTML.query("a[href]") |> LazyHTML.attribute("href"))
+      assert LazyHTML.text(help) =~ marker
+      assert Enum.empty?(LazyHTML.query(help, "a[href]"))
 
       for href <- document |> LazyHTML.query("a[href]") |> LazyHTML.attribute("href") do
         refute String.starts_with?(href, "/card-lab"), href
