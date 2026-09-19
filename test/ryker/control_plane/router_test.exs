@@ -1497,7 +1497,7 @@ defmodule Ryker.ControlPlane.RouterTest do
     assert html =~ "claude:opus/high@work"
     assert html =~ "No repository"
     assert html =~ "Not measured"
-    assert html =~ "1 execution has no token report"
+    refute html =~ "no token report"
     assert html =~ "$0.25"
     assert html =~ "Daily measured token trend"
     # Hover-only SVG titles left the shipped chart as unexplained green bars.

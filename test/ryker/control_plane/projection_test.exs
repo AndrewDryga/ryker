@@ -772,9 +772,9 @@ defmodule Ryker.ControlPlane.ProjectionTest do
     assert Enum.sum(Enum.map(snapshot.profiles, & &1.attempts)) == 13
 
     document = snapshot |> HTML.usage() |> IO.iodata_to_binary() |> LazyHTML.from_document()
-    people = LazyHTML.query(document, "#usage-people")
+    people = LazyHTML.query(document, "#usage-users")
 
-    for label <- ["Direct conversation", "universal", "Slack app", "without a saved person"],
+    for label <- ["Direct conversation", "universal", "Slack app", "without a saved"],
         do: refute(LazyHTML.text(people) =~ label)
 
     params =

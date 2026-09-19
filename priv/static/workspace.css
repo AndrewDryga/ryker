@@ -15,7 +15,7 @@
 .usage-cost > strong { color:var(--green); }
 .usage-token-groups { display:grid; grid-template-columns:1fr 1fr .65fr; border-top:1px solid var(--stroke); padding:20px 28px; gap:24px; background:#fafbf8; }
 .usage-token-group { display:grid; grid-template-columns:1fr 1fr; column-gap:18px; position:relative; padding-top:22px; }
-.usage-token-group + .usage-token-group { border-left:1px solid var(--stroke); padding-left:24px; }
+.usage-token-group + .usage-token-group:not(.usage-cache) { border-left:1px solid var(--stroke); padding-left:24px; }
 .usage-token-group .usage-stat > strong { font-size:23px; letter-spacing:-.5px; }
 .usage-group-label { position:absolute; top:0; left:0; color:var(--secondary); font-size:11px; text-transform:uppercase; letter-spacing:.08em; font-weight:650; }
 .usage-token-group + .usage-token-group .usage-group-label { left:24px; }
@@ -155,15 +155,12 @@
 .learning-source details, .learning-part > details { font-size:13px; }
 @media(max-width:700px) { .learning-receipt { padding:16px; } .learning-part > summary span { display:block; margin:6px 0 0 18px; } }
 @media(max-width:700px) { .memory-card { padding:16px; } .memory-card header { display:block; } }
-.ryker-app .usage-page .usage-people-table { min-width:0; }
-.ryker-app .usage-people-table th:first-child { width:46%; }
-.ryker-app .usage-people-table th:not(:first-child) { width:18%; text-align:right; }
-.ryker-app .usage-people-table td:not(:first-child) { text-align:right; }
-.ryker-app .usage-people-table .usage-money { white-space:normal; }
-.usage-metadata-gap { display:flex; flex-wrap:wrap; align-items:baseline; gap:16px; margin:10px 0 0; font-size:13px; color:var(--secondary); }
-.usage-metadata-gap a { color:var(--secondary); text-decoration:underline; text-underline-offset:3px; }
-.usage-metadata-gap span { margin-left:auto; font-variant-numeric:tabular-nums; }
-@media(max-width:700px) { .ryker-app .usage-people-table th, .ryker-app .usage-people-table td { padding:12px 8px; } .ryker-app .usage-people-table th:first-child { width:40%; } .ryker-app .usage-people-table th:not(:first-child) { width:20%; } .ryker-app .usage-people-table th { letter-spacing:0; font-size:10px; } .ryker-app .usage-people-table td { font-size:13px; } }
+.ryker-app .usage-page .usage-users-table { min-width:0; }
+.ryker-app .usage-users-table th:first-child { width:46%; }
+.ryker-app .usage-users-table th:not(:first-child) { width:18%; text-align:right; }
+.ryker-app .usage-users-table td:not(:first-child) { text-align:right; }
+.ryker-app .usage-users-table .usage-money { white-space:normal; }
+@media(max-width:700px) { .ryker-app .usage-users-table th, .ryker-app .usage-users-table td { padding:12px 8px; } .ryker-app .usage-users-table th:first-child { width:40%; } .ryker-app .usage-users-table th:not(:first-child) { width:20%; } .ryker-app .usage-users-table th { letter-spacing:0; font-size:10px; } .ryker-app .usage-users-table td { font-size:13px; } }
 .usage-page .measurement-notes { border:0; border-top:1px solid var(--stroke); border-radius:0; background:none; padding:18px 0; }
 .usage-page .measurement-notes summary { font-size:14px; color:var(--secondary); }
 .usage-page .measurement-notes p { font-size:14px; max-width:90ch; }
@@ -174,7 +171,7 @@
 .ryker-app .usage-pricing-table th:not(:first-child), .ryker-app .usage-pricing-table td:not(:first-child) { text-align:right; font-variant-numeric:tabular-nums; }
 .usage-scope-description { margin:0 0 20px; font-size:14px; color:var(--secondary); }
 @media(max-width:1200px) { .usage-charts { grid-template-columns:1fr; gap:16px; } .usage-donut { justify-content:flex-start; gap:32px; } .usage-donut dl { max-width:400px; } }
-@media(max-width:700px) { .usage-headlines { grid-template-columns:1fr 1fr; gap:24px; padding:20px; } .usage-stat > strong { font-size:28px; } .usage-token-groups { grid-template-columns:1fr; padding:20px; gap:20px; } .usage-token-group + .usage-token-group { border-left:0; border-top:1px solid var(--stroke); padding:38px 0 0; } .usage-token-group + .usage-token-group .usage-group-label { top:16px; left:0; } .usage-cache { padding-top:16px !important; } .usage-charts > section { padding:18px 16px; } .usage-page .usage-filters { gap:12px; } .usage-donut { gap:16px; } }
+@media(max-width:700px) { .usage-headlines { grid-template-columns:1fr 1fr; gap:24px; padding:20px; } .usage-stat > strong { font-size:28px; } .usage-token-groups { grid-template-columns:1fr; padding:20px; gap:20px; } .usage-token-group + .usage-token-group:not(.usage-cache) { border-left:0; border-top:1px solid var(--stroke); padding:38px 0 0; } .usage-token-group + .usage-token-group .usage-group-label { top:16px; left:0; } .usage-cache { padding-top:0; } .usage-charts > section { padding:18px 16px; } .usage-page .usage-filters { gap:12px; } .usage-donut { gap:16px; } }
 .usage-chart { margin:0; }
 .usage-chart figcaption { display:flex; align-items:baseline; flex-wrap:wrap; gap:6px; color:var(--secondary); font-size:14px; }
 .usage-chart figcaption strong { font-size:22px; color:var(--ink); }
@@ -958,6 +955,8 @@ details.measurement-notes > summary { cursor:pointer; font-weight:600; color:var
 .action-raw summary { font-size:13px; color:var(--secondary); }
 .action-raw pre { white-space:pre-wrap; overflow-wrap:anywhere; max-height:420px; overflow:auto; font-size:12px; }
 .usage-performance-table th:not(:first-child), .usage-performance-table td:not(:first-child) { text-align:right; font-variant-numeric:tabular-nums; }
+/* Numbers sit in the middle of a row whose first cell holds two lines. */
+.usage-performance-table td { vertical-align:middle; }
 .prompt-source-body .context-message { margin:12px 0; }
 .prompt-source-body .context-field h4 { font-size:14px; }
 .readable-model-context .prompt-source-body pre, .readable-model-context .prompt-source-body p { color:var(--ink); }
