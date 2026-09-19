@@ -1,6 +1,7 @@
 // The + Filter menu cascades: the field list stays put and each field's values
-// open beside it on hover, focus or click, so choosing a field never replaces
-// the list without a way back. The server owns whether the menu is open and
+// open beside it on hover, click or ArrowRight, so choosing a field never
+// replaces the list without a way back. Focus alone opens nothing: the menu
+// focuses its first field on opening, and on a phone that would cover the list. The server owns whether the menu is open and
 // renders every field's values as a hidden panel; this owns which panel shows,
 // where it sits, and the keys that move between the list and its values.
 
@@ -84,10 +85,6 @@ export const createFilterMenu = (el, env = {}) => {
       if (event.target?.closest?.(".filter-values")) cancel()
       return false
     },
-    focusIn(event) {
-      const field = event.target?.closest?.(".filter-field")
-      return field ? show(field.dataset.field) : false
-    },
     click(event) {
       if (event.target?.closest?.("[data-back]")) { back(); return true }
       const field = event.target?.closest?.(".filter-field")
@@ -135,7 +132,6 @@ export const FilterMenu = {
     this.menu = createFilterMenu(this.el)
     this.listeners = {
       mouseover: event => this.menu.pointerOver(event),
-      focusin: event => this.menu.focusIn(event),
       click: event => this.menu.click(event),
       keydown: event => this.menu.keydown(event)
     }
