@@ -35,32 +35,21 @@ async function connected(page) {
   await page.locator('[data-connection-state="connected"]').waitFor({timeout: 5000});
 }
 
-async function checkFilterAlignment(page) {
-  // The September 6 filter picker inherited 16px text and zero left padding,
-  // beside 14px controls; its heading also used an unrelated size and weight.
-  if (!await page.locator('#criterion-state').count()) {
-    await page.locator('#request-filter-add').selectOption('state');
-    await page.locator('#criterion-state').waitFor();
-  }
-  const layout = await page.evaluate(() => {
-    const properties = selector => {
-      const element = document.querySelector(selector);
-      const style = getComputedStyle(element);
-      const rect = element.getBoundingClientRect();
-      return {font: style.font, fontSize: style.fontSize, fontWeight: style.fontWeight,
-        paddingLeft: style.paddingLeft, paddingRight: style.paddingRight,
-        height: rect.height, centerY: rect.top + rect.height / 2};
-    };
-    return {picker: properties('#request-filter-add'), value: properties('#criterion-state'),
-      heading: properties('.criteria-heading h2'), label: properties('label[for="criterion-state"]')};
-  });
-  assert.equal(layout.picker.font, layout.value.font, 'Add filter must match criterion typography');
-  assert.equal(layout.picker.paddingLeft, layout.value.paddingLeft, 'Add filter text must have the same left inset');
-  assert.equal(layout.picker.paddingRight, layout.value.paddingRight, 'Select arrows must have the same inset');
-  assert.equal(layout.picker.height, layout.value.height, 'Filter controls must have matching heights');
-  assert.equal(layout.heading.fontSize, layout.label.fontSize, 'Filters heading must match filter labels');
-  assert.equal(layout.heading.fontWeight, layout.label.fontWeight, 'Filters heading must match label weight');
-  assert(Math.abs(layout.heading.centerY - layout.picker.centerY) < 1, 'Filters heading must be vertically centered with its picker');
+async function checkFilterToolbar(page, width) {
+  // Until 2026-09-19 the Activity filters were a separate band: an "Add filter…"
+  // select first, Is/Any/Not recorded operators and an Apply button. They are now
+  // one toolbar whose controls share one height and, on a wide screen, one line.
+  const rows = await page.evaluate(() => Array.from(document.querySelectorAll('.search-field, #activity-mode, #filter-add, .filter-chip'))
+    .map(element => { const rect = element.getBoundingClientRect(); return {height: Math.round(rect.height), center: Math.round(rect.top + rect.height / 2)}; }));
+  assert(rows.length >= 3, 'The toolbar holds search, work mode and + Filter');
+  assert(rows.every(row => row.height === rows[0].height), 'Toolbar controls share one height');
+  if (width > 800) assert(rows.every(row => row.center === rows[0].center), 'Toolbar controls sit on one line');
+  await page.locator('#filter-add').click();
+  await page.locator('#filter-popover').waitFor();
+  assert(await page.evaluate(() => Boolean(document.activeElement?.closest('#filter-popover'))), 'Focus moves into the filter menu');
+  await page.keyboard.press('Escape');
+  await page.locator('#filter-popover').waitFor({state: 'detached'});
+  assert(await page.evaluate(() => document.activeElement?.id === 'filter-add'), 'Escape returns focus to + Filter');
 }
 
 async function discover(page) {
@@ -129,7 +118,7 @@ async function discover(page) {
               assert(!/(?:…|\.\.\.)$/.test(label.trim()), 'Action labels must not end in ellipses');
             }
             assert(result.layout.scrollWidth <= width, 'Page overflows horizontally');
-            if (name === 'activity-root' || name === 'activity') await checkFilterAlignment(page);
+            if (name === 'activity-root' || name === 'activity') await checkFilterToolbar(page, width);
             assert.equal(await page.locator('a[href^="/card-lab"], a[href="/manual-tests"]').count(), 0, 'Retired testing pages must not return to navigation');
             assert.equal(await page.locator('.nav-caption', {hasText: 'Testing'}).count(), 0, 'The Testing navigation group was removed');
             if (name === 'conversation' && width === 390) assert(result.layout.composerTop >= result.layout.transcriptBottom, 'Composer obscures the conversation');

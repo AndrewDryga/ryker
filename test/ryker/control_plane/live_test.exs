@@ -429,52 +429,38 @@ defmodule Ryker.ControlPlane.LiveTest do
     end
   end
 
-  test "usage drilldowns expose editable criteria and clearing one keeps the other filters" do
+  test "usage drilldowns show each filter as a chip and removing one keeps the others" do
     # The old banner hid the selected profile, model and scope behind generic text.
-    path = "/activity?mode=all&q=health&usage_profile=emisar&usage_model=&usage_window=30d"
+    path = "/activity?mode=all&q=health&usage_profile=emisar&usage_window=30d"
     {:ok, view, _} = live(build_conn() |> Map.put(:host, "localhost"), path)
 
     assert has_element?(
              view,
-             "#request-criteria input[name='criteria[usage_profile][value]'][value=emisar]"
+             ".filter-chip[data-filter=usage_profile] .filter-chip-value",
+             "emisar"
            )
 
     assert has_element?(
              view,
-             "#request-criteria select[name='criteria[usage_model][match]'] option[value=missing][selected]"
+             ".filter-chip[data-filter=usage_window] .filter-chip-value",
+             "Last 30 days"
            )
 
-    assert has_element?(view, ".usage-drilldown a.ui-button", "Back to Usage")
-    assert has_element?(view, "#request-filter-add option[value=state]", "Request state")
-    assert has_element?(view, "#request-filter-add option[value=usage_actor]", "Person")
+    assert has_element?(view, ".filter-bar a", "Back to Usage")
+
+    view |> element("#filter-add") |> render_click()
+    assert has_element?(view, "#filter-popover button[phx-value-key=state]", "Request state")
+    assert has_element?(view, "#filter-popover button[phx-value-key=usage_actor]", "User")
+    refute has_element?(view, "#filter-popover button[phx-value-key=usage_profile]")
 
     view
-    |> element("#request-criteria")
-    |> render_change(%{
-      "criteria" => %{"usage_profile" => %{"match" => "equals", "value" => "personal"}}
-    })
-
-    render_click(view, "refresh")
-    assert has_element?(view, "#criterion-usage_profile[value=personal]")
-
-    view
-    |> element("#request-criteria")
-    |> render_submit(%{
-      "criteria" => %{
-        "usage_profile" => %{"match" => "equals", "value" => "personal"},
-        "usage_model" => %{"match" => "any", "value" => ""},
-        "usage_window" => %{"match" => "equals", "value" => "30d"}
-      }
-    })
+    |> element(".filter-chip[data-filter=usage_profile] .filter-chip-remove")
+    |> render_click()
 
     next = assert_patch(view)
-    params = URI.decode_query(URI.parse(next).query)
-    assert params["usage_profile"] == "personal"
-    assert params["mode"] == "all"
-    assert params["q"] == "health"
-    assert params["usage_window"] == "30d"
-    refute Map.has_key?(params, "usage_model")
-    refute Map.has_key?(params, "page")
+
+    assert URI.decode_query(URI.parse(next).query) ==
+             %{"mode" => "all", "q" => "health", "usage_window" => "30d"}
   end
 
   test "the LiveView endpoint preserves the loopback and host boundary" do
@@ -505,22 +491,39 @@ defmodule Ryker.ControlPlane.LiveTest do
     end
   end
 
-  test "editing search preserves pending criteria but clearing all resets them" do
+  test "choosing a field and then a value applies the filter at once, and search keeps it" do
+    # Andrew, 2026-09-19: the add dropdown sat first and reset as it added, and
+    # nothing applied until a separate button. + Filter now comes last, picks a
+    # field, then a value, and the value applies immediately.
     {:ok, view, _} = live(build_conn() |> Map.put(:host, "localhost"), "/activity?q=old")
-    render_change(view, "edit-request-filters", %{"add_filter" => "usage_profile"})
-
-    render_change(view, "edit-request-filters", %{
-      "criteria" => %{
-        "usage_profile" => %{"match" => "equals", "value" => "emisar"}
-      }
-    })
+    view |> element("#filter-add") |> render_click()
+    view |> element("#filter-popover button[phx-value-key=transport]") |> render_click()
+    view |> element("#filter-popover button[phx-value-value=slack]") |> render_click()
+    assert_patch(view, "/activity?q=old&transport=slack")
+    assert has_element?(view, ".filter-chip[data-filter=transport] .filter-chip-value", "Slack")
+    refute has_element?(view, "#filter-popover")
 
     render_change(view, "search-activity", %{"q" => "new", "mode" => "all"})
-    assert_patch(view, "/activity?mode=all&q=new")
-    assert has_element?(view, "#criterion-usage_profile[value=emisar]")
-    view |> element("a", "Clear all filters") |> render_click()
+    assert_patch(view, "/activity?mode=all&q=new&transport=slack")
+    assert has_element?(view, ".filter-chip[data-filter=transport]")
+
+    view |> element(".filter-bar a", "Clear") |> render_click()
     assert_patch(view, "/activity")
-    refute has_element?(view, "#criterion-usage_profile")
+    refute has_element?(view, ".filter-chip")
+  end
+
+  test "a free-text filter applies when its value is submitted and Escape closes the menu" do
+    {:ok, view, _} = live(build_conn() |> Map.put(:host, "localhost"), "/activity")
+    view |> element("#filter-add") |> render_click()
+    view |> element("#filter-popover button[phx-value-key=repository]") |> render_click()
+    view |> form("#filter-popover form", %{"value" => "emisar"}) |> render_submit()
+    assert_patch(view, "/activity?repository=emisar")
+    assert has_element?(view, ".filter-chip[data-filter=repository] .filter-chip-value", "emisar")
+
+    view |> element("#filter-add") |> render_click()
+    assert has_element?(view, "#filter-popover")
+    render_keydown(view, "filter-menu-close", %{"key" => "Escape"})
+    refute has_element?(view, "#filter-popover")
   end
 
   test "the execution console refreshes without a standing live toolbar" do

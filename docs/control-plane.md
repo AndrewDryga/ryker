@@ -24,7 +24,7 @@ There are no compatibility aliases for earlier paths.
 
 | Surface | Route | What it holds |
 | --- | --- | --- |
-| **Activity** | `/` and `/activity` | The global list of inputs, running work and delivered answers, with its filters in the query string. `/` is the application root and renders the same list. |
+| **Activity** | `/` and `/activity` | The global list of inputs, running work and delivered answers, with its filters in the query string. One toolbar holds search, the work mode and a chip per filter; "+ Filter" picks a field, then a value, which applies at once. `/` is the application root and renders the same list. |
 | **Timeline** | `/timeline/:ref` | One request's chronological case file, titled by its subject. `:ref` is a durable episode key or `ingress-input:<id>` for an input with no episode yet. |
 | **Model calls** | `/timeline/:ref/model-calls` | The technical inspection of the retained model requests behind that Timeline, with `kind`, `attempt` and `generation` selecting the exact retained artifact. |
 

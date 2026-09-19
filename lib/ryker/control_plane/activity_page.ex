@@ -10,7 +10,7 @@ defmodule Ryker.ControlPlane.ActivityPage do
   def render(assigns) do
     assigns =
       assigns
-      |> assign_new(:filter_draft, fn -> RequestFilters.draft(assigns.params) end)
+      |> assign_new(:filter_menu, fn -> nil end)
       |> assign_new(:filter_values, fn -> [] end)
 
     assigns =
@@ -57,27 +57,28 @@ defmodule Ryker.ControlPlane.ActivityPage do
             </nav>
             <span class="inbox-total">{@activity.total} items</span>
           </div>
-          <form
-            id="activity-filters"
-            class="inbox-search"
-            phx-change="search-activity"
-            phx-submit="search-activity"
-          >
-            <div class="filter-field filter-search">
-              <label for="activity-search">Search</label>
-              <input
-                id="activity-search"
-                name="q"
-                type="search"
-                value={@params["q"] || ""}
-                phx-debounce="300"
-                maxlength="200"
-                placeholder="Search activity or repositories…"
-                autocomplete="off"
-              />
-            </div>
-            <div class="filter-field">
-              <label for="activity-mode">Work included</label><select
+          <div class="activity-toolbar">
+            <form
+              id="activity-filters"
+              class="activity-search"
+              phx-change="search-activity"
+              phx-submit="search-activity"
+            >
+              <div class="search-field">
+                <.icon name={:search} />
+                <label class="sr-only" for="activity-search">Search activity</label>
+                <input
+                  id="activity-search"
+                  name="q"
+                  type="search"
+                  value={@params["q"] || ""}
+                  phx-debounce="300"
+                  maxlength="200"
+                  placeholder="Search activity or repositories…"
+                  autocomplete="off"
+                />
+              </div>
+              <label class="sr-only" for="activity-mode">Work included</label><select
                 id="activity-mode"
                 name="mode"
               ><option value="live" selected={@activity.mode == "live"}>Live work</option><option
@@ -88,14 +89,15 @@ defmodule Ryker.ControlPlane.ActivityPage do
               </option><option value="all" selected={@activity.mode == "all"}>
                 All work
               </option></select>
-            </div>
-          </form>
-          <RequestFilters.render
-            draft={@filter_draft}
-            values={@filter_values}
-            params={@params}
-            path={@path}
-          />
+            </form>
+            <span class="toolbar-divider" aria-hidden="true"></span>
+            <RequestFilters.render
+              values={@filter_values}
+              params={@params}
+              path={@path}
+              menu={@filter_menu}
+            />
+          </div>
           <button :if={@new_items > 0} class="new-activity" phx-click="show-new">{@new_items} new or reordered items · Show latest
           <.icon name={:arrow} /></button>
           <div :if={@activity.total == 0} class="activity-empty">
