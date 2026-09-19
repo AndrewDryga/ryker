@@ -155,6 +155,59 @@ defmodule Ryker.Ingress.InboxTest do
     assert Repo.aggregate(Entry, :count) == 1
   end
 
+  test "queue custody transitions retain their exact causal order" do
+    Repo.delete_all(from(entry in Entry, where: entry.status == :pending))
+    assert {:ok, %{entry: entry}} = Inbox.record(input!(event_ref: "Ev-custody-history"))
+    # Saved and claimed deliberately share one occurrence time: retained
+    # sequence, not database row order, must keep their causal order.
+    now = entry.inserted_at
+
+    assert {:ok, %{entry: %{id: claimed_id}, lease_ref: first_lease}} =
+             Inbox.claim_next("executor:first", now, 60)
+
+    assert claimed_id == entry.id
+
+    assert {:ok, _deferred} =
+             Inbox.defer(
+               Inbox.ref(entry),
+               first_lease,
+               DateTime.add(now, 1, :second),
+               1_000,
+               "coop_unreachable",
+               "The routing worker could not reach Coop"
+             )
+
+    assert {:ok, %{entry: %{id: reclaimed_id}, lease_ref: second_lease}} =
+             Inbox.claim_next("executor:second", DateTime.add(now, 3, :second), 60)
+
+    assert reclaimed_id == entry.id
+
+    assert {:ok, _blocked} =
+             Inbox.block(
+               Inbox.ref(entry),
+               second_lease,
+               "provider_unavailable",
+               "The provider remained unavailable"
+             )
+
+    assert {:ok, _rearmed} = Inbox.rearm(Inbox.ref(entry))
+
+    assert %{rows: rows} =
+             Repo.query!(
+               "SELECT sequence, kind, attempt, error_code FROM input_custody_transitions WHERE input_id = $1 ORDER BY sequence",
+               [Ecto.UUID.dump!(entry.id)]
+             )
+
+    assert rows == [
+             [1, "saved", 0, nil],
+             [2, "claimed", 1, nil],
+             [3, "retry_scheduled", 1, "coop_unreachable"],
+             [4, "reclaimed", 2, nil],
+             [5, "blocked", 2, "provider_unavailable"],
+             [6, "rearmed", 0, nil]
+           ]
+  end
+
   test "a batch records every normalized input atomically" do
     stored = input!(event_ref: "Ev-batch-conflict", content: %{"text" => "original"})
     assert {:ok, _receipt} = Inbox.record(stored)

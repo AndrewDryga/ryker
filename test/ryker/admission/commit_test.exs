@@ -848,6 +848,16 @@ defmodule Ryker.Admission.CommitTest do
     assert duplicate.status == :superseded
     assert duplicate.entry.status == :superseded
     assert duplicate.transitions == []
+
+    assert %{rows: [["superseded", detail]]} =
+             Repo.query!(
+               "SELECT kind, detail FROM input_custody_transitions WHERE input_id = $1 AND kind = 'superseded'",
+               [Ecto.UUID.dump!(entry.id)]
+             )
+
+    assert detail =~ "native_input_id: \"#{entry.native_input_id}\""
+    assert detail =~ "submitted: 1"
+    assert detail =~ "latest: 2"
   end
 
   test "a source owner created during classification prevents routing the revision elsewhere" do

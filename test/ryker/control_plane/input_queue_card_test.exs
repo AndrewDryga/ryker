@@ -16,10 +16,12 @@ defmodule Ryker.ControlPlane.InputQueueCardTest do
   alias Ryker.Admission.Attempt
   alias Ryker.CanonicalJSON
   alias Ryker.ControlPlane.{EpisodePage, ModelRequests, Projection, RequestPage}
+  alias Ryker.ControlPlane.EpisodeTrace.Preparation
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Ingress.Inbox
   alias Ryker.Ingress.Inbox.Entry
+  alias Ryker.Ingress.InputCustodyTransition
   alias Ryker.Slack.Input
 
   @now ~U[2026-09-04 22:51:44.000000Z]
@@ -30,9 +32,54 @@ defmodule Ryker.ControlPlane.InputQueueCardTest do
 
     positions =
       for label <- ["Participation", "Input queue"],
-          do: :binary.match(html, "<h3>" <> label) |> elem(0)
+          do: :binary.match(html, label) |> elem(0)
 
     assert positions == Enum.sort(positions)
+  end
+
+  test "the ordinary path reads received, participation, queue, then routing" do
+    {entry, episode} = decided!()
+    attempt!(entry, DateTime.add(entry.inserted_at, 290, :millisecond))
+    html = rendered(episode)
+
+    positions =
+      for id <- [
+            "story-message-#{entry.id}",
+            "event-participation-#{entry.id}",
+            "event-queue-#{entry.id}",
+            "admission-#{entry.id}-1"
+          ],
+          do: :binary.match(html, ~s(id="#{id}")) |> elem(0)
+
+    assert positions == Enum.sort(positions)
+  end
+
+  test "a later retry starts a new queue run without changing the sealed first run" do
+    {entry, _input} = pending!()
+    claimed_at = DateTime.add(entry.inserted_at, 290, :millisecond)
+
+    :ok =
+      Inbox.record_transition_in_transaction(entry, :claimed,
+        occurred_at: claimed_at,
+        attempt: 1,
+        owner_ref: "routing:first"
+      )
+
+    [first_run] = queue_steps(entry)
+
+    :ok =
+      Inbox.record_transition_in_transaction(entry, :retry_scheduled,
+        occurred_at: DateTime.add(claimed_at, 2, :second),
+        attempt: 1,
+        eligible_at: DateTime.add(claimed_at, 62, :second),
+        error_code: "coop_unreachable"
+      )
+
+    [sealed, retry] = queue_steps(entry)
+    assert sealed == first_run
+    assert Enum.map(sealed.queue.events, & &1.label) == ["Saved", "Picked up"]
+    assert retry.queue.qualifier == "Retry 1"
+    assert Enum.map(retry.queue.events, & &1.label) == ["Retry scheduled", "Current"]
   end
 
   test "a decided input was handed to routing at its recorded claim time" do
@@ -41,24 +88,19 @@ defmodule Ryker.ControlPlane.InputQueueCardTest do
     attempt!(entry, claimed_at)
 
     card = card(rendered(episode), entry)
-    assert card =~ "Handed to routing"
-    assert card =~ "A routing worker picked up this input."
-    assert card =~ "Queue wait"
+    assert card =~ "Picked up"
+    assert card =~ "A routing worker claimed the input."
     assert card =~ "280 ms"
-    assert card =~ "Routing claim"
     assert card =~ "22:51:44.280"
-    assert card =~ "Queue claims"
+    assert card =~ "Input ID"
   end
 
-  test "timing nobody recorded is not recorded, never a zero-second wait" do
-    # The claim clears the retry fields and updated_at moves on other writes,
-    # so an input whose attempt row is gone has no claim time to show.
+  test "a missing pickup transition is not reconstructed from terminal state" do
     {entry, episode} = decided!()
     card = card(rendered(episode), entry)
 
-    assert card =~ "Handed to routing"
-    assert card =~ "Routing claim"
-    assert card =~ "Not recorded"
+    assert card =~ "Saved"
+    refute card =~ "Picked up"
     refute card =~ "0 ms"
   end
 
@@ -73,11 +115,12 @@ defmodule Ryker.ControlPlane.InputQueueCardTest do
       ]
     )
 
+    transition!(entry, :superseded, DateTime.add(entry.inserted_at, 3, :second), attempt: 0)
+
     card = card(rendered(episode), entry)
     assert card =~ "Superseded"
-    assert card =~ "Input remains saved"
     assert card =~ "newer revision"
-    refute card =~ "Handed to routing"
+    refute card =~ "Picked up"
   end
 
   test "a blocked input says automatic retries stopped and links the existing recovery" do
@@ -87,14 +130,18 @@ defmodule Ryker.ControlPlane.InputQueueCardTest do
       set: [status: :blocked, last_error_code: "provider_unavailable", attempt_count: 8]
     )
 
+    transition!(entry, :blocked, DateTime.add(entry.inserted_at, 8, :second),
+      attempt: 8,
+      error_code: "provider_unavailable"
+    )
+
     html = standalone(entry)
     card = card(html, entry)
-    assert card =~ "Needs attention"
-    assert card =~ "Automatic retries have stopped"
+    assert card =~ "Automatic retries stopped"
     assert card =~ "Provider unavailable"
-    assert card =~ "8"
+    assert card =~ "8 attempts"
     assert html =~ "href=\"/failures/admission/#{URI.encode_www_form(Inbox.ref(entry))}\""
-    refute card =~ "Handed to routing"
+    refute card =~ "Picked up"
   end
 
   test "a retrying input shows when it becomes eligible again, not a promised pickup" do
@@ -105,13 +152,18 @@ defmodule Ryker.ControlPlane.InputQueueCardTest do
       set: [next_attempt_at: eligible_at, last_error_code: "coop_unreachable", attempt_count: 2]
     )
 
+    transition!(entry, :retry_scheduled, DateTime.add(entry.inserted_at, 2, :second),
+      attempt: 2,
+      eligible_at: eligible_at,
+      error_code: "coop_unreachable"
+    )
+
     card = card(standalone(entry), entry)
-    assert card =~ "Waiting to retry"
-    assert card =~ "Input remains saved"
+    assert card =~ "Retry scheduled"
     assert card =~ "Coop unreachable"
-    assert card =~ "Eligible for retry after"
+    assert card =~ "Eligible to retry at"
     assert card =~ Calendar.strftime(eligible_at, "%H:%M:%S")
-    refute card =~ "Needs attention"
+    refute card =~ "Automatic retries stopped"
   end
 
   test "a pending input behind an earlier pending input names that input" do
@@ -120,10 +172,10 @@ defmodule Ryker.ControlPlane.InputQueueCardTest do
 
     html = standalone(second)
     card = card(html, second)
-    assert card =~ "Waiting"
-    assert card =~ "Waiting for an earlier input in this conversation"
+    assert card =~ "Waiting for an earlier input"
+    assert card =~ "This conversation already had an earlier message waiting to be routed."
     assert card =~ "Check the deployment first"
-    assert card =~ "current"
+    assert card =~ "Current"
 
     assert LazyHTML.from_document(html)
            |> LazyHTML.query(
@@ -132,13 +184,46 @@ defmodule Ryker.ControlPlane.InputQueueCardTest do
            |> Enum.count() == 1
   end
 
+  test "a sealed predecessor reason does not change when the earlier input is later pruned" do
+    {first, _input} = pending!(text: "Check the deployment first")
+    {second, _later_input} = pending!(text: "And then this one", later: 5)
+
+    transition!(second, :claimed, DateTime.add(second.inserted_at, 1, :second),
+      attempt: 1,
+      owner_ref: "routing:stable-prefix"
+    )
+
+    before = card(standalone(second), second)
+
+    Repo.update_all(from(saved in Entry, where: saved.id == ^first.id),
+      set: [content: %{}, operational_pruned_at: DateTime.utc_now()]
+    )
+
+    assert card(standalone(second), second) == before
+    assert before =~ "Check the deployment first"
+  end
+
   test "a pending input with no evidenced blocker is saved and waiting for pickup" do
     {entry, _input} = pending!()
 
     card = card(standalone(entry), entry)
-    assert card =~ "Saved; waiting for routing pickup."
+    assert card =~ "The input entered the routing queue."
+    assert card =~ "Waiting for a routing worker to pick it up."
     refute card =~ "All workers are busy"
     refute card =~ "earlier input"
+  end
+
+  test "an older input without ledger evidence says its queue history is unavailable" do
+    {entry, _input} = pending!()
+
+    Repo.delete_all(
+      from(transition in InputCustodyTransition, where: transition.input_id == ^entry.id)
+    )
+
+    card = card(standalone(entry), entry)
+    assert card =~ "Queue history unavailable"
+    assert card =~ "Detailed queue transitions were not recorded for this older input."
+    refute card =~ "The input entered the routing queue."
   end
 
   test "an input a routing worker currently holds says so as current state" do
@@ -153,18 +238,23 @@ defmodule Ryker.ControlPlane.InputQueueCardTest do
       ]
     )
 
+    transition!(entry, :claimed, DateTime.add(entry.inserted_at, 1, :second),
+      attempt: 1,
+      owner_ref: "admission-1"
+    )
+
     card = card(standalone(entry), entry)
-    assert card =~ "Handed to routing"
-    assert card =~ "current"
-    refute card =~ "Saved; waiting"
+    assert card =~ "Picked up"
+    refute card =~ "Current"
+    refute card =~ "Waiting for a routing worker"
   end
 
-  test "the standalone input view carries all four preparation cards" do
+  test "the standalone input view carries both preparation cards" do
     {entry, _input} = pending!()
     html = standalone(entry)
 
     for label <- ["Participation", "Input queue"] do
-      assert html =~ "<h3>" <> label
+      assert html =~ label
     end
   end
 
@@ -172,6 +262,13 @@ defmodule Ryker.ControlPlane.InputQueueCardTest do
     LazyHTML.from_document(html)
     |> LazyHTML.query("#event-queue-#{entry.id}, #queue-#{entry.id}")
     |> LazyHTML.text()
+  end
+
+  defp queue_steps(entry) do
+    entry
+    |> List.wrap()
+    |> Preparation.steps()
+    |> Enum.filter(&(&1.stage == "Input queue"))
   end
 
   defp rendered(episode) do
@@ -198,6 +295,8 @@ defmodule Ryker.ControlPlane.InputQueueCardTest do
   end
 
   defp attempt!(entry, at) do
+    transition!(entry, :claimed, at, attempt: 1, owner_ref: "routing:test")
+
     Repo.insert!(%Attempt{
       input_id: entry.id,
       generation: 1,
@@ -233,7 +332,21 @@ defmodule Ryker.ControlPlane.InputQueueCardTest do
       set: [inserted_at: occurred_at]
     )
 
+    Repo.update_all(
+      from(transition in InputCustodyTransition, where: transition.input_id == ^entry.id),
+      set: [occurred_at: occurred_at]
+    )
+
     {Repo.get!(Entry, entry.id), input}
+  end
+
+  defp transition!(entry, kind, at, options) do
+    :ok =
+      Inbox.record_transition_in_transaction(
+        entry,
+        kind,
+        Keyword.put(options, :occurred_at, at)
+      )
   end
 
   defp decided! do
