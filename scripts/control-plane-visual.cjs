@@ -54,8 +54,18 @@ async function checkFilterToolbar(page, width) {
   // with the clicked button's own value) while every server-side test passed.
   if (await page.locator('.filter-chip[data-filter=transport]').count()) return;
   await page.locator('#filter-add').click();
-  await page.locator('#filter-popover button[phx-value-key=transport]').click();
-  await page.locator('#filter-popover button[phx-value-choice=slack]').click();
+  // A field opens its values beside the list, never in its place (Andrew, 2026-09-19).
+  await page.locator('#filter-popover .filter-field[data-field=transport]').hover();
+  await page.locator('#filter-values-transport').waitFor();
+  if (width > 800) {
+    const beside = await page.evaluate(() => {
+      const list = document.querySelector('.filter-fields').getBoundingClientRect();
+      const values = document.querySelector('#filter-values-transport').getBoundingClientRect();
+      return values.left >= list.right - 1 || values.right <= list.left + 1;
+    });
+    assert(beside, 'A field opens its values beside the list');
+  }
+  await page.locator('#filter-values-transport button[phx-value-choice=slack]').click();
   await page.locator('.filter-chip[data-filter=transport]').waitFor();
   assert(new URL(page.url()).searchParams.get('transport') === 'slack', 'Choosing a value applies it');
   await page.locator('.filter-chip[data-filter=transport] .filter-chip-remove').click();

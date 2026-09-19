@@ -15,7 +15,7 @@ defmodule Ryker.ControlPlane.RequestFiltersTest do
     html = render_filters(%{menu: "fields"})
 
     for key <- RequestFilters.keys(),
-        do: assert(html =~ ~s(phx-value-key="#{key}"), key)
+        do: assert(html =~ ~s(data-field="#{key}"), key)
   end
 
   test "choosing a value applies it at once and keeps search, mode and the other filters" do
@@ -106,22 +106,27 @@ defmodule Ryker.ControlPlane.RequestFiltersTest do
       render_filters(%{params: %{"state" => "complete"}, menu: "fields"})
       |> LazyHTML.from_fragment()
 
-    menu = LazyHTML.query(document, "#filter-popover")
-    assert LazyHTML.query(menu, "h3") |> Enum.map(&LazyHTML.text/1) == ["Request", "Usage"]
-
-    keys =
-      LazyHTML.query(menu, "button[phx-click=filter-menu]") |> LazyHTML.attribute("phx-value-key")
-
+    fields = LazyHTML.query(document, "#filter-popover .filter-fields")
+    assert LazyHTML.query(fields, "h3") |> Enum.map(&LazyHTML.text/1) == ["Request", "Usage"]
+    keys = LazyHTML.query(fields, "button.filter-field") |> LazyHTML.attribute("data-field")
     refute "state" in keys
     assert "transport" in keys and "usage_actor" in keys
   end
 
-  test "a value step offers the field's choices as buttons or a text box for free text" do
-    choices =
-      render_filters(%{menu: "transport"})
-      |> LazyHTML.from_fragment()
-      |> LazyHTML.query("#filter-popover button[phx-click=set-filter]")
+  test "a field's values open beside the field list in a submenu, never in its place" do
+    # Andrew, 2026-09-19: choosing a field replaced the menu with its values and
+    # left no way back. Every field now owns a submenu next to the list, which
+    # the FilterMenu hook shows on hover, focus or click.
+    document = render_filters(%{menu: "fields"}) |> LazyHTML.from_fragment()
+    menu = LazyHTML.query(document, "#filter-popover[phx-hook=FilterMenu]")
+    assert Enum.count(menu) == 1
 
+    field = LazyHTML.query(menu, ".filter-fields button.filter-field[data-field=transport]")
+    assert LazyHTML.attribute(field, "aria-controls") == ["filter-values-transport"]
+    assert LazyHTML.attribute(field, "aria-expanded") == ["false"]
+
+    transport = LazyHTML.query(menu, "#filter-values-transport.filter-values[hidden]")
+    choices = LazyHTML.query(transport, "button[phx-click=set-filter]")
     assert LazyHTML.attribute(choices, "phx-value-choice") == ~w(slack github control_plane)
 
     assert Enum.map(choices, &String.trim(LazyHTML.text(&1))) == [
@@ -130,18 +135,38 @@ defmodule Ryker.ControlPlane.RequestFiltersTest do
              "Direct conversation"
            ]
 
+    assert Enum.count(LazyHTML.query(transport, "button[data-back]")) == 1
+
+    repository = LazyHTML.query(menu, "#filter-values-repository[hidden]")
+
+    assert LazyHTML.query(
+             repository,
+             "form[phx-submit=set-filter] input[name=key][value=repository]"
+           )
+           |> Enum.count() == 1
+
+    assert LazyHTML.query(repository, "input#filter-value-repository[name=choice]")
+           |> Enum.count() == 1
+
+    # The field list stays in the same popover as every submenu.
+    assert Enum.count(LazyHTML.query(menu, ".filter-fields")) == 1
+    assert Enum.count(LazyHTML.query(menu, ".filter-values")) == length(RequestFilters.keys())
+  end
+
+  test "editing a chip opens that filter's values with the current one marked" do
     text =
       render_filters(%{params: %{"repository" => "emisar"}, menu: "repository"})
       |> LazyHTML.from_fragment()
 
-    assert LazyHTML.query(
-             text,
-             "#filter-popover form[phx-submit=set-filter] input[name=key][value=repository]"
-           )
+    assert LazyHTML.query(text, "#filter-popover input#filter-value-repository[value=emisar]")
            |> Enum.count() == 1
 
-    assert LazyHTML.query(text, "#filter-popover input#filter-value[name=choice][value=emisar]")
-           |> Enum.count() == 1
+    choices =
+      render_filters(%{params: %{"transport" => "github"}, menu: "transport"})
+      |> LazyHTML.from_fragment()
+      |> LazyHTML.query("#filter-popover button[aria-pressed=true]")
+
+    assert LazyHTML.attribute(choices, "phx-value-choice") == ["github"]
   end
 
   test "a value button carries its value where the browser cannot overwrite it" do
@@ -149,11 +174,11 @@ defmodule Ryker.ControlPlane.RequestFiltersTest do
     # clicked element's "value" with the button's own empty value, so choosing
     # Slack in a real browser applied "" and cleared the filter instead. The
     # server-side tests passed; only the live browser check caught it.
-    html = render_filters(%{menu: "transport"})
+    html = render_filters(%{menu: "fields"})
     refute html =~ "phx-value-value"
 
     assert LazyHTML.from_fragment(html)
-           |> LazyHTML.query("#filter-popover button[phx-click=set-filter]")
+           |> LazyHTML.query("#filter-values-transport button[phx-click=set-filter]")
            |> LazyHTML.attribute("phx-value-choice") == ~w(slack github control_plane)
   end
 

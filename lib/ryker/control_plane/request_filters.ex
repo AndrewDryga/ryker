@@ -87,9 +87,7 @@ defmodule Ryker.ControlPlane.RequestFilters do
         params: params,
         chips: chips,
         available: Enum.reject(@fields, &MapSet.member?(active, elem(&1, 0))),
-        adding:
-          assigns.menu == "fields" or
-            (assigns.menu in @keys and not MapSet.member?(active, assigns.menu)),
+        adding: assigns.menu == "fields",
         cleared: chips != [] or params["q"] not in [nil, ""]
       )
 
@@ -134,15 +132,7 @@ defmodule Ryker.ControlPlane.RequestFilters do
           phx-value-key="fields"
           aria-expanded={to_string(@adding)}
         ><.icon name={:plus} />Filter</button>
-        <.menu :if={@menu == "fields"} available={@available} />
-        <.popover
-          :if={@adding and @menu != "fields"}
-          field={field(@menu)}
-          current={nil}
-          values={@values}
-          params={@params}
-          return="#filter-add"
-        />
+        <.menu :if={@adding} available={@available} values={@values} params={@params} />
       </span>
       <.link :if={@cleared} class="filter-clear" patch={@path}>Clear</.link>
       <a :if={UsageProjection.filtered?(@params)} class="filter-usage" href={usage_path(@params)}>
@@ -153,7 +143,12 @@ defmodule Ryker.ControlPlane.RequestFilters do
   end
 
   attr(:available, :list, required: true)
+  attr(:values, :list, required: true)
+  attr(:params, :map, required: true)
 
+  # The field list stays put; each field's values sit in a hidden panel beside
+  # it, which the FilterMenu hook shows on hover, focus or click. Choosing a
+  # field never replaces the list without a way back.
   defp menu(assigns) do
     assigns =
       assign(assigns,
@@ -168,24 +163,39 @@ defmodule Ryker.ControlPlane.RequestFilters do
     ~H"""
     <div
       id="filter-popover"
-      class="filter-popover"
+      class="filter-popover filter-cascade"
       role="dialog"
       aria-label="Add a filter"
-      phx-mounted={JS.focus_first()}
+      phx-hook="FilterMenu"
       phx-window-keydown={JS.push("filter-menu-close") |> JS.focus(to: "#filter-add")}
       phx-key="Escape"
     >
-      <section :for={{group, fields} <- @groups}>
-        <h3>{group}</h3>
-        <button
-          :for={{key, label, _type} <- fields}
-          type="button"
-          phx-click="filter-menu"
-          phx-value-key={key}
-        >
-          {label}
-        </button>
-      </section>
+      <div class="filter-fields">
+        <section :for={{group, fields} <- @groups}>
+          <h3>{group}</h3>
+          <button
+            :for={{key, label, _type} <- fields}
+            type="button"
+            class="filter-field"
+            data-field={key}
+            aria-haspopup="true"
+            aria-expanded="false"
+            aria-controls={"filter-values-#{key}"}
+          ><span>{label}</span><.icon name={:chevron} /></button>
+        </section>
+      </div>
+      <div
+        :for={{key, label, _type} = field <- @available}
+        id={"filter-values-#{key}"}
+        class="filter-values"
+        data-field={key}
+        role="group"
+        aria-label={label}
+        hidden
+      >
+        <button type="button" class="filter-back" data-back><.icon name={:chevron} />{label}</button>
+        <.values field={field} current={nil} values={@values} params={@params} />
+      </div>
     </div>
     """
   end
@@ -196,7 +206,35 @@ defmodule Ryker.ControlPlane.RequestFilters do
   attr(:params, :map, required: true)
   attr(:return, :string, required: true, doc: "Where focus goes when Escape closes the popover")
 
+  # Editing an applied filter: that field's values alone, the current one marked.
   defp popover(assigns) do
+    {_key, label, _type} = assigns.field
+    assigns = assign(assigns, :label, label)
+
+    ~H"""
+    <div
+      id="filter-popover"
+      class="filter-popover"
+      role="dialog"
+      aria-label={"#{@label} filter"}
+      phx-mounted={JS.focus_first()}
+      phx-window-keydown={JS.push("filter-menu-close") |> JS.focus(to: @return)}
+      phx-key="Escape"
+    >
+      <h3>{@label}</h3>
+      <.values field={@field} current={@current} values={@values} params={@params} />
+    </div>
+    """
+  end
+
+  attr(:field, :any, required: true)
+  attr(:current, :any, default: nil)
+  attr(:values, :list, required: true)
+  attr(:params, :map, required: true)
+
+  # A value applies as soon as it is chosen. It travels as "choice": LiveView's
+  # client overwrites a clicked button's "value" with the button's own, empty one.
+  defp values(assigns) do
     {key, label, type} = assigns.field
 
     assigns =
@@ -212,43 +250,32 @@ defmodule Ryker.ControlPlane.RequestFilters do
       )
 
     ~H"""
-    <div
-      id="filter-popover"
-      class="filter-popover"
-      role="dialog"
-      aria-label={"#{@label} filter"}
-      phx-mounted={JS.focus_first()}
-      phx-window-keydown={JS.push("filter-menu-close") |> JS.focus(to: @return)}
-      phx-key="Escape"
-    >
-      <h3>{@label}</h3>
-      <form :if={@type == :text} class="filter-text" phx-submit="set-filter">
-        <input type="hidden" name="key" value={@key} />
-        <label class="sr-only" for="filter-value">{@label}</label>
-        <input
-          id="filter-value"
-          name="choice"
-          value={@current || ""}
-          maxlength="512"
-          autocomplete="off"
-          placeholder={"Exact #{String.downcase(@label)}"}
-        />
-        <button type="submit" class="ui-button primary">Apply</button>
-      </form>
-      <div :if={@type != :text} class="filter-choices">
-        <button
-          :for={{value, name} <- @choices}
-          type="button"
-          phx-click="set-filter"
-          phx-value-key={@key}
-          phx-value-choice={value}
-          aria-pressed={to_string(value == @current)}
-          title={value}
-        >
-          {name}
-        </button>
-        <p :if={@choices == []} class="filter-empty">Nothing recorded yet.</p>
-      </div>
+    <form :if={@type == :text} class="filter-text" phx-submit="set-filter">
+      <input type="hidden" name="key" value={@key} />
+      <label class="sr-only" for={"filter-value-#{@key}"}>{@label}</label>
+      <input
+        id={"filter-value-#{@key}"}
+        name="choice"
+        value={@current || ""}
+        maxlength="512"
+        autocomplete="off"
+        placeholder={"Exact #{String.downcase(@label)}"}
+      />
+      <button type="submit" class="ui-button primary">Apply</button>
+    </form>
+    <div :if={@type != :text} class="filter-choices">
+      <button
+        :for={{value, name} <- @choices}
+        type="button"
+        phx-click="set-filter"
+        phx-value-key={@key}
+        phx-value-choice={value}
+        aria-pressed={to_string(value == @current)}
+        title={value}
+      >
+        {name}
+      </button>
+      <p :if={@choices == []} class="filter-empty">Nothing recorded yet.</p>
     </div>
     """
   end

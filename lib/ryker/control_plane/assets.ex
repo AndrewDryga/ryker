@@ -11,6 +11,7 @@ defmodule Ryker.ControlPlane.Assets do
     "conversation.mjs" => {:ryker, "priv/static/conversation.mjs", "text/javascript"},
     "drafts.mjs" => {:ryker, "priv/static/drafts.mjs", "text/javascript"},
     "filter-toolbar.mjs" => {:ryker, "priv/static/filter-toolbar.mjs", "text/javascript"},
+    "filter-menu.mjs" => {:ryker, "priv/static/filter-menu.mjs", "text/javascript"},
     "history.mjs" => {:ryker, "priv/static/history.mjs", "text/javascript"},
     "instruction-draft.mjs" => {:ryker, "priv/static/instruction-draft.mjs", "text/javascript"},
     "leave-guard.mjs" => {:ryker, "priv/static/leave-guard.mjs", "text/javascript"},

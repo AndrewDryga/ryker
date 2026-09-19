@@ -5,6 +5,7 @@ import {createInstructionDraft} from "/assets/instruction-draft.mjs"
 import {createSettingsGuard} from "/assets/settings-draft.mjs"
 import {applyFilterChange} from "/assets/filter-toolbar.mjs"
 import {ConversationHistory} from "/assets/history.mjs"
+import {FilterMenu} from "/assets/filter-menu.mjs"
 
 // The shell: one LiveView socket and the hooks that keep a reader's place,
 // drafts and unsaved edits across patches. Each hook's behaviour lives in its
@@ -28,6 +29,6 @@ const SettingsDraft = {
 const csrfToken = document.querySelector("meta[name=csrf-token]").content
 const liveSocket = new LiveSocket("/live", Socket, {
   params: {_csrf_token: csrfToken},
-  hooks: {PreserveReadingState, InstructionDraft, SettingsDraft, ConversationHistory}
+  hooks: {PreserveReadingState, InstructionDraft, SettingsDraft, ConversationHistory, FilterMenu}
 })
 liveSocket.connect()
