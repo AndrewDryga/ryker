@@ -189,6 +189,48 @@ defmodule Ryker.Work.ValidatorTest do
     assert violation =~ "artifact_refs"
   end
 
+  test "a claimed image deliverable is repaired before delivery when no artifact exists" do
+    # The release matrix caught a false PNG attachment claim, and the focused
+    # requalification repeated it twice in three runs after prompt guidance.
+    for message <- [
+          "Created synthetic-request-rate.png with all seven supplied values.",
+          "synthetic-request-rate.png — the requested synthetic chart."
+        ] do
+      assert {:reject, [violation]} =
+               Validator.validate(candidate(empty_outcome(), message), context(), @now)
+
+      assert violation =~ "Do not claim or present a generated file"
+      assert violation =~ "outcome.artifact_refs"
+    end
+  end
+
+  test "a generated output cannot be omitted after the host has assigned its artifact reference" do
+    # One focused release-matrix run generated valid PNG bytes but finalized a
+    # stale no-reference reply after Coop assigned the artifact at handoff.
+    artifact_ref = "artifact_b39495d8382ba3aac88194e3"
+
+    candidate =
+      candidate(
+        empty_outcome(),
+        "The chart rendered, but the host did not return an artifact reference."
+      )
+
+    assert {:reject, [violation]} =
+             Validator.validate(
+               candidate,
+               context(
+                 artifacts: [artifact_ref],
+                 artifact_metadata: [
+                   %{"id" => artifact_ref, "name" => "generated-1.png"}
+                 ]
+               ),
+               @now
+             )
+
+    assert violation =~ artifact_ref
+    assert violation =~ "outcome.artifact_refs"
+  end
+
   test "a generated filename is repaired to its exact host-issued artifact reference" do
     candidate =
       candidate(
