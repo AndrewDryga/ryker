@@ -180,6 +180,27 @@ defmodule Ryker.Work.PromptTest do
     refute instructions =~ "operation_id"
   end
 
+  test "an artifact deliverable is unfinished until real bytes have a host reference" do
+    # The full release matrix caught a model claiming it created and attached a
+    # PNG while returning no artifact ref. The delivery therefore contained
+    # only prose about a filename, not the requested image.
+    instructions = normalized_instructions()
+
+    assert instructions =~ "When the request asks you to create or attach an image"
+    assert instructions =~ "invoke the runtime's image-generation tool"
+    assert instructions =~ "before composing the final candidate"
+    assert instructions =~ "Text that merely names a PNG is not an image"
+
+    assert instructions =~
+             "For a conversational image deliverable, return the built-in image result inline"
+
+    assert instructions =~ "Do not copy it into the repository or .coop-output"
+    assert instructions =~ "An explicit artifact deliverable is not complete when you only name"
+    assert instructions =~ "Use the artifact-producing capability before validate_final"
+    assert instructions =~ "returns no host-issued artifact ref"
+    assert instructions =~ "never substitute an invented filename"
+  end
+
   test "universal instructions treat unknown authenticated payloads as bounded evidence" do
     instructions = Prompt.build(%{}) |> Jason.decode!() |> Map.fetch!("instructions")
 

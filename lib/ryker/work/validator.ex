@@ -14,6 +14,9 @@ defmodule Ryker.Work.Validator do
   @context_fields ~w(artifact_delivery_supported artifact_metadata artifact_refs execution_mode open_required_goals records slack_mentions visible_reply_required workspace)
   @reference_regex ~r/\A[A-Za-z0-9_.:-]{1,256}\z/
   @shadow_record_kinds ~w(evidence coverage finding progress alert_assessment)
+  @artifact_filename ~r/\b[\p{L}\p{N}][\p{L}\p{N}_.() -]*\.(?:png|jpe?g|gif|webp|svg|pdf|csv|xlsx?|docx?|pptx?|zip)\b/iu
+  @artifact_action ~r/(?:\A|[.!?]\s+)(?:I(?:'ve| have)?|we(?:'ve| have)?|Ryker has)?\s*(?:attached|created|exported|generated|made|produced|rendered|saved)\b/iu
+  @artifact_presentation ~r/\A\s*(?:[-*]\s*)?`?[\p{L}\p{N}][\p{L}\p{N}_.() -]*\.(?:png|jpe?g|gif|webp|svg|pdf|csv|xlsx?|docx?|pptx?|zip)\b/iu
 
   @type accepted :: %{final: Final.t(), result: Result.t()}
   @type outcome :: {:accept, accepted()} | {:reject, [String.t()]} | {:error, term()}
@@ -75,6 +78,8 @@ defmodule Ryker.Work.Validator do
     |> platform_action_violations(context)
     |> missing_record_violations(final, context)
     |> missing_artifact_violations(final, context)
+    |> unselected_artifact_violations(final, context)
+    |> artifact_claim_violations(final)
     |> artifact_delivery_violations(final, context)
     |> abandoned_wait_violations(final, context)
     |> continuation_violations(final, context, now)
@@ -274,6 +279,47 @@ defmodule Ryker.Work.Validator do
         "Remove outcome.artifact_refs entry #{inspect(ref)} or create that artifact first; no deliverable artifact with that host-issued reference exists in this episode."
     end
   end
+
+  defp unselected_artifact_violations(
+         violations,
+         %{artifact_refs: [], delivery: :reply},
+         %{artifact_delivery_supported: true, artifact_refs: available}
+       ) do
+    refs = available |> MapSet.to_list() |> Enum.sort()
+
+    if refs == [] do
+      violations
+    else
+      [
+        "Generated output artifacts are available from this turn: #{Enum.join(refs, ", ")}. Include at least one intended host-issued reference in outcome.artifact_refs, call validate_final again with the corrected candidate, and do not report that the host returned no reference."
+        | violations
+      ]
+    end
+  end
+
+  defp unselected_artifact_violations(violations, _final, _context), do: violations
+
+  defp artifact_claim_violations(
+         violations,
+         %{artifact_refs: [], delivery: :reply, message: message}
+       )
+       when is_binary(message) do
+    filename? = Regex.match?(@artifact_filename, message)
+
+    claim? =
+      Regex.match?(@artifact_action, message) or Regex.match?(@artifact_presentation, message)
+
+    if filename? and claim? do
+      [
+        "Do not claim or present a generated file without its host-issued reference. For a conversational image, return the built-in image result inline instead of copying it into the repository or .coop-output, then include the returned reference in outcome.artifact_refs; if creation failed, say so without presenting a filename as delivered."
+        | violations
+      ]
+    else
+      violations
+    end
+  end
+
+  defp artifact_claim_violations(violations, _final), do: violations
 
   defp artifact_delivery_violations(
          violations,

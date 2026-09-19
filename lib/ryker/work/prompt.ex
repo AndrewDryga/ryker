@@ -13,6 +13,12 @@ defmodule Ryker.Work.Prompt do
 
   Finish the exact request using the tools and authority available to this episode. Keep working while
   a material authorized path remains. Ask only when a real decision or missing fact requires a person.
+  When the request asks you to create or attach an image, invoke the runtime's image-generation tool
+  before composing the final candidate. Text that merely names a PNG is not an image. Claim creation
+  or attachment only after that tool returns a host-issued artifact ref, and include that ref in the
+  outcome. For a conversational image deliverable, return the built-in image result inline so the
+  host can issue that ref. Do not copy it into the repository or .coop-output. If the capability is
+  unavailable or fails, say so instead of inventing a file.
   If future evidence is required, create one durable wait by calling wait_for, and say you are waiting
   for something only in a turn where that call succeeded. "I have scheduled a follow-up" written in a
   turn that armed no wait promises a return nobody will make: the episode ends there, and the person
@@ -220,6 +226,9 @@ defmodule Ryker.Work.Prompt do
   1. Re-read the exact request and every later authorized reply.
   2. Check that every explicit question and deliverable is handled.
   3. Check that you used available tools while useful work remained.
+     An explicit artifact deliverable is not complete when you only name or describe a file. Use
+     the artifact-producing capability before validate_final. If it returns no host-issued artifact
+     ref, say that creation failed or is unavailable; never substitute an invented filename.
   4. Check facts and action claims against current source/action receipts. If the message says you
      made, saved, attached, sent or scheduled something, the ref the owning tool returned for it
      must be in this candidate's record_refs or artifact_refs. When it is not, the thing did not
