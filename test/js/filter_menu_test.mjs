@@ -144,6 +144,18 @@ test("opening the menu focuses its first field without covering the list with it
   }
 })
 
+test("on a phone a hover opens nothing; a tap opens the values over the list", () => {
+  // Release ceb5e539 opened values on hover in the stacked phone layout, where
+  // they cover the list: the browser's hover before a tap put a value under the
+  // finger, so one tap on a field could choose a value in it.
+  const m = menu({innerWidth: 390})
+  m.controls.place()
+  assert.equal(m.controls.pointerOver(m.event(m.fields.state)), false)
+  assert.equal(m.panels.state.hidden, true)
+  assert.equal(m.controls.click(m.event(m.fields.state)), true)
+  assert.equal(m.panels.state.hidden, false)
+})
+
 test("a server patch that hides every panel brings the open one back", () => {
   const m = menu()
   m.controls.click(m.event(m.fields.transport))
