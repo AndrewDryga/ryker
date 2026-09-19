@@ -79,7 +79,10 @@ export const createFilterMenu = (el, env = {}) => {
   return {
     get active() { return active },
     show, hide, back, place,
+    // On a phone the values cover the list, so hover opens nothing there: the
+    // browser's hover before a tap would put a value under the finger.
     pointerOver(event) {
+      if (el.classList.contains("stacked")) return false
       const field = event.target?.closest?.(".filter-field")
       if (field) { hover(field.dataset.field); return true }
       if (event.target?.closest?.(".filter-values")) cancel()
