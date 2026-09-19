@@ -12,6 +12,8 @@ defmodule Ryker.ControlPlane.Components do
     incident: "M12 3 2 21h20L12 3Z M12 9v5 M12 17v1",
     clock: "M12 8v5l3 2 M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0",
     search: "M20 20l-5-5 M17 10a7 7 0 1 1-14 0 7 7 0 0 1 14 0",
+    code: "M16 18l6-6-6-6 M8 6l-6 6 6 6",
+    bell: "M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9 M10.3 21a2 2 0 0 0 3.4 0",
     arrow: "M5 12h14 M13 6l6 6-6 6",
     plus: "M12 5v14 M5 12h14",
     check: "m5 12 4 4L19 6",

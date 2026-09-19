@@ -13,21 +13,33 @@ defmodule Ryker.ControlPlane.LabPage do
   import Ryker.ControlPlane.Components
   alias Ryker.ControlPlane.HTML
 
-  # Authored UI examples approved on 2026-09-09. They are hints for what an
-  # operator could write, not claims about configured access, and one of them
-  # is the placeholder of a newly opened draft or conversation.
-  @examples [
-    "Show the automations active in this conversation.",
-    "Summarize the attached log and identify likely causes.",
-    "Investigate why this service keeps restarting.",
-    "Review this change for bugs and missing tests.",
-    "Help me turn this issue into an engineering task.",
-    "Remind me tomorrow at 9:00 to check the deployment.",
-    "Remember that I prefer concise incident updates.",
-    "Ask me three questions to clarify this investigation.",
-    "Compare these two approaches and explain the trade-offs.",
-    "Generate a small illustration of a rocket launch."
+  # Authored UI examples approved on 2026-09-09, grouped on 2026-09-19 by what
+  # Ryker does. They are hints for what an operator could write, not claims
+  # about configured access, and one of them is the placeholder of a newly
+  # opened draft or conversation.
+  @example_groups [
+    {"Investigate", :search,
+     [
+       "Investigate why this service keeps restarting.",
+       "Summarize the attached log and identify likely causes.",
+       "Ask me three questions to clarify this investigation."
+     ]},
+    {"Build", :code,
+     [
+       "Review this change for bugs and missing tests.",
+       "Help me turn this issue into an engineering task.",
+       "Compare these two approaches and explain the trade-offs.",
+       "Generate a small illustration of a rocket launch."
+     ]},
+    {"Remember", :bell,
+     [
+       "Remind me tomorrow at 9:00 to check the deployment.",
+       "Remember that I prefer concise incident updates.",
+       "Show the automations active in this conversation."
+     ]}
   ]
+
+  @examples Enum.flat_map(@example_groups, &elem(&1, 2))
 
   def examples, do: @examples
 
@@ -46,7 +58,7 @@ defmodule Ryker.ControlPlane.LabPage do
   def render(assigns) do
     assigns =
       assigns
-      |> assign(:examples, @examples)
+      |> assign(:example_groups, @example_groups)
       |> assign(:groups, directory_groups(assigns.items, assigns.now))
       |> assign(:progress, progress_by_input(assigns.snapshot))
       |> assign(
@@ -162,14 +174,18 @@ defmodule Ryker.ControlPlane.LabPage do
             :if={@snapshot[:draft]}
             id="lab-examples"
             class="lab-examples"
-            aria-labelledby="lab-examples-heading"
+            aria-label="Examples"
           >
-            <h2 id="lab-examples-heading">Examples</h2>
-            <ul>
-              <li :for={example <- @examples}>
-                <button type="button" class="lab-example" data-example={example}>{example}</button>
-              </li>
-            </ul>
+            <div class="lab-example-groups">
+              <div :for={{title, icon, examples} <- @example_groups} class="lab-example-group">
+                <h2><span class="lab-example-badge"><.icon name={icon} /></span>{title}</h2>
+                <ul>
+                  <li :for={example <- examples}>
+                    <button type="button" class="lab-example" data-example={example}>{example}</button>
+                  </li>
+                </ul>
+              </div>
+            </div>
           </section>
           <div id="lab-notices" class="lab-notices" phx-update="ignore" aria-live="polite"></div>
           <div class="lab-composer-dock">
