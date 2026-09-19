@@ -78,6 +78,38 @@ defmodule Ryker.ControlPlane.NativePagesTest do
     refute html =~ "No activity yet"
   end
 
+  test "activity uses the shared summary in workload order and keeps mobile navigation visible" do
+    html =
+      render_component(&ActivityPage.render/1,
+        overview: %{counts: %{active: 3, waiting: 2, blocked: 1}, fleet: %{required: false}},
+        activity: %{total: 0, page: 1, pages: 1, mode: "live"},
+        params: %{},
+        path: "/",
+        now: @now,
+        stream: [],
+        new_items: 0,
+        schedules: []
+      )
+      |> LazyHTML.from_fragment()
+
+    facts = LazyHTML.query(html, ".page-summary-facts > div")
+
+    assert Enum.map(facts, fn fact ->
+             {fact |> LazyHTML.query("dd") |> LazyHTML.text(),
+              fact |> LazyHTML.query("dt") |> LazyHTML.text() |> String.trim()}
+           end) == [{"3", "active"}, {"2", "waiting"}, {"1", "blocked"}]
+
+    assert LazyHTML.query(html, ".page-summary-fact-attention a[href='/failures']")
+           |> Enum.count() == 1
+
+    assert LazyHTML.query(html, "[data-active-count]") |> LazyHTML.text() == "3"
+
+    assert LazyHTML.query(html, ".page-summary-link[href='/usage']") |> LazyHTML.text() ==
+             "View usage and cost"
+
+    refute LazyHTML.query(html, ".activity-pulse") |> Enum.any?()
+  end
+
   test "worker problems remain actionable without filling an empty inbox with decorative widgets" do
     # The old rail hid worker status at tablet widths and showed invented account status.
     for fleet <- [%{required: true, eligible_workers: 0}, %{unavailable: true}] do

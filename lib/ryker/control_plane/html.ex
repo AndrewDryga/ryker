@@ -758,7 +758,7 @@ defmodule Ryker.ControlPlane.HTML do
 
     counts = Enum.frequencies_by(rows, & &1.kind)
 
-    types = [
+    areas = [
       {"work", "Model work"},
       {"admission", "Routing"},
       {"delivery", "Delivery"},
@@ -769,27 +769,35 @@ defmodule Ryker.ControlPlane.HTML do
       {"publication", "Publishing"}
     ]
 
-    [
-      "<dl class=\"failure-summary\" aria-label=\"Summary of listed failures\">",
-      Enum.map([{"Failures", length(rows)}, {"Affected requests", requests}], fn {label, count} ->
-        ["<div><dt>", escape(label), "</dt><dd>", integer(count), "</dd></div>"]
-      end),
-      "</dl><dl class=\"failure-types\" aria-label=\"Listed failures by type\">",
-      Enum.map(types, fn {kind, label} ->
-        count = Map.get(counts, kind, 0)
+    secondary =
+      areas
+      |> Enum.flat_map(fn {kind, label} ->
+        case Map.get(counts, kind, 0) do
+          0 -> []
+          count -> [%{label: label, value: count}]
+        end
+      end)
+      |> then(fn areas -> if length(areas) >= 2, do: areas, else: [] end)
 
-        [
-          "<div",
-          if(count > 0, do: " class=\"has-failures\"", else: ""),
-          "><dt>",
-          escape(label),
-          "</dt><dd>",
-          integer(count),
-          "</dd></div>"
-        ]
-      end),
-      "</dl>"
-    ]
+    {facts, message} =
+      if rows == [] do
+        {[%{label: "failures", value: 0}], "Nothing needs attention"}
+      else
+        {[
+           %{label: "failures", value: length(rows)},
+           %{label: "affected requests", value: requests}
+         ], nil}
+      end
+
+    Components.page_summary(%{
+      __changed__: nil,
+      label: "Failure summary",
+      facts: facts,
+      message: message,
+      secondary: secondary,
+      related: nil
+    })
+    |> Safe.to_iodata()
   end
 
   def failure(row) do

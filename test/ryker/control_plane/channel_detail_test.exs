@@ -358,8 +358,17 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
       assert length(view.episodes.items) == @page_size
 
       html = page("/channels/T123/C456")
-      metric = html |> LazyHTML.from_document() |> LazyHTML.query(".channel-metrics a")
-      assert LazyHTML.text(metric) =~ "201 episodes"
+      summary = html |> LazyHTML.from_document() |> LazyHTML.query(".page-summary")
+
+      assert summary
+             |> LazyHTML.query(".page-summary-facts dt")
+             |> LazyHTML.text()
+             |> String.trim() == "retained episodes"
+
+      assert LazyHTML.query(summary, ".page-summary-facts dd") |> LazyHTML.text() == "201"
+
+      metric = LazyHTML.query(summary, ".page-summary-link")
+      assert LazyHTML.text(metric) == "View conversation"
 
       [href] = LazyHTML.attribute(metric, "href")
       assert href == Activity.conversation_path("slack", "slack:T123:C456")

@@ -163,7 +163,7 @@ defmodule Ryker.ControlPlane.InstructionsLiveTest do
     outline =
       page
       |> LazyHTML.query(
-        "header.page-header, p.channel-metrics, details.page-help, section.instructions-editor, section.channel-section"
+        "header.page-header, section.page-summary, details.page-help, section.instructions-editor, section.channel-section"
       )
       |> Enum.map(fn node ->
         [tag] = LazyHTML.tag(node)
@@ -174,7 +174,7 @@ defmodule Ryker.ControlPlane.InstructionsLiveTest do
 
     assert Enum.take(outline, 5) == [
              "header.page-header",
-             "p.channel-metrics",
+             "section.page-summary",
              "details.page-help#channel-help",
              "section.instructions-editor#instructions-slack:TINSTRUCTIONS:CTEST",
              "section.channel-section#configuration"

@@ -98,6 +98,37 @@ defmodule Ryker.ControlPlane.ComponentsTest do
     assert LazyHTML.text(middle) =~ "Page 2 of 3 · 12 entries"
   end
 
+  test "the page summary keeps facts, a message, a breakdown and related navigation in one vocabulary" do
+    html =
+      render_component(&Components.page_summary/1,
+        label: "Current workload",
+        facts: [
+          %{value: 2, label: "active"},
+          %{value: 1, label: "blocked", tone: :attention, href: "/failures"}
+        ],
+        message: "Nothing else needs attention",
+        secondary: [%{value: 1, label: "Routing"}, %{value: 2, label: "Delivery"}],
+        related: %{href: "/usage", label: "View usage and cost"}
+      )
+      |> LazyHTML.from_fragment()
+
+    assert LazyHTML.query(html, ".page-summary[aria-label='Current workload']") |> Enum.count() ==
+             1
+
+    assert LazyHTML.query(html, ".page-summary-facts > div") |> Enum.count() == 2
+
+    assert LazyHTML.query(html, ".page-summary-fact-attention a[href='/failures']")
+           |> Enum.count() == 1
+
+    assert LazyHTML.query(html, ".page-summary-message") |> LazyHTML.text() ==
+             "Nothing else needs attention"
+
+    assert LazyHTML.query(html, ".page-summary-secondary") |> LazyHTML.text() =~ "By area"
+
+    assert LazyHTML.query(html, ".page-summary-link[href='/usage']") |> LazyHTML.text() ==
+             "View usage and cost"
+  end
+
   test "the table marks every cell with its column so a narrow screen can stack it" do
     rows = [%{name: "Daily health", count: 2}, %{name: "Weekly digest", count: 0}]
 

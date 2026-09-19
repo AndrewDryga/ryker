@@ -164,7 +164,7 @@ defmodule Ryker.ControlPlane.Pages do
 
   def page(["failures"], params, options) do
     case options.projection.failures.(params) do
-      {:ok, rows} -> ok("Failures", HTML.failures(rows))
+      {:ok, rows} -> ok("Failures", "Work that stopped and needs attention.", HTML.failures(rows))
       {:error, _reason} -> unavailable("Failures")
     end
   end
