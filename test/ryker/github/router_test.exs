@@ -104,6 +104,36 @@ defmodule Ryker.GitHub.RouterTest do
     assert Jason.decode!(conn.resp_body) == %{"status" => "ignored"}
   end
 
+  test "acknowledges configured review-thread resolution events without creating work" do
+    inbox_count = Repo.aggregate(Ryker.Ingress.Inbox.Entry, :count)
+
+    payload = %{
+      "action" => "resolved",
+      "installation" => %{"id" => 41},
+      "pull_request" => %{"number" => 42},
+      "repository" => %{"full_name" => "octo/example", "id" => 99},
+      "sender" => %{"id" => 7, "login" => "octocat", "type" => "User"},
+      "thread" => %{"comments" => [], "node_id" => "PRRT_thread"}
+    }
+
+    response =
+      request(Jason.encode!(payload),
+        delivery_ref: "delivery-review-thread-resolved",
+        event_name: "pull_request_review_thread"
+      )
+
+    assert response.status == 200
+    assert Jason.decode!(response.resp_body) == %{"status" => "ignored"}
+    assert Repo.aggregate(Ryker.Ingress.Inbox.Entry, :count) == inbox_count
+
+    wrong_repository = put_in(payload, ["repository", "full_name"], "octo/other")
+
+    assert request(Jason.encode!(wrong_repository),
+             delivery_ref: "delivery-review-thread-wrong-repository",
+             event_name: "pull_request_review_thread"
+           ).status == 400
+  end
+
   test "an authenticated lifecycle webhook nudges only its exact published pull request" do
     %{publication: publication} =
       PublicationFixture.published!("github-lifecycle-router",
