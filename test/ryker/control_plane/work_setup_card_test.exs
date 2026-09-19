@@ -58,7 +58,11 @@ defmodule Ryker.ControlPlane.WorkSetupCardTest do
 
   test "setup details show access, tools and generation without repeating the catalog" do
     work = submitted!("details")
-    card = card(rendered(work.episode), work.turn)
+    html = rendered(work.episode)
+    card = card(html, work.turn)
+
+    location = html |> LazyHTML.from_document() |> LazyHTML.query(".episode-location")
+    refute LazyHTML.text(location) =~ "ryker"
 
     assert card =~ "Setup details"
     assert card =~ "Generation 1"

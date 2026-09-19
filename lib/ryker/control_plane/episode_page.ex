@@ -49,7 +49,6 @@ defmodule Ryker.ControlPlane.EpisodePage do
         </div>
         <p class="episode-location">
           <.status :if={!@startup} state={to_string(@snapshot.episode.state)} />
-          <span :if={@snapshot.trace.case_file.repository}>{@snapshot.trace.case_file.repository}</span>
           <time>{timestamp(@snapshot.trace.received_at)}</time>
           <a
             :if={!@startup}
@@ -110,36 +109,44 @@ defmodule Ryker.ControlPlane.EpisodePage do
           </li>
         </ol>
       </section>
-      <dl :if={!@startup} class="episode-metrics">
-        <div>
-          <dt>Total cost</dt><dd>{cost(@snapshot[:accounting])}</dd>
-          <p class="metric-note">{coverage(@snapshot[:accounting])}</p>
+      <section :if={!@startup} class="episode-metrics" aria-label="Execution summary">
+        <div class="metric-group metric-group-timing">
+          <p class="metric-group-label">Timing</p>
+          <dl class="metric-group-items">
+            <div class="metric metric-wall">
+              <dt>Total wall time</dt><dd title={wall_reason(@response_metrics.wall)}>
+                {wall_time(@response_metrics.wall)}
+              </dd>
+            </div>
+            <div class="metric metric-response">
+              <dt>{response_label(@response_metrics.response)}</dt>
+              <dd>{response_time(@response_metrics.response, @response_metrics.wall)}</dd>
+              <p :if={response_note(@response_metrics.response)} class="metric-note">
+                {response_note(@response_metrics.response)}
+              </p>
+            </div>
+          </dl>
         </div>
-        <div>
-          <dt>Total wall time</dt><dd title={wall_reason(@response_metrics.wall)}>
-            {wall_time(@response_metrics.wall)}
-          </dd>
-          <p class="metric-note">{wall_note(@response_metrics.wall)}</p>
+        <div class="metric-group metric-group-conversation">
+          <p class="metric-group-label">Conversation</p>
+          <dl class="metric-group-items">
+            <div class="metric metric-messages">
+              <dt>Messages</dt><dd>{@response_metrics.messages.total}</dd>
+              <p class="metric-note">
+                {@response_metrics.messages.received} received, {@response_metrics.messages.sent} sent
+              </p>
+            </div>
+          </dl>
         </div>
-        <div>
-          <dt>Messages</dt><dd>{@response_metrics.messages.total}</dd>
-          <p class="metric-note">
-            {@response_metrics.messages.received} received · {@response_metrics.messages.sent} sent
-          </p>
+        <div class="metric-group metric-group-cost">
+          <p class="metric-group-label">Cost</p>
+          <dl class="metric-group-items">
+            <div class="metric metric-cost">
+              <dt>Total cost</dt><dd>{cost(@snapshot[:accounting])}</dd>
+            </div>
+          </dl>
         </div>
-        <div>
-          <dt>Response time</dt>
-          <dd :if={@response_metrics.response.measured == 0} class="response-time-empty">
-            No completed responses
-          </dd>
-          <dd :if={@response_metrics.response.measured > 0} class="response-time-values">
-            <span><small>min</small> {duration_ms(@response_metrics.response.minimum_ms)}</span>
-            <span><small>avg</small> {duration_ms(@response_metrics.response.average_ms)}</span>
-            <span><small>max</small> {duration_ms(@response_metrics.response.maximum_ms)}</span>
-          </dd>
-          <p class="metric-note">{response_coverage(@response_metrics.response)}</p>
-        </div>
-      </dl>
+      </section>
       <section
         :if={!@startup && @related.items != []}
         class="episode-follow-through"
@@ -1199,16 +1206,24 @@ defmodule Ryker.ControlPlane.EpisodePage do
 
   defp wall_time(_wall), do: "Not measured"
 
-  defp wall_note(%{state: :active}), do: "So far · first message to now"
-  defp wall_note(%{state: :complete}), do: "First message to latest visible outcome"
-  defp wall_note(%{reason: reason}) when is_binary(reason), do: reason
-  defp wall_note(_wall), do: "Episode span not measured"
-
   defp wall_reason(%{reason: reason}) when is_binary(reason), do: reason
   defp wall_reason(_wall), do: nil
 
-  defp response_coverage(%{measured: measured, expected: expected}),
-    do: "#{measured} of #{expected} responses timed"
+  defp response_label(%{measured: measured}) when measured > 1, do: "Average response"
+  defp response_label(_response), do: "Response time"
+
+  defp response_time(%{measured: measured, average_ms: milliseconds}, _wall)
+       when measured > 0 and is_integer(milliseconds),
+       do: duration_ms(milliseconds)
+
+  defp response_time(_response, %{state: :active}), do: "Waiting"
+  defp response_time(_response, _wall), do: "Not measured"
+
+  defp response_note(%{measured: measured, minimum_ms: minimum, maximum_ms: maximum})
+       when measured > 1 and is_integer(minimum) and is_integer(maximum),
+       do: "min #{duration_ms(minimum)}, max #{duration_ms(maximum)}"
+
+  defp response_note(_response), do: nil
 
   defp empty_response_metrics do
     %{
