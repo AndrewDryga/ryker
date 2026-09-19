@@ -542,10 +542,6 @@ defmodule Ryker.ControlPlane.LiveTest do
 
   test "native directory entry points and missing records remain usable across live navigation" do
     conn = build_conn() |> Map.put(:host, "localhost")
-    {:ok, view, _} = live(conn, "/conversations")
-    assert has_element?(view, ".lab-authority-note", "Local replies · real tools")
-    assert has_element?(view, ".lab-authority-note", "repository and Emisar actions")
-    assert has_element?(view, ".lab-authority-note a[href='/configuration']")
 
     for path <- [
           "/timeline/missing",
@@ -709,9 +705,8 @@ defmodule Ryker.ControlPlane.LiveTest do
 
   test "the composer placeholder is one of ten authored examples and holds still through patches" do
     # A placeholder that re-rolled on every refresh flickered under the
-    # operator's eyes every five seconds. It is chosen once per opened view,
-    # is never the field's value, and the Examples list and New action are
-    # buttons and navigation that cannot submit anything.
+    # operator's eyes every five seconds. It is chosen once per opened view
+    # and is never the field's value.
     conn = build_conn() |> Map.put(:host, "localhost")
     {:ok, view, _} = live(conn, "/conversations")
     placeholder = composer_placeholder(render(view))
@@ -737,16 +732,78 @@ defmodule Ryker.ControlPlane.LiveTest do
     assert composer_placeholder(render(open)) == opened
     render_hook(open, "refresh", %{})
     assert composer_placeholder(render(open)) == opened
+  end
+
+  test "a new conversation lists the ten examples above its composer and an open one does not" do
+    # Andrew, 2026-09-19: the examples hid behind an Examples dropdown in a top
+    # bar while a new conversation's page stood empty. They now fill that empty
+    # space, between the transcript and the composer, so the composer keeps the
+    # place it has in an open conversation. Each one only fills the composer.
+    conn = build_conn() |> Map.put(:host, "localhost")
+    {:ok, draft, _} = live(conn, "/conversations")
+    html = render(draft)
 
     examples =
-      render(open)
+      html
       |> LazyHTML.from_document()
-      |> LazyHTML.query("#lab-examples button[type=button][data-example]")
+      |> LazyHTML.query(".lab-column > #lab-examples li > button.lab-example[type=button]")
 
     assert LazyHTML.attribute(examples, "data-example") == LabPage.examples()
-    refute has_element?(open, "#lab-examples form, #lab-examples button[type=submit]")
-    refute has_element?(open, "#lab-examples a")
-    assert has_element?(open, ".lab-chat-toolbar a[href='/configuration']", "Settings")
+    assert Enum.map(examples, &(LazyHTML.text(&1) |> String.trim())) == LabPage.examples()
+    refute has_element?(draft, "#lab-examples form, #lab-examples a, #lab-examples details")
+    refute has_element?(draft, "#lab-examples button[type=submit]")
+
+    [history, list, dock] =
+      Enum.map(
+        [~s(id="lab-history"), ~s(id="lab-examples"), ~s(class="lab-composer-dock")],
+        &(:binary.match(html, &1) |> elem(0))
+      )
+
+    assert history < list and list < dock
+
+    {:ok, open, _} = live(conn, "/conversations/#{Ecto.UUID.generate()}")
+    refute has_element?(open, "#lab-examples")
+    refute has_element?(open, ".lab-example")
+  end
+
+  test "a conversation keeps no chrome around its composer: no top-bar links, limit hint or authority note" do
+    # Andrew, 2026-09-19: an Examples dropdown and a Settings link in a top
+    # bar, a permanent "Up to 2 files · 8 MiB" hint, "Saved on acceptance" and
+    # the "Local replies · real tools" note sat on every conversation and said
+    # nothing he needed. The bar remains only to open the directory on phones;
+    # the file limits are explained beside the composer when a choice breaks
+    # them, and the only hint left is how to send.
+    conn = build_conn() |> Map.put(:host, "localhost")
+
+    for path <- ["/conversations", "/conversations/#{Ecto.UUID.generate()}"] do
+      {:ok, view, _} = live(conn, path)
+      html = render(view)
+      document = LazyHTML.from_document(html)
+
+      toolbar = LazyHTML.query(document, ".lab-chat-toolbar")
+      assert Enum.count(LazyHTML.query(toolbar, "button[data-lab-directory-toggle]")) == 1
+      assert Enum.empty?(LazyHTML.query(toolbar, "a, details, summary"))
+      refute has_element?(view, ".lab-chat a[href='/configuration']")
+
+      refute html =~ "Local replies"
+      refute html =~ "configured authority"
+      refute html =~ "Up to 2 files"
+      refute html =~ "Saved on acceptance"
+
+      assert LazyHTML.query(document, ".lab-composer-dock > .lab-chat-footer")
+             |> LazyHTML.text()
+             |> String.trim() == "⌘ / Ctrl + Enter to send"
+
+      assert has_element?(
+               view,
+               "form.lab-native-composer input#lab-attachments[type=file][aria-describedby=lab-attachments-error]"
+             )
+
+      assert has_element?(
+               view,
+               "form.lab-native-composer p#lab-attachments-error.composer-error[role=alert][hidden]"
+             )
+    end
   end
 
   test "the directory reads as grouped two-line titles and says when it is empty" do
@@ -811,6 +868,35 @@ defmodule Ryker.ControlPlane.LiveTest do
     assert times =~ "UTC"
     refute html =~ "inputs ·"
     refute html =~ "RECENT CONVERSATIONS"
+  end
+
+  test "an inspection link opens beside the conversation instead of replacing it" do
+    # Andrew, 2026-09-19: "View request ↗" navigated away from the conversation
+    # being read. Every per-message inspection link now opens a new tab, and
+    # says so to assistive technology as well as with the arrow.
+    {:ok, profile} =
+      WorkProfile.new(%{
+        policy: "lab-live-test",
+        policy_digest: String.duplicate("a", 64),
+        repository_ref: nil
+      })
+
+    id = Ecto.UUID.generate()
+    {:ok, %{entry: first}} = ConversationLab.send_message(id, "First question", profile)
+    accepted_reply!(id, first, "The first answer.", profile)
+    conn = build_conn() |> Map.put(:host, "localhost")
+    {:ok, view, _} = live(conn, "/conversations/#{id}")
+
+    links =
+      render(view)
+      |> LazyHTML.from_document()
+      |> LazyHTML.query("#lab-messages a.lab-message-inspect")
+
+    assert Enum.count(links) == 2
+    assert LazyHTML.attribute(links, "target") == ["_blank", "_blank"]
+    assert LazyHTML.attribute(links, "rel") == ["noopener", "noopener"]
+    assert LazyHTML.attribute(links, "data-phx-link") == []
+    assert Enum.all?(links, &(LazyHTML.text(&1) =~ "opens in a new tab"))
   end
 
   test "each message links its own retained execution and shows progress once beside it" do
@@ -1086,16 +1172,21 @@ defmodule Ryker.ControlPlane.LiveTest do
 
     # One labelled control opens one anchored picker holding the five quick
     # choices and the custom-name form with its label, aligned Add and error slot.
+    # Andrew, 2026-09-19: as in Slack, the control ends the reactions row
+    # under the reply, right after the pills, and it is an icon, not a word.
     [picker_id] =
       LazyHTML.query(
         reply,
-        ".lab-message-actions button.lab-reaction-toggle[type=button][aria-expanded=false]"
+        ".lab-reactions > .lab-reaction-pills + button.lab-reaction-toggle[type=button][aria-expanded=false]"
       )
       |> LazyHTML.attribute("aria-controls")
 
-    assert LazyHTML.query(reply, ".lab-reaction-toggle") |> LazyHTML.attribute("aria-label") == [
-             "Add reaction"
-           ]
+    toggle = LazyHTML.query(reply, ".lab-reaction-toggle")
+    assert LazyHTML.attribute(toggle, "aria-label") == ["Add reaction"]
+    assert LazyHTML.attribute(toggle, "title") == ["Add reaction"]
+    assert LazyHTML.text(toggle) |> String.trim() == ""
+    assert Enum.count(LazyHTML.query(toggle, "svg")) == 1
+    refute has_element?(view, ".lab-message-actions .lab-reaction-toggle")
 
     picker = LazyHTML.query(reply, "##{picker_id}.lab-reaction-picker[hidden][phx-update=ignore]")
     assert Enum.count(picker) == 1
@@ -1151,6 +1242,12 @@ defmodule Ryker.ControlPlane.LiveTest do
     assert Enum.count(bare) == 2
     assert Enum.count(LazyHTML.query(bare, ".lab-reaction-pills")) == 1
     assert Enum.count(LazyHTML.query(bare, ".lab-reaction-toggle")) == 2
+
+    # With nothing recorded yet, the control alone starts the row.
+    assert Enum.count(
+             LazyHTML.query(bare, ".lab-reactions > button.lab-reaction-toggle:first-child")
+           ) ==
+             1
   end
 
   test "an operator message edits in place through one hidden editor bound to that message" do

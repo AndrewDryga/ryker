@@ -1,5 +1,5 @@
 // Conversation page controls that live in the browser: the narrow-screen
-// directory drawer, the Examples fill-in, following the first send of an
+// directory drawer, the example fill-in, following the first send of an
 // index draft to the conversation it created, and the inline message editor.
 // Nothing here rewrites the transcript: every change is posted to the exact
 // message's own route and comes back through the live stream.
@@ -268,7 +268,7 @@ export const createConversationControls = (root, options = {}) => {
   let picker = null
 
   const pickerFor = button => doc?.getElementById(button.getAttribute("aria-controls") || "") || null
-  const pickerToggle = panel => panel.closest(".lab-message-actions")?.querySelector(".lab-reaction-toggle") || null
+  const pickerToggle = panel => panel.closest(".lab-reactions")?.querySelector(".lab-reaction-toggle") || null
 
   const setPicker = (panel, shown) => {
     panel.hidden = !shown
@@ -389,8 +389,6 @@ export const createConversationControls = (root, options = {}) => {
       const example = target.closest(".lab-example")
       if (example) {
         fillExample(root.querySelector?.("#lab-message"), example.dataset.example)
-        const list = example.closest("details")
-        if (list) list.open = false
         return true
       }
       const edit = target.closest(".lab-edit-toggle")

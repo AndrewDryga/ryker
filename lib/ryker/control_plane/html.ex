@@ -1181,8 +1181,7 @@ defmodule Ryker.ControlPlane.HTML do
       "</div>",
       "<div class=\"message-cards\">",
       Enum.map(Map.get(message, :cards, []), &lab_card/1),
-      "</div>",
-      lab_reaction_pills(message)
+      "</div>"
     ]
   end
 
@@ -1236,9 +1235,23 @@ defmodule Ryker.ControlPlane.HTML do
   def lab_message_editor(_message), do: ""
 
   @doc false
-  # The compact action row under a message. An operator message gets Edit,
-  # which opens the editor above, and its own exact Delete form; a delivered
-  # reply gets the add-reaction control with its anchored picker.
+  # The reactions row under a delivered reply, as in Slack: the recorded pills,
+  # then the add-reaction button at the end of the row with its anchored picker.
+  def lab_message_reactions(%{reaction_controls: %{path: path, token: token}} = message)
+      when is_binary(path) and is_binary(token) do
+    [
+      "<div class=\"lab-reactions\">",
+      lab_reaction_pills(message),
+      lab_reaction_picker(message),
+      "</div>"
+    ]
+  end
+
+  def lab_message_reactions(_message), do: ""
+
+  @doc false
+  # The compact action row under an operator message: Edit, which opens the
+  # editor above, and its own exact Delete form.
   def lab_message_actions(%{
         message_controls: %{delete: %{path: delete_path, token: delete_token}},
         item_id: item_id
@@ -1253,11 +1266,6 @@ defmodule Ryker.ControlPlane.HTML do
       escape(delete_token),
       "\"><button class=\"lab-message-delete\" type=\"submit\">Delete</button></form></div>"
     ]
-  end
-
-  def lab_message_actions(%{reaction_controls: %{path: path, token: token}} = message)
-      when is_binary(path) and is_binary(token) do
-    ["<div class=\"lab-message-actions\">", lab_reaction_picker(message), "</div>"]
   end
 
   def lab_message_actions(_message), do: ""
@@ -1313,10 +1321,11 @@ defmodule Ryker.ControlPlane.HTML do
 
   defp lab_reaction_pills(_message), do: ""
 
-  # The add-reaction control and its anchored picker: the five quick choices
-  # and a custom-name form whose label, field and Add button share one row
-  # and whose error slot is tied to the field. The picker is ignored by live
-  # patches so an open picker and a half-typed name survive a refresh.
+  # The add-reaction control, an icon with an accessible name and a tooltip,
+  # and its anchored picker: the five quick choices and a custom-name form
+  # whose label, field and Add button share one row and whose error slot is
+  # tied to the field. The picker is ignored by live patches so an open picker
+  # and a half-typed name survive a refresh.
   defp lab_reaction_picker(%{reaction_controls: %{path: path, token: token}, ref: ref})
        when is_binary(path) and is_binary(token) and is_binary(ref) do
     picker_id = "lab-reaction-picker-" <> lab_short_digest(ref)
@@ -1339,9 +1348,9 @@ defmodule Ryker.ControlPlane.HTML do
       end)
 
     [
-      "<button type=\"button\" class=\"lab-reaction-toggle\" aria-label=\"Add reaction\" aria-haspopup=\"true\" aria-expanded=\"false\" aria-controls=\"",
+      "<button type=\"button\" class=\"lab-reaction-toggle\" aria-label=\"Add reaction\" title=\"Add reaction\" aria-haspopup=\"true\" aria-expanded=\"false\" aria-controls=\"",
       picker_id,
-      "\"><svg class=\"ui-icon\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M21 12a9 9 0 1 1-9-9 M8.5 14a4.5 4.5 0 0 0 7 0 M9 9.5h.01 M15 9.5h.01 M19 2v6 M16 5h6\"/></svg><span>Add reaction</span></button>",
+      "\"><svg class=\"ui-icon\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M21 12a9 9 0 1 1-9-9 M8.5 14a4.5 4.5 0 0 0 7 0 M9 9.5h.01 M15 9.5h.01 M19 2v6 M16 5h6\"/></svg></button>",
       "<div class=\"lab-reaction-picker\" id=\"",
       picker_id,
       "\" role=\"group\" aria-label=\"Add a reaction\" phx-update=\"ignore\" hidden><div class=\"lab-reaction-quick-row\">",

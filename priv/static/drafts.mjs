@@ -43,6 +43,12 @@ export const validateDraft = (message, files) => {
   if (bytes > 20000) return `Message is ${bytes.toLocaleString("en-US")} bytes; maximum is 20,000.`
   if (message.includes("\u0000")) return "Remove the null character from your message."
   if (message.trim() === "" && files.length === 0) return "Write a message or attach a file."
+  return validateFiles(files)
+}
+
+// The attachment limits the server enforces, judged on the chosen files alone
+// so the composer can explain a broken limit the moment files are picked.
+export const validateFiles = files => {
   if (files.length > 2) return "Attach at most 2 files."
   if (files.reduce((total, file) => total + file.size, 0) > 8 * 1024 * 1024) return "Attachments must total at most 8 MiB."
   return ""
