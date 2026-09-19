@@ -498,7 +498,7 @@ defmodule Ryker.ControlPlane.LiveTest do
     {:ok, view, _} = live(build_conn() |> Map.put(:host, "localhost"), "/activity?q=old")
     view |> element("#filter-add") |> render_click()
     view |> element("#filter-popover button[phx-value-key=transport]") |> render_click()
-    view |> element("#filter-popover button[phx-value-value=slack]") |> render_click()
+    view |> element("#filter-popover button[phx-value-choice=slack]") |> render_click()
     assert_patch(view, "/activity?q=old&transport=slack")
     assert has_element?(view, ".filter-chip[data-filter=transport] .filter-chip-value", "Slack")
     refute has_element?(view, "#filter-popover")
@@ -516,7 +516,7 @@ defmodule Ryker.ControlPlane.LiveTest do
     {:ok, view, _} = live(build_conn() |> Map.put(:host, "localhost"), "/activity")
     view |> element("#filter-add") |> render_click()
     view |> element("#filter-popover button[phx-value-key=repository]") |> render_click()
-    view |> form("#filter-popover form", %{"value" => "emisar"}) |> render_submit()
+    view |> form("#filter-popover form", %{"choice" => "emisar"}) |> render_submit()
     assert_patch(view, "/activity?repository=emisar")
     assert has_element?(view, ".filter-chip[data-filter=repository] .filter-chip-value", "emisar")
 
