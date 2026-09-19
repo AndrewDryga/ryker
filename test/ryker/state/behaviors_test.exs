@@ -816,6 +816,26 @@ defmodule Ryker.State.BehaviorsTest do
              {:error, :behavior_offer_stale}
   end
 
+  test "an operator preference can only be confirmed by the operator who requested it" do
+    fixture = delivered_offers!("operator-preference-requester")
+
+    crossed =
+      fixture
+      |> confirmation(fixture.operator_preference, "other-operator")
+      |> Map.put(:actor_ref, "slack:user:U999")
+
+    assert Behaviors.confirm(crossed) == {:error, :behavior_offer_actor_mismatch}
+    assert Repo.aggregate(Behavior, :count, :id) == 0
+
+    assert {:ok, confirmed} =
+             Behaviors.confirm(
+               confirmation(fixture, fixture.operator_preference, "requesting-operator")
+             )
+
+    assert confirmed.behavior.scope_kind == :operator
+    assert confirmed.behavior.scope_ref == "slack:user:U123"
+  end
+
   test "a standing assignment match is recorded once and finalized with admission" do
     fixture = delivered_offers!("assignment-run")
 
@@ -1122,6 +1142,7 @@ defmodule Ryker.State.BehaviorsTest do
     assert {:ok, transition} =
              Episodes.apply(
                EpisodeFixtures.admit_input(%{
+                 actor_ref: "slack:user:U123",
                  destination: %{
                    conversation_ref: "slack:T123:C456",
                    thread_ref: "1787832000.000100",
@@ -1216,20 +1237,24 @@ defmodule Ryker.State.BehaviorsTest do
                }
              )
 
-    bind_and_deliver!(
-      claim,
-      transition.episode,
-      suffix,
-      [
-        workspace_preference,
-        operator_preference,
-        guidance,
-        assignment,
-        source_event_assignment
-      ],
-      delivery_thread_ref
-    )
-    |> Map.merge(%{
+    delivery =
+      bind_and_deliver!(
+        claim,
+        transition.episode,
+        suffix,
+        [
+          workspace_preference,
+          operator_preference,
+          guidance,
+          assignment,
+          source_event_assignment
+        ],
+        delivery_thread_ref
+      )
+
+    put_requesting_actor!(operator_preference, "slack:user:U123")
+
+    Map.merge(delivery, %{
       assignment: assignment,
       guidance: guidance,
       operator_preference: operator_preference,
@@ -1426,6 +1451,26 @@ defmodule Ryker.State.BehaviorsTest do
              )
 
     %{episode: settled.episode, receipt: receipt}
+  end
+
+  defp put_requesting_actor!(record, actor_ref) do
+    turn = Repo.get!(Turn, record.turn_id)
+
+    submission =
+      Map.put(turn.submission, "context", %{
+        "inputs" => %{
+          "items" => [
+            %{
+              "actor_ref" => actor_ref,
+              "current" => true,
+              "source_ref" => "input:explicit-preference"
+            }
+          ]
+        },
+        "mode" => "full"
+      })
+
+    turn |> Ecto.Changeset.change(submission: submission) |> Repo.update!()
   end
 
   defp confirmation(fixture, record, suffix) do

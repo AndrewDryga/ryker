@@ -31,8 +31,8 @@ defmodule Ryker.ControlPlane.MemorySummaryStatusTest do
     assert Enum.count(help) == 1
     assert help |> LazyHTML.query("summary") |> LazyHTML.text() == "How memory works"
     assert LazyHTML.text(help) =~ "even when it does not reply"
-    assert LazyHTML.text(help) =~ "To create or correct"
-    assert LazyHTML.text(help) =~ "oldest supporting source"
+    assert LazyHTML.text(help) =~ "To correct learned knowledge"
+    assert LazyHTML.text(help) =~ "does not grant permission"
     assert LazyHTML.text(help) =~ "confirm the proposal"
     assert Enum.count(LazyHTML.query(document, "nav.memory-views")) == 1
     assert Enum.count(LazyHTML.query(document, "#memory-search")) == 1

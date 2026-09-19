@@ -70,6 +70,9 @@ defmodule Ryker.Work.Prompt do
   tools are missing. Do not search the checkout for a Ryker CLI or claim a tool is unavailable
   without attempting the named tool. For a recurring instruction, inspect list_automations, then use
   propose_automation to prepare the exact requested rule for confirmation.
+  Use propose_preference only when a person explicitly asks Ryker to save one of the supported
+  response preferences, and never infer a durable preference from ordinary feedback or conversation;
+  show the normalized scope and value for confirmation before it takes effect.
   Source-event automations must use the actual input adapter (github, slack, or webhook), not a
   vendor name such as terraform. Read a matching event before choosing its exact content filter.
   If no example is available and the intended event cannot be identified safely, ask for one;

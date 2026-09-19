@@ -67,9 +67,9 @@ defmodule Ryker.ControlPlane.FindingsPageTest do
 
   test "findings explain creation and follow-up without pretending to be incidents" do
     html = render_component(&FindingsPage.render/1, view: Projection.findings(%{}))
-    assert html =~ "Ask Ryker to investigate"
-    assert html =~ "follow up in the source conversation"
-    assert String.replace(html, ~r/\s+/, " ") =~ "does not create an incident or send a message"
+    assert html =~ "During a substantive investigation"
+    assert html =~ "Routine lookups, raw alerts"
+    assert html =~ "continue the source investigation"
     assert html =~ "No findings yet"
     refute html =~ "does not currently expose a tool"
   end
@@ -93,14 +93,10 @@ defmodule Ryker.ControlPlane.FindingsPageTest do
 
     help = LazyHTML.query(document, "details.page-help#findings-help:not([open])")
 
-    assert LazyHTML.query(help, "summary") |> LazyHTML.text() ==
-             "How findings are saved and followed up"
-
-    assert LazyHTML.text(help) =~ "not a second list of episodes"
-    assert LazyHTML.text(help) =~ "Ask Ryker to investigate"
-
-    assert String.replace(LazyHTML.text(help), ~r/\s+/, " ") =~
-             "does not create an incident or send a message"
+    assert LazyHTML.query(help, "summary") |> LazyHTML.text() == "How findings work"
+    assert LazyHTML.text(help) =~ "useful conclusions automatically"
+    assert LazyHTML.text(help) =~ "unchanged repeated conclusions"
+    assert LazyHTML.text(help) =~ "completed cases Ryker can recall"
 
     # An empty list states itself once; the shared count renders nothing at zero.
     assert Enum.empty?(LazyHTML.query(document, "p.result-count"))
@@ -162,7 +158,9 @@ defmodule Ryker.ControlPlane.FindingsPageTest do
       })
 
     assert page.title == "Findings"
-    assert page.description =~ "Saved investigation conclusions"
+
+    assert page.description ==
+             "Findings are conclusions Ryker saves from investigations, together with the evidence behind them."
 
     assert LazyHTML.from_fragment(page.body)
            |> LazyHTML.query("div.findings-view details.page-help")

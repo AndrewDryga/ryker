@@ -235,6 +235,7 @@ defmodule Ryker.ControlPlane.Components do
 
   attr(:id, :string, required: true)
   attr(:label, :string, required: true, doc: "Specific, e.g. \"How to add and manage rules\"")
+  attr(:class, :any, default: nil)
   slot(:inner_block, required: true)
 
   @doc """
@@ -246,7 +247,7 @@ defmodule Ryker.ControlPlane.Components do
   """
   def page_help(assigns) do
     ~H"""
-    <details class="page-help" id={@id}>
+    <details class={["page-help", @class]} id={@id}>
       <summary>{@label}</summary>
       <div class="page-help-body">{render_slot(@inner_block)}</div>
     </details>

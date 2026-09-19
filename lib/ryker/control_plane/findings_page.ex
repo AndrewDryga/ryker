@@ -3,9 +3,9 @@ defmodule Ryker.ControlPlane.FindingsPage do
   use Phoenix.Component
 
   import Ryker.ControlPlane.Components,
-    only: [page_help: 1, pager: 1, result_count: 1, timestamp: 1]
+    only: [pager: 1, result_count: 1, timestamp: 1]
 
-  alias Ryker.ControlPlane.SlackMarkdown
+  alias Ryker.ControlPlane.{ConfigurationGuide, SlackMarkdown}
 
   # Saved investigation conclusions inside the shared shell: the closed help,
   # the quiet count, then the entries with their evidence links. The shell
@@ -13,18 +13,7 @@ defmodule Ryker.ControlPlane.FindingsPage do
   def render(assigns) do
     ~H"""
     <div class="findings-view" role="region" aria-label="Investigation findings">
-      <.page_help id="findings-help" label="How findings are saved and followed up">
-        <p>
-          Findings are saved conclusions: what needs explaining, what evidence explains it,
-          or why the behavior is expected. This is not a second list of episodes.
-        </p>
-        <p>
-          Ask Ryker to investigate in Slack or in a <a href="/conversations">direct conversation</a>.
-          It can save a finding with the evidence it collected. Saving a finding does not create
-          an incident or send a message. To correct or extend a conclusion, follow up in the source conversation
-          using <em>Open investigation</em> below; the original finding remains part of the history.
-        </p>
-      </.page_help>
+      <ConfigurationGuide.render page={:findings} />
       <.result_count count={@view.total} one="finding" many="findings" />
       <p :if={@view.total == 0} class="empty-state">
         No findings yet. A conversation note or an alert alone is not an investigation conclusion.

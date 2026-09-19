@@ -91,7 +91,7 @@ candidate and baseline matrix three times against the same deterministic worlds 
 configured aggregate, per-case, paired-regression, hard-invariant, execution, and cleanup limits.
 
 Both run through `scripts/elixir-world-eval.sh`, which splits the plan into shards that run at
-once. The full matrix is 180 observations at about 93 seconds each; one VM ran them one after
+once. The full matrix is 186 observations at about 93 seconds each; one VM ran them one after
 another and took 4.8 hours. Each shard is its own `mix ryker.eval world --shard I/N` VM on
 its own campaign database and its own worker-gateway and state-tools ports (the configured
 `RYKER_WORKER_PORT` and `RYKER_STATE_TOOLS_PORT` each advanced by two per shard, with the

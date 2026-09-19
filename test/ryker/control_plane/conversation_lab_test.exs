@@ -746,6 +746,7 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
     assert {:ok, transition} =
              Episodes.apply(
                EpisodeFixtures.admit_input(%{
+                 actor_ref: ConversationLab.operator_actor_ref(),
                  destination: %{
                    conversation_ref: conversation_ref,
                    thread_ref: conversation_ref,
@@ -837,7 +838,7 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
                  "expires_in" => "90d",
                  "key" => "response_detail",
                  "repository" => nil,
-                 "scope" => "conversation",
+                 "scope" => "operator",
                  "value" => "detailed"
                }
              )
@@ -1151,8 +1152,9 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
 
     assert preferred.status == :confirmed
     assert %Behavior{} = preferred.behavior
-    assert preferred.behavior.scope_kind == :conversation
-    assert preferred.behavior.scope_ref == conversation_ref
+    assert preferred.behavior.scope_kind == :operator
+    assert preferred.behavior.scope_ref == ConversationLab.operator_actor_ref()
+    assert preferred.behavior.confirmed_by_actor_ref == ConversationLab.operator_actor_ref()
     assert preferred.behavior.payload["value"] == "detailed"
 
     assert {:ok, duplicate} =

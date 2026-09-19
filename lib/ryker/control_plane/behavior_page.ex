@@ -2,24 +2,20 @@ defmodule Ryker.ControlPlane.BehaviorPage do
   @moduledoc "Human-readable, scoped instructions and their existing lifecycle controls."
   use Phoenix.Component
   import Ryker.ControlPlane.Components
-  alias Ryker.ControlPlane.{BehaviorLibrary, SlackNames}
+  alias Ryker.ControlPlane.{BehaviorLibrary, ConfigurationGuide, SlackNames}
 
   def title(:standing_assignment), do: "Standing rules"
   def title(:preference), do: "Preferences"
   def title(:guidance), do: "Guidance"
 
-  # The shell's one-line description under the title. Guidance keeps its
-  # authority boundary here, visible, rather than inside the closed help.
   def description(:standing_assignment),
-    do: "Instructions that run when a matching event arrives."
+    do: ConfigurationGuide.description(:rules)
 
   def description(:preference),
-    do:
-      "Saved choices for how Ryker replies and works, scoped to a person, conversation, repository, or workspace."
+    do: ConfigurationGuide.description(:preferences)
 
   def description(:guidance),
-    do:
-      "Confirmed instructions recalled in relevant conversations. Guidance helps the model; it does not grant permission to act."
+    do: ConfigurationGuide.description(:guidance)
 
   @status_options [
     {"current", "Active & paused"},
@@ -47,18 +43,7 @@ defmodule Ryker.ControlPlane.BehaviorPage do
 
     ~H"""
     <div class="behavior-library">
-      <.page_help id={help_id(@view.kind)} label={help_label(@view.kind)}>
-        <p>{create_help(@view.kind)}</p>
-        <p>Review and confirm the proposed card in that conversation before it takes effect.</p>
-        <p>
-          Use Pause or Resume to change whether an entry applies. Delete removes it from active use while keeping its history.
-        </p>
-        <p :if={@view.kind == :guidance}>
-          Guidance is recalled when relevant. Use <a href="/instructions">Instructions</a>
-          for global or channel defaults supplied on every model turn.
-        </p>
-        <p><a href="/channels">Slack channels →</a></p>
-      </.page_help>
+      <ConfigurationGuide.render page={guide_page(@view.kind)} />
       <.filter_toolbar
         id="behavior-search"
         path={@path}
@@ -333,13 +318,9 @@ defmodule Ryker.ControlPlane.BehaviorPage do
 
   def source_url(_), do: nil
 
-  defp help_id(:standing_assignment), do: "rules-help"
-  defp help_id(:preference), do: "preferences-help"
-  defp help_id(:guidance), do: "guidance-help"
-
-  defp help_label(:standing_assignment), do: "How to add and manage rules"
-  defp help_label(:preference), do: "How to save and manage preferences"
-  defp help_label(:guidance), do: "How to add and manage guidance"
+  defp guide_page(:standing_assignment), do: :rules
+  defp guide_page(:preference), do: :preferences
+  defp guide_page(:guidance), do: :guidance
 
   defp noun(:standing_assignment, 1), do: "rule"
   defp noun(:standing_assignment, _), do: "rules"
@@ -347,18 +328,6 @@ defmodule Ryker.ControlPlane.BehaviorPage do
   defp noun(:preference, _), do: "preferences"
   defp noun(:guidance, 1), do: "guidance entry"
   defp noun(:guidance, _), do: "guidance entries"
-
-  defp create_help(:standing_assignment),
-    do:
-      "Ask Ryker in the channel where the rule should apply. Describe which events to watch and what to do—for example, review Terraform plans posted in that channel."
-
-  defp create_help(:preference),
-    do:
-      "Ask Ryker to save your preferred response detail, health-check depth, or response location. Specify whether it applies to you, this conversation, a repository, or the workspace. Response location cannot be repository-scoped."
-
-  defp create_help(:guidance),
-    do:
-      "Ask Ryker to save an instruction or review checklist as guidance. Include where it applies and how long to retain it. To change existing guidance, open its original conversation and request a replacement."
 
   defp empty_help(:standing_assignment),
     do:

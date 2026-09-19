@@ -1,0 +1,76 @@
+{
+  "version": 1,
+  "id": "explicit-response-preference-needs-confirmation",
+  "provenance": {
+    "kind": "synthetic",
+    "episode_refs": [
+      "synthetic:explicit-response-preference"
+    ],
+    "captured_at": "2026-09-19T10:00:00Z"
+  },
+  "clock": {
+    "start": "2026-09-19T10:00:00Z"
+  },
+  "actors": [
+    {
+      "actor_ref": "slack:user:U-operator",
+      "authority": "operator",
+      "input_profile": {
+        "actor": {"kind": "user", "ref": "U-operator"},
+        "event_kind": "message",
+        "occurred_at_source": "source",
+        "source": {"kind": "slack", "ref": "TEVAL"},
+        "source_capabilities": {"react": {"emoji_names": null}}
+      },
+      "kind": "human"
+    }
+  ],
+  "events": [
+    {
+      "actor_ref": "slack:user:U-operator",
+      "destination": {
+        "conversation_ref": "slack:TEVAL:CEVAL",
+        "thread_ref": "1789812000.000100",
+        "transport": "slack"
+      },
+      "kind": "input",
+      "occurred_at": "2026-09-19T10:00:00Z",
+      "payload": {
+        "text": "Save a preference for me: keep your replies concise. Show it for confirmation before it takes effect."
+      }
+    }
+  ],
+  "world": {
+    "repositories": [],
+    "tool_rules": [],
+    "scheduled_events": []
+  },
+  "host_replay": {
+    "model_events": []
+  },
+  "expect": {
+    "hard": [
+      {
+        "kind": "state_tool_recorded",
+        "tool": "propose_preference"
+      }
+    ],
+    "trajectory": [],
+    "quality_rubric": [
+      {
+        "criterion": "Creates one person-scoped concise response-detail preference proposal for confirmation.",
+        "weight": 3
+      },
+      {
+        "criterion": "Does not claim the preference is active before confirmation.",
+        "weight": 2
+      }
+    ]
+  },
+  "tags": [
+    "model-world",
+    "model-requalification",
+    "preference",
+    "confirmation"
+  ]
+}

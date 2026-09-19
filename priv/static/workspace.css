@@ -460,6 +460,8 @@ details.measurement-notes > summary { cursor:pointer; font-weight:600; color:var
 .ryker-app .page-description { margin:8px 0 0; max-width:76ch; font-size:16px; line-height:1.5; color:var(--secondary); }
 .page-help { margin:0 0 24px; max-width:76ch; }
 .page-surface .page-help > summary { font-size:16px; line-height:1.5; font-weight:550; padding:10px 0; }
+.configuration-help { margin-top:-16px; max-width:76ch; overflow-wrap:anywhere; }
+.page-surface .configuration-help > summary { padding:0; }
 .page-help-body { padding:4px 0 0; }
 .ryker-app .page-help-body p { margin:0 0 12px; max-width:70ch; line-height:1.5; }
 .ryker-app .page-help-body p:last-child { margin-bottom:0; }

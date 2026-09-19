@@ -50,7 +50,7 @@ defmodule Ryker.ControlPlane.PagesTest do
           {"/memory", "Operational memory"},
           {"/incident-rooms", "Track Slack incident rooms"},
           {"/incident-rooms/incident%3Aone", "Room lifecycle"},
-          {"/schedules", "dispatched or missed occurrence"},
+          {"/schedules", "How to create a schedule"},
           {"/schedules/schedule%3Aone", "Execution history"},
           {"/subscriptions", "Waits"},
           {"/channels", "Slack channels Ryker knows about"},
@@ -82,9 +82,7 @@ defmodule Ryker.ControlPlane.PagesTest do
     assert usage.body =~ "claude:opus/high@work"
 
     memory = page("/memory")
-    assert memory.body =~ "href=\"/rules\""
-    assert memory.body =~ "href=\"/preferences\""
-    assert memory.body =~ "href=\"/guidance\""
+    assert memory.body =~ "Memory provides context; it does not grant permission"
     assert memory.body =~ "scope workspace (slack:T123); visibility workspace"
     assert memory.body =~ "Keep separate"
   end

@@ -72,6 +72,31 @@ defmodule Ryker.StateTools.MemoryTools do
     end
   end
 
+  @spec propose_preference(map(), map()) :: {:ok, map()} | {:error, term()}
+  def propose_preference(arguments, binding) do
+    scope = preference_scope(arguments["scope"])
+
+    payload = %{
+      "expires_in" => expiry(arguments["expires_at"]),
+      "key" => arguments["key"],
+      "repository" => preference_repository(scope, binding),
+      "scope" => scope,
+      "value" => arguments["value"]
+    }
+
+    with {:ok, result} <-
+           RecordWriter.create_public_record(
+             binding,
+             "propose_preference",
+             arguments,
+             "preference_offer",
+             payload,
+             "preference_offer"
+           ) do
+      {:ok, Map.put(result, "proposal", payload)}
+    end
+  end
+
   @spec update_conversation_summary(map(), map()) :: {:ok, map()} | {:error, term()}
   def update_conversation_summary(%{"state" => state}, binding) do
     case Continuity.stage(binding.state_token, state) do
@@ -96,6 +121,13 @@ defmodule Ryker.StateTools.MemoryTools do
 
   defp memory_repository("repository", binding), do: binding.session.repository_ref
   defp memory_repository(_scope, _binding), do: nil
+
+  defp preference_repository("repository", binding), do: binding.session.repository_ref
+  defp preference_repository(_scope, _binding), do: nil
+
+  defp preference_scope("mine"), do: "operator"
+  defp preference_scope("current_channel"), do: "conversation"
+  defp preference_scope(scope), do: scope
 
   defp effective_memory_scope(scope, %{destination_transport: "slack"} = episode)
        when scope in ["repository", "workspace"] do

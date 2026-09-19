@@ -392,6 +392,7 @@ defmodule Ryker.Evals.WorldAssertions do
     do: ["schedule_offer", "standing_assignment_offer", "automation_change_offer"]
 
   defp tool_record_kinds("propose_memory"), do: ["memory_offer", "guidance_offer"]
+  defp tool_record_kinds("propose_preference"), do: ["preference_offer"]
   defp tool_record_kinds("record_feedback"), do: ["progress"]
   defp tool_record_kinds(_tool), do: []
 end

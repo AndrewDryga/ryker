@@ -17,7 +17,7 @@ defmodule Ryker.StateTools.FixedTools do
     WorkStateTools
   }
 
-  @confirmation_tools ~w(propose_automation propose_memory request_task)
+  @confirmation_tools ~w(propose_automation propose_memory propose_preference request_task)
   @names ~w(
     get_work_state
     cite_source
@@ -32,6 +32,7 @@ defmodule Ryker.StateTools.FixedTools do
     request_task
     search_memory
     propose_memory
+    propose_preference
     remember_answer
     update_conversation_summary
     record_feedback
@@ -128,6 +129,9 @@ defmodule Ryker.StateTools.FixedTools do
 
   defp dispatch("propose_memory", arguments, binding),
     do: MemoryTools.propose_memory(arguments, binding)
+
+  defp dispatch("propose_preference", arguments, binding),
+    do: MemoryTools.propose_preference(arguments, binding)
 
   defp dispatch("remember_answer", arguments, binding),
     do: MemoryTools.remember_answer(arguments, binding)

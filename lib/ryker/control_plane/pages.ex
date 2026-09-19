@@ -16,6 +16,7 @@ defmodule Ryker.ControlPlane.Pages do
     BehaviorPage,
     ChannelDetail,
     ChannelPage,
+    ConfigurationGuide,
     HTML,
     PathRef,
     SlackNames
@@ -67,7 +68,7 @@ defmodule Ryker.ControlPlane.Pages do
 
     ok(
       "Schedules",
-      "Recurring and one-shot work Ryker has agreed to run, with each dispatched or missed occurrence.",
+      ConfigurationGuide.description(:schedules),
       HTML.schedules(snapshot, params)
     )
   end
@@ -88,7 +89,7 @@ defmodule Ryker.ControlPlane.Pages do
 
     ok(
       "Waits",
-      "What the agent is waiting for, when it will check again, and what resumed the work.",
+      ConfigurationGuide.description(:subscriptions),
       HTML.subscriptions(snapshot, params)
     )
   end
@@ -140,7 +141,7 @@ defmodule Ryker.ControlPlane.Pages do
   def page(["memory"], params, options) do
     ok(
       "Memory",
-      "What Ryker learned from conversations, with the messages and work it came from.",
+      ConfigurationGuide.description(:memory),
       HTML.memory(options.projection.memory.(params), options.csrf_secret)
     )
   end
@@ -195,7 +196,7 @@ defmodule Ryker.ControlPlane.Pages do
   def page(["findings"], params, options) do
     ok(
       "Findings",
-      "Saved investigation conclusions with the evidence behind them: what needs explaining, what explains it, or why it is expected.",
+      ConfigurationGuide.description(:findings),
       HTML.findings(options.projection.findings.(params))
     )
   end

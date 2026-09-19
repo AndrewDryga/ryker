@@ -27,6 +27,7 @@ defmodule Ryker.StateTools.Catalog do
       request_task_tool(),
       search_memory_tool(),
       propose_memory_tool(),
+      propose_preference_tool(),
       remember_answer_tool(),
       update_conversation_summary_tool(),
       record_feedback_tool(),
@@ -334,6 +335,51 @@ defmodule Ryker.StateTools.Catalog do
         "value" => text(4_000)
       }
     )
+  end
+
+  defp propose_preference_tool do
+    common = %{
+      "explicit_request" => %{"const" => true, "type" => "boolean"},
+      "expires_at" => nullable(timestamp()),
+      "scope" => enum(~w(current_channel repository workspace mine)),
+      "source_refs" => array(reference(256), 1, 20)
+    }
+
+    branch = fn key, values, scopes ->
+      object(
+        Map.merge(common, %{
+          "key" => const(key),
+          "scope" => enum(scopes),
+          "value" => enum(values)
+        }),
+        ~w(explicit_request expires_at key scope source_refs value)
+      )
+    end
+
+    %{
+      "description" =>
+        "Offer one normalized response preference for human confirmation. Call only when a person explicitly asks to save a preference; never infer a durable preference from ordinary feedback or conversation.",
+      "inputSchema" => %{
+        "oneOf" => [
+          branch.(
+            "health_check_depth",
+            ~w(quick standard deep),
+            ~w(current_channel repository workspace mine)
+          ),
+          branch.(
+            "response_detail",
+            ~w(concise standard detailed),
+            ~w(current_channel repository workspace mine)
+          ),
+          branch.(
+            "response_location",
+            ~w(follow_context prefer_thread prefer_channel),
+            ~w(current_channel workspace mine)
+          )
+        ]
+      },
+      "name" => "propose_preference"
+    }
   end
 
   defp remember_answer_tool do
