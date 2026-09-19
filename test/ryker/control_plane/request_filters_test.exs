@@ -122,7 +122,7 @@ defmodule Ryker.ControlPlane.RequestFiltersTest do
       |> LazyHTML.from_fragment()
       |> LazyHTML.query("#filter-popover button[phx-click=set-filter]")
 
-    assert LazyHTML.attribute(choices, "phx-value-value") == ~w(slack github control_plane)
+    assert LazyHTML.attribute(choices, "phx-value-choice") == ~w(slack github control_plane)
 
     assert Enum.map(choices, &String.trim(LazyHTML.text(&1))) == [
              "Slack",
@@ -140,8 +140,21 @@ defmodule Ryker.ControlPlane.RequestFiltersTest do
            )
            |> Enum.count() == 1
 
-    assert LazyHTML.query(text, "#filter-popover input#filter-value[name=value][value=emisar]")
+    assert LazyHTML.query(text, "#filter-popover input#filter-value[name=choice][value=emisar]")
            |> Enum.count() == 1
+  end
+
+  test "a value button carries its value where the browser cannot overwrite it" do
+    # Release 7d760b5d sent phx-value-value. LiveView's client then replaces a
+    # clicked element's "value" with the button's own empty value, so choosing
+    # Slack in a real browser applied "" and cleared the filter instead. The
+    # server-side tests passed; only the live browser check caught it.
+    html = render_filters(%{menu: "transport"})
+    refute html =~ "phx-value-value"
+
+    assert LazyHTML.from_fragment(html)
+           |> LazyHTML.query("#filter-popover button[phx-click=set-filter]")
+           |> LazyHTML.attribute("phx-value-choice") == ~w(slack github control_plane)
   end
 
   test "malformed and oversized filter input cannot become a query or executable markup" do

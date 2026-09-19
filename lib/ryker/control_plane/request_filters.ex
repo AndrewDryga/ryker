@@ -227,7 +227,7 @@ defmodule Ryker.ControlPlane.RequestFilters do
         <label class="sr-only" for="filter-value">{@label}</label>
         <input
           id="filter-value"
-          name="value"
+          name="choice"
           value={@current || ""}
           maxlength="512"
           autocomplete="off"
@@ -241,7 +241,7 @@ defmodule Ryker.ControlPlane.RequestFilters do
           type="button"
           phx-click="set-filter"
           phx-value-key={@key}
-          phx-value-value={value}
+          phx-value-choice={value}
           aria-pressed={to_string(value == @current)}
           title={value}
         >

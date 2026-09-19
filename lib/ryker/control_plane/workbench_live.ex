@@ -259,8 +259,10 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
   def handle_event("filter-menu-close", _params, socket),
     do: {:noreply, assign(socket, :filter_menu, nil)}
 
-  def handle_event("set-filter", %{"key" => key, "value" => value}, socket),
-    do: patch_filters(socket, RequestFilters.set(socket.assigns.params, key, value))
+  # The value travels as "choice": LiveView's client overwrites a clicked
+  # element's "value" with the button's own, which is empty.
+  def handle_event("set-filter", %{"key" => key, "choice" => choice}, socket),
+    do: patch_filters(socket, RequestFilters.set(socket.assigns.params, key, choice))
 
   def handle_event("remove-filter", %{"key" => key}, socket),
     do: patch_filters(socket, RequestFilters.remove(socket.assigns.params, key))

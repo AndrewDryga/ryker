@@ -807,7 +807,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
       })
       |> LazyHTML.from_fragment()
       |> LazyHTML.query("#filter-popover button[phx-click=set-filter]")
-      |> LazyHTML.attribute("phx-value-value")
+      |> LazyHTML.attribute("phx-value-choice")
     end
 
     assert Enum.sort(choices.("usage_actor")) == ["U0BHTNFCW6S", "andrew"]

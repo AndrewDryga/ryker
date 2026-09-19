@@ -50,6 +50,16 @@ async function checkFilterToolbar(page, width) {
   await page.keyboard.press('Escape');
   await page.locator('#filter-popover').waitFor({state: 'detached'});
   assert(await page.evaluate(() => document.activeElement?.id === 'filter-add'), 'Escape returns focus to + Filter');
+  // Release 7d760b5d applied an empty value in the browser (LiveView overwrote it
+  // with the clicked button's own value) while every server-side test passed.
+  if (await page.locator('.filter-chip[data-filter=transport]').count()) return;
+  await page.locator('#filter-add').click();
+  await page.locator('#filter-popover button[phx-value-key=transport]').click();
+  await page.locator('#filter-popover button[phx-value-choice=slack]').click();
+  await page.locator('.filter-chip[data-filter=transport]').waitFor();
+  assert(new URL(page.url()).searchParams.get('transport') === 'slack', 'Choosing a value applies it');
+  await page.locator('.filter-chip[data-filter=transport] .filter-chip-remove').click();
+  await page.locator('.filter-chip[data-filter=transport]').waitFor({state: 'detached'});
 }
 
 async function discover(page) {
