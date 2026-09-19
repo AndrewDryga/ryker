@@ -668,8 +668,9 @@ identity and nothing is written until the first message, after which the browser
 opens that conversation; `New` in the directory header returns to the index. The
 composer sits at the bottom of the conversation column in both, a hint line's
 height above the window's edge, so the first message does not move it; the index
-lists the ten authored examples above it, and choosing one fills the composer
-without sending. On a phone the composer comes first with the examples under it,
+shows the ten authored examples in the free space above it, in quiet columns
+grouped by what Ryker does (Investigate, Build, Remember), and choosing one fills
+the composer without sending. On a phone the composer comes first with the examples under it,
 and a bar above the conversation opens the directory as a drawer; there is no bar
 on a wider screen. The attachment limits (two files, 8 MiB in total) are said
 beside the composer only when a choice breaks them. Each message carries a

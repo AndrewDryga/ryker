@@ -766,6 +766,32 @@ defmodule Ryker.ControlPlane.LiveTest do
     refute has_element?(open, ".lab-example")
   end
 
+  test "the examples read as what Ryker does: three headed groups holding each example once" do
+    # Andrew, 2026-09-19: a plain black list of ten sentences was loud and dull.
+    # He chose, from rendered alternatives, quiet columns headed by what Ryker
+    # does, so the empty state also says what the agent is for.
+    {:ok, draft, _} = live(build_conn() |> Map.put(:host, "localhost"), "/conversations")
+
+    groups =
+      render(draft)
+      |> LazyHTML.from_document()
+      |> LazyHTML.query("#lab-examples .lab-example-group")
+
+    assert Enum.map(groups, &(LazyHTML.query(&1, "h2") |> LazyHTML.text() |> String.trim())) ==
+             ["Investigate", "Build", "Remember"]
+
+    assert Enum.all?(groups, &(Enum.count(LazyHTML.query(&1, "h2 svg")) == 1))
+
+    grouped =
+      Enum.flat_map(
+        groups,
+        &LazyHTML.attribute(LazyHTML.query(&1, "button.lab-example"), "data-example")
+      )
+
+    assert Enum.sort(grouped) == Enum.sort(LabPage.examples())
+    assert length(Enum.uniq(grouped)) == 10
+  end
+
   test "a conversation keeps no chrome around its composer: no top-bar links, limit hint or authority note" do
     # Andrew, 2026-09-19: an Examples dropdown and a Settings link in a top
     # bar, a permanent "Up to 2 files · 8 MiB" hint, "Saved on acceptance" and

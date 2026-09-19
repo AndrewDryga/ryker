@@ -604,12 +604,17 @@ details.measurement-notes > summary { cursor:pointer; font-weight:600; color:var
 .lab-chat { display:flex; flex-direction:column; min-width:0; background:#fff; }
 /* The bar above the conversation exists only on phones, where it opens the directory drawer. */
 .lab-chat-toolbar { display:none; }
-/* A new conversation's empty space lists the authored examples just above the composer. */
-.lab-examples { margin:16px 0 0; }
-.lab-examples h2 { margin:0 0 4px; font-size:13px; line-height:18px; font-weight:600; color:var(--secondary); }
-.lab-examples ul { margin:0 -12px; padding:0; list-style:none; }
-.lab-example { display:block; width:100%; text-align:left; background:none; border:0; border-radius:6px; color:var(--ink); font-size:15px; line-height:21px; padding:8px 12px; }
-.lab-example:hover { background:#f1f6e9; }
+/* A new conversation's free space holds the authored examples, grouped by what Ryker does and set a
+   little above the middle: quiet grey lines that turn ink on hover, under small tinted icons. */
+.lab-column:has(> .lab-examples) #lab-history { flex:0; }
+.lab-examples { flex:1; display:flex; flex-direction:column; justify-content:center; padding:24px 0 72px; }
+.lab-example-groups { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:24px 28px; }
+.lab-example-group h2 { display:flex; align-items:center; gap:10px; margin:0 0 8px; font-size:13px; line-height:18px; font-weight:600; color:var(--ink); }
+.lab-example-badge { flex:none; display:grid; place-items:center; width:28px; height:28px; border-radius:8px; background:var(--ryker-accent-soft); color:var(--green); }
+.ryker-app .lab-example-badge .ui-icon { width:16px; height:16px; }
+.lab-example-group ul { display:grid; gap:2px; margin:0 -10px; padding:0; list-style:none; }
+.ryker-app .lab-example { display:block; width:100%; min-height:44px; margin:0; padding:7px 10px; border:0; border-radius:8px; background:none; color:var(--secondary); font-size:14px; line-height:20px; text-align:left; }
+.ryker-app .lab-example:hover { background:#f5f2ec; color:var(--ink); }
 .lab-column { display:flex; flex-direction:column; flex:1; width:100%; max-width:800px; margin:0 auto; padding:24px 24px 0; box-sizing:border-box; }
 /* The transcript takes the free height in every state, so a new conversation's composer sits where an open one's does. */
 #lab-history { flex:1; }
@@ -666,7 +671,9 @@ details.measurement-notes > summary { cursor:pointer; font-weight:600; color:var
 .ryker-app .lab-reaction-pill-button[aria-busy=true] { opacity:.6; }
 .lab-reaction-glyph { font-size:15px; line-height:18px; }
 .lab-reaction-count { font-variant-numeric:tabular-nums; }
-.ryker-app .lab-reaction-toggle { display:inline-flex; align-items:center; justify-content:center; min-height:28px; padding:2px 8px; border:1px solid #e1e8d8; border-radius:999px; background:#fff; color:var(--secondary); }
+.ryker-app .lab-reaction-toggle { position:relative; display:inline-flex; align-items:center; justify-content:center; min-height:28px; padding:2px 8px; border:1px solid #e1e8d8; border-radius:999px; background:#fff; color:var(--secondary); }
+/* The visible pill is small; its hit area is the 44px the brand rules ask of icon buttons. */
+.ryker-app .lab-reaction-toggle::after { content:""; position:absolute; inset:-9px -6px; }
 .ryker-app .lab-reaction-toggle:hover, .ryker-app .lab-reaction-toggle[aria-expanded=true] { border-color:#a9c98d; background:#f3f8eb; color:var(--ink); }
 .ryker-app .lab-reaction-toggle .ui-icon { width:16px; height:16px; }
 .lab-reaction-picker { position:absolute; left:0; top:100%; z-index:20; width:min(360px,100%); margin-top:4px; padding:12px; background:#fff; border:1px solid #cad7bf; border-radius:8px; box-shadow:0 12px 30px #20341b26; text-align:left; }
@@ -721,7 +728,7 @@ details.measurement-notes > summary { cursor:pointer; font-weight:600; color:var
   .lab-column { padding:8px 16px 0; }
   .lab-composer-dock { position:static; }
   /* A phone has no free space above the composer: it comes first, the examples under it. */
-  .lab-examples { order:1; margin-top:24px; }
+  .lab-examples { order:1; flex:none; padding:24px 0; }
   .native-composer-bottom { flex-wrap:wrap; }
 }
 

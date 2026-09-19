@@ -5,17 +5,18 @@ defmodule Ryker.ControlPlane.LabPageTest do
 
   @now ~U[2026-09-13 14:32:00Z]
 
+  # In the order the page groups them since 2026-09-19: Investigate, Build, Remember.
   @examples [
-    "Show the automations active in this conversation.",
-    "Summarize the attached log and identify likely causes.",
     "Investigate why this service keeps restarting.",
+    "Summarize the attached log and identify likely causes.",
+    "Ask me three questions to clarify this investigation.",
     "Review this change for bugs and missing tests.",
     "Help me turn this issue into an engineering task.",
+    "Compare these two approaches and explain the trade-offs.",
+    "Generate a small illustration of a rocket launch.",
     "Remind me tomorrow at 9:00 to check the deployment.",
     "Remember that I prefer concise incident updates.",
-    "Ask me three questions to clarify this investigation.",
-    "Compare these two approaches and explain the trade-offs.",
-    "Generate a small illustration of a rocket launch."
+    "Show the automations active in this conversation."
   ]
 
   test "the placeholder pool is exactly the ten authored examples" do
