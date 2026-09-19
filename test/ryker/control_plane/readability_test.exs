@@ -96,6 +96,24 @@ defmodule Ryker.ControlPlane.ReadabilityTest do
     assert rule =~ "min-width:0"
   end
 
+  test "the episode summary keeps timing together while semantic groups reflow without scrolling" do
+    # The three groups must survive both a 200% zoom viewport and a 320px
+    # phone without turning the summary into a horizontally scrolling table.
+    css = Assets.call(Plug.Test.conn(:get, "/workspace.css"), []).resp_body
+
+    assert css =~
+             ".episode-metrics { display:grid; grid-template-columns:minmax(0,2fr) minmax(0,1fr) minmax(0,1fr)"
+
+    assert css =~
+             ".episode-metrics .metric-group-timing .metric-group-items { grid-template-columns:repeat(2,minmax(0,1fr)); }"
+
+    assert css =~
+             ".episode-metrics .metric-group-timing { grid-column:1 / -1; padding:0 0 16px;"
+
+    assert css =~ ".episode-metrics { grid-template-columns:1fr; }"
+    refute css =~ ".episode-metrics { overflow"
+  end
+
   test "chapters preserve late follow-ups and tied activity in execution order" do
     now = ~U[2026-09-05 12:00:00Z]
 

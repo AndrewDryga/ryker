@@ -629,6 +629,13 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
         milliseconds: 84_000,
         reason: nil
       })
+      |> put_in([:trace, :response_metrics, :response], %{
+        minimum_ms: 84_000,
+        average_ms: 84_000,
+        maximum_ms: 84_000,
+        measured: 1,
+        expected: 1
+      })
       |> put_in([:episode, :updated_at], reply.at)
 
     html = render_episode(snapshot, [])
@@ -639,7 +646,21 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
              "#story-message-accepted-reply"
            ]
 
-    assert LazyHTML.query(document, ".episode-metrics") |> LazyHTML.text() =~ "1m 24s"
+    metrics = LazyHTML.query(document, ".episode-metrics")
+    assert LazyHTML.text(metrics) =~ "1m 24s"
+
+    assert LazyHTML.query(metrics, "dt") |> Enum.map(&LazyHTML.text/1) == [
+             "Total wall time",
+             "Response time",
+             "Messages",
+             "Total cost"
+           ]
+
+    response = LazyHTML.query(metrics, ".metric-response") |> LazyHTML.text()
+    assert compact(response) =~ "Responsetime1m24s"
+    refute response =~ "min"
+    refute response =~ "avg"
+    refute response =~ "max"
 
     assert LazyHTML.query(document, "#story-message-accepted-reply .case-message-text")
            |> LazyHTML.text()
@@ -872,7 +893,7 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
     end
   end
 
-  test "the episode headline answers cost, wall time, messages and response latency" do
+  test "the episode summary groups timing, conversation and cost with concise response statistics" do
     {:ok, %{episode: episode}} = Episodes.apply(EpisodeFixtures.admit_input())
     {:ok, snapshot} = Projection.episode(episode.key)
 
@@ -903,22 +924,62 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
     headline = LazyHTML.query(document, ".episode-metrics")
     text = LazyHTML.text(headline)
 
-    assert text =~ "Total cost"
-    assert text =~ "≈ $0.15"
-    assert text =~ "1 reported · 1 estimated / 3 requests"
-    assert text =~ "Total wall time"
+    assert LazyHTML.query(headline, ".metric-group-label") |> Enum.map(&LazyHTML.text/1) == [
+             "Timing",
+             "Conversation",
+             "Cost"
+           ]
+
+    assert LazyHTML.query(headline, "dt") |> Enum.map(&LazyHTML.text/1) == [
+             "Total wall time",
+             "Average response",
+             "Messages",
+             "Total cost"
+           ]
+
     assert text =~ "2m"
-    assert text =~ "Messages"
+    assert text =~ "1m 30s"
     assert text =~ "3"
-    assert text =~ "2 received · 1 sent"
-    assert text =~ "Response time"
-    assert text =~ "min 1m"
-    assert text =~ "avg 1m 30s"
-    assert text =~ "max 2m"
-    assert text =~ "2 of 3 responses timed"
+    assert text =~ "≈ $0.15"
+    assert text =~ "min 1m, max 2m"
+    assert text =~ "2 received, 1 sent"
+    refute text =~ "1 reported"
+    refute text =~ "2 of 3 responses timed"
+    refute text =~ "avg"
+    refute text =~ "·"
     refute text =~ "Elapsed"
     refute text =~ "Work turns"
     refute text =~ "Tool calls"
+  end
+
+  test "active work calls its pending response waiting without missing-measurement prose" do
+    {:ok, %{episode: episode}} = Episodes.apply(EpisodeFixtures.admit_input())
+    {:ok, snapshot} = Projection.episode(episode.key)
+
+    metrics = %{
+      wall: %{state: :active, milliseconds: 48_000, reason: nil},
+      messages: %{received: 1, sent: 0, total: 1},
+      response: %{
+        minimum_ms: nil,
+        average_ms: nil,
+        maximum_ms: nil,
+        measured: 0,
+        expected: 1
+      }
+    }
+
+    summary =
+      snapshot
+      |> put_in([:trace, :response_metrics], metrics)
+      |> render_episode([])
+      |> LazyHTML.from_fragment()
+      |> LazyHTML.query(".episode-metrics")
+
+    response = LazyHTML.query(summary, ".metric-response") |> LazyHTML.text()
+    assert compact(response) == "ResponsetimeWaiting"
+    refute LazyHTML.text(summary) =~ "No completed responses"
+    refute LazyHTML.text(summary) =~ "responses timed"
+    refute LazyHTML.text(summary) =~ "first message"
   end
 
   test "unknown response measurements remain unknown instead of reading as zero" do
@@ -950,8 +1011,8 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
     headline = LazyHTML.query(document, ".episode-metrics")
     text = LazyHTML.text(headline)
     assert text =~ "Not measured"
-    assert text =~ "No completed responses"
-    assert text =~ "0 of 1 responses timed"
+    refute text =~ "No completed responses"
+    refute text =~ "responses timed"
     refute text =~ "min 0s"
   end
 
@@ -972,6 +1033,8 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
 
   defp section(id, title, value),
     do: %{id: id, title: title, source_kind: :work, artifact: InspectionRedactor.artifact(value)}
+
+  defp compact(value), do: String.replace(value, ~r/\s+/, "")
 
   defp render_episode(snapshot, items),
     do:
