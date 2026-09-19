@@ -244,6 +244,16 @@ defmodule Ryker.Evals.WorldCaseTest do
     refute request =~ ~r/worker|retry|crash|failover/i
   end
 
+  test "the checkout-error world names the environment its source contract requires" do
+    assert {:ok, scenario} =
+             WorldCase.fetch("application-errors-follow-the-current-signal", @scenario_root)
+
+    [input] = scenario.events
+    request = input["payload"]["text"]
+
+    assert request =~ ~r/production/i
+  end
+
   test "the Airflow world preserves both production rechecks and their bounded source evidence" do
     assert {:ok, scenario} =
              WorldCase.fetch("airflow-verification-arms-wait", @scenario_root)

@@ -36,7 +36,7 @@
       "kind": "input",
       "occurred_at": "2026-08-30T14:30:00Z",
       "payload": {
-        "text": "Are checkout errors elevated right now, and what is the narrowest supported conclusion?"
+        "text": "Are production checkout errors elevated right now, and what is the narrowest supported conclusion?"
       }
     }
   ],
