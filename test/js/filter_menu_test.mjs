@@ -1,6 +1,6 @@
 import {test} from "node:test"
 import assert from "node:assert/strict"
-import {createFilterMenu} from "../../priv/static/filter-menu.mjs"
+import {createFilterMenu, FilterMenu} from "../../priv/static/filter-menu.mjs"
 
 // The + Filter menu as the server renders it: a list of field buttons and one
 // hidden values panel per field, each holding its choices. Real layout is
@@ -25,7 +25,9 @@ function menu({innerWidth = 1500, right = 900} = {}) {
     panel.querySelector = () => panel.first
     panels[key] = panel
   })
+  const listeners = {}
   const el = {
+    addEventListener: (name, listener) => { (listeners[name] ||= []).push(listener) },
     classList: {add: (...names) => names.forEach(n => classes.add(n)), remove: (...names) => names.forEach(n => classes.delete(n)),
       toggle: (name, force) => (force ? classes.add(name) : classes.delete(name)), contains: name => classes.has(name)},
     getBoundingClientRect: () => ({right: classes.has("align-end") ? right - 300 : right}),
@@ -34,6 +36,7 @@ function menu({innerWidth = 1500, right = 900} = {}) {
       if (selector.startsWith(".filter-field[")) return fields[match[1]] ?? null
       if (selector.startsWith(".filter-values[")) return panels[match[1]] ?? null
       if (selector === ".filter-fields") return list
+      if (selector === ".filter-field") return fields.state
       return null
     },
     querySelectorAll: selector => (selector === ".filter-field" ? Object.values(fields) : [])
@@ -44,7 +47,7 @@ function menu({innerWidth = 1500, right = 900} = {}) {
   const run = () => timers.splice(0).forEach(fn => fn?.())
   const event = (target, extra = {}) => ({target, key: extra.key, stopped: false, prevented: false,
     stopPropagation() { this.stopped = true }, preventDefault() { this.prevented = true }})
-  return {controls, fields, panels, classes, focused, run, event}
+  return {controls, el, listeners, fields, panels, classes, focused, run, event}
 }
 
 test("hovering a field opens its values beside the list and closes the previous field's", () => {
@@ -123,6 +126,22 @@ test("near the right edge the values open to the left, and phones stack them ove
   const phone = menu({innerWidth: 390, right: 300})
   phone.controls.place()
   assert.ok(phone.classes.has("stacked"))
+})
+
+test("opening the menu focuses its first field without covering the list with its values", () => {
+  // Release 28d67ae4 opened a field's values on focus. The menu focuses its
+  // first field as it opens, so on a phone, where values cover the list, the
+  // list was never seen and its first field could not even be tapped.
+  const m = menu({innerWidth: 390})
+  globalThis.window = {innerWidth: 390, setTimeout: () => 0, clearTimeout() {}}
+  try {
+    FilterMenu.mounted.call({el: m.el})
+    assert.equal(m.focused.at(-1), m.fields.state)
+    for (const listener of m.listeners.focusin || []) listener({target: m.fields.state})
+    assert.equal(m.panels.state.hidden, true)
+  } finally {
+    delete globalThis.window
+  }
 })
 
 test("a server patch that hides every panel brings the open one back", () => {
