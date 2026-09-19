@@ -310,9 +310,9 @@ defmodule Ryker.ControlPlane.OperatorUsabilityTest do
     refute html =~ "No recognized error explanation"
   end
 
-  test "failure summary counts listed operations and distinct requests without nesting the cards" do
-    # Two cleanup failures in one request were buried in a second large panel;
-    # missing zero counts left it unclear whether other failure types were healthy.
+  test "failure summary keeps headline facts and only the represented multi-area breakdown" do
+    # The old eight-cell grid made five zeroes louder than the three areas that
+    # actually needed attention.
     cleanup = %{
       kind: "retention",
       ref: "session:one",
@@ -334,51 +334,69 @@ defmodule Ryker.ControlPlane.OperatorUsabilityTest do
 
     summary =
       document
-      |> LazyHTML.query(".failure-summary > div")
+      |> LazyHTML.query(".page-summary-facts > div")
       |> Enum.map(fn stat ->
-        {stat |> LazyHTML.query("dt") |> LazyHTML.text(),
+        {stat |> LazyHTML.query("dt") |> LazyHTML.text() |> String.trim(),
          stat |> LazyHTML.query("dd") |> LazyHTML.text()}
       end)
 
     assert summary == [
-             {"Failures", "4"},
-             {"Affected requests", "2"}
+             {"failures", "4"},
+             {"affected requests", "2"}
            ]
 
     types =
       document
-      |> LazyHTML.query(".failure-types > div")
+      |> LazyHTML.query(".page-summary-secondary dl > div")
       |> Enum.map(fn stat ->
-        {stat |> LazyHTML.query("dt") |> LazyHTML.text(),
+        {stat |> LazyHTML.query("dt") |> LazyHTML.text() |> String.trim(),
          stat |> LazyHTML.query("dd") |> LazyHTML.text()}
       end)
 
     assert types == [
-             {"Model work", "0"},
              {"Routing", "1"},
              {"Delivery", "1"},
-             {"Cleanup", "2"},
-             {"Slack updates", "0"},
-             {"Incident rooms", "0"},
-             {"Approvals", "0"},
-             {"Publishing", "0"}
+             {"Cleanup", "2"}
            ]
 
-    assert Enum.count(LazyHTML.query(document, ".failure-types .has-failures")) == 3
+    assert LazyHTML.query(document, ".page-summary-secondary > span") |> LazyHTML.text() ==
+             "By area"
 
     assert Enum.count(LazyHTML.query(document, ".failure-cards > article")) == 4
-    assert Enum.empty?(LazyHTML.query(document, "section"))
     refute LazyHTML.text(document) =~ "These saved operations"
   end
 
-  test "empty failures show zero for every type without a surrounding panel" do
+  test "a single failure area omits the redundant breakdown" do
+    row = %{
+      kind: "retention",
+      ref: "session:one",
+      episode_ref: "episode:one",
+      action: :rearm,
+      status: "blocked",
+      summary: "coop_error",
+      updated_at: nil
+    }
+
+    document = [row] |> HTML.failures() |> IO.iodata_to_binary() |> LazyHTML.from_fragment()
+
+    facts = LazyHTML.query(document, ".page-summary-facts > div")
+
+    assert Enum.map(facts, fn fact ->
+             {fact |> LazyHTML.query("dt") |> LazyHTML.text() |> String.trim(),
+              fact |> LazyHTML.query("dd") |> LazyHTML.text()}
+           end) == [{"failures", "1"}, {"affected requests", "1"}]
+
+    assert Enum.empty?(LazyHTML.query(document, ".page-summary-secondary"))
+  end
+
+  test "empty failures show one zero and the useful empty state" do
     document = [] |> HTML.failures() |> IO.iodata_to_binary() |> LazyHTML.from_fragment()
-    counts = LazyHTML.query(document, ".failure-summary dd, .failure-types dd")
-    assert Enum.count(counts) == 10
-    assert Enum.all?(counts, &(LazyHTML.text(&1) == "0"))
-    assert Enum.empty?(LazyHTML.query(document, ".has-failures"))
+    counts = LazyHTML.query(document, ".page-summary-facts dd")
+    assert Enum.count(counts) == 1
+    assert LazyHTML.text(counts) == "0"
+    refute LazyHTML.text(document) =~ "affected requests"
+    assert Enum.empty?(LazyHTML.query(document, ".page-summary-secondary"))
     assert LazyHTML.text(document) =~ "Nothing needs attention"
-    assert Enum.empty?(LazyHTML.query(document, "section"))
   end
 
   test "working copies do not present the repository name as a retention reason" do

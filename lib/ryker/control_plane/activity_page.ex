@@ -20,6 +20,26 @@ defmodule Ryker.ControlPlane.ActivityPage do
         assigns.schedules != [] or worker_attention?(assigns.overview)
       )
 
+    blocked = Map.get(assigns.overview.counts, :blocked, 0)
+
+    assigns =
+      assign(assigns,
+        summary_facts: [
+          %{
+            value: Map.get(assigns.overview.counts, :active, 0),
+            label: "active",
+            active_count: true
+          },
+          %{value: Map.get(assigns.overview.counts, :waiting, 0), label: "waiting"},
+          %{
+            value: blocked,
+            label: "blocked",
+            href: "/failures",
+            tone: if(blocked > 0, do: :attention)
+          }
+        ]
+      )
+
     ~H"""
     <div class={"activity-layout #{if @show_context, do: "with-context"}"}>
       <section class="activity-primary">
@@ -31,14 +51,11 @@ defmodule Ryker.ControlPlane.ActivityPage do
             :plus
           } />New conversation</a>
         </div>
-        <div class="activity-pulse" aria-label="Current workload">
-          <span><i class="pulse-dot"></i><b data-active-count>{Map.get(@overview.counts, :active, 0)}</b>
-          active</span>
-          <span><b>{Map.get(@overview.counts, :waiting, 0)}</b> waiting</span>
-          <a href="/failures"><b>{Map.get(@overview.counts, :blocked, 0)}</b>
-          blocked <.icon name={:arrow} /></a>
-          <a class="pulse-usage" href="/usage">Usage & cost <.icon name={:arrow} /></a>
-        </div>
+        <.page_summary
+          label="Current workload"
+          facts={@summary_facts}
+          related={%{href: "/usage", label: "View usage and cost"}}
+        />
         <section class="activity-inbox" aria-label="Activity">
           <div class="inbox-toolbar">
             <nav class="ui-tabs" aria-label="Activity status">

@@ -233,6 +233,54 @@ defmodule Ryker.ControlPlane.Components do
     """
   end
 
+  attr(:label, :string, required: true)
+  attr(:facts, :list, default: [])
+  attr(:message, :string, default: nil)
+  attr(:secondary, :list, default: [])
+  attr(:related, :map, default: nil)
+
+  @doc """
+  A compact row of page-level facts beneath a page heading.
+
+  Facts stay unboxed and number-first. A related destination remains visible
+  when the row wraps, and the optional area breakdown names only meaningful
+  nonzero groups supplied by the caller.
+  """
+  def page_summary(assigns) do
+    ~H"""
+    <section class="page-summary" aria-label={@label}>
+      <div class="page-summary-main">
+        <dl class="page-summary-facts">
+          <div
+            :for={fact <- @facts}
+            class={[
+              "page-summary-fact",
+              fact[:tone] in [:attention, "attention"] && "page-summary-fact-attention"
+            ]}
+          >
+            <dt>
+              <a :if={fact[:href]} href={fact.href}>{fact.label}</a>
+              <span :if={!fact[:href]}>{fact.label}</span>
+            </dt>
+            <dd data-active-count={fact[:active_count] && true}>{fact.value}</dd>
+          </div>
+        </dl>
+        <p :if={@message} class="page-summary-message">{@message}</p>
+        <a :if={@related} class="page-summary-link" href={@related.href}>{@related.label}</a>
+      </div>
+      <div :if={length(@secondary) > 0} class="page-summary-secondary">
+        <span>By area</span>
+        <dl>
+          <div :for={fact <- @secondary}>
+            <dt>{fact.label}</dt>
+            <dd>{fact.value}</dd>
+          </div>
+        </dl>
+      </div>
+    </section>
+    """
+  end
+
   attr(:id, :string, required: true)
   attr(:label, :string, required: true, doc: "Specific, e.g. \"How to add and manage rules\"")
   attr(:class, :any, default: nil)

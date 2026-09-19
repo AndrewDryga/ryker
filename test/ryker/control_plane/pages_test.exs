@@ -104,6 +104,13 @@ defmodule Ryker.ControlPlane.PagesTest do
     end
   end
 
+  test "failures names the work that needs attention" do
+    failure_page = page("/failures")
+
+    assert failure_page.title == "Failures"
+    assert failure_page.description == "Work that stopped and needs attention."
+  end
+
   # Incident rooms and the record views were the last pages built before the
   # shared vocabulary: a framed table with a tinted header row, "ready" in
   # lower case where Schedules showed a dot and a word, and raw ISO stamps

@@ -10,7 +10,16 @@ defmodule Ryker.ControlPlane.ChannelPage do
   use Phoenix.Component
 
   import Ryker.ControlPlane.Components,
-    only: [label: 1, page_help: 1, pager: 1, result_count: 1, status: 1, table: 1, timestamp: 1]
+    only: [
+      label: 1,
+      page_help: 1,
+      page_summary: 1,
+      pager: 1,
+      result_count: 1,
+      status: 1,
+      table: 1,
+      timestamp: 1
+    ]
 
   alias Ryker.ControlPlane.{Activity, ChannelScope, SlackNames}
 
@@ -24,14 +33,24 @@ defmodule Ryker.ControlPlane.ChannelPage do
   belongs beside, in the page's reading order rather than above it.
   """
   def lead(assigns) do
+    assigns =
+      assign(assigns,
+        episode_label:
+          if(assigns.view.episodes.total == 1,
+            do: "retained episode",
+            else: "retained episodes"
+          ),
+        conversation_path:
+          Activity.conversation_path("slack", assigns.view.scope.conversation_ref)
+      )
+
     ~H"""
     <div class="channel-page channel-lead">
-      <p class="channel-metrics">
-        <a href={Activity.conversation_path("slack", @view.scope.conversation_ref)}>
-          {count(@view.episodes.total, "episode")}
-        </a>
-        <span>retained for this conversation, in every mode</span>
-      </p>
+      <.page_summary
+        label="Conversation history"
+        facts={[%{value: @view.episodes.total, label: @episode_label}]}
+        related={%{href: @conversation_path, label: "View conversation"}}
+      />
       <.page_help id="channel-help" label="How context reaches this channel">
         <p>
           Rules apply only where they were confirmed. Preferences, guidance and memory reach this
@@ -769,7 +788,6 @@ defmodule Ryker.ControlPlane.ChannelPage do
   defp decided_by(:installation), do: "Installation default"
   defp decided_by(other), do: label(other)
 
-  defp count(total, noun), do: count(total, noun, noun <> "s")
   defp count(1, one, _many), do: "1 #{one}"
   defp count(total, _one, many), do: "#{total} #{many}"
 
