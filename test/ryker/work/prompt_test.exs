@@ -42,11 +42,36 @@ defmodule Ryker.Work.PromptTest do
     assert instructions =~ "Name the sources the answer rests on in the reply itself"
     assert instructions =~ "concrete recap of the established findings in the final reply"
     assert instructions =~ "A list of missing checks is not that recap"
-    assert instructions =~ "rather than repeating its text in the final reply"
+    assert instructions =~ "ask the direct question in the final reply itself"
     assert instructions =~ "request_input with remember"
     assert instructions =~ "remember_answer"
     assert instructions =~ "An unrelated or ambiguous reply is not confirmation"
     assert instructions =~ "Do not ask for a second memory-confirmation click"
+  end
+
+  test "resolved discovery, visible questions, and retained waits do not repeat work" do
+    # The Sep 19 world matrix found all three adjacent failures: an exact
+    # repository/environment label match was followed by a redundant target
+    # question, the durable question card was not asked in the reply, and a
+    # continuation created a second exact-run watch instead of retaining the
+    # open one until final validation had no satisfiable wait set.
+    instructions = normalized_instructions()
+
+    assert instructions =~
+             "exact repository and environment labels match the requested work, use that one target"
+
+    assert instructions =~
+             "match the infrastructure workspace or repository named by the deployment evidence"
+
+    assert instructions =~ "Do not invent a different environment such as production"
+
+    assert instructions =~ "ask the direct question in the final reply itself"
+    assert instructions =~ "reference its existing record_ref; do not call wait_for again"
+
+    assert instructions =~
+             "An infrastructure project mapping for a named repository, workspace, or environment is a reusable fact"
+
+    assert instructions =~ "Asking for that mapping without remember is incomplete"
   end
 
   test "planning instructions assign lifecycle stages and concrete review criteria" do
@@ -62,6 +87,7 @@ defmodule Ryker.Work.PromptTest do
     assert instructions =~ "Workspace setup, Draft PR, CI and Review and merge are host-owned"
     assert instructions =~ "one implementation goal per subtask a person would recognise"
     assert instructions =~ "concrete completion contract"
+    assert instructions =~ "Do not create goals for a context-gathering turn"
     assert instructions =~ "evidence_refs"
     assert instructions =~ "successor_of"
     assert instructions =~ "never reopen a completed goal"
