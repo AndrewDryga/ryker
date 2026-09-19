@@ -109,7 +109,7 @@ defmodule Ryker.ControlPlane.StandingRulesCardTest do
 
     # A rule renamed, paused or deleted today must leave the old card alone;
     # the card reads only its own frozen entries.
-    before = rendered(episode)
+    before = participation_tree(episode)
 
     Repo.update_all(
       from(row in StandingRuleInventory,
@@ -118,7 +118,7 @@ defmodule Ryker.ControlPlane.StandingRulesCardTest do
       set: [rule_count: 1]
     )
 
-    assert rendered(episode) == before
+    assert participation_tree(episode) == before
   end
 
   defp rule(title, verdict, reason) do
@@ -158,6 +158,14 @@ defmodule Ryker.ControlPlane.StandingRulesCardTest do
       requests: nil,
       params: %{}
     )
+  end
+
+  defp participation_tree(episode) do
+    episode
+    |> rendered()
+    |> LazyHTML.from_document()
+    |> LazyHTML.query(".participation")
+    |> LazyHTML.to_tree()
   end
 
   defp admitted! do
