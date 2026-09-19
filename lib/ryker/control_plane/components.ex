@@ -16,6 +16,7 @@ defmodule Ryker.ControlPlane.Components do
     bell: "M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9 M10.3 21a2 2 0 0 0 3.4 0",
     arrow: "M5 12h14 M13 6l6 6-6 6",
     plus: "M12 5v14 M5 12h14",
+    close: "M6 6l12 12 M18 6 6 18",
     check: "m5 12 4 4L19 6",
     usage: "M4 20h17 M6 16v-5 M12 16V4 M18 16V8",
     book: "M12 5v16 M3 3l9 2 9-2v16l-9 2-9-2V3Z",

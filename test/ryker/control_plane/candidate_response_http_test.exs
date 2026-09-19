@@ -80,7 +80,8 @@ defmodule Ryker.ControlPlane.CandidateResponseHTTPTest do
     assert Enum.count(LazyHTML.query(document, "#activity-filters input[name=q][value=retained]")) ==
              1
 
-    assert Enum.count(LazyHTML.query(document, "#criterion-usage_profile[value=emisar]")) == 1
+    assert LazyHTML.query(document, ".filter-chip[data-filter=usage_profile] .filter-chip-value")
+           |> LazyHTML.text() == "emisar"
   end
 
   defp raw_get(path) do

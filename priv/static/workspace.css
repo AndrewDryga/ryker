@@ -4,8 +4,6 @@
 .phx-disconnected .connection-offline.app-warning { display:block; }
 @media(max-width:800px) { .mobile-navigation { display:flex; justify-content:flex-end; padding:8px 20px; } }
 .usage-page { max-width:1480px; }
-.usage-drilldown { display:flex; align-items:center; flex-wrap:wrap; gap:12px 20px; padding:12px 16px; margin:16px 0; border:1px solid var(--stroke); background:white; font-size:14px; }
-.usage-drilldown > span { margin-right:auto; }
 .usage-page .usage-filters { justify-content:space-between; margin:0 0 24px; }
 .usage-summary { background:#fff; border:1px solid var(--stroke); border-radius:8px; overflow:hidden; }
 .usage-headlines { display:grid; grid-template-columns:1.3fr repeat(3,1fr); gap:24px; padding:24px 28px; }
@@ -186,27 +184,6 @@
 .ryker-app details.measurement-notes { margin:20px 0; padding:16px 20px; background:#fff; border:1px solid var(--stroke); border-radius:6px; }
 details.measurement-notes > summary { cursor:pointer; font-weight:600; color:var(--green); }
 @media(max-width:700px) { .usage-chart figcaption span { width:100%; margin:0; } }
-.filter-field { display:flex; flex-direction:column; gap:6px; min-width:160px; }
-.filter-field.filter-search { width:min(100%,360px); }
-.ryker-app .filter-field label, .ryker-app .criterion > label { font-size:13px; font-weight:600; color:var(--ink); text-transform:none; letter-spacing:0; }
-.ryker-app .filter-field select { height:40px; margin:0; }
-.request-criteria { padding:16px 20px; border-bottom:1px solid var(--stroke); background:#fafbf8; }
-.criteria-heading { display:flex; align-items:center; flex-wrap:wrap; gap:10px; }
-.criteria-heading .usage-drilldown { margin:0 0 0 auto; padding:0; border:0; background:none; gap:8px; }
-.ryker-app .criteria-heading h2 { margin:0 8px 0 0; font-size:13px; font-weight:600; line-height:1.5; letter-spacing:0; }
-.ryker-app .criteria-heading select { margin:0; padding:8px 36px 8px 10px; width:auto; max-width:240px; height:40px; background-color:#fff; color:var(--ink); border:1px solid #b8c4b9; border-radius:5px; font-size:14px; }
-.criteria-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:16px; margin-top:16px; }
-.criterion { min-width:0; }
-.criterion > label { display:block; margin-bottom:6px; }
-.criterion-controls { display:flex; align-items:stretch; gap:6px; }
-.ryker-app .criterion-controls input, .ryker-app .criterion-controls select { margin:0; padding:8px 10px; height:40px; min-width:0; border:1px solid #b8c4b9; border-radius:5px; background-color:#fff; color:var(--ink); font-size:14px; }
-.ryker-app .criterion-controls select { padding-right:36px; }
-.criterion-controls > :first-child { width:72px; flex:none; }
-.criterion-controls > :first-child.match-missing { width:132px; }
-.criterion-controls > :last-child { width:100%; flex:1; }
-.ryker-app .criterion-controls :disabled { background-color:#eef1eb; color:var(--secondary); }
-.ryker-app .usage-drilldown a { color:var(--green); }
-@media(max-width:580px) { .request-criteria { padding:14px; } .criteria-grid { grid-template-columns:1fr; } .filter-field { flex:1; min-width:140px; } .filter-field.filter-search { flex-basis:100%; } }
 .ryker-app select { appearance:none; background-image:linear-gradient(45deg,transparent 50%,#525d55 50%),linear-gradient(135deg,#525d55 50%,transparent 50%); background-size:5px 5px,5px 5px; background-repeat:no-repeat; background-position:right 19px center,right 14px center; padding-right:36px; }
 .ryker-app .table-wrap:has(th:nth-child(9)) table { min-width:1140px; }
 .ryker-app .table-wrap:has(th:nth-child(6)) table:not(.usage-breakdown-table) td:first-child a { white-space:nowrap; }
@@ -337,17 +314,53 @@ details.measurement-notes > summary { cursor:pointer; font-weight:600; color:var
 .activity-pulse a { color:#686e66; }
 .activity-pulse .ui-icon { width:12px; height:12px; }
 .activity-pulse .pulse-usage { margin-left:auto; color:#526648; }
-.activity-inbox { background:#fff; border:1px solid #dfe4d9; border-radius:4px; overflow:hidden; }
+.activity-inbox { background:#fff; border:1px solid #dfe4d9; border-radius:4px; }
 .inbox-toolbar { display:flex; align-items:center; justify-content:space-between; padding:0 20px; min-height:56px; gap:10px; border-bottom:1px solid #e7ebe2; }
 .ui-tabs { display:flex; gap:23px; margin:0; flex-wrap:nowrap; }
 .ui-tabs a { display:block; padding:18px 0 16px; border-bottom:2px solid transparent; font-size:14px; color:#696e67; white-space:nowrap; }
 .ui-tabs a[aria-current=page] { color:var(--ryker-text); border-color:var(--ryker-selected-bg); font-weight:600; }
 .inbox-total { font-size:14px; white-space:nowrap; color:#6c6f68; }
-.inbox-search { display:flex; flex-wrap:wrap; align-items:flex-end; gap:12px; padding:16px 20px; border-bottom:1px solid #edf0e8; }
-.inbox-search .ui-icon { color:#686e65; width:15px; height:15px; }
-.inbox-search input { border:1px solid #b8c4b9; border-radius:5px; background:#fff; width:100%; height:40px; margin:0; min-width:0; color:var(--ink); font-size:14px; padding:8px 10px; }
-.inbox-search input::placeholder { color:#6c7068; }
-.inbox-search select { background-color:#fff; border:1px solid #b8c4b9; color:var(--ink); font-size:14px; padding:8px 36px 8px 10px; border-radius:5px; max-width:180px; height:40px; margin:0; }
+/* Activity: search, work mode and filters share one toolbar row. Each applied filter is a chip;
+   "+ Filter" comes last and opens a field menu, then that field's values, which apply at once. */
+.activity-toolbar { display:flex; flex-wrap:wrap; align-items:center; gap:8px; padding:16px 24px; border-bottom:1px solid var(--stroke); }
+.activity-search { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin:0; }
+.search-field { display:flex; align-items:center; gap:8px; box-sizing:border-box; width:340px; max-width:100%; height:36px; padding:0 12px; border:1px solid var(--ryker-stroke); border-radius:8px; background:#fff; color:#767b77; }
+.search-field:focus-within { outline:2px solid var(--ryker-focus-ring); outline-offset:2px; box-shadow:0 0 0 2px var(--ryker-focus-inner); }
+.search-field .ui-icon { flex:none; width:16px; height:16px; }
+.ryker-app .search-field input { flex:1; min-width:0; height:34px; margin:0; padding:0; border:0; outline:0; box-shadow:none; background:none; font-size:14px; color:var(--ink); }
+.search-field input::placeholder { color:#6c7068; }
+.ryker-app .activity-search select { height:36px; margin:0; padding:0 32px 0 12px; border:1px solid #e3ded3; border-radius:8px; background-color:#f7f5f0; color:var(--ink); font-size:14px; }
+.toolbar-divider { width:1px; height:20px; margin:0 4px; background:#e3ded3; }
+.filter-bar { display:contents; }
+.filter-chip-wrap, .filter-add-wrap { position:relative; display:inline-flex; }
+.filter-chip { display:inline-flex; align-items:center; box-sizing:border-box; height:36px; padding-right:4px; border:1px solid #e3ded3; border-radius:8px; background:#f7f5f0; }
+.ryker-app .filter-chip-edit { display:inline-flex; align-items:center; gap:6px; height:34px; padding:0 4px 0 12px; border:0; border-radius:8px 0 0 8px; background:none; font-size:14px; color:var(--ink); }
+.filter-chip-key { color:var(--secondary); }
+.filter-chip-value { max-width:240px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-weight:600; }
+.ryker-app .filter-chip-remove { display:grid; place-items:center; width:28px; height:28px; padding:0; border:0; border-radius:6px; background:none; color:#767b77; }
+.ryker-app .filter-chip-remove:hover { background:#ebe6db; color:var(--ink); }
+.ryker-app .filter-chip-remove .ui-icon { width:14px; height:14px; }
+.ryker-app .filter-add { display:inline-flex; align-items:center; gap:6px; height:36px; padding:0 12px; border:1px dashed #b9b2a4; border-radius:8px; background:#fff; color:var(--ink); font-size:14px; font-weight:600; }
+.ryker-app .filter-add:hover, .ryker-app .filter-add[aria-expanded=true] { border-style:solid; border-color:var(--ryker-stroke-strong); }
+.ryker-app .filter-add .ui-icon { width:15px; height:15px; }
+.filter-clear { margin-left:4px; font-size:14px; }
+.filter-usage { margin-left:auto; font-size:14px; }
+.filter-popover { position:absolute; top:calc(100% + 6px); left:0; z-index:30; box-sizing:border-box; width:260px; max-height:360px; overflow:auto; padding:6px; border:1px solid var(--ryker-stroke); border-radius:10px; background:#fff; box-shadow:0 12px 32px #11131526; }
+.filter-popover h3 { margin:6px 8px 4px; font-size:11px; line-height:16px; font-weight:650; letter-spacing:.08em; text-transform:uppercase; color:#767b77; }
+.ryker-app .filter-popover button:not(.ui-button) { display:block; width:100%; min-height:36px; padding:7px 8px; border:0; border-radius:6px; background:none; text-align:left; font-size:14px; line-height:20px; color:var(--ink); }
+.ryker-app .filter-popover button:not(.ui-button):hover, .ryker-app .filter-popover button[aria-pressed=true] { background:#f5f2ec; }
+.ryker-app .filter-popover button[aria-pressed=true] { font-weight:600; }
+.filter-text { display:flex; gap:6px; padding:4px 2px 2px; }
+.ryker-app .filter-text input { flex:1; min-width:0; height:36px; margin:0; padding:0 10px; border:1px solid var(--ryker-stroke); border-radius:6px; font-size:14px; }
+.ryker-app .filter-text .ui-button { min-height:36px; height:36px; padding:0 12px; }
+.filter-empty { margin:4px 8px 8px; font-size:13px; color:var(--secondary); }
+@media (max-width:800px) {
+  .activity-toolbar { padding:12px 16px; }
+  .activity-search { width:100%; }
+  .search-field { flex:1; width:auto; }
+  .toolbar-divider { display:none; }
+  .filter-usage { margin-left:0; }
+}
 .activity-empty { display:flex; flex-direction:column; align-items:flex-start; padding:24px 20px; }
 .activity-empty h2 { color:var(--ink); font-size:20px; font-weight:550; letter-spacing:-.3px; margin:0 0 8px; }
 .activity-empty > p { color:#525d55; font-size:16px; line-height:1.5; max-width:65ch; margin:0 0 16px; }
@@ -491,7 +504,7 @@ details.measurement-notes > summary { cursor:pointer; font-weight:600; color:var
 @media (max-width:1280px) { .activity-layout.with-context { grid-template-columns:minmax(0,1fr) 250px; } .activity-rail { padding:24px 16px; } .ui-tabs { gap:16px; } }
 @media (max-width:1180px) { .activity-layout.with-context { grid-template-columns:1fr; } .activity-rail { border-top:1px solid var(--stroke); border-left:0; display:grid; grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:24px; padding:24px; } .activity-rail .rail-section + .rail-section { border:0; margin:0; padding:0; } }
 @media (max-width:800px) { .app-sidebar { position:static; width:100%; padding:16px 20px; border-right:0; border-bottom:1px solid var(--stroke); } .app-brand { margin:-16px -20px 0; padding:8px 20px; } .app-brand img { width:32px; aspect-ratio:780/680; } .app-nav { display:flex; overflow:auto; gap:8px; margin-top:12px; } .secondary-nav, .app-nav .nav-caption { display:none; } .app-nav > a { white-space:nowrap; margin:0; font-size:14px; padding:8px; } .app-nav .ui-icon { width:15px; } .app-workspace { margin-left:0; }  .activity-primary { padding:24px 20px; } .ryker-app .page-surface, .ryker-app .native-page > .instructions-page { padding:24px 20px; } }
-@media (max-width:580px) { .page-intro { flex-direction:column; align-items:flex-start; gap:16px; } .activity-pulse { gap:16px; margin:16px 0; } .activity-pulse .pulse-usage { display:none; } .inbox-toolbar { overflow:auto; padding:0 14px; } .inbox-total { display:none; } .ui-tabs { gap:19px; } .ui-tabs a { font-size:14px; } .inbox-search { padding:12px 14px; gap:7px; } .activity-row { flex-wrap:wrap; padding:15px; gap:10px; } .activity-row-copy { width:calc(100% - 45px); } .activity-row-status { flex-direction:row; align-items:center; margin-left:42px; flex:1; } .activity-title { white-space:normal; } .activity-meta time { display:none; } .row-open { margin-left:auto; } .activity-empty { padding:24px 16px; } .activity-rail { grid-template-columns:1fr; } }
+@media (max-width:580px) { .page-intro { flex-direction:column; align-items:flex-start; gap:16px; } .activity-pulse { gap:16px; margin:16px 0; } .activity-pulse .pulse-usage { display:none; } .inbox-toolbar { overflow:auto; padding:0 14px; } .inbox-total { display:none; } .ui-tabs { gap:19px; } .ui-tabs a { font-size:14px; } .activity-row { flex-wrap:wrap; padding:15px; gap:10px; } .activity-row-copy { width:calc(100% - 45px); } .activity-row-status { flex-direction:row; align-items:center; margin-left:42px; flex:1; } .activity-title { white-space:normal; } .activity-meta time { display:none; } .row-open { margin-left:auto; } .activity-empty { padding:24px 16px; } .activity-rail { grid-template-columns:1fr; } }
 @media (prefers-reduced-motion:no-preference) { .activity-row, .app-nav a, .ui-button { transition:background-color .12s ease; } }
 .slack-mention { color:#1264a3; background:#e8f3fa; border-radius:3px; padding:0 2px; }
 .mobile-manage { display:none; position:relative; }

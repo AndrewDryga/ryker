@@ -59,8 +59,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
        settings_error: nil,
        overview: nil,
        activity: nil,
-       filter_draft: %{},
-       filter_draft_for_patch: nil,
+       filter_menu: nil,
        filter_values: [],
        schedules: [],
        row_ids: [],
@@ -89,22 +88,13 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
     domain = Updates.domain(location.path)
     subscribe(socket, domain)
 
-    patch_path = location.path <> if(location.query, do: "?" <> location.query, else: "")
-
-    filter_draft =
-      case socket.assigns.filter_draft_for_patch do
-        {^patch_path, draft} -> draft
-        _ -> RequestFilters.draft(params)
-      end
-
     {:noreply,
      socket
      |> assign(
        path: location.path,
        domain: domain,
        params: params,
-       filter_draft: filter_draft,
-       filter_draft_for_patch: nil,
+       filter_menu: nil,
        request_selection: %{},
        disclosed: navigation_disclosures(socket, location.path),
        native: :loading,
@@ -247,22 +237,33 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
       )
 
     patch_path = socket.assigns.path <> "?" <> URI.encode_query(params)
-
-    {:noreply,
-     socket
-     |> assign(:filter_draft_for_patch, {patch_path, socket.assigns.filter_draft})
-     |> push_patch(to: patch_path, replace: true)}
+    {:noreply, push_patch(socket, to: patch_path, replace: true)}
   end
 
-  def handle_event("edit-request-filters", params, socket),
-    do:
-      {:noreply,
-       assign(socket, :filter_draft, RequestFilters.edit(socket.assigns.filter_draft, params))}
+  # The filter menu is view state only: "fields" lists what can be added, a
+  # key opens that filter's values, and choosing again closes it.
+  def handle_event("filter-menu", %{"key" => key}, socket)
+      when is_binary(key) and byte_size(key) <= 64 do
+    menu =
+      cond do
+        socket.assigns.filter_menu == key -> nil
+        key == "fields" or key in RequestFilters.keys() -> key
+        true -> nil
+      end
 
-  def handle_event("apply-request-filters", params, socket) do
-    query = RequestFilters.apply(socket.assigns.params, params) |> URI.encode_query()
-    {:noreply, push_patch(socket, to: socket.assigns.path <> "?" <> query)}
+    {:noreply, assign(socket, :filter_menu, menu)}
   end
+
+  def handle_event("filter-menu", _params, socket), do: {:noreply, socket}
+
+  def handle_event("filter-menu-close", _params, socket),
+    do: {:noreply, assign(socket, :filter_menu, nil)}
+
+  def handle_event("set-filter", %{"key" => key, "value" => value}, socket),
+    do: patch_filters(socket, RequestFilters.set(socket.assigns.params, key, value))
+
+  def handle_event("remove-filter", %{"key" => key}, socket),
+    do: patch_filters(socket, RequestFilters.remove(socket.assigns.params, key))
 
   # One older page of the open conversation. The request names the boundary
   # it expects to extend; anything else is a trigger that fired twice, a retry
@@ -281,6 +282,12 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
 
   def handle_event("load-older", _params, socket),
     do: {:reply, %{"status" => "ignored"}, socket}
+
+  defp patch_filters(socket, params) do
+    query = URI.encode_query(params)
+    path = if query == "", do: socket.assigns.path, else: socket.assigns.path <> "?" <> query
+    {:noreply, socket |> assign(:filter_menu, nil) |> push_patch(to: path)}
+  end
 
   defp refresh(socket, reset \\ false) do
     socket = assign(socket, :refresh_token, nil)
@@ -861,7 +868,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
           <ActivityPage.render
             :if={@native == :activity && @activity}
             activity={@activity}
-            filter_draft={@filter_draft}
+            filter_menu={@filter_menu}
             filter_values={@filter_values}
             overview={@overview}
             schedules={@schedules}

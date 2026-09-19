@@ -796,27 +796,22 @@ defmodule Ryker.ControlPlane.ProjectionTest do
                  [])
            )
 
-    controls =
+    params = %{"usage_actor" => "andrew", "usage_channel" => "slack:emisar:test"}
+
+    choices = fn key ->
       Phoenix.LiveViewTest.render_component(&RequestFilters.render/1, %{
-        draft:
-          RequestFilters.draft(%{
-            "usage_actor" => "andrew",
-            "usage_channel" => "slack:emisar:test"
-          }),
+        params: params,
         values: options,
-        params: %{},
-        path: "/activity"
+        path: "/activity",
+        menu: key
       })
-      |> LazyHTML.from_document()
+      |> LazyHTML.from_fragment()
+      |> LazyHTML.query("#filter-popover button[phx-click=set-filter]")
+      |> LazyHTML.attribute("phx-value-value")
+    end
 
-    actors =
-      controls |> LazyHTML.query("#criterion-usage_actor option") |> LazyHTML.attribute("value")
-
-    assert Enum.sort(actors) == ["", "U0BHTNFCW6S", "andrew"]
-
-    channels =
-      controls |> LazyHTML.query("#criterion-usage_channel option") |> LazyHTML.attribute("value")
-
+    assert Enum.sort(choices.("usage_actor")) == ["U0BHTNFCW6S", "andrew"]
+    channels = choices.("usage_channel")
     assert "slack:emisar:test" in channels
     refute "control_plane:emisar:test" in channels
   end
@@ -900,33 +895,12 @@ defmodule Ryker.ControlPlane.ProjectionTest do
     assert Activity.list(%{"usage_window" => "all"}).total == 2
   end
 
-  test "missing model links find executions whose target was never recorded" do
+  test "a link with an empty model value still finds executions whose target was never recorded" do
     # Unknown targets previously linked to the nonexistent literal model "default".
+    # The Usage page no longer lists them, but a retained link still resolves.
     measured_turn!("missing-target", nil, DateTime.utc_now())
     measured_turn!("known-target", "codex:gpt-5.6-sol/medium@emisar", DateTime.utc_now())
-
-    html = Projection.usage(%{}) |> HTML.usage() |> IO.iodata_to_binary()
-    document = LazyHTML.from_document(html)
-
-    params =
-      document
-      |> LazyHTML.query("#usage-models a")
-      |> LazyHTML.attribute("href")
-      |> Enum.map(&(URI.parse(&1).query |> URI.decode_query()))
-      |> Enum.find(fn params -> params["usage_model"] == "" end)
-
-    assert params, "The unknown target must use the nullable target filter"
-    assert Activity.list(params).total == 1
-
-    missing =
-      RequestFilters.apply(%{}, %{
-        "criteria" => %{
-          "usage_provider" => %{"match" => "missing"},
-          "usage_work_kind" => %{"match" => "missing"}
-        }
-      })
-
-    assert Activity.list(missing).total == 1
+    assert Activity.list(%{"usage_model" => "", "usage_window" => "all"}).total == 1
   end
 
   test "model comparison and its drilldowns keep effort levels distinct across profiles" do
