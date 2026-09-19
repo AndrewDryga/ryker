@@ -30,7 +30,7 @@ defmodule Ryker.Work.SubmissionBuilder do
 
   alias Ryker.StateTools.FixedTools
   alias Ryker.StateTools.ToolVisibility
-  alias Ryker.Work.{Final, Prompt, Session, Submission, Turn}
+  alias Ryker.Work.{Contract, Prompt, Session, Submission, Turn}
 
   @maximum_inputs 40
   @retained_cases 3
@@ -81,16 +81,18 @@ defmodule Ryker.Work.SubmissionBuilder do
          snapshot <- input_snapshot(episode),
          :ok <- active_inputs_present(snapshot.active, episode.active_input_refs),
          previous <- previous_turn(episode.id, turn.id),
+         {:ok, contract} <- Contract.select(episode.execution_mode),
+         :ok <- Contract.authorize_continuation(contract, previous, session),
          records <- Records.model_records(episode, session.repository_ref),
-         {:ok, metadata} <- context_metadata(episode, options),
+         {:ok, metadata} <- context_metadata(episode, contract.mode, options),
          {:ok, context, eligible} <-
            submission_context(episode, session, snapshot, records, previous, metadata),
          {:ok, submission} <-
            Submission.new(
              context,
-             Prompt.build(context),
-             Final.json_schema(),
-             "work-final-v1",
+             Prompt.build(context, contract.mode),
+             contract.output_schema,
+             contract.contract_version,
              model_artifact_refs(context)
            ) do
       {:ok, %{submission: submission, ledger: ledger(context, snapshot, eligible)}}
@@ -175,9 +177,9 @@ defmodule Ryker.Work.SubmissionBuilder do
     }
   end
 
-  defp context_metadata(episode, options) do
+  defp context_metadata(episode, mode, options) do
     with {:ok, state_tools} <- state_tool_names(episode, options),
-         {:ok, platform_tools} <- platform_tool_names(episode, options),
+         {:ok, platform_tools} <- platform_tool_names(episode, mode, options),
          {:ok, workspace} <- workspace(options) do
       # Capture required fields once so history fitting reserves their exact bytes.
       metadata = %{
@@ -214,7 +216,7 @@ defmodule Ryker.Work.SubmissionBuilder do
   defp maybe_put_workspace(context, nil), do: context
   defp maybe_put_workspace(context, workspace), do: Map.put(context, "workspace", workspace)
 
-  defp platform_tool_names(episode, options) do
+  defp platform_tool_names(episode, mode, options) do
     configured =
       case Keyword.fetch(options, :platform_tools) do
         {:ok, tools} ->
@@ -248,12 +250,16 @@ defmodule Ryker.Work.SubmissionBuilder do
            {:ok,
             Enum.filter(
               configured_names,
-              &ToolVisibility.visible?(&1, episode.destination_transport)
+              &visible_platform_tool?(&1, episode.destination_transport, mode)
             )},
          else: {:error, {:invalid_work_submission_builder, :platform_tools}}
     else
       {:error, {:invalid_work_submission_builder, :platform_tools}}
     end
+  end
+
+  defp visible_platform_tool?(name, transport, mode) do
+    ToolVisibility.visible?(name, transport, mode)
   end
 
   # Optional notes are dropped from the tail to fit. The count before the drop
@@ -317,7 +323,6 @@ defmodule Ryker.Work.SubmissionBuilder do
 
     context = %{
       "destination" => destination(episode),
-      "execution_mode" => Atom.to_string(episode.execution_mode),
       "inputs" => %{
         "items" => Enum.map(selected, &input_document(&1, episode, origins)),
         "omitted_count" => total_count - length(selected)
@@ -405,7 +410,6 @@ defmodule Ryker.Work.SubmissionBuilder do
       },
       "signals" => signal_summary(episode),
       "destination" => destination(episode),
-      "execution_mode" => Atom.to_string(episode.execution_mode),
       "mode" => "continuation",
       "operator_context" => operator_context(episode, snapshot, session.repository_ref),
       "parent_submission_ref" => previous.submission_fingerprint,

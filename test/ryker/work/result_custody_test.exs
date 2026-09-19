@@ -778,7 +778,7 @@ defmodule Ryker.Work.ResultCustodyTest do
                  "required" => ["message"],
                  "type" => "object"
                },
-               "work-final-v1"
+               "work-final-live-v2"
              )
 
     submission

@@ -449,7 +449,7 @@ defmodule Ryker.State.AutomationsTest do
                %{"episode_id" => episode_id},
                "Offer the requested automation change.",
                %{"type" => "object"},
-               "work-final-v1"
+               "work-final-live-v2"
              )
 
     assert {:ok, _turn} =

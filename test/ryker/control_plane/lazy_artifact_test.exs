@@ -195,7 +195,7 @@ defmodule Ryker.ControlPlane.LazyArtifactTest do
     {:ok, claim} = Custody.claim_next("lazy:#{suffix}", 120, :work)
 
     {:ok, submission} =
-      Submission.new(%{"context" => "none"}, prompt, %{"type" => "object"}, "work-final-v1")
+      Submission.new(%{"context" => "none"}, prompt, %{"type" => "object"}, "work-final-live-v2")
 
     {:ok, turn} =
       Custody.freeze_submission(episode_id, claim.turn.turn_ref, claim.lease_ref, submission)

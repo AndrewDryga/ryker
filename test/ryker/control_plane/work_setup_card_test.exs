@@ -231,7 +231,7 @@ defmodule Ryker.ControlPlane.WorkSetupCardTest do
         %{"mode" => "full", "workspace" => @workspace},
         "Investigate",
         %{"type" => "object"},
-        "work-final-v1"
+        "work-final-live-v2"
       )
 
     {:ok, _frozen} =

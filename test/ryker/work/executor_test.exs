@@ -1448,12 +1448,11 @@ defmodule Ryker.Work.ExecutorTest do
     assert state.submit_count == 1
   end
 
-  test "shadow execution repairs a visible answer and settles without delivery" do
+  test "shadow execution submits an observe-only schema and settles without repair" do
     claim = claim_episode!("shadow-observe-only", nil, :shadow)
 
     {:ok, fake} =
       FakeAPI.start_link([
-        reply("I would post this investigation result."),
         silent("Would retain the read-only assessment without posting.")
       ])
 
@@ -1467,13 +1466,12 @@ defmodule Ryker.Work.ExecutorTest do
     state = FakeAPI.state(fake)
     assert state.create_count == 1
     assert state.submit_count == 1
-    assert Enum.map(state.validations, & &1.verdict) == [:reject, :accept]
-
-    assert state.validations |> hd() |> Map.fetch!(:violations) |> hd() =~
-             "observe-only shadow"
+    assert Enum.map(state.validations, & &1.verdict) == [:accept]
 
     [submission] = state.submissions
-    assert submission.prompt =~ ~s("execution_mode":"shadow")
+    assert submission.schema == Final.json_schema(:shadow)
+    assert submission.prompt =~ "This is an observe-only evaluation"
+    refute submission.prompt =~ ~s("execution_mode":"shadow")
   end
 
   test "an open required goal is corrected in the same turn instead of failing finalization" do

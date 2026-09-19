@@ -213,7 +213,7 @@ defmodule Ryker.Work.CustodyConcurrencyTest do
                %{"request" => "resume"},
                "Handle the request.",
                %{"type" => "object"},
-               "work-final-v1"
+               "work-final-live-v2"
              )
 
     assert {:ok, _turn} =

@@ -214,7 +214,12 @@ defmodule Ryker.ControlPlane.TimelineLoadingTest do
     {:ok, claim} = Custody.claim_next("loading:#{suffix}", 120, :work)
 
     {:ok, submission} =
-      Submission.new(%{"mode" => "full"}, "Investigate", %{"type" => "object"}, "work-final-v1")
+      Submission.new(
+        %{"mode" => "full"},
+        "Investigate",
+        %{"type" => "object"},
+        "work-final-live-v2"
+      )
 
     {:ok, _frozen} =
       Custody.freeze_submission(episode_id, claim.turn.turn_ref, claim.lease_ref, submission)

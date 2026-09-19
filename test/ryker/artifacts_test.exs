@@ -159,7 +159,7 @@ defmodule Ryker.ArtifactsTest do
                %{"request" => "Use the exact attached evidence."},
                "Use the exact attached evidence.",
                %{"type" => "object"},
-               "work-final-v1",
+               "work-final-live-v2",
                [artifact.ref]
              )
 

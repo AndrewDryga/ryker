@@ -356,7 +356,14 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
     end
   end
 
+  defp decision_facts(%{source_kind: :work, execution_mode: mode})
+       when mode in [:live, :shadow],
+       do: [%{label: "Run mode", value: run_mode(mode)}]
+
   defp decision_facts(_request), do: []
+
+  defp run_mode(:live), do: "Live"
+  defp run_mode(:shadow), do: "Evaluation"
 
   defp decision_label("start_episode"), do: "Start new work"
   defp decision_label("continue_episode"), do: "Continue existing work"

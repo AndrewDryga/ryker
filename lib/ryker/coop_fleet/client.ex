@@ -406,7 +406,7 @@ defmodule Ryker.CoopFleet.Client do
   @impl true
   def submit_turn(client, session_id, key, revision, prompt, schema) do
     submission = %{
-      "contract_version" => "work-final-v1",
+      "contract_version" => "work-final-live-v2",
       "context" => %{},
       "input_artifact_refs" => [],
       "output_schema" => schema,

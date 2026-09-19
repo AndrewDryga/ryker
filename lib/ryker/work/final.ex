@@ -63,7 +63,10 @@ defmodule Ryker.Work.Final do
   end
 
   @spec json_schema() :: map()
-  def json_schema do
+  def json_schema, do: json_schema(:live)
+
+  @spec json_schema(:live | :shadow) :: map()
+  def json_schema(:live) do
     %{
       "$schema" => "https://json-schema.org/draft/2020-12/schema",
       "additionalProperties" => false,
@@ -104,6 +107,31 @@ defmodule Ryker.Work.Final do
       },
       "required" => @fields,
       "title" => "Ryker episode result",
+      "type" => "object"
+    }
+  end
+
+  def json_schema(:shadow) do
+    %{
+      "$schema" => "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties" => false,
+      "properties" => %{
+        "decision_reason" => bounded_string_schema(240),
+        "delivery" => %{"const" => "none"},
+        "message" => %{"type" => "null"},
+        "outcome" => %{
+          "additionalProperties" => false,
+          "properties" => %{
+            "artifact_refs" => reference_array_schema(0),
+            "record_refs" => reference_array_schema(64),
+            "state" => %{"const" => "complete"}
+          },
+          "required" => @outcome_fields,
+          "type" => "object"
+        }
+      },
+      "required" => @fields,
+      "title" => "Ryker observe-only evaluation result",
       "type" => "object"
     }
   end

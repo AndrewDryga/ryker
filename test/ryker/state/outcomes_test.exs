@@ -227,7 +227,7 @@ defmodule Ryker.State.OutcomesTest do
                  "required" => ["message"],
                  "type" => "object"
                },
-               "work-final-v1"
+               "work-final-live-v2"
              )
 
     submission

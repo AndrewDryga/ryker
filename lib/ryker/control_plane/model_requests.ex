@@ -43,6 +43,7 @@ defmodule Ryker.ControlPlane.ModelRequests do
               [
                 secrets: Redactor.configured_secrets(),
                 episode_ref: episode.key,
+                execution_mode: episode.execution_mode,
                 tool_disclosed: disclosed(params)
               ]
               |> with_responses(List.wrap(selected), params)
@@ -142,6 +143,7 @@ defmodule Ryker.ControlPlane.ModelRequests do
         max_bytes: 2 * 1_024 * 1_024,
         timeline: true,
         episode_ref: episode.key,
+        execution_mode: episode.execution_mode,
         sessions: sessions,
         disclosed: disclosed
       ]
@@ -249,6 +251,7 @@ defmodule Ryker.ControlPlane.ModelRequests do
       target: request.target,
       status: request.status,
       coverage: request.coverage,
+      execution_mode: Map.get(request, :execution_mode),
       source_kind: kind,
       phase: :submission,
       sections: submission,
@@ -391,6 +394,7 @@ defmodule Ryker.ControlPlane.ModelRequests do
       target: turn.execution_target || "Execution target not recorded",
       policy: session.policy,
       fingerprint: turn.submission_fingerprint,
+      execution_mode: options[:execution_mode],
       sections:
         Enum.map(sections, fn section ->
           section

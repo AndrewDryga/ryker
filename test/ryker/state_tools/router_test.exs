@@ -24,7 +24,7 @@ defmodule Ryker.StateTools.RouterTest do
   }
 
   alias Ryker.StateTools.{FixedTools, Router, Tools, ToolVisibility}
-  alias Ryker.Work.{Custody, FinalPreflight, Prompt, SubmissionBuilder}
+  alias Ryker.Work.{Custody, Final, FinalPreflight, Prompt, SubmissionBuilder}
 
   @options Router.init(token: "trusted-state-tools-token")
   @emisar_options Router.init(
@@ -112,6 +112,88 @@ defmodule Ryker.StateTools.RouterTest do
     assert payload["instruction_ref"] == "input:trusted:1"
     assert payload["source_refs"] == []
     assert payload["success_checks"] == ["focused tests pass"]
+  end
+
+  test "an observe-only binding exposes the shadow schema and refuses hidden effectful tools" do
+    claim = claim!("shadow-contract", %{execution_mode: :shadow})
+    options = bound_options(claim)
+    list = rpc("tools/list", %{}, options)
+
+    assert %{"result" => %{"tools" => tools}} = Jason.decode!(list.resp_body)
+
+    assert Enum.map(tools, & &1["name"]) == [
+             "get_work_state",
+             "cite_source",
+             "record_finding",
+             "list_automations",
+             "get_automation",
+             "search_memory",
+             "validate_final"
+           ]
+
+    validate_final = Enum.find(tools, &(&1["name"] == "validate_final"))
+
+    assert get_in(validate_final, ["inputSchema", "properties", "candidate"]) ==
+             Final.json_schema(:shadow)
+
+    refused =
+      rpc(
+        "tools/call",
+        %{"arguments" => %{"questions" => []}, "name" => "request_input"},
+        options
+      )
+
+    assert get_in(Jason.decode!(refused.resp_body), ["result", "structuredContent", "error"]) ==
+             "unknown_tool"
+
+    schema = %{
+      "description" => "Test platform capability.",
+      "inputSchema" => %{
+        "additionalProperties" => false,
+        "properties" => %{},
+        "type" => "object"
+      }
+    }
+
+    platform_options =
+      Router.init(
+        token: "trusted-state-tools-token",
+        binding: %{
+          episode: claim.episode,
+          session: claim.session,
+          state_token: Records.token(claim.turn),
+          turn: claim.turn
+        },
+        additional_tools: [
+          Map.put(schema, "name", "search_slack"),
+          Map.put(schema, "name", "post_slack_message")
+        ],
+        additional_call: fn _, _, _ -> {:error, "must_not_run"} end
+      )
+
+    platform_names =
+      platform_options
+      |> then(&rpc("tools/list", %{}, &1))
+      |> Map.fetch!(:resp_body)
+      |> Jason.decode!()
+      |> get_in(["result", "tools"])
+      |> Enum.map(& &1["name"])
+
+    assert "search_slack" in platform_names
+    refute "post_slack_message" in platform_names
+
+    hidden_action =
+      rpc(
+        "tools/call",
+        %{"arguments" => %{}, "name" => "post_slack_message"},
+        platform_options
+      )
+
+    assert get_in(Jason.decode!(hidden_action.resp_body), [
+             "result",
+             "structuredContent",
+             "error"
+           ]) == "unknown_tool"
   end
 
   test "source citations accept a short human-readable subject" do

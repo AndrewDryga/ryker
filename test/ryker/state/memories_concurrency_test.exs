@@ -293,7 +293,7 @@ defmodule Ryker.State.MemoriesConcurrencyTest do
         %{"episode_id" => episode.id},
         "Offer the exact memory mappings for confirmation.",
         %{"type" => "object"},
-        "work-final-v1"
+        "work-final-live-v2"
       )
 
     {:ok, _turn} =

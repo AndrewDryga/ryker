@@ -769,7 +769,7 @@ defmodule Ryker.CoopFleet.ClientTest do
     session = bind_session!(session, "coop-session-1")
 
     submission = %{
-      "contract_version" => "work-final-v1",
+      "contract_version" => "work-final-live-v2",
       "context" => %{"turn_ref" => "turn-7", "input_refs" => ["input-1"]},
       "input_artifact_refs" => [],
       "output_schema" => %{"type" => "object"},
@@ -805,7 +805,7 @@ defmodule Ryker.CoopFleet.ClientTest do
              },
              "submission" => submission,
              "submission_sha256" =>
-               "7b136cbd9b50c9ef8ab2b210cd686990281da74a8329586dcd577284870bb4d2",
+               "88cc50fb3bb2a9538363164629b23d66b1f9fbf5fd7e6fd42ff6bd21f67f4cd1",
              "turn_ref" => "turn-7"
            }
   end
@@ -1152,7 +1152,7 @@ defmodule Ryker.CoopFleet.ClientTest do
     assert {:ok, artifacts} = Artifacts.coop_inputs([artifact.ref])
 
     submission = %{
-      "contract_version" => "work-final-v1",
+      "contract_version" => "work-final-live-v2",
       "context" => %{"turn_ref" => "turn-artifact"},
       "input_artifact_refs" => [artifact.ref],
       "output_schema" => %{"type" => "object"},
@@ -1898,7 +1898,7 @@ defmodule Ryker.CoopFleet.ClientTest do
     key = "ryker:work:turn:worker-local-rejection:g1"
 
     submission = %{
-      "contract_version" => "work-final-v1",
+      "contract_version" => "work-final-live-v2",
       "context" => %{"source" => "https://example.test/?first=1&second=2"},
       "input_artifact_refs" => [],
       "output_schema" => %{"type" => "object"},

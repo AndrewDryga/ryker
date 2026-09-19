@@ -674,7 +674,7 @@ defmodule Ryker.State.SchedulesTest do
                %{"episode_id" => episode_id},
                "Offer the requested schedule.",
                %{"type" => "object"},
-               "work-final-v1"
+               "work-final-live-v2"
              )
 
     assert {:ok, _turn} =

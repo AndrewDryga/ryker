@@ -2055,7 +2055,7 @@ defmodule Ryker.State.ContinuityTest do
                %{"episode_id" => work.episode.id},
                "Update continuity.",
                %{"type" => "object"},
-               "work-final-v1"
+               "work-final-live-v2"
              )
 
     claim = work.claim

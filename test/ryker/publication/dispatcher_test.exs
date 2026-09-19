@@ -742,7 +742,7 @@ defmodule Ryker.Publication.DispatcherTest do
                %{"input" => claim.episode.key},
                "Implement the frozen request.",
                %{"type" => "object"},
-               "work-final-v1"
+               "work-final-live-v2"
              )
 
     assert {:ok, frozen} =

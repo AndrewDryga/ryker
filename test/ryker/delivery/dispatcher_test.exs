@@ -863,7 +863,7 @@ defmodule Ryker.Delivery.DispatcherTest do
                %{"episode_id" => id},
                "Handle the frozen episode.",
                %{"type" => "object"},
-               "work-final-v1"
+               "work-final-live-v2"
              )
 
     assert {:ok, _turn} =

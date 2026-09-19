@@ -1,6 +1,8 @@
 defmodule Ryker.StateTools.ToolVisibility do
   @moduledoc false
 
+  alias Ryker.Work.Contract
+
   @tool_transports %{
     "read_github_conversation" => MapSet.new(["github"]),
     "search_github" => MapSet.new(["github"]),
@@ -13,14 +15,21 @@ defmodule Ryker.StateTools.ToolVisibility do
   }
 
   @spec visible?(String.t(), String.t() | nil) :: boolean()
-  def visible?(name, destination_transport) when is_binary(name) do
+  def visible?(name, destination_transport), do: visible?(name, destination_transport, :live)
+
+  @spec visible?(String.t(), String.t() | nil, :live | :shadow) :: boolean()
+  def visible?(name, destination_transport, mode) when is_binary(name) do
     case allowed_transports(name) do
-      nil -> true
-      allowed -> MapSet.member?(allowed, destination_transport)
+      nil ->
+        Contract.platform_tool_allowed?(mode, name)
+
+      allowed ->
+        MapSet.member?(allowed, destination_transport) and
+          Contract.platform_tool_allowed?(mode, name)
     end
   end
 
-  def visible?(_name, _destination_transport), do: false
+  def visible?(_name, _destination_transport, _mode), do: false
 
   defp allowed_transports(name), do: Map.get(@tool_transports, name)
 end
