@@ -25,7 +25,24 @@ defmodule Ryker.ControlPlane.StandingRulesCardTest do
   @now ~U[2026-09-04 22:51:44.000000Z]
 
   test "an inventory renders every rule with its verdict, matches first" do
-    {entry, episode} = admitted!()
+    receipt = %{
+      "version" => 1,
+      "path" => "slack_event",
+      "result" => "process",
+      "reason" => "Old internal reason.",
+      "checks" => [
+        %{"check" => "direct_or_mention", "outcome" => "no"},
+        %{"check" => "existing_episode_thread", "outcome" => "no"},
+        %{"check" => "standing_rule", "outcome" => "matched"}
+      ],
+      "settings" => %{
+        "proactive" => %{"value" => false, "source" => "channel"},
+        "shadow" => %{"value" => false, "source" => "deployment"}
+      },
+      "execution_mode" => "live"
+    }
+
+    {entry, episode} = admitted!(engagement_receipt: receipt)
 
     inventory!(entry, [
       rule(
@@ -53,10 +70,13 @@ defmodule Ryker.ControlPlane.StandingRulesCardTest do
     # Matches first, then the rest in a stable title order: neither the
     # recorded order nor the verdict decides where a non-match lands.
     assert LazyHTML.attribute(rules, "data-verdict") == ~w(matched disabled not_matched)
-    assert html =~ "1 matched · 2 other"
+    assert html =~ "3 rules · 1 matched"
     assert html =~ "This event does not match the deployment trigger."
     assert html =~ "Paused"
     refute html =~ "Standing-rule evaluation was not recorded"
+
+    assert LazyHTML.query(document, ".participation-summary") |> LazyHTML.text() ==
+             "Ryker processed this message because the standing rule “Review Terraform plans” matched."
 
     # The card precedes the routing decision in the reading order.
     assert [rules_at, routing_at] =
@@ -68,13 +88,13 @@ defmodule Ryker.ControlPlane.StandingRulesCardTest do
     assert rules_at < routing_at
   end
 
-  test "an empty recorded inventory says no rules existed" do
+  test "an empty recorded inventory says no standing rules" do
     {entry, episode} = admitted!()
     inventory!(entry, [])
 
     html = rendered(episode)
-    assert html =~ "No standing rules existed when this input was processed."
-    refute html =~ "Standing-rule evaluation was not recorded"
+    assert html =~ "No standing rules"
+    refute html =~ "Standing-rule history was not recorded"
     assert html =~ ~s(data-rules-state="recorded")
   end
 
@@ -82,8 +102,8 @@ defmodule Ryker.ControlPlane.StandingRulesCardTest do
     {_entry, episode} = admitted!()
 
     html = rendered(episode)
-    assert html =~ "Standing-rule evaluation was not recorded for this input."
-    refute html =~ "No standing rules existed"
+    assert html =~ "Standing-rule history was not recorded for this message."
+    refute html =~ "No standing rules"
     refute html =~ "0 matched"
     assert html =~ ~s(data-rules-state="not_recorded")
   end
@@ -99,8 +119,115 @@ defmodule Ryker.ControlPlane.StandingRulesCardTest do
     )
 
     html = rendered(episode)
-    assert html =~ "Only the first 1 of 4 rules were recorded; the rest were not inspected."
+    assert html =~ "Only 1 of 4 rules were retained; 3 are missing from this older history."
     assert html =~ "Review Terraform plans"
+  end
+
+  test "a truncated inventory uses singular grammar for one missing rule" do
+    {entry, episode} = admitted!()
+
+    inventory!(entry, [rule("Review Terraform plans", "matched", "A terraform plan from app.")],
+      rule_count: 2,
+      truncated: true
+    )
+
+    assert rendered(episode) =~
+             "Only 1 of 2 rules were retained; 1 is missing from this older history."
+  end
+
+  test "all verdicts and reasons stay visible, with every match first and emphasized in text" do
+    {entry, episode} = admitted!()
+
+    inventory!(entry, [
+      rule(
+        "Second match",
+        "matched",
+        "A deployment from an app in this channel matched this rule."
+      ),
+      rule(
+        "First match",
+        "matched",
+        "A Terraform plan from an app in this channel matched this rule."
+      ),
+      rule("Wrong event", "not_matched", "This event did not match the deployment trigger."),
+      rule(
+        "Wrong sender",
+        "not_matched",
+        "This message came from an app; this rule only applies to messages from people."
+      ),
+      rule("Other channel", "out_of_scope", "This rule applies to another channel."),
+      rule("Paused rule", "disabled", "This rule was paused when the message was processed."),
+      rule("Expired rule", "expired", "This rule expired before the message arrived."),
+      rule(
+        "Late rule",
+        "not_considered",
+        "Only the first 100 applicable rules are evaluated. This rule’s trigger was not checked."
+      )
+    ])
+
+    card = rendered(episode) |> LazyHTML.from_document() |> LazyHTML.query(".participation-rules")
+    rules = LazyHTML.query(card, ".standing-rule")
+
+    assert LazyHTML.query(card, "h4") |> LazyHTML.text() |> String.trim() ==
+             "Standing rules at the time"
+
+    assert LazyHTML.text(card) =~ "8 rules · 2 matched"
+
+    assert LazyHTML.attribute(rules, "data-verdict") == [
+             "matched",
+             "matched",
+             "expired",
+             "not_considered",
+             "out_of_scope",
+             "disabled",
+             "not_matched",
+             "not_matched"
+           ]
+
+    assert LazyHTML.query(rules, ".standing-rule-heading strong")
+           |> Enum.map(&LazyHTML.text/1) == [
+             "First match",
+             "Second match",
+             "Expired rule",
+             "Late rule",
+             "Other channel",
+             "Paused rule",
+             "Wrong event",
+             "Wrong sender"
+           ]
+
+    assert LazyHTML.query(rules, ".standing-rule-verdict") |> Enum.map(&LazyHTML.text/1) == [
+             "Matched",
+             "Matched",
+             "Expired",
+             "Not evaluated",
+             "Other channel",
+             "Paused",
+             "Did not match",
+             "Did not match"
+           ]
+
+    reasons = LazyHTML.query(rules, ".standing-rule-reason") |> Enum.map(&LazyHTML.text/1)
+    assert Enum.any?(reasons, &(&1 =~ "only applies to messages from people"))
+    assert Enum.any?(reasons, &(&1 =~ "applies to another channel"))
+    assert Enum.any?(reasons, &(&1 =~ "paused when the message was processed"))
+    assert Enum.any?(reasons, &(&1 =~ "expired before the message arrived"))
+    assert Enum.any?(reasons, &(&1 =~ "first 100 applicable rules"))
+    refute Enum.any?(reasons, &(&1 =~ "slack:"))
+  end
+
+  test "a complete inventory with no matches keeps every rule and reports zero matched" do
+    {entry, episode} = admitted!()
+
+    inventory!(entry, [
+      rule("Review deployments", "not_matched", "This event did not match."),
+      rule("Watch another channel", "out_of_scope", "This rule applies to another channel.")
+    ])
+
+    card = rendered(episode) |> LazyHTML.from_document() |> LazyHTML.query(".participation-rules")
+
+    assert LazyHTML.text(card) =~ "2 rules · 0 matched"
+    assert Enum.count(LazyHTML.query(card, ".standing-rule")) == 2
   end
 
   test "a later rule change does not rewrite the recorded explanation" do
@@ -168,7 +295,7 @@ defmodule Ryker.ControlPlane.StandingRulesCardTest do
     |> LazyHTML.to_tree()
   end
 
-  defp admitted! do
+  defp admitted!(options \\ []) do
     {:ok, input} =
       Input.new(%{
         actor: %{kind: :user, ref: "U123"},
@@ -183,7 +310,7 @@ defmodule Ryker.ControlPlane.StandingRulesCardTest do
         workspace_ref: "TC9F5B40D364C"
       })
 
-    {:ok, %{entry: entry}} = Inbox.record(input)
+    {:ok, %{entry: entry}} = Inbox.record(input, options)
     # This fixture drives the card directly; the recorder's own path is covered
     # in Ryker.State.StandingRuleInventoryTest.
     Repo.delete_all(StandingRuleInventory)

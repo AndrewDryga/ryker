@@ -60,126 +60,153 @@ defmodule Ryker.ControlPlane.EngagementCardTest do
     assert positions == Enum.sort(positions)
   end
 
-  test "participation settings show each effective value with the source it won from" do
-    {_entry, episode} = admitted!(engagement_receipt: @rule_receipt)
-    html = rendered(episode)
+  test "Slack participation paths use the retained audience and checks in plain language" do
+    paths = [
+      {:mention, direct_receipt(), "Ryker processed this message because it was mentioned."},
+      {:direct, direct_receipt(), "Ryker processed this direct message."},
+      {:ambient, receipt([{"direct_or_mention", "no"}, {"existing_episode_thread", "yes"}]),
+       "Ryker processed this message because it continued an existing episode."},
+      {:ambient,
+       receipt(
+         [
+           {"direct_or_mention", "no"},
+           {"existing_episode_thread", "no"},
+           {"standing_rule", "not_matched"},
+           {"proactive_participation", "on"},
+           {"shadow_evaluation", "off"}
+         ],
+         proactive: true
+       ),
+       "Ryker processed this message even though it was not mentioned because proactive replies were on."}
+    ]
 
-    facts =
-      LazyHTML.from_document(html)
-      |> LazyHTML.query(".participation .participation-facts")
-      |> LazyHTML.text()
+    for {audience, receipt, expected} <- paths do
+      {_entry, episode} =
+        admitted!(
+          engagement_receipt: receipt,
+          slack_audience: audience,
+          slack_bot_user_ref: "URYKER"
+        )
 
-    assert facts =~ "Proactive"
-    assert facts =~ "Off · Saved channel setup"
-    assert facts =~ "Shadow"
-    assert facts =~ "Off · Deployment default"
+      card = participation(episode)
+      assert summary(card) == expected
+      assert Enum.empty?(LazyHTML.query(card, ".event-state"))
+      assert Enum.empty?(LazyHTML.query(card, ".participation-decision"))
+    end
   end
 
-  test "the Participation card shows the result, reason and only the checks the gate made" do
-    {_entry, episode} = admitted!(engagement_receipt: @rule_receipt)
-    html = rendered(episode)
-    card = LazyHTML.from_document(html) |> LazyHTML.query(".participation")
-
-    assert LazyHTML.text(card) =~ "Process"
-    assert LazyHTML.text(card) =~ "A standing rule matched this message."
-
-    details = LazyHTML.query(card, ".participation-decision .event-facts") |> LazyHTML.text()
-    assert details =~ "Direct message / mention"
-    assert details =~ "Existing episode thread"
-    assert details =~ "Standing rule"
-    assert details =~ "Matched"
-    # The gate stopped at the rule; an absent predicate is not reconstructed
-    # from today's configuration or rendered as if it had been evaluated.
-    refute details =~ "Proactive participation\n"
-    refute LazyHTML.text(card) =~ "Standing rules card above"
-  end
-
-  test "a predicate explicitly recorded without an outcome remains Not checked" do
-    receipt =
-      Map.update!(@rule_receipt, "checks", fn checks ->
-        checks ++ [%{"check" => "proactive_participation", "outcome" => nil}]
-      end)
-
-    {_entry, episode} = admitted!(engagement_receipt: receipt)
-
-    details =
-      rendered(episode)
-      |> LazyHTML.from_document()
-      |> LazyHTML.query(".participation-decision .event-facts")
-      |> LazyHTML.text()
-
-    assert details =~ "Proactive participation"
-    assert details =~ "Not checked"
-  end
-
-  test "an explicit direct-conversation submission says it bypassed channel settings instead of inventing checks" do
-    receipt = %{
-      "version" => 1,
-      "path" => "conversation_lab",
-      "result" => "process",
-      "reason" => "Explicitly submitted through Conversation Lab.",
-      "checks" => [],
-      "settings" => nil,
-      "execution_mode" => "live"
-    }
-
-    {_entry, episode} = admitted!(engagement_receipt: receipt)
-    html = rendered(episode)
-    document = LazyHTML.from_document(html)
-
-    assert LazyHTML.query(
-             document,
-             ".participation section[aria-label='Channel settings at processing time']"
-           )
-           |> LazyHTML.text() =~
-             "Not applicable: an explicit direct-conversation submission bypasses channel participation settings."
-
-    # The recorded reason is history: a receipt written before the rename
-    # keeps its own words, and the page shows exactly what was recorded.
-    engagement = LazyHTML.query(document, ".participation") |> LazyHTML.text()
-    assert engagement =~ "Explicitly submitted through Conversation Lab."
-    refute engagement =~ "Direct message / mention"
-  end
-
-  test "history without a receipt says so and never reads today's settings" do
-    {_entry, episode} = admitted!([])
-    html = rendered(episode)
-    document = LazyHTML.from_document(html)
-
-    assert LazyHTML.query(
-             document,
-             ".participation section[aria-label='Channel settings at processing time']"
-           )
-           |> LazyHTML.text() =~
-             "Effective participation settings were not recorded for this input."
-
-    assert LazyHTML.query(document, ".participation") |> LazyHTML.text() =~
-             "The engagement decision was not recorded for this input."
-
-    refute html =~ "Decision details"
-    refute html =~ "Deployment default"
-  end
-
-  test "a shadow decision is evaluate-only, not a rejection" do
-    receipt =
-      @rule_receipt
-      |> Map.put("result", "evaluate_only")
-      |> Map.put(
-        "reason",
-        "Shadow mode is enabled for this channel; a standing rule matched this message."
+  test "normal channel setup is two plain On/Off rows without provenance or gate plumbing" do
+    {_entry, episode} =
+      admitted!(
+        engagement_receipt: direct_receipt(),
+        slack_audience: :mention,
+        slack_bot_user_ref: "URYKER"
       )
+
+    card = participation(episode)
+    setup = LazyHTML.query(card, ".participation-settings")
+
+    assert LazyHTML.query(setup, "h4") |> LazyHTML.text() == "Channel setup at the time"
+
+    assert LazyHTML.query(setup, "dt") |> Enum.map(&LazyHTML.text/1) == [
+             "Proactive replies",
+             "Shadow evaluation"
+           ]
+
+    assert LazyHTML.query(setup, "dd") |> Enum.map(&LazyHTML.text/1) == ["Off", "Off"]
+
+    text = LazyHTML.text(card)
+    refute text =~ "Saved channel setup"
+    refute text =~ "Deployment default"
+    refute text =~ "Direct message / mention"
+    refute text =~ "Execution mode"
+    refute text =~ "Decision details"
+  end
+
+  test "shadow evaluation is a no-reply explanation qualified by the retained mention" do
+    receipt =
+      direct_receipt()
+      |> Map.put("result", "evaluate_only")
       |> Map.put("execution_mode", "shadow")
       |> put_in(["settings", "shadow"], %{"value" => true, "source" => "channel"})
 
-    {_entry, episode} = admitted!(engagement_receipt: receipt)
-    html = rendered(episode)
+    {_entry, episode} =
+      admitted!(
+        engagement_receipt: receipt,
+        execution_mode: :shadow,
+        slack_audience: :mention,
+        slack_bot_user_ref: "URYKER"
+      )
 
-    card = LazyHTML.from_document(html) |> LazyHTML.query(".participation") |> LazyHTML.text()
+    card = participation(episode)
 
-    assert card =~ "Evaluate only"
-    assert card =~ "Shadow mode is enabled"
-    refute card =~ "Not picked up"
+    assert summary(card) ==
+             "Ryker evaluated this message without replying because Shadow evaluation was on and it qualified because Ryker was mentioned."
+
+    refute LazyHTML.text(card) =~ "Evaluate only"
+    refute LazyHTML.text(card) =~ "Not picked up"
   end
+
+  test "explicit Lab and shortcut submissions say channel settings did not apply" do
+    for {path, expected} <- [
+          {"conversation_lab",
+           "Ryker processed this message because it was submitted directly through Conversation Lab."},
+          {"slack_shortcut",
+           "Ryker processed this message because it was submitted through a Slack shortcut."}
+        ] do
+      {_entry, episode} = admitted!(engagement_receipt: receipt([], path: path, settings: nil))
+      card = participation(episode)
+      assert summary(card) == expected
+
+      assert LazyHTML.query(card, ".participation-settings") |> LazyHTML.text() =~
+               "Channel settings did not apply."
+
+      refute LazyHTML.text(card) =~ "Entry path"
+    end
+  end
+
+  test "history without a receipt has one truthful explanation and no reconstructed settings" do
+    {_entry, episode} = admitted!([])
+    card = participation(episode)
+
+    assert summary(card) ==
+             "The participation decision and channel settings were not recorded for this message."
+
+    assert Enum.empty?(LazyHTML.query(card, ".participation-settings"))
+    refute LazyHTML.text(card) =~ "Deployment default"
+  end
+
+  defp direct_receipt, do: receipt([{"direct_or_mention", "yes"}])
+
+  defp receipt(checks, options \\ []) do
+    %{
+      "version" => 1,
+      "path" => Keyword.get(options, :path, "slack_event"),
+      "result" => "process",
+      "reason" => "Old internal reason.",
+      "checks" =>
+        Enum.map(checks, fn {check, outcome} -> %{"check" => check, "outcome" => outcome} end),
+      "settings" =>
+        Keyword.get(options, :settings, %{
+          "proactive" => %{
+            "value" => Keyword.get(options, :proactive, false),
+            "source" => "channel"
+          },
+          "shadow" => %{"value" => false, "source" => "deployment"}
+        }),
+      "execution_mode" => "live"
+    }
+  end
+
+  defp participation(episode) do
+    episode
+    |> rendered()
+    |> LazyHTML.from_document()
+    |> LazyHTML.query(".participation")
+  end
+
+  defp summary(card),
+    do: card |> LazyHTML.query(".participation-summary") |> LazyHTML.text() |> String.trim()
 
   defp rendered(episode) do
     {:ok, detail} = Projection.episode(episode.key)

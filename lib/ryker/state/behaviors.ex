@@ -488,8 +488,6 @@ defmodule Ryker.State.Behaviors do
 
   def standing_match?(_input), do: false
 
-  @inventory_limit 200
-
   @doc """
   Records every standing rule that existed in this input's workspace, with the
   verdict each one got.
@@ -528,7 +526,6 @@ defmodule Ryker.State.Behaviors do
       Scope.workspace_ref(input.destination.transport, input.destination.conversation_ref)
 
     rules = workspace_rules(workspace)
-    listed = Enum.take(rules, @inventory_limit)
 
     considered =
       input
@@ -537,7 +534,7 @@ defmodule Ryker.State.Behaviors do
       |> Repo.all()
       |> MapSet.new()
 
-    entries = Enum.map(listed, &inventory_entry(&1, input, now, considered))
+    entries = Enum.map(rules, &inventory_entry(&1, input, now, considered))
 
     case Repo.insert(
            %StandingRuleInventory{
@@ -548,7 +545,7 @@ defmodule Ryker.State.Behaviors do
              conversation_ref: input.destination.conversation_ref,
              rule_count: length(rules),
              matched_count: Enum.count(entries, &(&1["verdict"] == "matched")),
-             truncated: length(rules) > length(listed),
+             truncated: false,
              entries: entries,
              recorded_at: now
            },
@@ -588,8 +585,7 @@ defmodule Ryker.State.Behaviors do
         where:
           behavior.kind == :standing_assignment and behavior.workspace_ref == ^workspace and
             behavior.status not in [:deleted, :superseded],
-        order_by: [asc: behavior.inserted_at, asc: behavior.id],
-        limit: @inventory_limit + 1
+        order_by: [asc: behavior.inserted_at, asc: behavior.id]
       )
     )
   end
@@ -608,9 +604,15 @@ defmodule Ryker.State.Behaviors do
     }
   end
 
+  defp inventory_verdict(%Behavior{status: :disabled}, _input, _now, _considered),
+    do: {"disabled", "This rule was paused when the message was processed."}
+
+  defp inventory_verdict(%Behavior{status: :expired}, _input, _now, _considered),
+    do: {"expired", "This rule expired before the message arrived."}
+
   defp inventory_verdict(%Behavior{status: status}, _input, _now, _considered)
        when status != :active,
-       do: {Atom.to_string(status), "This rule was #{status} when the input was processed."}
+       do: {Atom.to_string(status), "This rule was #{status} when the message was processed."}
 
   defp inventory_verdict(
          %Behavior{expires_at: %DateTime{} = expires_at} = behavior,
@@ -620,25 +622,24 @@ defmodule Ryker.State.Behaviors do
        ) do
     if DateTime.compare(expires_at, now) == :gt,
       do: inventory_verdict(%{behavior | expires_at: nil}, input, now, considered),
-      else: {"expired", "This rule had expired when the input was processed."}
+      else: {"expired", "This rule expired before the message arrived."}
   end
 
   defp inventory_verdict(%Behavior{scope_kind: scope_kind}, _input, _now, _considered)
        when scope_kind != :conversation,
-       do: {"out_of_scope", "This rule is not scoped to a conversation."}
+       do: {"out_of_scope", "This rule does not apply to this conversation."}
 
   defp inventory_verdict(%Behavior{scope_ref: scope_ref} = behavior, input, _now, considered) do
     cond do
       scope_ref != input.destination.conversation_ref ->
-        {"out_of_scope",
-         "Applies to #{scope_ref}; this input arrived in #{input.destination.conversation_ref}."}
+        {"out_of_scope", "This rule applies to another channel."}
 
       # Outside the runtime's candidate window the predicate was never run.
       # Calling such a rule "matched" would credit it with an engagement it
       # could not have caused.
       not MapSet.member?(considered, behavior.id) ->
         {"not_considered",
-         "Outside the #{@runtime_candidate_limit}-rule window the runtime evaluates for one conversation; its trigger was not checked."}
+         "Only the first #{@runtime_candidate_limit} applicable rules are evaluated. This rule’s trigger was not checked."}
 
       assignment_matches?(behavior.payload, input) ->
         {"matched", assignment_match_reason(behavior.payload, input)}
@@ -653,26 +654,39 @@ defmodule Ryker.State.Behaviors do
   defp assignment_title(_payload), do: nil
 
   defp assignment_match_reason(%{"trigger" => trigger}, input) when is_binary(trigger),
-    do: "A #{human(trigger)} from #{human(to_string(input.actor.kind))} in this conversation."
+    do:
+      "A #{trigger |> human() |> String.capitalize()} from #{actor_phrase(input.actor.kind)} in this channel matched this rule."
 
   defp assignment_match_reason(_payload, _input),
-    do: "The recorded source and event filter matched this input."
+    do: "The recorded source and event filter matched this message."
 
   defp assignment_mismatch_reason(payload, input) do
     cond do
       not source_matches?(payload["source_filter"], input.actor.kind) ->
-        "Applies to #{human(to_string(payload["source_filter"]))} senders; this input came from #{human(to_string(input.actor.kind))}."
+        "This message came from #{actor_phrase(input.actor.kind)}; this rule only applies to messages from #{source_filter_phrase(payload["source_filter"])}."
 
       is_binary(payload["trigger"]) ->
         "This event does not match the #{human(payload["trigger"])} trigger."
 
       true ->
-        "The recorded source and event filter did not match this input."
+        "The recorded source and event filter did not match this message."
     end
   end
 
   defp human(value) when is_binary(value), do: String.replace(value, "_", " ")
   defp human(value), do: to_string(value)
+
+  defp actor_phrase(:user), do: "a person"
+  defp actor_phrase(:app), do: "an app"
+  defp actor_phrase(:bot), do: "a bot"
+  defp actor_phrase(:system), do: "a system actor"
+  defp actor_phrase(kind), do: "a #{human(kind)} sender"
+
+  defp source_filter_phrase("user"), do: "people"
+  defp source_filter_phrase("app"), do: "apps"
+  defp source_filter_phrase("bot"), do: "bots"
+  defp source_filter_phrase("system"), do: "system actors"
+  defp source_filter_phrase(filter), do: human(to_string(filter))
 
   @doc false
   @spec observe_input(Input.t(), String.t()) :: {:ok, non_neg_integer()} | {:error, term()}

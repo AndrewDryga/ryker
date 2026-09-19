@@ -608,8 +608,8 @@ defmodule Ryker.ControlPlane.EpisodePage do
   end
 
   # One input, one explanation: decision first, then the processing-time
-  # settings and full rule inventory that supported it. Detailed predicates
-  # remain available without competing with the headline answer.
+  # settings and full rule inventory that supported it. Only technical rule
+  # identity stays behind a disclosure.
   defp participation(assigns) do
     ~H"""
     <div
@@ -619,20 +619,21 @@ defmodule Ryker.ControlPlane.EpisodePage do
     >
       <div class="case-event-heading">
         <h3>Participation</h3>
-        <span :if={@step.engagement.result != ""} class={"event-state tone-#{@step.tone}"}>
-          {@step.engagement.result}
-        </span>
       </div>
-      <p class="case-event-summary">{@step.engagement.reason}</p>
+      <p class="case-event-summary participation-summary">{@step.engagement.reason}</p>
 
-      <section class="participation-section" aria-label="Channel settings at processing time">
-        <h4>Channel settings at processing time</h4>
+      <section
+        :if={@step.participation.state != :not_recorded}
+        class="participation-section participation-settings"
+        aria-label="Channel setup at the time"
+      >
+        <h4>Channel setup at the time</h4>
         <p :if={@step.participation.settings == []} class="case-event-summary">
           {@step.participation.summary}
         </p>
         <dl :if={@step.participation.settings != []} class="event-facts participation-facts">
           <div :for={setting <- @step.participation.settings}>
-            <dt>{setting.label}</dt><dd><strong>{setting.value}</strong> · {setting.source}</dd>
+            <dt>{setting.label}</dt><dd><strong>{setting.value}</strong></dd>
           </div>
         </dl>
       </section>
@@ -642,14 +643,15 @@ defmodule Ryker.ControlPlane.EpisodePage do
         aria-label="Standing rules at processing time"
       >
         <div class="participation-section-heading">
-          <h4>Standing rules</h4>
-          <span :if={@step.rules.state == :recorded && @step.rules.rule_count > 0}>
-            {@step.rules.matched_count} matched · {@step.rules.rule_count - @step.rules.matched_count} other
-          </span>
+          <h4>
+            {if @step.rules.state == :recorded && @step.rules.rule_count > 0,
+              do: "Standing rules at the time",
+              else: "Standing rules"}
+          </h4>
         </div>
         <p class="case-event-summary">{@step.rules.summary}</p>
         <p :if={@step.rules.truncated} class="action-error">
-          Only the first {length(@step.rules.entries)} of {@step.rules.rule_count} rules were recorded; the rest were not inspected.
+          {truncated_rule_summary(@step.rules)}
         </p>
         <ul :if={@step.rules.entries != []} class="standing-rule-list">
           <li
@@ -658,13 +660,10 @@ defmodule Ryker.ControlPlane.EpisodePage do
             data-verdict={rule.verdict}
           >
             <div class="standing-rule-heading">
+              <p class="standing-rule-verdict">{verdict_label(rule.verdict)}</p>
               <strong>{rule.title}</strong>
-              <.status
-                label={verdict_label(rule.verdict)}
-                tone={if rule.verdict == "matched", do: "done", else: "quiet"}
-              />
             </div>
-            <p>{rule.reason}</p>
+            <p class="standing-rule-reason">{rule.reason}</p>
             <details
               :if={rule.ref}
               class="standing-rule-definition"
@@ -689,36 +688,25 @@ defmodule Ryker.ControlPlane.EpisodePage do
           </li>
         </ul>
       </section>
-
-      <details
-        :if={@step.engagement.state == :recorded}
-        class="case-event-details participation-decision"
-        id={"participation-details-#{@step.id}"}
-      >
-        <summary>Decision details</summary>
-        <dl class="event-facts">
-          <div>
-            <dt>Entry path</dt><dd>{@step.engagement.path}</dd>
-          </div>
-          <div :for={check <- @step.engagement.checks}>
-            <dt>{check.label}</dt><dd>{check.outcome}</dd>
-          </div>
-          <div :if={@step.engagement[:execution_mode]}>
-            <dt>Execution mode</dt><dd>{label(@step.engagement.execution_mode)}</dd>
-          </div>
-        </dl>
-      </details>
     </div>
     """
   end
 
   defp verdict_label("matched"), do: "Matched"
-  defp verdict_label("not_matched"), do: "Not matched"
+  defp verdict_label("not_matched"), do: "Did not match"
   defp verdict_label("out_of_scope"), do: "Other channel"
-  defp verdict_label("not_considered"), do: "Not considered"
+  defp verdict_label("not_considered"), do: "Not evaluated"
   defp verdict_label("disabled"), do: "Paused"
   defp verdict_label("expired"), do: "Expired"
   defp verdict_label(other), do: label(other)
+
+  defp truncated_rule_summary(rules) do
+    retained = length(rules.entries)
+    missing = max(rules.rule_count - retained, 0)
+    verb = if missing == 1, do: "is", else: "are"
+
+    "Only #{retained} of #{rules.rule_count} rules were retained; #{missing} #{verb} missing from this older history."
+  end
 
   defp message(assigns) do
     ~H"""

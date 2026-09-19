@@ -39,7 +39,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
       rules = rule_inventory(inventory)
       rules = Map.put(rules, :summary, rule_summary(rules))
       participation = participation(receipt)
-      engagement = engagement(receipt)
+      engagement = engagement(receipt, input, rules)
       queue = queue(input, Map.get(attempts, input.id), now)
 
       [
@@ -256,14 +256,14 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
   defp queue_occurrence(%Entry{event_kind: :delete}), do: "Deleted message · new revision"
   defp queue_occurrence(%Entry{event_kind: kind}), do: capitalize(human(kind))
 
-  # Effective proactive/shadow values with the source each one won from. An
-  # explicit submission never consulted channel settings, and history without
-  # a receipt says "not recorded" rather than reading today's configuration.
+  # Effective proactive/shadow values at processing time. An explicit
+  # submission never consulted channel settings, and history without a receipt
+  # says "not recorded" rather than reading today's configuration.
   defp participation(nil),
     do: %{
       state: :not_recorded,
       settings: [],
-      summary: "Effective participation settings were not recorded for this input."
+      summary: nil
     }
 
   defp participation(%{"settings" => %{} = settings}) do
@@ -271,108 +271,176 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
       for key <- ["proactive", "shadow"], %{} = setting <- [settings[key]] do
         %{
           label: participation_label(key),
-          value: if(setting["value"] == true, do: "On", else: "Off"),
-          source: setting_source_label(setting["source"])
+          value: if(setting["value"] == true, do: "On", else: "Off")
         }
       end
 
     %{
       state: :recorded,
       settings: rows,
-      summary: Enum.map_join(rows, " · ", &"#{&1.label} #{&1.value}")
+      summary: nil
     }
   end
 
-  defp participation(%{"path" => path}) do
+  defp participation(%{"path" => _path}) do
     %{
       state: :not_applicable,
       settings: [],
-      summary: "Not applicable: #{path_label(path)} bypasses channel participation settings."
+      summary: "Channel settings did not apply."
     }
   end
 
   defp participation(_receipt), do: participation(nil)
 
-  defp participation_label("proactive"), do: "Proactive"
-  defp participation_label("shadow"), do: "Shadow"
+  defp participation_label("proactive"), do: "Proactive replies"
+  defp participation_label("shadow"), do: "Shadow evaluation"
   defp participation_label(other), do: to_string(other)
 
-  defp setting_source_label("channel"), do: "Saved channel setup"
-  defp setting_source_label("configuration"), do: "Channel configuration"
-  defp setting_source_label("workspace"), do: "Workspace setting"
-  defp setting_source_label("deployment"), do: "Deployment default"
-  defp setting_source_label("incident_room"), do: "Incident room policy"
-  defp setting_source_label("watch_channels"), do: "Watched channel list"
-  defp setting_source_label(nil), do: "Source not recorded"
-  defp setting_source_label(other), do: human(to_string(other))
-
-  defp path_label("conversation_lab"), do: "an explicit direct-conversation submission"
-  defp path_label("slack_shortcut"), do: "an explicit Slack shortcut"
-  defp path_label("slack_event"), do: "a Slack event"
-  defp path_label(other), do: human(to_string(other))
-
-  # The decision as it was made: result, plain reason, and every predicate the
-  # gate reached. A predicate it never reached is "not checked" -- the receipt
-  # does not know its answer and neither does anyone else.
-  defp engagement(nil),
+  # The receipt is authoritative evidence, but its internal result names and
+  # predicate trace are not operator copy. Compile its retained path, checks,
+  # Slack audience and rule inventory into one human explanation.
+  defp engagement(nil, _input, _rules),
     do: %{
       state: :not_recorded,
       result: "",
       tone: nil,
-      reason: "The engagement decision was not recorded for this input.",
-      path: nil,
-      checks: []
+      reason:
+        "The participation decision and channel settings were not recorded for this message."
     }
 
-  defp engagement(%{"result" => result} = receipt) do
-    # A receipt is retained JSON written by an older version of the gate. One
-    # whose shape no longer parses is one card's absence; crashing here would
-    # take the whole page with it.
-    checks =
-      receipt["checks"]
-      |> List.wrap()
-      |> Enum.filter(&is_map/1)
-      |> Enum.map(fn check ->
-        %{
-          label: engagement_check_label(check["check"]),
-          outcome: check_outcome(check["outcome"])
-        }
-      end)
-
+  defp engagement(%{"result" => result} = receipt, input, rules) do
     %{
       state: :recorded,
-      result: engagement_result(result),
+      result: result,
       tone: if(result == "process", do: :good),
-      reason: bounded(to_string(receipt["reason"] || ""), 400),
-      path: path_label(receipt["path"]),
-      execution_mode: receipt["execution_mode"],
-      checks: checks
+      reason: engagement_reason(receipt, input, rules)
     }
   end
 
-  defp engagement(_receipt), do: engagement(nil)
+  defp engagement(_receipt, input, rules), do: engagement(nil, input, rules)
 
-  defp engagement_result(result) when is_map(result) or is_list(result), do: "Not recorded"
-  defp engagement_result("process"), do: "Process"
-  defp engagement_result("evaluate_only"), do: "Evaluate only"
-  defp engagement_result("not_engaged"), do: "Not picked up"
-  defp engagement_result(other), do: human(to_string(other))
+  defp engagement_reason(%{"path" => "conversation_lab"}, _input, _rules),
+    do: "Ryker processed this message because it was submitted directly through Conversation Lab."
 
-  defp engagement_check_label("direct_or_mention"), do: "Direct message / mention"
-  defp engagement_check_label("existing_episode_thread"), do: "Existing episode thread"
-  defp engagement_check_label("standing_rule"), do: "Standing rule"
-  defp engagement_check_label("proactive_participation"), do: "Proactive participation"
-  defp engagement_check_label("shadow_evaluation"), do: "Shadow evaluation"
-  defp engagement_check_label(other), do: other |> to_string() |> human()
+  defp engagement_reason(%{"path" => "slack_shortcut"}, _input, _rules),
+    do: "Ryker processed this message because it was submitted through a Slack shortcut."
 
-  defp check_outcome(nil), do: "Not checked"
-  defp check_outcome("yes"), do: "Yes"
-  defp check_outcome("no"), do: "No"
-  defp check_outcome("matched"), do: "Matched"
-  defp check_outcome("not_matched"), do: "Not matched"
-  defp check_outcome("on"), do: "On"
-  defp check_outcome("off"), do: "Off"
-  defp check_outcome(other), do: human(to_string(other))
+  defp engagement_reason(receipt, input, rules) do
+    cause = engagement_cause(receipt, input, rules)
+
+    if receipt["execution_mode"] == "shadow" or receipt["result"] == "evaluate_only" do
+      shadow_reason(cause)
+    else
+      live_reason(cause)
+    end
+  end
+
+  defp engagement_cause(receipt, input, rules) do
+    receipt["checks"]
+    |> List.wrap()
+    |> Enum.filter(&is_map/1)
+    |> Enum.find_value(:recorded, &engagement_check_cause(&1, input, rules))
+  end
+
+  defp engagement_check_cause(
+         %{"check" => "direct_or_mention", "outcome" => "yes"},
+         input,
+         _rules
+       ),
+       do: direct_or_mention_cause(input.slack_audience)
+
+  defp engagement_check_cause(
+         %{"check" => "existing_episode_thread", "outcome" => "yes"},
+         _input,
+         _rules
+       ),
+       do: :existing_episode
+
+  defp engagement_check_cause(
+         %{"check" => "standing_rule", "outcome" => "matched"},
+         _input,
+         rules
+       ),
+       do: matched_rule_cause(rules)
+
+  defp engagement_check_cause(
+         %{"check" => "proactive_participation", "outcome" => "on"},
+         _input,
+         _rules
+       ),
+       do: :proactive
+
+  defp engagement_check_cause(
+         %{"check" => "shadow_evaluation", "outcome" => "on"},
+         _input,
+         _rules
+       ),
+       do: :shadow
+
+  defp engagement_check_cause(_check, _input, _rules), do: nil
+
+  defp direct_or_mention_cause(:direct), do: :direct
+  defp direct_or_mention_cause(:mention), do: :mention
+  defp direct_or_mention_cause(_audience), do: :direct_or_mention
+
+  defp matched_rule_cause(%{entries: entries}) do
+    case Enum.find(entries, &(&1.verdict == "matched")) do
+      %{title: title} when is_binary(title) and title != "" -> {:rule, title}
+      _missing -> :rule
+    end
+  end
+
+  defp live_reason(:direct), do: "Ryker processed this direct message."
+  defp live_reason(:mention), do: "Ryker processed this message because it was mentioned."
+
+  defp live_reason(:direct_or_mention),
+    do: "Ryker processed this message because it was sent directly to or mentioned Ryker."
+
+  defp live_reason(:existing_episode),
+    do: "Ryker processed this message because it continued an existing episode."
+
+  defp live_reason({:rule, title}),
+    do: "Ryker processed this message because the standing rule “#{bounded(title, 160)}” matched."
+
+  defp live_reason(:rule),
+    do: "Ryker processed this message because a standing rule matched."
+
+  defp live_reason(:proactive),
+    do:
+      "Ryker processed this message even though it was not mentioned because proactive replies were on."
+
+  defp live_reason(_cause), do: "Ryker processed this message."
+
+  defp shadow_reason(cause) do
+    qualifier =
+      case cause do
+        :direct ->
+          " and it qualified because it was a direct message"
+
+        :mention ->
+          " and it qualified because Ryker was mentioned"
+
+        :direct_or_mention ->
+          " and it qualified because Ryker was addressed directly"
+
+        :existing_episode ->
+          " and it qualified because it continued an existing episode"
+
+        {:rule, title} ->
+          " and it qualified because the standing rule “#{bounded(title, 160)}” matched"
+
+        :rule ->
+          " and it qualified because a standing rule matched"
+
+        :proactive ->
+          " and it qualified because proactive replies were on"
+
+        _cause ->
+          ""
+      end
+
+    "Ryker evaluated this message without replying because Shadow evaluation was on#{qualifier}."
+  end
 
   defp rule_inventory(nil), do: %{state: :not_recorded, entries: [], truncated: false}
 
@@ -403,14 +471,13 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
   end
 
   defp rule_summary(%{state: :not_recorded}),
-    do: "Standing-rule evaluation was not recorded for this input."
+    do: "Standing-rule history was not recorded for this message."
 
   defp rule_summary(%{rule_count: 0}),
-    do: "No standing rules existed when this input was processed."
+    do: "No standing rules"
 
   defp rule_summary(%{rule_count: total, matched_count: matched}),
-    do:
-      "#{matched} matched · #{total - matched} other · rules as they existed when this input was processed."
+    do: "#{total} #{if(total == 1, do: "rule", else: "rules")} · #{matched} matched"
 
   @doc """
   One Work setup card per Work turn, before its briefing: the pinned setup
