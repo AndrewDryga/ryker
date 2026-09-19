@@ -10,8 +10,10 @@ defmodule Ryker.Ingress.Inbox do
 
   alias Ryker.Artifacts.References, as: ArtifactReferences
   alias Ryker.CanonicalJSON
+  alias Ryker.ControlPlane.InspectionRedactor
   alias Ryker.Ingress.Inbox.{Entry, EntryChangeset}
   alias Ryker.Ingress.Input
+  alias Ryker.Ingress.InputCustodyTransition
   alias Ryker.Ingress.Projections
   alias Ryker.Ingress.WorkProfile
   alias Ryker.Repo
@@ -286,6 +288,12 @@ defmodule Ryker.Ingress.Inbox do
 
     case entry |> EntryChangeset.claim(attributes) |> Repo.update() do
       {:ok, claimed} ->
+        append_transition!(claimed, if(entry.attempt_count > 0, do: :reclaimed, else: :claimed),
+          occurred_at: now,
+          attempt: claimed.attempt_count,
+          owner_ref: worker_ref
+        )
+
         %{entry: claimed, lease_ref: lease_ref}
 
       {:error, changeset} ->
@@ -392,6 +400,14 @@ defmodule Ryker.Ingress.Inbox do
 
         case entry |> EntryChangeset.defer(attributes) |> Repo.update() do
           {:ok, deferred} ->
+            append_transition!(deferred, :retry_scheduled,
+              occurred_at: now,
+              attempt: entry.attempt_count,
+              eligible_at: deferred.next_attempt_at,
+              error_code: error_code,
+              detail: error_detail
+            )
+
             deferred
 
           {:error, changeset} ->
@@ -484,6 +500,12 @@ defmodule Ryker.Ingress.Inbox do
 
         case entry |> EntryChangeset.block(attributes) |> Repo.update() do
           {:ok, blocked} ->
+            append_transition!(blocked, :blocked,
+              attempt: entry.attempt_count,
+              error_code: error_code,
+              detail: error_detail
+            )
+
             blocked
 
           {:error, changeset} ->
@@ -503,6 +525,7 @@ defmodule Ryker.Ingress.Inbox do
       %Entry{status: :blocked} = entry ->
         case entry |> EntryChangeset.rearm() |> Repo.update() do
           {:ok, rearmed} ->
+            append_transition!(rearmed, :rearmed)
             rearmed
 
           {:error, changeset} ->
@@ -681,8 +704,25 @@ defmodule Ryker.Ingress.Inbox do
     |> Ecto.Changeset.change(inserted_at: now, updated_at: now)
     |> Repo.insert()
     |> case do
-      {:ok, entry} -> {:ok, %{entry: entry, status: :recorded}}
-      {:error, changeset} -> {:error, {:persistence_failed, :ingress_input, changeset.errors}}
+      {:ok, entry} ->
+        append_transition!(entry, :saved, occurred_at: entry.inserted_at)
+
+        case queue_predecessor(entry, entry.inserted_at) do
+          %Entry{} = predecessor ->
+            append_transition!(entry, :waiting_predecessor,
+              occurred_at: entry.inserted_at,
+              predecessor_input_id: predecessor.id,
+              detail: predecessor_summary(predecessor)
+            )
+
+          nil ->
+            :ok
+        end
+
+        {:ok, %{entry: entry, status: :recorded}}
+
+      {:error, changeset} ->
+        {:error, {:persistence_failed, :ingress_input, changeset.errors}}
     end
   end
 
@@ -699,6 +739,56 @@ defmodule Ryker.Ingress.Inbox do
         submitted_fingerprint: submitted}}
     end
   end
+
+  @doc false
+  def record_transition_in_transaction(%Entry{} = entry, kind, attributes \\ [])
+      when is_list(attributes) do
+    append_transition!(entry, kind, attributes)
+    :ok
+  end
+
+  defp append_transition!(entry, kind, attributes \\ []) do
+    sequence =
+      Repo.one(
+        from(transition in InputCustodyTransition,
+          where: transition.input_id == ^entry.id,
+          select: coalesce(max(transition.sequence), 0)
+        )
+      ) + 1
+
+    occurred_at = Keyword.get_lazy(attributes, :occurred_at, &Repo.now!/0)
+
+    fields = %{
+      input_id: entry.id,
+      sequence: sequence,
+      kind: kind,
+      occurred_at: occurred_at,
+      generation: entry.execution_generation,
+      attempt: Keyword.get(attributes, :attempt, entry.attempt_count),
+      predecessor_input_id: Keyword.get(attributes, :predecessor_input_id),
+      superseding_input_id: Keyword.get(attributes, :superseding_input_id),
+      owner_ref: Keyword.get(attributes, :owner_ref),
+      eligible_at: Keyword.get(attributes, :eligible_at),
+      error_code: Keyword.get(attributes, :error_code),
+      detail: Keyword.get(attributes, :detail)
+    }
+
+    %InputCustodyTransition{}
+    |> Ecto.Changeset.change(fields)
+    |> Repo.insert()
+    |> case do
+      {:ok, transition} ->
+        transition
+
+      {:error, changeset} ->
+        Repo.rollback({:persistence_failed, :input_custody_transition, changeset.errors})
+    end
+  end
+
+  defp predecessor_summary(%Entry{content: %{"text" => text}}) when is_binary(text),
+    do: InspectionRedactor.artifact(text, max_bytes: 120).text
+
+  defp predecessor_summary(%Entry{}), do: nil
 
   defp prepare_inputs(inputs)
        when is_list(inputs) and inputs != [] and length(inputs) <= @maximum_record_batch do

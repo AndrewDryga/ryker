@@ -9,19 +9,18 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
   import Ecto.Query
   import Ryker.ControlPlane.EpisodeTrace.Step
 
-  alias Ryker.Admission.Attempt
-  alias Ryker.ControlPlane.{InspectionRedactor, SourceText}
+  alias Ryker.ControlPlane.InspectionRedactor
   alias Ryker.CoopFleet.Placement
-  alias Ryker.Ingress.Inbox
-  alias Ryker.Ingress.Inbox.Entry
+  alias Ryker.Ingress.InputCustodyTransition
   alias Ryker.Repo
   alias Ryker.State.Behaviors
   alias Ryker.Work.{Session, Turn}
 
   @doc """
   Getting ready, per input and in the approved order: one Participation card,
-  then the Input queue. Both sit at the moment the input was accepted; list
-  order is the tie-break, so the sequence survives identical timestamps.
+  then each contiguous Input queue run. The first run begins when the input was
+  saved; a later retry stays at its retained later time instead of reopening it.
+  Retained sequence is the tie-break for equal event timestamps.
 
   Participation carries the complete standing-rule inventory recorded when
   that input processed, or says plainly that none was recorded.
@@ -30,7 +29,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
   """
   def steps(input_rows) do
     inventories = Behaviors.rule_inventories(Enum.map(input_rows, &"ingress-input:#{&1.id}"))
-    attempts = first_attempts(input_rows)
+    transitions = custody_transitions(input_rows)
     now = DateTime.utc_now()
 
     Enum.flat_map(input_rows, fn input ->
@@ -40,9 +39,8 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
       rules = Map.put(rules, :summary, rule_summary(rules))
       participation = participation(receipt)
       engagement = engagement(receipt, input, rules)
-      queue = queue(input, Map.get(attempts, input.id), now)
 
-      [
+      participation_step =
         step("participation-#{input.id}", :ready, input.inserted_at, %{
           actor: "Ryker",
           owner: {:input, input.id},
@@ -56,205 +54,264 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
           summary: engagement.reason,
           title: "Participation",
           tone: engagement.tone
-        }),
-        step("queue-#{input.id}", :ready, input.inserted_at, %{
-          actor: "Ryker",
-          owner: {:input, input.id},
-          input_id: input.id,
-          queue: queue,
-          details: [],
-          stage: "Input queue",
-          state: queue.label,
-          summary: queue.summary,
-          title: "Input queue",
-          tone: queue.tone
         })
-      ]
+
+      [participation_step | queue_steps(input, Map.get(transitions, input.id, []), now)]
     end)
   end
 
-  # The earliest admission attempt is the routing claim that first prepared
-  # context for the input. Nothing else retains a claim time: claiming clears
-  # the retry fields and updated_at moves on every other write.
-  defp first_attempts(input_rows) do
+  defp custody_transitions(input_rows) do
     ids = Enum.map(input_rows, & &1.id)
 
     Repo.all(
-      from(attempt in Attempt,
-        where: attempt.input_id in ^ids,
-        order_by: [asc: attempt.inserted_at, asc: attempt.id]
+      from(transition in InputCustodyTransition,
+        where: transition.input_id in ^ids,
+        order_by: [asc: transition.input_id, asc: transition.sequence]
       )
     )
     |> Enum.group_by(& &1.input_id)
-    |> Map.new(fn {input_id, [first | _rest]} -> {input_id, first} end)
   end
 
-  # Saved or not, waiting for what, handed to routing or not. Terminal rows
-  # read their durable status; a pending row reads the live queue, and
-  # everything derived from the live queue is labelled current because it will
-  # not be true for long.
-  defp queue(input, first_attempt, now) do
-    claimed_at = first_attempt && first_attempt.inserted_at
-    wait_ms = if claimed_at, do: nonnegative_diff(claimed_at, input.inserted_at)
-    state = queue_state(input, now)
+  defp queue_steps(input, [], now) do
+    queue = legacy_queue(input, now)
+    [queue_step(input, queue, "queue-#{input.id}")]
+  end
 
-    Map.merge(state, %{
-      saved_at: input.inserted_at,
-      claimed_at: claimed_at,
-      wait_ms: wait_ms,
-      claims: input.attempt_count,
-      facts: queue_facts(input, state, claimed_at, wait_ms),
-      technical: queue_technical(input, state)
+  defp queue_steps(input, transitions, now) do
+    transitions = Enum.map(transitions, &normalize_save_time(&1, input.inserted_at))
+    runs = queue_runs(transitions)
+    tail_index = length(runs) - 1
+
+    runs
+    |> Enum.with_index()
+    |> Enum.map(fn {run, index} ->
+      queue = queue_run(input, run, index, index == tail_index, now)
+      id = if index == 0, do: "queue-#{input.id}", else: "queue-#{input.id}-#{hd(run).sequence}"
+      queue_step(input, queue, id)
+    end)
+  end
+
+  # `inserted_at` is the inbox's durable save time and the ledger's first event
+  # records the same fact. Keeping those equal also makes historical fixtures
+  # that reposition an input preserve the invariant instead of creating a
+  # fictitious multi-day queue wait.
+  defp normalize_save_time(%{kind: kind} = transition, inserted_at)
+       when kind in [:saved, :waiting_predecessor],
+       do: %{transition | occurred_at: inserted_at}
+
+  defp normalize_save_time(transition, _inserted_at), do: transition
+
+  defp queue_step(input, queue, id) do
+    step(id, :ready, queue.started_at, %{
+      actor: "Ryker",
+      owner: {:input, input.id},
+      input_id: input.id,
+      queue: queue,
+      details: [],
+      stage: "Input queue",
+      state: nil,
+      summary: nil,
+      title: "Input queue",
+      tone: queue.tone
     })
   end
 
-  # What happened to this input while it waited: when it arrived, who claimed
-  # it, how long that took, and whether it is coming back. The lease belongs
-  # here too — it is the claim, not an identifier.
-  defp queue_facts(input, state, claimed_at, wait_ms) do
-    held? = state.kind == :handed and state.current
-
-    compact_details([
-      {"Arrived", timestamp_precise(input.inserted_at)},
-      {"Source occurrence", queue_occurrence(input)},
-      {"Routing claim", if(claimed_at, do: timestamp_precise(claimed_at), else: "Not recorded")},
-      {"Queue wait", format_ms(wait_ms) || "Not recorded"},
-      {"Queue claims", input.attempt_count},
-      {"Held by", if(held?, do: input.lease_owner)},
-      {"Hold expires", if(held?, do: timestamp_precise(input.lease_expires_at))},
-      {"Eligible for retry after",
-       if(state.kind == :retry, do: timestamp_precise(input.next_attempt_at))},
-      {"Last routing error", if(input.status != :decided, do: error_label(input.last_error_code))}
-    ])
+  defp queue_runs(transitions) do
+    Enum.reduce(transitions, [], &append_queue_transition/2)
   end
 
-  # The identifiers somebody debugging this input needs to find it elsewhere.
-  # No adapter records a source acknowledgement, so there is no row for one.
-  defp queue_technical(input, _state) do
-    compact_details([
-      {"Input / revision", "ingress-input:#{input.id} · revision #{input.revision}"},
-      {"Identity", input.dedupe_key},
-      {"Event fingerprint", short_digest(input.event_fingerprint)},
-      {"Execution mode", capitalize(human(input.execution_mode))},
-      {"Execution generation", input.execution_generation},
-      {"Validation generation", input.validation_generation}
-    ])
-  end
+  defp append_queue_transition(transition, []), do: [[transition]]
 
-  defp queue_state(%Entry{status: :decided}, _now) do
-    %{
-      kind: :handed,
-      label: "Handed to routing",
-      summary: "A routing worker picked up this input.",
-      current: false,
-      tone: :good,
-      blocker: nil,
-      recovery_href: nil
-    }
-  end
-
-  defp queue_state(%Entry{status: :superseded}, _now) do
-    %{
-      kind: :superseded,
-      label: "Superseded",
-      summary:
-        "Input remains saved. A newer revision of this message was already accepted, so this revision's routing choice was not applied.",
-      current: false,
-      tone: nil,
-      blocker: nil,
-      recovery_href: nil
-    }
-  end
-
-  defp queue_state(%Entry{status: :blocked} = input, _now) do
-    %{
-      kind: :needs_attention,
-      label: "Needs attention",
-      summary:
-        "Input remains saved. Automatic retries have stopped." <>
-          error_sentence(input.last_error_code),
-      current: false,
-      tone: :bad,
-      blocker: nil,
-      recovery_href: "/failures/admission/#{segment(Inbox.ref(input))}"
-    }
-  end
-
-  defp queue_state(%Entry{status: :pending} = input, now) do
-    cond do
-      is_binary(input.lease_ref) and live_after?(input.lease_expires_at, now) ->
-        %{
-          kind: :handed,
-          label: "Handed to routing",
-          summary: "A routing worker holds this input.",
-          current: true,
-          tone: nil,
-          blocker: nil,
-          recovery_href: nil
-        }
-
-      live_after?(input.next_attempt_at, now) ->
-        %{
-          kind: :retry,
-          label: "Waiting to retry",
-          summary:
-            "Input remains saved." <>
-              error_sentence(input.last_error_code) <>
-              " Eligible for retry after #{timestamp_precise(input.next_attempt_at)}; a predecessor or an unavailable worker can still delay it.",
-          current: true,
-          tone: :warn,
-          blocker: nil,
-          recovery_href: nil
-        }
-
-      true ->
-        queue_waiting(input, Inbox.queue_predecessor(input, now))
+  defp append_queue_transition(transition, runs) do
+    if queue_run_sealed?(List.last(runs)) do
+      runs ++ [[transition]]
+    else
+      List.update_at(runs, -1, &(&1 ++ [transition]))
     end
   end
 
-  defp queue_waiting(_input, nil) do
+  defp queue_run_sealed?(run),
+    do: List.last(run).kind in [:claimed, :reclaimed, :superseded]
+
+  defp queue_run(input, run, index, tail?, now) do
+    first = hd(run)
+    last = List.last(run)
+    current = tail? and input.status == :pending and last.kind not in [:claimed, :reclaimed]
+
+    events =
+      Enum.map(run, &queue_event(&1, input)) ++ current_queue_event(input, last, current, now)
+
+    ended_at = if current, do: nil, else: last.occurred_at
+
     %{
-      kind: :waiting,
-      label: "Waiting",
-      summary: "Saved; waiting for routing pickup.",
-      current: true,
-      tone: nil,
-      blocker: nil,
-      recovery_href: nil
+      kind: queue_kind(last.kind, current),
+      qualifier: queue_qualifier(first, index),
+      current: current,
+      events: events,
+      started_at: first.occurred_at,
+      ended_at: ended_at,
+      duration_ms: nonnegative_diff(ended_at, first.occurred_at),
+      tone: queue_tone(last.kind),
+      recovery_href:
+        if(last.kind == :blocked,
+          do: "/failures/admission/#{segment("ingress-input:#{input.id}")}"
+        ),
+      technical: queue_technical(input)
     }
   end
 
-  defp queue_waiting(_input, %Entry{} = predecessor) do
+  defp queue_qualifier(_first, 0), do: nil
+
+  defp queue_qualifier(%{kind: :retry_scheduled, attempt: attempt}, _index) when attempt > 0,
+    do: "Retry #{attempt}"
+
+  defp queue_qualifier(%{kind: :rearmed}, _index), do: "Recovery"
+  defp queue_qualifier(_first, _index), do: nil
+
+  defp queue_kind(:blocked, _current), do: :needs_attention
+  defp queue_kind(:superseded, _current), do: :superseded
+  defp queue_kind(:retry_scheduled, true), do: :retry
+  defp queue_kind(:waiting_predecessor, true), do: :waiting
+  defp queue_kind(:saved, true), do: :waiting
+  defp queue_kind(:rearmed, true), do: :waiting
+  defp queue_kind(kind, _current), do: kind
+
+  defp queue_tone(:blocked), do: :bad
+  defp queue_tone(:retry_scheduled), do: :warn
+  defp queue_tone(_kind), do: nil
+
+  defp queue_event(%{kind: :saved} = transition, _input) do
+    queue_event(transition, "Saved", "The input entered the routing queue.")
+  end
+
+  defp queue_event(%{kind: :waiting_predecessor} = transition, _input) do
+    queue_event(
+      transition,
+      "Waiting for an earlier input",
+      "This conversation already had an earlier message waiting to be routed.",
+      href:
+        transition.predecessor_input_id &&
+          "/timeline/ingress-input%3A#{transition.predecessor_input_id}",
+      link_label:
+        transition.predecessor_input_id &&
+          "“#{queue_blocker_text(transition)}” · View earlier input"
+    )
+  end
+
+  defp queue_event(%{kind: kind, attempt: attempt} = transition, _input)
+       when kind in [:claimed, :reclaimed] do
+    reason =
+      if attempt > 1,
+        do: "A routing worker claimed the input for attempt #{attempt}.",
+        else: "A routing worker claimed the input."
+
+    queue_event(transition, "Picked up", reason)
+  end
+
+  defp queue_event(%{kind: :retry_scheduled} = transition, _input) do
+    reason =
+      "Eligible to retry at #{timestamp_precise(transition.eligible_at)}." <>
+        error_reason(transition.error_code)
+
+    queue_event(transition, "Retry scheduled", reason)
+  end
+
+  defp queue_event(%{kind: :blocked} = transition, _input) do
+    queue_event(
+      transition,
+      "Automatic retries stopped",
+      "Routing stopped after #{transition.attempt} attempts." <>
+        error_reason(transition.error_code)
+    )
+  end
+
+  defp queue_event(%{kind: :rearmed} = transition, _input) do
+    queue_event(transition, "Rearmed", "An operator returned the input to the routing queue.")
+  end
+
+  defp queue_event(%{kind: :superseded} = transition, _input) do
+    queue_event(
+      transition,
+      "Superseded",
+      "A newer revision of this message was accepted before this revision was routed."
+    )
+  end
+
+  defp queue_event(transition, label, reason, options \\ []) do
     %{
-      kind: :waiting,
-      label: "Waiting",
-      summary: "Waiting for an earlier input in this conversation.",
-      current: true,
-      tone: nil,
-      blocker: %{
-        text: queue_blocker_text(predecessor),
-        href: "/timeline/ingress-input%3A#{predecessor.id}"
-      },
-      recovery_href: nil
+      label: label,
+      at: transition.occurred_at,
+      reason: reason,
+      href: Keyword.get(options, :href),
+      link_label: Keyword.get(options, :link_label)
     }
   end
 
-  defp queue_blocker_text(%Entry{operational_pruned_at: nil, content: content}) do
-    case SourceText.from_content(content) do
-      text when is_binary(text) and text != "" ->
-        InspectionRedactor.artifact(text, max_bytes: 120).text
+  defp current_queue_event(_input, _last, false, _now), do: []
 
-      _absent ->
-        "Earlier input"
-    end
+  defp current_queue_event(input, %{kind: :retry_scheduled}, true, now) do
+    reason =
+      if live_after?(input.next_attempt_at, now),
+        do: "Waiting until the retained retry time.",
+        else: "Ready for the next routing worker."
+
+    [%{label: "Current", at: nil, reason: reason, href: nil, link_label: nil}]
   end
 
-  defp queue_blocker_text(_predecessor), do: "Earlier input"
+  defp current_queue_event(_input, _last, true, _now) do
+    [
+      %{
+        label: "Current",
+        at: nil,
+        reason: "Waiting for a routing worker to pick it up.",
+        href: nil,
+        link_label: nil
+      }
+    ]
+  end
 
-  defp queue_occurrence(%Entry{event_kind: :message}), do: "New input"
-  defp queue_occurrence(%Entry{event_kind: :edit}), do: "Edited message · new revision"
-  defp queue_occurrence(%Entry{event_kind: :delete}), do: "Deleted message · new revision"
-  defp queue_occurrence(%Entry{event_kind: kind}), do: capitalize(human(kind))
+  defp queue_blocker_text(%InputCustodyTransition{detail: text})
+       when is_binary(text) and text != "",
+       do: text
+
+  defp queue_blocker_text(%InputCustodyTransition{}), do: "Earlier input"
+
+  defp error_reason(nil), do: ""
+  defp error_reason(code), do: " Reason: #{error_label(code)}."
+
+  defp queue_technical(input) do
+    compact_details([
+      {"Input ID", "ingress-input:#{input.id}"},
+      {"Source revision", input.revision},
+      {"Event identity", input.dedupe_key},
+      {"Content fingerprint", short_digest(input.event_fingerprint)}
+    ])
+  end
+
+  defp legacy_queue(input, _now) do
+    current = input.status == :pending
+
+    %{
+      kind: if(current, do: :waiting, else: :not_recorded),
+      qualifier: nil,
+      current: current,
+      events: [
+        %{
+          label: "Queue history unavailable",
+          at: input.inserted_at,
+          reason: "Detailed queue transitions were not recorded for this older input.",
+          href: nil,
+          link_label: nil
+        }
+      ],
+      started_at: input.inserted_at,
+      ended_at: nil,
+      duration_ms: nil,
+      tone: nil,
+      recovery_href: nil,
+      technical: queue_technical(input)
+    }
+  end
 
   # Effective proactive/shadow values at processing time. An explicit
   # submission never consulted channel settings, and history without a receipt
@@ -605,7 +662,14 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
           {:selected, "Setup selected", "Preparation outcome not recorded.", nil, nil}
       end
 
-    %{kind: kind, label: label, summary: summary, tone: tone, current_step: current_step}
+    %{
+      kind: kind,
+      label: label,
+      summary: summary,
+      tone: tone,
+      current: kind != :ready,
+      current_step: current_step
+    }
   end
 
   defp setup_details(turn, session, session_state, worker, workspace) do
@@ -647,6 +711,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
       label: "Setup selected",
       summary: "Waiting for a Work claim. Preparation has not started.",
       tone: nil,
+      current: true,
       ordinal: nil,
       current_step: nil,
       rows:

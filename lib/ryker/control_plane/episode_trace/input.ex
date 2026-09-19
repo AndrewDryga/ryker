@@ -8,10 +8,9 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Input do
   import Ecto.Query
   import Ryker.ControlPlane.EpisodeTrace.Step
 
-  alias Ryker.Episodes.{AssociationCorrection, CorrelationClaims, Episode, Origins}
+  alias Ryker.Episodes.{AssociationCorrection, Episode, Origins}
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Repo
-  alias Ryker.State.CaseRecord
 
   @doc "The episode's admitted inputs, oldest first, bounded."
   @spec rows(Ecto.UUID.t()) :: [Entry.t()]
@@ -194,9 +193,6 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Input do
   defp gathered_steps(_episode, _origins, conversations) when length(conversations) < 2, do: []
 
   defp gathered_steps(episode, origins, conversations) do
-    claims = CorrelationClaims.for_episode(episode.id)
-    firing = Enum.count(claims, &(&1.status == :active and &1.lifecycle_state == :active))
-
     [
       step("origins-#{episode.id}", :ready, List.last(origins).occurred_at, %{
         actor: "Episode kernel",
@@ -209,9 +205,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Input do
           compact_details([
             {"Progress home", episode.destination_conversation_ref},
             {"Contributing conversations", Enum.join(conversations, ", ")},
-            {"Messages", length(origins)},
-            {"Signals still firing", if(claims != [], do: "#{firing} of #{length(claims)}")},
-            {"Retained case", retained_case_ref(episode.id)}
+            {"Messages", length(origins)}
           ])
       })
     ]
@@ -257,15 +251,6 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Input do
 
   defp correction_title(%{kind: :reassign}, _episode),
     do: "Messages moved into this episode by an audited correction"
-
-  defp retained_case_ref(episode_id) do
-    Repo.one(
-      from(record in CaseRecord,
-        where: record.episode_id == ^episode_id and record.status == :active,
-        select: record.case_ref
-      )
-    )
-  end
 
   defp source_text(%Entry{content: %{"text" => value}}) when is_binary(value),
     do: retained_text(value)

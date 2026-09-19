@@ -870,6 +870,11 @@ defmodule Ryker.Admission do
     |> Repo.update()
     |> case do
       {:ok, decided} ->
+        :ok =
+          Inbox.record_transition_in_transaction(decided, :superseded,
+            detail: decided.last_error_detail
+          )
+
         {:ok, decided}
 
       {:error, changeset} ->

@@ -65,7 +65,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Maintenance do
       step("maintenance-#{session.id}-retained", :maintenance, session.updated_at, %{
         actor: "Ryker",
         stage: "Maintenance",
-        state: "workspace kept",
+        state: "workspace kept · current",
         title: "Workspace kept",
         summary: retained_reason(session.retained_reason),
         tone: nil,
@@ -84,7 +84,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Maintenance do
       step("maintenance-#{session.id}-blocked", :maintenance, session.updated_at, %{
         actor: "Ryker",
         stage: "Maintenance",
-        state: "cleanup blocked",
+        state: "cleanup blocked · current",
         title: "Cleanup blocked",
         summary:
           "Cleanup stopped and needs attention. The delivered answer is unaffected." <>

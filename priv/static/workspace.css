@@ -1181,11 +1181,17 @@ details.measurement-notes > summary { cursor:pointer; font-weight:600; color:var
 .provider-facts dd { margin:0; overflow-wrap:anywhere; user-select:all; }
 .provider-links { margin:10px 0 0; display:flex; flex-wrap:wrap; gap:14px; font-size:14px; }
 
-/* Input queue: saved or not, waiting for what, handed to routing or not. */
-.input-queue .event-state.tone-good { color:#59765a; background:#edf4e9; }
-.input-queue .event-state small { font-size:12px; font-weight:400; color:#6a7162; }
-.queue-blocker, .queue-recovery { grid-column:1 / -1; margin:6px 0 0; font-size:14px; }
-.input-queue[data-state="needs_attention"] .case-event-summary { color:#942f28; }
+/* Input queue: one sealed card per contiguous run, with retained event rows. */
+.input-queue h3 small { font-size:13px; font-weight:500; color:#59645b; }
+.queue-span { margin:2px 0 0; color:#68716a; font-size:13px; }
+.queue-events { grid-column:1 / -1; list-style:none; margin:10px 0 0; padding:0; }
+.queue-events li { padding:10px 0; border-top:1px solid var(--stroke); }
+.queue-event-heading { display:flex; align-items:baseline; justify-content:space-between; flex-wrap:wrap; gap:4px 16px; }
+.queue-event-heading time { color:#68716a; font-size:13px; font-variant-numeric:tabular-nums; }
+.queue-events p { margin:3px 0 0; overflow-wrap:anywhere; }
+.queue-events a, .queue-recovery { overflow-wrap:anywhere; }
+.queue-recovery { grid-column:1 / -1; margin:6px 0 0; font-size:14px; }
+.input-queue[data-state="needs_attention"] .queue-events li:last-child p { color:#942f28; }
 .standalone-preparation { margin:0 0 24px; }
 
 /* A success mark carries the state; nothing visible repeats it. */

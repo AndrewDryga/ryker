@@ -48,6 +48,7 @@ defmodule Ryker.Ingress.MigrationUpgradeTest do
   @complete_rule_inventories_version 20_260_911_000_201
   @source_envelopes_version 20_260_911_000_300
   @engagement_receipts_version 20_260_911_000_500
+  @input_custody_version 20_260_911_000_600
   @default_channel_configurations_version 20_260_911_000_700
   @selection_ledger_version 20_260_911_000_900
   @episode_origins_version 20_260_911_001_000
@@ -87,6 +88,7 @@ defmodule Ryker.Ingress.MigrationUpgradeTest do
     @source_envelopes_version,
     @worker_storage_reports_version,
     @engagement_receipts_version,
+    @input_custody_version,
     @default_channel_configurations_version,
     @selection_ledger_version,
     @episode_origins_version,
@@ -127,6 +129,36 @@ defmodule Ryker.Ingress.MigrationUpgradeTest do
     @candidate_responses_version
   ]
   @migrations_path Path.expand("../../../priv/repo/migrations", __DIR__)
+
+  test "the custody ledger installs on an already-renamed database" do
+    repo = start_migration_repo!()
+    prefix = "input_custody_late_upgrade_#{System.unique_integer([:positive])}"
+    SQL.query!(repo, "CREATE SCHEMA #{prefix}", [])
+
+    try do
+      Ecto.Migrator.run(repo, @migrations_path, :up, all: true, prefix: prefix, log: false)
+
+      SQL.query!(repo, "DROP TABLE #{prefix}.input_custody_transitions", [])
+
+      SQL.query!(
+        repo,
+        "DELETE FROM #{prefix}.schema_migrations WHERE version = $1",
+        [@input_custody_version]
+      )
+
+      assert Ecto.Migrator.run(repo, @migrations_path, :up,
+               all: true,
+               prefix: prefix,
+               log: false
+             ) == [@input_custody_version]
+
+      assert table_exists?(repo, prefix, "input_custody_transitions")
+
+      assert "input_custody_transitions" in triggers(repo, prefix, "ryker_control_plane_changed")
+    after
+      SQL.query!(repo, "DROP SCHEMA IF EXISTS #{prefix} CASCADE", [])
+    end
+  end
 
   test "an installation that already ran the Slack inbox migration upgrades to generic ingress" do
     repo = start_migration_repo!()
@@ -1647,7 +1679,7 @@ defmodule Ryker.Ingress.MigrationUpgradeTest do
       # evidence, the session-evidence command kind and the empty settings tables
       # are reversible on their own.
       assert Ecto.Migrator.run(repo, @migrations_path, :down,
-               step: 22 + length(@routing_versions),
+               step: 23 + length(@routing_versions),
                prefix: prefix,
                log: false
              ) ==
@@ -1671,6 +1703,7 @@ defmodule Ryker.Ingress.MigrationUpgradeTest do
                  [
                    @selection_ledger_version,
                    @default_channel_configurations_version,
+                   @input_custody_version,
                    @engagement_receipts_version,
                    @worker_storage_reports_version,
                    @source_envelopes_version,
@@ -1866,8 +1899,9 @@ defmodule Ryker.Ingress.MigrationUpgradeTest do
 
       # The inspection-evidence columns and tables and the worker storage columns
       # are reversible on their own.
-      assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 6, prefix: prefix, log: false) ==
+      assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 7, prefix: prefix, log: false) ==
                [
+                 @input_custody_version,
                  @engagement_receipts_version,
                  @worker_storage_reports_version,
                  @source_envelopes_version,

@@ -400,6 +400,11 @@ defmodule Ryker.Retention.Policy do
       why: "authenticated downloaded attachment bytes"
     },
     %{
+      table: "input_custody_transitions",
+      class: :cascade,
+      why: "append-only queue history owned by one retained ingress input"
+    },
+    %{
       table: "memory_review_items",
       class: :audit,
       why: "operator keep edit merge forget and dismiss decisions over bounded memory"
