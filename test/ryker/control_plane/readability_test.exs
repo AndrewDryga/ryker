@@ -114,6 +114,34 @@ defmodule Ryker.ControlPlane.ReadabilityTest do
     refute css =~ ".episode-metrics { overflow"
   end
 
+  test "participation rules stay a wrapping list and matched state is not color-only" do
+    # The complete inventory can be longer than 200 rows. It remains one dense
+    # list at phone width and text zoom, while a written verdict accompanies
+    # the Ryker mint-on-graphite treatment for every match.
+    css = Assets.call(Plug.Test.conn(:get, "/workspace.css"), []).resp_body
+
+    assert [_, list] = Regex.run(~r/\.standing-rule-list \{([^}]+)\}/, css)
+    assert list =~ "display:grid"
+    assert list =~ "gap:0"
+
+    assert [_, rule] = Regex.run(~r/\.standing-rule \{([^}]+)\}/, css)
+    assert rule =~ "min-width:0"
+    assert rule =~ "overflow-wrap:anywhere"
+    refute rule =~ "border-radius"
+
+    assert [_, matched] = Regex.run(~r/\.standing-rule\.verdict-matched \{([^}]+)\}/, css)
+    assert matched =~ "border-left:4px solid var(--ryker-accent)"
+    assert matched =~ "background:var(--ryker-surface-inverse)"
+
+    assert [_, verdict] = Regex.run(~r/\.standing-rule-verdict \{([^}]+)\}/, css)
+    assert verdict =~ "font-weight:600"
+    assert verdict =~ "text-transform:uppercase"
+
+    assert [_, settings] = Regex.run(~r/\.participation-facts \{([^}]+)\}/, css)
+    assert settings =~ "max-width:34rem"
+    refute css =~ ".standing-rule-list { overflow"
+  end
+
   test "chapters preserve late follow-ups and tied activity in execution order" do
     now = ~U[2026-09-05 12:00:00Z]
 

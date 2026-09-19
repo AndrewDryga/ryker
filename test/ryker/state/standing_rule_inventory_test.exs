@@ -51,14 +51,15 @@ defmodule Ryker.State.StandingRuleInventoryTest do
 
     verdicts = Map.new(inventory.entries, &{&1["ref"], {&1["verdict"], &1["reason"]}})
     assert {"matched", reason} = verdicts[matched.ref]
-    assert reason =~ "terraform plan"
+    assert reason == "A Terraform plan from an app in this channel matched this rule."
     assert {"not_matched", reason} = verdicts[other_trigger.ref]
     assert reason =~ "deployment trigger"
     assert {"out_of_scope", reason} = verdicts[other_channel.ref]
-    assert reason =~ "slack:T123:C999"
+    assert reason == "This rule applies to another channel."
+    refute reason =~ "slack:"
     assert {"disabled", reason} = verdicts[paused.ref]
-    assert reason =~ "disabled"
-    assert {"expired", _reason} = verdicts[expired.ref]
+    assert reason == "This rule was paused when the message was processed."
+    assert {"expired", "This rule expired before the message arrived."} = verdicts[expired.ref]
 
     # Definitions are frozen with the verdict so a later edit cannot rewrite it.
     assert Enum.all?(inventory.entries, &is_integer(&1["revision"]))
@@ -92,7 +93,7 @@ defmodule Ryker.State.StandingRuleInventoryTest do
     offers = offer_source!("window")
 
     rules =
-      for index <- 1..101,
+      for index <- 1..205,
           do:
             rule!(offers, "window-#{String.pad_leading("#{index}", 3, "0")}",
               trigger: "terraform_plan"
@@ -101,14 +102,17 @@ defmodule Ryker.State.StandingRuleInventoryTest do
     input = terraform_input(:app)
     assert {:ok, inventory} = Behaviors.record_rule_inventory(input, "input:window")
 
-    assert inventory.rule_count == 101
+    assert inventory.rule_count == 205
     assert inventory.matched_count == 100
     refute inventory.truncated
+    assert length(inventory.entries) == 205
 
     last = List.last(rules)
     entry = Enum.find(inventory.entries, &(&1["ref"] == last.ref))
     assert entry["verdict"] == "not_considered"
-    assert entry["reason"] =~ "100-rule window"
+
+    assert entry["reason"] ==
+             "Only the first 100 applicable rules are evaluated. This rule’s trigger was not checked."
 
     # Scheduling is unchanged: still exactly the hundred the runtime considered.
     assert {:ok, 100} = Behaviors.observe_input(input, "input:window")

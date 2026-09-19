@@ -45,6 +45,7 @@ defmodule Ryker.Ingress.MigrationUpgradeTest do
   @worker_storage_reports_version 20_260_911_000_400
   @selected_work_inputs_version 20_260_911_000_100
   @rule_inventories_version 20_260_911_000_200
+  @complete_rule_inventories_version 20_260_911_000_201
   @source_envelopes_version 20_260_911_000_300
   @engagement_receipts_version 20_260_911_000_500
   @default_channel_configurations_version 20_260_911_000_700
@@ -82,6 +83,7 @@ defmodule Ryker.Ingress.MigrationUpgradeTest do
     @answer_confirmed_global_facts_version,
     @selected_work_inputs_version,
     @rule_inventories_version,
+    @complete_rule_inventories_version,
     @source_envelopes_version,
     @worker_storage_reports_version,
     @engagement_receipts_version,
@@ -1645,7 +1647,7 @@ defmodule Ryker.Ingress.MigrationUpgradeTest do
       # evidence, the session-evidence command kind and the empty settings tables
       # are reversible on their own.
       assert Ecto.Migrator.run(repo, @migrations_path, :down,
-               step: 21 + length(@routing_versions),
+               step: 22 + length(@routing_versions),
                prefix: prefix,
                log: false
              ) ==
@@ -1672,6 +1674,7 @@ defmodule Ryker.Ingress.MigrationUpgradeTest do
                    @engagement_receipts_version,
                    @worker_storage_reports_version,
                    @source_envelopes_version,
+                   @complete_rule_inventories_version,
                    @rule_inventories_version,
                    @selected_work_inputs_version
                  ]
@@ -1863,11 +1866,12 @@ defmodule Ryker.Ingress.MigrationUpgradeTest do
 
       # The inspection-evidence columns and tables and the worker storage columns
       # are reversible on their own.
-      assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 5, prefix: prefix, log: false) ==
+      assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 6, prefix: prefix, log: false) ==
                [
                  @engagement_receipts_version,
                  @worker_storage_reports_version,
                  @source_envelopes_version,
+                 @complete_rule_inventories_version,
                  @rule_inventories_version,
                  @selected_work_inputs_version
                ]
