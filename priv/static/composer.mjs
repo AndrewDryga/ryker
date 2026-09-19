@@ -1,4 +1,4 @@
-import {captureDrafts, acceptDrafts, sendDraft, validateDraft} from "./drafts.mjs"
+import {captureDrafts, acceptDrafts, sendDraft, validateDraft, validateFiles} from "./drafts.mjs"
 import {followSentDraft} from "./conversation.mjs"
 
 // The conversation composer posts through fetch rather than a LiveView event
@@ -7,8 +7,21 @@ import {followSentDraft} from "./conversation.mjs"
 export function createComposer({pushEvent, active, storage, location: loc}) {
   let sending = false
 
+  // The attachment limits are said only when a choice breaks them, beside
+  // the composer, and the reason clears as soon as the choice is fixed.
+  function showFileProblem(form, problem) {
+    const field = form.querySelector("input[type=file]")
+    const error = form.querySelector(".composer-error")
+    if (error) { error.textContent = problem; error.hidden = problem === "" }
+    if (problem) field?.setAttribute("aria-invalid", "true")
+    else field?.removeAttribute("aria-invalid")
+  }
+
   function input(event) {
-    if (event.target.form?.matches(".composer")) event.target.form.querySelector("textarea")?.setCustomValidity("")
+    const form = event.target.form
+    if (!form?.matches(".composer")) return
+    form.querySelector("textarea")?.setCustomValidity("")
+    if (event.target.type === "file") showFileProblem(form, validateFiles(Array.from(event.target.files || [])))
   }
 
   // Returns true when the event was a composer submission this owns.
@@ -19,6 +32,9 @@ export function createComposer({pushEvent, active, storage, location: loc}) {
     if (sending) return true
     const message = form.querySelector("textarea[name=message]")
     const selectedFiles = Array.from(form.querySelector("input[type=file]")?.files || [])
+    const fileProblem = validateFiles(selectedFiles)
+    showFileProblem(form, fileProblem)
+    if (fileProblem) return true
     const validationError = validateDraft(message.value, selectedFiles)
     message.setCustomValidity(validationError)
     if (validationError) { message.reportValidity(); return true }

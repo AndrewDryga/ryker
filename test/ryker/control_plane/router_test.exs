@@ -699,6 +699,17 @@ defmodule Ryker.ControlPlane.RouterTest do
     refute_received {:lab_record_action, _, _, :request_task_readiness, _}
   end
 
+  test "a reply's cited records read as their cards, never as a list of raw references" do
+    # Andrew, 2026-09-19, of "Linked record identities
+    # record:memory_offer:98007fbd…" under a reply: every record the reply
+    # cited already renders as its card, so the list only repeated them as
+    # identifiers nobody can act on. The transcript no longer carries them.
+    html = conversation_html("018f3ef7-1f62-7ee0-a83c-0c12f21d83e6")
+    assert html =~ "Memory proposal"
+    assert html =~ "Primary repository"
+    refute html =~ "Linked record identities"
+  end
+
   test "every native Lab card action round-trips one exact CSRF-bound control" do
     conversation_id = "018f3ef7-1f62-7ee0-a83c-0c12f21d83e6"
 
@@ -1563,7 +1574,7 @@ defmodule Ryker.ControlPlane.RouterTest do
       token: token,
       items: options.projection.lab_index.(),
       messages: Enum.map(snapshot.messages, &{"lab-message-#{&1.ref}", &1}),
-      history: %{before: nil, exhausted: true, failed: false, loaded: 0, page_size: 50},
+      history: %{before: nil, exhausted: true, failed: false, page_size: 50},
       announcement: "",
       placeholder: LabPage.example_for(conversation_id),
       now: ~U[2026-08-28 12:30:00Z]

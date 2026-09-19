@@ -665,21 +665,29 @@ replies here, inspect the exact execution from each message. The page is a
 directory of retained conversations (grouped by recency, times in UTC) beside
 the conversation. The index is an empty draft: its composer is bound to a fresh
 identity and nothing is written until the first message, after which the browser
-opens that conversation; `New` in the directory header returns to the index. Each
-message carries a `View request` link to its own retained execution: an input's
+opens that conversation; `New` in the directory header returns to the index. The
+composer sits at the bottom of the conversation column in both, a hint line's
+height above the window's edge, so the first message does not move it; the index
+lists the ten authored examples above it, and choosing one fills the composer
+without sending. On a phone the composer comes first with the examples under it,
+and a bar above the conversation opens the directory as a drawer; there is no bar
+on a wider screen. The attachment limits (two files, 8 MiB in total) are said
+beside the composer only when a choice breaks them. Each message carries a
+`View request` link, opening in a new tab, to its own retained execution: an input's
 own admission request (or its pre-episode request inspector, or its recorded
 decision when it was ignored) and a reply's producing work turn. While a message
 is waiting on admission its progress shows beneath it. There is no runtime rail,
-welcome page or `/conversations/new` route. Editing an operator message happens
+welcome page, start-of-history marker or `/conversations/new` route. Editing an operator message happens
 in place: Edit swaps the rendered body for an editor at the same width, Enter
 adds a line, Cmd/Ctrl+Enter saves one new revision through the message's own
 edit route, Escape cancels without a request, a rejected save keeps the text with
 an error beside it, and an open editor survives live patches and reconnects.
-Reactions on a reply are compact pills showing each recorded emoji with the
-count of its current reactors and a pressed state for the operator's own;
-clicking a pill posts the real add or remove for that exact reply, and an
-"Add reaction" control opens an anchored picker with the five quick choices and
-a labelled custom-name field whose validation stays beside it. A
+Reactions sit in one row under a reply, as in Slack: compact pills showing each
+recorded emoji with the count of its current reactors and a pressed state for the
+operator's own, then an icon-only "Add reaction" button. Clicking a pill posts the
+real add or remove for that exact reply, and the button opens an anchored picker
+with the five quick choices and a labelled custom-name field whose validation
+stays beside it. A
 submitted message is
 normalized as a `control_plane` source input and then crosses the ordinary
 Inbox, Admission, Episode, Work, state-tool, and Delivery boundaries. The
@@ -697,8 +705,8 @@ thread. Follow-ups can therefore continue the same episode and Coop session,
 while a restart simply lets PostgreSQL leases be reclaimed. The page shows only
 local operator text and validated attachments, bounded integration-event markers, accepted visible replies and generated images, deliberate
 reactions, native host-issued state/task/publication cards and controls, task diff/timeline/evidence/handoff
-views over the exact confirmed child episode, bounded record or artifact
-references, and episode lifecycle metadata. Every control re-reads the exact delivered record and
+views over the exact confirmed child episode, and episode lifecycle metadata. A record
+or file a reply cites appears as its card or attachment, never as a raw reference. Every control re-reads the exact delivered record and
 destination before it mutates state. Integration markers show only the trusted adapter, route, event
 type, revision, and custody status; arbitrary payload bodies remain model input and never render.
 Prompts, unaccepted candidates, credentials, and state-tool bearer

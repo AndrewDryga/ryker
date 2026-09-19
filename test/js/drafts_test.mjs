@@ -75,6 +75,16 @@ test("invalid conversation input is rejected locally with a specific reason", ()
   assert.equal(draftsModule.validateDraft("Please investigate", []), "")
 })
 
+test("attachment limits are judged on the chosen files alone, before any message is written", () => {
+  // Andrew, 2026-09-19: "Up to 2 files · 8 MiB" printed under every draft was
+  // noise. The limits are now explained only when a choice breaks them, the
+  // moment the files are picked, so they must not depend on the message.
+  assert.equal(draftsModule.validateFiles([]), "")
+  assert.equal(draftsModule.validateFiles([{size: 4 * 1024 * 1024}, {size: 4 * 1024 * 1024}]), "")
+  assert.match(draftsModule.validateFiles([{size: 1}, {size: 1}, {size: 1}]), /at most 2/)
+  assert.match(draftsModule.validateFiles([{size: 8 * 1024 * 1024 + 1}]), /8 MiB/)
+})
+
 test("definite HTTP validation rejections are distinguishable from uncertain transport outcomes", async () => {
   await assert.rejects(sendDraft("/conversations/test/messages", "body", async () => ({status: 422})), {message: "rejected:422"})
 })

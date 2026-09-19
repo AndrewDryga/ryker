@@ -31,7 +31,7 @@ function page(pathname = "/conversations") {
   const link = element(); link.selectors = ["a"]; link.parent = directory
   const toggle = element({"aria-expanded": "false"}); toggle.selectors = ["[data-lab-directory-toggle]"]; toggle.parent = root
   const textarea = element(); textarea.selectors = ["#lab-message"]; textarea.parent = root
-  const examples = element(); examples.selectors = ["details"]; examples.parent = root
+  const examples = element(); examples.selectors = ["#lab-examples"]; examples.parent = root
   const example = element({dataset: {example: "Investigate why this service keeps restarting."}})
   example.selectors = [".lab-example"]; example.parent = examples
   const chat = element(); chat.selectors = [".lab-chat"]; chat.parent = root
@@ -79,12 +79,14 @@ test("only an index draft follows its first accepted send, to the identity its f
 })
 
 test("an example fills an editable draft, keeps typed text, and never sends", () => {
+  // The examples are a list in a new conversation's empty space (Andrew,
+  // 2026-09-19), not a dropdown: choosing one leaves the list where it is.
   const f = page()
   assert.equal(f.controls.click({target: f.example}), true)
   assert.equal(f.textarea.value, "Investigate why this service keeps restarting.")
   assert.deepEqual(f.textarea.events, ["input"])
   assert.equal(f.textarea.focused, 1)
-  assert.equal(f.examples.open, false)
+  assert.equal(f.examples.open, true)
   assert.deepEqual(f.textarea.selection, [f.textarea.value.length, f.textarea.value.length])
 
   // Typed text is kept; the example joins it on its own line.

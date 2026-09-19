@@ -122,13 +122,14 @@ export const createHistory = (el, io) => {
   const edge = () => el.querySelector("#lab-history-edge")
   const latest = () => el.querySelector(".lab-new-messages")
 
-  // The composer is stuck to the bottom of the viewport; the offer floats
-  // just above it, however tall the draft has grown.
+  // The composer dock (the composer and its hint line) is stuck to the bottom
+  // of the viewport; the offer floats just above it, however tall the draft
+  // has grown.
   const offerLatest = () => {
     const button = latest()
     if (!button) return
-    const composer = el.parentElement?.querySelector?.(".lab-native-composer")
-    const clearance = composer ? composer.getBoundingClientRect().height + 16 : 20
+    const dock = el.parentElement?.querySelector?.(".lab-composer-dock")
+    const clearance = dock ? dock.getBoundingClientRect().height + 16 : 20
     if (button.parentElement?.style) button.parentElement.style.bottom = `${clearance}px`
     button.hidden = false
   }

@@ -75,8 +75,11 @@ function page({rows = [], scrollY = 0, innerHeight = 600, state = "more", before
     getBoundingClientRect() { return {top: EDGE_TOP - win.scrollY, bottom: EDGE_TOP + EDGE_HEIGHT - win.scrollY} },
     contains: node => node === edge || node?.id === "load-earlier",
     focus(options) { this.focused.push(options); doc.activeElement = edge }}
-  const button = {hidden: true, closest: selector => selector === ".lab-new-messages" ? button : null}
-  const el = {dataset: {conversation, before, historyState: state},
+  const latest = {style: {}}
+  const button = {hidden: true, parentElement: latest, closest: selector => selector === ".lab-new-messages" ? button : null}
+  const dock = {getBoundingClientRect: () => ({top: win.innerHeight - COMPOSER, bottom: win.innerHeight, height: COMPOSER})}
+  const column = {querySelector: selector => selector === ".lab-composer-dock" ? dock : null}
+  const el = {dataset: {conversation, before, historyState: state}, parentElement: column,
     querySelector(selector) {
       return {"#lab-messages": container, "#lab-history-edge": edge, ".lab-new-messages": button}[selector] ?? null
     },
@@ -91,7 +94,7 @@ function page({rows = [], scrollY = 0, innerHeight = 600, state = "more", before
   }, pushEvent: (event, payload) => { pushed.push([event, payload]); return new Promise(resolve => { resolveReply = resolve }) }}
   page.observers = []
   const history = createHistory(el, io)
-  return {win, doc, container, edge, button, el, pushed, history, makeRow,
+  return {win, doc, container, edge, button, latest, el, pushed, history, makeRow,
     prepend(spec) { for (const [id, height] of spec.slice().reverse()) container.children.unshift(makeRow(id, height)) },
     append(spec) { for (const [id, height] of spec) container.children.push(makeRow(id, height)) },
     userScroll(to) { win.scrollY = to; listeners.get("scroll")?.() },
@@ -158,6 +161,20 @@ test("at the latest edge new messages follow; while reading earlier ones they wa
   assert.equal(p.button.hidden, false, "new messages below the reader are offered, not forced")
   p.userScroll(p.doc.documentElement.scrollHeight - 600)
   assert.equal(p.button.hidden, true, "reaching the bottom dismisses the offer")
+})
+
+test("the new-messages offer floats above the whole composer dock, hint line included", () => {
+  // Since 2026-09-19 the composer and its hint line share one dock pinned a
+  // hint's height above the window's edge. Measured from the composer alone,
+  // the offer would sit on top of the composer.
+  const p = page({rows: [["m1", 300], ["m2", 300], ["m3", 300], ["m4", 300]], scrollY: 320})
+  p.history.mounted()
+  p.win.scrollY = 320
+  p.history.beforeUpdate()
+  p.append([["m5", 300]])
+  p.history.updated()
+  assert.equal(p.button.hidden, false)
+  assert.equal(p.latest.style.bottom, "216px")
 })
 
 test("a load fires once per approach and again only after the reader scrolls", async () => {

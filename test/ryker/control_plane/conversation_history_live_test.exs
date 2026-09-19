@@ -129,15 +129,14 @@ defmodule Ryker.ControlPlane.ConversationHistoryLiveTest do
     assert %{"status" => "failed"} = load_older(view, id)
     assert has_element?(view, "#lab-history[data-history-state=failed]")
     assert has_element?(view, ".lab-history-failed button[phx-click=load-older]", "Try again")
-    refute has_element?(view, ".lab-history-start")
     assert length(transcript(view)) == 50
 
     # The retry reuses the boundary the failed load was given.
     assert %{"status" => "loaded"} = load_older(view, id)
     assert transcript(view) == Enum.map(1..70, &"Message #{&1}")
     assert has_element?(view, "#lab-history[data-history-state=exhausted]")
-    assert has_element?(view, ".lab-history-start")
     refute has_element?(view, ".lab-load-earlier")
+    refute has_element?(view, ".lab-history-failed")
   end
 
   test "live arrivals merge into the loaded window in transcript order, even a burst larger than a page" do
@@ -184,20 +183,22 @@ defmodule Ryker.ControlPlane.ConversationHistoryLiveTest do
            )
 
     assert has_element?(view, "#lab-history-latest[phx-update=ignore] button.lab-new-messages")
-    refute has_element?(view, ".lab-history-start")
 
     view
     |> element("#lab-history-edge button.lab-load-earlier")
     |> render_click()
 
+    # Andrew, 2026-09-19: reaching the first message needs no "Start of the
+    # retained conversation" marker. The missing Load earlier action already
+    # says nothing older exists, and a message retention expired keeps its
+    # place in the transcript, so "retained" hedged against nothing.
     assert transcript(view) == Enum.map(1..60, &"Message #{&1}")
     assert has_element?(view, "#lab-history[data-history-state=exhausted]")
-    assert has_element?(view, ".lab-history-start")
     refute has_element?(view, ".lab-load-earlier")
+    refute render(element(view, "#lab-history-edge")) =~ "Start of the"
 
     # An empty conversation shows no history edge at all.
     {:ok, empty, _html} = open(Ecto.UUID.generate())
-    refute has_element?(empty, ".lab-history-start")
     refute has_element?(empty, ".lab-load-earlier")
   end
 

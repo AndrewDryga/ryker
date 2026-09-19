@@ -2,8 +2,9 @@ import {test} from "node:test"
 import assert from "node:assert/strict"
 import {createConversationControls, normalizeEmojiName} from "../../priv/static/conversation.mjs"
 
-// A reply row with its pills, add-reaction trigger and anchored picker, as
-// the server renders them. Real layout is checked in Chromium.
+// A reply's reactions row, as the server renders it: the pills, then the
+// add-reaction trigger and its anchored picker at the end of the same row.
+// Real layout is checked in Chromium.
 function node(selectors, extra = {}) {
   const value = {selectors, attributes: {}, dataset: {}, disabled: false, focused: 0, hidden: false, children: [],
     getAttribute(n) { return this.attributes[n] ?? null }, setAttribute(n, v) { this.attributes[n] = v },
@@ -38,17 +39,17 @@ function form(selectors, action, emoji, {parent, extra = {}} = {}) {
 function reply(reactions = []) {
   const path = "/conversations/c/replies/control-plane-message%3Ar/reactions"
   const article = node(["article", ".lab-chat-message"], {path, id: "lab-message-r"})
-  const pills = node([".lab-reaction-pills"], {path}); pills.parent = article
+  const row = node([".lab-reactions"]); row.parent = article
+  const pills = node([".lab-reaction-pills"], {path}); pills.parent = row
   const pillForms = reactions.map(([emoji, mine]) => {
     const f = form([".lab-reaction-form", ".lab-reaction-pill", "form"], mine ? "remove" : "add", emoji, {parent: pills})
     f.button.selectors.push(".lab-reaction-pill-button"); f.button.setAttribute("aria-pressed", mine ? "true" : "false")
     return f
   })
-  const actions = node([".lab-message-actions"]); actions.parent = article
-  const toggle = node([".lab-reaction-toggle", "button"], {tagName: "BUTTON"}); toggle.parent = actions
+  const toggle = node([".lab-reaction-toggle", "button"], {tagName: "BUTTON"}); toggle.parent = row
   toggle.setAttribute("aria-controls", "lab-reaction-picker-r"); toggle.setAttribute("aria-expanded", "false")
-  actions.lookup = {".lab-reaction-toggle": toggle}
-  const picker = node([".lab-reaction-picker"], {id: "lab-reaction-picker-r", hidden: true, path}); picker.parent = actions
+  row.lookup = {".lab-reaction-toggle": toggle}
+  const picker = node([".lab-reaction-picker"], {id: "lab-reaction-picker-r", hidden: true, path}); picker.parent = row
   const quick = form([".lab-reaction-form", ".lab-reaction-quick", "form"], "add", "+1", {parent: picker})
   const custom = form([".lab-reaction-form", ".lab-reaction-custom", "form"], "add", "", {parent: picker})
   custom.emojiField.selectors.push("input"); custom.emojiField.value = ""
@@ -56,7 +57,7 @@ function reply(reactions = []) {
   custom.lookup[".lab-reaction-error"] = error
   custom.lookupAll = {button: [custom.button]}
   picker.lookup = {".lab-reaction-quick button, .lab-reaction-custom input[name=emoji]": quick.button, "button": quick.button, ".lab-reaction-custom": custom, ".lab-reaction-error": error}
-  return {article, pills, pillForms, actions, toggle, picker, quick, custom, error, path}
+  return {article, row, pills, pillForms, toggle, picker, quick, custom, error, path}
 }
 
 function page(r, {response = {status: 202, json: async () => ({accepted: true})}} = {}) {

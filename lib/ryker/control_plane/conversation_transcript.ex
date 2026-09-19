@@ -267,14 +267,12 @@ defmodule Ryker.ControlPlane.ConversationTranscript do
             [
               input_identity(input, %{
                 actor: :operator,
-                artifact_refs: if(deleted, do: [], else: input_artifact_refs(input.content)),
                 attachments: if(deleted, do: [], else: input_attachments(input.content)),
                 cards: [],
                 editable: not deleted,
                 event_kind: input.event_kind,
                 item_id: item_id(input.source_item_ref),
                 reactions: Map.get(reactions, input.source_item_ref, []),
-                record_refs: [],
                 ref: input.ref,
                 retained: true,
                 revision: input.revision,
@@ -325,14 +323,12 @@ defmodule Ryker.ControlPlane.ConversationTranscript do
   defp expired_input_message(input) do
     input_identity(input, %{
       actor: :operator,
-      artifact_refs: [],
       attachments: [],
       cards: [],
       editable: false,
       event_kind: input.event_kind,
       item_id: item_id(input.source_item_ref),
       reactions: [],
-      record_refs: [],
       ref: input.ref,
       retained: false,
       revision: input.revision,
@@ -351,14 +347,12 @@ defmodule Ryker.ControlPlane.ConversationTranscript do
 
     input_identity(input, %{
       actor: :integration,
-      artifact_refs: [],
       attachments: [],
       cards: [],
       editable: false,
       event_kind: input.event_kind,
       item_id: nil,
       reactions: [],
-      record_refs: [],
       ref: input.ref,
       retained: is_nil(input.pruned_at),
       revision: input.revision,
@@ -401,14 +395,12 @@ defmodule Ryker.ControlPlane.ConversationTranscript do
     [
       %{
         actor: :ryker,
-        artifact_refs: [],
         attachments: [],
         cards: [],
         episode_ref: action.episode_ref,
         identity: "action:" <> action.id,
         occurred_at: delivered_at,
         reactions: [],
-        record_refs: [],
         ref: action_ref,
         retained: true,
         sort_key: TranscriptCursor.key(delivered_at, :action, "action:" <> action.id),
@@ -474,12 +466,10 @@ defmodule Ryker.ControlPlane.ConversationTranscript do
 
     %{
       actor: :ryker,
-      artifact_refs: [],
       attachments: [],
       cards: [card],
       identity: identity,
       occurred_at: occurred_at,
-      record_refs: [],
       ref: receipt["delivery_ref"],
       retained: true,
       sort_key: TranscriptCursor.key(occurred_at, :publication, identity),
@@ -503,7 +493,6 @@ defmodule Ryker.ControlPlane.ConversationTranscript do
     [
       %{
         actor: :ryker,
-        artifact_refs: [],
         attachments: [],
         cards: [],
         episode_ref: reply.episode_ref,
@@ -512,7 +501,6 @@ defmodule Ryker.ControlPlane.ConversationTranscript do
         identity: "reply:" <> reply.turn_id,
         message_ref: nil,
         occurred_at: reply.occurred_at,
-        record_refs: [],
         ref: reply.ref,
         retained: false,
         sort_key: TranscriptCursor.key(reply.occurred_at, :reply, "reply:" <> reply.turn_id),
@@ -538,7 +526,6 @@ defmodule Ryker.ControlPlane.ConversationTranscript do
     [
       %{
         actor: :ryker,
-        artifact_refs: artifact_refs,
         identity: "reply:" <> reply.turn_id,
         retained: true,
         sort_key: TranscriptCursor.key(reply.occurred_at, :reply, "reply:" <> reply.turn_id),
@@ -567,7 +554,6 @@ defmodule Ryker.ControlPlane.ConversationTranscript do
         feedback_reactions: Map.get(feedback_reactions, reply.ref, []),
         message_ref: reply_message_ref(reply),
         occurred_at: reply.occurred_at,
-        record_refs: record_refs,
         ref: reply.ref,
         state: outcome["state"],
         status: reply.status,
@@ -600,15 +586,6 @@ defmodule Ryker.ControlPlane.ConversationTranscript do
   end
 
   defp item_id(_source_item_ref), do: nil
-
-  defp input_artifact_refs(content) do
-    content
-    |> input_attachments()
-    |> Enum.flat_map(fn
-      %{ref: ref, status: "available"} when is_binary(ref) -> [ref]
-      _unavailable -> []
-    end)
-  end
 
   defp input_attachments(%{"files" => files}) when is_list(files) do
     files

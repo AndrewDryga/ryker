@@ -5,8 +5,9 @@ defmodule Ryker.ControlPlane.LabPage do
   Two regions: a readable directory of retained conversations and the
   conversation itself. The index is an empty draft bound to a fresh identity,
   so nothing is written until the first message; an open conversation is the
-  same view with its retained transcript. Each message links only its own
-  retained execution.
+  same view with its retained transcript. The composer sits at the bottom of
+  the column in both, and the draft lists the examples above it. Each message
+  links only its own retained execution.
   """
   use Phoenix.Component
   import Ryker.ControlPlane.Components
@@ -101,15 +102,6 @@ defmodule Ryker.ControlPlane.LabPage do
           >
             <.icon name={:chat} />Conversations
           </button>
-          <details class="lab-examples" id="lab-examples">
-            <summary>Examples</summary>
-            <ul>
-              <li :for={example <- @examples}>
-                <button type="button" class="lab-example" data-example={example}>{example}</button>
-              </li>
-            </ul>
-          </details>
-          <a href="/configuration" class="lab-settings-link">Settings</a>
         </div>
         <p id="lab-announcement" class="sr-only" role="status" aria-live="polite" aria-atomic="true">
           {@announcement}
@@ -145,12 +137,6 @@ defmodule Ryker.ControlPlane.LabPage do
                   Try again
                 </button>
               </p>
-              <p
-                :if={history_state(@history) == "exhausted" && @history.loaded > 0}
-                class="lab-history-start"
-              >
-                Start of the retained conversation
-              </p>
             </div>
             <div
               id="lab-messages"
@@ -172,47 +158,61 @@ defmodule Ryker.ControlPlane.LabPage do
               <button type="button" class="lab-new-messages" hidden>New messages</button>
             </div>
           </div>
-          <div id="lab-notices" class="lab-notices" phx-update="ignore" aria-live="polite"></div>
-          <form
-            id={"lab-composer-#{if @snapshot[:draft], do: "new", else: @snapshot.conversation_id}"}
-            phx-update="ignore"
-            class="composer lab-native-composer"
-            method="post"
-            enctype="multipart/form-data"
-            action={"/conversations/#{@snapshot.conversation_id}/messages"}
-            data-draft-action={if @snapshot[:draft], do: "new"}
+          <section
+            :if={@snapshot[:draft]}
+            id="lab-examples"
+            class="lab-examples"
+            aria-labelledby="lab-examples-heading"
           >
-            <input type="hidden" name="_token" value={@token} /><label
-              class="sr-only"
-              for="lab-message"
-            >Message Ryker</label><textarea
-              id="lab-message"
-              name="message"
-              maxlength="20000"
-              data-max-bytes="20000"
-              rows="3"
-              placeholder={@placeholder}
-            ></textarea>
-            <div class="native-composer-bottom">
-              <label class="lab-attach" for="lab-attachments">Attach files</label><input
-                id="lab-attachments"
-                name="attachments[]"
-                type="file"
-                multiple
-                accept="image/png,image/jpeg,image/webp,image/gif,text/plain,text/markdown,text/csv,application/json,application/yaml,application/x-yaml,application/pdf"
-              /><small>Up to 2 files · 8 MiB</small><button class="ui-button primary" type="submit">
-                Send
-              </button>
-            </div><p class="composer-status" role="status" hidden></p>
-          </form>
-          <p class="lab-authority-note">
-            <strong>Local replies · real tools.</strong>
-            Slack effects are emulated here; repository and Emisar actions use their configured authority.
-            <a href="/configuration">Settings</a>
-          </p>
-          <p class="lab-chat-footer">
-            Saved on acceptance · ⌘ / Ctrl + Enter to send
-          </p>
+            <h2 id="lab-examples-heading">Examples</h2>
+            <ul>
+              <li :for={example <- @examples}>
+                <button type="button" class="lab-example" data-example={example}>{example}</button>
+              </li>
+            </ul>
+          </section>
+          <div id="lab-notices" class="lab-notices" phx-update="ignore" aria-live="polite"></div>
+          <div class="lab-composer-dock">
+            <form
+              id={"lab-composer-#{if @snapshot[:draft], do: "new", else: @snapshot.conversation_id}"}
+              phx-update="ignore"
+              class="composer lab-native-composer"
+              method="post"
+              enctype="multipart/form-data"
+              action={"/conversations/#{@snapshot.conversation_id}/messages"}
+              data-draft-action={if @snapshot[:draft], do: "new"}
+            >
+              <input type="hidden" name="_token" value={@token} /><label
+                class="sr-only"
+                for="lab-message"
+              >Message Ryker</label><textarea
+                id="lab-message"
+                name="message"
+                maxlength="20000"
+                data-max-bytes="20000"
+                rows="3"
+                placeholder={@placeholder}
+              ></textarea>
+              <div class="native-composer-bottom">
+                <label class="lab-attach" for="lab-attachments">Attach files</label><input
+                  id="lab-attachments"
+                  name="attachments[]"
+                  type="file"
+                  multiple
+                  accept="image/png,image/jpeg,image/webp,image/gif,text/plain,text/markdown,text/csv,application/json,application/yaml,application/x-yaml,application/pdf"
+                  aria-describedby="lab-attachments-error"
+                /><button class="ui-button primary" type="submit">
+                  Send
+                </button>
+              </div><p id="lab-attachments-error" class="composer-error" role="alert" hidden></p><p
+                class="composer-status"
+                role="status"
+                hidden
+              >
+              </p>
+            </form>
+            <p class="lab-chat-footer">⌘ / Ctrl + Enter to send</p>
+          </div>
         </div>
       </section>
     </div>
@@ -240,17 +240,21 @@ defmodule Ryker.ControlPlane.LabPage do
         }>{directory_time(
           @message.occurred_at,
           @now
-        )}</time><span :if={@state} class="lab-message-state">{@state}</span><.link
+        )}</time><span :if={@state} class="lab-message-state">{@state}</span><a
           :if={@link}
-          navigate={@link.href}
+          href={@link.href}
+          target="_blank"
+          rel="noopener"
           class="lab-message-inspect"
-        >{@link.label} <span aria-hidden="true">↗</span></.link>
+        >{@link.label}
+        <span aria-hidden="true">↗</span><span class="sr-only"> (opens in a new tab)</span></a>
       </div>
       <div class="chat-message-text markdown-preview">
         {Phoenix.HTML.raw(Ryker.ControlPlane.SlackMarkdown.preview(@message.text || ""))}
       </div>
       {Phoenix.HTML.raw(HTML.lab_message_editor(@message))}
       <div class="chat-message-extras">{Phoenix.HTML.raw(HTML.lab_message_extras(@message))}</div>
+      {Phoenix.HTML.raw(HTML.lab_message_reactions(@message))}
       {Phoenix.HTML.raw(HTML.lab_message_actions(@message))}
       <p :if={@failure} class="lab-message-failure" role="status">
         <span>{@failure.label}</span> <a href={@failure.retry}>Retry</a>
@@ -265,19 +269,12 @@ defmodule Ryker.ControlPlane.LabPage do
           navigate={row.href}
         >Inspect this revision</.link>
       </p>
-      <details
-        :if={@message.record_refs != [] || @message.artifact_refs != []}
-        class="document-provenance"
-      >
-        <summary>Linked record identities</summary>
-        <p :for={ref <- @message.record_refs ++ @message.artifact_refs}>{ref}</p>
-      </details>
     </article>
     """
   end
 
   # What the top edge of the transcript offers: more retained history to load,
-  # a failed load to retry, or the genuine start of what was retained. A
+  # a failed load to retry, or nothing once the first message is loaded. A
   # failure is never shown as the start of the conversation.
   defp history_state(%{failed: true}), do: "failed"
   defp history_state(%{exhausted: true}), do: "exhausted"

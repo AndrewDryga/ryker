@@ -119,6 +119,7 @@ async function discover(page) {
               width: document.documentElement.clientWidth,
               scrollWidth: document.documentElement.scrollWidth,
               composerTop: document.querySelector('.lab-native-composer')?.getBoundingClientRect().top,
+              composerBottom: document.querySelector('.lab-native-composer')?.getBoundingClientRect().bottom,
               transcriptBottom: document.querySelector('.lab-transcript')?.getBoundingClientRect().bottom
             }));
             assert.equal(result.status, 200);
@@ -132,6 +133,12 @@ async function discover(page) {
             assert.equal(await page.locator('a[href^="/card-lab"], a[href="/manual-tests"]').count(), 0, 'Retired testing pages must not return to navigation');
             assert.equal(await page.locator('.nav-caption', {hasText: 'Testing'}).count(), 0, 'The Testing navigation group was removed');
             if (name === 'conversation' && width === 390) assert(result.layout.composerTop >= result.layout.transcriptBottom, 'Composer obscures the conversation');
+            if (name === 'conversation' && width > 800) {
+              // On 2026-09-19 the composer sat under the top bar of a new conversation and
+              // jumped to the bottom once the first message opened the conversation.
+              const draft = report.captures.find(capture => capture.name === 'conversations' && capture.width === width);
+              assert(Math.abs(result.layout.composerBottom - draft?.layout?.composerBottom) < 1, 'The composer must not move between a new and an open conversation');
+            }
             if (['schedules', 'channels', 'repositories', 'workspaces'].includes(name)) {
               // One shell: the title once, then the page's own column with its comparison
               // table stacked into label/value rows on a phone instead of scrolling sideways.

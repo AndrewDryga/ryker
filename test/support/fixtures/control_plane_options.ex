@@ -638,7 +638,6 @@ defmodule Ryker.Fixtures.ControlPlaneOptions do
                messages: [
                  %{
                    actor: :integration,
-                   artifact_refs: [],
                    attachments: [],
                    cards: [],
                    editable: false,
@@ -646,7 +645,6 @@ defmodule Ryker.Fixtures.ControlPlaneOptions do
                    item_id: nil,
                    occurred_at: ~U[2026-08-28 11:58:00Z],
                    reactions: [],
-                   record_refs: [],
                    ref: "webhook:event:one",
                    revision: 1,
                    state: nil,
@@ -655,7 +653,6 @@ defmodule Ryker.Fixtures.ControlPlaneOptions do
                  },
                  %{
                    actor: :operator,
-                   artifact_refs: [],
                    attachments: [
                      %{
                        bytes: 32,
@@ -676,7 +673,6 @@ defmodule Ryker.Fixtures.ControlPlaneOptions do
                        status: :delivered
                      }
                    ],
-                   record_refs: [],
                    ref: "lab:event:one",
                    revision: 1,
                    state: nil,
@@ -685,7 +681,6 @@ defmodule Ryker.Fixtures.ControlPlaneOptions do
                  },
                  %{
                    actor: :ryker,
-                   artifact_refs: [],
                    attachments: [
                      %{
                        bytes: 13,
@@ -870,7 +865,6 @@ defmodule Ryker.Fixtures.ControlPlaneOptions do
                    ],
                    message_ref: "control-plane-message:lab-reply",
                    occurred_at: ~U[2026-08-28 12:00:00Z],
-                   record_refs: ["evidence:one"],
                    ref: "delivery:lab",
                    state: "complete",
                    status: :settled,

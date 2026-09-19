@@ -637,7 +637,6 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
           digests: %{},
           exhausted: history.exhausted,
           failed: false,
-          loaded: 0,
           page_size: history.page_size,
           rows: [],
           synced_at: DateTime.utc_now()
@@ -672,7 +671,6 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
               digests: %{},
               exhausted: history.exhausted,
               failed: false,
-              loaded: 0,
               rows: []
           })
           |> merge_lab_rows(messages, nil)
@@ -757,7 +755,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
         merge_lab_row(socket, window, message, floor)
       end)
 
-    assign(socket, :lab_window, %{window | loaded: length(window.rows)})
+    assign(socket, :lab_window, window)
   end
 
   defp merge_lab_row(socket, window, message, floor) do
@@ -794,7 +792,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
     digests =
       Map.new(messages, &{lab_dom_id(&1), :crypto.hash(:sha256, :erlang.term_to_binary(&1))})
 
-    %{window | digests: digests, loaded: length(rows), rows: rows}
+    %{window | digests: digests, rows: rows}
   end
 
   defp load_older_page(socket) do
