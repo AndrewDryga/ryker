@@ -28,7 +28,6 @@ defmodule Ryker.ControlPlane.UsagePage do
       "</div><div class=\"usage-token-group usage-cache\">",
       stat("Cache hit rate", percent(totals.cache_hit_rate)),
       "</div></div></section>",
-      measurement_gap(snapshot),
       "<div class=\"usage-charts\"><section class=\"usage-trend-panel\"><h2>Token usage over time</h2>",
       UsageChart.render(snapshot.days),
       "</section><section class=\"usage-timing-panel\"><h2>Where the time went</h2>",
@@ -46,7 +45,7 @@ defmodule Ryker.ControlPlane.UsagePage do
       section("By channel", "channels", snapshot.channels, snapshot, :channel),
       section("By repository", "repositories", snapshot.repositories, snapshot, :repository),
       section("By work type", "work-types", Map.get(snapshot, :kinds, []), snapshot, :kind),
-      section("By person", "people", Map.get(snapshot, :users, []), snapshot, :person),
+      section("By user", "users", Map.get(snapshot, :users, []), snapshot, :user),
       methodology(snapshot),
       "</div>"
     ]
@@ -57,7 +56,6 @@ defmodule Ryker.ControlPlane.UsagePage do
   defp performance(rows, snapshot) do
     [
       "<section id=\"model-performance\" class=\"usage-section\"><h2>Model performance by work type</h2>",
-      "<p>Compare speed, failed runs and retained response corrections. Corrections count rejected responses, not transport retries; this is not an answer-quality score.</p>",
       "<div class=\"table-wrap\"><table class=\"usage-performance-table\"><thead><tr><th>Work type / model</th><th>Executions</th><th>Failed runs</th><th>Response corrections</th><th>Average model time</th></tr></thead><tbody>",
       Enum.map(Enum.take(rows, 500), fn row ->
         [
@@ -136,8 +134,10 @@ defmodule Ryker.ControlPlane.UsagePage do
     ]
   end
 
+  # A row without a saved identity counts in every total but gets no row or
+  # note of its own.
   defp section(title, id, rows, snapshot, kind) do
-    {missing, known} = Enum.split_with(rows, &missing_identity?(&1, kind))
+    known = Enum.reject(rows, &missing_identity?(&1, kind))
 
     [
       "<section class=\"usage-breakdown\" id=\"usage-",
@@ -147,8 +147,7 @@ defmodule Ryker.ControlPlane.UsagePage do
       "</h2><span>",
       if(length(rows) > 500, do: "500+", else: number(length(known))),
       "</span></div>",
-      if(known == [] and missing != [], do: "", else: breakdown(known, snapshot, kind)),
-      Enum.map(missing, &missing_group(&1, snapshot, kind)),
+      if(known == [] and rows != [], do: "", else: breakdown(known, snapshot, kind)),
       truncation(rows),
       "</section>"
     ]
@@ -156,13 +155,13 @@ defmodule Ryker.ControlPlane.UsagePage do
 
   defp breakdown([], _, _), do: "<p class=\"empty\">No activity in this period.</p>"
 
-  defp breakdown(rows, snapshot, :person) do
+  defp breakdown(rows, snapshot, :user) do
     [
-      "<div class=\"table-wrap\"><table class=\"usage-breakdown-table usage-people-table\"><thead><tr><th>Person</th><th>Episodes</th><th>Tokens</th><th>Cost</th></tr></thead><tbody>",
+      "<div class=\"table-wrap\"><table class=\"usage-breakdown-table usage-users-table\"><thead><tr><th>User</th><th>Episodes</th><th>Tokens</th><th>Cost</th></tr></thead><tbody>",
       Enum.map(Enum.take(rows, 500), fn row ->
         [
           "<tr><td class=\"usage-identity\">",
-          identity(row, snapshot, :person),
+          identity(row, snapshot, :user),
           "</td><td>",
           primary(number(value(row, :episodes)), ""),
           "</td><td>",
@@ -230,41 +229,12 @@ defmodule Ryker.ControlPlane.UsagePage do
 
   defp missing_identity?(row, :kind), do: row.work_kind not in @work_kinds
 
-  defp missing_identity?(row, :person), do: is_nil(row.actor)
+  defp missing_identity?(row, :user), do: is_nil(row.actor)
 
   defp missing_identity?(row, :model),
     do: is_nil(row.model) or (Map.has_key?(row, :target) and is_nil(row.target))
 
   defp missing_identity?(_, _), do: false
-
-  defp missing_group(row, snapshot, kind) do
-    {label, params} =
-      case kind do
-        :profile ->
-          {"profile", %{profile: "", provider: row.provider}}
-
-        :kind ->
-          {"work type", %{work_kind: row.work_kind}}
-
-        :person ->
-          {"person", %{actor: "", workspace: row.workspace, source: row.source}}
-
-        :model ->
-          {"model", %{model: row.model, provider: row.provider, effort: Map.get(row, :effort)}}
-      end
-
-    count = number(row.attempts) <> if(row.attempts == 1, do: " execution", else: " executions")
-
-    [
-      "<p class=\"usage-metadata-gap\">",
-      entity_link(count <> " without a saved " <> label, params, snapshot),
-      if(value(row, :costed) + value(row, :estimated) > 0,
-        do: ["<span>", e(money(row)), "</span>"],
-        else: ""
-      ),
-      "</p>"
-    ]
-  end
 
   defp identity(row, snapshot, :profile) do
     [
@@ -308,13 +278,16 @@ defmodule Ryker.ControlPlane.UsagePage do
   defp identity(row, snapshot, :kind),
     do: kind_link(row.work_kind, kind_name(row.work_kind), %{work_kind: row.work_kind}, snapshot)
 
-  defp identity(row, snapshot, :person),
-    do:
+  defp identity(row, snapshot, :user) do
+    [
       entity_link(
-        person(row),
+        user(row),
         %{actor: row.actor, actor_kind: "user", workspace: row.workspace, source: row.source},
         snapshot
-      )
+      ),
+      secondary(source_name(row.source))
+    ]
+  end
 
   # Learning spends on batches of conversation inputs, never on an episode.
   defp kind_link("learning", label, _params, _snapshot),
@@ -348,7 +321,7 @@ defmodule Ryker.ControlPlane.UsagePage do
   defp heading(:channel), do: "Channel"
   defp heading(:repository), do: "Repository"
   defp heading(:kind), do: "Work type"
-  defp heading(:person), do: "Person"
+  defp heading(:user), do: "User"
   # A work type names what the execution bought, not an internal taxonomy.
   # "Admission", "Standard work" and "Deep work" were the router's own words for
   # its compute tiers and told an operator reading a cost page nothing.
@@ -373,10 +346,16 @@ defmodule Ryker.ControlPlane.UsagePage do
   defp channel(%{transport: "control_plane"}), do: "Direct conversation"
   defp channel(row), do: "#{row.transport}:#{row.conversation_ref}"
 
-  defp person(%{source: "slack", workspace: workspace, actor: actor}),
+  defp user(%{source: "slack", workspace: workspace, actor: actor}),
     do: SlackNames.name(workspace, actor)
 
-  defp person(row), do: row.actor
+  defp user(row), do: row.actor
+
+  # Where a user comes from, said quietly under the name.
+  defp source_name("slack"), do: "Slack"
+  defp source_name("github"), do: "GitHub"
+  defp source_name("webhook"), do: "Webhook"
+  defp source_name(source), do: Components.label(source)
 
   defp timing(totals) do
     segments = [
@@ -434,22 +413,6 @@ defmodule Ryker.ControlPlane.UsagePage do
         end),
         "</dl></div>"
       ]
-    end
-  end
-
-  defp measurement_gap(snapshot) do
-    missing = snapshot.totals.attempts - snapshot.totals.usage_measured
-
-    if missing > 0 do
-      label = number(missing) <> if(missing == 1, do: " execution has", else: " executions have")
-
-      [
-        "<p class=\"usage-metadata-gap\">",
-        entity_link(label <> " no token report", %{measurement: "missing"}, snapshot),
-        "</p>"
-      ]
-    else
-      ""
     end
   end
 
