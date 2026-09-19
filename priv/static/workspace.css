@@ -427,6 +427,7 @@ details.measurement-notes > summary { cursor:pointer; font-weight:600; color:var
 .page-action { display:flex; align-items:center; flex-wrap:wrap; gap:12px; }
 .ryker-app .page-description { margin:8px 0 0; max-width:76ch; font-size:16px; line-height:1.5; color:var(--secondary); }
 .page-summary { min-width:0; margin:0 0 24px; }
+.page-surface .secondary-page > .page-summary { margin:0 0 24px; padding:0; border:0; border-radius:0; background:none; }
 .activity-primary > .page-summary { margin:20px 0; }
 .page-summary-main { display:flex; flex-wrap:wrap; align-items:baseline; gap:8px 28px; min-width:0; }
 .page-summary-facts { display:flex; flex-wrap:wrap; align-items:baseline; gap:8px 28px; margin:0; padding:0; }
