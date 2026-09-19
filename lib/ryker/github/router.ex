@@ -13,6 +13,7 @@ defmodule Ryker.GitHub.Router do
   alias Ryker.Ingress.{Adapters, HTTP, Inbox}
   alias Ryker.Publication.Followups
 
+  @ignored_events ~w(pull_request_review_thread)
   @lifecycle_events ~w(check_run check_suite pull_request status workflow_run)
 
   @impl Plug
@@ -127,6 +128,17 @@ defmodule Ryker.GitHub.Router do
 
       {:error, _reason} ->
         HTTP.respond(conn, 503, %{"error" => "temporarily_unavailable"})
+    end
+  end
+
+  defp admit_event(conn, binding, _delivery_ref, _event_ref, event_name, payload, _confirmations)
+       when event_name in @ignored_events do
+    case Binding.authorize_payload(binding, payload) do
+      :ok ->
+        HTTP.respond(conn, 200, %{"status" => "ignored"})
+
+      {:error, {:invalid_github_input, _field}} ->
+        HTTP.respond(conn, 400, %{"error" => "invalid_event"})
     end
   end
 
