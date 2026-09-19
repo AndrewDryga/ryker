@@ -180,7 +180,7 @@ defmodule Ryker.ControlPlane.BriefingCountsTest do
         %{"work" => context},
         prompt(context),
         %{"type" => "object"},
-        "work-final-v1"
+        "work-final-live-v2"
       )
 
     {:ok, turn} =

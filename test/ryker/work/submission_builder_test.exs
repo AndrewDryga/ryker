@@ -16,7 +16,17 @@ defmodule Ryker.Work.SubmissionBuilderTest do
   }
 
   alias Ryker.State.{Continuity, ConversationObservation, KnowledgeSnapshot, Records}
-  alias Ryker.Work.{Custody, DeliveryReceipt, Final, Result, Submission, SubmissionBuilder}
+  alias Ryker.StateTools.FixedTools
+
+  alias Ryker.Work.{
+    Contract,
+    Custody,
+    DeliveryReceipt,
+    Final,
+    Result,
+    Submission,
+    SubmissionBuilder
+  }
 
   @now ~U[2026-08-28 12:00:00.000000Z]
 
@@ -81,11 +91,54 @@ defmodule Ryker.Work.SubmissionBuilderTest do
     assert [current] = submission["context"]["inputs"]["items"]
     assert current["content"] == %{"text" => initial}
     assert current["source_ref"] == hd(claim.episode.active_input_refs)
-    assert submission["output_schema"] == Final.json_schema()
-    assert submission["contract_version"] == "work-final-v1"
+    assert submission["output_schema"] == Final.json_schema(:live)
+    assert submission["contract_version"] == "work-final-live-v2"
     assert submission["prompt"] =~ "ORIGINAL_REQUEST_MARKER"
     refute submission["prompt"] =~ ~s("response_schema")
     refute submission["prompt"] =~ ~s("$schema")
+  end
+
+  test "the host compiles live and shadow work into different contracts before generation" do
+    shadow =
+      claim_episode_payload!("shadow-contract", %{"text" => "Evaluate without replying."},
+        execution_mode: :shadow
+      )
+
+    assert shadow.episode.execution_mode == :shadow
+    assert {:ok, shadow_submission} = SubmissionBuilder.build(shadow)
+
+    assert shadow_submission["contract_version"] == "work-final-shadow-v2"
+    assert shadow_submission["output_schema"] == Final.json_schema(:shadow)
+    assert shadow_submission["prompt"] =~ "This is an observe-only evaluation"
+
+    refute Map.has_key?(shadow_submission["context"], "execution_mode")
+    refute shadow_submission["prompt"] =~ ~s("delivery":"reply")
+
+    shadow_tools = FixedTools.list(binding: %{episode: shadow.episode})
+    validate_final = Enum.find(shadow_tools, &(&1["name"] == "validate_final"))
+
+    assert get_in(validate_final, ["inputSchema", "properties", "candidate"]) ==
+             shadow_submission["output_schema"]
+
+    live = claim_episode!("live-contract", "Reply with the result.")
+    assert {:ok, live_submission} = SubmissionBuilder.build(live)
+    assert live_submission["contract_version"] == "work-final-live-v2"
+    assert live_submission["output_schema"] == Final.json_schema(:live)
+    assert live_submission["prompt"] =~ "This is live work"
+    refute Map.has_key?(live_submission["context"], "execution_mode")
+
+    assert {:ok, live_contract} = Contract.select(:live)
+
+    assert Contract.authorize_continuation(
+             live_contract,
+             %{
+               session_id: "session-1",
+               submission: %{"contract_version" => "work-final-shadow-v2"}
+             },
+             %{id: "session-1"}
+           ) == {:error, {:invalid_work_contract, :continuation_variant}}
+
+    assert Contract.select(:unknown) == {:error, {:invalid_work_contract, :execution_mode}}
   end
 
   test "a Slack briefing exposes an opaque exact message ref for source and action tools" do
@@ -318,7 +371,7 @@ defmodule Ryker.Work.SubmissionBuilderTest do
     assert second == first
     assert second["prompt"] == first["prompt"]
     assert second["output_schema"] == Final.json_schema()
-    assert second["contract_version"] == "work-final-v1"
+    assert second["contract_version"] == "work-final-live-v2"
 
     assert Ryker.CanonicalJSON.encode!(second["context"]) ==
              Ryker.CanonicalJSON.encode!(first["context"])
@@ -449,8 +502,38 @@ defmodule Ryker.Work.SubmissionBuilderTest do
     refute "propose_automation" in names
     refute "propose_memory" in names
     refute "request_task" in names
+    refute "request_input" in names
+    refute "wait_for" in names
+    refute "plan_goal" in names
+    refute "update_goal" in names
+    refute "remember_answer" in names
+    refute "record_feedback" in names
     assert "cite_source" in names
     assert "validate_final" in names
+  end
+
+  test "an observe-only briefing advertises readers but no platform effects" do
+    claim =
+      claim_episode_payload!("shadow-platform-tools", %{"text" => "Inspect without acting."},
+        execution_mode: :shadow
+      )
+
+    assert {:ok, submission} =
+             SubmissionBuilder.build(claim,
+               platform_tools: [
+                 %{"name" => "list_slack_channels"},
+                 %{"name" => "search_slack"},
+                 %{"name" => "read_slack_source"},
+                 %{"name" => "set_slack_reaction"},
+                 %{"name" => "post_slack_message"}
+               ]
+             )
+
+    assert submission["context"]["source_and_action_tools"] == [
+             "list_slack_channels",
+             "search_slack",
+             "read_slack_source"
+           ]
   end
 
   test "the frozen briefing names the exact connected platform capability tools" do
@@ -760,6 +843,7 @@ defmodule Ryker.Work.SubmissionBuilderTest do
 
     assert {:ok, delta} = SubmissionBuilder.build(second)
     assert delta["context"]["mode"] == "continuation"
+    refute Map.has_key?(delta["context"], "execution_mode")
 
     assert delta["context"]["custom_instructions"]["global"] == %{
              "scope" => "global",

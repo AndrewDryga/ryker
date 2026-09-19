@@ -1311,7 +1311,7 @@ defmodule Ryker.State.BehaviorsTest do
                %{"episode_id" => episode.id},
                "Offer the requested durable behavior.",
                %{"type" => "object"},
-               "work-final-v1"
+               "work-final-live-v2"
              )
 
     assert {:ok, _turn} =

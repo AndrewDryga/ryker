@@ -246,7 +246,7 @@ defmodule Ryker.GitHub.ConfirmationsTest do
                %{"episode_id" => episode_id},
                "Prepare offers.",
                %{"type" => "object"},
-               "work-final-v1"
+               "work-final-live-v2"
              )
 
     assert {:ok, _turn} =

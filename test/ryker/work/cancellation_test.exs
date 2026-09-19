@@ -758,7 +758,7 @@ defmodule Ryker.Work.CancellationTest do
                %{"request" => suffix},
                "Handle the request.",
                %{"type" => "object"},
-               "work-final-v1"
+               "work-final-live-v2"
              )
 
     assert {:ok, _turn} =
@@ -793,7 +793,7 @@ defmodule Ryker.Work.CancellationTest do
                %{"request" => suffix},
                "Handle the corrected request.",
                %{"type" => "object"},
-               "work-final-v1"
+               "work-final-live-v2"
              )
 
     assert {:ok, _turn} =

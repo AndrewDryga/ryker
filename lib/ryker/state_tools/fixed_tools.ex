@@ -3,6 +3,7 @@ defmodule Ryker.StateTools.FixedTools do
 
   alias Ryker.Episodes.Origins
   alias Ryker.State.Records
+  alias Ryker.Work.{Contract, Final}
 
   alias Ryker.StateTools.{
     AutomationTools,
@@ -47,11 +48,14 @@ defmodule Ryker.StateTools.FixedTools do
 
   @spec list(keyword() | map()) :: [map()]
   def list(options \\ %{}) do
+    mode = execution_mode(options)
+
     options
     |> capabilities()
-    |> Catalog.tools()
+    |> Catalog.tools(Final.json_schema(mode))
     |> Enum.reject(fn tool ->
-      tool["name"] in @confirmation_tools and not confirmation_surface?(options)
+      not Contract.fixed_tool_allowed?(mode, tool["name"]) or
+        (tool["name"] in @confirmation_tools and not confirmation_surface?(options))
     end)
   end
 
@@ -59,7 +63,8 @@ defmodule Ryker.StateTools.FixedTools do
   def call(name, arguments, options) when name in @names and is_map(arguments) do
     options = Map.new(options)
 
-    with :ok <- capability_available(name, arguments, options),
+    with :ok <- contract_capability_available(name, options),
+         :ok <- capability_available(name, arguments, options),
          {:ok, binding} <- tool_binding(options),
          :ok <- SchemaCheck.exact_schema(name, arguments, list(options)) do
       binding =
@@ -80,6 +85,12 @@ defmodule Ryker.StateTools.FixedTools do
   end
 
   def call(_name, _arguments, _options), do: {:error, "unknown_tool"}
+
+  defp contract_capability_available(name, options) do
+    if Contract.fixed_tool_allowed?(execution_mode(options), name),
+      do: :ok,
+      else: {:error, :unknown_tool}
+  end
 
   defp dispatch("get_work_state", arguments, binding),
     do: WorkStateTools.get_work_state(arguments, binding)
@@ -204,4 +215,17 @@ defmodule Ryker.StateTools.FixedTools do
     do: Map.get(options, :capabilities, [:event_waits, :publication, :schedules])
 
   defp capabilities(_options), do: []
+
+  defp execution_mode(options) when is_list(options) do
+    if Keyword.keyword?(options), do: options |> Map.new() |> execution_mode(), else: :live
+  end
+
+  defp execution_mode(%{binding: %{episode: %{execution_mode: mode}}})
+       when mode in [:live, :shadow],
+       do: mode
+
+  defp execution_mode(%{"binding" => %{"episode" => %{"execution_mode" => "shadow"}}}),
+    do: :shadow
+
+  defp execution_mode(_options), do: :live
 end

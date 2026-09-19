@@ -5,7 +5,7 @@ defmodule Ryker.Work.SubmissionTest do
 
   test "a frozen submission rejects malformed or unbounded request bodies" do
     valid = %{
-      "contract_version" => "work-final-v1",
+      "contract_version" => "work-final-live-v2",
       "context" => %{"request" => "inspect this"},
       "output_schema" => %{"type" => "object"},
       "prompt" => "Handle this request."

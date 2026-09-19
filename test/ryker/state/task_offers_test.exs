@@ -907,7 +907,7 @@ defmodule Ryker.State.TaskOffersTest do
                %{"episode_id" => episode_id},
                "Handle the task offer source.",
                %{"type" => "object"},
-               "work-final-v1"
+               "work-final-live-v2"
              )
 
     assert {:ok, _turn} =
@@ -1128,7 +1128,7 @@ defmodule Ryker.State.TaskOffersTest do
                %{"episode_id" => claim.episode.id},
                "Bump the internal hosted runner.",
                %{"type" => "object"},
-               "work-final-v1"
+               "work-final-live-v2"
              )
 
     assert {:ok, frozen} =

@@ -101,7 +101,7 @@
           "coop_session_id": "coop-session-1",
           "expected_revision": 2,
           "submission": {
-            "contract_version": "work-final-v1",
+            "contract_version": "work-final-live-v2",
             "context": {"mode": "delta", "turn_ref": "turn-2"},
             "input_artifact_refs": [],
             "output_schema": {"type": "object"},

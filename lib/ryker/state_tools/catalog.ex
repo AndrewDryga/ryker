@@ -11,8 +11,8 @@ defmodule Ryker.StateTools.Catalog do
   @spec source_kinds() :: [String.t()]
   def source_kinds, do: @source_kinds
 
-  @spec tools([atom()]) :: [map()]
-  def tools(capabilities) do
+  @spec tools([atom()], map()) :: [map()]
+  def tools(capabilities, final_schema \\ Final.json_schema()) do
     [
       get_work_state_tool(),
       cite_source_tool(),
@@ -30,7 +30,7 @@ defmodule Ryker.StateTools.Catalog do
       remember_answer_tool(),
       update_conversation_summary_tool(),
       record_feedback_tool(),
-      validate_final_tool()
+      validate_final_tool(final_schema)
     ]
     |> Enum.reject(&is_nil/1)
   end
@@ -368,12 +368,12 @@ defmodule Ryker.StateTools.Catalog do
     )
   end
 
-  defp validate_final_tool do
+  defp validate_final_tool(final_schema) do
     tool(
       "validate_final",
       "Preflight the complete final candidate against current host-owned state. Pass one candidate object containing decision_reason, delivery, message, and outcome; outcome requires state, record_refs, and artifact_refs. Return only the accepted candidate unchanged.",
       %{
-        "candidate" => Final.json_schema()
+        "candidate" => final_schema
       }
     )
   end

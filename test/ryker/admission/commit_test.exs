@@ -421,7 +421,7 @@ defmodule Ryker.Admission.CommitTest do
                %{"request" => "The original request"},
                "Handle the original request.",
                %{"type" => "object"},
-               "work-final-v1"
+               "work-final-live-v2"
              )
 
     assert {:ok, _turn} =

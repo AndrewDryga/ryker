@@ -216,14 +216,18 @@ defmodule Ryker.StateTools.Router do
     do: callback.(name, arguments)
 
   defp visible_additional_tools(options) do
-    transport =
+    {transport, mode} =
       case options.binding do
-        %{episode: %{destination_transport: value}} when is_binary(value) -> value
-        _unbound_or_synthetic -> nil
+        %{episode: %{destination_transport: value, execution_mode: mode}}
+        when is_binary(value) and mode in [:live, :shadow] ->
+          {value, mode}
+
+        _unbound_or_synthetic ->
+          {nil, :live}
       end
 
     Enum.filter(options.additional_tools, fn tool ->
-      ToolVisibility.visible?(tool["name"], transport)
+      ToolVisibility.visible?(tool["name"], transport, mode)
     end)
   end
 

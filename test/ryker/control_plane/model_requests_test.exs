@@ -351,6 +351,7 @@ defmodule Ryker.ControlPlane.ModelRequestsTest do
     {episode, turn, _prompt} = frozen_turn!()
     assert {:ok, timeline} = ModelRequests.timeline(episode.key, %{})
     assert request = Enum.find(timeline.items, &(&1.id == "request-#{turn.id}"))
+    assert request.execution_mode == :live
     assert Enum.any?(request.sections, &(&1.id == "instructions"))
     assert Enum.any?(request.sections, &(&1.id == "context"))
     text = Enum.map_join(request.sections, " ", &(&1.artifact.text || ""))
@@ -375,6 +376,8 @@ defmodule Ryker.ControlPlane.ModelRequestsTest do
     # The old flat prompt hid which host/context source shaped the answer.
     assert html =~ "data-source=\"instructions\""
     assert html =~ "Ryker instructions"
+    assert html =~ "Run mode"
+    assert html =~ "Live"
     visible = LazyHTML.from_document(html) |> LazyHTML.text()
     refute visible =~ "$.instructions"
     refute visible =~ "$.work.inputs"

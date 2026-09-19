@@ -898,7 +898,7 @@ defmodule Ryker.Retention.DataTest do
                %{"secret" => "#{suffix} context"},
                "Handle #{suffix} exactly.",
                %{"type" => "object"},
-               "work-final-v1"
+               "work-final-live-v2"
              )
 
     assert {:ok, _turn} =

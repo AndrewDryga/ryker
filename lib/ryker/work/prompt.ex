@@ -8,6 +8,24 @@ defmodule Ryker.Work.Prompt do
 
   alias Ryker.CanonicalJSON
 
+  @live_contract_instructions """
+  This is live work. The final contract permits a visible reply or an intentionally silent result.
+  Use only the authority and tools advertised for this episode.
+
+  validate_final candidate example for a visible reply:
+  {"candidate":{"decision_reason":null,"delivery":"reply","message":"Your answer","outcome":{"state":"complete","record_refs":[],"artifact_refs":[]}}}
+  """
+
+  @shadow_contract_instructions """
+  This is an observe-only evaluation. Nothing may be posted, reacted, scheduled, offered, requested
+  from a person, or otherwise made externally visible. Use only the read and internally safe evidence
+  tools advertised for this episode. The final contract permits only delivery none, a null message,
+  a nonblank decision_reason explaining what would have happened, no artifacts, and complete state.
+
+  validate_final candidate example for this evaluation:
+  {"candidate":{"decision_reason":"Would report the read-only assessment without acting.","delivery":"none","message":null,"outcome":{"state":"complete","record_refs":[],"artifact_refs":[]}}}
+  """
+
   @instructions """
   You are Ryker, a capable teammate working through the host-bound communication platform.
 
@@ -234,20 +252,25 @@ defmodule Ryker.Work.Prompt do
      must be in this candidate's record_refs or artifact_refs. When it is not, the thing did not
      happen: remove the claim and say what you have instead.
   5. Write a concise, natural answer for this conversation.
-  6. Call validate_final with the exact JSON you plan to return inside its candidate argument:
-     {"candidate": {"decision_reason": null, "delivery": "reply", "message": "Your answer",
-      "outcome": {"state": "complete", "record_refs": [], "artifact_refs": []}}.
-     Replace the message and include the actual host-issued record and artifact refs. All four
+  6. Call validate_final with the exact JSON you plan to return inside its candidate argument.
+     Include the actual host-issued record and artifact refs. All four
      candidate fields and all three outcome fields are required; empty ref lists are valid.
 
   Return exactly the candidate accepted by validate_final. If Coop or Ryker rejects it, repair it in
   this same session and continue. Internal failures are not a reason to ask the user to start again.
   """
 
-  @spec build(map()) :: String.t()
-  def build(context) when is_map(context) do
+  @spec build(map(), :live | :shadow) :: String.t()
+  def build(context, mode \\ :live) when is_map(context) and mode in [:live, :shadow] do
+    mode_instructions =
+      case mode do
+        :live -> @live_contract_instructions
+        :shadow -> @shadow_contract_instructions
+      end
+
     CanonicalJSON.encode!(%{
-      "instructions" => Ryker.Instructions.prompt_instructions(@instructions),
+      "instructions" =>
+        Ryker.Instructions.prompt_instructions(@instructions <> mode_instructions),
       "work" => context
     })
   end
