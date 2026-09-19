@@ -354,6 +354,21 @@ details.measurement-notes > summary { cursor:pointer; font-weight:600; color:var
 .ryker-app .filter-text input { flex:1; min-width:0; height:36px; margin:0; padding:0 10px; border:1px solid var(--ryker-stroke); border-radius:6px; font-size:14px; }
 .ryker-app .filter-text .ui-button { min-height:36px; height:36px; padding:0 12px; }
 .filter-empty { margin:4px 8px 8px; font-size:13px; color:var(--secondary); }
+/* The add menu cascades: the field list stays and a field's values open beside it (to the left near
+   the viewport's edge); on phones the values cover the list with a way back. filter-menu.mjs places them. */
+.filter-popover.filter-cascade { width:auto; max-height:none; overflow:visible; padding:0; }
+.filter-cascade.align-end { left:auto; right:0; }
+.filter-fields { box-sizing:border-box; width:248px; max-height:360px; overflow:auto; padding:6px; }
+.ryker-app .filter-cascade button.filter-field { display:flex; align-items:center; justify-content:space-between; gap:8px; }
+.ryker-app .filter-cascade button.filter-field .ui-icon { flex:none; width:14px; height:14px; color:#767b77; }
+.ryker-app .filter-cascade button.filter-field[aria-expanded=true] { background:#f5f2ec; }
+.filter-values { position:absolute; top:0; left:calc(100% + 4px); z-index:1; box-sizing:border-box; width:248px; max-height:320px; overflow:auto; padding:6px; border:1px solid var(--ryker-stroke); border-radius:10px; background:#fff; box-shadow:0 12px 32px #11131526; }
+.filter-values[hidden] { display:none; }
+.filter-cascade.opens-start .filter-values { left:auto; right:calc(100% + 4px); }
+.ryker-app .filter-values button.filter-back { display:none; }
+.filter-cascade.stacked .filter-values { top:0 !important; left:0; right:auto; width:100%; max-height:none; min-height:100%; border:0; box-shadow:none; }
+.ryker-app .filter-cascade.stacked .filter-values button.filter-back { display:flex; align-items:center; gap:6px; font-weight:600; }
+.filter-back .ui-icon { width:14px; height:14px; transform:rotate(180deg); }
 @media (max-width:800px) {
   .activity-toolbar { padding:12px 16px; }
   .activity-search { width:100%; }

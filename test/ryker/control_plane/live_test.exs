@@ -449,9 +449,9 @@ defmodule Ryker.ControlPlane.LiveTest do
     assert has_element?(view, ".filter-bar a", "Back to Usage")
 
     view |> element("#filter-add") |> render_click()
-    assert has_element?(view, "#filter-popover button[phx-value-key=state]", "Request state")
-    assert has_element?(view, "#filter-popover button[phx-value-key=usage_actor]", "User")
-    refute has_element?(view, "#filter-popover button[phx-value-key=usage_profile]")
+    assert has_element?(view, "#filter-popover .filter-field[data-field=state]", "Request state")
+    assert has_element?(view, "#filter-popover .filter-field[data-field=usage_actor]", "User")
+    refute has_element?(view, "#filter-popover .filter-field[data-field=usage_profile]")
 
     view
     |> element(".filter-chip[data-filter=usage_profile] .filter-chip-remove")
@@ -491,14 +491,13 @@ defmodule Ryker.ControlPlane.LiveTest do
     end
   end
 
-  test "choosing a field and then a value applies the filter at once, and search keeps it" do
+  test "choosing a value in a field's submenu applies the filter at once, and search keeps it" do
     # Andrew, 2026-09-19: the add dropdown sat first and reset as it added, and
-    # nothing applied until a separate button. + Filter now comes last, picks a
-    # field, then a value, and the value applies immediately.
+    # nothing applied until a separate button. + Filter now comes last, each
+    # field opens its values beside the list, and a value applies immediately.
     {:ok, view, _} = live(build_conn() |> Map.put(:host, "localhost"), "/activity?q=old")
     view |> element("#filter-add") |> render_click()
-    view |> element("#filter-popover button[phx-value-key=transport]") |> render_click()
-    view |> element("#filter-popover button[phx-value-choice=slack]") |> render_click()
+    view |> element("#filter-values-transport button[phx-value-choice=slack]") |> render_click()
     assert_patch(view, "/activity?q=old&transport=slack")
     assert has_element?(view, ".filter-chip[data-filter=transport] .filter-chip-value", "Slack")
     refute has_element?(view, "#filter-popover")
@@ -515,8 +514,7 @@ defmodule Ryker.ControlPlane.LiveTest do
   test "a free-text filter applies when its value is submitted and Escape closes the menu" do
     {:ok, view, _} = live(build_conn() |> Map.put(:host, "localhost"), "/activity")
     view |> element("#filter-add") |> render_click()
-    view |> element("#filter-popover button[phx-value-key=repository]") |> render_click()
-    view |> form("#filter-popover form", %{"choice" => "emisar"}) |> render_submit()
+    view |> form("#filter-values-repository form", %{"choice" => "emisar"}) |> render_submit()
     assert_patch(view, "/activity?repository=emisar")
     assert has_element?(view, ".filter-chip[data-filter=repository] .filter-chip-value", "emisar")
 
