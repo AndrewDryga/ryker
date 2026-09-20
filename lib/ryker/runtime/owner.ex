@@ -17,7 +17,7 @@ defmodule Ryker.Runtime.Owner do
   use GenServer
   require Logger
 
-  alias Ryker.{Bootstrap, Settings}
+  alias Ryker.{Bootstrap, Credentials, Settings}
   alias Ryker.ControlPlane.SlackNames
   alias Ryker.Runtime.Assembly
   alias Ryker.Slack.Client
@@ -62,6 +62,7 @@ defmodule Ryker.Runtime.Owner do
   @impl true
   def init(options) do
     Settings.subscribe()
+    Credentials.subscribe()
 
     state = %{
       bootstrap: Keyword.get_lazy(options, :bootstrap, &bootstrap/0),
@@ -102,6 +103,14 @@ defmodule Ryker.Runtime.Owner do
   @impl true
   def handle_info(message, state) when message == :retry or elem(message, 0) == :settings_saved do
     {_result, state} = apply_latest(state)
+    {:noreply, state}
+  end
+
+  def handle_info({:credentials_changed, _kind, _name}, state) do
+    # Credentials are deliberately outside ordinary settings history. Force
+    # one assembly pass at the same settings revision so only child configs
+    # whose resolved secret changed are replaced.
+    {_result, state} = apply_latest(%{state | revision: nil})
     {:noreply, state}
   end
 
@@ -183,6 +192,7 @@ defmodule Ryker.Runtime.Owner do
   # listener and no Work profile at all.
   defp console(state, nil, configuration) do
     %{
+      access: Map.get(state.bootstrap.control_plane, :access, :loopback),
       csrf_secret: state.csrf_secret,
       ip: state.bootstrap.control_plane.ip,
       port: state.bootstrap.control_plane.port,

@@ -25,8 +25,12 @@ defmodule Ryker.ControlPlane.WebRouter do
     live("/", Ryker.ControlPlane.WorkbenchLive)
 
     for path <-
-          ~w(conversations activity incident-rooms schedules subscriptions channels repositories failures workspaces findings memory rules preferences guidance instructions usage configuration) do
+          ~w(conversations activity incident-rooms schedules subscriptions channels repositories failures workspaces findings memory rules preferences guidance instructions usage settings) do
       live("/#{path}", Ryker.ControlPlane.WorkbenchLive)
+    end
+
+    for page <- ~w(slack github emisar webhooks retention token-rates system) do
+      live("/settings/#{page}", Ryker.ControlPlane.WorkbenchLive)
     end
 
     live("/conversations/:id", Ryker.ControlPlane.WorkbenchLive)

@@ -98,7 +98,9 @@ defmodule Ryker.ControlPlane.HTML do
         "/incident-rooms",
         "Title, room, repository or channel",
         params,
-        @incident_statuses
+        @incident_statuses,
+        &Components.label/1,
+        items == []
       ),
       cond do
         rows != [] ->
@@ -235,7 +237,14 @@ defmodule Ryker.ControlPlane.HTML do
     [
       "<div class=\"schedules-page\">",
       configuration_guide(:schedules),
-      search_form("/schedules", "Title, repository or destination", params, @schedule_statuses),
+      search_form(
+        "/schedules",
+        "Title, repository or destination",
+        params,
+        @schedule_statuses,
+        &Components.label/1,
+        items == []
+      ),
       cond do
         rows != [] ->
           [
@@ -389,7 +398,8 @@ defmodule Ryker.ControlPlane.HTML do
             SubscriptionPresentation.status(%{status: String.to_existing_atom(status)})
 
           label
-        end
+        end,
+        items == []
       ),
       if(items == [], do: [], else: result_count(length(items), "wait", "waits")),
       Safe.to_iodata(
@@ -437,7 +447,14 @@ defmodule Ryker.ControlPlane.HTML do
 
     [
       "<div class=\"channels-page\">",
-      search_form("/channels", "Channel, workspace or repository", params),
+      search_form(
+        "/channels",
+        "Channel, workspace or repository",
+        params,
+        [],
+        &Components.label/1,
+        items == []
+      ),
       cond do
         rows != [] ->
           [
@@ -500,7 +517,9 @@ defmodule Ryker.ControlPlane.HTML do
             [
               "<strong>",
               escape(item.ref),
-              "</strong><span class=\"row-secondary\"><a href=\"/activity?repository=",
+              "</strong><span class=\"row-secondary\">",
+              repository_setup_summary(item.configured),
+              " · <a href=\"/activity?repository=",
               segment(item.ref),
               "\">View requests →</a></span>"
             ],
@@ -514,19 +533,27 @@ defmodule Ryker.ControlPlane.HTML do
            [
              "<details><summary>Access and code revision</summary><p>Access: ",
              escape(policy_summary(item.configured)),
-             " · <a href=\"/configuration\">Inspect configuration</a></p>",
+             repository_onboarding_detail(item.configured),
+             " · <a href=\"/settings/system\">Inspect system settings</a></p>",
              "<p>The revision is the saved execution snapshot, not a live Git check.</p>",
              freshness_detail(item.freshness),
              "</details><details><summary>Worker connections</summary>",
              worker_list(item.workers),
-             "<p><a href=\"/configuration\">Inspect worker configuration →</a></p></details>"
+             "<p><a href=\"/settings/system\">Inspect worker configuration →</a></p></details>"
            ]}
         ]
       end)
 
     [
       "<div class=\"repositories-page\">",
-      search_form("/repositories", "Repository name", params),
+      search_form(
+        "/repositories",
+        "Repository name",
+        params,
+        [],
+        &Components.label/1,
+        items == []
+      ),
       cond do
         rows != [] ->
           [
@@ -553,6 +580,119 @@ defmodule Ryker.ControlPlane.HTML do
       "</div>"
     ]
   end
+
+  defp repository_setup_summary(%{onboarding_state: state} = repository) do
+    label = state |> to_string() |> Components.label()
+
+    case repository[:knowledge_pull_request_url] do
+      url when is_binary(url) ->
+        [
+          escape(label),
+          " · <a href=\"",
+          escape(url),
+          "\" target=\"_blank\" rel=\"noopener noreferrer\">Knowledge PR</a>"
+        ]
+
+      _none ->
+        escape(label)
+    end
+  end
+
+  defp repository_setup_summary(_repository), do: "Observed"
+
+  defp repository_onboarding_detail(%{onboarding_state: state} = repository) do
+    [
+      "</p><p>Repository setup: ",
+      escape(Components.label(state)),
+      if(repository[:github_access] != :available,
+        do: [" · GitHub access ", escape(Components.label(repository[:github_access]))],
+        else: []
+      ),
+      if(repository[:onboarding_error],
+        do: [
+          " · ",
+          escape(repository.onboarding_error),
+          " <button type=\"button\" class=\"ui-button secondary\" phx-click=\"retry-github-onboarding\" phx-value-repository=\"",
+          escape(repository[:ref] || ""),
+          "\">Retry setup</button>"
+        ],
+        else: []
+      ),
+      repository_knowledge_detail(repository),
+      repository_permission_health(repository),
+      repository_github_health(repository),
+      repository_action_grants(repository)
+    ]
+  end
+
+  defp repository_onboarding_detail(_repository), do: []
+
+  defp repository_knowledge_detail(%{
+         knowledge_status: status,
+         knowledge_source_commit: commit
+       })
+       when status in [:accepted, :proposed] and is_binary(commit) do
+    state = if status == :accepted, do: "accepted", else: "proposed in the open setup PR"
+
+    [
+      "</p><p>RYKER.md: ",
+      state,
+      " · source commit <code>",
+      escape(String.slice(commit, 0, 12)),
+      "</code>"
+    ]
+  end
+
+  defp repository_knowledge_detail(_repository), do: []
+
+  @github_required_permissions ~w(metadata contents pull_requests checks actions deployments issues)
+
+  defp repository_permission_health(%{github_permissions: permissions})
+       when is_map(permissions) do
+    missing = Enum.reject(@github_required_permissions, &Map.has_key?(permissions, &1))
+
+    if missing == [] do
+      ["</p><p>GitHub permissions: ready"]
+    else
+      [
+        "</p><p>GitHub permissions missing: ",
+        escape(Enum.join(missing, ", ")),
+        ". Update the App installation before enabling work that needs them."
+      ]
+    end
+  end
+
+  defp repository_permission_health(_repository), do: []
+
+  defp repository_github_health(%{github_health: health}) when is_map(health) do
+    [
+      "</p><p>GitHub events: ",
+      if(health.pending == 0,
+        do: "up to date",
+        else: [integer(health.pending), " waiting"]
+      ),
+      if(health.failed > 0, do: [" · ", integer(health.failed), " failed"], else: []),
+      if(health.duplicate_count > 0,
+        do: [" · ", integer(health.duplicate_count), " duplicate deliveries suppressed"],
+        else: []
+      ),
+      if(health.last_event_at,
+        do: [" · last received ", readable_time(health.last_event_at)],
+        else: " · none received yet"
+      )
+    ]
+  end
+
+  defp repository_github_health(_repository), do: []
+
+  defp repository_action_grants(%{action_grants: grants}) when is_list(grants) and grants != [] do
+    [
+      "</p><p>Allowed GitHub actions: ",
+      escape(Enum.map_join(grants, ", ", &String.replace(&1, "_", " ")))
+    ]
+  end
+
+  defp repository_action_grants(_repository), do: []
 
   def memory(
         %{memories: memories} = snapshot,
@@ -779,21 +919,21 @@ defmodule Ryker.ControlPlane.HTML do
       end)
       |> then(fn areas -> if length(areas) >= 2, do: areas, else: [] end)
 
-    {facts, message} =
+    facts =
       if rows == [] do
-        {[%{label: "failures", value: 0}], "Nothing needs attention"}
+        [%{label: "failures", value: 0}]
       else
-        {[
-           %{label: "failures", value: length(rows)},
-           %{label: "affected requests", value: requests}
-         ], nil}
+        [
+          %{label: "failures", value: length(rows)},
+          %{label: "affected requests", value: requests}
+        ]
       end
 
     Components.page_summary(%{
       __changed__: nil,
       label: "Failure summary",
       facts: facts,
-      message: message,
+      message: nil,
       secondary: secondary,
       related: nil
     })
@@ -861,11 +1001,15 @@ defmodule Ryker.ControlPlane.HTML do
       end)
 
     [
-      "<section class=\"workspace-storage\"><h2>Worker storage</h2><p>Budget: ",
-      storage_bytes(budget[:disposable_bytes_limit]),
-      " of inactive disposable forks per worker, reclaimed within ",
-      escape(budget[:reclaim_target_seconds] || "an unset target"),
-      " seconds of eligibility. Each worker measures its own filesystem; a stale heartbeat means a stale measurement.</p>",
+      "<section class=\"workspace-storage\"><h2>Storage</h2>",
+      workspace_storage_summary(
+        budget[:disposable_bytes_limit],
+        budget[:reclaim_target_seconds]
+      ),
+      if(worker_rows == [],
+        do: [],
+        else: "<p class=\"section-note\">Storage usage comes from worker reports.</p>"
+      ),
       if(worker_rows == [],
         do: empty_state("No fleet worker has reported storage."),
         else:
@@ -882,7 +1026,7 @@ defmodule Ryker.ControlPlane.HTML do
             worker_rows
           )
       ),
-      "</section><section class=\"cleanup-preview\"><h2>Next cleanup targets</h2><p>Read-only preview of the exact sessions cleanup will act on next, oldest eligible first. Nothing here is deleted by looking at it.</p>",
+      "</section><section class=\"cleanup-preview\"><h2>Ready for cleanup</h2><p>Working copies Ryker can clean up now, oldest first.</p>",
       if(preview_rows == [],
         do: empty_state("Nothing is eligible for cleanup right now."),
         else:
@@ -895,8 +1039,53 @@ defmodule Ryker.ControlPlane.HTML do
     ]
   end
 
-  defp measurement_label(%{measurement: :unknown}), do: "no measurement reported"
-  defp measurement_label(%{measurement: :stale}), do: "stale (worker heartbeat is stale)"
+  defp workspace_storage_summary(nil, nil),
+    do: "<p>Storage limits and cleanup timing are not configured.</p>"
+
+  defp workspace_storage_summary(bytes, nil),
+    do: [
+      "<p>Each worker can use up to ",
+      storage_bytes(bytes),
+      " for disposable working copies. No cleanup-time target is configured.</p>"
+    ]
+
+  defp workspace_storage_summary(nil, seconds),
+    do: [
+      "<p>Ryker aims to clean up eligible working copies within ",
+      escape(human_duration(seconds)),
+      ". No storage limit is configured.</p>"
+    ]
+
+  defp workspace_storage_summary(bytes, seconds),
+    do: [
+      "<p>Each worker can use up to ",
+      storage_bytes(bytes),
+      " for disposable working copies. Ryker aims to clean up eligible copies within ",
+      escape(human_duration(seconds)),
+      ".</p>"
+    ]
+
+  defp human_duration(1), do: "1 second"
+  defp human_duration(seconds) when is_integer(seconds) and seconds < 60, do: "#{seconds} seconds"
+
+  defp human_duration(seconds) when is_integer(seconds) and seconds < 120,
+    do: "1 minute"
+
+  defp human_duration(seconds) when is_integer(seconds) and seconds < 3_600,
+    do: "#{div(seconds, 60)} minutes"
+
+  defp human_duration(seconds) when is_integer(seconds) and seconds < 7_200,
+    do: "1 hour"
+
+  defp human_duration(seconds) when is_integer(seconds) and seconds < 86_400,
+    do: "#{div(seconds, 3_600)} hours"
+
+  defp human_duration(seconds) when is_integer(seconds) and seconds < 172_800, do: "1 day"
+  defp human_duration(seconds) when is_integer(seconds), do: "#{div(seconds, 86_400)} days"
+  defp human_duration(_seconds), do: "the configured target"
+
+  defp measurement_label(%{measurement: :unknown}), do: "No report"
+  defp measurement_label(%{measurement: :stale}), do: "Stale report"
 
   defp measurement_label(%{measured_at: measured_at}),
     do: ["measured ", readable_time(measured_at)]
@@ -979,10 +1168,15 @@ defmodule Ryker.ControlPlane.HTML do
 
     [
       "<div class=\"workspaces-page\">",
-      page_help("workspaces-help", "How working copies are kept and cleaned up", [
-        "<p>These are the repository checkouts tasks work in, not Slack workspaces. Ryker keeps unfinished or unmerged work safe: a copy with uncommitted or unpublished changes is preserved until cleanup is safe, and discarding unmerged commits always requires confirmation.</p>",
-        "<p>Resume interrupted cleanup from the row. Workers measure their own filesystem for the storage figures below. A worker that reported nothing is unknown, not empty, and a stale heartbeat means a stale measurement.</p>"
-      ]),
+      page_help(
+        "workspaces-help",
+        "How working copies are kept and cleaned up",
+        [
+          "<p>These are the repository checkouts tasks work in, not Slack workspaces. Ryker keeps unfinished or unmerged work safe: a copy with uncommitted or unpublished changes is preserved until cleanup is safe, and discarding unmerged commits always requires confirmation.</p>",
+          "<p>Resume interrupted cleanup from the row.</p>"
+        ],
+        "page-help-near-header"
+      ),
       if(body == [],
         do:
           empty_state(
@@ -1130,39 +1324,36 @@ defmodule Ryker.ControlPlane.HTML do
   end
 
   defp code_editing_setup do
-    status =
-      if CodeEditingSetup.checkpoint_supported?(),
-        do:
-          "The running connection supports saving work. This does not prove that a compatible coding worker is online or that its checks can run.",
-        else:
-          "The running connection does not support saving coding work. Repository-editing tasks cannot start with this setup."
-
-    [
-      "<section id=\"code-editing\" class=\"code-editing-setup\"><h2>Set up code editing</h2><p>",
-      escape(status),
-      "</p><p>The coding service must be able to save a recoverable copy of its files before it can change a repository. An administrator must complete these steps:</p><ol>",
-      "<li><strong>Prepare a coding worker.</strong> Use a co:op fleet worker with persistent storage, the intended repository and reviewed execution policy. Install the repository’s build tools inside its coding environment. If the checks require Docker, verify Docker there—not just on the host. Do not grant host Docker access without reviewing that permission.</li>",
-      "<li><strong>Connect the worker.</strong> Configure the authenticated worker gateway, then issue a one-time enrollment token with <code>mix ryker.coop_worker enroll WORKER_ID WORKSPACE_REF OPERATOR_REF</code> using the release’s database environment. Keep the token private. Configure the worker’s gateway URL, CA, repository, actual policy digests and capabilities, then run <code>coop worker connect --config /etc/coop/worker.json</code>. Its local co:op session service must already be running under the same OS user. These names and paths are examples, not ready-to-run values.</li>",
-      "<li><strong>Select the workspace.</strong> In <strong>Settings → Work placement</strong>, select that worker’s exact enrolled workspace, and in <strong>Execution policies</strong> bind the purposes this repository needs to the policies the worker advertises. The change applies to the running host without a deployment. Check that the worker provides the required <code>responder-state</code> capability.</li>",
-      "<li><strong>Verify before retrying.</strong> Confirm the worker is connected, eligible for this repository and policy, and can save and restore a disposable workspace. Run a small required check in that environment. Then return to the task and retry it. Changing the configuration alone is not a readiness check.</li>",
-      "</ol><p>This page is read-only: it does not enroll workers, change permissions or retry tasks.</p>",
-      code_editing_commands(),
-      "</section>"
-    ]
+    if CodeEditingSetup.checkpoint_supported?() do
+      """
+      <section id="code-editing" class="code-editing-setup">
+        <h2>Work execution</h2>
+        <p>Workspace recovery is configured. Connected worker health and repository readiness are shown under <a href="/workspaces">Workspaces</a> and <a href="/repositories">Repositories</a>.</p>
+      </section>
+      """
+    else
+      """
+      <section id="code-editing" class="code-editing-setup">
+        <h2>Work execution</h2>
+        <p class="status-error">Code-changing work is unavailable because no workspace recovery service is configured.</p>
+        <p>Docker Compose installations should provide work execution automatically. Check <code>scripts/compose.sh status</code> and <code>scripts/compose.sh logs</code>, then restart the installation.</p>
+        #{code_editing_commands()}
+      </section>
+      """
+    end
   end
 
   defp code_editing_commands do
     """
-    <details><summary>Administrator commands and configuration</summary>
-    <p>Replace these example paths and names with your reviewed deployment values. Keep the existing service and its files; do not start a duplicate daemon.</p>
-    <p>Inspect the existing session service and its real policies:</p>
+    <details><summary>Custom worker fleet</summary>
+    <p>Only custom deployments need this. Enrol a persistent co:op workspace, connect it to Ryker's authenticated worker gateway, and bind reviewed policies in the advanced execution settings.</p>
+    <p>Inspect the existing co:op session service and policies:</p>
     <pre><code>coop sessions doctor --socket /var/lib/coop-sessions/control.sock
     coop sessions policies --policies /etc/coop/session-policies.yaml --json</code></pre>
-    <p>Enrollment requires the running release’s <code>MIX_ENV=prod</code> and <code>DATABASE_URL</code> environment. The enrollment command does not accept <code>--config</code>. Save only the returned token value in a private file with mode <code>0600</code>; do not put it in chat or command arguments.</p>
-    <p>The worker JSON needs the authenticated HTTPS gateway, trusted CA, enrollment-token file, local session socket, actual policy and authority digests, repositories, capabilities and capacity. Its <code>identity_file</code> must initially be absent and its <code>journal_dir</code> persistent and private. Preserve both after enrollment. Use the worker gateway, not the operator control plane, for this connection.</p>
-    <p>Select the enrolled workspace in <strong>Settings → Work placement</strong> and bind its purposes in <strong>Execution policies</strong>; both apply to the running host without a deployment. Confirm what is actually running:</p>
+    <p>Create a one-time enrolment token with <code>MIX_ENV=prod mix ryker.coop_worker enroll WORKER_ID WORKSPACE_REF OPERATOR_REF</code>. Store it in a private file with mode <code>0600</code>, then connect with <code>coop sessions connect --config /etc/coop/worker.json</code>.</p>
+    <p>Confirm the saved settings were applied:</p>
     <pre><code>MIX_ENV=prod mix ryker.doctor</code></pre>
-    <p>It reports the applied revision beside the saved one, so a save that could not be assembled is visible rather than assumed. Finally, verify worker eligibility, workspace save/restore and required build tools before retrying. Do not rotate the gateway’s checkpoint encryption key: existing saved work depends on it.</p>
+    <p>Then verify workspace save and restore plus the repository's required build tools before retrying.</p>
     </details>
     """
   end
@@ -1202,7 +1393,13 @@ defmodule Ryker.ControlPlane.HTML do
   # and Save at its lower edge. The page's script shows it in place of the
   # rendered body; nothing here is a disclosure, a heading or a second copy.
   def lab_message_editor(%{
-        message_controls: %{edit: %{path: edit_path, token: edit_token}},
+        message_controls: %{
+          edit: %{
+            conversation_id: conversation_id,
+            item_id: item_id,
+            token: edit_token
+          }
+        },
         item_id: item_id,
         text: text
       })
@@ -1212,11 +1409,15 @@ defmodule Ryker.ControlPlane.HTML do
     [
       "<form class=\"lab-edit-form\" id=\"",
       editor_id,
-      "\" method=\"post\" action=\"",
-      escape(edit_path),
-      "\" data-lab-edit=\"",
+      "\" phx-submit=\"edit-lab-message\" data-lab-edit=\"",
       escape(item_id),
-      "\" hidden><input type=\"hidden\" name=\"_token\" value=\"",
+      "\" data-draft-action=\"message:",
+      escape(item_id),
+      "\" hidden><input type=\"hidden\" name=\"conversation_id\" value=\"",
+      escape(conversation_id),
+      "\"><input type=\"hidden\" name=\"item_id\" value=\"",
+      escape(item_id),
+      "\"><input type=\"hidden\" name=\"_token\" value=\"",
       escape(edit_token),
       "\"><label class=\"sr-only\" for=\"",
       editor_id,
@@ -1229,7 +1430,7 @@ defmodule Ryker.ControlPlane.HTML do
       "-error\" role=\"alert\" hidden></p><div class=\"lab-edit-actions\">",
       "<span class=\"lab-edit-hint\">Enter adds a line · ⌘ / Ctrl + Enter saves · Esc cancels</span>",
       "<button type=\"button\" class=\"lab-edit-cancel\">Cancel</button>",
-      "<button type=\"submit\" class=\"lab-edit-save\">Save</button></div></form>"
+      "<button type=\"submit\" class=\"lab-edit-save\" phx-disable-with=\"Saving…\">Save</button></div></form>"
     ]
   end
 
@@ -1238,8 +1439,16 @@ defmodule Ryker.ControlPlane.HTML do
   @doc false
   # The reactions row under a delivered reply, as in Slack: the recorded pills,
   # then the add-reaction button at the end of the row with its anchored picker.
-  def lab_message_reactions(%{reaction_controls: %{path: path, token: token}} = message)
-      when is_binary(path) and is_binary(token) do
+  def lab_message_reactions(
+        %{
+          reaction_controls: %{
+            conversation_id: conversation_id,
+            message_ref: message_ref,
+            token: token
+          }
+        } = message
+      )
+      when is_binary(conversation_id) and is_binary(message_ref) and is_binary(token) do
     [
       "<div class=\"lab-reactions\">",
       lab_reaction_pills(message),
@@ -1254,18 +1463,28 @@ defmodule Ryker.ControlPlane.HTML do
   # The compact action row under an operator message: Edit, which opens the
   # editor above, and its own exact Delete form.
   def lab_message_actions(%{
-        message_controls: %{delete: %{path: delete_path, token: delete_token}},
+        message_controls: %{
+          delete: %{
+            conversation_id: conversation_id,
+            item_id: item_id,
+            token: delete_token
+          }
+        },
         item_id: item_id
       })
       when is_binary(item_id) do
     [
       "<div class=\"lab-message-actions\"><button type=\"button\" class=\"lab-edit-toggle\" aria-controls=\"lab-edit-",
       escape(item_id),
-      "\" aria-expanded=\"false\">Edit</button><form class=\"lab-action-form\" method=\"post\" action=\"",
-      escape(delete_path),
+      "\" aria-expanded=\"false\">Edit</button><form class=\"lab-delete-form\" id=\"lab-delete-",
+      escape(item_id),
+      "\" phx-submit=\"delete-lab-message\"><input type=\"hidden\" name=\"conversation_id\" value=\"",
+      escape(conversation_id),
+      "\"><input type=\"hidden\" name=\"item_id\" value=\"",
+      escape(item_id),
       "\"><input type=\"hidden\" name=\"_token\" value=\"",
       escape(delete_token),
-      "\"><button class=\"lab-message-delete\" type=\"submit\">Delete</button></form></div>"
+      "\"><button class=\"lab-message-delete\" type=\"submit\" phx-disable-with=\"Deleting…\">Delete</button></form></div>"
     ]
   end
 
@@ -1279,9 +1498,14 @@ defmodule Ryker.ControlPlane.HTML do
   # that emoji to that exact reply. A reply with none renders nothing here.
   defp lab_reaction_pills(%{
          feedback_reactions: reactions,
-         reaction_controls: %{path: path, token: token}
+         reaction_controls: %{
+           conversation_id: conversation_id,
+           message_ref: message_ref,
+           token: token
+         }
        })
-       when is_list(reactions) and reactions != [] and is_binary(path) and is_binary(token) do
+       when is_list(reactions) and reactions != [] and is_binary(conversation_id) and
+              is_binary(message_ref) and is_binary(token) do
     operator = ConversationLab.operator_actor_ref()
 
     pills =
@@ -1292,10 +1516,15 @@ defmodule Ryker.ControlPlane.HTML do
         mine = Enum.any?(reactors, &(&1.actor_ref == operator))
         count = length(reactors)
         glyph = lab_emoji_glyph(emoji_name)
+        form_id = "lab-reaction-" <> lab_short_digest(message_ref <> ":" <> emoji_name)
 
         [
-          "<form class=\"lab-reaction-form lab-reaction-pill\" method=\"post\" action=\"",
-          escape(path),
+          "<form class=\"lab-reaction-form lab-reaction-pill\" id=\"",
+          form_id,
+          "\" phx-submit=\"react-to-lab-message\"><input type=\"hidden\" name=\"conversation_id\" value=\"",
+          escape(conversation_id),
+          "\"><input type=\"hidden\" name=\"message_ref\" value=\"",
+          escape(message_ref),
           "\"><input type=\"hidden\" name=\"_token\" value=\"",
           escape(token),
           "\"><input type=\"hidden\" name=\"action\" value=\"",
@@ -1327,15 +1556,29 @@ defmodule Ryker.ControlPlane.HTML do
   # whose label, field and Add button share one row and whose error slot is
   # tied to the field. The picker is ignored by live patches so an open picker
   # and a half-typed name survive a refresh.
-  defp lab_reaction_picker(%{reaction_controls: %{path: path, token: token}, ref: ref})
-       when is_binary(path) and is_binary(token) and is_binary(ref) do
+  defp lab_reaction_picker(%{
+         reaction_controls: %{
+           conversation_id: conversation_id,
+           message_ref: message_ref,
+           token: token
+         },
+         ref: ref
+       })
+       when is_binary(conversation_id) and is_binary(message_ref) and is_binary(token) and
+              is_binary(ref) do
     picker_id = "lab-reaction-picker-" <> lab_short_digest(ref)
 
     quick =
       Enum.map(@quick_reactions, fn {emoji_name, glyph} ->
         [
-          "<form class=\"lab-reaction-form lab-reaction-quick\" method=\"post\" action=\"",
-          escape(path),
+          "<form class=\"lab-reaction-form lab-reaction-quick\" id=\"",
+          picker_id,
+          "-",
+          escape(emoji_name),
+          "\" phx-submit=\"react-to-lab-message\"><input type=\"hidden\" name=\"conversation_id\" value=\"",
+          escape(conversation_id),
+          "\"><input type=\"hidden\" name=\"message_ref\" value=\"",
+          escape(message_ref),
           "\"><input type=\"hidden\" name=\"_token\" value=\"",
           escape(token),
           "\"><input type=\"hidden\" name=\"action\" value=\"add\"><input type=\"hidden\" name=\"emoji\" value=\"",
@@ -1356,8 +1599,12 @@ defmodule Ryker.ControlPlane.HTML do
       picker_id,
       "\" role=\"group\" aria-label=\"Add a reaction\" phx-update=\"ignore\" hidden><div class=\"lab-reaction-quick-row\">",
       quick,
-      "</div><form class=\"lab-reaction-form lab-reaction-custom\" method=\"post\" action=\"",
-      escape(path),
+      "</div><form class=\"lab-reaction-form lab-reaction-custom\" id=\"",
+      picker_id,
+      "-custom\" phx-submit=\"react-to-lab-message\"><input type=\"hidden\" name=\"conversation_id\" value=\"",
+      escape(conversation_id),
+      "\"><input type=\"hidden\" name=\"message_ref\" value=\"",
+      escape(message_ref),
       "\"><input type=\"hidden\" name=\"_token\" value=\"",
       escape(token),
       "\"><input type=\"hidden\" name=\"action\" value=\"add\"><label for=\"",
@@ -1550,7 +1797,14 @@ defmodule Ryker.ControlPlane.HTML do
   # The shared toolbar: search on Enter, a status dropdown that applies on
   # change, and a clear link once anything is filtered. The page's title and
   # description are the shell's; a list body starts here.
-  defp search_form(path, placeholder, params, statuses \\ [], status_label \\ &Components.label/1) do
+  defp search_form(
+         path,
+         placeholder,
+         params,
+         statuses,
+         status_label,
+         empty?
+       ) do
     params = UsageProjection.link_params(params)
     status = params["status"]
 
@@ -1575,6 +1829,7 @@ defmodule Ryker.ControlPlane.HTML do
       placeholder: placeholder,
       query: params["q"] || "",
       filtered: params["q"] not in [nil, ""] or status in statuses,
+      disabled: empty? and params["q"] in [nil, ""] and status not in statuses,
       selects: selects
     }
     |> Components.filter_toolbar()
@@ -1590,13 +1845,14 @@ defmodule Ryker.ControlPlane.HTML do
 
   # The shared help disclosure and quiet count, rendered through the same
   # components the HEEx pages use, so there is one markup contract to style.
-  defp page_help(id, label, body) do
+  defp page_help(id, label, body, class) do
     body = IO.iodata_to_binary(body)
 
     %{
       __changed__: nil,
       id: id,
       label: label,
+      class: class,
       inner_block: [
         %{__slot__: :inner_block, inner_block: fn _, _ -> Phoenix.HTML.raw(body) end}
       ]

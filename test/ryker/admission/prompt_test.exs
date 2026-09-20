@@ -94,7 +94,6 @@ defmodule Ryker.Admission.PromptTest do
                "ignore"
              ],
              "candidates" => [],
-             "execution_mode" => "live",
              "input" => Input.model_document(input)
            }
 

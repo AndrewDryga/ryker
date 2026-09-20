@@ -194,14 +194,13 @@ validation boundary.
 ## Trusted runtime configuration
 
 Credentials remain behind zero-argument host callbacks and are fetched for every HTTP request.
-Ryker signs a short-lived RS256 App JWT from the host-owned private key, mints a token scoped to
+Ryker signs a short-lived RS256 App JWT from its encrypted private-key credential, mints a token scoped to
 the exact configured installation and repository, caches it only until the refresh window, and rotates
 it before expiry. No installation token is stored in an ingress, delivery, publication, or Work row.
-`github.private_key_env` accepts either the complete PEM or its single-line standard-base64 encoding;
-the shipped systemd environment file uses base64 because it cannot safely carry a multiline PEM.
 
 ```elixir
 alias Ryker.Delivery.JSONClient
+alias Ryker.Credentials
 alias Ryker.GitHub.Client, as: GitHubClient
 alias Ryker.GitHub.Publisher, as: GitHubPublisher
 alias Ryker.Slack.Client, as: SlackClient
@@ -212,7 +211,7 @@ alias Ryker.Slack.Publisher, as: SlackPublisher
     base_url: "https://slack.com/api",
     finch: Ryker.CoopFinch,
     receive_timeout: 30_000,
-    token_provider: fn -> {:ok, System.fetch_env!("SLACK_BOT_TOKEN")} end
+    token_provider: Credentials.provider(:slack_bot, "primary")
   )
 
 {:ok, slack_client} = SlackClient.new(http: slack_http, requester: JSONClient)

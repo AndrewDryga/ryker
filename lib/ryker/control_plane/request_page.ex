@@ -238,11 +238,16 @@ defmodule Ryker.ControlPlane.RequestPage do
 
   defp validation_checks(assigns) do
     ~H"""
-    <nav :if={@page && @page.pages > 1} class="ui-pagination" aria-label="Response checks">
-      <span>Checks {@page.first}–{@page.last} of {@page.total}</span>
-      <a :if={@page.previous} href={@page.previous}>Earlier attempts</a>
-      <a :if={@page.next} href={@page.next}>Later attempts</a>
-    </nav>
+    <.pager
+      :if={@page}
+      page={@page.page}
+      pages={@page.pages}
+      path={fn page -> if page < @page.page, do: @page.previous, else: @page.next end}
+      label="Response checks"
+      earlier="Earlier attempts"
+      later="Later attempts"
+      summary={"checks #{@page.first}–#{@page.last} of #{@page.total}"}
+    />
     <p :if={@steps == []} class="artifact-unavailable">
       Validation details are unavailable. The retained record below is not a substitute for a complete check receipt.
     </p>
@@ -448,12 +453,14 @@ defmodule Ryker.ControlPlane.RequestPage do
 
   defp paging(assigns) do
     ~H"""
-    <div :if={@pages > 1} class="ui-pagination">
-      <span>{label(@key)} {@page} / {@pages}</span><.link
-        :if={@page > 1}
-        patch={path(@path, @params, %{@key => @page - 1})}
-      >Previous</.link><.link :if={@page < @pages} patch={path(@path, @params, %{@key => @page + 1})}>Next</.link>
-    </div>
+    <.pager
+      page={@page}
+      pages={@pages}
+      path={fn page -> path(@path, @params, %{@key => page}) end}
+      label={"#{label(@key)} pages"}
+      earlier="Previous"
+      later="Next"
+    />
     """
   end
 

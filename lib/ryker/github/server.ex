@@ -6,14 +6,19 @@ defmodule Ryker.GitHub.Server do
   alias Ryker.GitHub.{Binding, Confirmations, Router}
 
   @default_ip {127, 0, 0, 1}
-  @fields [:bindings, :confirmations, :ip, :port, :secret]
+  @fields [:bindings, :bot_login, :confirmations, :ip, :port, :repository_access, :secret]
 
   @spec child_spec(keyword() | map()) :: Supervisor.child_spec()
   def child_spec(configuration) do
     options = options!(configuration)
 
     router_options =
-      [bindings: options.bindings, secret: options.secret]
+      [
+        bindings: options.bindings,
+        bot_login: options.bot_login,
+        repository_access: options.repository_access,
+        secret: options.secret
+      ]
       |> then(fn router_options ->
         if options.confirmations,
           do: Keyword.put(router_options, :confirmations, options.confirmations),
@@ -32,9 +37,11 @@ defmodule Ryker.GitHub.Server do
   @doc false
   @spec options!(keyword() | map()) :: %{
           bindings: %{String.t() => Binding.t()},
+          bot_login: String.t(),
           confirmations: Confirmations.options() | nil,
           ip: :inet.ip_address(),
           port: pos_integer(),
+          repository_access: (Binding.t(), map() -> :ok | {:error, term()}),
           secret: binary()
         }
   def options!(configuration) do
@@ -42,6 +49,10 @@ defmodule Ryker.GitHub.Server do
     port = Map.fetch!(configuration, :port)
     ip = Map.get(configuration, :ip, @default_ip)
     bindings = configuration |> Map.fetch!(:bindings) |> normalize_bindings!()
+    bot_login = Map.fetch!(configuration, :bot_login)
+
+    repository_access =
+      Map.get(configuration, :repository_access, &unconfigured_repository_access/2)
 
     confirmations =
       case Map.get(configuration, :confirmations) do
@@ -54,8 +65,20 @@ defmodule Ryker.GitHub.Server do
     unless valid_port?(port), do: raise(ArgumentError, "GitHub port must be between 1 and 65535")
     unless valid_ip?(ip), do: raise(ArgumentError, "GitHub IP must be an IPv4 or IPv6 tuple")
     unless valid_secret?(secret), do: raise(ArgumentError, "GitHub webhook secret is invalid")
+    unless valid_bot_login?(bot_login), do: raise(ArgumentError, "GitHub bot login is invalid")
 
-    %{bindings: bindings, confirmations: confirmations, ip: ip, port: port, secret: secret}
+    unless is_function(repository_access, 2),
+      do: raise(ArgumentError, "GitHub repository access checker is invalid")
+
+    %{
+      bindings: bindings,
+      bot_login: bot_login,
+      confirmations: confirmations,
+      ip: ip,
+      port: port,
+      repository_access: repository_access,
+      secret: secret
+    }
   end
 
   defp normalize_configuration!(configuration) when is_list(configuration) do
@@ -71,7 +94,7 @@ defmodule Ryker.GitHub.Server do
     keys = Map.keys(configuration)
 
     if Enum.sort(keys -- @fields) == [] and
-         Enum.all?([:bindings, :port, :secret], &(&1 in keys)),
+         Enum.all?([:bindings, :bot_login, :port, :secret], &(&1 in keys)),
        do: configuration,
        else:
          raise(
@@ -122,4 +145,10 @@ defmodule Ryker.GitHub.Server do
   end
 
   defp valid_secret?(secret), do: is_binary(secret) and byte_size(secret) in 32..1_024
+
+  defp valid_bot_login?(login),
+    do: is_binary(login) and Regex.match?(~r/\A[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})\z/, login)
+
+  defp unconfigured_repository_access(_binding, _payload),
+    do: {:error, {:github_repository_access_unavailable, :not_configured}}
 end

@@ -2,7 +2,7 @@ defmodule Ryker.ControlPlane.CapabilityTools do
   @moduledoc """
   Local-only implementations of the Slack chat capability contract.
 
-  Conversation Lab receives the same tool names and argument schemas as a
+  Chat receives the same tool names and argument schemas as a
   Slack turn, but every source and effect is fenced to the exact loopback Lab
   conversation. No call in this module owns or receives Slack credentials.
   """
@@ -47,7 +47,7 @@ defmodule Ryker.ControlPlane.CapabilityTools do
       definitions
     else
       raise ArgumentError,
-            "Conversation Lab Slack capability parity is incomplete: " <>
+            "Chat Slack capability parity is incomplete: " <>
               "implemented=#{inspect(@implemented_tools)} advertised=#{inspect(advertised_tools)}"
     end
   end
@@ -378,7 +378,7 @@ defmodule Ryker.ControlPlane.CapabilityTools do
       "name" => context.name,
       "purpose" => "Local Slack-parity testing without external traffic",
       "source_ref" => context.conversation_ref,
-      "topic" => "Conversation Lab"
+      "topic" => "Chat"
     }
 
     if include_resources do

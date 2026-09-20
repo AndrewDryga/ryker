@@ -13,8 +13,23 @@ defmodule Ryker.Accounting.Pricing do
     "codex:gpt-5.6-terra" => {"2", "0.20", "12"},
     "codex:gpt-5.6-luna" => {"0.20", "0.02", "1.20"}
   }
+  @effective_from ~D[2026-09-05]
+  @provenance "https://developers.openai.com/api/docs/pricing"
 
   def rates, do: @rates
+
+  def settings_defaults do
+    Enum.map(@rates, fn {target, {input, cached, output}} ->
+      %{
+        execution_target: target,
+        input_usd_per_million: Decimal.new(input),
+        cached_input_usd_per_million: Decimal.new(cached),
+        output_usd_per_million: Decimal.new(output),
+        effective_from: @effective_from,
+        provenance: @provenance
+      }
+    end)
+  end
 
   def enrich(query) do
     estimate =

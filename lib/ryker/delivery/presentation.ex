@@ -45,7 +45,7 @@ defmodule Ryker.Delivery.Presentation do
     end
   end
 
-  # The loopback Conversation Lab renders escaped accepted prose and typed
+  # Chat renders escaped accepted prose and typed
   # native cards directly from the durable Work turn. Cards are projected here
   # too so an invalid presentation repairs in the same Coop turn.
   defp render(%Episode{destination_transport: "control_plane"}, _document), do: :ok

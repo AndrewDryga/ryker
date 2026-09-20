@@ -160,17 +160,11 @@ defmodule Ryker.ControlPlane.InstructionsEditor do
         <label id="instructions-label" for="instructions-text">{if @scope == :global,
           do: "Global instructions",
           else: "Channel instructions"}</label>
-        <p id="instructions-editor-help">
-          {if @scope == :global,
-            do: "These instructions guide Ryker in every conversation.",
-            else:
-              "These instructions are sent with global instructions and are more specific for conflicting behavioral guidance in this channel. They cannot change permissions or fixed system rules."}
-        </p>
         <textarea
           id="instructions-text"
           name="text"
           rows="8"
-          aria-describedby="instructions-editor-help instructions-count instructions-timing"
+          aria-describedby="instructions-count"
           aria-invalid={to_string(not is_nil(@error))}
           placeholder={
             if @scope == :global,
@@ -188,10 +182,7 @@ defmodule Ryker.ControlPlane.InstructionsEditor do
           )}</time>
           by {@saved.saved_by}</span>
         </div>
-        <p id="instructions-timing" class="muted">
-          Changes apply to the next model turn. Work already submitted keeps its current instructions. Clear and save to remove this scope's instructions.
-        </p>
-        <p :if={@error} role="alert">{@error}</p>
+        <Ryker.ControlPlane.Components.form_feedback :if={@error} message={@error} tone={:error} />
         <div :if={@conflict} class="instructions-conflict">
           <h3>Currently saved</h3><pre id="instructions-current">{if @conflict.text == "", do: "No custom instructions.", else: @conflict.text}</pre><button
             type="button"
@@ -215,11 +206,6 @@ defmodule Ryker.ControlPlane.InstructionsEditor do
           >Cancel</button><span role="status">{@message}</span>
         </div>
       </form>
-      <p class="instructions-footnote">
-        Instructions do not grant permissions or change participation settings. They are always supplied;
-        <.link navigate="/guidance">Guidance</.link>
-        is recalled when relevant. An authorized task request can override a standing style default.
-      </p>
     </section>
     """
   end

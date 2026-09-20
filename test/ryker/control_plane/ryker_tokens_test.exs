@@ -50,8 +50,6 @@ defmodule Ryker.ControlPlane.RykerTokensTest do
     {"ryker-control-border", "ryker-surface-raised"},
     {"ryker-control-border", "ryker-surface-sunken"},
     {"ryker-selected-accent", "ryker-selected-bg"},
-    {"ryker-selected-bg", "ryker-surface-sunken"},
-    {"ryker-surface-inverse", "ryker-surface-sunken"},
     {"ryker-control-primary-bg", "ryker-surface"},
     {"ryker-control-primary-bg", "ryker-surface-raised"}
   ]
@@ -62,9 +60,10 @@ defmodule Ryker.ControlPlane.RykerTokensTest do
     assert tokens["ryker-mint"] == @identity.mint
     assert tokens["ryker-ivory"] == @identity.ivory
 
-    # The application surface stays light and ivory-based; graphite is the
-    # inverse block that mint sits on.
-    assert tokens["ryker-surface"] == @identity.ivory
+    # Graphite is the continuous application canvas. Ivory remains the
+    # primary text colour and mint is reserved for controls and boundaries.
+    assert tokens["ryker-surface"] == @identity.graphite
+    assert tokens["ryker-text"] == @identity.ivory
     assert tokens["ryker-surface-inverse"] == @identity.graphite
     assert tokens["ryker-accent"] == @identity.mint
 
@@ -88,9 +87,8 @@ defmodule Ryker.ControlPlane.RykerTokensTest do
   end
 
   test "mint is only ever paired with graphite" do
-    # Mint on ivory is 1.39:1 and on white 1.61:1: it cannot carry text or a
-    # boundary on the light surface. Every token that resolves to mint must be
-    # one whose documented background is graphite.
+    # Every role that resolves to mint is used on a graphite surface or as a
+    # mint control fill carrying graphite text.
     tokens = tokens()
     mint = @identity.mint
 
@@ -102,16 +100,16 @@ defmodule Ryker.ControlPlane.RykerTokensTest do
 
     assert mint_roles ==
              Enum.sort(
-               ~w(ryker-mint ryker-accent ryker-control-primary-text ryker-selected-accent ryker-focus-inner)
+               ~w(ryker-mint ryker-accent ryker-control-primary-bg ryker-selected-accent ryker-focus-ring)
              )
 
-    for light <- ~w(ryker-surface ryker-surface-raised ryker-surface-sunken) do
-      assert contrast(tokens, "ryker-mint", light) < 3.0
+    for dark <- ~w(ryker-surface ryker-surface-raised ryker-surface-sunken) do
+      assert contrast(tokens, "ryker-mint", dark) >= 3.0
     end
 
     for text <-
           ~w(ryker-text ryker-text-secondary ryker-accent-strong ryker-success ryker-warning ryker-error) do
-      refute tokens[text] == mint, "--#{text} would put mint body text on a light surface"
+      refute tokens[text] == mint, "--#{text} would use brand mint as semantic or body text"
     end
   end
 
@@ -203,11 +201,11 @@ defmodule Ryker.ControlPlane.RykerTokensTest do
       refute body =~ ~r/--[a-z-]+:\s*#[0-9a-fA-F]{3,6}/, "#{name} still hard-codes a color"
     end
 
-    # Body text and the surface keep their meaning on the light surface.
+    # Body text and the surface keep their meaning on the dark application canvas.
     [_, room] = Regex.run(~r/\n\.control-room \{([^}]+)\}/, workspace)
     assert room =~ "background:var(--ryker-surface)"
     assert room =~ "color:var(--ryker-text)"
-    assert room =~ "color-scheme:light"
+    assert room =~ "color-scheme:dark"
   end
 
   test "mint-on-graphite drives the brand block, primary buttons, focus rings and selection" do
@@ -244,7 +242,7 @@ defmodule Ryker.ControlPlane.RykerTokensTest do
 
     [_, brand] = Regex.run(~r/\n\.app-brand \{([^}]+)\}/, workspace)
     assert brand =~ "min-height:44px"
-    assert brand =~ "background:var(--ryker-surface-inverse)"
+    assert brand =~ "background:var(--ryker-surface-sunken)"
     assert brand =~ "padding:16px"
 
     [_, image] = Regex.run(~r/\n\.app-brand img \{([^}]+)\}/, workspace)
@@ -335,6 +333,17 @@ defmodule Ryker.ControlPlane.RykerTokensTest do
     # The base rules /static/app.css used to carry open control-plane.css.
     assert control_plane_css() =~ ~r/\A(\/\*[^*]*\*\/\s*)?:root\{color-scheme:dark;/
     assert control_plane_css() =~ "font-family"
+  end
+
+  test "application styles use semantic color roles rather than page-local literals" do
+    for {name, css} <- [
+          {"workspace.css", workspace_css()},
+          {"control-plane.css", control_plane_css()}
+        ] do
+      refute css =~ ~r/#[0-9a-fA-F]{3,8}\b/, "#{name} contains a literal color"
+      refute css =~ ~r/\brgba?\s*\(/, "#{name} contains a literal rgb color"
+      refute css =~ ~r/\bhsla?\s*\(/, "#{name} contains a literal hsl color"
+    end
   end
 
   defp tokens do

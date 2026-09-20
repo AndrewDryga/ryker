@@ -36,7 +36,6 @@ defmodule Ryker.GitHub.AuthTest do
   defp binding! do
     assert {:ok, binding} =
              Binding.new(%{
-               authorized_actor_ids: [7, 8],
                installation_id: 41,
                name: "github-main",
                repository_full_name: "octo/example",

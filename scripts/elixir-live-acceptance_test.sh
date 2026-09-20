@@ -9,15 +9,13 @@ runtime_env="$work/runtime.env"
 release="$work/ryker"
 
 printf '%s\n' \
-  'DATABASE_URL=ecto://ryker:acceptance@127.0.0.1/ryker' \
-  'SLACK_BOT_TOKEN=xoxb-acceptance' >"$runtime_env"
+  'DATABASE_URL=ecto://ryker:acceptance@127.0.0.1/ryker' >"$runtime_env"
 # These literals are the source of the fake release and expand when that release runs.
 # shellcheck disable=SC2016
 printf '%s\n' \
   '#!/usr/bin/env bash' \
   'set -euo pipefail' \
   '[[ ${DATABASE_URL:-} == ecto://ryker:acceptance@127.0.0.1/ryker ]] || exit 7' \
-  '[[ ${SLACK_BOT_TOKEN:-} == xoxb-acceptance ]] || exit 7' \
   '[[ ${RYKER_LIVE_CHANNEL:-} == C0BLU1GACKC ]] || exit 7' \
   '[[ ${RYKER_LIVE_TIMEOUT_SECONDS:-} == 600 ]] || exit 7' \
   '[[ $1 == eval ]] || exit 7' \
@@ -25,7 +23,7 @@ printf '%s\n' \
 chmod 0700 "$release"
 
 set +e
-output=$(DATABASE_URL=wrong SLACK_BOT_TOKEN=wrong \
+output=$(DATABASE_URL=wrong \
   RYKER_RUNTIME_ENV="$runtime_env" RYKER_ELIXIR_RELEASE="$release" \
   "$root/scripts/elixir-live-acceptance.sh" C0BLU1GACKC 2>&1)
 status=$?

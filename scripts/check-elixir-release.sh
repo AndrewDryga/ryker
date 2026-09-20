@@ -83,12 +83,15 @@ migration="$scratch/lib/ryker-$expected_version/priv/repo/migrations/20260830000
 
 for asset in \
   README.md \
+  compose.yml \
+  install.sh \
+  Dockerfile \
+  deploy/compose/entrypoint.sh \
   deploy/nginx/ryker.conf \
-  deploy/systemd/ryker.service \
-  deploy/systemd/ryker.env.example \
   docs/elixir-ingress-admission.md \
   docs/operations.md \
-  docs/releasing.md; do
+  docs/releasing.md \
+  scripts/compose.sh; do
   if [[ ! -f $scratch/share/ryker/$asset ]]; then
     echo "release is missing operator asset share/ryker/$asset" >&2
     exit 1
@@ -106,6 +109,7 @@ fi
 }
 
 DATABASE_URL=ecto://release-check:release-check@127.0.0.1/ryker_release_check \
+  RYKER_CREDENTIAL_KEY=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA= \
   $binary eval \
   'if Code.ensure_loaded?(Ryker.Release), do: System.halt(0), else: System.halt(1)'
 

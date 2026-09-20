@@ -891,6 +891,70 @@ defmodule Ryker.GitHub.ClientTest do
     end
   end
 
+  test "reads and acts on only the exact current Actions attempt" do
+    sha = String.duplicate("a", 40)
+    run = workflow_run(91, 2, "completed", sha)
+
+    {:ok, requester} =
+      FakeRequester.start([
+        response(200, run),
+        response(200, %{
+          "jobs" => [workflow_job(301, sha)],
+          "total_count" => 1
+        }),
+        response(200, run),
+        response(201, %{}),
+        response(200, run)
+      ])
+
+    github = client(requester)
+
+    assert {:ok, evidence} = Client.read_ci_attempt(github, "octo/example", 91, 2)
+    assert evidence["attempt"] == 2
+    assert evidence["artifacts_path"] == "/repos/octo/example/actions/runs/91/artifacts"
+
+    assert [%{"annotations_path" => annotations, "logs_path" => logs}] = evidence["jobs"]
+    assert annotations == "/repos/octo/example/check-runs/301/annotations"
+    assert logs == "/repos/octo/example/actions/jobs/301/logs"
+
+    assert {:ok, %{"requested_attempt" => 3}} =
+             Client.rerun_failed_ci(github, "octo/example", 91, 2)
+
+    assert Client.cancel_ci(github, "octo/example", 91, 1) ==
+             {:error, {:github_action_unavailable, :stale_attempt}}
+  end
+
+  test "publishes a review only while the requested head is current" do
+    current = String.duplicate("a", 40)
+    stale = String.duplicate("b", 40)
+
+    {:ok, requester} =
+      FakeRequester.start([
+        response(200, %{"head" => %{"sha" => current}}),
+        response(201, %{
+          "html_url" => "https://github.com/octo/example/pull/42#pullrequestreview-77",
+          "id" => 77
+        }),
+        response(200, %{"head" => %{"sha" => current}})
+      ])
+
+    github = client(requester)
+
+    assert {:ok, %{"commit_id" => ^current, "review_id" => 77}} =
+             Client.submit_review(
+               github,
+               "octo/example",
+               42,
+               current,
+               "REQUEST_CHANGES",
+               "One actionable finding.",
+               [%{"body" => "Fix this.", "line" => 4, "path" => "lib/a.ex", "side" => "RIGHT"}]
+             )
+
+    assert Client.submit_review(github, "octo/example", 42, stale, "COMMENT", "Done.", []) ==
+             {:error, {:github_action_unavailable, :stale_head}}
+  end
+
   defp client(requester) do
     assert {:ok, client} = Client.new(http: requester, requester: FakeRequester)
     client
@@ -948,6 +1012,32 @@ defmodule Ryker.GitHub.ClientTest do
       "number" => 42,
       "state" => "open",
       "user" => %{"id" => 99, "type" => "Bot"}
+    }
+  end
+
+  defp workflow_run(id, attempt, status, sha) do
+    %{
+      "conclusion" => if(status == "completed", do: "failure", else: nil),
+      "head_sha" => sha,
+      "html_url" => "https://github.com/octo/example/actions/runs/#{id}",
+      "id" => id,
+      "repository" => %{"full_name" => "octo/example"},
+      "run_attempt" => attempt,
+      "status" => status
+    }
+  end
+
+  defp workflow_job(id, sha) do
+    %{
+      "completed_at" => "2026-09-20T10:01:00Z",
+      "conclusion" => "failure",
+      "head_sha" => sha,
+      "html_url" => "https://github.com/octo/example/actions/runs/91/job/#{id}",
+      "id" => id,
+      "name" => "test",
+      "started_at" => "2026-09-20T10:00:00Z",
+      "status" => "completed",
+      "steps" => []
     }
   end
 end

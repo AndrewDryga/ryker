@@ -1,6 +1,8 @@
 defmodule Ryker.Emisar.EndToEndTest do
   use Ryker.DataCase, async: true
 
+  import Ecto.Query
+
   alias Ryker.Delivery.Adapters
 
   alias Ryker.Emisar.{
@@ -13,8 +15,10 @@ defmodule Ryker.Emisar.EndToEndTest do
   }
 
   alias Ryker.Episodes
+  alias Ryker.Episodes.Episode
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Repo
+  alias Ryker.Settings
   alias Ryker.Slack.Publisher
   alias Ryker.State.{KnowledgeSnapshot, Record, Records}
   alias Ryker.StateTools.Tools
@@ -23,6 +27,41 @@ defmodule Ryker.Emisar.EndToEndTest do
 
   @now ~U[2026-08-29 12:00:00.000000Z]
   @policy_digest String.duplicate("a", 64)
+  @connection_ref "production"
+
+  setup do
+    {:ok, snapshot} = Settings.initialize("control-plane:local")
+
+    {:ok, snapshot} =
+      Settings.put_emisar_connection(
+        %{
+          ref: @connection_ref,
+          display_name: "Production approvals",
+          rpc_url: "https://emisar.example/mcp",
+          account_ref: "account-acme",
+          account_label: "Acme production",
+          enabled_for_new_work: true,
+          monitoring_enabled: true,
+          verified_at: @now
+        },
+        snapshot.installation.revision,
+        "control-plane:local"
+      )
+
+    {:ok, _snapshot} =
+      Settings.put_emisar_binding(
+        %{
+          scope_kind: :installation_purpose,
+          scope_ref: "standard",
+          purpose: :standard,
+          connection_ref: @connection_ref
+        },
+        snapshot.installation.revision,
+        "control-plane:local"
+      )
+
+    :ok
+  end
 
   defmodule EmisarAPI do
     def wait_for_run({test_pid, state}, run_id) do
@@ -79,8 +118,7 @@ defmodule Ryker.Emisar.EndToEndTest do
              Tools.call(
                "record_emisar_approval",
                approval_arguments(),
-               binding: %{state_token: Records.token(claim.turn)},
-               emisar_rpc_url: "https://emisar.example/mcp"
+               binding: %{state_token: Records.token(claim.turn), session: claim.session}
              )
 
     approval_ref = recorded["record_ref"]
@@ -139,6 +177,7 @@ defmodule Ryker.Emisar.EndToEndTest do
              ApprovalDispatcher.run_once(
                api: EmisarAPI,
                client: {self(), terminal_run_state()},
+               connection_ref: @connection_ref,
                lease_seconds: 60,
                poll_seconds: 5,
                presentation: adapters,
@@ -162,7 +201,7 @@ defmodule Ryker.Emisar.EndToEndTest do
     assert status["approval_url"] =~ "/approvals/apr-e2e"
     assert delivery_ref == first.turn.delivery_ref
 
-    approval = Approvals.get_by_request_id("apr-e2e")
+    approval = Approvals.get_by_request_id(@connection_ref, "apr-e2e")
     assert :ok = ApprovalPresenter.publish(approval, terminal_run_state(), adapters)
     refute_receive {:approval_status_update, _, _, _, _}
 
@@ -201,6 +240,10 @@ defmodule Ryker.Emisar.EndToEndTest do
     assert resumed.state == :working
     assert resumed.owner_kind == :turn
 
+    resumed
+    |> Ecto.Changeset.change(updated_at: ~U[2000-01-01 00:00:00.000000Z])
+    |> Repo.update!()
+
     assert %Record{status: :answered} = Repo.get_by!(Record, ref: approval_ref)
 
     assert {:ok, continuation_claim} =
@@ -222,7 +265,12 @@ defmodule Ryker.Emisar.EndToEndTest do
     assert terminal_submission.prompt =~ "wait_for_run"
     assert terminal_submission.prompt =~ "Never call run_action"
 
-    assert Repo.aggregate(Turn, :count, :id) == 2
+    assert Repo.aggregate(
+             from(turn in Turn, where: turn.episode_id == ^first.episode.id),
+             :count,
+             :id
+           ) ==
+             2
 
     assert Enum.map(Episodes.list_events(first.episode.key), & &1.kind) == [
              :input_admitted,
@@ -242,8 +290,7 @@ defmodule Ryker.Emisar.EndToEndTest do
              Tools.call(
                "record_emisar_approval",
                approval_arguments(),
-               binding: %{state_token: Records.token(claim.turn)},
-               emisar_rpc_url: "https://emisar.example/mcp"
+               binding: %{state_token: Records.token(claim.turn), session: claim.session}
              )
 
     {:ok, fake} =
@@ -287,7 +334,7 @@ defmodule Ryker.Emisar.EndToEndTest do
                }
              })
 
-    approval = Approvals.get_by_request_id("apr-e2e")
+    approval = Approvals.get_by_request_id(@connection_ref, "apr-e2e")
     held = held_run_state(review(1, "pending"))
 
     # The first receipt is a change: the card gains the tally and the rationale.
@@ -295,7 +342,7 @@ defmodule Ryker.Emisar.EndToEndTest do
     assert_receive {:approval_status_update, _, _, %{"emisar_approval_status" => shown}, _}
     assert shown["review"]["approved_count"] == 1
 
-    approval = Approvals.get_by_request_id("apr-e2e")
+    approval = Approvals.get_by_request_id(@connection_ref, "apr-e2e")
     held = held_run_state(review(1, "pending"))
 
     # The first receipt is a change: the card gains the tally and the rationale.
@@ -304,7 +351,7 @@ defmodule Ryker.Emisar.EndToEndTest do
     assert shown["review"]["approved_count"] == 1
 
     assert {:ok, %{approval: observed}} =
-             Approvals.observe("apr-e2e", lease!(), held, 5)
+             Approvals.observe(@connection_ref, "apr-e2e", lease!(), held, 5)
 
     assert observed.review_digest == Review.digest(held.review)
 
@@ -333,7 +380,9 @@ defmodule Ryker.Emisar.EndToEndTest do
   end
 
   defp lease! do
-    assert {:ok, %{lease_ref: lease_ref}} = Approvals.claim_next("repaint-monitor", 60)
+    assert {:ok, %{lease_ref: lease_ref}} =
+             Approvals.claim_next(@connection_ref, "repaint-monitor", 60)
+
     lease_ref
   end
 
@@ -395,7 +444,14 @@ defmodule Ryker.Emisar.EndToEndTest do
 
     assert {:ok, _transition} = Episodes.apply(command)
     assert {:ok, _session} = Custody.pin_episode(id, "work-read-only", @policy_digest)
+
+    Episode
+    |> Repo.get!(id)
+    |> Ecto.Changeset.change(updated_at: ~U[2000-01-01 00:00:00.000000Z])
+    |> Repo.update!()
+
     assert {:ok, claim} = Custody.claim_next("emisar-e2e:#{suffix}", 60, :work)
+    assert claim.episode.id == id
     claim
   end
 

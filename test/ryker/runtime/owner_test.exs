@@ -148,7 +148,7 @@ defmodule Ryker.Runtime.OwnerTest do
           name: "alerts",
           adapter_kind: :universal,
           auth_kind: :hmac_sha256,
-          secret_name: "UNREGISTERED_SIGNING_KEY",
+          secret_name: "unregistered",
           destination_transport: "control_plane",
           destination_conversation_ref: "control-plane:lab:missing",
           context_ref: "ryker"
@@ -314,13 +314,12 @@ defmodule Ryker.Runtime.OwnerTest do
       state_tools: %{ip: {127, 0, 0, 1}, port: free_port()},
       worker_gateway: nil,
       github_listener: %{ip: {127, 0, 0, 1}, port: free_port()},
+      github_public_url: "http://127.0.0.1:4319/v1/github",
       webhook_listener: %{ip: {127, 0, 0, 1}, port: free_port()},
+      webhook_public_url: "http://127.0.0.1:4320",
       storage_root: "/tmp/ryker-owner-test",
-      github_api_url: "https://api.github.com",
-      github_app_id: nil,
-      emisar_rpc_url: "https://emisar.dev/api/mcp/rpc",
-      log_level: :warning,
-      webhook_secret_names: []
+      credential_key: :binary.copy(<<73>>, 32),
+      log_level: :warning
     }
   end
 

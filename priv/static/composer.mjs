@@ -7,12 +7,33 @@ import {followSentDraft} from "./conversation.mjs"
 export function createComposer({pushEvent, active, storage, location: loc}) {
   let sending = false
 
+  function showFeedback(feedback, message, tone) {
+    if (!feedback) return
+    const text = feedback.querySelector?.(".form-feedback-message")
+    if (text) text.textContent = message
+    else feedback.textContent = message
+    const icon = feedback.querySelector?.(".form-feedback-icon")
+    if (icon) icon.textContent = tone === "success" ? "✓" : tone === "info" ? "i" : "!"
+    feedback.hidden = message === ""
+    if (feedback.dataset) feedback.dataset.tone = tone
+    feedback.setAttribute?.("role", tone === "error" ? "alert" : "status")
+    if (feedback.classList) {
+      feedback.classList.remove(
+        "form-feedback-error",
+        "form-feedback-warning",
+        "form-feedback-success",
+        "form-feedback-info"
+      )
+      feedback.classList.add(`form-feedback-${tone}`)
+    }
+  }
+
   // The attachment limits are said only when a choice breaks them, beside
   // the composer, and the reason clears as soon as the choice is fixed.
   function showFileProblem(form, problem) {
     const field = form.querySelector("input[type=file]")
     const error = form.querySelector(".composer-error")
-    if (error) { error.textContent = problem; error.hidden = problem === "" }
+    showFeedback(error, problem, "error")
     if (problem) field?.setAttribute("aria-invalid", "true")
     else field?.removeAttribute("aria-invalid")
   }
@@ -51,8 +72,7 @@ export function createComposer({pushEvent, active, storage, location: loc}) {
     const status = form.querySelector(".composer-status")
     button.disabled = true
     if (files) files.disabled = true
-    status.hidden = false
-    status.textContent = "Saving message…"
+    showFeedback(status, "Saving message…", "info")
     try {
       await sendDraft(form.action, body)
       if (!active() || !form.isConnected) return
@@ -60,14 +80,18 @@ export function createComposer({pushEvent, active, storage, location: loc}) {
       try { store = storage() } catch (_) { store = {removeItem() {}} }
       acceptDrafts(drafts, store)
       if (files) files.value = ""
-      status.textContent = "Message saved. Admission progress appears above."
+      showFeedback(status, "Message saved. Admission progress appears above.", "success")
       pushEvent("refresh", {})
       followSentDraft(form, pushEvent)
     } catch (error) {
       if (!active() || !form.isConnected) return
-      status.textContent = error.message.startsWith("rejected:")
-        ? "The server rejected this message. Your draft is preserved. Check message and file limits, or reload the conversation if its form has expired."
-        : "Acceptance was not confirmed. Your draft is preserved. Check the conversation before sending again; no automatic retry was made."
+      showFeedback(
+        status,
+        error.message.startsWith("rejected:")
+          ? "The server rejected this message. Your draft is preserved. Check message and file limits, or reload the conversation if its form has expired."
+          : "Acceptance was not confirmed. Your draft is preserved. Check the conversation before sending again; no automatic retry was made.",
+        "error"
+      )
       pushEvent("refresh", {})
     } finally {
       sending = false

@@ -63,6 +63,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.ToolActivity do
 
   defp tool_started_step(event, disclosed) do
     input = event.payload["input"]
+    diagnostic? = setup_diagnostic?(event.payload)
 
     step(
       "activity-#{event.id}",
@@ -78,12 +79,16 @@ defmodule Ryker.ControlPlane.EpisodeTrace.ToolActivity do
               {"Tool call", event.payload["tool_call_id"]}
             ] ++ activity_tool_details(input)
           ),
-        stage: "Tool call",
+        stage: if(diagnostic?, do: "Setup diagnostic", else: "Tool call"),
         tool_kind: event.payload["kind"],
         path_context: safe_path_context(event.payload["path_context"]),
         state: "started",
         summary: activity_tool_summary(input),
-        title: activity_tool_title(event.payload),
+        title:
+          if(diagnostic?,
+            do: setup_diagnostic_title(event.payload),
+            else: activity_tool_title(event.payload)
+          ),
         tone: nil
       }
     )
@@ -91,6 +96,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.ToolActivity do
 
   defp tool_completed_step(event, disclosed) do
     status = event.payload["status"] || "completed"
+    diagnostic? = setup_diagnostic?(event.payload)
 
     step(
       "activity-#{event.id}",
@@ -105,12 +111,16 @@ defmodule Ryker.ControlPlane.EpisodeTrace.ToolActivity do
             {"Tool call", event.payload["tool_call_id"]},
             {"Status", status}
           ]),
-        stage: "Tool call",
+        stage: if(diagnostic?, do: "Setup diagnostic", else: "Tool call"),
         tool_kind: event.payload["kind"],
         path_context: safe_path_context(event.payload["path_context"]),
         state: status,
-        summary: tool_outcome(event.payload, status),
-        title: event.payload["title"] || "Tool completion recorded",
+        summary: activity_outcome(event.payload, status, diagnostic?),
+        title:
+          if(diagnostic?,
+            do: setup_diagnostic_title(event.payload),
+            else: event.payload["title"] || "Tool completion recorded"
+          ),
         tone: activity_status_tone(status)
       }
     )
@@ -119,6 +129,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.ToolActivity do
   defp complete_tool(step, event, disclosed) do
     status = event.payload["status"] || "completed"
     duration_ms = nonnegative_diff(event.occurred_at, step.at)
+    diagnostic? = setup_diagnostic?(event.payload) || step.stage == "Setup diagnostic"
 
     %{
       step
@@ -127,7 +138,9 @@ defmodule Ryker.ControlPlane.EpisodeTrace.ToolActivity do
         artifacts: merge_artifacts(step[:artifacts] || [], tool_artifacts(event, disclosed)),
         tool_kind: event.payload["kind"] || step.tool_kind,
         path_context: safe_path_context(event.payload["path_context"] || step.path_context),
-        summary: tool_outcome(event.payload, status),
+        stage: if(diagnostic?, do: "Setup diagnostic", else: "Tool call"),
+        summary: activity_outcome(event.payload, status, diagnostic?),
+        title: if(diagnostic?, do: setup_diagnostic_title(event.payload), else: step.title),
         details:
           step.details ++
             compact_details([
@@ -331,13 +344,44 @@ defmodule Ryker.ControlPlane.EpisodeTrace.ToolActivity do
 
   defp tool_outcome(payload, "failed") do
     case payload["error"] || payload["output"] || payload["content"] do
-      nil -> "The tool failed. Its error response was not recorded for this older call."
+      nil -> "The tool failed. Its error detail was not retained."
       value -> value |> InspectionRedactor.artifact(max_bytes: 300) |> Map.fetch!(:text)
     end
   end
 
   defp tool_outcome(_payload, "cancelled"), do: "The tool call was cancelled."
   defp tool_outcome(_payload, _status), do: nil
+
+  defp activity_outcome(payload, "failed", true) do
+    case payload["error"] || payload["output"] || payload["content"] do
+      nil -> "Setup failed. Its error detail was not retained."
+      value -> value |> InspectionRedactor.artifact(max_bytes: 300) |> Map.fetch!(:text)
+    end
+  end
+
+  defp activity_outcome(payload, status, _diagnostic?), do: tool_outcome(payload, status)
+
+  defp setup_diagnostic?(payload) do
+    title = payload["title"] || ""
+    input = if is_map(payload["input"]), do: payload["input"], else: %{}
+    operation = input["operation"] || input["tool"] || ""
+
+    String.starts_with?(title, "mcp_startup.") ||
+      String.starts_with?(operation, "mcp_startup.")
+  end
+
+  defp setup_diagnostic_title(payload) do
+    input = if is_map(payload["input"]), do: payload["input"], else: %{}
+
+    name =
+      (payload["title"] || input["operation"] || "MCP")
+      |> String.replace_prefix("mcp_startup.", "")
+      |> String.trim()
+
+    if name == "",
+      do: "Tool connection setup",
+      else: "#{String.capitalize(name)} connection setup"
+  end
 
   defp activity_tool_key(event),
     do:

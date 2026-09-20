@@ -734,9 +734,9 @@ defmodule Ryker.Observability do
 
   defp unconfigured_dependencies(snapshot) do
     [
-      emisar: snapshot.emisar.enabled,
+      emisar: Enum.any?(snapshot.emisar_connections, & &1.monitoring_enabled),
       github: snapshot.github.enabled,
-      learning: snapshot.learning.enabled,
+      learning: learning_runtime_expected?(snapshot),
       publication: snapshot.publication.enabled,
       slack: snapshot.slack.enabled,
       webhooks: Enum.any?(snapshot.webhook_sources, & &1.enabled),
@@ -746,6 +746,14 @@ defmodule Ryker.Observability do
       desired and is_nil(Application.get_env(:ryker, name))
     end)
     |> Enum.map(&elem(&1, 0))
+  end
+
+  defp learning_runtime_expected?(snapshot) do
+    snapshot.learning.enabled and Defaults.execution() == :fleet and
+      is_binary(snapshot.work.workspace_ref) and
+      Enum.any?(snapshot.policy_bindings, fn binding ->
+        binding.purpose == :learning and binding.scope_kind == :installation
+      end)
   end
 
   defp runtime_status do

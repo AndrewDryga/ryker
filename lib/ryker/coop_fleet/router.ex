@@ -37,7 +37,6 @@ defmodule Ryker.CoopFleet.Router do
         [token: token, binding: binding, capabilities: state_tools.capabilities]
         # Never sign history cursors with the caller's active-turn bearer.
         |> Keyword.put(:cursor_secret, Map.get(state_tools, :token_secret))
-        |> maybe_put(:emisar_rpc_url, Map.get(state_tools, :emisar_rpc_url))
         |> maybe_put(:additional_tools, Map.get(state_tools, :additional_tools))
         |> maybe_put(:additional_call, Map.get(state_tools, :additional_call))
         |> maybe_put(:answer_authorizer, Map.get(state_tools, :answer_authorizer))

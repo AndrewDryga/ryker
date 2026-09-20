@@ -1,8 +1,7 @@
 /* Ryker application tokens.
    Identity source: brand/ryker/README.md (graphite #111315, mint #36E6A5, ivory #F2EEE5) and
    .agent/kb/rules/ryker-brand.md. Loaded before control-plane.css and workspace.css, whose root
-   variables point at these roles. Mint lives on graphite only: the light surface is ivory-based
-   and every text or boundary on it uses graphite, its neutrals, or the deep accent derivative.
+   variables point at these roles. Mint lives on graphite; ivory is the primary text color.
    Fonts are the bundled, unmodified IBM Plex families (license: /assets/brand/fonts/LICENSE.txt);
    the logo lettering is supplied outlines and is never typed in them.
    test/ryker/control_plane/ryker_tokens_test.exs parses this file and proves the contrast pairs. */
@@ -17,45 +16,64 @@
   /* Type: Plex for supporting text and technical identifiers, system fallbacks while it loads */
   --ryker-font-sans:"IBM Plex Sans","Avenir Next",Avenir,"Segoe UI",sans-serif;
   --ryker-font-mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
-  /* Surfaces: the light application surface is ivory; graphite is the inverse block mint sits on */
-  --ryker-surface:#f2eee5;
-  --ryker-surface-raised:#ffffff;
-  --ryker-surface-sunken:#e8e3d8;
+  /* One dark application canvas with restrained surface steps. */
+  --ryker-surface:#111315;
+  --ryker-surface-raised:#181c1e;
+  --ryker-surface-emphasis:#202623;
+  --ryker-surface-sunken:#0d0f10;
   --ryker-surface-inverse:#111315;
   /* Text */
-  --ryker-text:#111315;
-  --ryker-text-secondary:#555b57;
+  --ryker-text:#f2eee5;
+  --ryker-text-secondary:#a5ada8;
   --ryker-text-inverse:#f2eee5;
   --ryker-text-inverse-secondary:#aab2ad;
   /* Lines: decorative rules may be quiet; control boundaries clear 3:1 on every light surface */
-  --ryker-stroke:#d3cdc0;
-  --ryker-stroke-strong:#767b77;
+  --ryker-stroke:#2d3431;
+  --ryker-stroke-strong:#626d67;
   /* Accent: mint on graphite; the deep derivative carries links and accent text on light surfaces */
   --ryker-accent:#36e6a5;
-  --ryker-accent-strong:#0b6b4a;
-  --ryker-accent-soft:#d5f3e6;
+  --ryker-accent-strong:#6df0bd;
+  --ryker-accent-soft:#19392e;
   /* Controls */
-  --ryker-control-bg:#ffffff;
-  --ryker-control-border:#767b77;
-  --ryker-control-text:#111315;
-  --ryker-control-primary-bg:#111315;
-  --ryker-control-primary-text:#36e6a5;
-  --ryker-control-primary-hover-bg:#23272a;
+  --ryker-control-bg:#181c1e;
+  --ryker-control-border:#626d67;
+  --ryker-control-text:#f2eee5;
+  --ryker-control-height:44px;
+  --ryker-control-primary-bg:#36e6a5;
+  --ryker-control-primary-text:#111315;
+  --ryker-control-primary-hover-bg:#6df0bd;
   /* States */
-  --ryker-hover-bg:#dcd6c9;
-  --ryker-selected-bg:#111315;
+  --ryker-hover-bg:#202623;
+  --ryker-selected-bg:#202824;
   --ryker-selected-text:#f2eee5;
   --ryker-selected-accent:#36e6a5;
-  --ryker-focus-ring:#111315;
-  --ryker-focus-inner:#36e6a5;
-  --ryker-disabled-bg:#e8e3d8;
-  --ryker-disabled-text:#7c817d;
-  --ryker-disabled-border:#c9c3b8;
+  --ryker-focus-ring:#36e6a5;
+  --ryker-focus-inner:#111315;
+  --ryker-disabled-bg:#202426;
+  --ryker-disabled-text:#737b77;
+  --ryker-disabled-border:#363d39;
   /* Semantic: the word or icon beside the color carries the meaning; a brand color never does */
-  --ryker-success:#2e6b45;
-  --ryker-success-soft:#e2f0e5;
-  --ryker-warning:#805315;
-  --ryker-warning-soft:#fbefdc;
-  --ryker-error:#a32d30;
-  --ryker-error-soft:#fbe8e6;
+  --ryker-success:#8bd6a7;
+  --ryker-success-soft:#183326;
+  --ryker-warning:#e6bc72;
+  --ryker-warning-soft:#382b18;
+  --ryker-error:#ff9a90;
+  --ryker-error-soft:#402321;
+  --ryker-info:#8fc7ee;
+  --ryker-info-soft:#172b38;
+
+  --ryker-data-execution:#75c58e;
+  --ryker-data-queue:#e6bc72;
+  --ryker-data-host:#8fc7ee;
+  --ryker-data-primary:#8fbc77;
+  --ryker-data-primary-hover:#6df0bd;
+  --ryker-source-neutral:#789688;
+  --ryker-source-policy:#8da9e8;
+  --ryker-source-conversation:#75c996;
+  --ryker-source-memory:#d4a765;
+  --ryker-source-tools:#aa8bd7;
+
+  --ryker-shadow-soft:rgb(0 0 0 / 18%);
+  --ryker-shadow-medium:rgb(0 0 0 / 36%);
+  --ryker-shadow-overlay:rgb(0 0 0 / 58%);
 }

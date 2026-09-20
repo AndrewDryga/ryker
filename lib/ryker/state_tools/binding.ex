@@ -82,7 +82,10 @@ defmodule Ryker.StateTools.Binding do
              :repository_ref,
              :coop_session_id,
              :authority_digest,
-             :policy_digest
+             :policy_digest,
+             :emisar_connection_ref,
+             :emisar_account_ref,
+             :emisar_rpc_url
            ]),
          true <- is_binary(binding.turn.lease_ref),
          {episode, turn} <-

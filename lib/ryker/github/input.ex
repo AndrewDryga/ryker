@@ -29,6 +29,17 @@ defmodule Ryker.GitHub.Input do
       "edited" => :edit
     }
   }
+  @repository_event_actions %{
+    "check_run" => ~w(created rerequested completed requested_action),
+    "check_suite" => ~w(completed requested rerequested),
+    "deployment" => ~w(created),
+    "deployment_status" => ~w(created),
+    "pull_request_review_thread" => ~w(resolved unresolved),
+    "release" => ~w(created edited deleted prereleased published released unpublished),
+    "workflow_job" => ~w(queued in_progress completed waiting),
+    "workflow_run" => ~w(requested in_progress completed)
+  }
+  @actionless_repository_events ~w(push status)
   @lifecycle_actions %{
     "issues" => %{
       "assigned" => 1,
@@ -87,7 +98,7 @@ defmodule Ryker.GitHub.Input do
          {:ok, event_action} <- event_kind(event.event_name, event.payload),
          :ok <- Binding.authorize_payload(binding, event.payload),
          {:ok, details} <- event_details(event.event_name, event.payload, event_action),
-         {:ok, actor} <- actor(event.payload, binding),
+         {:ok, actor} <- actor(event.event_name, event.payload, binding),
          {:ok, occurred_at} <- occurred_at(details.item) do
       build_input(event, binding, details, actor, occurred_at)
     end
@@ -135,34 +146,54 @@ defmodule Ryker.GitHub.Input do
   defp event_kind(event_name, %{"action" => action}) when is_binary(action) do
     cond do
       actions = @actions[event_name] ->
-        case Map.fetch(actions, action) do
-          {:ok, event_kind} ->
-            {:ok,
-             %{
-               event_kind: event_kind,
-               revision_rank: Map.fetch!(@revision_action_ranks, event_kind)
-             }}
-
-          :error ->
-            {:error, {:invalid_github_input, :action}}
-        end
+        action_kind(actions, action)
 
       actions = @lifecycle_actions[event_name] ->
-        case Map.fetch(actions, action) do
-          {:ok, rank} -> {:ok, %{event_kind: :event, revision_rank: rank}}
-          :error -> {:error, {:invalid_github_input, :action}}
-        end
+        lifecycle_kind(actions, action)
+
+      actions = @repository_event_actions[event_name] ->
+        repository_kind(actions, action)
 
       true ->
         {:error, {:invalid_github_input, :event}}
     end
   end
 
+  defp event_kind(event_name, _payload) when event_name in @actionless_repository_events,
+    do: {:ok, %{event_kind: :event, revision_rank: 1}}
+
   defp event_kind(event_name, _payload)
        when is_map_key(@actions, event_name) or is_map_key(@lifecycle_actions, event_name),
        do: {:error, {:invalid_github_input, :action}}
 
   defp event_kind(_event_name, _payload), do: {:error, {:invalid_github_input, :event}}
+
+  defp action_kind(actions, action) do
+    case Map.fetch(actions, action) do
+      {:ok, event_kind} ->
+        {:ok,
+         %{
+           event_kind: event_kind,
+           revision_rank: Map.fetch!(@revision_action_ranks, event_kind)
+         }}
+
+      :error ->
+        {:error, {:invalid_github_input, :action}}
+    end
+  end
+
+  defp lifecycle_kind(actions, action) do
+    case Map.fetch(actions, action) do
+      {:ok, rank} -> {:ok, %{event_kind: :event, revision_rank: rank}}
+      :error -> {:error, {:invalid_github_input, :action}}
+    end
+  end
+
+  defp repository_kind(actions, action) do
+    if action in actions,
+      do: {:ok, %{event_kind: :event, revision_rank: 1}},
+      else: {:error, {:invalid_github_input, :action}}
+  end
 
   defp event_details("issue_comment", payload, event_action) do
     with %{"comment" => %{"id" => item_id} = item, "issue" => %{"number" => number} = issue} <-
@@ -268,7 +299,30 @@ defmodule Ryker.GitHub.Input do
     end
   end
 
+  defp event_details(event_name, payload, event_action)
+       when event_name in @actionless_repository_events or
+              is_map_key(@repository_event_actions, event_name) do
+    with {:ok, item_kind, item} <- repository_event_item(event_name, payload),
+         {:ok, item_id} <- repository_event_id(event_name, item, payload),
+         {:ok, subject_kind, subject_number} <- repository_event_subject(payload) do
+      {:ok,
+       %{
+         event_kind: event_action.event_kind,
+         item: item,
+         item_id: item_id,
+         item_kind: item_kind,
+         revision_rank: event_action.revision_rank,
+         subject_kind: subject_kind,
+         subject_number: subject_number,
+         thread_root_id: nil
+       }}
+    else
+      _invalid -> {:error, {:invalid_github_input, :item}}
+    end
+  end
+
   defp actor(
+         _event_name,
          %{"sender" => %{"id" => id, "type" => type}},
          %Binding{ryker_actor_id: id}
        )
@@ -276,22 +330,21 @@ defmodule Ryker.GitHub.Input do
        do: {:error, {:github_input_ignored, :self_authored}}
 
   defp actor(
+         _event_name,
          %{"sender" => %{"id" => id, "type" => type}},
-         %Binding{authorized_actor_ids: authorized}
+         %Binding{}
        )
        when is_integer(id) and id > 0 and is_binary(type) do
-    if id in authorized do
-      kind = if type == "Bot", do: :bot, else: :user
-      {:ok, %{kind: kind, ref: "github-user:#{id}"}}
-    else
-      {:error, {:github_input_ignored, :actor_not_authorized}}
-    end
+    kind = if type == "Bot", do: :bot, else: :user
+    {:ok, %{kind: kind, ref: "github-user:#{id}"}}
   end
 
-  defp actor(_payload, _binding), do: {:error, {:invalid_github_input, :actor}}
+  defp actor(_event_name, _payload, _binding), do: {:error, {:invalid_github_input, :actor}}
 
   defp occurred_at(item) do
-    value = item["updated_at"] || item["submitted_at"] || item["created_at"]
+    value =
+      item["updated_at"] || item["submitted_at"] || item["completed_at"] ||
+        item["published_at"] || item["created_at"] || item["timestamp"]
 
     case DateTime.from_iso8601(value || "") do
       {:ok, datetime, 0} -> {:ok, datetime}
@@ -319,6 +372,94 @@ defmodule Ryker.GitHub.Input do
     digest = CanonicalJSON.digest([binding.name, details.item_kind, details.item_id])
     "github-item:#{digest}"
   end
+
+  defp repository_event_item("check_run", %{"check_run" => item}), do: {:ok, "check_run", item}
+
+  defp repository_event_item("check_suite", %{"check_suite" => item}),
+    do: {:ok, "check_suite", item}
+
+  defp repository_event_item("workflow_run", %{"workflow_run" => item}),
+    do: {:ok, "workflow_run", item}
+
+  defp repository_event_item("workflow_job", %{"workflow_job" => item}),
+    do: {:ok, "workflow_job", item}
+
+  defp repository_event_item("release", %{"release" => item}), do: {:ok, "release", item}
+  defp repository_event_item("deployment", %{"deployment" => item}), do: {:ok, "deployment", item}
+
+  defp repository_event_item(
+         "pull_request_review_thread",
+         %{"pull_request" => pull_request, "thread" => thread}
+       ) do
+    item = Map.put_new(thread, "updated_at", pull_request["updated_at"])
+    {:ok, "pull_request_review_thread", item}
+  end
+
+  defp repository_event_item("deployment_status", %{"deployment_status" => item}),
+    do: {:ok, "deployment_status", item}
+
+  defp repository_event_item("push", %{"head_commit" => %{} = item}), do: {:ok, "push", item}
+
+  defp repository_event_item("push", %{"repository" => %{} = repository} = payload) do
+    item = %{
+      "id" => payload["after"],
+      "timestamp" => epoch_timestamp(repository["pushed_at"])
+    }
+
+    {:ok, "push", item}
+  end
+
+  defp repository_event_item("status", %{} = payload) do
+    {:ok, "status", %{"id" => payload["sha"], "updated_at" => payload["updated_at"]}}
+  end
+
+  defp repository_event_item(_event, _payload), do: :error
+
+  defp repository_event_id(_event, %{"id" => id}, _payload)
+       when (is_integer(id) and id > 0) or (is_binary(id) and byte_size(id) in 1..256),
+       do: {:ok, id}
+
+  defp repository_event_id("push", _item, %{"after" => sha}) when is_binary(sha), do: {:ok, sha}
+  defp repository_event_id("status", _item, %{"sha" => sha}) when is_binary(sha), do: {:ok, sha}
+
+  defp repository_event_id(
+         "pull_request_review_thread",
+         %{"node_id" => node_id},
+         _payload
+       )
+       when is_binary(node_id) and byte_size(node_id) in 1..256,
+       do: {:ok, node_id}
+
+  defp repository_event_id(_event, _item, _payload), do: :error
+
+  defp repository_event_subject(%{"pull_request" => %{"number" => number}})
+       when is_integer(number) and number > 0,
+       do: {:ok, "pull", number}
+
+  defp repository_event_subject(%{"check_run" => %{"pull_requests" => [pull | _]}}),
+    do: pull_subject(pull)
+
+  defp repository_event_subject(%{"check_suite" => %{"pull_requests" => [pull | _]}}),
+    do: pull_subject(pull)
+
+  defp repository_event_subject(%{"workflow_run" => %{"pull_requests" => [pull | _]}}),
+    do: pull_subject(pull)
+
+  defp repository_event_subject(%{"repository" => %{"id" => id}})
+       when is_integer(id) and id > 0,
+       do: {:ok, "repository", id}
+
+  defp repository_event_subject(_payload), do: :error
+
+  defp pull_subject(%{"number" => number}) when is_integer(number) and number > 0,
+    do: {:ok, "pull", number}
+
+  defp pull_subject(_pull), do: :error
+
+  defp epoch_timestamp(seconds) when is_integer(seconds) and seconds > 0,
+    do: seconds |> DateTime.from_unix!() |> DateTime.to_iso8601()
+
+  defp epoch_timestamp(_seconds), do: nil
 
   defp source_capabilities(%{event_kind: event_kind, item_kind: item_kind})
        when event_kind != :delete and

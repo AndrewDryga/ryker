@@ -15,6 +15,7 @@ defmodule Ryker.Work.SubmissionBuilder do
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Ingress.RecallText
   alias Ryker.Repo
+  alias Ryker.Settings
   alias Ryker.Slack.SourceRef, as: SlackSourceRef
 
   alias Ryker.State.{
@@ -321,29 +322,31 @@ defmodule Ryker.Work.SubmissionBuilder do
 
     origins = Origins.for_episode(episode.id) |> Map.new(&{&1.input_ref, &1})
 
-    context = %{
-      "destination" => destination(episode),
-      "inputs" => %{
-        "items" => Enum.map(selected, &input_document(&1, episode, origins)),
-        "omitted_count" => total_count - length(selected)
-      },
-      "origins" => origin_summary(episode, origins),
-      "signals" => signal_summary(episode),
-      "conversation_context" => admission_backdrop(episode),
-      "retained_cases" => Cases.recall(episode, @retained_cases),
-      "linked_history_ref" => episode.linked_episode_id,
-      "mode" => "full",
-      "operator_context" =>
-        operator_context(
-          episode,
-          %{active: active, historical: historical},
-          session.repository_ref
-        ),
-      "offer_confirmation_supported" => offer_confirmation_supported?(episode),
-      "records" => Enum.map(records, &record_document/1),
-      "repository_ref" => session.repository_ref,
-      "related_outcomes" => Outcomes.recall(episode, session.repository_ref)
-    }
+    context =
+      %{
+        "destination" => destination(episode),
+        "inputs" => %{
+          "items" => Enum.map(selected, &input_document(&1, episode, origins)),
+          "omitted_count" => total_count - length(selected)
+        },
+        "origins" => origin_summary(episode, origins),
+        "signals" => signal_summary(episode),
+        "conversation_context" => admission_backdrop(episode),
+        "retained_cases" => Cases.recall(episode, @retained_cases),
+        "linked_history_ref" => episode.linked_episode_id,
+        "mode" => "full",
+        "operator_context" =>
+          operator_context(
+            episode,
+            %{active: active, historical: historical},
+            session.repository_ref
+          ),
+        "offer_confirmation_supported" => offer_confirmation_supported?(episode),
+        "records" => Enum.map(records, &record_document/1),
+        "repository_ref" => session.repository_ref,
+        "related_outcomes" => Outcomes.recall(episode, session.repository_ref)
+      }
+      |> maybe_put_repository_knowledge(session.repository_ref)
 
     context =
       if previous do
@@ -385,38 +388,42 @@ defmodule Ryker.Work.SubmissionBuilder do
   defp continuation_context(episode, session, snapshot, records, previous, metadata) do
     delivery = historical_delivery(previous, episode, session.repository_ref)
 
-    context = %{
-      "continuity" => %{
-        "first_input" => continuity_input(snapshot.first),
-        "host_continuation" => %{
-          "requested" => previous.continuation,
-          "resume_cause" => resume_cause(episode, previous)
+    context =
+      %{
+        "continuity" => %{
+          "first_input" => continuity_input(snapshot.first),
+          "host_continuation" => %{
+            "requested" => previous.continuation,
+            "resume_cause" => resume_cause(episode, previous)
+          },
+          "previous_delivery" => if(delivery, do: delivery["delivery"]),
+          "previous_turn_ref" => if(delivery, do: delivery["source_turn_ref"]),
+          "prior_input_count" => snapshot.total_count
         },
-        "previous_delivery" => if(delivery, do: delivery["delivery"]),
-        "previous_turn_ref" => if(delivery, do: delivery["source_turn_ref"]),
-        "prior_input_count" => snapshot.total_count
-      },
-      "current_inputs" => %{
-        "items" =>
-          Enum.map(
-            snapshot.active,
-            &input_document(
-              &1,
-              episode,
-              Map.new(Origins.for_episode(episode.id), fn origin -> {origin.input_ref, origin} end)
-            )
-          ),
-        "omitted_count" => 0
-      },
-      "signals" => signal_summary(episode),
-      "destination" => destination(episode),
-      "mode" => "continuation",
-      "operator_context" => operator_context(episode, snapshot, session.repository_ref),
-      "parent_submission_ref" => previous.submission_fingerprint,
-      "offer_confirmation_supported" => offer_confirmation_supported?(episode),
-      "records" => Enum.map(records, &record_document/1),
-      "repository_ref" => session.repository_ref
-    }
+        "current_inputs" => %{
+          "items" =>
+            Enum.map(
+              snapshot.active,
+              &input_document(
+                &1,
+                episode,
+                Map.new(Origins.for_episode(episode.id), fn origin ->
+                  {origin.input_ref, origin}
+                end)
+              )
+            ),
+          "omitted_count" => 0
+        },
+        "signals" => signal_summary(episode),
+        "destination" => destination(episode),
+        "mode" => "continuation",
+        "operator_context" => operator_context(episode, snapshot, session.repository_ref),
+        "parent_submission_ref" => previous.submission_fingerprint,
+        "offer_confirmation_supported" => offer_confirmation_supported?(episode),
+        "records" => Enum.map(records, &record_document/1),
+        "repository_ref" => session.repository_ref
+      }
+      |> maybe_put_repository_knowledge(session.repository_ref)
 
     {context, eligible} = context |> Map.merge(metadata) |> fit_optional_observations()
     context_bytes = context |> CanonicalJSON.encode!() |> byte_size()
@@ -827,6 +834,40 @@ defmodule Ryker.Work.SubmissionBuilder do
   end
 
   defp trusted_repository_from_event(_event), do: nil
+
+  # Repository knowledge is copied into the frozen submission, not looked up by
+  # the model at run time. A prepared turn therefore keeps the exact accepted or
+  # proposed RYKER.md revision it was briefed with even if onboarding advances.
+  defp maybe_put_repository_knowledge(context, repository_ref) when is_binary(repository_ref) do
+    case Settings.fetch() do
+      {:ok, snapshot} ->
+        case Enum.find(snapshot.repositories, &(&1.ref == repository_ref)) do
+          %{
+            knowledge_content: content,
+            knowledge_sha256: sha256,
+            knowledge_source_commit: commit,
+            knowledge_status: status
+          }
+          when is_binary(content) and is_binary(sha256) and is_binary(commit) and
+                 status in [:accepted, :proposed] ->
+            Map.put(context, "repository_knowledge", %{
+              "content" => compact_value(content, 48 * 1_024),
+              "path" => "RYKER.md",
+              "sha256" => sha256,
+              "source_commit" => commit,
+              "status" => Atom.to_string(status)
+            })
+
+          _missing ->
+            context
+        end
+
+      _settings_unavailable ->
+        context
+    end
+  end
+
+  defp maybe_put_repository_knowledge(context, _repository_ref), do: context
 
   defp record_document(record) do
     %{

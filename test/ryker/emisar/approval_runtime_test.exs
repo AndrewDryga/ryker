@@ -12,6 +12,7 @@ defmodule Ryker.Emisar.ApprovalRuntimeTest do
       ApprovalRuntime.options!(
         api: API,
         client: :client,
+        connection_ref: "production",
         concurrency: 3,
         lease_seconds: 45,
         poll_interval_ms: 250,
@@ -26,7 +27,7 @@ defmodule Ryker.Emisar.ApprovalRuntimeTest do
     assert options.concurrency == 3
     assert options.worker_ref == "ryker-a:emisar"
 
-    assert %{id: ApprovalRuntime, type: :supervisor} =
+    assert %{id: {ApprovalRuntime, "production"}, type: :supervisor} =
              ApprovalRuntime.child_spec(Map.delete(options, :client) |> Map.put(:client, :client))
 
     assert {:ok, {flags, children}} = ApprovalRuntime.init(options)
@@ -47,6 +48,7 @@ defmodule Ryker.Emisar.ApprovalRuntimeTest do
     valid = %{
       api: API,
       client: :client,
+      connection_ref: "production",
       presentation: %{},
       presentation_timeout_ms: 0,
       retry_base_seconds: 5,

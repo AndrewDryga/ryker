@@ -16,15 +16,13 @@ infrastructure product Ryker works through; it is named in the manifest only in 
    the app. Slack validates the manifest before applying it.
 3. On **Basic Information**, upload `deploy/slack-app-icon.png` as the app icon. Slack's manifest
    schema does not expose an icon field, so this is a separate one-time setting.
-4. Under **App-Level Tokens**, generate a token with `connections:write`. Store the resulting
-   `xapp-` token as `SLACK_APP_TOKEN`.
-5. Install the app to the workspace and store its `xoxb-` token as `SLACK_BOT_TOKEN`.
-6. Put the workspace, operator, invite-user, summon-channel, and watch-channel IDs into
-   the console's Slack connection settings, which record the verified workspace, bot and bot-user identities.
-   Invite `@Ryker` to every configured summon and watch channel.
-7. Enroll the reviewed remote Coop workers, install the Slack tokens in the owner-only service
-   environment, start `ryker.service`, and require both `/healthz` and `/readyz` before running
-   the Slack qualification journeys in `docs/testing.md`.
+4. Under **App-Level Tokens**, generate a token with `connections:write`.
+5. Install the app to the workspace and copy its bot token.
+6. Open **Settings → Connections → Slack** in Ryker and paste both tokens once. Ryker verifies
+   them, discovers the workspace, app and bot identities, and stores the tokens encrypted. Do not
+   type those IDs yourself.
+7. Invite `@Ryker` to the channels where it should work. Ryker detects those invitations; select
+   each channel's repository and participation settings in the guided setup.
 
 When updating an existing app, apply the new manifest. On an app created before 2026-09-13 this
 renames the app and bot from `Emisar` to `Ryker`, the slash command from `/responder` to `/ryker`
@@ -176,7 +174,7 @@ unlisted pilot. Its public support facts are:
 | Pricing | https://emisar.dev/pricing |
 | Language | English |
 
-Keep Slack tokens in the service's secret environment, never in the manifest or repository. Add at
+Keep Slack tokens in Ryker's encrypted credential custody, never in the manifest, environment, or repository. Add at
 least one Slack app collaborator, use a separate development app and workspace, and exercise
 installation, mention replies, explicit incident requests, incident-offer controls, restart
 recovery, and uninstallation before a production rollout.

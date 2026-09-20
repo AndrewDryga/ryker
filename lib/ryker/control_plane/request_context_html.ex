@@ -599,10 +599,11 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
        when root in ["$.work.custom_instructions", "$.context.custom_instructions"] do
     case key do
       "global" ->
-        {"Global instructions", "policy", "Workspace text at send time", nil}
+        {"Global instructions", "policy", "Applies across the workspace", nil}
 
       "channel" ->
-        {"Channel instructions", "policy", "Channel text at send time; overrides global", nil}
+        {"Channel instructions", "policy",
+         "Adds channel guidance; wins only when the two conflict", nil}
 
       other ->
         {human(other) <> " instructions", "policy", "Text at send time", nil}

@@ -1,670 +1,140 @@
-# Elixir/PostgreSQL operations
+# Docker Compose operations
 
-The production Ryker is one Elixir release backed by PostgreSQL. PostgreSQL
-is the durable authority for ingress, episodes, Work, delivery, waits,
-schedules, approvals, publication, remote-worker placement, and retention.
-A process restart does not create a second deployment state: the replacement
-claims expired or released custody from the same database and resumes it.
+Docker Compose is the supported Ryker deployment. The canonical project contains PostgreSQL and
+the immutable Ryker image, stores their data in named volumes, and keeps installation roots in the
+owner-only `.ryker/compose.env` file. Do not copy Slack, GitHub, Emisar, model-provider, or webhook
+credentials into that file; configure integrations in the local setup UI, where Ryker encrypts
+them in PostgreSQL.
 
-The systemd unit in `deploy/systemd/ryker.service` is the canonical service
-definition. It runs migrations before every start, starts the release in the
-foreground, and lets systemd deliver `SIGTERM` directly to the BEAM process.
-Run exactly one service against a production platform identity and database.
+PostgreSQL is the durable authority for ingress, episodes, Work, delivery, waits, schedules,
+approvals, publication, worker placement and retention. Restarting containers recovers that
+custody; it does not create a second deployment state.
 
-## Required files and secrets
+## Install
 
-Install these owner-controlled files before starting the service:
-
-- `/etc/ryker/ryker.env`, derived from
-  `deploy/systemd/ryker.env.example` and mode `0600`;
-- `/etc/systemd/system/ryker.service`;
-- `/usr/local/lib/ryker/current`, the atomic symlink created by the release
-  installer; and
-- the remote Coop worker policies, certificates, repository mappings, and
-  execution endpoints named by the reviewed configuration.
-
-The environment file carries PostgreSQL, platform, checkpoint, and state-tool
-secrets, plus the listener and endpoint overrides a deployment needs. Product
-decisions — platform connections, repositories and their reviewed policy
-bindings, channel participation, webhook sources, retention horizons — are typed
-PostgreSQL rows changed through the local console, not a file on the host.
-Webhook payloads and fleet workers cannot choose any of those authorities.
-
-Before every start, validate that:
-
-- the database URL names the intended PostgreSQL database;
-- Slack workspace IDs and GitHub App installation/repository bindings are
-  exact;
-- every universal-webhook destination has a configured outbound adapter;
-- every enabled state tool has its owning runtime;
-- every Work profile has the reviewed policy, full policy digest, and Coop-computed authority
-  digest;
-- every class policy resolves to the intended target (`conversational` to Terra/medium, `standard`
-  to Sol/medium, and `deep` to Sol/xhigh), and all three have the same authority digest;
-- fleet worker certificates are current and revoked workers are absent; and
-- all listeners except the externally proxied webhook paths bind to loopback.
-
-## Normal deployment
-
-Commit the complete change and run the repository gate before deployment. The
-canonical command is:
+Requirements are Docker, Docker Compose v2, OpenSSL, curl and tar. From a release directory run:
 
 ```bash
-scripts/deploy.sh
+./install.sh
 ```
 
-It refuses a dirty tree, builds and proves the exact immutable Elixir archive,
-boots it against a disposable PostgreSQL database, verifies a same-database
-restart and a `pg_dump`/restore boot, installs the versioned release, atomically
-moves `/usr/local/lib/ryker/current`, restarts `ryker.service`, and
-waits for both `/healthz` and `/readyz`. It then requires the ready process's
-`x-ryker-version` header to match the exact installed release; inspecting
-the `current` symlink alone is not proof that systemd is serving that build.
+The installer creates `.ryker/` with mode `0700` and `compose.env` with mode `0600`. On the first
+run it generates the database password, checkpoint key, credential-encryption key and state-tools
+token. Later runs reuse them. It starts the project, waits for `/healthz` and `/readyz`, verifies
+the `x-ryker-version` header, and prints one setup URL.
 
-When the archive carries migrations the live database has not applied and the
-runtime environment file is readable, the script first writes a custom-format
-`pg_dump` of the live database to `backups/` under the state directory and
-applies those migrations to a copy restored into the disposable test
-PostgreSQL. A migration that fails on real rows fails there, with the old
-release still serving. Deploys without new migrations skip this step.
+The control UI, GitHub listener and universal webhook listener bind to `127.0.0.1` by default.
+Change a bind address only when the surrounding network boundary is understood. External GitHub
+and webhook senders need an HTTPS reverse proxy to the exact signed ingress paths; do not publish
+the control UI, health, readiness or metrics endpoints.
 
-On macOS the same script manages the service through launchd instead of
-systemd: it renders `deploy/launchd/ryker.plist.template` into
-`~/Library/LaunchAgents/ai.emisar.ryker.plist`, which sources the runtime
-environment file, runs migrations, and starts the release in the foreground
-with restart-on-failure, exactly as the systemd unit does. The install prefix,
-state directory, environment file, label, and scheduler flags default to
-`~/.local/lib/ryker-elixir`, `~/.local/state/ryker/emisar`,
-`runtime.env` in that directory, `ai.emisar.ryker`, and `+S 4:4`; override
-them with `RYKER_DEPLOY_PREFIX`, `RYKER_STATE_ROOT`,
-`RYKER_RUNTIME_ENV`, `RYKER_LAUNCHD_LABEL`, and `RYKER_ERL_FLAGS`.
-Logs go to `log/ryker.stdout.log` and `log/ryker.stderr.log` under the
-state directory. The script keeps the five most recent installed releases.
+## Setup and connection states
 
-This is a normal one-writer restart, not a canary or promote workflow. Do not
-start a second Slack socket, GitHub/webhook listener, scheduler, or delivery
-worker against the same platform identities. Pending custody is recovered from
-PostgreSQL after the replacement starts.
+Open the setup URL printed by the installer. The checklist leads through:
 
-After the script succeeds, record:
+1. connect and verify Slack;
+2. connect and verify the GitHub App;
+3. import selected repositories, or add every repository available to the App;
+4. invite Ryker to a Slack channel;
+5. choose that channel’s repository; and
+6. send one real Slack request and receive its delivered answer.
+
+The UI treats four facts separately: a setting can be saved, the runtime revision can be applied,
+an integration can be connected, and a real request can be live-tested. One does not imply the
+next. Learning is on by default. Proactive participation, publication, scheduled reports and
+destructive authority remain off until explicitly enabled.
+
+## Routine lifecycle
+
+Use the shipped helper so every operation uses the same project and owner-only environment:
 
 ```bash
-/usr/local/lib/ryker/current/bin/ryker version
-systemctl is-active ryker.service
-curl --fail http://127.0.0.1:4321/healthz
-curl --fail http://127.0.0.1:4321/readyz
-scripts/check-running-elixir-release.sh http://127.0.0.1:4321 EXPECTED_VERSION
-curl --fail http://127.0.0.1:4321/metrics
+scripts/compose.sh status
+scripts/compose.sh logs
+scripts/compose.sh stop
+scripts/compose.sh start
+scripts/compose.sh restart
 ```
 
-Then execute the authorized live journeys and the manual qualification
-journeys in `docs/testing.md`. Test results, installed version, running
-version, and live platform receipts are separate evidence.
+`stop` and `uninstall` retain PostgreSQL data, Ryker state and encryption roots. `uninstall`
+removes the stopped containers and network while leaving the named volumes and `.ryker/compose.env`
+in place.
 
-## Names that still say responder
+## Upgrade
 
-The product was renamed from Responder to Ryker on 2026-09-13 and this host was
-cut over the same day: launchd `ai.emisar.ryker`, state root
-`~/.local/state/ryker/emisar`, database and role `ryker_emisar`. A few names keep
-the old spelling because another party owns them; each changes only together
-with that party.
+Set `RYKER_IMAGE` and `RYKER_VERSION` in `.ryker/compose.env` to the authenticated immutable release
+you intend to run, then:
 
-- Slack app: apply `deploy/slack-app-manifest.yaml` (app and bot `Ryker`,
-  `/ryker`, shortcut `ryker_investigate_message`) and upload
-  `deploy/slack-app-icon.png`, the Ryker avatar, under Basic Information.
-- co:op wire names: `responder-state` and `responder-state:v1`,
-  `responder_binding`, `responder_state_tools`, `responder_binding_digest`, the
-  `responder_url` worker key and the `x-responder-artifact-*` and
-  `x-responder-checkpoint-*` gateway headers change only with a coordinated
-  co:op release and worker re-enrolment, as do the
-  `responder-learning-personal-v1` and `responder-learning-v2` policy names, the
-  worker's `sandbox_digest` and the install prefix `~/.local/lib/responder-coop`.
-- Webhook senders: `x-responder-signature`, `x-responder-timestamp`, the
-  `x-responder-event-*` headers and the `responder.publication_lifecycle.v1`
-  event type are configured on the external senders; change them in lockstep
-  with those senders.
-- GitHub delivery marker `<!-- responder-delivery:… -->`: kept deliberately;
-  it is what makes already-posted comments idempotent.
-- Publication settings: the live row keeps `responder`, `Responder` and
-  `responder@localhost`; new installations default to `ryker`. Change the live
-  value in Settings → Publication when new branches should go under `ryker/`;
-  branches already pushed under `responder/` stay as they are.
-- Stored values: Work sessions created before the rename keep their
-  `responder-work:` external refs and system inputs their `responder` source
-  ref; `Ryker.Retained` names each one the code still has to recognise.
+```bash
+scripts/compose.sh backup
+scripts/compose.sh upgrade
+```
 
-## Health and readiness
+Upgrade pulls the selected image when applicable, rebuilds only a local development image, starts
+the replacement, runs migrations through the container entrypoint, and verifies health, readiness
+and the exact version header. Enrolled remote workers are not restarted or modified.
+
+## Backup and restore
+
+Create a backup while the project is running:
+
+```bash
+scripts/compose.sh backup
+```
+
+The resulting owner-only archive under `.ryker/backups/` contains a custom-format PostgreSQL dump
+and the exact generated environment needed to decrypt stored credentials and checkpoints. Store it
+as sensitive material.
+
+Restore with:
+
+```bash
+scripts/compose.sh restore .ryker/backups/ryker-YYYYMMDDTHHMMSSZ.tar.gz
+```
+
+Restore refuses an archive whose cryptographic roots differ from an existing installation. With no
+existing installation state it restores the archived roots first, starts only PostgreSQL, replaces
+the database, then starts Ryker and verifies the exact running version. A missing, wrong or damaged
+root must fail; never generate a replacement key for an existing database.
+
+## Destruction
+
+Stopping Ryker is recoverable. Deleting volumes and keys is not. The destructive path requires an
+explicit phrase:
+
+```bash
+RYKER_DESTROY_CONFIRM=delete-ryker-data scripts/compose.sh destroy
+```
+
+This removes the Compose volumes and generated environment. It cannot recover encrypted
+credentials, checkpoints or historical evidence without a backup. The helper says exactly what it
+removed after the operation.
+
+## Health and recovery
 
 | Endpoint | Meaning |
 | --- | --- |
 | `/healthz` | the process can use PostgreSQL |
-| `/readyz` | every configured runtime is alive, scheduler progress is fresh, and no due or active custody is stalled past its configured threshold |
-| `/metrics` | Prometheus counters and gauges for queue depth, oldest due work, active lease age, scheduler progress, failures, placements, delivery, and retention |
+| `/readyz` | configured runtimes are alive and due custody is making progress |
+| `/metrics` | queue, lease, delivery, placement and retention measurements |
 
-Keep these endpoints on loopback. `deploy/nginx/ryker.conf` exposes only the
-signed GitHub and universal-webhook ingress paths. A routable control-plane bind
-would expose operational counts and compete with production work for database
-connections.
+When readiness fails, inspect `scripts/compose.sh status`, then `scripts/compose.sh logs`. In the UI,
+inspect the failed request and its exact custody phase before retrying a visible effect. Do not edit
+leases, operation keys, receipts or episode rows by hand; the typed retry and reconcile controls
+preserve the fences that make recovery safe.
 
-Readiness is deliberately stricter than liveness. A process can remain alive
-while a scheduler lane stops advancing or one remote turn renews custody
-forever. That condition must fail `/readyz`; it must not be hidden by a healthy
-PID.
+## Names that still say responder
 
-When readiness fails:
+The product is Ryker. A few wire names remain `responder-*` because Coop workers, webhook senders,
+or previously delivered GitHub markers own those contracts. They change only with the other party:
 
-1. inspect the failed checks and queue ages in `/metrics` and the control plane;
-2. inspect the owning episode, source/destination, attempt counts, and exact
-   custody phase before retrying a visible effect;
-3. verify PostgreSQL, configured listeners, and remote worker placement;
-4. revoke or drain a compromised worker before moving its placement;
-5. use the typed retry/reconcile control for the failed lane; and
-6. restart only after preserving the logs and exact operation keys needed for
-   reconciliation.
+- Coop capability and binding names such as `responder-state`;
+- the Coop worker configuration field `responder_url`;
+- webhook signature and event headers beginning `x-responder-`;
+- the `responder.publication_lifecycle.v1` event type; and
+- the hidden `<!-- responder-delivery:… -->` marker on already delivered GitHub comments.
 
-Never delete or rewrite a lease, operation key, receipt, or episode row by
-hand. The recovery APIs preserve the fences that make a replacement safe.
+The source repository is also still published at the externally owned
+`github.com/AndrewDryga/responder` URL even though the product and images are Ryker.
 
-### Read-only operator commands and typed recovery
-
-Run the short-lived Mix tasks with the same `MIX_ENV=prod`, `DATABASE_URL`, and
-absolute runtime configuration path as the release:
-
-```bash
-mix ryker.doctor
-mix ryker.status
-mix ryker.failures
-mix ryker.retry admission 'ingress-input:...' \
-  --operator U123 --action-ref retry-admission-20260904-1
-mix ryker.replay slack 'ingress-input:...' 'post-fix-check-1' \
-  --operator U123 --action-ref replay-slack-20260904-1
-mix ryker.replay show 'ingress-input:...' \
-
-```
-
-The commands start only temporary database dependencies, never the Ryker
-worker tree. Doctor therefore reports configuration, database, migration, and
-durable queue readiness; `/readyz` on the running release remains authoritative
-for process-local workers and progress heartbeats. Failure output contains
-stable error codes and diagnostic SHA-256 values but no raw provider error,
-source body, prompt, rejected model candidate, token, or credential. Work failures
-also show the redacted accepted final response, explicitly attributed to the worker.
-
-For `work`, pass `--expected-recovery SHA256` from the inspected item's
-`work_recovery.fingerprint`. A changed turn invalidates the confirmation. Confirmed
-completion resumes host finalization on the same turn, without model replay.
-If a writable session was closed before a workspace checkpoint was confirmed,
-preserve and restore its working copy and task notes into a correctly bound fleet
-workspace first; ordinary retry is unavailable.
-
-When the host still holds a checkpoint of the blocked turn's own workspace *and* an
-eligible worker could take the session — same policy digest and authority, the
-repository and capabilities it needs, a fresh heartbeat and a free slot — the same
-retry is presented as **Resume in another workspace**, and its effect names the
-repository, the saved copy and that nothing is waived. It is the same action: the
-replacement session restores that checkpoint by itself. Both halves are required,
-because offering to move work no worker can accept loses the working copy instead of
-continuing it.
-
-Retry accepts only `admission`, `delivery`, `emisar`, `retention`,
-`slack_incident`, `slack_interaction`, and `work`. Inspect the current item
-first. Publication review is a semantic decision and deliberately has no
-generic retry. The local control plane uses the same typed recovery service but
-adds loopback Host checks, CSRF, and an exact-state confirmation page.
-Every retry and replay requires a configured Slack operator ID and a unique
-operator action reference. Its safe prior state and outcome are committed with
-the mutation; repeat the same action reference after a lost response to obtain
-the original outcome without running the mutation again.
-
-Slack replay accepts only a retained live Slack message input with a frozen
-Work profile. It mints a stable fresh event identity from the source and request
-reference, records shadow custody, and never calls Slack. Repeating the same
-action reference returns the first audited outcome. `show` reports admission,
-episode, and Work lifecycle state plus the bounded accepted `decision_reason`
-that says what the shadow model would have done; it never returns captured
-content or unreleased model output.
-
-
-## Watchdog
-
-`scripts/watchdog.sh` runs every minute as the launch agent
-`ai.emisar.ryker.watchdog` and asks each deployment it finds two questions over
-the loopback control plane: is `/readyz` answering 200, and has new work become
-blocked (`ryker_*_total{status="blocked"}` in `/metrics`)? Three consecutive
-bad readiness checks raise "Ryker NAME is not working" with the reasons the
-503 body names, repeated every 30 minutes while it lasts and followed by one
-"recovered" message. Newly blocked work alarms at once and again only when the
-count grows; open `/failures` to act on it. An unreachable control plane is
-itself the alarm, and a run that finds no deployment fails loudly.
-
-A deployment is a launch agent whose working directory (or the parent of its
-log directory) holds a `runtime.env` naming `RYKER_CONTROL_PORT`; the Coop
-worker and the watchdog itself are skipped by that fact. Install or reinstall
-it with
-
-```bash
-scripts/install-watchdog.sh --slack-channel U0BHTNFCW6S
-```
-
-which bootstraps the agent and refuses to report success unless launchd has it
-registered. With `--slack-channel` each alarm is also posted to that user or
-channel with the deployment's own `SLACK_BOT_TOKEN`, read from `runtime.env` at
-alarm time and never logged. It logs to `~/.local/state/ryker-watchdog/watchdog.log`
-and touches `heartbeat` there on every run, so a dead watchdog is visible as a
-stale heartbeat. `scripts/watchdog_test.sh` (part of `make check` on macOS)
-drives every alarm against a stand-in control plane.
-
-## Set up code editing
-
-“Couldn’t start” with the workspace-checkpoint connection error means the host
-stopped before creating a coding session. It is not a failed repository check.
-Code-editing tasks run only on enrolled fleet workers, which is what saves and
-restores writable task workspaces; do not bypass the preflight or keep retrying
-the unchanged setup.
-
-The Timeline page (`/timeline/:ref`) distinguishes this proven startup failure from an older task
-that ran and lost access to its workspace. It shows the task title, confirmation,
-setup remedy and proposal/approval history first. Technical history stays
-available below. Missing or expired telemetry alone never proves “no files
-changed.” A completed proposal is not a completed code change.
-
-An administrator must prepare the worker and its permissions before switching
-execution. The following paths and identifiers are examples, not deployment
-authority. Keep the current runtime configuration's other policies and tool grants.
-
-1. Prepare a co:op session service with persistent storage, provider credentials,
-   reviewed repository policies, and the repository's actual build tools. Run
-   the daemon and connector as the same OS user. For an existing local daemon,
-   inspect its exact socket and policies; do not start a duplicate service.
-
-   ```bash
-   coop sessions doctor --socket /var/lib/coop-sessions/control.sock
-   coop sessions policies --policies /etc/coop/session-policies.yaml --json
-   ```
-
-   If this is a new worker, follow co:op's `docs/worker.md` and
-   `docs/session-api.md` to start its session daemon under supervision.
-   Copy the real policy and authority digests from the policy output. Obtain
-   the expected sandbox digest, repository mapping and capability advertisements
-   from the reviewed worker deployment—not placeholder hashes.
-
-2. Configure the host's `coop_worker_gateway` with a reachable HTTPS origin,
-   its trusted CA and signing key, server certificate/key, and checkpoint
-   encryption key. The named checkpoint secret must decode from base64 to
-   exactly 32 bytes. Preserve it: replacing it without a recovery plan can make
-   existing saved work unreadable. Worker traffic uses outbound mutual TLS;
-   do not expose the operator control plane to connect a remote worker.
-
-3. Enroll the exact worker and workspace. In the Ryker checkout, with the
-   running release's `MIX_ENV=prod` and `DATABASE_URL` environment loaded:
-
-   ```bash
-   mix ryker.coop_worker enroll WORKER_ID WORKSPACE_REF OPERATOR_REF
-   ```
-
-   This command prints the enrollment token once. Save only its token value in
-   the worker's owner-private `enrollment_token_file` (mode `0600`); do not paste
-   it into chat, command arguments or the worker JSON. This command does **not**
-   accept `--config`; no operator command does. Every one of them reads the
-   installation's own durable settings from the database.
-
-   Complete co:op's `docs/examples/worker.json` with real identities, HTTPS origin,
-   CA, socket, policy/authority digests, repositories, capabilities and capacity.
-   `identity_file` must initially be absent; `journal_dir` must be persistent and
-   private. Then start the connector under supervision:
-
-   ```bash
-   coop worker connect --config /etc/coop/worker.json
-   ```
-
-   Preserve its generated identity and complete journal across restarts.
-   A quiet connector process is not proof that the worker is eligible.
-
-   The connector owns its local session service: when no ready service answers
-   on `coop_socket` it starts one in-process, and that service finds the
-   container runtime on `PATH`. Its supervisor must therefore set `PATH` to
-   include the runtime's directory (`/usr/local/bin` for OrbStack's `docker`)
-   and `HOME`; launchd's default `PATH` does not. On this host that is the
-   `EnvironmentVariables` of `~/Library/LaunchAgents/ai.emisar.ryker.emisar-coop-worker.plist`
-   (`launchctl bootout` and `bootstrap` it after an edit). Do not add a
-   separate `coop sessions serve` job beside it: a `launchctl submit` job does
-   not survive a reboot, and two owners contend for the state root.
-
-4. Select the enrolled workspace in the console's Work placement setting. The
-   workspace must exactly match enrollment. Verify the selected worker advertises
-   the task's repository, pinned policy and authority, compatible sandbox,
-   required capabilities and available capacity. The save is applied by the
-   running process; `mix ryker.doctor` reports whether the saved revision is
-   the applied one. No restart is required for a settings change. Do not restart or upgrade co:op as an incidental
-   part of deploying a host UI change.
-
-5. Before retrying the task, verify that a disposable workspace can be saved and
-   restored, and run a small required repository check inside the **coding
-   environment**. If its gate requires Docker, installing Docker on the host
-   alone is insufficient: the worker's environment must have approved access to
-   a working daemon. A host Docker socket grants broad host control; choose and
-   explicitly approve that access or an isolated build environment separately.
-
-After the connection changes, the episode offers “Retry task” again. This only
-means the known connection blocker is gone; it does not certify worker readiness.
-For a task proven never started, retry begins the approved task. For an older
-task with existing edits and a closed, unsaved session, preserve and recover those
-edits first; switching to fleet does not automatically restore them.
-
-## Control plane and direct conversations
-
-The loopback control plane provides:
-
-- overview and effective configuration;
-- episode, decision, finding, delivery, approval, publication, schedule,
-  retention, and fleet views;
-- failure drill-down and typed retry controls; and
-- direct conversations with the agent at `/conversations`.
-
-A direct conversation enters the same durable generic ingress, admission,
-episode, Work, semantic-validation, and delivery pipeline as Slack, GitHub, and
-webhooks. It uses the configured fixed Work profile. It is not a model chat
-shortcut, and it cannot select policy, repository, destination, provider, or
-credentials from browser input. Shared conversational behavior is identical to
-Slack. Slack-owned API effects are emulated locally and labelled as such; for
-example, an incident offer starts linked Work in the conversation rather than
-claiming that a Slack channel was provisioned.
-
-Keep the control plane loopback-only. Its Host and CSRF checks are part of the
-authority boundary; do not publish it through the public webhook proxy.
-
-## Platform acceptance
-
-Run live acceptance only with explicit authority for the named test workspace,
-repository, and channel/thread.
-
-- Slack: thread and DM continuation, task/progress cards, questions, Stop,
-  reactions and custom emoji, authenticated files, incident room, restart, and
-  lost-response reconciliation.
-- GitHub: issue comment revisions, pull-request review summary, inline review
-  thread, edits/deletes, and all eight native reactions.
-- Universal webhook: exact signed canonical bytes, duplicate/conflict,
-  stable-item revisions, fixed Work profile, and configured delivery route.
-- Model behavior: multi-turn evidence gathering, state tools, questions,
-  waits/schedules/memory, governed approval, semantic repair, and recovery.
-- Fleet: placement loss, certificate revocation, checkpoint/failover, stale
-  bearer rejection, and exact output publication through the central host.
-
-Offline E2E tests prove the host mechanics. The credentialed fabricated-world
-evaluation proves model trajectory without external side effects. Live
-acceptance proves platform grants and APIs. None substitutes for another.
-
-## Model routing
-
-Ryker has two distinct model decisions. The short-lived admission session decides lifecycle
-(`reply`, start, continue, react, or ignore), candidate relation, and an abstract Work class. It is a
-classifier; the current setup uses Terra/medium. The durable Work session then uses
-the class selected from the host-owned profile:
-
-- conversational: Terra/medium;
-- standard: Sol/medium;
-- deep: Sol/xhigh.
-
-The [redesign plan](control-plane-redesign.md#2-fast-admission-with-preserved-authority-and-recovery)
-replaces admission's general-purpose agent path with a qualified fast classifier,
-durable progress, and safe escalation. This is planned, not a deployed model
-switch; Work routing above remains unchanged. The plan also replaces manual
-policy/digest configuration with resolved immutable execution profiles. Until
-that loader and migration ship, the v1 procedure below is still required.
-
-The full policy and model-independent authority digests are generated from the exact Coop policy
-file with:
-
-```bash
-coop sessions policies --policies /etc/coop/session-policies.yaml --json
-```
-
-Copy both returned maps into the Ryker YAML and the worker connector configuration. The three
-class policies must have one identical `authority_digest`; Ryker rejects configuration, fleet
-placement, or a returned Coop session that widens it. Use new versioned policy names when changing
-targets; do not mutate the meaning of a policy still pinned by an active or recoverable episode.
-Contributor, schedule, incident, and evaluation policies remain separate authority lanes, even when
-they happen to use one of the same model targets.
-
-## Learning usage before 2026-09-11
-
-Learning turns began writing `execution_usage` rows on 2026-09-11. The runs that
-finished earlier were re-metered from their Coop turns by a one-off backfill
-command on 2026-09-12. Nine runs rejected on 2026-09-08 stay unmetered for good:
-their learning sessions are gone, so there is no turn left to read and nothing
-to estimate from. The command was retired on 2026-09-13 because that was the
-whole population it could ever apply to; the executor meters every turn it
-observes, so no new unmetered run can appear.
-
-## PostgreSQL backup and restore
-
-Use physical or managed continuous backup in production and take an explicit
-logical backup before migrations, platform-identity changes, and cutover:
-
-```bash
-install -d -m 0700 /var/lib/ryker/backups
-pg_dump --format=custom --file=/var/lib/ryker/backups/ryker-$(date -u +%Y%m%dT%H%M%SZ).dump ryker
-pg_restore --list /var/lib/ryker/backups/ryker-*.dump >/dev/null
-```
-
-Periodically prove restore into a different database:
-
-```bash
-createdb ryker_restore_check
-pg_restore --exit-on-error --no-owner --no-privileges \
-  --dbname=ryker_restore_check /var/lib/ryker/backups/ryker-TIMESTAMP.dump
-DATABASE_URL=ecto://ryker@127.0.0.1/ryker_restore_check \
-  /usr/local/lib/ryker/current/bin/ryker eval 'Ryker.Release.migrate()'
-dropdb ryker_restore_check
-```
-
-Do not point a second live service at the restored database while the original
-platform identities are enabled. Candidate checks use inert publishers and
-disposable identities for this reason.
-
-## Restart and crash recovery
-
-A normal restart is:
-
-```bash
-systemctl restart ryker.service
-curl --fail http://127.0.0.1:4321/readyz
-```
-
-The replacement reconciles persisted operation keys before issuing a network
-mutation. Work and delivery leases are opaque, fenced, and reclaimable. Remote
-Coop placements and state-tool bearers are valid only for the exact current
-session generation, turn, lease, and worker placement. Accepted delivery
-documents and receipts survive newer input and restart.
-
-If shutdown happens during a remote mutation or visible delivery, let the
-typed reconciliation path determine whether the operation committed. Never
-retry a post or validation manually from copied bytes.
-
-A session create is fenced on its turn before it is attempted, so a response the
-host never saw can never become a second remote session. The fence is released
-only once the host knows the outcome: the key resolved to a created session, to a
-confirmed failure, or to nothing at all. An unbound session whose placement is
-gone fails closed before any worker command is enqueued, so no operation exists
-under its key and the session replacement that placement loss forces proceeds. An
-uncertain or unfinished operation keeps the fence, and its session is not replaced
-until that operation resolves.
-
-A review can finish after a worker request times out. Ryker reconciles its
-original operation on the original placement and reads the saved review result;
-the timeout receipt is retained and the gate is not rerun. This requires the Coop
-daemon and connector's completed-review reconciliation support. Upgrade workers
-independently of Ryker; do not clear command receipts or change review keys to
-work around an older worker.
-
-Recovery also requires that original placement to remain active. If it has expired
-or its authority changed, preserve the candidate and review history and inspect the
-episode's recovery state before acting. A lookup is not permission to recreate the
-session or grant a new worker access to its workspace.
-
-## Worker drain and revocation
-
-Use the audited fleet lifecycle commands to drain planned maintenance and
-revoke a compromised worker. Revocation must invalidate all worker
-certificates/bootstrap tokens, expire placements, fence commands, and remove
-state-tool authority. A revoked worker cannot renew itself.
-
-Writable work moves only from a verified bounded checkpoint. If safe takeover
-cannot be proved, the episode remains visibly blocked for operator recovery; it
-is not silently rebuilt with wider repository authority.
-
-### Re-enrolling a worker whose certificate expired
-
-A worker renews its 24-hour client certificate only while it is connected, so
-one kept away for longer comes back logging `verify worker certificate: x509:
-certificate has expired` and never reaches `/readyz`. Re-enrol the same worker
-and workspace; its row, placements and journal carry over. From the running
-release, with the deployment's environment:
-
-```bash
-set -a; . ~/.local/state/ryker/emisar/runtime.env; set +a
-TOKEN_OUT=~/.local/state/ryker/emisar/coop-worker/enrollment-token \
-~/.local/lib/ryker-elixir/current/bin/ryker eval '
-{:ok, {:ok, issued}, _} =
-  Ecto.Migrator.with_repo(Ryker.Repo, fn _ ->
-    Ryker.CoopFleet.Enrollment.issue_token("WORKER_ID", "WORKSPACE_REF", "operator:NAME")
-  end, mode: :temporary)
-File.write!(System.fetch_env!("TOKEN_OUT"), issued.token)
-File.chmod!(System.fetch_env!("TOKEN_OUT"), 0o600)'
-```
-
-The token is written straight to the worker's `enrollment_token_file` and never
-printed; it expires in 15 minutes. Move the expired `identity.pem` aside (the
-worker enrols only when it has no identity), then restart the worker with
-`launchctl kickstart -k gui/$(id -u)/ai.emisar.ryker.emisar-coop-worker`. It
-writes a new `identity.pem`, removes the token file, and `coop_workers.last_seen_at`
-moves again within seconds.
-
-## Secret rotation
-
-Rotate one authority boundary at a time:
-
-1. install the new owner-private secret;
-2. restart the service or owning worker;
-3. verify readiness and the narrow acceptance journey;
-4. revoke the old credential; and
-5. record the effective binding and time.
-
-GitHub installation tokens are short-lived and repository/purpose/permission
-scoped. Slack and GitHub publication credentials stay in the central host.
-Remote workers and models never receive them. Rotating the state-tools root
-secret invalidates newly derived bearers; current placement/turn/lease checks
-still fence every request.
-
-## Retention
-
-Keep the retention runtime enabled in product configurations. It closes and
-discards terminal remote sessions, prunes only terminal and dependency-free
-history, and removes artifacts only after relational custody proves there are
-no live references. Active episodes, schedule occurrences with active child
-work, pending delivery, approvals, and publications are not age-only garbage.
-
-The Go-era SQLite import is gone entirely: its commands left with the Go gates,
-and the ledger that recorded reviewed import runs was dropped on 2026-09-13 by
-migration `20260913000200` after the production tables were confirmed empty
-(0 runs, 0 items). The migration refuses to run over a populated ledger.
-
-Inspect retention failures in the control plane before retrying. A failed close
-or prune remains durable work; do not bypass it with direct deletes.
-
-### Cleanup throughput and recovery
-
-One cleanup pass runs per `poll_interval_ms`, advances at most `batch_limit`
-phases, advances any one session at most once, and stops after `batch_seconds`
-so a pass always fits inside its own poll. A worker that proves unreachable
-during a pass stops being claimed for the rest of that pass, so one offline
-worker cannot spend the budget the healthy ones need.
-
-Queue age for cleanup is measured from eligibility — the durable time a session
-became claimable, which for a normally completed session is its close time plus
-`closed_session_grace_seconds`. Conversation time and the intentional grace
-period are not stall. The readiness queue and the claim query are the same
-query, so Work and learning backlogs are always counted the same way.
-
-Outage-class failures (unreachable transport, worker capacity, 429, 5xx) retry
-indefinitely with bounded backoff up to `retry_max_seconds`; they never consume
-`max_attempts` and never become blocked, because an outage is not a verdict
-about the session. Identity and authority failures still block and stay visible
-for operator rearm. A successful phase resets the attempt count. On restart the
-host releases the cleanup leases it wrote before the restart instead of waiting
-out the lease clock, and a worker heartbeat that arrives after a failed attempt
-makes that session's cleanup due again without waiting out the backoff.
-
-A workspace retained because it is dirty is replanned every
-`retained_recheck_seconds`, so work the user later committed or removed is
-reclaimed automatically. Nothing about age or disk pressure ever authorizes
-discarding dirty or unpublished work.
-
-### Storage budget and allocation pressure
-
-`disposable_bytes_limit`, `reclaim_target_seconds`,
-`storage_high_watermark_bytes`, `storage_low_watermark_bytes` and
-`storage_reserve_bytes` are the documented per-worker storage policy. They and
-the draining settings (`batch_limit`, `batch_seconds`,
-`retained_recheck_seconds`) are shipped code defaults in `Ryker.Defaults`;
-only the retention horizons are operator settings. Watermarks must be ordered
-and the reserve must be smaller than the high watermark; defaults outside those
-bounds fail at startup.
-
-Workers report their own measured storage in every poll. Ryker never
-estimates it: a worker that reports no `storage` object is unknown, not zero,
-and its measurements are labelled stale once its heartbeat goes stale. When a
-worker reports `allocation: refused`, Ryker stops placing new
-fork-requiring sessions on it and says why; cleanup, control, and recovery of
-work already on that worker continue. Recovery follows the worker's own
-reported return to `open`, so there is no second hysteresis to oscillate
-against. This bounds workspace allocation; it does not bound arbitrary writes
-made by an already running task inside its own fork.
-
-## Release verification
-
-Download the archive, signed checksum manifest, bundle, and all executable
-helpers from the same GitHub Release:
-
-```bash
-version=X.Y.Z
-tag=v$version
-archive=ryker_${version}_elixir_linux_amd64.tar.gz
-
-cosign verify-blob checksums.txt \
-  --bundle checksums.txt.bundle \
-  --certificate-identity \
-  "https://github.com/AndrewDryga/ryker/.github/workflows/release.yml@refs/tags/$tag" \
-  --certificate-oidc-issuer https://token.actions.githubusercontent.com
-
-for helper in install-elixir-release.sh check-elixir-release.sh activate-elixir-release.sh; do
-  awk -v file="$helper" '$2 == file { print }' checksums.txt | sha256sum --check --strict
-  chmod 0755 "$helper"
-done
-
-gh attestation verify "$archive" \
-  --repo AndrewDryga/ryker \
-  --signer-workflow AndrewDryga/ryker/.github/workflows/release.yml \
-  --source-ref "refs/tags/$tag"
-
-sudo ./install-elixir-release.sh \
-  "$archive" "$version" checksums.txt checksums.txt.bundle "$tag" \
-  /usr/local/lib/ryker
-```
-
-The installer authenticates the manifest and provenance before extraction,
-rejects unsafe archive paths and identity collisions, writes an immutable
-version directory, and atomically updates `current`.
-
-## Rollback
-
-An ordinary release rollback selects a previously installed immutable Elixir
-version only when its database contract is compatible:
-
-```bash
-sudo scripts/activate-elixir-release.sh /usr/local/lib/ryker PREVIOUS_VERSION
-sudo systemctl restart ryker.service
-curl --fail http://127.0.0.1:4321/readyz
-```
-
-Never roll a binary behind migrations or persisted contracts it cannot read.
+These compatibility contracts are not product branding and must not be renamed independently.

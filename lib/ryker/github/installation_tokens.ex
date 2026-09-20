@@ -19,11 +19,27 @@ defmodule Ryker.GitHub.InstallationTokens do
   @call_timeout_ms 65_000
   @maximum_id 9_223_372_036_854_775_807
   @purpose_permissions %{
+    authorization: %{"metadata" => "read"},
+    context: %{
+      "actions" => "read",
+      "checks" => "read",
+      "contents" => "read",
+      "issues" => "read",
+      "pull_requests" => "read"
+    },
+    review: %{"contents" => "read", "pull_requests" => "write"},
+    ci_rerun: %{"actions" => "write", "checks" => "read"},
+    ci_cancel: %{"actions" => "write"},
     delivery: %{"issues" => "write", "pull_requests" => "write"},
     publication: %{
       "checks" => "read",
       "pull_requests" => "write",
       "statuses" => "read"
+    },
+    onboarding: %{
+      "contents" => "write",
+      "metadata" => "read",
+      "pull_requests" => "write"
     },
     repository_write: %{"contents" => "write"}
   }

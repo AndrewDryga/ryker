@@ -25,7 +25,9 @@ defmodule Ryker.ControlPlane.EpisodePage do
         assigns.snapshot[:related_episodes] || %{items: [], truncated: false}
       )
 
-    assigns = assign(assigns, :chapters, chapters(assigns.snapshot, assigns.timeline))
+    chapters = chapters(assigns.snapshot, assigns.timeline)
+    assigns = assign(assigns, :chapters, chapters)
+    assigns = assign(assigns, :numbered_chapters, numbered_chapters(chapters))
 
     ~H"""
     <div class="episode-workbench execution-document">
@@ -53,13 +55,13 @@ defmodule Ryker.ControlPlane.EpisodePage do
           <a
             :if={!@startup}
             href={if(@requests, do: base(@snapshot), else: "") <> outcome_anchor(@snapshot)}
-          >Jump to latest outcome ↓</a>
+          >Jump to latest outcome</a>
           <a
             :if={@snapshot.trace.source}
             href={@snapshot.trace.source.href}
             target="_blank"
             rel="noopener noreferrer"
-          >{@snapshot.trace.source.label} →</a>
+          >{@snapshot.trace.source.label}</a>
           <a
             :if={@snapshot.episode[:conversation_ref]}
             href={
@@ -68,7 +70,7 @@ defmodule Ryker.ControlPlane.EpisodePage do
                 @snapshot.episode.conversation_ref
               )
             }
-          >All activity in this conversation →</a>
+          >All activity in this conversation</a>
           <a
             :if={@snapshot.episode[:transport] == "slack" && @snapshot.episode[:thread_ref]}
             href={
@@ -80,7 +82,7 @@ defmodule Ryker.ControlPlane.EpisodePage do
             }
             target="_blank"
             rel="noopener noreferrer"
-          >This Slack thread →</a>
+          >This Slack thread</a>
         </p>
       </div>
       <section :if={@startup} class="task-start-failure" aria-labelledby="task-start-heading">
@@ -280,8 +282,13 @@ defmodule Ryker.ControlPlane.EpisodePage do
       </div>
       <p class="episode-location">
         <time :if={@received_at}>{timestamp(@received_at)}</time>
-        <a :if={@source} href={@source.href} rel="noopener noreferrer">{@source.label} →</a>
-        <a :if={@conversation_href} href={@conversation_href}>All activity in this conversation →</a>
+        <a
+          :if={@source}
+          href={@source.href}
+          target="_blank"
+          rel="noopener noreferrer"
+        >{@source.label}</a>
+        <a :if={@conversation_href} href={@conversation_href}>All activity in this conversation</a>
       </p>
     </div>
     """
@@ -297,6 +304,7 @@ defmodule Ryker.ControlPlane.EpisodePage do
     snapshot
     |> entries(timeline)
     |> separate_routing()
+    |> compact_repeated_briefings()
     |> EpisodeTrace.chapters(snapshot.trace.received_at, snapshot.trace.causality)
     |> execution_phases()
   end
@@ -326,13 +334,13 @@ defmodule Ryker.ControlPlane.EpisodePage do
         Older model calls stay under “Model calls” in the technical record below; long artifacts are labeled when truncated.
       </p>
       <section
-        :for={{chapter, index} <- Enum.with_index(@chapters, 1)}
+        :for={{{chapter, number}, index} <- Enum.with_index(numbered_chapters(@chapters), 1)}
         class={"trace-chapter phase-#{chapter.band} #{if chapter.starts_conversation, do: "conversation-boundary"}"}
         data-conversation-turn={chapter.conversation_turn}
         aria-labelledby={"chapter-#{index}"}
       >
         <div class="chapter-heading">
-          <span class="phase-number" aria-hidden="true">{phase_number(chapter.band)}</span>
+          <span class="phase-number" aria-hidden="true">{number}</span>
           <div class="chapter-description">
             <p
               :if={chapter.starts_conversation && chapter.conversation_turn > 1}
@@ -390,9 +398,52 @@ defmodule Ryker.ControlPlane.EpisodePage do
     end)
   end
 
+  # Once a message has entered Routing, its later queue/retry receipts are part
+  # of that same chronological phase. A later conversation message has its own
+  # turn number and therefore still starts a new Getting ready chapter.
+  defp execution_phases(chapters) do
+    {chapters, _seen} =
+      Enum.map_reduce(chapters, MapSet.new(), fn chapter, seen ->
+        key = chapter.conversation_turn
+
+        cond do
+          chapter.band == :routing ->
+            {chapter, MapSet.put(seen, key)}
+
+          chapter.band in [:ready, :input] and MapSet.member?(seen, key) ->
+            {%{chapter | band: :routing}, seen}
+
+          true ->
+            {chapter, seen}
+        end
+      end)
+
+    merge_execution_phases(chapters)
+  end
+
+  defp compact_repeated_briefings(entries) do
+    {entries, _seen} =
+      Enum.map_reduce(entries, MapSet.new(), fn
+        %{kind: :request, source_kind: :admission, phase: :submission, fingerprint: fingerprint} =
+            entry,
+        seen
+        when is_binary(fingerprint) and fingerprint != "" ->
+          if MapSet.member?(seen, fingerprint) do
+            {Map.put(entry, :reused_briefing, true), seen}
+          else
+            {entry, MapSet.put(seen, fingerprint)}
+          end
+
+        entry, seen ->
+          {entry, seen}
+      end)
+
+    entries
+  end
+
   # Establish message boundaries before merging input into setup. Only adjacent
   # phases merge: a follow-up never moves ahead of work that already happened.
-  defp execution_phases(chapters) do
+  defp merge_execution_phases(chapters) do
     chapters
     |> Enum.map(&%{&1 | band: phase_band(&1.band)})
     |> Enum.chunk_by(&{&1.band, &1.conversation_turn})
@@ -1006,12 +1057,25 @@ defmodule Ryker.ControlPlane.EpisodePage do
   defp chapter_title(%{band: :answer}), do: "The answer"
   defp chapter_title(chapter), do: chapter.title
 
-  defp phase_number(:learning), do: "B1"
-  defp phase_number(:maintenance), do: "B2"
-  defp phase_number(:ready), do: "01"
-  defp phase_number(:routing), do: "02"
-  defp phase_number(:work), do: "03"
-  defp phase_number(:answer), do: "04"
+  # A retry may return to preparation and routing, but history must never look
+  # like time ran backwards. Number foreground chapters in rendered order;
+  # background learning and maintenance retain their separate B labels.
+  defp numbered_chapters(chapters) do
+    {numbered, _foreground, _background} =
+      Enum.reduce(chapters, {[], 0, 0}, fn chapter, {items, foreground, background} ->
+        if background_band?(chapter.band) do
+          background = background + 1
+          {[{chapter, "B#{background}"} | items], foreground, background}
+        else
+          foreground = foreground + 1
+
+          {[{chapter, foreground |> Integer.to_string() |> String.pad_leading(2, "0")} | items],
+           foreground, background}
+        end
+      end)
+
+    Enum.reverse(numbered)
+  end
 
   defp chapter_description(:ready),
     do: "The message and context that started this part of the conversation."
@@ -1264,7 +1328,7 @@ defmodule Ryker.ControlPlane.EpisodePage do
       |> Enum.map(&("+" <> duration_seconds(max(div(unix(&1) - unix(started), 1_000_000), 0))))
       |> Enum.uniq()
 
-    Enum.join(offsets, " → ")
+    Enum.join(offsets, " to ")
   end
 
   defp duration_seconds(0), do: "0s"

@@ -6,18 +6,20 @@ defmodule Ryker.MixProject do
     CHANGELOG.md
     LICENSE
     SECURITY.md
+    compose.yml
+    install.sh
+    Dockerfile
+    deploy/compose/entrypoint.sh
+    deploy/compose/coop/Dockerfile
+    deploy/compose/coop/entrypoint.sh
     deploy/nginx/ryker.conf
-    deploy/systemd/ryker.service
-    deploy/systemd/ryker.env.example
     docs/elixir-ingress-admission.md
     docs/elixir-platform-adapters.md
     docs/operations.md
     docs/releasing.md
     docs/slack-app.md
     docs/testing.md
-    scripts/activate-elixir-release.sh
-    scripts/check-elixir-release.sh
-    scripts/install-elixir-release.sh
+    scripts/compose.sh
   )
 
   def project do

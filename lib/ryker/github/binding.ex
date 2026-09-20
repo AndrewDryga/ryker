@@ -11,7 +11,7 @@ defmodule Ryker.GitHub.Binding do
   @default_max_body_bytes 40_000
   @maximum_id 9_223_372_036_854_775_807
   @fields [
-    :authorized_actor_ids,
+    :action_grants,
     :installation_id,
     :max_body_bytes,
     :name,
@@ -21,16 +21,16 @@ defmodule Ryker.GitHub.Binding do
     :secret,
     :work_profile
   ]
-  @required_fields @fields -- [:max_body_bytes, :work_profile]
+  @required_fields @fields -- [:action_grants, :max_body_bytes, :work_profile]
+  @action_grants ~w(read review open_pull_request update_ryker_branch rerun_ci cancel_ci issues approve merge)
   @name_regex ~r/\A[a-z][a-z0-9_-]{0,63}\z/
   @repository_regex ~r/\A[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\z/
-  @maximum_authorized_actors 1_024
 
   @enforce_keys @fields
   defstruct @fields
 
   @type t :: %__MODULE__{
-          authorized_actor_ids: [pos_integer()],
+          action_grants: [String.t()],
           installation_id: pos_integer(),
           max_body_bytes: pos_integer(),
           name: String.t(),
@@ -47,7 +47,6 @@ defmodule Ryker.GitHub.Binding do
          {:ok, work_profile} <-
            WorkProfile.prepare(Map.get(attributes, :work_profile)),
          attributes <- Map.put(attributes, :work_profile, work_profile),
-         attributes <- normalize_actor_ids(attributes),
          binding <- struct!(__MODULE__, attributes),
          :ok <- validate(binding) do
       {:ok, binding}
@@ -99,6 +98,10 @@ defmodule Ryker.GitHub.Binding do
     if Enum.sort(keys -- @fields) == [] and Enum.all?(@required_fields, &(&1 in keys)) do
       {:ok,
        attributes
+       |> Map.put_new(
+         :action_grants,
+         ~w(read review open_pull_request update_ryker_branch rerun_ci)
+       )
        |> Map.put_new(:max_body_bytes, @default_max_body_bytes)
        |> Map.put_new(:work_profile, nil)}
     else
@@ -110,7 +113,7 @@ defmodule Ryker.GitHub.Binding do
 
   defp validate(binding) do
     validations = [
-      {valid_actor_ids?(binding.authorized_actor_ids), :authorized_actor_ids},
+      {valid_action_grants?(binding.action_grants), :action_grants},
       {positive_id?(binding.installation_id), :installation_id},
       {is_integer(binding.max_body_bytes) and binding.max_body_bytes >= 1_024 and
          binding.max_body_bytes <= @default_max_body_bytes, :max_body_bytes},
@@ -118,8 +121,7 @@ defmodule Ryker.GitHub.Binding do
       {is_binary(binding.repository_full_name) and
          Regex.match?(@repository_regex, binding.repository_full_name), :repository_full_name},
       {positive_id?(binding.repository_id), :repository_id},
-      {positive_id?(binding.ryker_actor_id) and
-         binding.ryker_actor_id not in binding.authorized_actor_ids, :ryker_actor_id},
+      {positive_id?(binding.ryker_actor_id), :ryker_actor_id},
       {is_binary(binding.secret) and byte_size(binding.secret) >= 32 and
          byte_size(binding.secret) <= 1_024, :secret}
     ]
@@ -133,13 +135,8 @@ defmodule Ryker.GitHub.Binding do
   defp positive_id?(value),
     do: is_integer(value) and value > 0 and value <= @maximum_id
 
-  defp normalize_actor_ids(%{authorized_actor_ids: ids} = attributes) when is_list(ids),
-    do: Map.put(attributes, :authorized_actor_ids, Enum.sort(Enum.uniq(ids)))
-
-  defp normalize_actor_ids(attributes), do: attributes
-
-  defp valid_actor_ids?(ids) do
-    is_list(ids) and ids != [] and length(ids) <= @maximum_authorized_actors and
-      Enum.all?(ids, &positive_id?/1)
+  defp valid_action_grants?(grants) do
+    is_list(grants) and grants != [] and grants == Enum.uniq(grants) and
+      Enum.all?(grants, &(&1 in @action_grants))
   end
 end

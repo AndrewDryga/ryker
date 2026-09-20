@@ -21,12 +21,6 @@ defmodule Ryker.StateTools.ServerTest do
              port: 4_083,
              token: @token
            }).ip == {0, 0, 0, 0, 0, 0, 0, 1}
-
-    assert Server.options!(
-             emisar_rpc_url: "https://emisar.example/api/mcp/rpc",
-             port: 4_083,
-             token: @token
-           ).emisar_rpc_url == "https://emisar.example/api/mcp/rpc"
   end
 
   test "refuses ambiguous or unsafe state-tool listener configuration" do
@@ -55,13 +49,5 @@ defmodule Ryker.StateTools.ServerTest do
     end
 
     assert_raise ArgumentError, fn -> Server.options!(port: 4_083, token: "short") end
-
-    assert_raise ArgumentError, fn ->
-      Server.options!(
-        emisar_rpc_url: "http://emisar.example/api/mcp/rpc",
-        port: 4_083,
-        token: @token
-      )
-    end
   end
 end

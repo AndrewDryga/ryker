@@ -23,10 +23,10 @@
 #             looping turn ends there too, which is what readiness alone would
 #             miss between its retries.
 #
-# It does not read the database and it needs nothing from the process it
-# watches: an unreachable control plane is itself the alarm. It speaks through
-# a macOS notification, a Slack DM sent with the deployment's own bot token
-# (the Slack app outlives the process), and a log file.
+# It does not read the database or integration credentials: an unreachable
+# control plane is itself the alarm. It speaks through a macOS notification
+# and a log file. Product notifications belong to Ryker's credential-custody
+# and delivery paths, not this host-side process check.
 set -uo pipefail
 
 # Overridable so every alarm can be exercised against a fabricated deployment.
@@ -41,9 +41,6 @@ strikes_required="${WATCHDOG_STRIKES:-3}"
 # While a deployment stays broken, repeat every half hour rather than every
 # minute. An alarm nobody can silence is an alarm everybody learns to ignore.
 renotify_minutes="${WATCHDOG_RENOTIFY_MINUTES:-30}"
-# The Slack user or channel the DM goes to. Unset keeps the alarm local.
-slack_channel="${WATCHDOG_SLACK_CHANNEL:-}"
-
 mkdir -p "$state_dir"
 
 # A heartbeat, because this script is silent when everything is well and also
@@ -65,45 +62,9 @@ env_value() {
   printf '%s' "$value"
 }
 
-# json_string VALUE prints VALUE as a JSON string literal.
-json_string() {
-  local value=${1//\\/\\\\}
-  value=${value//\"/\\\"}
-  value=${value//$'\n'/\\n}
-  printf '"%s"' "$value"
-}
-
-# slack_dm sends the alarm as a Slack DM with the deployment's own bot token.
-#
-# The toast was not enough. On 2026-08-14 a queue sat wedged for eleven hours
-# while the alarm fired as a macOS notification — transient, easy to miss, and
-# gone if nobody was at this machine. The token is read from the deployment's
-# runtime.env at alarm time and never logged; the API base is overridable so
-# the test can watch the request arrive instead of trusting that it would.
-slack_dm() {
-  local title="$1" message="$2" token api
-  # The nothing-to-watch alarm belongs to no deployment and stays local.
-  [[ -n ${current_env:-} ]] || return 0
-  if [[ -z $slack_channel ]]; then
-    note "slack DM skipped for $title: WATCHDOG_SLACK_CHANNEL is not set"
-    return 0
-  fi
-  token=$(env_value "$current_env" SLACK_BOT_TOKEN)
-  if [[ -z $token ]]; then
-    note "slack DM skipped for $title: no SLACK_BOT_TOKEN in $current_env"
-    return 0
-  fi
-  api="${WATCHDOG_SLACK_API:-https://slack.com/api}"
-  /usr/bin/curl -fsS --max-time 5 -X POST "$api/chat.postMessage" \
-    -H "Authorization: Bearer $token" -H "Content-Type: application/json; charset=utf-8" \
-    -d "{\"channel\":$(json_string "$slack_channel"),\"text\":$(json_string "$title — $message")}" \
-    >/dev/null 2>&1 || note "slack DM failed for $title"
-}
-
 alarm() {
   local title="$1" message="$2"
   note "ALERT $title — $message"
-  slack_dm "$title" "$message"
   [[ -n ${WATCHDOG_NO_NOTIFY:-} ]] && return
   # Escaped for AppleScript's string literal, which is the one place a reason
   # containing a quote would otherwise become a syntax error.
@@ -168,9 +129,6 @@ for plist in "$agents"/ai.emisar.ryker*.plist; do
   esac
   base="http://$address:$port"
   name=$(basename "$root")
-  # Remembered for the alarm path: a deployment's alarm is sent with that
-  # deployment's own token.
-  current_env="$env_file"
   checked=$((checked + 1))
 
   strike_file="$state_dir/$name.strikes"

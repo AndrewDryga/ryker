@@ -22,7 +22,6 @@ defmodule Ryker.StateTools.Router do
     token = Keyword.fetch!(options, :token)
     cursor_secret = Keyword.get(options, :cursor_secret, token)
     binding = Keyword.get(options, :binding)
-    emisar_rpc_url = Keyword.get(options, :emisar_rpc_url)
 
     capabilities =
       Keyword.get(options, :capabilities, [:event_waits, :publication, :schedules])
@@ -40,13 +39,10 @@ defmodule Ryker.StateTools.Router do
     unless is_nil(cursor_secret) or valid_token?(cursor_secret),
       do: raise(ArgumentError, "memory cursor secret must be at least 16 valid UTF-8 bytes")
 
-    unless is_nil(emisar_rpc_url) or valid_emisar_rpc_url?(emisar_rpc_url),
-      do: raise(ArgumentError, "state-tools Emisar RPC URL must be an HTTPS URL")
-
     unless valid_capabilities?(capabilities),
       do: raise(ArgumentError, "state-tools capabilities must be unique known atoms")
 
-    validate_additional_tools!(additional_tools, additional_call, capabilities, emisar_rpc_url)
+    validate_additional_tools!(additional_tools, additional_call, capabilities)
 
     %{
       additional_call: additional_call,
@@ -55,7 +51,6 @@ defmodule Ryker.StateTools.Router do
       binding: binding,
       capabilities: capabilities,
       cursor_secret: cursor_secret,
-      emisar_rpc_url: emisar_rpc_url,
       token: token
     }
   end
@@ -305,10 +300,10 @@ defmodule Ryker.StateTools.Router do
       :binary.match(token, <<0>>) == :nomatch
   end
 
-  defp validate_additional_tools!(tools, callback, capabilities, emisar_rpc_url)
+  defp validate_additional_tools!(tools, callback, capabilities)
        when is_list(tools) and length(tools) <= 128 do
     production_names =
-      Tools.list(capabilities: capabilities, emisar_rpc_url: emisar_rpc_url)
+      Tools.list(capabilities: capabilities)
       |> MapSet.new(& &1["name"])
 
     names = Enum.map(tools, & &1["name"])
@@ -327,7 +322,7 @@ defmodule Ryker.StateTools.Router do
     end
   end
 
-  defp validate_additional_tools!(_tools, _callback, _capabilities, _emisar_rpc_url) do
+  defp validate_additional_tools!(_tools, _callback, _capabilities) do
     raise ArgumentError, "additional state-tools are invalid"
   end
 
@@ -350,18 +345,6 @@ defmodule Ryker.StateTools.Router do
   end
 
   defp valid_additional_tool?(_tool), do: false
-
-  defp valid_emisar_rpc_url?(value) when is_binary(value) do
-    case URI.parse(value) do
-      %URI{scheme: "https", host: host, userinfo: nil, query: nil, fragment: nil} ->
-        is_binary(host) and host != ""
-
-      _invalid ->
-        false
-    end
-  end
-
-  defp valid_emisar_rpc_url?(_value), do: false
 
   defp valid_capabilities?(capabilities) when is_list(capabilities) do
     capabilities == Enum.uniq(capabilities) and

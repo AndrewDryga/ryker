@@ -86,6 +86,7 @@ run_candidate() {
     "RELEASE_DISTRIBUTION=none"
     "RELEASE_TMP=$release_tmp"
     "RYKER_CONTROL_PORT=$candidate_port"
+    "RYKER_CREDENTIAL_KEY=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
     "RYKER_STATE_DIR=$scratch/state"
   )
 

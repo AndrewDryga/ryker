@@ -1025,6 +1025,7 @@ defmodule Ryker.Retention.Data do
 
     audit_rows =
       prune_aged_ledger("settings_edits", cutoff) +
+        prune_aged_ledger("integration_credential_events", cutoff) +
         prune_aged_ledger("model_instruction_edits", cutoff) +
         prune_aged_ledger("settings_import_receipts", cutoff) +
         prune_aged_ledger("slack_channel_setting_audit", cutoff) +

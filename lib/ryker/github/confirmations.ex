@@ -6,7 +6,7 @@ defmodule Ryker.GitHub.Confirmations do
   discussions without granting the model a write credential. The host derives
   the actor and discussion from the signed webhook, reloads the original
   delivery target, and delegates the durable transition to the same state
-  services used by Slack and Conversation Lab.
+  services used by Slack and Chat.
   """
 
   import Ecto.Query

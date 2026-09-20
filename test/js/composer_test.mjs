@@ -7,8 +7,8 @@ import {createComposer} from "../../priv/static/composer.mjs"
 // checked in Chromium.
 function composer() {
   const attributes = {}
-  const error = {hidden: true, textContent: ""}
-  const status = {hidden: true, textContent: ""}
+  const error = {hidden: true, textContent: "", dataset: {}}
+  const status = {hidden: true, textContent: "", dataset: {}}
   const button = {disabled: false}
   const textarea = {value: "", validity: "", reported: 0,
     setCustomValidity(message) { this.validity = message }, reportValidity() { this.reported++ }}
@@ -37,6 +37,7 @@ test("a file choice that breaks a limit is explained beside the composer at once
   c.controls.input({target: c.files})
   assert.equal(c.error.hidden, false)
   assert.match(c.error.textContent, /at most 2/)
+  assert.equal(c.error.dataset.tone, "error")
   assert.equal(c.attributes["aria-invalid"], "true")
 
   c.files.files = [{size: 1}]
@@ -56,6 +57,7 @@ test("sending files over the limit is refused in place with the same reason and 
   assert.equal(prevented, true)
   assert.equal(c.error.hidden, false)
   assert.match(c.error.textContent, /8 MiB/)
+  assert.equal(c.error.dataset.tone, "error")
   assert.equal(c.button.disabled, false, "no send started")
   assert.equal(c.status.hidden, true)
   assert.equal(c.textarea.reported, 0, "the file problem is not reported on the message field")

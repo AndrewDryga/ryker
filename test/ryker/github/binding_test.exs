@@ -4,7 +4,6 @@ defmodule Ryker.GitHub.BindingTest do
   alias Ryker.GitHub.Binding
 
   @valid [
-    authorized_actor_ids: [7, 8],
     installation_id: 41,
     name: "github-main",
     repository_full_name: "octo/example",
@@ -34,7 +33,6 @@ defmodule Ryker.GitHub.BindingTest do
              {:error, {:invalid_github_binding, :fields}}
 
     for {field, value} <- [
-          authorized_actor_ids: [],
           installation_id: 0,
           max_body_bytes: 1_023,
           name: "Not Valid",
@@ -48,14 +46,8 @@ defmodule Ryker.GitHub.BindingTest do
     end
   end
 
-  test "fails closed without an authorized actor set and a distinct ryker identity" do
-    assert Binding.new(Keyword.drop(@valid, [:authorized_actor_ids])) ==
-             {:error, {:invalid_github_binding, :fields}}
-
+  test "fails closed without a verified ryker identity" do
     assert Binding.new(Keyword.drop(@valid, [:ryker_actor_id])) ==
              {:error, {:invalid_github_binding, :fields}}
-
-    assert Binding.new(Keyword.put(@valid, :ryker_actor_id, 7)) ==
-             {:error, {:invalid_github_binding, :ryker_actor_id}}
   end
 end

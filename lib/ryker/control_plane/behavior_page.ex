@@ -51,6 +51,7 @@ defmodule Ryker.ControlPlane.BehaviorPage do
         placeholder="Search instructions or scope"
         query={@view.params["q"]}
         filtered={filtered?(@view)}
+        disabled={Enum.sum(Map.values(@view.counts)) == 0}
         selects={[
           %{
             id: "behavior-status",
@@ -74,20 +75,20 @@ defmodule Ryker.ControlPlane.BehaviorPage do
         one={noun(@view.kind, 1)}
         many={noun(@view.kind, 2)}
       />
-      <div :if={@view.items == []} class="behavior-empty">
-        <h2>
-          {empty_title(@view)}
-        </h2>
-        <p>
-          {if filtered?(@view),
+      <.empty_state
+        :if={@view.items == []}
+        kind={if filtered?(@view), do: :no_match, else: :empty}
+        title={empty_title(@view)}
+        description={
+          if filtered?(@view),
             do: "Change the filters to see other saved entries.",
-            else: empty_help(@view.kind)}
-        </p>
-        <a
-          :if={!filtered?(@view) && Enum.sum(Map.values(@view.counts)) > 0}
-          href={@path <> "?status=all"}
-        >Show expired and archived entries →</a>
-      </div>
+            else: empty_help(@view.kind)
+        }
+      >
+        <:action :if={!filtered?(@view) && Enum.sum(Map.values(@view.counts)) > 0}>
+          <a href={@path <> "?status=all"}>Show expired and archived entries →</a>
+        </:action>
+      </.empty_state>
       <div class="behavior-entries">
         <article :for={item <- @view.items} id={"behavior-#{item.ref}"} class="behavior-entry">
           <div class="behavior-heading">

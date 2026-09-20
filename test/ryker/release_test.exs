@@ -67,18 +67,22 @@ defmodule Ryker.ReleaseTest do
 
     for path <- ~w(
       README.md
+      compose.yml
+      install.sh
+      Dockerfile
+      deploy/compose/entrypoint.sh
       deploy/nginx/ryker.conf
-      deploy/systemd/ryker.service
-      deploy/systemd/ryker.env.example
       docs/elixir-ingress-admission.md
       docs/operations.md
       docs/releasing.md
+      scripts/compose.sh
     ) do
       assert mixfile =~ path
       assert checker =~ path
     end
 
     assert checker =~ ~s($scratch/share/ryker/$asset)
+    assert checker =~ "RYKER_CREDENTIAL_KEY="
   end
 
   test "the release gate builds and inspects the Elixir archive" do
@@ -126,31 +130,29 @@ defmodule Ryker.ReleaseTest do
     assert mixfile =~ "RYKER_ELIXIR_VERSION is required for production builds"
   end
 
-  test "the documented production install authenticates every executable release helper" do
+  test "the documented production install has one Compose path" do
     readme = File.read!(Path.expand("../../README.md", __DIR__))
     operations = File.read!(Path.expand("../../docs/operations.md", __DIR__))
 
-    for document <- [readme, operations],
-        helper <- ~w(install-elixir-release.sh check-elixir-release.sh activate-elixir-release.sh) do
-      assert document =~ helper
-    end
-
     for document <- [readme, operations] do
-      assert document =~
-               "for helper in install-elixir-release.sh check-elixir-release.sh activate-elixir-release.sh"
-
-      assert document =~ ~s(awk -v file="$helper" '$2 == file { print }' checksums.txt)
-      assert document =~ "chmod 0755 \"$helper\""
+      assert document =~ "./install.sh"
+      assert document =~ "scripts/compose.sh"
+      refute document =~ "install-elixir-release.sh"
+      refute document =~ "activate-elixir-release.sh"
+      refute document =~ "systemctl"
+      refute document =~ "launchctl"
     end
   end
 
-  test "the canonical deploy path installs and restarts only the Elixir PostgreSQL service" do
+  test "the internal host deploy remains separate from the public Compose path" do
     deploy = File.read!(Path.expand("../../scripts/deploy.sh", __DIR__))
     operations = File.read!(Path.expand("../../docs/operations.md", __DIR__))
 
     assert deploy =~ "make elixir-candidate-check"
     assert deploy =~ "scripts/install-elixir-release.sh"
     assert deploy =~ "/readyz"
+    assert deploy =~ ~S|candidate_credential_key=$(env_value "$runtime_env" RYKER_CREDENTIAL_KEY)|
+    assert deploy =~ ~S|RYKER_CREDENTIAL_KEY="$candidate_credential_key"|
     assert deploy =~ ~S|installed_version=$("$prefix/current/bin/ryker" version)|
     assert deploy =~ ~S|scripts/check-running-elixir-release.sh "$health_url" "$version"|
     refute deploy =~ ~S|installed_version=$($prefix/current/bin/ryker version)|
@@ -177,8 +179,9 @@ defmodule Ryker.ReleaseTest do
     refute deploy =~ "coop"
     refute launchd =~ "coop"
 
-    assert operations =~ "Elixir/PostgreSQL"
-    assert operations =~ "scripts/deploy.sh"
+    assert operations =~ "Docker Compose"
+    assert operations =~ "scripts/compose.sh"
+    refute operations =~ "scripts/deploy.sh"
     refute operations =~ "ryker bootstrap-coop"
     refute operations =~ "ryker serve"
     refute operations =~ "State is one owner-private SQLite database"
@@ -281,16 +284,17 @@ defmodule Ryker.ReleaseTest do
     for name <- ~w(
       DATABASE_URL
       RYKER_CHECKPOINT_KEY
+      RYKER_CREDENTIAL_KEY
       RYKER_STATE_TOOLS_TOKEN
-      SLACK_BOT_TOKEN
-      SLACK_APP_TOKEN
-      EMISAR_API_TOKEN
-      GITHUB_APP_ID
-      GITHUB_APP_PRIVATE_KEY
-      GITHUB_WEBHOOK_SECRET
-      RYKER_WEBHOOK_SECRET_NAMES
     ) do
       assert environment =~ "#{name}="
+    end
+
+    for retired <- ~w(
+      SLACK_BOT_TOKEN SLACK_APP_TOKEN EMISAR_API_TOKEN GITHUB_APP_ID
+      GITHUB_APP_PRIVATE_KEY GITHUB_WEBHOOK_SECRET RYKER_WEBHOOK_SECRET_NAMES
+    ) do
+      refute environment =~ "#{retired}="
     end
 
     assert nginx =~ "location = /v1/github"
@@ -314,6 +318,7 @@ defmodule Ryker.ReleaseTest do
     refute candidate =~ "configuration_template"
     assert candidate =~ "DATABASE_URL=$candidate_database_url"
     assert candidate =~ "RYKER_CONTROL_PORT=$candidate_port"
+    assert candidate =~ "RYKER_CREDENTIAL_KEY="
 
     refute File.exists?(Path.expand("../../config/ryker-elixir.example.yaml", __DIR__))
     refute File.exists?(Path.expand("../../testdata/release/ryker-component.yaml", __DIR__))
@@ -392,12 +397,15 @@ defmodule Ryker.ReleaseTest do
 
     for asset <- ~w(
           README.md
+          compose.yml
+          install.sh
+          Dockerfile
+          deploy/compose/entrypoint.sh
           deploy/nginx/ryker.conf
-          deploy/systemd/ryker.service
-          deploy/systemd/ryker.env.example
           docs/elixir-ingress-admission.md
           docs/operations.md
           docs/releasing.md
+          scripts/compose.sh
         ) do
       path = Path.join([source, "share", "ryker", asset])
       File.mkdir_p!(Path.dirname(path))

@@ -10,6 +10,7 @@ defmodule Ryker.Emisar.Approval do
     belongs_to(:record, Ryker.State.Record)
     belongs_to(:episode, Ryker.Episodes.Episode)
 
+    field(:connection_ref, :string)
     field(:request_id, :string)
     field(:run_id, :string)
     field(:operation_id, :string)

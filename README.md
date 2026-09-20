@@ -57,81 +57,45 @@ patterns, pragmatic design decisions, and acceptance criteria. It is research, n
 
 ## Quick start
 
-The production service is the Elixir/PostgreSQL release. It uses one durable writer deployment;
-process or host replacement recovers leases, frozen model submissions, delivery intents, waits,
-schedules, and remote-worker placement from PostgreSQL. It does not require a canary/promote state
-machine.
-
-Requirements:
-
-- PostgreSQL and the released Linux amd64 Elixir archive;
-- at least one enrolled Coop fleet worker with the reviewed policy digests;
-- the platform credentials for the integrations you enable in settings, listed in
-  [`deploy/systemd/ryker.env.example`](deploy/systemd/ryker.env.example); and
-- TLS termination for `/v1/github` and `/v1/hooks/<route>`.
-
-Download the Elixir archive, `checksums.txt`, `checksums.txt.bundle`,
-`install-elixir-release.sh`, `check-elixir-release.sh`, and
-`activate-elixir-release.sh` from one GitHub Release. Authenticate the checksum manifest and every
-executable helper before executing the installer; the installer repeats that verification, verifies
-GitHub build provenance, verifies the archive digest before listing or extraction, and installs an
-immutable version directory:
+Ryker’s supported installation is Docker Compose. Install Docker with Compose v2, download one
+release directory, then run:
 
 ```bash
-tag=vX.Y.Z
-version=${tag#v}
-artifact="ryker_${version}_elixir_linux_amd64.tar.gz"
-
-cosign verify-blob checksums.txt \
-  --bundle checksums.txt.bundle \
-  --certificate-identity \
-  "https://github.com/AndrewDryga/ryker/.github/workflows/release.yml@refs/tags/${tag}" \
-  --certificate-oidc-issuer https://token.actions.githubusercontent.com
-for helper in install-elixir-release.sh check-elixir-release.sh activate-elixir-release.sh; do
-  awk -v file="$helper" '$2 == file { print }' checksums.txt | sha256sum --check
-  chmod 0755 "$helper"
-done
-sudo ./install-elixir-release.sh \
-  "$artifact" "$version" checksums.txt checksums.txt.bundle "$tag" \
-  /usr/local/lib/ryker
+./install.sh
 ```
 
-Create the runtime account and copy the authenticated operator assets embedded in that same
-release:
+The installer creates owner-only state in `.ryker/`, generates the database password and Ryker’s
+cryptographic roots once, starts PostgreSQL and the pinned Ryker image, verifies health, readiness
+and the exact running version, then prints the local setup URL. Running it again keeps the same
+keys and volumes.
+
+Slack, GitHub, Emisar and webhook credentials are entered in the setup UI and encrypted in
+PostgreSQL. They never belong in Compose or `.ryker/compose.env`. The control UI and ingress ports
+bind to loopback by default; publish only the signed webhook endpoints through HTTPS when external
+services need to reach them.
+
+Use the one lifecycle helper for routine operations:
 
 ```bash
-getent passwd ryker >/dev/null || \
-  sudo useradd --system --home-dir /var/lib/ryker --shell /usr/sbin/nologin ryker
-sudo install -d -o root -g ryker -m 0750 /etc/ryker
-sudo install -d -o ryker -g ryker -m 0700 /var/lib/ryker
-assets=/usr/local/lib/ryker/current/share/ryker
-sudo install -o root -g ryker -m 0600 \
-  "$assets/deploy/systemd/ryker.env.example" /etc/ryker/ryker.env
-sudo install -o root -g root -m 0644 \
-  "$assets/deploy/systemd/ryker.service" /etc/systemd/system/ryker.service
-sudo install -o root -g root -m 0644 \
-  "$assets/deploy/nginx/ryker.conf" /etc/nginx/conf.d/ryker.conf
+scripts/compose.sh status
+scripts/compose.sh logs
+scripts/compose.sh restart
+scripts/compose.sh upgrade
+scripts/compose.sh backup
+scripts/compose.sh restore .ryker/backups/ryker-YYYYMMDDTHHMMSSZ.tar.gz
+scripts/compose.sh uninstall       # keeps data and keys
 ```
 
-Replace every placeholder in the owner-only environment file, install the worker gateway
-CA/certificate files, then start normally. The service starts with no product configuration at
-all: open `http://127.0.0.1:4321/configuration` and connect Slack, GitHub, repositories,
-execution policies, webhook sources and retention there. Saves apply to the running service
-without a deployment, and the page shows the saved revision beside the running one.
-
-```bash
-sudo systemctl daemon-reload
-sudo systemctl enable --now ryker.service
-curl -f http://127.0.0.1:4321/healthz
-curl -f http://127.0.0.1:4321/readyz
-```
+`destroy` is a separate confirmed operation because it deletes the database volume, stored work
+and encryption keys. See [`docs/operations.md`](docs/operations.md) for backup, restore, exposure
+and recovery details.
 
 Then open `http://127.0.0.1:4321/conversations` for direct conversations with the
 agent, without Slack, through the real durable product pipeline. The manual
 qualification journeys for Slack, GitHub, webhooks, state tools and recovery are
 in [`docs/testing.md`](docs/testing.md#manual-qualification).
 
-The unit runs PostgreSQL migrations before opening listeners. See
+The Ryker container runs PostgreSQL migrations before opening listeners. See
 [`docs/elixir-platform-adapters.md`](docs/elixir-platform-adapters.md) for Slack/GitHub/webhook
 bindings, and [`docs/operations.md`](docs/operations.md) for backup, restart, rollback, and live
 acceptance.

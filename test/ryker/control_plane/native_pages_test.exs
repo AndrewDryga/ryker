@@ -63,7 +63,7 @@ defmodule Ryker.ControlPlane.NativePagesTest do
     html =
       render_component(&ActivityPage.render/1,
         overview: %{counts: %{}, fleet: %{required: false}},
-        activity: %{total: 0, page: 1, pages: 1, mode: "shadow"},
+        activity: %{total: 0, page: 1, pages: 1, mode: "shadow", searchable: true},
         params: %{"q" => "absent"},
         path: "/",
         now: @now,
@@ -74,6 +74,7 @@ defmodule Ryker.ControlPlane.NativePagesTest do
 
     assert html =~ "No matching activity"
     assert html =~ "Clear filters"
+    refute html =~ ~r/id="activity-filters-search"[^>]*disabled/
     refute html =~ "activity-rail"
     refute html =~ "No activity yet"
   end
@@ -82,7 +83,7 @@ defmodule Ryker.ControlPlane.NativePagesTest do
     html =
       render_component(&ActivityPage.render/1,
         overview: %{counts: %{active: 3, waiting: 2, blocked: 1}, fleet: %{required: false}},
-        activity: %{total: 0, page: 1, pages: 1, mode: "live"},
+        activity: %{total: 0, page: 1, pages: 1, mode: "live", searchable: false},
         params: %{},
         path: "/",
         now: @now,
@@ -104,10 +105,14 @@ defmodule Ryker.ControlPlane.NativePagesTest do
 
     assert LazyHTML.query(html, "[data-active-count]") |> LazyHTML.text() == "3"
 
-    assert LazyHTML.query(html, ".page-summary-link[href='/usage']") |> LazyHTML.text() ==
-             "View usage and cost"
+    refute LazyHTML.query(html, ".page-summary-link") |> Enum.any?()
 
     refute LazyHTML.query(html, ".activity-pulse") |> Enum.any?()
+    assert LazyHTML.query(html, "#activity-filters-search[disabled]") |> Enum.count() == 1
+    assert LazyHTML.query(html, "#activity-mode[disabled]") |> Enum.count() == 1
+    assert LazyHTML.query(html, "#filter-add[disabled]") |> Enum.count() == 1
+    assert LazyHTML.query(html, ".ui-tabs a") |> Enum.empty?()
+    assert LazyHTML.query(html, ".ui-tabs .ui-tab-disabled") |> Enum.count() == 4
   end
 
   test "worker problems remain actionable without filling an empty inbox with decorative widgets" do
@@ -116,7 +121,7 @@ defmodule Ryker.ControlPlane.NativePagesTest do
       html =
         render_component(&ActivityPage.render/1,
           overview: %{counts: %{}, fleet: fleet},
-          activity: %{total: 0, page: 1, pages: 1, mode: "live"},
+          activity: %{total: 0, page: 1, pages: 1, mode: "live", searchable: false},
           params: %{},
           path: "/",
           now: @now,
@@ -126,7 +131,7 @@ defmodule Ryker.ControlPlane.NativePagesTest do
         )
 
       assert html =~ "Worker attention"
-      assert html =~ "Inspect configuration"
+      assert html =~ "Inspect system settings"
       assert html =~ "href=\"/workspaces\""
       assert html =~ "No activity yet"
       refute html =~ "Coming up"

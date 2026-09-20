@@ -1,8 +1,8 @@
 // Conversation page controls that live in the browser: the narrow-screen
 // directory drawer, the example fill-in, following the first send of an
 // index draft to the conversation it created, and the inline message editor.
-// Nothing here rewrites the transcript: every change is posted to the exact
-// message's own route and comes back through the live stream.
+// Nothing here rewrites the transcript: server-owned mutations travel through
+// LiveView and come back through the authoritative live stream.
 
 const conversationAction = /^\/conversations\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/messages$/i
 
@@ -59,7 +59,7 @@ const reactionFailureText = error => {
     case "rejected:404": return "This reply is no longer available to react to. Reload the conversation to see its current state."
     case "rejected:422": return "The server did not accept that emoji name. Use letters, digits, _, + or -."
     case "rejected:403": return "This reaction could not be confirmed. Reload the conversation and try again."
-    default: return "The reaction was not confirmed. Check the conversation before trying again; nothing was retried."
+    default: return "The conversation changed, so the server did not accept this reaction. Reload to see its current state; nothing was retried."
   }
 }
 
@@ -139,7 +139,7 @@ export const createConversationControls = (root, options = {}) => {
   // each editable message; its open state and unsaved text live here and in
   // session storage, so a live patch or a reconnect puts them back.
   const editingKey = () => `ryker:editing:${path()}`
-  const editDraftKey = id => `ryker:draft:${path()}:${path()}/messages/${id}/edit:message`
+  const editDraftKey = id => `ryker:draft:${path()}:message:${id}:message`
   const editorFor = id => (doc && id) ? doc.getElementById(`lab-edit-${id}`) : null
   const fieldOf = form => form.querySelector("textarea[name=message]")
   const toggleFor = form => form.closest("article")?.querySelector(".lab-edit-toggle") || null
@@ -206,30 +206,13 @@ export const createConversationControls = (root, options = {}) => {
     toggleFor(form)?.focus()
   }
 
-  const saveEdit = async form => {
+  const prepareEdit = form => {
     const field = fieldOf(form)
     const problem = validateEdit(field.value)
-    if (problem) { showError(form, problem); field.focus(); return }
+    if (problem) { showError(form, problem); field.focus(); return false }
     clearError(form)
     saving = true
-    const save = form.querySelector(".lab-edit-save")
-    if (save) { save.disabled = true; save.setAttribute("aria-busy", "true") }
-    try {
-      await receipt(form, fetcher)
-      const id = form.dataset?.labEdit
-      if (id) store.remove(editDraftKey(id))
-      store.remove(editingKey())
-      editing = null
-      // The saved text stays in the field until the live stream renders the
-      // accepted revision; the transcript is never rewritten from here.
-      hideEditor(form)
-      pushEvent("refresh", {})
-    } catch (error) {
-      showError(form, failureText(error))
-    } finally {
-      saving = false
-      if (save) { save.disabled = false; save.removeAttribute("aria-busy") }
-    }
+    return true
   }
 
   // A message that vanished while its editor was open is said out loud, with
@@ -261,11 +244,12 @@ export const createConversationControls = (root, options = {}) => {
     editing = null
   }
 
-  // Reactions. Pills and the picker post the real add/remove contract to the
-  // exact reply; nothing changes on screen until the live stream reflects the
-  // accepted event. The picker is ignored by live patches, so its open state
-  // here is what a refresh has to put back.
+  // Reactions. Pills and the picker submit the real add/remove contract through
+  // LiveView; nothing changes on screen until the server accepts the event.
+  // The picker is ignored by live patches, so its open state here is what a
+  // refresh has to put back.
   let picker = null
+  const pendingReactions = new Set()
 
   const pickerFor = button => doc?.getElementById(button.getAttribute("aria-controls") || "") || null
   const pickerToggle = panel => panel.closest(".lab-reactions")?.querySelector(".lab-reaction-toggle") || null
@@ -308,8 +292,8 @@ export const createConversationControls = (root, options = {}) => {
     form.querySelector("input[name=emoji]")?.removeAttribute?.("aria-invalid")
   }
 
-  const sendReaction = async form => {
-    if (form.dataset?.pending) return
+  const prepareReaction = form => {
+    if (form.dataset?.pending) return false
     const custom = form.matches(".lab-reaction-custom")
     const field = form.querySelector("input[name=emoji]")
     if (custom) {
@@ -317,37 +301,38 @@ export const createConversationControls = (root, options = {}) => {
       if (!emojiNamePattern.test(name)) {
         reactionError(form, "Use an emoji name made of letters, digits, _, + or -, up to 100 characters.")
         field.focus()
-        return
+        return false
       }
       field.value = name
     }
     clearReactionError(form)
     form.dataset.pending = "true"
-    const buttons = Array.from(form.querySelectorAll?.("button") || [])
-    buttons.forEach(button => { button.disabled = true; button.setAttribute?.("aria-busy", "true") })
-    try {
-      await receipt(form, fetcher)
-      if (custom) field.value = ""
-      if (form.closest(".lab-reaction-picker")) closePicker()
-      pushEvent("refresh", {})
-    } catch (error) {
-      const inPicker = form.closest(".lab-reaction-picker")
-      const slot = custom ? form : inPicker?.querySelector(".lab-reaction-custom")
-      if (slot) reactionError(slot, reactionFailureText(error))
-      else {
-        const notices = root.querySelector?.("#lab-notices")
-        if (notices && doc) {
-          const notice = doc.createElement("p")
-          notice.className = "lab-notice"
-          notice.setAttribute("role", "alert")
-          notice.textContent = reactionFailureText(error)
-          notices.appendChild(notice)
-        }
+    pendingReactions.add(form)
+    return true
+  }
+
+  const clearPendingReactions = () => {
+    pendingReactions.forEach(form => { delete form.dataset.pending })
+    pendingReactions.clear()
+  }
+
+  const rejectedError = reason => new Error(reason === "unauthorized" ? "rejected:403" : reason === "invalid" ? "rejected:422" : "rejected:409")
+
+  const rejectReaction = reason => {
+    const panel = picker && doc?.getElementById(picker.id)
+    const form = panel?.querySelector(".lab-reaction-custom")
+    if (form) reactionError(form, reactionFailureText(rejectedError(reason)))
+    else {
+      const notices = root.querySelector?.("#lab-notices")
+      if (notices && doc) {
+        const notice = doc.createElement("p")
+        notice.className = "lab-notice"
+        notice.setAttribute("role", "alert")
+        notice.textContent = reactionFailureText(rejectedError(reason))
+        notices.appendChild(notice)
       }
-    } finally {
-      delete form.dataset.pending
-      buttons.forEach(button => { button.disabled = false; button.removeAttribute?.("aria-busy") })
     }
+    clearPendingReactions()
   }
 
   const performAction = async form => {
@@ -415,7 +400,7 @@ export const createConversationControls = (root, options = {}) => {
         if (event.key === "Escape") { cancelEdit(form); return true }
         if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
           event.preventDefault()
-          if (!saving) saveEdit(form)
+          if (!saving) form.requestSubmit()
           return true
         }
         return false
@@ -439,19 +424,57 @@ export const createConversationControls = (root, options = {}) => {
       const form = event.target
       if (!form?.matches) return false
       if (form.matches(".lab-edit-form")) {
-        event.preventDefault()
-        if (saving) return true
-        return saveEdit(form)
+        if (saving || !prepareEdit(form)) { event.preventDefault(); return true }
+        return false
       }
       if (form.matches(".lab-reaction-form")) {
-        event.preventDefault()
-        return sendReaction(form)
+        if (!prepareReaction(form)) { event.preventDefault(); return true }
+        return false
       }
       if (form.matches(".lab-action-form")) {
         event.preventDefault()
         return performAction(form)
       }
       return false
+    },
+    accept({kind, id} = {}) {
+      if (kind === "edit") {
+        const form = editorFor(id)
+        if (form) hideEditor(form)
+        if (id) store.remove(editDraftKey(id))
+        store.remove(editingKey())
+        editing = null
+        saving = false
+      } else if (kind === "delete") {
+        if (id) store.remove(editDraftKey(id))
+        store.remove(editingKey())
+        editing = null
+        saving = false
+      } else if (kind === "reaction") {
+        const panel = picker && doc?.getElementById(picker.id)
+        const field = panel?.querySelector(".lab-reaction-custom")?.querySelector("input[name=emoji]")
+        if (field) field.value = ""
+        clearPendingReactions()
+        closePicker()
+      }
+    },
+    reject({kind, id, reason} = {}) {
+      if (kind === "edit") {
+        saving = false
+        const form = editorFor(id)
+        if (form) showError(form, failureText(rejectedError(reason)))
+      } else if (kind === "delete") {
+        const notices = root.querySelector?.("#lab-notices")
+        if (notices && doc) {
+          const notice = doc.createElement("p")
+          notice.className = "lab-notice"
+          notice.setAttribute("role", "alert")
+          notice.textContent = "The message was not deleted. Reload the conversation and try again."
+          notices.appendChild(notice)
+        }
+      } else if (kind === "reaction") {
+        rejectReaction(reason)
+      }
     },
     // After a reconnect the server renders every editor closed; an editor the
     // operator had open comes back with its draft, without stealing focus.
@@ -486,6 +509,7 @@ export const createConversationControls = (root, options = {}) => {
     },
     destroy() {
       closePicker(false)
+      clearPendingReactions()
       open = false
       editing = null
     }

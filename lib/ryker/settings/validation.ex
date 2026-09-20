@@ -8,7 +8,7 @@ defmodule Ryker.Settings.Validation do
   @reference ~r/\A[a-z0-9][a-z0-9_-]{0,63}\z/
   @slack_id ~r/\A[A-Z0-9]{1,255}\z/
   @hex64 ~r/\A[0-9a-f]{64}\z/
-  @secret_name ~r/\A[A-Z][A-Z0-9_]{0,127}\z/
+  @secret_name ~r/\A[a-z0-9][a-z0-9_.:-]{0,127}\z/
   @adapter_name ~r/\A[a-z][a-z0-9_-]{0,63}\z/
   @github_repository ~r/\A[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\z/
   @email ~r/\A[^\s@]+@[^\s@]+\z/

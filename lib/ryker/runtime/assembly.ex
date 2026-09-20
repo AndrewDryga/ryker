@@ -14,6 +14,7 @@ defmodule Ryker.Runtime.Assembly do
   alias Ryker.Bootstrap
   alias Ryker.ControlPlane.CapabilityTools, as: ControlPlaneCapabilityTools
   alias Ryker.ControlPlane.ConversationLab
+  alias Ryker.Credentials
   alias Ryker.Defaults
   alias Ryker.Delivery.{JSONClient, Request}
 
@@ -24,6 +25,7 @@ defmodule Ryker.Runtime.Assembly do
     Confirmations,
     InstallationTokens,
     Publisher,
+    RepositoryAccess,
     Target
   }
 
@@ -48,7 +50,7 @@ defmodule Ryker.Runtime.Assembly do
     {:github, Ryker.GitHub.Runtime},
     {:publication, Ryker.Publication.Runtime},
     {:delivery, Ryker.Delivery.Runtime},
-    {:emisar, Ryker.Emisar.ApprovalRuntime},
+    {:emisar, Ryker.Emisar.Runtime},
     {:event_waits, Ryker.State.EventWaitWorker},
     {:schedules, Ryker.State.ScheduleRuntime},
     {:slack, Ryker.Slack.Runtime},
@@ -132,7 +134,7 @@ defmodule Ryker.Runtime.Assembly do
     |> put_optional(:control_plane, control_plane)
     |> put_optional(:coop_worker_gateway, gateway)
     |> put_optional(:delivery, delivery)
-    |> put_optional(:emisar, emisar && emisar.runtime)
+    |> put_optional(:emisar, emisar)
     |> put_optional(:event_waits, Defaults.fetch!(:event_waits))
     |> put_optional(:github, github && github.runtime)
     |> put_optional(:learning, learning)
@@ -436,12 +438,12 @@ defmodule Ryker.Runtime.Assembly do
 
   defp worker_gateway(%Bootstrap{worker_gateway: nil}), do: nil
 
-  defp worker_gateway(%Bootstrap{worker_gateway: gateway} = bootstrap) do
+  defp worker_gateway(%Bootstrap{worker_gateway: gateway}) do
     gateway
     |> Map.take([:cacertfile, :ca_keyfile, :certfile, :keyfile, :ip, :port, :public_url])
     |> Map.merge(Defaults.fetch!(:coop_worker_gateway))
     |> Map.put(:checkpoint_key, Bootstrap.checkpoint_key!())
-    |> Map.put(:checkpoint_secrets, Bootstrap.scan_secrets!(bootstrap))
+    |> Map.put(:checkpoint_secrets, credential_redaction_values())
   end
 
   defp github(_bootstrap, %{github: %{enabled: false}}, _repositories, _contexts), do: nil
@@ -450,26 +452,14 @@ defmodule Ryker.Runtime.Assembly do
   # A connection saved for one app with the deployment holding another's key is
   # a mismatch an operator has to resolve, not a component that quietly does
   # not start.
-  defp github(bootstrap, settings, repositories, contexts) do
-    app_id = bootstrap.github_app_id
+  defp github(bootstrap, settings, repositories, contexts),
+    do: github_runtime(bootstrap, settings, repositories, contexts)
 
-    cond do
-      is_nil(app_id) ->
-        raise ArgumentError, "GitHub is enabled but GITHUB_APP_ID is not supplied"
-
-      settings.github.app_id != app_id ->
-        raise ArgumentError, "GitHub is enabled for a different app than GITHUB_APP_ID names"
-
-      true ->
-        github_runtime(bootstrap, settings, repositories, contexts)
-    end
-  end
-
-  defp github_runtime(bootstrap, settings, repositories, contexts) do
-    app_id = bootstrap.github_app_id
+  defp github_runtime(bootstrap, settings, _repositories, contexts) do
+    app_id = settings.github.app_id
 
     defaults = Defaults.fetch!(:github)
-    api_url = bootstrap.github_api_url
+    api_url = settings.github.api_url
     signer = app_signer!(app_id)
 
     app_http =
@@ -477,8 +467,42 @@ defmodule Ryker.Runtime.Assembly do
 
     prepared =
       Map.new(settings.github_bindings, fn binding ->
-        {binding.name, github_binding(binding, api_url, defaults, repositories, contexts)}
+        {binding.name,
+         github_binding(binding, api_url, defaults, settings.repositories, contexts)}
       end)
+
+    confirmations =
+      case contexts do
+        contexts when map_size(contexts) == 0 ->
+          nil
+
+        contexts ->
+          Confirmations.options!(%{
+            repositories:
+              Map.new(contexts, fn {ref, context} ->
+                {ref, %{contributor_policy: context.contributor_policy}}
+              end)
+          })
+      end
+
+    capability_binding = %{
+      bindings:
+        Map.new(prepared, fn {name, item} ->
+          {name,
+           %{
+             api: Client,
+             client: item.client,
+             ci_cancel_client: item.ci_cancel_client,
+             ci_client: item.ci_client,
+             ci_rerun_client: item.ci_rerun_client,
+             grants: item.trusted_binding.action_grants,
+             repository_ref: item.repository_alias,
+             review_client: item.review_client,
+             repository_full_name: item.repository.github_repository,
+             repository_id: item.trusted_binding.repository_id
+           }}
+        end)
+    }
 
     delivery_binding = %{
       bindings:
@@ -486,7 +510,7 @@ defmodule Ryker.Runtime.Assembly do
           {name,
            %{
              api: Client,
-             client: item.client,
+             client: item.delivery_client,
              repository_full_name: item.repository.github_repository,
              repository_id: item.trusted_binding.repository_id
            }}
@@ -495,22 +519,22 @@ defmodule Ryker.Runtime.Assembly do
 
     %{
       bindings: prepared,
-      capability_tools: GitHubCapabilityTools.options!(delivery_binding),
+      capability_tools: GitHubCapabilityTools.options!(capability_binding),
       delivery_binding: delivery_binding,
       receive_timeout_ms: defaults.receive_timeout_ms,
       runtime: %{
+        onboarding: %{},
         server: %{
           bindings: Map.new(prepared, fn {name, item} -> {name, item.trusted_binding} end),
-          confirmations:
-            Confirmations.options!(%{
-              repositories:
-                Map.new(contexts, fn {ref, context} ->
-                  {ref, %{contributor_policy: context.contributor_policy}}
-                end)
-            }),
+          bot_login: settings.github.app_slug,
+          confirmations: confirmations,
           ip: bootstrap.github_listener.ip,
           port: bootstrap.github_listener.port,
-          secret: Bootstrap.secret!(:github_webhook)
+          repository_access: fn binding, payload ->
+            item = Map.fetch!(prepared, binding.name)
+            RepositoryAccess.authorize(binding, payload, item.access_http)
+          end,
+          secret: credential!(:github_webhook, "primary")
         },
         tokens: %{
           app_http: app_http,
@@ -529,11 +553,11 @@ defmodule Ryker.Runtime.Assembly do
   end
 
   defp app_signer!(app_id) do
-    private_key = :github_private_key |> Bootstrap.secret!() |> decode_private_key()
+    private_key = :github_private_key |> credential!("primary") |> decode_private_key()
 
     case AppJWT.new(app_id, private_key) do
       {:ok, signer} -> signer
-      {:error, _reason} -> raise ArgumentError, "GITHUB_APP_PRIVATE_KEY is not a usable App key"
+      {:error, _reason} -> raise ArgumentError, "The saved GitHub App private key is not usable"
     end
   end
 
@@ -548,18 +572,40 @@ defmodule Ryker.Runtime.Assembly do
 
   defp github_binding(binding, api_url, defaults, repositories, contexts) do
     repository =
-      Map.get(repositories, binding.repository_ref) ||
-        raise ArgumentError, "github binding names a repository without reviewed policies"
+      Enum.find(repositories, &(&1.ref == binding.repository_ref)) ||
+        raise ArgumentError, "github binding names an unknown repository"
 
     context_ref = binding.repository_context_ref || binding.repository_ref
-
-    context =
-      Map.get(contexts, context_ref) ||
-        raise ArgumentError, "github binding names an unknown repository context"
+    context = Map.get(contexts, context_ref)
 
     delivery_http =
       json_client!(api_url, defaults.receive_timeout_ms, fn ->
         InstallationTokens.token(binding.name, :delivery)
+      end)
+
+    access_http =
+      json_client!(api_url, defaults.receive_timeout_ms, fn ->
+        InstallationTokens.token(binding.name, :authorization)
+      end)
+
+    context_http =
+      json_client!(api_url, defaults.receive_timeout_ms, fn ->
+        InstallationTokens.token(binding.name, :context)
+      end)
+
+    review_http =
+      json_client!(api_url, defaults.receive_timeout_ms, fn ->
+        InstallationTokens.token(binding.name, :review)
+      end)
+
+    ci_rerun_http =
+      json_client!(api_url, defaults.receive_timeout_ms, fn ->
+        InstallationTokens.token(binding.name, :ci_rerun)
+      end)
+
+    ci_cancel_http =
+      json_client!(api_url, defaults.receive_timeout_ms, fn ->
+        InstallationTokens.token(binding.name, :ci_cancel)
       end)
 
     publication_http =
@@ -569,19 +615,25 @@ defmodule Ryker.Runtime.Assembly do
 
     {:ok, trusted_binding} =
       Binding.new(%{
-        authorized_actor_ids: binding.authorized_actor_ids,
         installation_id: binding.installation_id,
         max_body_bytes: defaults.max_body_bytes,
         name: binding.name,
+        action_grants: binding.action_grants,
         repository_full_name: repository.github_repository,
         repository_id: binding.repository_id,
         ryker_actor_id: binding.ryker_actor_id,
-        secret: Bootstrap.secret!(:github_webhook),
-        work_profile: context.work_profile
+        secret: credential!(:github_webhook, "primary"),
+        work_profile: context && context.work_profile
       })
 
     %{
-      client: github_client!(delivery_http),
+      access_http: access_http,
+      client: github_client!(context_http),
+      ci_client: github_client!(context_http),
+      ci_rerun_client: github_client!(ci_rerun_http),
+      ci_cancel_client: github_client!(ci_cancel_http),
+      delivery_client: github_client!(delivery_http),
+      review_client: github_client!(review_http),
       publication_client: github_client!(publication_http),
       repository: repository,
       repository_alias: binding.repository_ref,
@@ -601,14 +653,14 @@ defmodule Ryker.Runtime.Assembly do
         json_client!(
           defaults.api_url,
           defaults.receive_timeout_ms,
-          Bootstrap.token_provider(:slack_app)
+          Credentials.provider(:slack_app, "primary")
         )
 
       bot_http =
         json_client!(
           defaults.api_url,
           defaults.receive_timeout_ms,
-          Bootstrap.token_provider(:slack_bot)
+          Credentials.provider(:slack_bot, "primary")
         )
 
       {:ok, bot_client} = SlackClient.new(http: bot_http, requester: JSONClient)
@@ -652,6 +704,7 @@ defmodule Ryker.Runtime.Assembly do
 
   defp control_plane(bootstrap, _settings, contexts, work, schedules) do
     %{
+      access: Map.get(bootstrap.control_plane, :access, :loopback),
       coop_api: work && work.api,
       coop_client: work && work.client,
       ip: bootstrap.control_plane.ip,
@@ -773,43 +826,43 @@ defmodule Ryker.Runtime.Assembly do
     |> Map.new()
   end
 
-  defp emisar(bootstrap, settings, adapters, slack, github) do
-    if settings.emisar.enabled do
-      defaults = Defaults.fetch!(:emisar)
-      endpoint = rpc_endpoint!(bootstrap.emisar_rpc_url)
+  defp emisar(_bootstrap, settings, adapters, slack, github) do
+    connections =
+      settings.emisar_connections
+      |> Enum.filter(& &1.monitoring_enabled)
+      |> Enum.map(fn connection ->
+        defaults = Defaults.fetch!(:emisar)
+        endpoint = rpc_endpoint!(connection.rpc_url)
 
-      http =
-        json_client!(
-          endpoint.origin,
-          defaults.receive_timeout_ms,
-          Bootstrap.token_provider(:emisar)
-        )
+        http =
+          json_client!(
+            endpoint.origin,
+            defaults.receive_timeout_ms,
+            Credentials.provider(:emisar, connection.ref)
+          )
 
-      {:ok, client} =
-        Ryker.Emisar.Client.new(%{
-          http: http,
-          requester: JSONClient,
-          rpc_origin: endpoint.origin,
-          rpc_path: endpoint.path
-        })
+        {:ok, client} =
+          Ryker.Emisar.Client.new(%{
+            http: http,
+            requester: JSONClient,
+            rpc_origin: endpoint.origin,
+            rpc_path: endpoint.path
+          })
 
-      runtime =
         defaults
-        # The HTTP timeout is the client's, not the runtime's: the approval
-        # runtime refuses a field it does not know, and a rejected field here
-        # takes the whole installation down at boot.
         |> Map.delete(:receive_timeout_ms)
         |> Map.merge(%{
           api: Ryker.Emisar.Client,
           client: client,
+          connection_ref: connection.ref,
           presentation: adapters,
           presentation_timeout_ms: presentation_timeout(slack, github),
           presenter: Ryker.Emisar.ApprovalPresenter,
-          worker_ref: "#{settings.installation.host_ref}:emisar-approval"
+          worker_ref: "#{settings.installation.host_ref}:emisar:#{connection.ref}"
         })
+      end)
 
-      %{rpc_url: endpoint.url, runtime: runtime}
-    end
+    if connections == [], do: nil, else: %{connections: connections}
   end
 
   defp presentation_timeout(slack, github) do
@@ -829,15 +882,15 @@ defmodule Ryker.Runtime.Assembly do
         port: bootstrap.webhook_listener.port,
         routes:
           Map.new(sources, fn source ->
-            {source.name, webhook_route!(bootstrap, source, adapters, repositories, contexts)}
+            {source.name, webhook_route!(source, adapters, repositories, contexts)}
           end)
       }
     end
   end
 
-  defp webhook_route!(bootstrap, source, adapters, repositories, contexts) do
+  defp webhook_route!(source, adapters, repositories, contexts) do
     defaults = Defaults.fetch!(:webhooks)
-    secret = Bootstrap.webhook_secret!(bootstrap, source.secret_name)
+    secret = credential!(:webhook, source.secret_name)
 
     context =
       Map.get(contexts, source.context_ref) ||
@@ -950,7 +1003,7 @@ defmodule Ryker.Runtime.Assembly do
   defp validate_target(%Request{transport: transport}, _binding),
     do: {:error, {:delivery_adapter_not_supported, transport}}
 
-  defp state_tools(bootstrap, _settings, emisar, slack, github, control_plane, capabilities) do
+  defp state_tools(bootstrap, _settings, _emisar, slack, github, control_plane, capabilities) do
     %{
       capabilities:
         capabilities
@@ -961,7 +1014,6 @@ defmodule Ryker.Runtime.Assembly do
       port: bootstrap.state_tools.port,
       token: Bootstrap.secret!(:state_tools)
     }
-    |> put_optional(:emisar_rpc_url, emisar && emisar.rpc_url)
     |> Map.put(:answer_authorizer, answer_authorizer(slack, control_plane))
     |> add_platform_capability_tools(slack, github, control_plane)
   end
@@ -1013,17 +1065,9 @@ defmodule Ryker.Runtime.Assembly do
   end
 
   defp call_platform_tool(slack, github, control_plane, name, arguments, binding) do
-    case binding_transport(binding) do
-      "slack" when not is_nil(slack) ->
-        call_platform_package(
-          SlackCapabilityTools,
-          slack.capability_tools,
-          name,
-          arguments,
-          binding
-        )
-
-      "github" when not is_nil(github) ->
+    cond do
+      not is_nil(github) and
+          Enum.any?(GitHubCapabilityTools.list(github.capability_tools), &(&1["name"] == name)) ->
         call_platform_package(
           GitHubCapabilityTools,
           github.capability_tools,
@@ -1032,12 +1076,21 @@ defmodule Ryker.Runtime.Assembly do
           binding
         )
 
-      "control_plane" when not is_nil(control_plane) ->
+      binding_transport(binding) == "slack" and not is_nil(slack) ->
+        call_platform_package(
+          SlackCapabilityTools,
+          slack.capability_tools,
+          name,
+          arguments,
+          binding
+        )
+
+      binding_transport(binding) == "control_plane" and not is_nil(control_plane) ->
         if Enum.any?(ControlPlaneCapabilityTools.list(), &(&1["name"] == name)),
           do: ControlPlaneCapabilityTools.call(name, arguments, binding),
           else: {:error, "unknown_tool"}
 
-      _unsupported ->
+      true ->
         {:error, "unknown_tool"}
     end
   end
@@ -1070,7 +1123,6 @@ defmodule Ryker.Runtime.Assembly do
      |> Map.put(:state_tools_secret, state_tools.token),
      Map.put(gateway, :state_tools, %{
        capabilities: state_tools.capabilities,
-       emisar_rpc_url: Map.get(state_tools, :emisar_rpc_url),
        additional_tools: Map.get(state_tools, :additional_tools),
        additional_call: Map.get(state_tools, :additional_call),
        answer_authorizer: Map.get(state_tools, :answer_authorizer),
@@ -1158,8 +1210,35 @@ defmodule Ryker.Runtime.Assembly do
         %{origin: String.trim_trailing(origin, "/"), path: path, url: URI.to_string(uri)}
 
       _invalid ->
-        raise ArgumentError, "EMISAR_RPC_URL must be an exact HTTPS RPC URL"
+        raise ArgumentError, "The saved Emisar RPC endpoint must be an exact HTTPS URL"
     end
+  end
+
+  defp credential!(kind, name) do
+    case Credentials.fetch(kind, name) do
+      {:ok, value} ->
+        value
+
+      {:error, :credential_missing} ->
+        raise ArgumentError, "#{kind} credential #{name} is not configured"
+
+      {:error, _reason} ->
+        raise ArgumentError, "#{kind} credential #{name} cannot be decrypted"
+    end
+  end
+
+  # The gateway scans worker output for every integration secret currently in
+  # custody. Only runtime assembly turns status records back into redaction
+  # material; the control plane never receives these values.
+  defp credential_redaction_values do
+    Credentials.statuses()
+    |> Enum.flat_map(fn credential ->
+      case Credentials.fetch(credential.kind, credential.name) do
+        {:ok, value} -> [value]
+        {:error, _reason} -> []
+      end
+    end)
+    |> Enum.uniq()
   end
 
   defp put_optional(map, _key, nil), do: map

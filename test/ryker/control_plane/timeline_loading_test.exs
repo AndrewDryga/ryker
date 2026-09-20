@@ -136,6 +136,28 @@ defmodule Ryker.ControlPlane.TimelineLoadingTest do
     assert Enum.any?(links, fn {id, _href} -> String.starts_with?(id, "event-activity-") end)
   end
 
+  test "worker startup diagnostics read as setup instead of user-requested tool work" do
+    work = episode_with_tool!("mcp-startup", "ready")
+
+    [event] = Repo.all(from(event in ActivityEvent, where: event.episode_id == ^work.episode.id))
+
+    payload =
+      event.payload
+      |> Map.put("title", "mcp_startup.github")
+      |> Map.put("input", %{"operation" => "mcp_startup.github"})
+
+    Repo.update_all(from(saved in ActivityEvent, where: saved.id == ^event.id),
+      set: [payload: payload, payload_fingerprint: CanonicalJSON.digest(payload)]
+    )
+
+    document = work |> rendered() |> LazyHTML.from_document()
+
+    assert LazyHTML.query(document, ".case-event-content h3") |> LazyHTML.text() =~
+             "Github connection setup"
+
+    assert Enum.empty?(LazyHTML.query(document, ".tool-card"))
+  end
+
   defp ids(events), do: MapSet.new(events, & &1.id)
 
   defp loaded_bytes(work) do

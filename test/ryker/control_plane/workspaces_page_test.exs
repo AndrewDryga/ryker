@@ -98,28 +98,36 @@ defmodule Ryker.ControlPlane.WorkspacesPageTest do
            )
 
     assert LazyHTML.query(document, "h2") |> LazyHTML.text() ==
-             "Worker storageNext cleanup targets"
+             "StorageReady for cleanup"
 
     refute LazyHTML.text(document) =~ "Repository working copies"
 
-    help = LazyHTML.query(document, "details.page-help#workspaces-help:not([open])")
+    help =
+      LazyHTML.query(
+        document,
+        "details.page-help.page-help-near-header#workspaces-help:not([open])"
+      )
 
     assert LazyHTML.query(help, "summary") |> LazyHTML.text() ==
              "How working copies are kept and cleaned up"
 
     assert LazyHTML.text(help) =~ "not Slack workspaces"
     assert LazyHTML.text(help) =~ "discarding unmerged commits always requires confirmation"
-    assert LazyHTML.text(help) =~ "A worker that reported nothing is unknown, not empty"
+    refute LazyHTML.text(help) =~ "heartbeat"
 
     storage = LazyHTML.query(document, "section.workspace-storage")
-    assert LazyHTML.text(storage) =~ "10.00 GiB of inactive disposable forks per worker"
-    assert LazyHTML.text(storage) =~ "3600 seconds"
+
+    assert LazyHTML.text(storage) =~
+             "Each worker can use up to 10.00 GiB for disposable working copies"
+
+    assert LazyHTML.text(storage) =~ "clean up eligible copies within 1 hour"
+    assert LazyHTML.text(storage) =~ "Storage usage comes from worker reports"
 
     assert LazyHTML.query(storage, "table.data-table thead th") |> LazyHTML.text() ==
              "WorkerMeasurementDisposableProtectedUnattributedReclaimedNew forks"
 
     preview = LazyHTML.query(document, "section.cleanup-preview")
-    assert LazyHTML.text(preview) =~ "Nothing here is deleted by looking at it"
+    refute LazyHTML.text(preview) =~ "Nothing here is deleted by looking at it"
 
     assert LazyHTML.query(preview, "table.data-table thead th") |> LazyHTML.text() ==
              "Working copyKindWhat cleanup will doEligible for"
@@ -225,7 +233,7 @@ defmodule Ryker.ControlPlane.WorkspacesPageTest do
     rows = LazyHTML.query(document, "section.workspace-storage tbody tr")
 
     assert LazyHTML.query(rows, "td[data-label='Measurement']") |> LazyHTML.text() ==
-             "no measurement reportedstale (worker heartbeat is stale)"
+             "No reportStale report"
 
     assert LazyHTML.query(rows, "td[data-label='Disposable']") |> LazyHTML.text() ==
              "unknown9.00 GiB"

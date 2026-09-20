@@ -35,3 +35,6 @@ config :ryker, :execution, :direct
 # The durable-settings owner is driven explicitly here, never from whatever
 # happens to be in the local database at boot.
 config :ryker, :runtime_owner, false
+config :ryker, :credential_key, :binary.copy(<<73>>, 32)
+config :ryker, :github_public_url, "http://127.0.0.1:4319/v1/github"
+config :ryker, :webhook_public_url, "http://127.0.0.1:4320"

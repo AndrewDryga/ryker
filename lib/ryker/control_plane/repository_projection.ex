@@ -10,8 +10,10 @@ defmodule Ryker.ControlPlane.RepositoryProjection do
 
   alias Ryker.ControlPlane.Search
   alias Ryker.CoopFleet.Worker
+  alias Ryker.GitHub.Events
   alias Ryker.Publication.Publication
   alias Ryker.Repo
+  alias Ryker.Settings
   alias Ryker.Slack.ChannelConfiguration
   alias Ryker.State.Schedule
   alias Ryker.Work.{Session, Turn}
@@ -99,9 +101,42 @@ defmodule Ryker.ControlPlane.RepositoryProjection do
         {to_string(ref), %{schedule_policy: safe_policy_name(policy)}}
       end)
 
-    Enum.reduce(task_policies ++ schedule_policies, %{}, fn {ref, value}, found ->
-      Map.update(found, ref, value, &Map.merge(&1, value))
-    end)
+    configured =
+      Enum.reduce(task_policies ++ schedule_policies, %{}, fn {ref, value}, found ->
+        Map.update(found, ref, value, &Map.merge(&1, value))
+      end)
+
+    saved =
+      case Settings.fetch() do
+        {:ok, snapshot} ->
+          bindings = Map.new(snapshot.github_bindings, &{&1.repository_ref, &1})
+
+          Map.new(snapshot.repositories, fn repository ->
+            binding = Map.get(bindings, repository.ref)
+
+            {repository.ref,
+             %{
+               action_grants: binding && binding.action_grants,
+               github_permissions: binding && binding.granted_permissions,
+               github_access: repository.github_access,
+               github_health: binding && Events.health(binding.name),
+               github_repository: repository.github_repository,
+               knowledge_sha256: repository.knowledge_sha256,
+               knowledge_source_commit: repository.knowledge_source_commit,
+               knowledge_status: repository.knowledge_status,
+               knowledge_pull_request_url: repository.knowledge_pull_request_url,
+               onboarding_error: repository.onboarding_error,
+               onboarding_state: repository.onboarding_state,
+               ref: repository.ref,
+               source_commit: repository.source_commit
+             }}
+          end)
+
+        _error ->
+          %{}
+      end
+
+    Map.merge(saved, configured, fn _ref, durable, runtime -> Map.merge(durable, runtime) end)
   end
 
   defp repository_workers do

@@ -23,6 +23,7 @@ defmodule Ryker.Evals.WorldRunnerTest do
   }
 
   alias Ryker.Repo
+  alias Ryker.Settings.PricingRate
   alias Ryker.Slack.ChannelConfiguration
   alias Ryker.State.{EventSubscription, EventWaits, Record, Records}
   alias Ryker.StateTools.Tools
@@ -31,6 +32,11 @@ defmodule Ryker.Evals.WorldRunnerTest do
   alias Ryker.Work.Dispatcher, as: WorkDispatcher
 
   @policy_digest String.duplicate("a", 64)
+
+  test "shipped token-rate reference data does not make a disposable world dirty" do
+    assert Repo.aggregate(PricingRate, :count) == 3
+    assert :ok = WorldDatabase.disposable_database(false)
+  end
 
   test "an operator's missing-context question may retain its independent read-only event watch" do
     # The real model correctly requested a project and retained the run watch,

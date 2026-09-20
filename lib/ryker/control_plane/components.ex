@@ -302,12 +302,35 @@ defmodule Ryker.ControlPlane.Components do
     """
   end
 
+  attr(:message, :string, required: true)
+  attr(:tone, :atom, values: [:error, :warning, :success, :info], default: :info)
+  attr(:id, :string, default: nil)
+  attr(:hidden, :boolean, default: false)
+  attr(:class, :any, default: nil)
+
+  @doc "A consistent inline outcome for forms, with a visible state icon and live-region semantics."
+  def form_feedback(assigns) do
+    ~H"""
+    <div
+      id={@id}
+      class={["form-feedback", "form-feedback-#{@tone}", @class]}
+      data-tone={@tone}
+      role={if @tone == :error, do: "alert", else: "status"}
+      hidden={@hidden}
+    >
+      <span class="form-feedback-icon" aria-hidden="true">{feedback_icon(@tone)}</span>
+      <span class="form-feedback-message">{@message}</span>
+    </div>
+    """
+  end
+
   attr(:id, :string, required: true)
   attr(:path, :string, required: true)
   attr(:label, :string, required: true, doc: "Accessible name, e.g. \"Filter standing rules\"")
   attr(:placeholder, :string, required: true)
   attr(:query, :string, default: "")
   attr(:filtered, :boolean, default: false)
+  attr(:disabled, :boolean, default: false, doc: "The complete searchable collection is empty")
 
   attr(:selects, :list,
     default: [],
@@ -341,36 +364,229 @@ defmodule Ryker.ControlPlane.Components do
       assigns
       |> assign_new(:query, fn -> "" end)
       |> assign_new(:filtered, fn -> false end)
+      |> assign_new(:disabled, fn -> false end)
       |> assign_new(:selects, fn -> [] end)
       |> assign_new(:name, fn -> "q" end)
       |> assign_new(:hidden, fn -> [] end)
       |> assign_new(:clear, fn -> nil end)
+      |> assign_filter_controls()
 
     ~H"""
     <form class="filter-toolbar" method="get" action={@path} role="search" aria-label={@label}>
       <input :for={{name, value} <- @hidden} type="hidden" name={name} value={value} />
-      <label class="sr-only" for={@id}>{@placeholder}</label>
-      <input
-        type="search"
-        id={@id}
-        name={@name}
-        maxlength="200"
-        value={@query || ""}
-        placeholder={@placeholder}
-      />
-      <%= for select <- @selects do %>
-        <label class="sr-only" for={select.id}>{select.label}</label>
-        <select id={select.id} name={select.name}>
+      <div class="search-field">
+        <.icon name={:search} />
+        <label class="sr-only" for={@id}>{@placeholder}</label>
+        <input
+          type="search"
+          id={@id}
+          name={@name}
+          maxlength="200"
+          value={@query || ""}
+          placeholder={@placeholder}
+          disabled={@disabled}
+        />
+      </div>
+      <%= if @primary do %>
+        <label class="sr-only" for={@primary.id}>{@primary.label}</label>
+        <select
+          class="filter-primary"
+          id={@primary.id}
+          name={@primary.name}
+          disabled={@disabled}
+        >
           {options_for_select(
-            Enum.map(select.options, fn {value, text} -> {text, value} end),
-            select.value
+            Enum.map(@primary.options, fn {value, text} -> {text, value} end),
+            @primary.value
           )}
         </select>
       <% end %>
-      <a :if={@filtered} class="filter-clear" href={@clear || @path}>Clear filters</a>
+      <%= for chip <- @filter_chips do %>
+        <input type="hidden" name={chip.name} value={chip.value} />
+        <span class={["filter-chip", @disabled && "is-disabled"]} data-filter={chip.name}>
+          <span class="filter-chip-key">{chip.label}</span>
+          <span class="filter-chip-value">{chip.display}</span>
+          <a
+            :if={!@disabled}
+            class="filter-chip-remove"
+            href={chip.remove_href}
+            aria-label={"Remove the #{chip.label} filter"}
+          ><.icon name={:close} /></a>
+          <span :if={@disabled} class="filter-chip-remove" aria-hidden="true"><.icon name={:close} /></span>
+        </span>
+      <% end %>
+      <button
+        :if={@available_filters != [] && @disabled}
+        type="button"
+        class="filter-add"
+        disabled
+      ><.icon name={:plus} />Filter</button>
+      <details :if={@available_filters != [] && !@disabled} class="filter-add-menu">
+        <summary class="filter-add"><.icon name={:plus} />Filter</summary>
+        <div class="filter-popover">
+          <%= for select <- @available_filters do %>
+            <label for={select.id}>{select.label}</label>
+            <select id={select.id} name={select.name}>
+              {options_for_select(
+                Enum.map(select.options, fn {value, text} -> {text, value} end),
+                select.value
+              )}
+            </select>
+          <% end %>
+        </div>
+      </details>
+      <a :if={@filtered && !@disabled} class="filter-clear" href={@clear || @path}>Clear filters</a>
       <noscript><button type="submit" class="ui-button secondary">Apply</button></noscript>
     </form>
     """
+  end
+
+  defp feedback_icon(:error), do: "!"
+  defp feedback_icon(:warning), do: "!"
+  defp feedback_icon(:success), do: "✓"
+  defp feedback_icon(:info), do: "i"
+
+  attr(:id, :string, required: true)
+  attr(:label, :string, required: true)
+  attr(:placeholder, :string, required: true)
+  attr(:query, :string, default: "")
+  attr(:disabled, :boolean, default: false)
+  attr(:event, :string, required: true)
+  attr(:primary, :map, default: nil)
+  attr(:class, :any, default: nil)
+  slot(:inner_block)
+
+  @doc """
+  The LiveView adapter for the shared filter toolbar.
+
+  It deliberately renders the same `filter-toolbar`, `search-field`, primary
+  selector and trailing-control contract as the GET adapter above. Only the
+  transport differs: search and the primary choice patch the current LiveView,
+  while the supplied slot may add domain-specific chips and value menus.
+  """
+  def live_filter_toolbar(assigns) do
+    assigns =
+      assigns
+      |> assign_new(:query, fn -> "" end)
+      |> assign_new(:disabled, fn -> false end)
+      |> assign_new(:primary, fn -> nil end)
+      |> assign_new(:class, fn -> nil end)
+      |> assign_new(:inner_block, fn -> [] end)
+
+    ~H"""
+    <div id={"#{@id}-toolbar"} class={["filter-toolbar", @class]} role="search" aria-label={@label}>
+      <form id={@id} class="filter-live-form" phx-change={@event} phx-submit={@event}>
+        <div class="search-field">
+          <.icon name={:search} />
+          <label class="sr-only" for={"#{@id}-search"}>{@placeholder}</label>
+          <input
+            id={"#{@id}-search"}
+            name="q"
+            type="search"
+            value={@query || ""}
+            phx-debounce="300"
+            maxlength="200"
+            placeholder={@placeholder}
+            autocomplete="off"
+            disabled={@disabled}
+          />
+        </div>
+        <%= if @primary do %>
+          <label class="sr-only" for={@primary.id}>{@primary.label}</label>
+          <select id={@primary.id} name={@primary.name} disabled={@disabled}>
+            {options_for_select(
+              Enum.map(@primary.options, fn {value, text} -> {text, value} end),
+              @primary.value
+            )}
+          </select>
+        <% end %>
+      </form>
+      {render_slot(@inner_block)}
+    </div>
+    """
+  end
+
+  attr(:kind, :atom, values: [:empty, :no_match, :unavailable, :actionable], default: :empty)
+  attr(:title, :string, required: true)
+  attr(:description, :string, required: true)
+  slot(:action)
+
+  @doc "One explicit empty/no-match/unavailable surface shared by directory pages."
+  def empty_state(assigns) do
+    assigns = assign_new(assigns, :action, fn -> [] end)
+
+    ~H"""
+    <section class={["empty-state", "empty-state-#{@kind}"]}>
+      <h2>{@title}</h2>
+      <p>{@description}</p>
+      <div :if={@action != []} class="empty-state-action">{render_slot(@action)}</div>
+    </section>
+    """
+  end
+
+  defp assign_filter_controls(assigns) do
+    {primary, optional} =
+      case assigns.selects do
+        [primary | optional] -> {primary, optional}
+        [] -> {nil, []}
+      end
+
+    active =
+      Enum.filter(optional, fn select ->
+        to_string(select.value || "") != to_string(select_default(select) || "")
+      end)
+
+    chips =
+      Enum.map(active, fn select ->
+        value = to_string(select.value || "")
+
+        %{
+          name: select.name,
+          label: select.label,
+          value: value,
+          display: select_option_label(select, value),
+          remove_href:
+            filter_href(
+              assigns.path,
+              assigns.query,
+              assigns.name,
+              assigns.hidden,
+              assigns.selects,
+              select.name
+            )
+        }
+      end)
+
+    assign(assigns, primary: primary, filter_chips: chips, available_filters: optional)
+  end
+
+  defp select_default(%{options: [{value, _label} | _]}), do: value
+  defp select_default(_select), do: nil
+
+  defp select_option_label(select, value) do
+    case Enum.find(select.options, &(to_string(elem(&1, 0)) == value)) do
+      {_value, label} -> label
+      nil -> value
+    end
+  end
+
+  defp filter_href(path, query, query_name, hidden, selects, reset_name) do
+    params =
+      [{query_name, query}]
+      |> Kernel.++(hidden)
+      |> Kernel.++(
+        for select <- selects,
+            select.name != reset_name,
+            value = to_string(select.value || ""),
+            value != to_string(select_default(select) || ""),
+            do: {select.name, value}
+      )
+      |> Enum.reject(fn {_name, value} -> value in [nil, ""] end)
+
+    case URI.encode_query(params) do
+      "" -> path
+      encoded -> path <> "?" <> encoded
+    end
   end
 
   attr(:count, :integer, required: true)

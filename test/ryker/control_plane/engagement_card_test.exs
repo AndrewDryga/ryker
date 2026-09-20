@@ -150,7 +150,7 @@ defmodule Ryker.ControlPlane.EngagementCardTest do
   test "explicit Lab and shortcut submissions say channel settings did not apply" do
     for {path, expected} <- [
           {"conversation_lab",
-           "Ryker processed this message because it was submitted directly through Conversation Lab."},
+           "Ryker processed this message because it was sent directly through Chat."},
           {"slack_shortcut",
            "Ryker processed this message because it was submitted through a Slack shortcut."}
         ] do

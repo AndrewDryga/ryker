@@ -5,14 +5,16 @@ defmodule Ryker.Settings.Slack do
   alias Ryker.Settings.Validation
 
   @primary_key {:id, :string, autogenerate: false}
-  @fields ~w(enabled workspace_ref workspace_url bot_ref bot_user_ref default_repository_ref channel_prefix incident_private default_participation operators)a
+  @fields ~w(enabled workspace_ref workspace_url workspace_name bot_ref bot_user_ref bot_name default_repository_ref channel_prefix incident_private default_participation operators)a
 
   schema "slack_settings" do
     field(:enabled, :boolean, default: false)
     field(:workspace_ref, :string)
     field(:workspace_url, :string)
+    field(:workspace_name, :string)
     field(:bot_ref, :string)
     field(:bot_user_ref, :string)
+    field(:bot_name, :string)
     field(:default_repository_ref, :string)
     field(:channel_prefix, :string, default: "ems")
     field(:incident_private, :boolean, default: true)
@@ -39,8 +41,10 @@ defmodule Ryker.Settings.Slack do
     # from it without ever trusting a stored URL shape.
     |> validate_format(:workspace_url, ~r/\Ahttps:\/\/[a-z0-9-]{1,64}\.slack\.com\/?\z/)
     |> validate_length(:workspace_url, max: 256)
+    |> validate_length(:workspace_name, min: 1, max: 256)
     |> validate_format(:bot_ref, Validation.slack_id_pattern())
     |> validate_format(:bot_user_ref, Validation.slack_id_pattern())
+    |> validate_length(:bot_name, min: 1, max: 256)
     |> validate_format(:channel_prefix, ~r/\A[a-z0-9_-]{1,20}\z/)
     |> Validation.validate_known(:default_repository_ref, repositories, :unknown_repository)
     |> Validation.validate_slack_ids(:operators)
@@ -52,7 +56,7 @@ defmodule Ryker.Settings.Slack do
     if get_field(changeset, :enabled),
       do:
         Enum.reduce(
-          [:workspace_ref, :bot_ref, :bot_user_ref, :default_repository_ref],
+          [:workspace_ref, :bot_ref, :bot_user_ref],
           changeset,
           &require_to_enable/2
         ),

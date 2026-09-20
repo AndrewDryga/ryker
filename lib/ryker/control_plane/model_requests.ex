@@ -5,10 +5,11 @@ defmodule Ryker.ControlPlane.ModelRequests do
   alias Ryker.ControlPlane.{Activity, EpisodeTrace, PagedRelation, WorkRecovery}
   alias Ryker.ControlPlane.InspectionRedactor, as: Redactor
   alias Ryker.Episodes.Episode
-  alias Ryker.Ingress.Inbox
+  alias Ryker.Ingress.{Inbox, InputCustodyTransition}
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Repo
   alias Ryker.Work.{ActivityEvent, ActivityRetention, CandidateResponse, Session, Turn}
+  alias Ryker.Work.FailureCause
 
   @page_size 20
   @tool_page_size 30
@@ -131,6 +132,8 @@ defmodule Ryker.ControlPlane.ModelRequests do
         )
       )
 
+    admission_failures = admission_failures(ids, attempts)
+
     session_ids = Enum.map(Enum.take(turns, 20), & &1.session_id)
 
     sessions =
@@ -145,6 +148,7 @@ defmodule Ryker.ControlPlane.ModelRequests do
         episode_ref: episode.key,
         execution_mode: episode.execution_mode,
         sessions: sessions,
+        admission_failures: admission_failures,
         disclosed: disclosed
       ]
       |> with_responses(Enum.take(turns, 20), %{})
@@ -170,7 +174,7 @@ defmodule Ryker.ControlPlane.ModelRequests do
           turn.candidate != nil or turn.validation_history != [] or turn.accepted_at != nil,
           timing,
           "/timeline/#{URI.encode_www_form(episode.key)}/model-calls?attempt=#{turn.id}",
-          :work
+          %{kind: :work}
         )
       end)
 
@@ -204,6 +208,7 @@ defmodule Ryker.ControlPlane.ModelRequests do
       )
 
     request = %{request | at: if(attempt, do: attempt.inserted_at, else: entry.inserted_at)}
+    failure = if attempt, do: options[:admission_failures][attempt.id]
     completed = admission_completed_at(attempt)
     measurements = if attempt, do: attempt.measurements, else: %{}
 
@@ -221,8 +226,48 @@ defmodule Ryker.ControlPlane.ModelRequests do
       attempt != nil and attempt.phase in ~w(response_received host_validation committed),
       timing,
       "/timeline/#{URI.encode_www_form(options[:episode_ref])}/model-calls?kind=admission&attempt=#{entry.id}&generation=#{generation}",
-      :admission
+      %{failure: failure, kind: :admission}
     )
+  end
+
+  defp admission_failures([], _attempts), do: %{}
+
+  defp admission_failures(input_ids, attempts) do
+    transitions =
+      Repo.all(
+        from(transition in InputCustodyTransition,
+          where:
+            transition.input_id in ^input_ids and
+              transition.kind in [:retry_scheduled, :blocked],
+          order_by: [asc: transition.occurred_at, asc: transition.sequence]
+        )
+      )
+      |> Enum.group_by(& &1.input_id)
+
+    Map.new(attempts, fn attempt ->
+      failure =
+        transitions
+        |> Map.get(attempt.input_id, [])
+        |> Enum.find(&(DateTime.compare(&1.occurred_at, attempt.inserted_at) != :lt))
+
+      {attempt.id, routing_failure(failure)}
+    end)
+  end
+
+  defp routing_failure(nil), do: nil
+
+  defp routing_failure(transition) do
+    explanation = FailureCause.explain(transition.detail)
+
+    %{
+      code: transition.error_code,
+      detail: transition.detail,
+      summary:
+        if(explanation,
+          do: explanation.cause,
+          else: transition.error_code |> to_string() |> String.replace("_", " ")
+        )
+    }
   end
 
   defp admission_completed_at(%{milestones: %{"response_received" => at}}) do
@@ -234,7 +279,19 @@ defmodule Ryker.ControlPlane.ModelRequests do
 
   defp admission_completed_at(_), do: nil
 
-  defp request_events(request, owner, id, completed, has_result, timing, href, kind) do
+  defp request_events(
+         request,
+         owner,
+         id,
+         completed,
+         has_result,
+         timing,
+         href,
+         metadata
+       ) do
+    kind = metadata.kind
+    failure = Map.get(metadata, :failure)
+
     {submission, outcome} =
       Enum.split_with(
         request.sections,
@@ -250,6 +307,10 @@ defmodule Ryker.ControlPlane.ModelRequests do
       title: request.title,
       target: request.target,
       status: request.status,
+      fingerprint: Map.get(request, :fingerprint),
+      generation: Map.get(request, :generation),
+      generations: Map.get(request, :generations),
+      failure: failure,
       coverage: request.coverage,
       execution_mode: Map.get(request, :execution_mode),
       source_kind: kind,

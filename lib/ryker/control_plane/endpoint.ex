@@ -15,7 +15,7 @@ defmodule Ryker.ControlPlane.Endpoint do
     longpoll: false
   )
 
-  plug(Ryker.ControlPlane.BrowserGuard)
+  plug(Ryker.ControlPlane.BrowserGuard, access: :endpoint)
   plug(Plug.Session, @session_options)
   plug(Ryker.ControlPlane.WebRouter)
 end

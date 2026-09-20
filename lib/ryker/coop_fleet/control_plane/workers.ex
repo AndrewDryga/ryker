@@ -12,6 +12,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Workers do
   import Ecto.Changeset
   import Ecto.Query
 
+  alias Ryker.BundledCoop
   alias Ryker.CoopFleet.{Certificate, Protocol, Worker}
   alias Ryker.CoopFleet.ControlPlane.{Commands, Events, Placements, Shared}
   alias Ryker.Repo
@@ -89,8 +90,16 @@ defmodule Ryker.CoopFleet.ControlPlane.Workers do
           state_tools_secret
         )
       end)
+      |> after_successful_poll(authenticated_worker_id)
     end
   end
+
+  defp after_successful_poll({:ok, _response} = result, worker_id) do
+    _ = BundledCoop.maybe_configure(worker_id)
+    result
+  end
+
+  defp after_successful_poll(result, _worker_id), do: result
 
   defp authorize_worker_locked(worker_id, workspace_ref, certificate_sha256) do
     worker =

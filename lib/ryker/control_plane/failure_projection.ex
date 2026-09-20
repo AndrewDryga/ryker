@@ -340,8 +340,8 @@ defmodule Ryker.ControlPlane.FailureProjection do
       diagnosis: FailureDetail.facts(item.last_error),
       episode_id: item.episode_id,
       kind: "emisar",
-      ref: item.request_id,
-      source: "#{item.runner_ref} · #{item.action_id}",
+      ref: item.ref,
+      source: "#{item.connection_ref} · #{item.runner_ref} · #{item.action_id}",
       status: item.status,
       summary: "Emisar approval monitoring blocked",
       updated_at: item.updated_at

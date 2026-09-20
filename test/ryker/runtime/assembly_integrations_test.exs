@@ -1,7 +1,7 @@
 defmodule Ryker.Runtime.AssemblyIntegrationsTest do
   use Ryker.DataCase, async: false
 
-  alias Ryker.{Bootstrap, Settings}
+  alias Ryker.{Bootstrap, Credentials, Settings}
   alias Ryker.Emisar.ApprovalRuntime
   alias Ryker.Runtime.Assembly
 
@@ -13,14 +13,9 @@ defmodule Ryker.Runtime.AssemblyIntegrationsTest do
 
   setup do
     System.put_env("RYKER_STATE_TOOLS_TOKEN", "state-tools-token-for-tests")
-    System.put_env("ALERTMANAGER_WEBHOOK_SECRET", @alert_secret)
-    System.put_env("DEPLOYMENT_WEBHOOK_SECRET", @deploy_secret)
 
     on_exit(fn ->
-      Enum.each(
-        ~w(RYKER_STATE_TOOLS_TOKEN ALERTMANAGER_WEBHOOK_SECRET DEPLOYMENT_WEBHOOK_SECRET),
-        &System.delete_env/1
-      )
+      System.delete_env("RYKER_STATE_TOOLS_TOKEN")
     end)
 
     execution = Application.get_env(:ryker, :execution)
@@ -56,21 +51,18 @@ defmodule Ryker.Runtime.AssemblyIntegrationsTest do
     assert Map.keys(reduced[:webhooks].routes) == ["deploys"]
   end
 
-  test "a source naming a credential the deployment never registered assembles nothing" do
+  test "a source whose encrypted credential is missing assembles nothing" do
     settings = installation!()
 
-    assert {:error, {:settings_not_applicable, reason}} =
-             Assembly.build(
-               %{bootstrap() | webhook_secret_names: ["DEPLOYMENT_WEBHOOK_SECRET"]},
-               settings
-             )
+    assert {:ok, :ok} = Credentials.delete(:webhook, "alerts", @actor)
 
-    assert reason =~ "not registered for this deployment"
+    assert {:error, {:settings_not_applicable, reason}} =
+             Assembly.build(bootstrap(), settings)
+
+    assert reason =~ "alerts"
   end
 
-  test "a GitHub connection saved for another app is a mismatch, not a quiet non-start" do
-    # Silently not starting GitHub reads like "not configured yet". The saved
-    # bindings must stay exactly as they are and the operator must be told.
+  test "an enabled GitHub connection without encrypted credentials is a visible refusal" do
     settings = installation!()
 
     {:ok, saved} =
@@ -80,15 +72,8 @@ defmodule Ryker.Runtime.AssemblyIntegrationsTest do
         @actor
       )
 
-    assert {:error, {:settings_not_applicable, reason}} =
-             Assembly.build(%{bootstrap() | github_app_id: 999}, saved)
-
-    assert reason =~ "different app"
-
-    assert {:error, {:settings_not_applicable, missing}} =
-             Assembly.build(%{bootstrap() | github_app_id: nil}, saved)
-
-    assert missing =~ "GITHUB_APP_ID is not supplied"
+    assert {:error, {:settings_not_applicable, missing}} = Assembly.build(bootstrap(), saved)
+    assert missing == "github_private_key credential primary is not configured"
     assert Settings.fetch!().github.app_id == 12_345
   end
 
@@ -100,8 +85,24 @@ defmodule Ryker.Runtime.AssemblyIntegrationsTest do
     # applied at all — found in production during the settings cutover.
     settings = installation!()
 
+    assert {:ok, _credential} =
+             Credentials.put(:emisar, "production", "emisar-token-long-enough", @actor)
+
     {:ok, saved} =
-      Settings.save_emisar(%{enabled: true}, settings.installation.revision, @actor)
+      Settings.put_emisar_connection(
+        %{
+          ref: "production",
+          display_name: "Production approvals",
+          rpc_url: "https://emisar.dev/api/mcp/rpc",
+          account_ref: "account-production",
+          account_label: "Production",
+          enabled_for_new_work: true,
+          monitoring_enabled: true,
+          verified_at: ~U[2026-09-19 12:00:00.000000Z]
+        },
+        settings.installation.revision,
+        @actor
+      )
 
     assert {:ok, configuration} = Assembly.build(bootstrap(), saved)
     assert %{} = configuration[:emisar]
@@ -109,11 +110,13 @@ defmodule Ryker.Runtime.AssemblyIntegrationsTest do
     # The runtime is the authority on its own option set: it raises on an
     # unknown field, so building its child spec is the assertion.
     assert %{start: {_module, _function, _arguments}} =
-             ApprovalRuntime.child_spec(configuration[:emisar])
+             configuration[:emisar].connections |> hd() |> ApprovalRuntime.child_spec()
   end
 
   defp installation! do
     {:ok, _} = Settings.initialize(@actor)
+    {:ok, _} = Credentials.put(:webhook, "alerts", @alert_secret, @actor)
+    {:ok, _} = Credentials.put(:webhook, "deploys", @deploy_secret, @actor)
     {:ok, _} = Settings.put_repository(%{ref: "ryker"}, 1, @actor)
 
     {:ok, saved} =
@@ -146,14 +149,14 @@ defmodule Ryker.Runtime.AssemblyIntegrationsTest do
 
     {:ok, saved} =
       Settings.put_webhook_source(
-        source("alerts", :hmac_sha256, "ALERTMANAGER_WEBHOOK_SECRET"),
+        source("alerts", :hmac_sha256, "alerts"),
         saved.installation.revision,
         @actor
       )
 
     {:ok, saved} =
       Settings.put_webhook_source(
-        source("deploys", :bearer, "DEPLOYMENT_WEBHOOK_SECRET"),
+        source("deploys", :bearer, "deploys"),
         saved.installation.revision,
         @actor
       )
@@ -181,13 +184,12 @@ defmodule Ryker.Runtime.AssemblyIntegrationsTest do
       state_tools: %{ip: {127, 0, 0, 1}, port: 4318},
       worker_gateway: nil,
       github_listener: %{ip: {127, 0, 0, 1}, port: 4319},
+      github_public_url: "http://127.0.0.1:4319/v1/github",
       webhook_listener: %{ip: {127, 0, 0, 1}, port: 4320},
+      webhook_public_url: "http://127.0.0.1:4320",
       storage_root: "/tmp/ryker-assembly-test",
-      github_api_url: "https://api.github.com",
-      github_app_id: nil,
-      emisar_rpc_url: "https://emisar.dev/api/mcp/rpc",
-      log_level: :warning,
-      webhook_secret_names: ["ALERTMANAGER_WEBHOOK_SECRET", "DEPLOYMENT_WEBHOOK_SECRET"]
+      credential_key: :binary.copy(<<73>>, 32),
+      log_level: :warning
     }
   end
 end

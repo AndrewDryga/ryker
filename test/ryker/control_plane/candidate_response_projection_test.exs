@@ -70,7 +70,7 @@ defmodule Ryker.ControlPlane.CandidateResponseProjectionTest do
     assert Map.keys(checks.responses) |> Enum.sort() == Enum.to_list(1..10)
     assert checks.response_page.total == 12
     html = render_inspector(older, params)
-    assert html =~ "Checks 1–10 of 12"
+    assert html =~ "checks 1–10 of 12"
     assert html =~ uri.fragment
     refute html =~ "response-11-body"
 

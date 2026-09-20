@@ -877,14 +877,18 @@ defmodule Ryker.Slack.TaskEndToEndTest do
     |> put_req_header("x-github-event", "pull_request_review_comment")
     |> put_req_header("x-hub-signature-256", Auth.signature(@github_secret, body))
     |> Router.call(
-      Router.init(bindings: %{"task-e2e" => github_binding!()}, secret: @github_secret)
+      Router.init(
+        bindings: %{"task-e2e" => github_binding!()},
+        bot_login: "ryker-test",
+        repository_access: fn _binding, _payload -> :ok end,
+        secret: @github_secret
+      )
     )
   end
 
   defp github_binding! do
     assert {:ok, binding} =
              Binding.new(%{
-               authorized_actor_ids: [7],
                installation_id: 41,
                name: "task-e2e",
                repository_full_name: "acme/ryker",

@@ -1,7 +1,7 @@
 defmodule Ryker.GitHub.RuntimeTest do
   use ExUnit.Case, async: true
 
-  alias Ryker.GitHub.{InstallationTokens, Runtime, Server}
+  alias Ryker.GitHub.{InstallationTokens, OnboardingWorker, Runtime, Server}
 
   defmodule Requester do
     def request(_client, _method, _path, _document, _headers), do: {:error, :not_used}
@@ -18,7 +18,7 @@ defmodule Ryker.GitHub.RuntimeTest do
 
     assert {:ok, {flags, children}} = Runtime.init(options)
     assert flags.strategy == :one_for_one
-    assert Enum.map(children, & &1.id) == [InstallationTokens, Server]
+    assert Enum.map(children, & &1.id) == [InstallationTokens, OnboardingWorker, Server]
 
     assert Runtime.options!(Map.to_list(configuration())).server.bindings["github-main"].name ==
              "github-main"
@@ -42,9 +42,9 @@ defmodule Ryker.GitHub.RuntimeTest do
   defp configuration do
     %{
       server: %{
+        bot_login: "ryker-test",
         bindings: %{
           "github-main" => %{
-            authorized_actor_ids: [7],
             installation_id: 41,
             repository_full_name: "octo/example",
             repository_id: 99,

@@ -80,4 +80,17 @@ defmodule Ryker.ControlPlane.ServerTest do
       )
     end
   end
+
+  test "accepts a container network listener only when bootstrap marks it explicitly" do
+    options =
+      Server.options!(
+        access: :network,
+        ip: {0, 0, 0, 0},
+        port: 4_090,
+        work_profile: @profile
+      )
+
+    assert options.access == :network
+    assert options.ip == {0, 0, 0, 0}
+  end
 end

@@ -21,15 +21,27 @@ const routes = filtersOnly ? [['activity-root', '/'], ['episodes', '/activity?st
   ['activity-root', '/'], ['conversations', '/conversations'], ['lab-retired', '/lab'], ['activity', '/activity'],
   ['incident-rooms', '/incident-rooms'], ['failures', '/failures'], ['usage', '/usage'],
   ['schedules', '/schedules'], ['subscriptions', '/subscriptions'],
-  ['rules', '/rules'], ['preferences', '/preferences'], ['guidance', '/guidance'],
+  ['rules', '/rules'], ['preferences', '/preferences'], ['guidance', '/guidance'], ['instructions', '/instructions'],
   ['memory', '/memory'], ['decisions', '/decisions'], ['findings', '/findings'],
   ['calibration', '/calibration'], ['configuration', '/configuration'],
   ['channels', '/channels'], ['repositories', '/repositories'], ['workspaces', '/workspaces'],
+  ['settings', '/settings'], ['settings-slack', '/settings/slack'],
+  ['settings-github', '/settings/github'], ['settings-emisar', '/settings/emisar'],
+  ['settings-webhooks', '/settings/webhooks'], ['settings-retention', '/settings/retention'],
+  ['settings-token-rates', '/settings/token-rates'], ['settings-system', '/settings/system'],
   ['journeys', '/manual-tests'], ['card-lab', '/card-lab'],
   ['card-lab-state', '/card-lab/task-card/working'], ['missing-episode', '/timeline/missing']
 ];
 // Pages removed as clean cuts. They must answer 404 without a redirect.
-const removedPages = ['decisions', 'calibration', 'journeys', 'card-lab', 'card-lab-state', 'lab-retired'];
+const removedPages = ['decisions', 'calibration', 'configuration', 'journeys', 'card-lab', 'card-lab-state', 'lab-retired'];
+const sharedPageGutterPages = new Set([
+  'activity-root', 'activity', 'incident-rooms', 'failures', 'usage', 'schedules',
+  'subscriptions', 'rules', 'preferences', 'guidance', 'instructions', 'memory',
+  'findings', 'channels', 'repositories', 'workspaces', 'settings',
+  'settings-slack', 'settings-github', 'settings-emisar',
+  'settings-webhooks', 'settings-retention',
+  'settings-token-rates', 'settings-system'
+]);
 
 async function connected(page) {
   await page.locator('[data-connection-state="connected"]').waitFor({timeout: 5000});
@@ -44,6 +56,13 @@ async function checkFilterToolbar(page, width) {
   assert(rows.length >= 3, 'The toolbar holds search, work mode and + Filter');
   assert(rows.every(row => row.height === rows[0].height), 'Toolbar controls share one height');
   if (width > 800) assert(rows.every(row => row.center === rows[0].center), 'Toolbar controls sit on one line');
+  if (await page.locator('#filter-add').isDisabled()) {
+    assert(await page.locator('#activity-filters-search').isDisabled(), 'Empty activity disables search');
+    assert(await page.locator('#activity-mode').isDisabled(), 'Empty activity disables the work-mode filter');
+    assert.equal(await page.locator('#request-filters button:not([disabled])').count(), 0, 'Empty activity disables filter chips and actions');
+    assert.equal(await page.locator('.ui-tabs a').count(), 0, 'Empty activity disables status filters');
+    return;
+  }
   await page.locator('#filter-add').click();
   await page.locator('#filter-popover').waitFor();
   assert(await page.evaluate(() => Boolean(document.activeElement?.closest('#filter-popover'))), 'Focus moves into the filter menu');
@@ -55,7 +74,9 @@ async function checkFilterToolbar(page, width) {
   if (await page.locator('.filter-chip[data-filter=transport]').count()) return;
   await page.locator('#filter-add').click();
   // A field opens its values beside the list, never in its place (Andrew, 2026-09-19).
-  await page.locator('#filter-popover .filter-field[data-field=transport]').hover();
+  const transport = page.locator('#filter-popover .filter-field[data-field=transport]');
+  if (width <= 800) await transport.click();
+  else await transport.hover();
   await page.locator('#filter-values-transport').waitFor();
   if (width > 800) {
     const beside = await page.evaluate(() => {
@@ -70,6 +91,77 @@ async function checkFilterToolbar(page, width) {
   assert(new URL(page.url()).searchParams.get('transport') === 'slack', 'Choosing a value applies it');
   await page.locator('.filter-chip[data-filter=transport] .filter-chip-remove').click();
   await page.locator('.filter-chip[data-filter=transport]').waitFor({state: 'detached'});
+}
+
+async function checkSharedFilterControls(page, width) {
+  const controls = await page.evaluate(() => Array.from(document.querySelectorAll(
+    '.filter-toolbar .search-field, .filter-toolbar select, .filter-toolbar .filter-add'
+  )).filter(element => element.getBoundingClientRect().height > 0).map(element => {
+    const style = getComputedStyle(element);
+    const rect = element.getBoundingClientRect();
+    return {
+      primary: element.matches('.search-field, .filter-primary, #activity-mode, .filter-add'),
+      height: Math.round(rect.height),
+      center: Math.round(rect.top + rect.height / 2),
+      borderWidth: style.borderWidth,
+      borderStyle: style.borderStyle,
+      borderColor: style.borderColor,
+      borderRadius: style.borderRadius,
+      fontSize: style.fontSize,
+      lineHeight: style.lineHeight
+    };
+  }));
+  if (!controls.length) return;
+  for (const control of controls) {
+    assert.equal(control.height, 44, 'Filter controls use the shared 44px height');
+    assert.equal(control.borderWidth, '1px', 'Filter controls use the shared border width');
+    assert.equal(control.borderStyle, 'solid', 'Filter controls use a solid border');
+    assert.equal(control.borderColor, controls[0].borderColor, 'Filter controls use the same border color');
+    assert.equal(control.borderRadius, '8px', 'Filter controls use the shared corner radius');
+    assert.equal(control.fontSize, '14px', 'Filter controls use the shared type size');
+    assert.equal(control.lineHeight, '20px', 'Filter controls use the shared text line height');
+  }
+  const primary = controls.filter(control => control.primary);
+  if (width > 800) assert(primary.every(control => control.center === primary[0].center), 'Filter controls sit on one baseline');
+}
+
+async function checkKeyboardFocus(page) {
+  await page.evaluate(() => document.activeElement?.blur());
+  await page.keyboard.press('Tab');
+  const focus = await page.evaluate(() => {
+    const element = document.activeElement;
+    const rect = element?.getBoundingClientRect();
+    const style = element && getComputedStyle(element);
+    return {
+      interactive: Boolean(element?.matches('a[href], button, input, select, textarea, summary, [tabindex]:not([tabindex="-1"])')),
+      visible: Boolean(rect && rect.width > 0 && rect.height > 0),
+      indicated: Boolean(style && ((style.outlineStyle !== 'none' && style.outlineWidth !== '0px') || style.boxShadow !== 'none'))
+    };
+  });
+  assert(focus.interactive && focus.visible, 'Tab reaches a visible interactive control');
+  assert(focus.indicated, 'Keyboard focus has a visible indicator');
+}
+
+async function checkSettingsPage(page, name) {
+  const title = (await page.locator('main h1').first().textContent()).trim();
+  assert.equal(await page.getByRole('heading', {name: title, exact: true}).count(), 1, `${name}: the page title renders once`);
+
+  if (name === 'settings-emisar' && await page.getByText('Not connected', {exact: true}).count()) {
+    const form = page.locator('form[phx-submit="connect-emisar"]');
+    assert.equal(await form.count(), 1, 'The first Emisar connection form is visible');
+    assert.equal(await form.locator('xpath=ancestor::details').count(), 0, 'The first Emisar connection is not hidden in a disclosure');
+    assert.equal(await form.locator('input[name="connection[ref]"], input[name="connection[display_name]"]').count(), 0, 'Emisar derives internal identity instead of asking for it');
+  }
+}
+
+async function checkSharedPageGutter(page, width) {
+  const gutter = await page.evaluate(() => {
+    const workspace = document.querySelector('.app-workspace')?.getBoundingClientRect();
+    const title = document.querySelector('main h1')?.getBoundingClientRect();
+    return workspace && title ? Math.round(title.left - workspace.left) : null;
+  });
+  const expected = width > 800 ? 32 : width <= 600 ? 16 : 20;
+  assert.equal(gutter, expected, 'Page titles use the shared responsive gutter');
 }
 
 async function discover(page) {
@@ -96,14 +188,24 @@ async function discover(page) {
 (async () => {
   output = await createCaptureDirectory(output, repository);
   console.log(`Private capture directory: ${output}`);
-  const browser = await chromium.launch({headless: true});
+  const browser = await chromium.launch({
+    headless: true,
+    executablePath: process.env.RYKER_PLAYWRIGHT_EXECUTABLE || undefined
+  });
   const report = {origin: origin.origin, capturedAt: new Date().toISOString(), absent: [], captures: []};
   try {
     const discovery = await browser.newPage();
     if (!filtersOnly) report.absent = await discover(discovery);
     await discovery.close();
-    for (const [width, height] of [[1440, 1000], [390, 844]]) {
-      const context = await browser.newContext({viewport: {width, height}, reducedMotion: 'reduce', deviceScaleFactor: 1});
+    const viewports = [
+      {width: 1440, height: 1000, label: '1440', mode: 'desktop', deviceScaleFactor: 1},
+      // Browser zoom at 200% gives a 1440px display a 720px CSS viewport.
+      {width: 720, height: 500, label: 'zoom200', mode: 'zoom-200', deviceScaleFactor: 2},
+      {width: 390, height: 844, label: '390', mode: 'mobile', deviceScaleFactor: 1},
+      {width: 320, height: 720, label: '320', mode: 'minimum', deviceScaleFactor: 1}
+    ];
+    for (const {width, height, label, mode, deviceScaleFactor} of viewports) {
+      const context = await browser.newContext({viewport: {width, height}, reducedMotion: 'reduce', deviceScaleFactor});
       const page = await context.newPage();
       page.setDefaultTimeout(5000);
       for (const [name, route] of routes) {
@@ -112,8 +214,8 @@ async function discover(page) {
         const onConsole = message => { if (message.type() === 'error') errors.push(message.text()); };
         page.on('pageerror', onError);
         page.on('console', onConsole);
-        const file = `${name}-${width}.png`;
-        const result = {name, route, width, file, errors};
+        const file = `${name}-${label}.png`;
+        const result = {name, route, width, mode, file, errors};
         try {
           const response = await page.goto(new URL(route, origin).href, {waitUntil: 'domcontentloaded'});
           result.status = response.status();
@@ -138,10 +240,14 @@ async function discover(page) {
               assert(!/(?:…|\.\.\.)$/.test(label.trim()), 'Action labels must not end in ellipses');
             }
             assert(result.layout.scrollWidth <= width, 'Page overflows horizontally');
+            if (sharedPageGutterPages.has(name)) await checkSharedPageGutter(page, width);
+            await checkSharedFilterControls(page, width);
+            await checkKeyboardFocus(page);
+            if (name.startsWith('settings')) await checkSettingsPage(page, name);
             if (name === 'activity-root' || name === 'activity') await checkFilterToolbar(page, width);
             assert.equal(await page.locator('a[href^="/card-lab"], a[href="/manual-tests"]').count(), 0, 'Retired testing pages must not return to navigation');
             assert.equal(await page.locator('.nav-caption', {hasText: 'Testing'}).count(), 0, 'The Testing navigation group was removed');
-            if (name === 'conversation' && width === 390) assert(result.layout.composerTop >= result.layout.transcriptBottom, 'Composer obscures the conversation');
+            if (name === 'conversation' && width <= 390) assert(result.layout.composerTop >= result.layout.transcriptBottom, 'Composer obscures the conversation');
             if (name === 'conversation' && width > 800) {
               // On 2026-09-19 the composer sat under the top bar of a new conversation and
               // jumped to the bottom once the first message opened the conversation.
@@ -170,12 +276,12 @@ async function discover(page) {
         // Read a mid-page chart at actual viewport size, not a shrunk tall image.
         if (name === 'usage') {
           await page.locator('.token-trend').scrollIntoViewIfNeeded().catch(() => {});
-          await page.screenshot({path: path.join(output, `usage-chart-${width}.png`)});
+          await page.screenshot({path: path.join(output, `usage-chart-${label}.png`)});
         }
         report.captures.push(result);
         page.off('pageerror', onError);
         page.off('console', onConsole);
-        console.log(`${name} ${width}: ${result.failure || 'PASS'}`);
+        console.log(`${name} ${label}: ${result.failure || 'PASS'}`);
       }
       await context.close();
     }

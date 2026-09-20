@@ -8,8 +8,8 @@ defmodule Ryker.ControlPlane.SettingsCommands do
   Nothing here writes a row or decides what is allowed.
   """
 
-  alias Ryker.Bootstrap
   alias Ryker.ControlPlane.SettingsSections
+  alias Ryker.Credentials
   alias Ryker.Settings
   alias Ryker.Settings.WorkerPolicies
   alias Ryker.Webhooks.Preview
@@ -98,9 +98,6 @@ defmodule Ryker.ControlPlane.SettingsCommands do
   defp write(%{domain: :publication}, attributes, revision, _params),
     do: Settings.save_publication(attributes, revision, actor())
 
-  defp write(%{domain: :emisar}, attributes, revision, _params),
-    do: Settings.save_emisar(attributes, revision, actor())
-
   defp write(%{domain: :report}, attributes, revision, _params),
     do: Settings.save_report(attributes, revision, actor())
 
@@ -162,10 +159,9 @@ defmodule Ryker.ControlPlane.SettingsCommands do
     do: Settings.delete_webhook_source(name, revision, actor())
 
   defp registered_secrets do
-    case Bootstrap.registered_webhook_secret_names() do
-      {:ok, names} -> names
-      :error -> []
-    end
+    Credentials.statuses()
+    |> Enum.filter(&(&1.kind == :webhook))
+    |> Enum.map(& &1.name)
   end
 
   defp workspace_ref do

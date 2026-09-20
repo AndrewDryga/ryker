@@ -119,7 +119,7 @@ defmodule Ryker.ControlPlane.RepositoriesPageTest do
     assert text =~ "refs/heads/main"
     assert text =~ "coop-worker-one"
     assert text =~ "commit:abc123"
-    assert LazyHTML.query(details, "a[href='/configuration']") |> Enum.count() == 2
+    assert LazyHTML.query(details, "a[href='/settings/system']") |> Enum.count() == 2
 
     # The worker table inside the details stacks on a phone like every other.
     assert LazyHTML.query(details, "table.data-table td[data-label='Worker']") |> LazyHTML.text() ==

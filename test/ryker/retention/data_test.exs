@@ -718,6 +718,17 @@ defmodule Ryker.Retention.DataTest do
   test "old transport, memory, and audit rows prune without touching unresolved custody" do
     delivered = insert_reaction!("delivered", "delivered")
     blocked = insert_reaction!("blocked", "blocked")
+    credential_event_id = Ecto.UUID.generate()
+
+    Repo.insert!(%Ryker.Credentials.Event{
+      id: credential_event_id,
+      kind: :webhook,
+      name: "retention-audit",
+      action: :deleted,
+      actor_ref: "control-plane:local",
+      inserted_at: @old
+    })
+
     insert_setting_audit!("old-audit")
     insert_interaction_audit!("old-interaction")
     insert_operator_action!("old-operator-action")
@@ -727,7 +738,8 @@ defmodule Ryker.Retention.DataTest do
     assert result.delivery_reactions == 1
     assert Repo.get(Ryker.Delivery.Reaction, delivered) == nil
     assert Repo.get!(Ryker.Delivery.Reaction, blocked).status == :blocked
-    assert result.audit_rows == 4
+    assert result.audit_rows == 5
+    assert Repo.get(Ryker.Credentials.Event, credential_event_id) == nil
     assert Actions.fetch("operator-action:old-operator-action") == :error
   end
 

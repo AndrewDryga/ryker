@@ -36,7 +36,7 @@ defmodule Ryker.ControlPlane.ConfigurationPageTest do
            ]
 
     assert LazyHTML.query(document, "h2") |> LazyHTML.text() ==
-             "Effective host configurationSet up code editingMCP and tool grants"
+             "Effective host configurationWork executionMCP and tool grants"
 
     assert Enum.empty?(LazyHTML.query(document, "h1, .configuration-guide, .table-wrap"))
 
@@ -86,7 +86,8 @@ defmodule Ryker.ControlPlane.ConfigurationPageTest do
              LazyHTML.query(document, "form, input, button, select, textarea, [phx-click]")
            )
 
-    assert LazyHTML.text(document) =~ "does not enroll workers, change permissions or retry tasks"
+    assert LazyHTML.text(document) =~
+             "Docker Compose installations should provide work execution automatically"
   end
 
   test "tool grants are an inventory with their source, distinct from health and permission" do
@@ -128,7 +129,7 @@ defmodule Ryker.ControlPlane.ConfigurationPageTest do
   test "the evidence renders as one block under the Settings page's title and description" do
     # The Settings page is native: WorkbenchLive renders this evidence beneath
     # SettingsPage's own header, so the page carries the title once.
-    assert SettingsPage.description() =~ "What this installation decided"
+    assert SettingsPage.description() == "Connect services and choose how Ryker works."
     document = render([row("admission", "enabled")])
     assert Enum.count(LazyHTML.query(document, "div.configuration-evidence")) == 1
     assert Enum.count(LazyHTML.query(document, "h2")) == 3

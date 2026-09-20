@@ -85,7 +85,8 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
     runs
     |> Enum.with_index()
     |> Enum.map(fn {run, index} ->
-      queue = queue_run(input, run, index, index == tail_index, now)
+      previous = if index > 0, do: Enum.at(runs, index - 1)
+      queue = queue_run(input, run, index, index == tail_index, now, previous)
       id = if index == 0, do: "queue-#{input.id}", else: "queue-#{input.id}-#{hd(run).sequence}"
       queue_step(input, queue, id)
     end)
@@ -133,7 +134,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
   defp queue_run_sealed?(run),
     do: List.last(run).kind in [:claimed, :reclaimed, :superseded]
 
-  defp queue_run(input, run, index, tail?, now) do
+  defp queue_run(input, run, index, tail?, now, previous) do
     first = hd(run)
     last = List.last(run)
     current = tail? and input.status == :pending and last.kind not in [:claimed, :reclaimed]
@@ -145,7 +146,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
 
     %{
       kind: queue_kind(last.kind, current),
-      qualifier: queue_qualifier(first, index),
+      qualifier: queue_qualifier(first, index, previous),
       current: current,
       events: events,
       started_at: first.occurred_at,
@@ -160,13 +161,22 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
     }
   end
 
-  defp queue_qualifier(_first, 0), do: nil
+  defp queue_qualifier(_first, 0, _previous), do: nil
 
-  defp queue_qualifier(%{kind: :retry_scheduled, attempt: attempt}, _index) when attempt > 0,
-    do: "Retry #{attempt}"
+  defp queue_qualifier(
+         %{kind: :retry_scheduled, attempt: attempt, error_code: error_code},
+         _index,
+         previous
+       )
+       when attempt > 0 do
+    if List.last(previous).attempt == attempt and
+         error_code in ["coop_timeout", "coop_transport_timeout"],
+       do: "Reattached to attempt #{attempt}",
+       else: "Retry #{attempt}"
+  end
 
-  defp queue_qualifier(%{kind: :rearmed}, _index), do: "Recovery"
-  defp queue_qualifier(_first, _index), do: nil
+  defp queue_qualifier(%{kind: :rearmed}, _index, _previous), do: "Recovery"
+  defp queue_qualifier(_first, _index, _previous), do: nil
 
   defp queue_kind(:blocked, _current), do: :needs_attention
   defp queue_kind(:superseded, _current), do: :superseded
@@ -377,7 +387,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
   defp engagement(_receipt, input, rules), do: engagement(nil, input, rules)
 
   defp engagement_reason(%{"path" => "conversation_lab"}, _input, _rules),
-    do: "Ryker processed this message because it was submitted directly through Conversation Lab."
+    do: "Ryker processed this message because it was sent directly through Chat."
 
   defp engagement_reason(%{"path" => "slack_shortcut"}, _input, _rules),
     do: "Ryker processed this message because it was submitted through a Slack shortcut."

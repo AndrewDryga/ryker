@@ -78,6 +78,7 @@ defmodule Ryker.Evals.RuntimeTest do
       %{
         "DATABASE_URL" => "ecto://ryker:eval@127.0.0.1/ryker_eval_test",
         "RYKER_CHECKPOINT_KEY" => Base.encode64(:crypto.strong_rand_bytes(32)),
+        "RYKER_CREDENTIAL_KEY" => Base.encode64(:crypto.strong_rand_bytes(32)),
         "RYKER_STATE_TOOLS_TOKEN" => "eval-state-tools-token-long-enough",
         "RYKER_STATE_TOOLS_PORT" => "4418",
         "RYKER_WORKER_PUBLIC_URL" => "https://eval-worker.example"

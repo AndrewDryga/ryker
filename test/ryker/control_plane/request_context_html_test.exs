@@ -24,8 +24,8 @@ defmodule Ryker.ControlPlane.RequestContextHTMLTest do
     # said anything without opening the workspace text.
     assert html =~ "Global instructions"
     assert html =~ "Channel instructions"
-    assert html =~ "Workspace text at send time"
-    assert html =~ "Channel text at send time; overrides global"
+    assert html =~ "Applies across the workspace"
+    assert html =~ "Adds channel guidance; wins only when the two conflict"
     refute html =~ "Saved with this request"
     assert html =~ "Saved global"
     assert html =~ "Revision 7"

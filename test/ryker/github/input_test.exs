@@ -118,6 +118,25 @@ defmodule Ryker.GitHub.InputTest do
     assert first.revision < second.revision
   end
 
+  test "review-thread resolution stays attached to the exact pull request" do
+    payload = %{
+      "action" => "resolved",
+      "installation" => %{"id" => 41},
+      "pull_request" => %{
+        "number" => 42,
+        "updated_at" => "2026-08-28T12:00:00Z"
+      },
+      "repository" => %{"full_name" => "octo/example", "id" => 99},
+      "sender" => %{"id" => 7, "login" => "octocat", "type" => "User"},
+      "thread" => %{"comments" => [], "node_id" => "PRRT_thread"}
+    }
+
+    assert {:ok, input} = normalize("pull_request_review_thread", payload)
+    assert input.event_kind == :event
+    assert input.source_item_ref == "github:pull_request_review_thread:PRRT_thread"
+    assert input.destination.thread_ref == "github:github-main:pull:42"
+  end
+
   test "the adapter rejects unsupported actions and payload-selected installation or repository" do
     assert {:error, {:invalid_github_input, :event}} =
              normalize("push", issue_comment_payload())
@@ -138,7 +157,7 @@ defmodule Ryker.GitHub.InputTest do
              )
   end
 
-  test "the trusted binding suppresses self events and rejects unlisted GitHub actors" do
+  test "the trusted binding suppresses self events after repository access is checked" do
     self_authored =
       issue_comment_payload()
       |> put_in(["sender"], %{"id" => 99, "login" => "ryker[bot]", "type" => "Bot"})
@@ -146,12 +165,12 @@ defmodule Ryker.GitHub.InputTest do
     assert {:error, {:github_input_ignored, :self_authored}} =
              normalize("issue_comment", self_authored)
 
-    unauthorized =
+    other_writer =
       issue_comment_payload()
       |> put_in(["sender"], %{"id" => 10, "login" => "outsider", "type" => "User"})
 
-    assert {:error, {:github_input_ignored, :actor_not_authorized}} =
-             normalize("issue_comment", unauthorized)
+    assert {:ok, input} = normalize("issue_comment", other_writer)
+    assert input.actor == %{kind: :user, ref: "github-user:10"}
 
     authorized_bot =
       issue_comment_payload()
@@ -176,7 +195,6 @@ defmodule Ryker.GitHub.InputTest do
   defp binding! do
     assert {:ok, binding} =
              Binding.new(%{
-               authorized_actor_ids: [7, 8],
                installation_id: 41,
                name: "github-main",
                repository_full_name: "octo/example",

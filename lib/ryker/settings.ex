@@ -12,12 +12,14 @@ defmodule Ryker.Settings do
 
   import Ecto.Query
 
+  alias Ryker.Accounting.Pricing
   alias Ryker.CanonicalJSON
   alias Ryker.Repo
 
   alias Ryker.Settings.{
     Edit,
-    Emisar,
+    EmisarBinding,
+    EmisarConnection,
     GitHub,
     GitHubBinding,
     Installation,
@@ -57,7 +59,8 @@ defmodule Ryker.Settings do
           work: Work.t(),
           github: GitHub.t(),
           publication: Publication.t(),
-          emisar: Emisar.t(),
+          emisar_connections: [EmisarConnection.t()],
+          emisar_bindings: [EmisarBinding.t()],
           report: Report.t(),
           learning: Learning.t(),
           repositories: [Repository.t()],
@@ -265,9 +268,6 @@ defmodule Ryker.Settings do
   def save_publication(attributes, expected_revision, actor_ref),
     do: save_singleton(:publication, Publication, attributes, expected_revision, actor_ref)
 
-  def save_emisar(attributes, expected_revision, actor_ref),
-    do: save_singleton(:emisar, Emisar, attributes, expected_revision, actor_ref)
-
   def save_report(attributes, expected_revision, actor_ref),
     do: save_singleton(:report, Report, attributes, expected_revision, actor_ref)
 
@@ -338,6 +338,38 @@ defmodule Ryker.Settings do
 
   def delete_repository_context(ref, expected_revision, actor_ref),
     do: delete_item(:repositories, RepositoryContext, :ref, ref, expected_revision, actor_ref)
+
+  def put_emisar_connection(attributes, expected_revision, actor_ref),
+    do:
+      put_item(
+        :emisar,
+        EmisarConnection,
+        :ref,
+        attributes,
+        expected_revision,
+        actor_ref
+      )
+
+  def delete_emisar_connection(ref, expected_revision, actor_ref) do
+    with {:ok, snapshot} <-
+           delete_item(
+             :emisar,
+             EmisarConnection,
+             :ref,
+             ref,
+             expected_revision,
+             actor_ref
+           ),
+         {:ok, :ok} <- Ryker.Credentials.delete(:emisar, ref, actor_ref) do
+      {:ok, snapshot}
+    end
+  end
+
+  def put_emisar_binding(attributes, expected_revision, actor_ref),
+    do: put_item(:emisar, EmisarBinding, :id, attributes, expected_revision, actor_ref)
+
+  def delete_emisar_binding(id, expected_revision, actor_ref),
+    do: delete_item(:emisar, EmisarBinding, :id, id, expected_revision, actor_ref)
 
   def put_github_binding(attributes, expected_revision, actor_ref),
     do: put_item(:github, GitHubBinding, :name, attributes, expected_revision, actor_ref)
@@ -484,8 +516,22 @@ defmodule Ryker.Settings do
 
     Repo.insert!(struct!(Retention, Map.put(@retention_defaults, :id, host_ref)))
 
-    for schema <- [Slack, GitHub, Publication, Emisar, Report, Learning, Work] do
+    for schema <- [Slack, GitHub, Publication, Report, Learning, Work] do
       Repo.insert!(struct!(schema, id: host_ref))
+    end
+
+    for attributes <- Pricing.settings_defaults() do
+      Repo.insert!(
+        struct!(
+          PricingRate,
+          attributes
+          |> Map.put(:id, Ecto.UUID.generate())
+          |> Map.put(:revision, 1)
+          |> Map.put(:inserted_at, now)
+        ),
+        on_conflict: :nothing,
+        conflict_target: [:execution_target, :effective_from]
+      )
     end
 
     Repo.insert!(%Edit{
@@ -507,7 +553,9 @@ defmodule Ryker.Settings do
       slack: Repo.get!(Slack, host_ref),
       github: Repo.get!(GitHub, host_ref),
       publication: Repo.get!(Publication, host_ref),
-      emisar: Repo.get!(Emisar, host_ref),
+      emisar_connections: Repo.all(from(c in EmisarConnection, order_by: c.ref)),
+      emisar_bindings:
+        Repo.all(from(b in EmisarBinding, order_by: [b.scope_kind, b.scope_ref, b.purpose])),
       report: Repo.get!(Report, host_ref),
       learning: Repo.get!(Learning, host_ref),
       work: Repo.get!(Work, host_ref),
@@ -551,6 +599,9 @@ defmodule Ryker.Settings do
   # the saved operator membership already names it; the payload's own claim of
   # who sent it is never the grant.
   defp authorize(@actor), do: :ok
+  defp authorize("migration:legacy-environment"), do: :ok
+  defp authorize("github:webhook"), do: :ok
+  defp authorize("github:onboarding"), do: :ok
 
   defp authorize("slack:user:" <> user_ref) when byte_size(user_ref) in 1..255 do
     case Repo.one(from(slack in Slack, select: slack.operators)) do

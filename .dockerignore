@@ -1,0 +1,11 @@
+.git
+.agent
+_build
+deps
+node_modules
+.ryker
+artifacts
+cover
+tmp
+*.dump
+*.log

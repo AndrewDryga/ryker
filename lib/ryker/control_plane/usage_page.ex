@@ -101,12 +101,7 @@ defmodule Ryker.ControlPlane.UsagePage do
                                                                                             label} ->
         filter_link(%{window: snapshot.window, mode: scope}, label, scope == mode)
       end),
-      "</nav></div>",
-      if(mode == "shadow",
-        do:
-          "<p class=\"usage-scope-description\">Evaluation runs: replies and reactions are suppressed.</p>",
-        else: ""
-      )
+      "</nav></div>"
     ]
   end
 

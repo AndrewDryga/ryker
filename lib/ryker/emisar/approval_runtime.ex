@@ -10,6 +10,7 @@ defmodule Ryker.Emisar.ApprovalRuntime do
   @fields [
     :api,
     :client,
+    :connection_ref,
     :concurrency,
     :lease_seconds,
     :poll_interval_ms,
@@ -26,12 +27,16 @@ defmodule Ryker.Emisar.ApprovalRuntime do
   @spec child_spec(keyword() | map()) :: Supervisor.child_spec()
   def child_spec(configuration) do
     _options = options!(configuration)
-    %{id: __MODULE__, start: {__MODULE__, :start_link, [configuration]}, type: :supervisor}
+
+    %{
+      id: {__MODULE__, options!(configuration).connection_ref},
+      start: {__MODULE__, :start_link, [configuration]},
+      type: :supervisor
+    }
   end
 
   @spec start_link(keyword() | map()) :: Supervisor.on_start()
-  def start_link(configuration),
-    do: Supervisor.start_link(__MODULE__, configuration, name: __MODULE__)
+  def start_link(configuration), do: Supervisor.start_link(__MODULE__, configuration)
 
   @impl Supervisor
   def init(configuration) do
@@ -42,6 +47,7 @@ defmodule Ryker.Emisar.ApprovalRuntime do
         dispatcher_options = [
           api: options.api,
           client: options.client,
+          connection_ref: options.connection_ref,
           lease_seconds: options.lease_seconds,
           poll_seconds: options.poll_seconds,
           presentation: options.presentation,
@@ -67,6 +73,7 @@ defmodule Ryker.Emisar.ApprovalRuntime do
     configuration = normalize!(configuration)
     api = Map.fetch!(configuration, :api)
     client = Map.fetch!(configuration, :client)
+    connection_ref = Map.fetch!(configuration, :connection_ref)
     worker_ref = Map.fetch!(configuration, :worker_ref)
     concurrency = Map.get(configuration, :concurrency, 2)
     lease_seconds = Map.get(configuration, :lease_seconds, 60)
@@ -88,6 +95,7 @@ defmodule Ryker.Emisar.ApprovalRuntime do
     validate_integer!(retry_base_seconds, 1, 86_400, :retry_base_seconds)
     validate_integer!(retry_max_seconds, retry_base_seconds, 86_400, :retry_max_seconds)
     validate_ref!(worker_ref)
+    validate_ref!(connection_ref)
 
     if lease_seconds * 1_000 <= presentation_timeout_ms,
       do: raise(ArgumentError, "Emisar approval lease_seconds must exceed presentation timeout")
@@ -95,6 +103,7 @@ defmodule Ryker.Emisar.ApprovalRuntime do
     %{
       api: api,
       client: client,
+      connection_ref: connection_ref,
       concurrency: concurrency,
       lease_seconds: lease_seconds,
       poll_interval_ms: poll_interval_ms,
@@ -116,7 +125,14 @@ defmodule Ryker.Emisar.ApprovalRuntime do
   end
 
   defp normalize!(%{} = configuration) do
-    required = [:api, :client, :presentation, :presentation_timeout_ms, :worker_ref]
+    required = [
+      :api,
+      :client,
+      :connection_ref,
+      :presentation,
+      :presentation_timeout_ms,
+      :worker_ref
+    ]
 
     if Map.keys(configuration) -- @fields == [] and
          Enum.all?(required, &Map.has_key?(configuration, &1)),

@@ -8,7 +8,7 @@ defmodule Ryker.GitHub.Runtime do
 
   use Supervisor
 
-  alias Ryker.GitHub.{InstallationTokens, Server}
+  alias Ryker.GitHub.{InstallationTokens, OnboardingWorker, Server}
 
   @spec start_link(map() | keyword()) :: Supervisor.on_start()
   def start_link(configuration) do
@@ -16,12 +16,13 @@ defmodule Ryker.GitHub.Runtime do
   end
 
   @doc false
-  @spec options!(map() | keyword()) :: %{server: map(), tokens: map()}
+  @spec options!(map() | keyword()) :: %{server: map(), tokens: map(), onboarding: map()}
   def options!(configuration) do
     configuration = normalize_configuration!(configuration)
     tokens = InstallationTokens.options!(Map.fetch!(configuration, :tokens))
+    onboarding = OnboardingWorker.options!(Map.get(configuration, :onboarding, %{}))
     server = Server.options!(Map.fetch!(configuration, :server))
-    %{server: server, tokens: tokens}
+    %{onboarding: onboarding, server: server, tokens: tokens}
   end
 
   @impl Supervisor
@@ -29,6 +30,7 @@ defmodule Ryker.GitHub.Runtime do
     Supervisor.init(
       [
         {InstallationTokens, options.tokens},
+        {OnboardingWorker, options.onboarding},
         {Server, options.server}
       ],
       strategy: :one_for_one
@@ -43,7 +45,7 @@ defmodule Ryker.GitHub.Runtime do
   end
 
   defp normalize_configuration!(%{} = configuration) do
-    if Map.keys(configuration) |> Enum.sort() == [:server, :tokens],
+    if Enum.sort(Map.keys(configuration)) in [[:server, :tokens], [:onboarding, :server, :tokens]],
       do: configuration,
       else: raise(ArgumentError, "GitHub runtime configuration is invalid")
   end

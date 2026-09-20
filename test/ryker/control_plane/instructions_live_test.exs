@@ -130,8 +130,8 @@ defmodule Ryker.ControlPlane.InstructionsLiveTest do
     {:ok, view, html} = open("/channels/TINSTRUCTIONS/CTEST")
     assert has_element?(view, ".instructions-page h1", "#test")
     assert html =~ "Channel instructions"
-    assert html =~ "more specific for conflicting behavioral guidance in this channel"
-    assert html =~ "They cannot change permissions or fixed system rules."
+    refute html =~ "more specific for conflicting behavioral guidance in this channel"
+    refute html =~ "They cannot change permissions or fixed system rules."
     refute html =~ "take priority"
     assert has_element?(view, "#inherited-instructions", "Global <script>plain text</script>")
     refute html =~ "<script>plain text</script>"

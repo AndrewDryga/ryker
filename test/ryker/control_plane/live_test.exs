@@ -3,7 +3,7 @@ defmodule Ryker.ControlPlane.LiveTest do
 
   import Phoenix.ConnTest
   import Phoenix.LiveViewTest
-  alias Ryker.ControlPlane.{BehaviorLibrary, ConversationLab, LiveSocket, Projection}
+  alias Ryker.ControlPlane.{Actions, BehaviorLibrary, ConversationLab, LiveSocket, Projection}
   alias Ryker.ControlPlane.LabPage
   alias Ryker.ControlPlane.WorkbenchLive
   alias Ryker.Fixtures.SavedEntities
@@ -19,8 +19,15 @@ defmodule Ryker.ControlPlane.LiveTest do
     observer = self()
     {:ok, counters} = Agent.start_link(fn -> %{active: 1} end)
 
+    {:ok, lab_profile} =
+      WorkProfile.new(%{
+        policy: "lab-live-test",
+        policy_digest: String.duplicate("a", 64),
+        repository_ref: nil
+      })
+
     options = %{
-      actions: %{},
+      actions: Actions.callbacks(lab_profile),
       csrf_secret: String.duplicate("s", 32),
       observability: %{},
       projection:
@@ -37,7 +44,14 @@ defmodule Ryker.ControlPlane.LiveTest do
             items
           end,
           activity: fn params ->
-            %{items: [], total: 0, page: 1, pages: 1, mode: params["mode"] || "live"}
+            %{
+              items: [],
+              total: 0,
+              page: 1,
+              pages: 1,
+              mode: params["mode"] || "live",
+              searchable: true
+            }
           end,
           episode: fn ref, params ->
             if Agent.get(counters, & &1[:episode_fail]),
@@ -108,9 +122,12 @@ defmodule Ryker.ControlPlane.LiveTest do
       assert html =~ title
       assert has_element?(view, "input[name=q][value=emisar]")
       assert has_element?(view, "select[name=status] option[value=all][selected]")
+      assert has_element?(view, "input[type=hidden][name=scope][value=repository]")
+      assert has_element?(view, ".filter-chip[data-filter=scope]", "Repository")
       send(view.pid, :reconcile)
       assert has_element?(view, "input[name=q][value=emisar]")
-      assert has_element?(view, "select[name=scope] option[value=repository][selected]")
+      assert has_element?(view, "input[type=hidden][name=scope][value=repository]")
+      assert has_element?(view, ".filter-chip[data-filter=scope]", "Repository")
     end
 
     {:ok, view, _} = live(build_conn() |> Map.put(:host, "localhost"), "/rules?q[x]=1&page[x]=2")
@@ -280,8 +297,8 @@ defmodule Ryker.ControlPlane.LiveTest do
     conn = build_conn() |> Map.put(:host, "localhost")
 
     {:ok, empty, _} = live(conn, "/rules?q=nothing-here")
-    assert has_element?(empty, "main .behavior-empty", "No matching entries")
-    assert has_element?(empty, "main .behavior-empty", "Change the filters")
+    assert has_element?(empty, "main .behavior-library > .empty-state", "No matching entries")
+    assert has_element?(empty, "main .behavior-library > .empty-state", "Change the filters")
     assert has_element?(empty, "form.filter-toolbar a.filter-clear[href='/rules']")
     refute has_element?(empty, "main p.result-count")
     refute has_element?(empty, ".document-unavailable")
@@ -294,7 +311,7 @@ defmodule Ryker.ControlPlane.LiveTest do
         {:ok, failed, _} = live(conn, "/rules?q=nothing-here")
         assert has_element?(failed, ".document-unavailable", "temporarily unavailable")
         assert has_element?(failed, ".app-warning", "could not refresh")
-        refute has_element?(failed, ".behavior-empty")
+        refute has_element?(failed, ".behavior-library > .empty-state")
         refute has_element?(failed, "main", "No matching entries")
         refute has_element?(failed, "main", "No standing rules yet")
       end)
@@ -446,7 +463,7 @@ defmodule Ryker.ControlPlane.LiveTest do
              "Last 30 days"
            )
 
-    assert has_element?(view, ".filter-bar a", "Back to Usage")
+    assert has_element?(view, ".filter-toolbar-controls a", "Back to Usage")
 
     view |> element("#filter-add") |> render_click()
     assert has_element?(view, "#filter-popover .filter-field[data-field=state]", "Request state")
@@ -506,7 +523,7 @@ defmodule Ryker.ControlPlane.LiveTest do
     assert_patch(view, "/activity?mode=all&q=new&transport=slack")
     assert has_element?(view, ".filter-chip[data-filter=transport]")
 
-    view |> element(".filter-bar a", "Clear") |> render_click()
+    view |> element(".filter-toolbar-controls a", "Clear") |> render_click()
     assert_patch(view, "/activity")
     refute has_element?(view, ".filter-chip")
   end
@@ -581,7 +598,7 @@ defmodule Ryker.ControlPlane.LiveTest do
     end
   end
 
-  test "Conversations is the primary navigation item and carries no Lab or test phrasing" do
+  test "Chat is the primary navigation item and carries no Lab or test phrasing" do
     # The navigation, browser title, accessible labels and action labels said
     # Conversation Lab / Test a message / Send a test message; the surface is
     # an ordinary way to talk to the agent, not a test bench.
@@ -592,17 +609,17 @@ defmodule Ryker.ControlPlane.LiveTest do
     assert has_element?(
              view,
              ".app-sidebar nav[aria-label='Main navigation'] a[href='/conversations'][aria-current=page]",
-             "Conversations"
+             "Chat"
            )
 
-    [home, conversations | _rest] =
+    [conversations, home | _rest] =
       html
       |> LazyHTML.from_document()
       |> LazyHTML.query(".app-sidebar nav[aria-label='Main navigation'] a")
       |> LazyHTML.attribute("href")
 
-    assert home == "/"
     assert conversations == "/conversations"
+    assert home == "/"
     assert has_element?(view, ".lab-directory-heading h1", "Conversations")
     refute html =~ ~r/\bLab\b/
     refute html =~ "Test a "
@@ -637,9 +654,7 @@ defmodule Ryker.ControlPlane.LiveTest do
 
     # Nothing of the rejected chrome, and no replacement hero.
     for rejected <- [
-          "Start a conversation",
           "Ready for your message",
-          "Send a message",
           "Ask a question, investigate an issue",
           "CONVERSATION",
           "Behind this conversation",
@@ -652,6 +667,7 @@ defmodule Ryker.ControlPlane.LiveTest do
       refute html =~ rejected, "the index still renders #{inspect(rejected)}"
     end
 
+    refute has_element?(view, ".lab-chat", "Send a message")
     refute has_element?(view, ".lab-start")
     refute has_element?(view, ".lab-runtime")
     refute has_element?(view, ".lab-chat-header")
@@ -828,7 +844,7 @@ defmodule Ryker.ControlPlane.LiveTest do
 
       assert has_element?(
                view,
-               "form.lab-native-composer p#lab-attachments-error.composer-error[role=alert][hidden]"
+               "form.lab-native-composer #lab-attachments-error.composer-error[role=alert][hidden]"
              )
     end
   end
@@ -836,7 +852,10 @@ defmodule Ryker.ControlPlane.LiveTest do
   test "the directory reads as grouped two-line titles and says when it is empty" do
     conn = build_conn() |> Map.put(:host, "localhost")
     {:ok, empty, _} = live(conn, "/conversations")
-    assert has_element?(empty, ".lab-directory-empty")
+    assert has_element?(empty, ".lab-directory-empty", "No conversations yet")
+    assert has_element?(empty, ".lab-directory-empty", "Send a message and it will appear here.")
+    refute has_element?(empty, ".lab-directory-empty .ui-icon")
+    refute has_element?(empty, ".lab-directory-empty a, .lab-directory-empty button")
     refute has_element?(empty, ".lab-directory-group")
 
     {:ok, profile} =
@@ -1122,12 +1141,12 @@ defmodule Ryker.ControlPlane.LiveTest do
 
     assert has_element?(
              view,
-             "form.lab-edit-form[action='/conversations/#{id}/messages/#{item_id}/edit']"
+             "form.lab-edit-form[phx-submit='edit-lab-message'] input[name=item_id][value='#{item_id}']"
            )
 
     assert has_element?(
              view,
-             ".lab-message-actions form[action='/conversations/#{id}/messages/#{item_id}/delete']"
+             ".lab-message-actions form.lab-delete-form[phx-submit='delete-lab-message'] input[name=item_id][value='#{item_id}']"
            )
 
     refute has_element?(view, "[href^='/lab/'], [action^='/lab/']")
@@ -1173,12 +1192,15 @@ defmodule Ryker.ControlPlane.LiveTest do
     document = LazyHTML.from_document(html)
     reply = LazyHTML.query(document, ".lab-chat-message.actor-ryker")
 
-    path =
-      "/conversations/#{id}/replies/#{URI.encode(message_ref, &URI.char_unreserved?/1)}/reactions"
-
     pills = LazyHTML.query(reply, ".lab-reaction-pills form.lab-reaction-pill")
     assert Enum.count(pills) == 2
-    assert LazyHTML.attribute(pills, "action") == [path, path]
+
+    assert LazyHTML.attribute(pills, "phx-submit") == [
+             "react-to-lab-message",
+             "react-to-lab-message"
+           ]
+
+    assert LazyHTML.attribute(pills, "action") == []
 
     # Each pill posts the real add/remove contract for its emoji: remove for
     # the operator's own reaction, add for one they have not made.
@@ -1275,13 +1297,27 @@ defmodule Ryker.ControlPlane.LiveTest do
              LazyHTML.query(bare, ".lab-reactions > button.lab-reaction-toggle:first-child")
            ) ==
              1
+
+    # Removing the operator's heart travels through the LiveView event and the
+    # returned stream patch owns the new reaction count.
+    heart_form =
+      reply
+      |> LazyHTML.query("form.lab-reaction-pill")
+      |> Enum.find(fn form ->
+        LazyHTML.query(form, "input[name=emoji]") |> LazyHTML.attribute("value") == ["heart"]
+      end)
+
+    [heart_form_id] = LazyHTML.attribute(heart_form, "id")
+    view |> form("##{heart_form_id}") |> render_submit()
+    refute has_element?(view, "##{heart_form_id}")
   end
 
   test "an operator message edits in place through one hidden editor bound to that message" do
     # The Edit disclosure opened a second textarea under the message with an
     # "Edit message" heading and a full-width bar. The editor is now one hidden
-    # form per editable message, bound to that message's exact edit route and
-    # token, holding the stored body, with Cancel and Save at its lower edge.
+    # LiveView form per editable message, bound to that message's exact durable
+    # identifiers and token, holding the stored body, with Cancel and Save at
+    # its lower edge.
     # Replies and deleted messages get no editor; nothing else on the page is a
     # textarea besides the composer.
     {:ok, profile} =
@@ -1315,11 +1351,18 @@ defmodule Ryker.ControlPlane.LiveTest do
     editor = LazyHTML.query(document, "form#lab-edit-#{item_id}.lab-edit-form")
     assert LazyHTML.attribute(editor, "hidden") == [""]
 
-    assert LazyHTML.attribute(editor, "action") == [
-             "/conversations/#{id}/messages/#{item_id}/edit"
-           ]
+    assert LazyHTML.attribute(editor, "phx-submit") == ["edit-lab-message"]
+    assert LazyHTML.attribute(editor, "action") == []
 
     assert LazyHTML.attribute(editor, "data-lab-edit") == [item_id]
+
+    assert LazyHTML.query(editor, "input[name=conversation_id]") |> LazyHTML.attribute("value") ==
+             [id]
+
+    assert LazyHTML.query(editor, "input[name=item_id]") |> LazyHTML.attribute("value") == [
+             item_id
+           ]
+
     assert LazyHTML.query(editor, "input[name=_token]") |> LazyHTML.attribute("value") != [""]
 
     assert LazyHTML.query(editor, "textarea[name=message]") |> LazyHTML.text() ==
@@ -1346,12 +1389,30 @@ defmodule Ryker.ControlPlane.LiveTest do
     refute has_element?(view, "form#lab-edit-#{deleted_id}")
     assert has_element?(view, "#lab-notices[phx-update=ignore]")
 
-    # Delete stays beside Edit as its own exact form.
+    # Delete stays beside Edit as its own authenticated LiveView form.
     assert has_element?(
              view,
-             ".lab-message-actions form[action='/conversations/#{id}/messages/#{item_id}/delete'] button.lab-message-delete",
+             ".lab-message-actions form.lab-delete-form[phx-submit='delete-lab-message'] button.lab-message-delete",
              "Delete"
            )
+
+    assert has_element?(
+             view,
+             ".lab-message-actions form.lab-delete-form input[name=conversation_id][value='#{id}']"
+           )
+
+    # The mutation stays on the LiveView connection and immediately refreshes
+    # the retained projection; no document navigation or parallel fetch owns it.
+    view
+    |> form("#lab-edit-#{item_id}", %{message: "Updated in place"})
+    |> render_submit()
+
+    assert has_element?(view, ".chat-message-text", "Updated in place")
+    refute has_element?(view, ".chat-message-text", "Stored body with **markdown**")
+
+    view |> form("#lab-delete-#{item_id}") |> render_submit()
+    assert has_element?(view, ".chat-message-text", "Message deleted")
+    refute has_element?(view, "#lab-edit-#{item_id}")
   end
 
   test "the workspace offers no card catalog, previews or specimen events" do
@@ -1559,7 +1620,7 @@ defmodule Ryker.ControlPlane.LiveTest do
     assert has_element?(view, ".artifact-instructions", "Ryker admission instructions")
     assert has_element?(view, ".artifact-context", "Frozen admission context")
 
-    assert has_element?(view, ".request-reader .ui-pagination", "1 / 2")
+    assert has_element?(view, ".request-reader .pagination", "Page 1 of 2")
 
     # Assignment used to erase the reader's pinned routing attempt mid-inspection.
     {:ok, %{episode: episode}} =
@@ -1578,7 +1639,7 @@ defmodule Ryker.ControlPlane.LiveTest do
 
     render_hook(view, "refresh", %{})
     assert has_element?(view, ".request-reader[data-generation='1']")
-    assert has_element?(view, ".request-reader .ui-pagination", "1 / 2")
+    assert has_element?(view, ".request-reader .pagination", "Page 1 of 2")
 
     {:ok, reopened, _} =
       live(conn, "/timeline/ingress-input%3A#{entry.id}?generation=1")

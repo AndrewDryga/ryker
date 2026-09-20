@@ -4,7 +4,7 @@ defmodule Ryker.Runtime.AssemblyTest do
   # turn on, what they may never turn on, and what a refusal has to name.
   use Ryker.DataCase, async: false
 
-  alias Ryker.{Bootstrap, Settings}
+  alias Ryker.{Bootstrap, Credentials, Settings}
   alias Ryker.ControlPlane.CapabilityTools, as: ControlPlaneCapabilityTools
   alias Ryker.Runtime.Assembly
 
@@ -29,16 +29,11 @@ defmodule Ryker.Runtime.AssemblyTest do
   end
 
   setup %{pem: pem} do
+    Process.put(:github_private_key_fixture, pem)
+
     deployment = %{
-      "EMISAR_API_TOKEN" => "emisar-api-token-long-enough",
-      "GITHUB_APP_PRIVATE_KEY" => pem,
-      "GITHUB_WEBHOOK_SECRET" => "github-webhook-secret-long-enough",
       "RYKER_CHECKPOINT_KEY" => Base.encode64(:crypto.strong_rand_bytes(32)),
-      "RYKER_STATE_TOOLS_TOKEN" => "state-tools-token-for-tests",
-      "SLACK_APP_TOKEN" => "xapp-slack-app-token-long-enough",
-      "SLACK_BOT_TOKEN" => "xoxb-slack-bot-token-long-enough",
-      "ALERTMANAGER_WEBHOOK_SECRET" => @alert_secret,
-      "CHECKPOINT_SCAN_SECRET" => @custody_secret
+      "RYKER_STATE_TOOLS_TOKEN" => "state-tools-token-for-tests"
     }
 
     Enum.each(deployment, fn {name, value} -> put_variable(name, value) end)
@@ -88,7 +83,8 @@ defmodule Ryker.Runtime.AssemblyTest do
     assert configuration[:publication].worker_ref == "#{host}:publication"
     assert configuration[:retention].worker_ref == "#{host}:retention"
     assert configuration[:schedules].worker_ref == "#{host}:schedules"
-    assert configuration[:emisar].worker_ref == "#{host}:emisar-approval"
+    assert [emisar] = configuration[:emisar].connections
+    assert emisar.worker_ref == "#{host}:emisar:production"
 
     # The reviewed bindings decide the policies; a form never names one.
     assert configuration[:admission].policy == "ryker-admission-v1"
@@ -109,7 +105,7 @@ defmodule Ryker.Runtime.AssemblyTest do
     assert configuration[:slack].identity.workspace_ref == @workspace
     assert configuration[:slack].operators == ["U1111111111"]
     assert configuration[:slack].default_repository == "ryker"
-    assert configuration[:emisar].presentation_timeout_ms > 0
+    assert emisar.presentation_timeout_ms > 0
     assert configuration[:github].server.bindings["ryker-app"].installation_id == 1001
     assert configuration[:publication].publisher_binding.repositories["ryker"].path == "/srv"
   end
@@ -130,13 +126,17 @@ defmodule Ryker.Runtime.AssemblyTest do
       Settings.save_github(%{enabled: false}, settings.installation.revision, @actor)
 
     {:ok, settings} =
-      Settings.save_emisar(%{enabled: false}, settings.installation.revision, @actor)
+      Settings.put_emisar_connection(
+        %{ref: "production", enabled_for_new_work: false, monitoring_enabled: false},
+        settings.installation.revision,
+        @actor
+      )
 
     {:ok, settings} =
       Settings.save_learning(%{enabled: false}, settings.installation.revision, @actor)
 
-    assert System.fetch_env!("SLACK_BOT_TOKEN") != ""
-    assert System.fetch_env!("EMISAR_API_TOKEN") != ""
+    assert Credentials.status(:slack_bot, "primary").status == :configured
+    assert Credentials.status(:emisar, "production").status == :configured
 
     # A route that delivers into Slack cannot outlive the Slack connection: the
     # whole configuration is refused rather than the route quietly disappearing.
@@ -181,7 +181,11 @@ defmodule Ryker.Runtime.AssemblyTest do
       Settings.save_slack(%{enabled: false}, settings.installation.revision, @actor)
 
     {:ok, settings} =
-      Settings.save_emisar(%{enabled: false}, settings.installation.revision, @actor)
+      Settings.put_emisar_connection(
+        %{ref: "production", enabled_for_new_work: false, monitoring_enabled: false},
+        settings.installation.revision,
+        @actor
+      )
 
     assert {:ok, reduced} = Assembly.build(bootstrap(), disconnect_webhooks(settings))
     Assembly.publish(reduced)
@@ -308,19 +312,22 @@ defmodule Ryker.Runtime.AssemblyTest do
            }
   end
 
-  test "nothing runs against a repository whose policies were never reviewed" do
+  test "unreviewed repositories can receive metadata but cannot start work" do
     # A repository row is metadata; the reviewed policy bindings are the grant.
     # Settings accepts each of these because the repository exists, and every
     # runtime that would act under its authority refuses before anything starts.
     settings = connected!()
 
     {:ok, _saved} =
-      Settings.put_repository(%{ref: "unreviewed"}, settings.installation.revision, @actor)
+      Settings.put_repository(
+        %{ref: "unreviewed", github_repository: "acme/unreviewed"},
+        settings.installation.revision,
+        @actor
+      )
 
     refusals = [
       {&lifecycle_naming/1, "webhook lifecycle names a repository without reviewed policies"},
-      {&webhook_context_naming/1, "webhook source names an unknown repository context"},
-      {&github_binding_naming/1, "github binding names a repository without reviewed policies"}
+      {&webhook_context_naming/1, "webhook source names an unknown repository context"}
     ]
 
     for {save, expected} <- refusals do
@@ -332,9 +339,23 @@ defmodule Ryker.Runtime.AssemblyTest do
       # The setting stays exactly as the operator wrote it; only the runtime refuses.
       assert Settings.fetch!().installation.revision == changed.installation.revision
     end
+
+    for name <- ["custom", "deploys"] do
+      {:ok, _settings} =
+        Settings.delete_webhook_source(
+          name,
+          Settings.fetch!().installation.revision,
+          @actor
+        )
+    end
+
+    {:ok, changed} = github_binding_naming(Settings.fetch!().installation.revision)
+    assert {:ok, configuration} = Assembly.build(bootstrap(), changed)
+    assert configuration.github.server.bindings["unreviewed-app"].work_profile == nil
+    refute Map.has_key?(configuration.control_plane.task_policies, "unreviewed")
   end
 
-  test "a GitHub binding may not run under a context whose policies were never reviewed" do
+  test "a GitHub binding under an unreviewed context remains metadata-only" do
     # The binding's context supplies the Work profile every inbound GitHub event
     # runs under. A context with no reviewed bindings has no profile to supply,
     # so the binding would otherwise run under whatever the repository had.
@@ -354,9 +375,8 @@ defmodule Ryker.Runtime.AssemblyTest do
         @actor
       )
 
-    assert Assembly.build(bootstrap(), settings) ==
-             {:error,
-              {:settings_not_applicable, "github binding names an unknown repository context"}}
+    assert {:ok, configuration} = Assembly.build(bootstrap(), settings)
+    assert configuration.github.server.bindings["ryker-app"].work_profile == nil
   end
 
   defp lifecycle_naming(revision) do
@@ -386,8 +406,7 @@ defmodule Ryker.Runtime.AssemblyTest do
         repository_ref: "unreviewed",
         installation_id: 1002,
         repository_id: 2002,
-        ryker_actor_id: 3002,
-        authorized_actor_ids: [4002]
+        ryker_actor_id: 3002
       },
       revision,
       @actor
@@ -445,14 +464,20 @@ defmodule Ryker.Runtime.AssemblyTest do
     settings = connected!()
     assert {:ok, _pem_configuration} = Assembly.build(bootstrap(), settings)
 
-    pem = System.fetch_env!("GITHUB_APP_PRIVATE_KEY")
-    System.put_env("GITHUB_APP_PRIVATE_KEY", Base.encode64(pem))
+    {:ok, pem} = Credentials.fetch(:github_private_key, "primary")
+    {:ok, _} = Credentials.put(:github_private_key, "primary", Base.encode64(pem), @actor)
     assert {:ok, _encoded_configuration} = Assembly.build(bootstrap(), settings)
 
-    System.put_env("GITHUB_APP_PRIVATE_KEY", "not-an-app-key-but-long-enough")
+    {:ok, _} =
+      Credentials.put(
+        :github_private_key,
+        "primary",
+        "not-an-app-key-but-long-enough",
+        @actor
+      )
 
     assert {:error, {:settings_not_applicable, reason}} = Assembly.build(bootstrap(), settings)
-    assert reason == "GITHUB_APP_PRIVATE_KEY is not a usable App key"
+    assert reason == "The saved GitHub App private key is not usable"
     refute reason =~ "not-an-app-key"
   end
 
@@ -460,14 +485,19 @@ defmodule Ryker.Runtime.AssemblyTest do
     settings = connected!()
 
     for url <- ["https://emisar.dev", "http://emisar.dev/api/mcp/rpc"] do
-      assert {:error, {:settings_not_applicable, reason}} =
-               Assembly.build(%{bootstrap() | emisar_rpc_url: url}, settings)
+      assert {:error, {:invalid_settings, errors}} =
+               Settings.put_emisar_connection(
+                 %{ref: "production", rpc_url: url},
+                 settings.installation.revision,
+                 @actor
+               )
 
-      assert reason == "EMISAR_RPC_URL must be an exact HTTPS RPC URL"
+      assert {:rpc_url, :format} in errors
     end
 
     assert {:ok, configuration} = Assembly.build(bootstrap(), settings)
-    assert configuration[:emisar].client.rpc_path == "/api/mcp/rpc"
+    assert [emisar] = configuration[:emisar].connections
+    assert emisar.client.rpc_path == "/api/mcp/rpc"
   end
 
   test "an unplaced Work lane leaves every lane that needs a worker unassembled" do
@@ -533,6 +563,21 @@ defmodule Ryker.Runtime.AssemblyTest do
   defp connected! do
     {:ok, _fresh} = Settings.initialize(@actor)
 
+    credentials = [
+      {:slack_app, "primary", "xapp-slack-app-token-long-enough"},
+      {:slack_bot, "primary", "xoxb-slack-bot-token-long-enough"},
+      {:github_private_key, "primary", Process.get(:github_private_key_fixture)},
+      {:github_webhook, "primary", "github-webhook-secret-long-enough"},
+      {:emisar, "production", "emisar-api-token-long-enough"},
+      {:webhook, "alerts", @alert_secret},
+      {:webhook, "custom", @custody_secret},
+      {:webhook, "deploys", @alert_secret}
+    ]
+
+    Enum.each(credentials, fn {kind, name, value} ->
+      assert {:ok, _} = Credentials.put(kind, name, value, @actor)
+    end)
+
     saves = [
       &Settings.save_retention(%{audit_data_seconds: 60 * 86_400}, &1, @actor),
       &Settings.put_repository(
@@ -571,7 +616,30 @@ defmodule Ryker.Runtime.AssemblyTest do
       &policy(:schedule_governed, :installation, "", "ryker-schedule-gov-v1", &1),
       &Settings.save_work(%{workspace_ref: "ryker-local-main"}, &1, @actor),
       &Settings.save_learning(%{enabled: true}, &1, @actor),
-      &Settings.save_emisar(%{enabled: true}, &1, @actor),
+      &Settings.put_emisar_connection(
+        %{
+          ref: "production",
+          display_name: "Production approvals",
+          rpc_url: "https://emisar.dev/api/mcp/rpc",
+          account_ref: "account-production",
+          account_label: "Production",
+          enabled_for_new_work: true,
+          monitoring_enabled: true,
+          verified_at: ~U[2026-09-19 12:00:00.000000Z]
+        },
+        &1,
+        @actor
+      ),
+      &Settings.put_emisar_binding(
+        %{
+          scope_kind: :installation_purpose,
+          scope_ref: "standard",
+          purpose: :standard,
+          connection_ref: "production"
+        },
+        &1,
+        @actor
+      ),
       &Settings.save_slack(
         %{
           enabled: true,
@@ -584,7 +652,11 @@ defmodule Ryker.Runtime.AssemblyTest do
         &1,
         @actor
       ),
-      &Settings.save_github(%{enabled: true, app_id: 12_345}, &1, @actor),
+      &Settings.save_github(
+        %{enabled: true, app_id: 12_345, app_slug: "ryker-test"},
+        &1,
+        @actor
+      ),
       &Settings.put_github_binding(
         %{
           name: "ryker-app",
@@ -592,8 +664,7 @@ defmodule Ryker.Runtime.AssemblyTest do
           repository_context_ref: "platform",
           installation_id: 1001,
           repository_id: 2001,
-          ryker_actor_id: 3001,
-          authorized_actor_ids: [4001]
+          ryker_actor_id: 3001
         },
         &1,
         @actor
@@ -650,7 +721,7 @@ defmodule Ryker.Runtime.AssemblyTest do
         name: name,
         adapter_kind: :universal,
         auth_kind: :hmac_sha256,
-        secret_name: "ALERTMANAGER_WEBHOOK_SECRET",
+        secret_name: "alerts",
         destination_transport: "control_plane",
         destination_conversation_ref: @lab,
         destination_thread_ref: @lab,
@@ -690,13 +761,12 @@ defmodule Ryker.Runtime.AssemblyTest do
           public_url: "https://worker.example"
         }),
       github_listener: %{ip: {127, 0, 0, 1}, port: 4319},
+      github_public_url: "http://127.0.0.1:4319/v1/github",
       webhook_listener: %{ip: {127, 0, 0, 1}, port: 4320},
+      webhook_public_url: "http://127.0.0.1:4320",
       storage_root: "/tmp/ryker-assembly-test",
-      github_api_url: "https://api.github.com",
-      github_app_id: 12_345,
-      emisar_rpc_url: "https://emisar.dev/api/mcp/rpc",
-      log_level: :warning,
-      webhook_secret_names: ["ALERTMANAGER_WEBHOOK_SECRET", "CHECKPOINT_SCAN_SECRET"]
+      credential_key: :binary.copy(<<73>>, 32),
+      log_level: :warning
     }
   end
 
