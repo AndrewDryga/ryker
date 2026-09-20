@@ -2531,7 +2531,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
     assert Repo.get!(Session, session.id).cleanup_status == :active
 
     html = HTML.workspaces([], storage) |> IO.iodata_to_binary()
-    assert html =~ "no measurement reported"
+    assert html =~ "No report"
     assert html =~ "refused: reserve_exhausted"
     assert html =~ "unknown"
     assert html =~ "close the remote session"

@@ -21,8 +21,7 @@ function node(selectors, extra = {}) {
 }
 
 function form(selectors, action, emoji, {parent, extra = {}} = {}) {
-  const f = node(selectors, {isConnected: true, action: `http://127.0.0.1${parent.path}`, ...extra})
-  f.getAttribute = n => n === "action" ? parent.path : null
+  const f = node(selectors, {isConnected: true, ...extra})
   const actionField = {name: "action", value: action}
   const emojiField = node(["input[name=emoji]"], {name: "emoji", value: emoji, tagName: "INPUT"})
   emojiField.form = f; emojiField.parent = f
@@ -101,47 +100,50 @@ test("the add-reaction control opens one anchored picker with focus inside; Esca
   assert.equal(f.fetches.length, 0)
 })
 
-test("clicking a pill toggles the operator's own reaction through the real add/remove contract, once", async () => {
+test("clicking a pill leaves the exact add/remove mutation to LiveView, once", () => {
   const r = reply([["heart", true], ["+1", false]])
   const f = page(r)
   const [mine, theirs] = r.pillForms
-  const first = f.controls.submit({target: mine, preventDefault() {}})
-  const again = f.controls.submit({target: mine, preventDefault() {}})
-  assert.equal(mine.button.disabled, true)
-  await first; await again
-  assert.equal(f.fetches.length, 1)
-  assert.equal(f.fetches[0].url, r.path)
-  assert.equal(String(f.fetches[0].options.body), "_token=tok&action=remove&emoji=heart")
-  assert.equal(f.fetches[0].options.headers.Accept, "application/json")
-  assert.deepEqual(f.pushed, [["refresh", {}]])
-  assert.equal(mine.button.disabled, false)
+  assert.equal(f.controls.submit({target: mine, preventDefault() {}}), false)
+  const duplicate = {target: mine, preventDefault() { this.prevented = true }}
+  assert.equal(f.controls.submit(duplicate), true)
+  assert.equal(duplicate.prevented, true)
+  assert.equal(mine.dataset.pending, "true")
+  assert.equal(mine.actionField.value, "remove")
+  f.controls.accept({kind: "reaction", id: "control-plane-message:r"})
+  assert.equal(mine.dataset.pending, undefined)
+  assert.equal(f.fetches.length, 0)
+  assert.deepEqual(f.pushed, [])
 
-  await f.controls.submit({target: theirs, preventDefault() {}})
-  assert.equal(String(f.fetches[1].options.body), "_token=tok&action=add&emoji=%2B1")
+  assert.equal(f.controls.submit({target: theirs, preventDefault() {}}), false)
+  assert.equal(theirs.actionField.value, "add")
+  assert.equal(theirs.emojiField.value, "+1")
   assert.equal(f.composer.value, "composer draft")
 })
 
-test("a quick choice adds that emoji to that reply and closes the picker only on acceptance", async () => {
+test("a quick choice closes the picker only on LiveView acceptance", () => {
   const r = reply()
   const f = page(r)
   f.controls.click({target: r.toggle})
-  await f.controls.submit({target: r.quick, preventDefault() {}})
-  assert.equal(String(f.fetches[0].options.body), "_token=tok&action=add&emoji=%2B1")
+  assert.equal(f.controls.submit({target: r.quick, preventDefault() {}}), false)
+  assert.equal(r.picker.hidden, false)
+  f.controls.accept({kind: "reaction", id: "control-plane-message:r"})
   assert.equal(r.picker.hidden, true)
   assert.equal(r.toggle.focused, 1)
-  assert.deepEqual(f.pushed, [["refresh", {}]])
+  assert.equal(f.fetches.length, 0)
 
   const denied = reply()
-  const g = page(denied, {response: {status: 404, json: async () => ({})}})
+  const g = page(denied)
   g.controls.click({target: denied.toggle})
-  await g.controls.submit({target: denied.quick, preventDefault() {}})
+  assert.equal(g.controls.submit({target: denied.quick, preventDefault() {}}), false)
+  g.controls.reject({kind: "reaction", id: "control-plane-message:r", reason: "conflict"})
   assert.equal(denied.picker.hidden, false, "a denied reaction does not pretend to succeed")
   assert.equal(denied.error.hidden, false)
   assert.match(denied.error.textContent, /no longer|not accept/)
   assert.equal(g.pushed.length, 0)
 })
 
-test("a custom name is normalized, validated beside its field, and keeps what was typed on denial", async () => {
+test("a custom name is normalized, validated beside its field, and keeps what was typed on denial", () => {
   assert.equal(normalizeEmojiName(" :White_Check_Mark: "), "white_check_mark")
   assert.equal(normalizeEmojiName("+1"), "+1")
   assert.equal(normalizeEmojiName(""), "")
@@ -150,24 +152,25 @@ test("a custom name is normalized, validated beside its field, and keeps what wa
   const f = page(r)
   f.controls.click({target: r.toggle})
   r.custom.emojiField.value = "not valid!"
-  await f.controls.submit({target: r.custom, preventDefault() {}})
+  f.controls.submit({target: r.custom, preventDefault() {}})
   assert.equal(f.fetches.length, 0)
   assert.equal(r.error.hidden, false)
   assert.match(r.error.textContent, /letters, digits/)
   assert.equal(r.custom.emojiField.getAttribute("aria-invalid"), "true")
 
   r.custom.emojiField.value = ":Rocket_Launch:"
-  await f.controls.submit({target: r.custom, preventDefault() {}})
-  assert.equal(f.fetches.length, 1)
-  assert.equal(String(f.fetches[0].options.body), "_token=tok&action=add&emoji=rocket_launch")
+  assert.equal(f.controls.submit({target: r.custom, preventDefault() {}}), false)
+  assert.equal(f.fetches.length, 0)
+  f.controls.accept({kind: "reaction", id: "control-plane-message:r"})
   assert.equal(r.custom.emojiField.value, "", "an accepted custom name clears the field")
   assert.equal(r.picker.hidden, true)
 
   const denied = reply()
-  const g = page(denied, {response: {status: 422, json: async () => ({})}})
+  const g = page(denied)
   g.controls.click({target: denied.toggle})
   denied.custom.emojiField.value = "unknown_name"
-  await g.controls.submit({target: denied.custom, preventDefault() {}})
+  assert.equal(g.controls.submit({target: denied.custom, preventDefault() {}}), false)
+  g.controls.reject({kind: "reaction", id: "control-plane-message:r", reason: "invalid"})
   assert.equal(denied.custom.emojiField.value, "unknown_name")
   assert.equal(denied.error.hidden, false)
   assert.match(denied.error.textContent, /not accept/)

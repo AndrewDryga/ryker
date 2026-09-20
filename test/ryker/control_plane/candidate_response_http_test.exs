@@ -64,7 +64,7 @@ defmodule Ryker.ControlPlane.CandidateResponseHTTPTest do
     assert LazyHTML.query(document, ".candidate-response") |> LazyHTML.attribute("id") ==
              ["selected-#{turn.id}-response-11"]
 
-    assert html =~ "Checks 11–11 of 11"
+    assert html =~ "checks 11–11 of 11"
     refute html =~ "response-1-body"
 
     assert document

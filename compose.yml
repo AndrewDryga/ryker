@@ -1,0 +1,161 @@
+name: ryker
+
+services:
+  volume-init:
+    image: alpine:3.21.3
+    restart: "no"
+    user: root
+    command: ["sh", "-c", "chown -R 10001:10001 /var/lib/ryker /var/lib/coop /var/lib/ryker-coop /var/lib/ryker-workspaces"]
+    volumes:
+      - ryker-state:/var/lib/ryker
+      - ryker-coop-state:/var/lib/coop
+      - ryker-coop-config:/var/lib/ryker-coop
+      - ryker-workspaces:/var/lib/ryker-workspaces
+
+  database:
+    image: postgres:17.6-bookworm
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ryker
+      POSTGRES_USER: ryker
+      POSTGRES_PASSWORD: ${RYKER_DATABASE_PASSWORD:?run ./install.sh first}
+    volumes:
+      - ryker-database:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ryker -d ryker"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+
+  ryker:
+    image: ${RYKER_IMAGE:-ryker:local}
+    build:
+      context: .
+      args:
+        RYKER_VERSION: ${RYKER_VERSION:?run ./install.sh first}
+    restart: unless-stopped
+    depends_on:
+      database:
+        condition: service_healthy
+      volume-init:
+        condition: service_completed_successfully
+    environment:
+      DATABASE_URL: ecto://ryker:${RYKER_DATABASE_PASSWORD}@database/ryker
+      POOL_SIZE: ${RYKER_POOL_SIZE:-10}
+      RYKER_CONTAINER: "true"
+      RYKER_CONTROL_IP: 0.0.0.0
+      RYKER_CONTROL_PORT: 4321
+      RYKER_GITHUB_IP: 0.0.0.0
+      RYKER_GITHUB_PORT: 4319
+      RYKER_GITHUB_PUBLIC_URL: ${RYKER_GITHUB_PUBLIC_URL:-http://127.0.0.1:4319/v1/github}
+      RYKER_WEBHOOK_IP: 0.0.0.0
+      RYKER_WEBHOOK_PORT: 4320
+      RYKER_WEBHOOK_PUBLIC_URL: ${RYKER_WEBHOOK_PUBLIC_URL:-http://127.0.0.1:4320}
+      RYKER_STATE_TOOLS_IP: 127.0.0.1
+      RYKER_STATE_TOOLS_PORT: 4318
+      RYKER_CHECKPOINT_KEY: ${RYKER_CHECKPOINT_KEY:?run ./install.sh first}
+      RYKER_CREDENTIAL_KEY: ${RYKER_CREDENTIAL_KEY:?run ./install.sh first}
+      RYKER_STATE_TOOLS_TOKEN: ${RYKER_STATE_TOOLS_TOKEN:?run ./install.sh first}
+      RYKER_WORKER_IP: 0.0.0.0
+      RYKER_WORKER_PORT: 4322
+      RYKER_WORKER_PUBLIC_URL: https://ryker:4322
+      RYKER_WORKER_CA_FILE: /var/lib/ryker/pki/ca.pem
+      RYKER_WORKER_CA_KEY_FILE: /var/lib/ryker/pki/ca-key.pem
+      RYKER_WORKER_CERT_FILE: /var/lib/ryker/pki/server.pem
+      RYKER_WORKER_KEY_FILE: /var/lib/ryker/pki/server-key.pem
+      RYKER_BUNDLED_COOP_WORKER_ID: ryker-compose
+      RYKER_BUNDLED_COOP_WORKSPACE: ryker-compose
+      RYKER_BUNDLED_COOP_ROOT: /var/lib/ryker-workspaces
+      RYKER_BUNDLED_COOP_SHARED: /var/lib/ryker-coop
+      LOG_LEVEL: ${RYKER_LOG_LEVEL:-info}
+    volumes:
+      - ryker-state:/var/lib/ryker
+      - ryker-coop-config:/var/lib/ryker-coop
+      - ryker-workspaces:/var/lib/ryker-workspaces
+    ports:
+      - "${RYKER_CONTROL_BIND:-127.0.0.1}:${RYKER_CONTROL_PORT:-4321}:4321"
+      - "${RYKER_GITHUB_BIND:-127.0.0.1}:${RYKER_GITHUB_PORT:-4319}:4319"
+      - "${RYKER_WEBHOOK_BIND:-127.0.0.1}:${RYKER_WEBHOOK_PORT:-4320}:4320"
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:4321/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 15s
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+
+  ryker-coop-docker:
+    image: docker:27.5.1-dind-alpine3.21
+    privileged: true
+    restart: unless-stopped
+    depends_on:
+      volume-init:
+        condition: service_completed_successfully
+    environment:
+      DOCKER_TLS_CERTDIR: ""
+    command: ["--host=tcp://0.0.0.0:2375", "--host=unix:///var/run/docker.sock"]
+    volumes:
+      - ryker-coop-docker:/var/lib/docker
+      - ryker-coop-state:/var/lib/coop
+      - ryker-coop-config:/var/lib/ryker-coop
+      - ryker-workspaces:/var/lib/ryker-workspaces
+    healthcheck:
+      test: ["CMD", "docker", "info"]
+      interval: 2s
+      timeout: 5s
+      retries: 60
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+
+  ryker-coop:
+    image: ${RYKER_COOP_IMAGE:-ryker-coop:${COOP_VERSION:-v9.0.0}}
+    build:
+      context: .
+      dockerfile: deploy/compose/coop/Dockerfile
+      args:
+        COOP_VERSION: ${COOP_VERSION:-v9.0.0}
+    restart: unless-stopped
+    depends_on:
+      ryker:
+        condition: service_healthy
+      ryker-coop-docker:
+        condition: service_healthy
+    environment:
+      DOCKER_HOST: tcp://ryker-coop-docker:2375
+      RYKER_BUNDLED_COOP_WORKER_ID: ryker-compose
+      RYKER_BUNDLED_COOP_WORKSPACE: ryker-compose
+    volumes:
+      - ryker-coop-state:/var/lib/coop
+      - ryker-coop-config:/var/lib/ryker-coop
+      - ryker-workspaces:/var/lib/ryker-workspaces
+    healthcheck:
+      test: ["CMD", "coop", "sessions", "doctor", "--socket", "/var/lib/coop/sessions/control.sock"]
+      interval: 5s
+      timeout: 5s
+      retries: 60
+      start_period: 30s
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+
+volumes:
+  ryker-database:
+  ryker-state:
+  ryker-coop-state:
+  ryker-coop-config:
+  ryker-coop-docker:
+  ryker-workspaces:

@@ -1,8 +1,9 @@
 defmodule Ryker.ControlPlane.BrowserGuard do
   @moduledoc """
-  The browser boundary every control-plane response crosses: loopback peers
-  and local hosts only, and the response headers that keep a page from being
-  framed, cached, or read across origins.
+  The browser boundary every control-plane response crosses: local hosts and
+  either loopback peers or the explicitly selected private-container network,
+  plus the response headers that keep a page from being framed, cached, or
+  read across origins.
 
   The endpoint runs it before routing, so live pages, assets and the HTTP
   contracts are guarded alike; `Router` runs it again so a direct call to the
@@ -11,17 +12,20 @@ defmodule Ryker.ControlPlane.BrowserGuard do
   """
   import Plug.Conn
 
+  alias Ryker.ControlPlane.Endpoint
+
   @hosts ["localhost", "127.0.0.1", "::1"]
   @content_security_policy "default-src 'none'; style-src 'self'; script-src 'self'; connect-src 'self'; img-src 'self'; font-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"
 
   def init(options), do: options
 
-  def call(conn, _options) do
+  def call(conn, options) do
     conn = headers(conn)
+    access = access(options)
 
     cond do
       not local_host?(conn.host) -> refuse(conn, 421, "Misdirected request")
-      not loopback?(conn.remote_ip) -> refuse(conn, 403, "Loopback access only")
+      not peer_allowed?(conn.remote_ip, access) -> refuse(conn, 403, "Loopback access only")
       true -> conn
     end
   end
@@ -32,6 +36,21 @@ defmodule Ryker.ControlPlane.BrowserGuard do
   def loopback?({127, _, _, _}), do: true
   def loopback?({0, 0, 0, 0, 0, 0, 0, 1}), do: true
   def loopback?(_address), do: false
+
+  @doc "Whether a peer is admitted by the listener topology selected at bootstrap."
+  def peer_allowed?(address, :loopback), do: loopback?(address)
+  def peer_allowed?(address, :network), do: is_tuple(address)
+
+  defp access(options) do
+    case Keyword.get(options, :access, :loopback) do
+      :endpoint ->
+        Endpoint.config(:control_plane)
+        |> Map.get(:access, :loopback)
+
+      access when access in [:loopback, :network] ->
+        access
+    end
+  end
 
   defp headers(conn) do
     conn

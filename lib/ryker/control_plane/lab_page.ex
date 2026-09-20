@@ -86,9 +86,10 @@ defmodule Ryker.ControlPlane.LabPage do
           </button>
         </div>
         <div class="lab-directory-list">
-          <p :if={@items == []} class="lab-directory-empty">
-            Your conversations will appear here after you send a message.
-          </p>
+          <div :if={@items == []} class="lab-directory-empty">
+            <strong>No conversations yet</strong>
+            <p>Send a message and it will appear here.</p>
+          </div>
           <section :for={{group, items} <- @groups} class="lab-directory-group">
             <h2>{group}</h2>
             <.link
@@ -220,12 +221,18 @@ defmodule Ryker.ControlPlane.LabPage do
                 /><button class="ui-button primary" type="submit">
                   Send
                 </button>
-              </div><p id="lab-attachments-error" class="composer-error" role="alert" hidden></p><p
+              </div><.form_feedback
+                id="lab-attachments-error"
+                message=""
+                tone={:error}
+                hidden={true}
+                class="composer-error"
+              /><.form_feedback
+                message=""
+                tone={:info}
+                hidden={true}
                 class="composer-status"
-                role="status"
-                hidden
-              >
-              </p>
+              />
             </form>
             <p class="lab-chat-footer">⌘ / Ctrl + Enter to send</p>
           </div>

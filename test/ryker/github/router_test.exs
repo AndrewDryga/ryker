@@ -38,6 +38,34 @@ defmodule Ryker.GitHub.RouterTest do
     assert entry.repository_ref == "octo/example"
   end
 
+  test "repository access is checked before a GitHub conversation request is admitted" do
+    body = Jason.encode!(payload())
+
+    denied =
+      request(body,
+        delivery_ref: "delivery-read-only",
+        repository_access: fn _binding, _payload -> {:error, :actor_not_authorized} end
+      )
+
+    assert denied.status == 200
+
+    assert Jason.decode!(denied.resp_body) == %{
+             "reason" => "repository_write_access_required",
+             "status" => "ignored"
+           }
+
+    unavailable =
+      request(body,
+        delivery_ref: "delivery-access-unavailable",
+        repository_access: fn _binding, _payload ->
+          {:error, {:github_repository_access_unavailable, :timeout}}
+        end
+      )
+
+    assert unavailable.status == 503
+    assert Repo.aggregate(Ryker.Ingress.Inbox.Entry, :count) == 0
+  end
+
   test "a captured signed body cannot become new work under a rewritten delivery header" do
     body = Jason.encode!(payload())
 
@@ -104,13 +132,13 @@ defmodule Ryker.GitHub.RouterTest do
     assert Jason.decode!(conn.resp_body) == %{"status" => "ignored"}
   end
 
-  test "acknowledges configured review-thread resolution events without creating work" do
+  test "retains review-thread resolution events without starting unrelated work" do
     inbox_count = Repo.aggregate(Ryker.Ingress.Inbox.Entry, :count)
 
     payload = %{
       "action" => "resolved",
       "installation" => %{"id" => 41},
-      "pull_request" => %{"number" => 42},
+      "pull_request" => %{"number" => 42, "updated_at" => "2026-08-28T12:00:00Z"},
       "repository" => %{"full_name" => "octo/example", "id" => 99},
       "sender" => %{"id" => 7, "login" => "octocat", "type" => "User"},
       "thread" => %{"comments" => [], "node_id" => "PRRT_thread"}
@@ -123,7 +151,12 @@ defmodule Ryker.GitHub.RouterTest do
       )
 
     assert response.status == 200
-    assert Jason.decode!(response.resp_body) == %{"status" => "ignored"}
+
+    assert Jason.decode!(response.resp_body) == %{
+             "reason" => "no_request_or_rule",
+             "status" => "ignored"
+           }
+
     assert Repo.aggregate(Ryker.Ingress.Inbox.Entry, :count) == inbox_count
 
     wrong_repository = put_in(payload, ["repository", "full_name"], "octo/other")
@@ -175,7 +208,7 @@ defmodule Ryker.GitHub.RouterTest do
       "action" => "opened",
       "installation" => %{"id" => 41},
       "issue" => %{
-        "body" => "Track the adapter lifecycle.",
+        "body" => "@ryker-test Track the adapter lifecycle.",
         "created_at" => "2026-08-28T12:00:00Z",
         "id" => 4_200,
         "number" => 42,
@@ -190,7 +223,7 @@ defmodule Ryker.GitHub.RouterTest do
       "action" => "opened",
       "installation" => %{"id" => 41},
       "pull_request" => %{
-        "body" => "Unmatched pull request.",
+        "body" => "@ryker-test Unmatched pull request.",
         "created_at" => "2026-08-28T12:00:00Z",
         "head" => %{"sha" => String.duplicate("a", 40)},
         "id" => 4_300,
@@ -621,7 +654,12 @@ defmodule Ryker.GitHub.RouterTest do
       |> Jason.encode!()
 
     assert request(self_authored, delivery_ref: "delivery-self").status == 200
-    assert request(unauthorized, delivery_ref: "delivery-outsider").status == 200
+
+    assert request(unauthorized,
+             delivery_ref: "delivery-outsider",
+             repository_access: fn _binding, _payload -> {:error, :actor_not_authorized} end
+           ).status == 200
+
     assert Repo.aggregate(Ryker.Ingress.Inbox.Entry, :count) == 0
   end
 
@@ -733,7 +771,13 @@ defmodule Ryker.GitHub.RouterTest do
     assert request("{", delivery_ref: "delivery-json").status == 400
 
     assert conn(:post, "/v1/github/github-main", body)
-           |> Router.call(Router.init(bindings: %{"github-main" => binding!()}, secret: @secret))
+           |> Router.call(
+             Router.init(
+               bindings: %{"github-main" => binding!()},
+               bot_login: "ryker-test",
+               secret: @secret
+             )
+           )
            |> Map.fetch!(:status) == 404
 
     assert request(body,
@@ -749,7 +793,13 @@ defmodule Ryker.GitHub.RouterTest do
       |> put_req_header("content-type", "application/problem+json")
       |> put_req_header("x-github-delivery", "delivery-no-event")
       |> put_req_header("x-hub-signature-256", Auth.signature(@secret, body))
-      |> Router.call(Router.init(bindings: %{"github-main" => binding!()}, secret: @secret))
+      |> Router.call(
+        Router.init(
+          bindings: %{"github-main" => binding!()},
+          bot_login: "ryker-test",
+          secret: @secret
+        )
+      )
 
     assert missing_event.status == 400
   end
@@ -854,7 +904,14 @@ defmodule Ryker.GitHub.RouterTest do
         do: put_req_header(conn, "x-github-delivery", delivery_ref),
         else: conn
 
-    router_options = [bindings: bindings, secret: @secret]
+    repository_access = Keyword.get(options, :repository_access, fn _binding, _payload -> :ok end)
+
+    router_options = [
+      bindings: bindings,
+      bot_login: "ryker-test",
+      repository_access: repository_access,
+      secret: @secret
+    ]
 
     router_options =
       if confirmations,
@@ -867,7 +924,6 @@ defmodule Ryker.GitHub.RouterTest do
   defp binding!(overrides \\ %{}) do
     assert {:ok, binding} =
              %{
-               authorized_actor_ids: [7, 8],
                installation_id: 41,
                name: "github-main",
                repository_full_name: "octo/example",
@@ -890,7 +946,7 @@ defmodule Ryker.GitHub.RouterTest do
     %{
       "action" => "created",
       "comment" => %{
-        "body" => "Please update this implementation.",
+        "body" => "@ryker-test Please update this implementation.",
         "created_at" => "2026-08-28T12:00:00Z",
         "id" => 9001,
         "updated_at" => "2026-08-28T12:00:00Z"
@@ -909,7 +965,7 @@ defmodule Ryker.GitHub.RouterTest do
       "pull_request" => %{"number" => 42},
       "repository" => %{"full_name" => "octo/example", "id" => 99},
       "review" => %{
-        "body" => "Initial review.",
+        "body" => "@ryker-test Initial review.",
         "id" => 7_001,
         "submitted_at" => "2026-08-28T12:00:00Z"
       },
@@ -921,7 +977,7 @@ defmodule Ryker.GitHub.RouterTest do
     %{
       "action" => "created",
       "comment" => %{
-        "body" => String.duplicate("Please handle this edge case. ", 700),
+        "body" => "@ryker-test " <> String.duplicate("Please handle this edge case. ", 700),
         "created_at" => "2026-08-28T12:00:00Z",
         "id" => 7_002,
         "updated_at" => "2026-08-28T12:00:00Z"

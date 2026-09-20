@@ -77,6 +77,8 @@ defmodule Ryker.ControlPlane.RequestFilters do
     doc: "\"fields\", a filter key, or nil when the menu is closed"
   )
 
+  attr(:disabled, :boolean, default: false)
+
   def render(assigns) do
     params = UsageProjection.link_params(assigns.params)
     chips = chips(params, assigns.values)
@@ -92,7 +94,7 @@ defmodule Ryker.ControlPlane.RequestFilters do
       )
 
     ~H"""
-    <div class="filter-bar" id="request-filters">
+    <div class="filter-toolbar-controls" id="request-filters">
       <span
         :for={chip <- @chips}
         class="filter-chip-wrap"
@@ -102,6 +104,7 @@ defmodule Ryker.ControlPlane.RequestFilters do
           <button
             type="button"
             class="filter-chip-edit"
+            disabled={@disabled}
             phx-click="filter-menu"
             phx-value-key={chip.key}
             aria-expanded={to_string(@menu == chip.key)}
@@ -109,13 +112,14 @@ defmodule Ryker.ControlPlane.RequestFilters do
           ><span class="filter-chip-key">{chip.label}</span><span class="filter-chip-value">{chip.value}</span></button><button
             type="button"
             class="filter-chip-remove"
+            disabled={@disabled}
             phx-click="remove-filter"
             phx-value-key={chip.key}
             aria-label={"Remove the #{chip.label} filter"}
           ><.icon name={:close} /></button>
         </span>
         <.popover
-          :if={@menu == chip.key}
+          :if={@menu == chip.key && !@disabled}
           field={field(chip.key)}
           current={@params[chip.key]}
           values={@values}
@@ -128,14 +132,19 @@ defmodule Ryker.ControlPlane.RequestFilters do
           id="filter-add"
           type="button"
           class="filter-add"
+          disabled={@disabled}
           phx-click="filter-menu"
           phx-value-key="fields"
           aria-expanded={to_string(@adding)}
         ><.icon name={:plus} />Filter</button>
-        <.menu :if={@adding} available={@available} values={@values} params={@params} />
+        <.menu :if={@adding && !@disabled} available={@available} values={@values} params={@params} />
       </span>
-      <.link :if={@cleared} class="filter-clear" patch={@path}>Clear</.link>
-      <a :if={UsageProjection.filtered?(@params)} class="filter-usage" href={usage_path(@params)}>
+      <.link :if={@cleared && !@disabled} class="filter-clear" patch={@path}>Clear</.link>
+      <a
+        :if={UsageProjection.filtered?(@params) && !@disabled}
+        class="filter-usage"
+        href={usage_path(@params)}
+      >
         Back to Usage
       </a>
     </div>

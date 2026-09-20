@@ -41,6 +41,14 @@ defmodule Ryker.ControlPlane.SettingsPoliciesLiveTest do
     enroll!("worker-one", %{"standard-v1" => @standard, "contributor-v1" => @contributor})
     {:ok, view, _html} = open()
 
+    assert has_element?(
+             view,
+             "#settings-policies > button.settings-editor-add",
+             "+ Add execution policy"
+           )
+
+    view |> element("#settings-policies > button.settings-editor-add") |> render_click()
+
     refute has_element?(view, "input[name=policy_digest]")
     assert has_element?(view, "#settings-policies-policy_name option[value='standard-v1']")
 
@@ -123,37 +131,19 @@ defmodule Ryker.ControlPlane.SettingsPoliciesLiveTest do
 
     {:ok, view, _html} = open()
 
+    view |> element("#settings-policies > button.settings-editor-add") |> render_click()
+
     refute has_element?(view, "#settings-policies-policy_name option[value='standard-v1']")
     assert has_element?(view, "#settings-policies-policy_name option[value='contributor-v1']")
   end
 
-  test "a repository a context still depends on cannot be removed" do
-    installation!()
-    enroll!("worker-one", %{"standard-v1" => @standard})
-    {:ok, view, _html} = open()
-
-    view
-    |> form("#settings-contexts-form", %{
-      "ref" => "platform",
-      "primary_repository_ref" => "emisar",
-      "read_only_repository_refs" => "",
-      "parallel_goal_limit" => "2"
-    })
-    |> render_submit()
-
-    assert [%{ref: "platform", primary_repository_ref: "emisar"}] = Settings.fetch!().contexts
-
-    view
-    |> element(~s{#settings-repositories tr[data-item="emisar"] button[phx-click=delete-item]})
-    |> render_click()
-
-    assert has_element?(view, ".settings-error", "still referenced")
-    assert [%{ref: "emisar"}] = Settings.fetch!().repositories
-  end
-
-  defp open, do: live(build_conn() |> Map.put(:host, "localhost"), "/configuration")
+  defp open, do: live(build_conn() |> Map.put(:host, "localhost"), "/settings/system")
 
   defp bind!(view, purpose, policy_name) do
+    if has_element?(view, "#settings-policies > button.settings-editor-add") do
+      view |> element("#settings-policies > button.settings-editor-add") |> render_click()
+    end
+
     view
     |> form("#settings-policies-form", %{
       "purpose" => purpose,

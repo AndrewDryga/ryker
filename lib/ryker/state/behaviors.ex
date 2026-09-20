@@ -1148,11 +1148,14 @@ defmodule Ryker.State.Behaviors do
     workspace =
       Scope.workspace_ref(input.destination.transport, input.destination.conversation_ref)
 
+    source_ref = input.source.ref
+
     from(behavior in Behavior,
       where:
         behavior.kind == :standing_assignment and behavior.status == :active and
-          behavior.workspace_ref == ^workspace and behavior.scope_kind == :conversation and
-          behavior.scope_ref == ^input.destination.conversation_ref and
+          ((behavior.workspace_ref == ^workspace and behavior.scope_kind == :conversation and
+              behavior.scope_ref == ^input.destination.conversation_ref) or
+             (behavior.scope_kind == :repository and behavior.scope_ref == ^source_ref)) and
           (is_nil(behavior.expires_at) or behavior.expires_at > ^now),
       order_by: [asc: behavior.inserted_at],
       limit: @runtime_candidate_limit

@@ -90,7 +90,9 @@ defmodule Ryker.ControlPlane.Activity do
 
   def list(params) do
     mode = if params["mode"] in ~w(shadow all), do: params["mode"], else: "live"
-    query = from(row in subquery(rows()))
+    base_query = from(row in subquery(rows()))
+    searchable = Repo.exists?(base_query)
+    query = base_query
     query = if mode == "all", do: query, else: from(row in query, where: row.mode == ^mode)
 
     query =
@@ -116,7 +118,8 @@ defmodule Ryker.ControlPlane.Activity do
       total: page.total,
       page: page.page,
       pages: page.pages,
-      mode: mode
+      mode: mode,
+      searchable: searchable
     }
   end
 

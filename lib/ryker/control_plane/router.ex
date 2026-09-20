@@ -55,7 +55,7 @@ defmodule Ryker.ControlPlane.Router do
   # direct call to the router is refused and headed exactly the same way.
   @impl Plug
   def call(conn, options) do
-    case BrowserGuard.call(conn, []) do
+    case BrowserGuard.call(conn, access: Map.get(options, :access, :loopback)) do
       %Plug.Conn{halted: true} = refused -> refused
       conn -> route(conn, options)
     end
@@ -133,100 +133,6 @@ defmodule Ryker.ControlPlane.Router do
       {:error, :form} -> text(conn, 400, "Invalid form")
       {:error, {:invalid_conversation_lab, _field}} -> text(conn, 422, "Invalid message")
       {:error, _reason} -> text(conn, 409, "Message could not be accepted")
-    end
-  end
-
-  defp route(
-         %Plug.Conn{
-           method: "POST",
-           path_info: ["conversations", conversation_id, "messages", item_id, "edit"]
-         } = conn,
-         options
-       ) do
-    with {:ok, conversation_id} <- PathRef.uuid(conversation_id),
-         {:ok, item_id} <- PathRef.uuid(item_id),
-         {:ok, token, message, conn} <- lab_message_edit_form(conn),
-         true <-
-           LabControls.valid_message_token?(
-             options.csrf_secret,
-             conversation_id,
-             item_id,
-             :edit,
-             token
-           ),
-         {:ok, _receipt} <- options.actions.edit_lab_message.(conversation_id, item_id, message) do
-      lab_accepted(conn, conversation_id)
-    else
-      false -> text(conn, 403, "Invalid confirmation token")
-      {:error, :path_ref} -> text(conn, 404, "Message not found")
-      {:error, :form} -> text(conn, 400, "Invalid form")
-      {:error, {:invalid_conversation_lab, :message}} -> text(conn, 422, "Invalid message")
-      {:error, {:invalid_conversation_lab, _field}} -> text(conn, 409, "Message changed")
-      {:error, _reason} -> text(conn, 409, "Message could not be edited")
-    end
-  end
-
-  defp route(
-         %Plug.Conn{
-           method: "POST",
-           path_info: ["conversations", conversation_id, "messages", item_id, "delete"]
-         } = conn,
-         options
-       ) do
-    with {:ok, conversation_id} <- PathRef.uuid(conversation_id),
-         {:ok, item_id} <- PathRef.uuid(item_id),
-         {:ok, token, conn} <- form_token(conn),
-         true <-
-           LabControls.valid_message_token?(
-             options.csrf_secret,
-             conversation_id,
-             item_id,
-             :delete,
-             token
-           ),
-         {:ok, _receipt} <- options.actions.delete_lab_message.(conversation_id, item_id) do
-      lab_accepted(conn, conversation_id)
-    else
-      false -> text(conn, 403, "Invalid confirmation token")
-      {:error, :path_ref} -> text(conn, 404, "Message not found")
-      {:error, :form} -> text(conn, 400, "Invalid form")
-      {:error, {:invalid_conversation_lab, _field}} -> text(conn, 409, "Message changed")
-      {:error, _reason} -> text(conn, 409, "Message could not be deleted")
-    end
-  end
-
-  defp route(
-         %Plug.Conn{
-           method: "POST",
-           path_info: ["conversations", conversation_id, "replies", message_ref, "reactions"]
-         } = conn,
-         options
-       ) do
-    with {:ok, conversation_id} <- PathRef.uuid(conversation_id),
-         {:ok, message_ref} <- PathRef.decode(message_ref),
-         {:ok, token, action, emoji_name, conn} <- lab_reaction_form(conn),
-         true <-
-           LabControls.valid_reaction_token?(
-             options.csrf_secret,
-             conversation_id,
-             message_ref,
-             token
-           ),
-         {:ok, _transition} <-
-           options.actions.react_to_lab_message.(
-             conversation_id,
-             message_ref,
-             action,
-             emoji_name
-           ) do
-      lab_accepted(conn, conversation_id)
-    else
-      false -> text(conn, 403, "Invalid confirmation token")
-      {:error, :path_ref} -> text(conn, 404, "Message not found")
-      {:error, :form} -> text(conn, 400, "Invalid reaction")
-      {:error, :conversation_reaction_target_not_found} -> text(conn, 404, "Message not found")
-      {:error, {:invalid_conversation_lab, _field}} -> text(conn, 422, "Invalid reaction")
-      {:error, _reason} -> text(conn, 409, "Reaction could not be recorded")
     end
   end
 
@@ -1139,36 +1045,6 @@ defmodule Ryker.ControlPlane.Router do
     end
   end
 
-  defp lab_message_edit_form(conn) do
-    with [content_type] <- get_req_header(conn, "content-type"),
-         true <-
-           String.starts_with?(String.downcase(content_type), "application/x-www-form-urlencoded"),
-         {:ok, body, conn} <- read_lab_form(conn),
-         %{"_token" => token, "message" => message} = form <- Query.decode(body),
-         true <- Enum.sort(Map.keys(form)) == ["_token", "message"],
-         true <- is_binary(token) and is_binary(message) do
-      {:ok, token, message, conn}
-    else
-      _invalid -> {:error, :form}
-    end
-  end
-
-  defp lab_reaction_form(conn) do
-    with [content_type] <- get_req_header(conn, "content-type"),
-         true <-
-           String.starts_with?(String.downcase(content_type), "application/x-www-form-urlencoded"),
-         {:ok, body, conn} <- read_form(conn),
-         %{"_token" => token, "action" => action, "emoji" => emoji_name} = form <-
-           Query.decode(body),
-         true <- Enum.sort(Map.keys(form)) == ["_token", "action", "emoji"],
-         {:ok, action} <- lab_reaction_action(action),
-         true <- is_binary(token) and is_binary(emoji_name) do
-      {:ok, token, action, emoji_name, conn}
-    else
-      _invalid -> {:error, :form}
-    end
-  end
-
   defp read_form(conn) do
     case read_body(conn, length: @maximum_form_bytes + 1, read_length: @maximum_form_bytes + 1) do
       {:ok, body, conn} when byte_size(body) <= @maximum_form_bytes -> {:ok, body, conn}
@@ -1213,10 +1089,6 @@ defmodule Ryker.ControlPlane.Router do
       |> halt()
     end
   end
-
-  defp lab_reaction_action("add"), do: {:ok, :add}
-  defp lab_reaction_action("remove"), do: {:ok, :remove}
-  defp lab_reaction_action(_action), do: {:error, :form}
 
   defp action_path(kind, resource_ref, action),
     do: "/actions/#{kind}/#{URI.encode(resource_ref, &URI.char_unreserved?/1)}/#{action}"

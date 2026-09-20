@@ -46,7 +46,7 @@ configuration file. One saved source carries:
 | Source name | The path segment: `/v1/hooks/<name>`. Stable; it is the route's identity. |
 | Payload shape | `universal`, `grafana` or a custom mapping. A preset also fills in the authentication a provider supports and its grouping labels. |
 | Authentication | Bearer token or HMAC-SHA256. There is no unauthenticated shape and no weaker fallback when verification fails. |
-| Credential | The name of one deployment credential, chosen from `RYKER_WEBHOOK_SECRET_NAMES`. The value stays in the environment; the console never displays it and a source can only reference a registered name. |
+| Credential | A secret generated or imported for this source in guided setup. Ryker reveals a generated value once, stores it encrypted, and lets an operator rotate it without changing another source. |
 | Destination | Transport plus conversation and thread reference. Validated against the configured outbound adapters when the runtime assembles. |
 | Repository context | The context whose reviewed policies this source's work runs under. The payload can never select it. |
 | Correlate by labels | Label values that make events the same ongoing situation. |

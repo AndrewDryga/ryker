@@ -215,9 +215,12 @@ defmodule Ryker.Evals.LearningRunner do
 
   defp empty_database do
     %{rows: tables} =
-      Repo.query!(
-        "SELECT tablename FROM pg_tables WHERE schemaname = 'public' AND tablename != 'schema_migrations'"
-      )
+      Repo.query!("""
+      SELECT tablename
+      FROM pg_tables
+      WHERE schemaname = 'public'
+        AND tablename NOT IN ('schema_migrations', 'pricing_rates')
+      """)
 
     if Enum.any?(tables, &table_populated?/1),
       do: {:error, :learning_eval_database_not_empty},

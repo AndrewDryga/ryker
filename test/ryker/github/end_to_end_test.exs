@@ -72,7 +72,7 @@ defmodule Ryker.GitHub.EndToEndTest do
   end
 
   test "a signed GitHub PR comment reaches Work and settles in the exact repository thread" do
-    payload = payload(9_001, "Please update this implementation.")
+    payload = payload(9_001, "@ryker-test Please update this implementation.")
     response = post(payload, "github-delivery-message")
     assert response.status == 202
 
@@ -142,7 +142,12 @@ defmodule Ryker.GitHub.EndToEndTest do
   end
 
   test "a signed GitHub comment can become one durable native emoji reaction" do
-    response = post(payload(9_002, "Looks good to me."), "github-delivery-reaction")
+    response =
+      post(
+        payload(9_002, "@ryker-test Looks good to me."),
+        "github-delivery-reaction"
+      )
+
     assert response.status == 202
 
     {:ok, admission_fake} = FakeCoopAPI.start_link([decision("react", "rocket")])
@@ -340,13 +345,19 @@ defmodule Ryker.GitHub.EndToEndTest do
     |> put_req_header("x-github-delivery", delivery_ref)
     |> put_req_header("x-github-event", event_name)
     |> put_req_header("x-hub-signature-256", Auth.signature(@secret, body))
-    |> Router.call(Router.init(bindings: %{"github-main" => binding!()}, secret: @secret))
+    |> Router.call(
+      Router.init(
+        bindings: %{"github-main" => binding!()},
+        bot_login: "ryker-test",
+        repository_access: fn _binding, _payload -> :ok end,
+        secret: @secret
+      )
+    )
   end
 
   defp binding! do
     assert {:ok, binding} =
              Binding.new(%{
-               authorized_actor_ids: [7, 8],
                installation_id: 41,
                name: "github-main",
                repository_full_name: "octo/example",

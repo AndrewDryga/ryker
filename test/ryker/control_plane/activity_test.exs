@@ -238,7 +238,7 @@ defmodule Ryker.ControlPlane.ActivityTest do
     end
 
     for state <- ~w(complete cancelled waiting_for_event) do
-      assert %{items: [], total: 0} = Activity.list(%{"state" => state})
+      assert %{items: [], total: 0, searchable: true} = Activity.list(%{"state" => state})
     end
 
     assert %{items: [item]} = Activity.list(%{"state" => "working", "q" => "paging"})

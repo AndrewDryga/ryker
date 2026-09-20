@@ -6,11 +6,19 @@ defmodule Ryker.Emisar.ApprovalDispatcherTest do
   alias Ryker.Emisar.{ApprovalDispatcher, Approvals, RunState}
   alias Ryker.Episodes
   alias Ryker.Episodes.Command
+  alias Ryker.Episodes.Episode
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
+  alias Ryker.Settings
   alias Ryker.State.Records
   alias Ryker.Work.Custody
 
   @policy_digest String.duplicate("b", 64)
+  @connection_ref "production"
+
+  setup do
+    configure_emisar!()
+    :ok
+  end
 
   defmodule API do
     @behaviour Ryker.Emisar.API
@@ -53,7 +61,7 @@ defmodule Ryker.Emisar.ApprovalDispatcherTest do
     assert_receive :approval_presented
     assert {:ok, resumed} = Episodes.fetch_by_key(episode.key)
     assert resumed.state == :working
-    assert Approvals.get_by_request_id("apr-terminal").status == :resumed
+    assert Approvals.get_by_request_id(@connection_ref, "apr-terminal").status == :resumed
   end
 
   test "backs off transient reads and blocks a crossed immutable identity" do
@@ -62,7 +70,7 @@ defmodule Ryker.Emisar.ApprovalDispatcherTest do
     assert {:ok, {:deferred, "apr-transient", {:transport, :offline}}} =
              ApprovalDispatcher.run_once(options({:error, {:transport, :offline}}))
 
-    deferred = Approvals.get_by_request_id("apr-transient")
+    deferred = Approvals.get_by_request_id(@connection_ref, "apr-transient")
     assert deferred.failure_count == 1
     assert deferred.status == :monitoring
     assert %DateTime{} = deferred.next_attempt_at
@@ -73,7 +81,7 @@ defmodule Ryker.Emisar.ApprovalDispatcherTest do
     assert {:ok, {:blocked, "apr-crossed", :emisar_approval_identity_mismatch}} =
              ApprovalDispatcher.run_once(options({:ok, wrong}, "approval-worker-crossed"))
 
-    assert Approvals.get_by_request_id("apr-crossed").status == :blocked
+    assert Approvals.get_by_request_id(@connection_ref, "apr-crossed").status == :blocked
     assert {:ok, waiting} = Episodes.fetch_by_key("approval-dispatcher:crossed")
     assert waiting.state == :waiting_for_event
   end
@@ -187,6 +195,7 @@ defmodule Ryker.Emisar.ApprovalDispatcherTest do
     [
       api: API,
       client: {self(), result},
+      connection_ref: @connection_ref,
       lease_seconds: 60,
       poll_seconds: 5,
       presentation: {self(), :ok},
@@ -215,7 +224,13 @@ defmodule Ryker.Emisar.ApprovalDispatcherTest do
     assert {:ok, _session} =
              Custody.pin_episode(transition.episode.id, "test-policy", @policy_digest)
 
+    Episode
+    |> Repo.get!(transition.episode.id)
+    |> Ecto.Changeset.change(updated_at: ~U[2000-01-01 00:00:00.000000Z])
+    |> Repo.update!()
+
     assert {:ok, claim} = Custody.claim_next("work:#{suffix}", 60)
+    assert claim.episode.id == transition.episode.id
 
     assert {:ok, record} =
              Records.create(
@@ -225,12 +240,15 @@ defmodule Ryker.Emisar.ApprovalDispatcherTest do
                %{
                  "action_id" => "nomad.alloc_restart",
                  "approval_url" => "https://emisar.example/app/acme/approvals/apr-#{suffix}",
+                 "account_ref" => "account-acme",
+                 "connection_ref" => @connection_ref,
                  "expires_at" => "2099-08-29T12:00:00.000000Z",
                  "operation_id" => "op-#{suffix}",
                  "pack_ref" => "nomad@1#sha256:abc",
                  "request_id" => "apr-#{suffix}",
                  "run_id" => "run-#{suffix}",
                  "runner_ref" => "production-runner",
+                 "rpc_url" => "https://emisar.example/mcp",
                  "status" => "pending_approval"
                }
              )
@@ -259,5 +277,37 @@ defmodule Ryker.Emisar.ApprovalDispatcherTest do
       runner_ref: "production-runner",
       status: status
     }
+  end
+
+  defp configure_emisar! do
+    {:ok, snapshot} = Settings.initialize("control-plane:local")
+
+    {:ok, snapshot} =
+      Settings.put_emisar_connection(
+        %{
+          ref: @connection_ref,
+          display_name: "Production approvals",
+          rpc_url: "https://emisar.example/mcp",
+          account_ref: "account-acme",
+          account_label: "Acme production",
+          enabled_for_new_work: true,
+          monitoring_enabled: true,
+          verified_at: ~U[2026-08-29 12:00:00.000000Z]
+        },
+        snapshot.installation.revision,
+        "control-plane:local"
+      )
+
+    {:ok, _snapshot} =
+      Settings.put_emisar_binding(
+        %{
+          scope_kind: :installation_purpose,
+          scope_ref: "standard",
+          purpose: :standard,
+          connection_ref: @connection_ref
+        },
+        snapshot.installation.revision,
+        "control-plane:local"
+      )
   end
 end

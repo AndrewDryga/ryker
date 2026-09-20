@@ -1,6 +1,8 @@
 defmodule Ryker.ControlPlane.Server do
   @moduledoc """
-  Optional loopback-only local control plane.
+  Local control plane. Host-native deployments are loopback-only; the Compose
+  deployment listens on its private container interface and publishes only to
+  the host loopback address.
 
   Loopback reach is the v1 operator identity. Mutations still require a native
   two-step confirmation with a process-local CSRF token, and the listener
@@ -15,6 +17,7 @@ defmodule Ryker.ControlPlane.Server do
   @loopback_v4 {127, 0, 0, 1}
   @loopback_v6 {0, 0, 0, 0, 0, 0, 0, 1}
   @fields [
+    :access,
     :coop_api,
     :coop_client,
     :csrf_secret,
@@ -40,6 +43,7 @@ defmodule Ryker.ControlPlane.Server do
       ],
       secret_key_base: Base.encode64(:crypto.hash(:sha512, options.csrf_secret)),
       control_plane: %{
+        access: options.access,
         actions:
           Actions.callbacks(
             options.work_profile,
@@ -64,6 +68,7 @@ defmodule Ryker.ControlPlane.Server do
     configuration = normalize!(configuration)
     port = Map.fetch!(configuration, :port)
     ip = Map.get(configuration, :ip, @loopback_v4)
+    access = Map.get(configuration, :access, :loopback)
 
     csrf_secret =
       Map.get_lazy(configuration, :csrf_secret, fn -> :crypto.strong_rand_bytes(32) end)
@@ -77,14 +82,8 @@ defmodule Ryker.ControlPlane.Server do
     coop_api = Map.get(configuration, :coop_api)
     coop_client = Map.get(configuration, :coop_client)
 
-    unless is_integer(port) and port in 1..65_535,
-      do: raise(ArgumentError, "control-plane port must be between 1 and 65535")
-
-    unless ip in [@loopback_v4, @loopback_v6],
-      do: raise(ArgumentError, "control-plane IP must be loopback")
-
-    unless is_binary(csrf_secret) and byte_size(csrf_secret) == 32,
-      do: raise(ArgumentError, "control-plane CSRF secret must be 32 bytes")
+    validate_listener!(access, ip, port)
+    validate_csrf_secret!(csrf_secret)
 
     # A fresh installation has no reviewed policy yet. The console still starts
     # so setup is reachable; it simply cannot submit Work until one exists.
@@ -99,6 +98,7 @@ defmodule Ryker.ControlPlane.Server do
     validate_coop!(coop_api, coop_client)
 
     %{
+      access: access,
       coop_api: coop_api,
       coop_client: coop_client,
       csrf_secret: csrf_secret,
@@ -108,6 +108,22 @@ defmodule Ryker.ControlPlane.Server do
       task_policies: task_policies,
       work_profile: work_profile
     }
+  end
+
+  defp validate_listener!(access, ip, port) do
+    unless is_integer(port) and port in 1..65_535,
+      do: raise(ArgumentError, "control-plane port must be between 1 and 65535")
+
+    unless access in [:loopback, :network],
+      do: raise(ArgumentError, "control-plane access must be loopback or network")
+
+    if access == :loopback and ip not in [@loopback_v4, @loopback_v6],
+      do: raise(ArgumentError, "control-plane IP must be loopback")
+  end
+
+  defp validate_csrf_secret!(secret) do
+    unless is_binary(secret) and byte_size(secret) == 32,
+      do: raise(ArgumentError, "control-plane CSRF secret must be 32 bytes")
   end
 
   defp normalize!(configuration) when is_list(configuration) do

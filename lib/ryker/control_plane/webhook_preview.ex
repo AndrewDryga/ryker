@@ -101,9 +101,7 @@ defmodule Ryker.ControlPlane.WebhookPreview do
     <section id={@id} class="webhook-preview" aria-labelledby={"#{@id}-title"}>
       <h2 id={"#{@id}-title"}>Check a payload</h2>
       <p class="settings-description">
-        Paste one delivery to see what this source would make of it. Checking is read-only:
-        no event is recorded, no incident is opened, no model work is submitted and nothing
-        is sent anywhere.
+        Paste a sample delivery to preview the event Ryker would create. Nothing is saved or sent.
       </p>
       <p :if={sources(@view) == []} class="muted">Save a webhook source first.</p>
       <form
@@ -141,7 +139,12 @@ defmodule Ryker.ControlPlane.WebhookPreview do
           </button>
         </div>
       </form>
-      <p :if={@error} class="settings-error" role="alert">{@error}</p>
+      <Ryker.ControlPlane.Components.form_feedback
+        :if={@error}
+        message={@error}
+        tone={:error}
+        class="settings-error"
+      />
       <div :if={@mapped} class="webhook-preview-result" role="status">
         <h3>
           {length(@mapped)} {if length(@mapped) == 1, do: "event", else: "events"} would be recorded

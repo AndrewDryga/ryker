@@ -10,8 +10,10 @@ defmodule Ryker.StateTools.RouterTest do
   import Plug.Test
 
   alias Ryker.Episodes
+  alias Ryker.Episodes.Episode
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Repo
+  alias Ryker.Settings
   alias Ryker.Slack.ChannelMembership
 
   alias Ryker.State.{
@@ -28,10 +30,6 @@ defmodule Ryker.StateTools.RouterTest do
   alias Ryker.Work.{Custody, Final, FinalPreflight, Prompt, SubmissionBuilder}
 
   @options Router.init(token: "trusted-state-tools-token")
-  @emisar_options Router.init(
-                    token: "trusted-state-tools-token",
-                    emisar_rpc_url: "https://emisar.example/api/mcp/rpc"
-                  )
   @wait_only_options Router.init(
                        token: "trusted-state-tools-token",
                        capabilities: [:event_waits]
@@ -2440,7 +2438,10 @@ defmodule Ryker.StateTools.RouterTest do
            |> get_in(["result", "tools"])
            |> Enum.any?(&(&1["name"] == "record_emisar_approval"))
 
-    configured = rpc("tools/list", %{}, @emisar_options)
+    configure_emisar!()
+    claim = claim!("mcp-emisar-approval")
+    options = bound_options(claim)
+    configured = rpc("tools/list", %{}, options)
 
     assert configured.resp_body
            |> Jason.decode!()
@@ -2452,19 +2453,14 @@ defmodule Ryker.StateTools.RouterTest do
     assert Tools.call("record_emisar_approval", %{}, %{}) == {:error, "not_configured"}
     assert Tools.call("record_emisar_approval", %{}, :invalid) == {:error, "not_configured"}
 
-    assert Tools.call(
-             "record_emisar_approval",
-             :invalid,
-             emisar_rpc_url: "https://emisar.example/api/mcp/rpc"
-           ) == {:error, "invalid_arguments"}
+    assert Tools.call("record_emisar_approval", :invalid, options) ==
+             {:error, "invalid_arguments"}
 
     assert Tools.call(
              "record_emisar_approval",
              %{},
-             emisar_rpc_url: "https://emisar.example/api/mcp/rpc"
+             options
            ) == {:error, "invalid_arguments"}
-
-    claim = claim!("mcp-emisar-approval")
 
     approval = %{
       "action_id" => "deploy",
@@ -2481,22 +2477,14 @@ defmodule Ryker.StateTools.RouterTest do
     assert Tools.call(
              "record_emisar_approval",
              approval,
-             emisar_rpc_url: "https://emisar.example/api/mcp/rpc"
+             %{binding: %{session: claim.session}}
            ) == {:error, "unauthorized"}
 
     assert Tools.call(
              "record_emisar_approval",
              approval,
-             %{
-               "binding" => %{"state_token" => "state:missing-turn"},
-               emisar_rpc_url: "https://emisar.example/api/mcp/rpc"
-             }
+             %{binding: %{state_token: "state:missing-turn", session: claim.session}}
            ) == {:error, "unauthorized"}
-
-    options =
-      claim
-      |> bound_options()
-      |> Map.put(:emisar_rpc_url, "https://emisar.example/api/mcp/rpc")
 
     response =
       rpc(
@@ -2513,7 +2501,7 @@ defmodule Ryker.StateTools.RouterTest do
     assert Tools.call(
              "record_emisar_approval",
              %{approval | "status" => "approved"},
-             emisar_rpc_url: "https://emisar.example/api/mcp/rpc"
+             options
            ) == {:error, "invalid_arguments"}
 
     assert Enum.map(Tools.list(), & &1["name"]) == FixedTools.names()
@@ -2681,7 +2669,13 @@ defmodule Ryker.StateTools.RouterTest do
                "ryker"
              )
 
+    Episode
+    |> Repo.get!(transition.episode.id)
+    |> Ecto.Changeset.change(updated_at: ~U[2000-01-01 00:00:00.000000Z])
+    |> Repo.update!()
+
     assert {:ok, claim} = Custody.claim_next("worker:#{suffix}", 60)
+    assert claim.episode.id == transition.episode.id
     claim
   end
 
@@ -2696,6 +2690,45 @@ defmodule Ryker.StateTools.RouterTest do
       status: :joined,
       workspace_ref: workspace_ref
     })
+  end
+
+  defp configure_emisar! do
+    {:ok, snapshot} = Settings.initialize("control-plane:local")
+
+    {:ok, snapshot} =
+      Settings.put_repository(
+        %{ref: "ryker"},
+        snapshot.installation.revision,
+        "control-plane:local"
+      )
+
+    {:ok, snapshot} =
+      Settings.put_emisar_connection(
+        %{
+          ref: "production",
+          display_name: "Production approvals",
+          rpc_url: "https://emisar.example/api/mcp/rpc",
+          account_ref: "account-production",
+          account_label: "Production",
+          enabled_for_new_work: true,
+          monitoring_enabled: true,
+          verified_at: ~U[2026-09-19 12:00:00.000000Z]
+        },
+        snapshot.installation.revision,
+        "control-plane:local"
+      )
+
+    {:ok, _snapshot} =
+      Settings.put_emisar_binding(
+        %{
+          scope_kind: :repository,
+          scope_ref: "ryker",
+          purpose: :standard,
+          connection_ref: "production"
+        },
+        snapshot.installation.revision,
+        "control-plane:local"
+      )
   end
 
   defp schema_property?(schema, name) when is_map(schema) do

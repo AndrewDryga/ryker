@@ -14,9 +14,12 @@ defmodule Ryker.Work.Contract do
   ))
 
   @effectful_platform_tools MapSet.new(~w(
+    cancel_github_ci
     post_slack_message
+    rerun_github_ci
     set_github_reaction
     set_slack_reaction
+    submit_github_review
   ))
 
   @type t :: %{

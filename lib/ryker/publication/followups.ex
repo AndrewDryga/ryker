@@ -2,8 +2,8 @@ defmodule Ryker.Publication.Followups do
   @moduledoc """
   Episode-owned custody for a published pull request's remaining lifecycle.
 
-  GitHub webhooks only nudge an authoritative refresh. Polling supplies the
-  durable fallback. External deployment signals must contain an exact recorded
+  GitHub webhooks nudge one authoritative refresh; idle repositories are never
+  scanned on a timer. External deployment signals must contain an exact recorded
   PR URL, branch, head SHA, or merge SHA before they can wake the source task.
   """
 
@@ -556,7 +556,7 @@ defmodule Ryker.Publication.Followups do
     end
   end
 
-  defp poll_transition(followup, publication, status, interval_seconds, now) do
+  defp poll_transition(followup, publication, status, _interval_seconds, now) do
     pr_state =
       cond do
         status["merged"] -> "merged"
@@ -577,12 +577,7 @@ defmodule Ryker.Publication.Followups do
 
     transition = transition(followup, publication, status, pr_state)
 
-    next_poll_at =
-      if pr_state in ~w(merged closed),
-        do: @far_future,
-        else: DateTime.add(now, interval_seconds, :second)
-
-    transition_poll(followup, publication, status, attributes, transition, next_poll_at, now)
+    transition_poll(followup, publication, status, attributes, transition, @far_future, now)
   end
 
   defp transition(followup, publication, _status, "merged") when followup.pr_state != "merged" do

@@ -12,6 +12,7 @@ defmodule Ryker.Emisar.ApprovalDispatcher do
   @fields [
     :api,
     :client,
+    :connection_ref,
     :lease_seconds,
     :poll_seconds,
     :presentation,
@@ -33,7 +34,12 @@ defmodule Ryker.Emisar.ApprovalDispatcher do
   @spec run_once(keyword() | map()) :: result()
   def run_once(options) do
     with {:ok, settings} <- settings(options),
-         {:ok, claim} <- Approvals.claim_next(settings.worker_ref, settings.lease_seconds) do
+         {:ok, claim} <-
+           Approvals.claim_next(
+             settings.connection_ref,
+             settings.worker_ref,
+             settings.lease_seconds
+           ) do
       execute(claim, settings)
     end
   end
@@ -57,6 +63,7 @@ defmodule Ryker.Emisar.ApprovalDispatcher do
     request_id = claim.approval.request_id
 
     case Approvals.authorize_presentation(
+           settings.connection_ref,
            request_id,
            claim.lease_ref,
            state,
@@ -72,7 +79,13 @@ defmodule Ryker.Emisar.ApprovalDispatcher do
 
     case settings.presenter.publish(approval, state, settings.presentation) do
       :ok ->
-        case Approvals.observe(request_id, claim.lease_ref, state, settings.poll_seconds) do
+        case Approvals.observe(
+               settings.connection_ref,
+               request_id,
+               claim.lease_ref,
+               state,
+               settings.poll_seconds
+             ) do
           {:ok, %{status: :monitoring}} ->
             {:ok, {:monitoring, request_id, state.status}}
 
@@ -104,14 +117,20 @@ defmodule Ryker.Emisar.ApprovalDispatcher do
     request_id = claim.approval.request_id
 
     if permanent?(reason) do
-      case Approvals.block(request_id, claim.lease_ref, reason) do
+      case Approvals.block(settings.connection_ref, request_id, claim.lease_ref, reason) do
         {:ok, _approval} -> {:ok, {:blocked, request_id, reason}}
         {:error, block_reason} -> custody_error(reason, block_reason)
       end
     else
       delay = retry_delay(claim.approval.failure_count + 1, settings)
 
-      case Approvals.defer(request_id, claim.lease_ref, delay, reason) do
+      case Approvals.defer(
+             settings.connection_ref,
+             request_id,
+             claim.lease_ref,
+             delay,
+             reason
+           ) do
         {:ok, _approval} -> {:ok, {:deferred, request_id, reason}}
         {:error, defer_reason} -> custody_error(reason, defer_reason)
       end

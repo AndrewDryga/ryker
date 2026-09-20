@@ -44,7 +44,6 @@ defmodule Ryker.Admission.Context do
     %{
       "allowed_actions" => Enum.map(Input.allowed_actions(context.input), &Atom.to_string/1),
       "candidates" => Enum.map(context.candidates, &Candidate.for_model/1),
-      "execution_mode" => Atom.to_string(context.input_entry.execution_mode),
       "input" => Input.model_document(context.input)
     }
     |> put_conversation_context(context.conversation_context, context.context_manifest)

@@ -129,6 +129,7 @@ version=$(scripts/elixir-release-version.sh)
 archive="_build/prod/ryker-$version.tar.gz"
 digest=$(archive_sha256 "$archive")
 candidate="_build/prod/rel/ryker/bin/ryker"
+candidate_credential_key=
 
 env_value() {
   # env_value FILE KEY: the value of KEY=value, without surrounding quotes.
@@ -145,7 +146,8 @@ candidate_eval() {
   # candidate_eval DATABASE_URL EXPRESSION: evaluate inside the built release
   # against one database, with nothing else from the deployment's environment.
   env DATABASE_URL="$1" POOL_SIZE=2 RELEASE_DISTRIBUTION=none \
-    RELEASE_TMP="$scratch/release-tmp" RYKER_STATE_DIR="$scratch/state" \
+    RELEASE_TMP="$scratch/release-tmp" RYKER_CREDENTIAL_KEY="$candidate_credential_key" \
+    RYKER_STATE_DIR="$scratch/state" \
     "$candidate" eval "$2"
 }
 
@@ -163,6 +165,11 @@ if [[ -r $runtime_env ]]; then
   database_url=$(env_value "$runtime_env" DATABASE_URL)
   [[ -n $database_url ]] || {
     echo "deploy: $runtime_env does not define DATABASE_URL" >&2
+    exit 1
+  }
+  candidate_credential_key=$(env_value "$runtime_env" RYKER_CREDENTIAL_KEY)
+  [[ -n $candidate_credential_key ]] || {
+    echo "deploy: $runtime_env does not define RYKER_CREDENTIAL_KEY" >&2
     exit 1
   }
 

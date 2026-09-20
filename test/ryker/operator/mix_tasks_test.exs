@@ -226,6 +226,7 @@ defmodule Ryker.Operator.MixTasksTest do
     # An operator command runs with the deployment environment the release has.
     deployment = %{
       "DATABASE_URL" => "ecto://ryker:operator-test@127.0.0.1/ryker_operator_test",
+      "RYKER_CREDENTIAL_KEY" => Base.encode64(:binary.copy(<<67>>, 32)),
       "RYKER_STATE_TOOLS_TOKEN" => "operator-test-state-tools-token"
     }
 

@@ -2,7 +2,8 @@ defmodule Ryker.Evals.WorldDatabase do
   @moduledoc """
   Custody of the disposable database a model-world observation runs in.
 
-  A scenario may only start on an empty `ryker_world_eval_*` database, and
+  A scenario may only start on an empty `ryker_world_eval_*` database, apart
+  from shipped reference data such as the built-in token-rate card, and
   the database is only truncated after the observation passed and its remote
   Coop sessions were discarded. Failed runs keep their rows: they are the
   fixtures the next fix needs.
@@ -13,6 +14,8 @@ defmodule Ryker.Evals.WorldDatabase do
   alias Ryker.Episodes
   alias Ryker.Episodes.{Command, Episode}
   alias Ryker.Repo
+
+  @reference_tables ~w(pricing_rates)
 
   @type result :: {:ok, map()} | {:error, term()}
 
@@ -142,14 +145,18 @@ defmodule Ryker.Evals.WorldDatabase do
 
   defp application_tables do
     %{rows: rows} =
-      Repo.query!("""
-      SELECT table_name
-      FROM information_schema.tables
-      WHERE table_schema = current_schema()
-        AND table_type = 'BASE TABLE'
-        AND table_name <> 'schema_migrations'
-      ORDER BY table_name
-      """)
+      Repo.query!(
+        """
+        SELECT table_name
+        FROM information_schema.tables
+        WHERE table_schema = current_schema()
+          AND table_type = 'BASE TABLE'
+          AND table_name <> 'schema_migrations'
+          AND table_name <> ALL($1::text[])
+        ORDER BY table_name
+        """,
+        [@reference_tables]
+      )
 
     Enum.map(rows, fn [table] -> table end)
   end

@@ -18,6 +18,7 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
       |> assign(:timing, request.timing)
       |> assign(:decision, decision_facts(request))
       |> assign(:result?, request.phase == :result)
+      |> assign(:reused_briefing?, request[:reused_briefing] == true)
       |> assign(:archived_response, archived)
       |> assign(
         :response,
@@ -46,6 +47,9 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
         </div>
       </div>
       <p :if={@explanation} class="request-explanation">{@explanation}</p>
+      <p :if={@reused_briefing?} class="request-explanation">
+        Reused the same retained routing briefing.
+      </p>
       <section
         :if={@applied != []}
         class="applied-context"
@@ -75,7 +79,7 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
         </div>
       </dl>
       <div
-        :if={!@result? && (@input_sections != [] || @contract_section)}
+        :if={!@result? && !@reused_briefing? && (@input_sections != [] || @contract_section)}
         class="prompt-assembly"
         aria-label="Briefing sources"
       >
@@ -101,7 +105,11 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
           </details>
         <% end %>
       </div>
-      <section :if={@prompt_section} class="final-prompt" id={"#{@request.id}-final-prompt"}>
+      <section
+        :if={@prompt_section && !@reused_briefing?}
+        class="final-prompt"
+        id={"#{@request.id}-final-prompt"}
+      >
         <header>
           <h4>
             Full submitted request<span :if={@prompt_section.artifact.redacted}>Secrets redacted</span><span :if={
@@ -229,7 +237,7 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
 
   def model(target) when is_binary(target) do
     case Regex.run(~r/\A([^:]+):([^@]+)(?:@(.+))?\z/, target) do
-      [_, provider, name, profile] -> %{name: name, account: provider <> " · " <> profile}
+      [_, provider, name, _profile] -> %{name: name, account: provider}
       [_, provider, name] -> %{name: name, account: provider}
       _ -> %{name: target, account: nil}
     end
@@ -311,8 +319,14 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
 
   defp preference_entries(_), do: []
 
+  defp headline(%{phase: :submission, source_kind: :admission, reused_briefing: true}),
+    do: "Routing briefing reused"
+
   defp headline(%{phase: :submission, source_kind: :admission}), do: "Routing briefing"
   defp headline(%{phase: :submission}), do: "Model briefing"
+
+  defp headline(%{phase: :result, source_kind: :admission, failure: %{}}),
+    do: "Routing run failed"
 
   defp headline(%{source_kind: :admission} = request) do
     case document(request, "candidate") do
@@ -396,8 +410,15 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
 
   defp reaction_fact(_candidate), do: nil
 
+  defp explanation(%{phase: :submission, source_kind: :admission, reused_briefing: true}),
+    do: nil
+
   defp explanation(%{phase: :submission, source_kind: :admission}),
     do: "Classify this message and choose how to respond."
+
+  defp explanation(%{phase: :result, source_kind: :admission, failure: %{summary: summary}})
+       when is_binary(summary),
+       do: summary
 
   defp explanation(%{phase: :submission} = request) do
     case document(request, "context") do

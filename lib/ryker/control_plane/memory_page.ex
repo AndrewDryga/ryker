@@ -45,6 +45,7 @@ defmodule Ryker.ControlPlane.MemoryPage do
         placeholder="Topics, decisions or context"
         query={@view.q}
         filtered={@view.q != ""}
+        disabled={Enum.sum(Map.values(@view.counts)) == 0}
         hidden={[{"kind", @view.kind}]}
         clear={"/memory?" <> URI.encode_query(%{"kind" => @view.kind})}
       />

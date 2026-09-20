@@ -52,7 +52,7 @@ defmodule Ryker.ControlPlane.NavigationTest do
       refute html =~ "Connected to your runtime"
       refute html =~ "Loopback access only"
       refute html =~ "operator-identity"
-      assert html =~ "Execution"
+      refute html =~ "Execution"
       assert html =~ "Activity"
 
       document = LazyHTML.from_document(html)
@@ -62,7 +62,7 @@ defmodule Ryker.ControlPlane.NavigationTest do
              ]
 
       for path <-
-            ~w(/ /incident-rooms /failures /usage /conversations /schedules /subscriptions /memory /findings /configuration /channels /repositories /workspaces) do
+            ~w(/ /incident-rooms /failures /usage /conversations /schedules /subscriptions /memory /findings /settings /settings/slack /settings/github /settings/emisar /settings/webhooks /settings/retention /settings/token-rates /settings/system /channels /repositories /workspaces) do
         assert path in (document |> LazyHTML.query("a") |> LazyHTML.attribute("href"))
       end
 
@@ -72,21 +72,19 @@ defmodule Ryker.ControlPlane.NavigationTest do
     end
   end
 
-  test "Conversations sits near the top of the primary navigation without Lab phrasing" do
-    # Renamed from Conversation Lab on 2026-09-13. Activity stays the home
-    # item; Conversations follows it so the compact mobile row shows it too.
+  test "Chat is the first primary destination without Lab phrasing" do
     for live <- [true, false],
         path <- ["/conversations", "/conversations/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6"] do
       html = render_component(&Navigation.sidebar/1, path: path, live: live)
       document = LazyHTML.from_document(html)
       links = LazyHTML.query(document, "nav[aria-label='Main navigation'] a")
-      assert LazyHTML.attribute(links, "href") |> Enum.take(2) == ["/", "/conversations"]
+      assert LazyHTML.attribute(links, "href") |> Enum.take(2) == ["/conversations", "/"]
 
       assert document
              |> LazyHTML.query(
                "nav[aria-label='Main navigation'] a[href='/conversations'][aria-current=page]"
              )
-             |> LazyHTML.text() == "Conversations"
+             |> LazyHTML.text() == "Chat"
 
       refute html =~ ~r/\bLab\b/
       refute html =~ "/lab"
@@ -102,7 +100,6 @@ defmodule Ryker.ControlPlane.NavigationTest do
     for live <- [true, false] do
       sidebar = render_component(&Navigation.sidebar/1, path: "/conversations", live: live)
       document = LazyHTML.from_document(sidebar)
-      assert LazyHTML.query(document, ".nav-caption") |> LazyHTML.text() |> String.trim() != ""
       refute LazyHTML.query(document, ".nav-caption") |> LazyHTML.text() =~ "Testing"
       refute LazyHTML.query(document, "nav[aria-label='Testing']") |> Enum.any?()
       refute sidebar =~ "testing-nav"
@@ -125,11 +122,11 @@ defmodule Ryker.ControlPlane.NavigationTest do
   end
 
   test "mobile navigation retains setup tools without profile controls" do
-    html = render_component(&Navigation.mobile/1, path: "/configuration", live: true)
+    html = render_component(&Navigation.mobile/1, path: "/settings", live: true)
     links = html |> LazyHTML.from_document() |> LazyHTML.query("a") |> LazyHTML.attribute("href")
 
     for path <-
-          ~w(/configuration /channels /repositories /memory /schedules /subscriptions /workspaces) do
+          ~w(/settings /settings/slack /settings/github /settings/emisar /settings/webhooks /channels /repositories /memory /schedules /subscriptions /workspaces) do
       assert path in links
     end
 

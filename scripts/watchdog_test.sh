@@ -129,7 +129,6 @@ mkdir -p "$WATCHDOG_AGENTS" "$deploy/log" "$deploy/coop-worker/log"
 cat > "$deploy/runtime.env" <<ENV
 RYKER_CONTROL_IP=0.0.0.0
 RYKER_CONTROL_PORT=$port
-export SLACK_BOT_TOKEN="xoxb-watchdog-test-token"
 ENV
 agent() {
   local label="$1" key="$2" value="$3"
@@ -230,31 +229,6 @@ check "resolved blocked work is noted" "blocked requests fell from 3 to 0" "$cle
 metrics 'ryker_retention_blocked 4' 'ryker_retention_sessions{status="blocked"} 4'
 reset; retained=$(run)
 refute "a workspace kept for review is not blocked work" "needs attention" "$retained"
-
-# ---------------------------------------------------------------------------
-# The alarm reaches Slack as a DM sent with the deployment's own token, and a
-# reason carrying a quote still makes valid JSON.
-reset; metrics 'ryker_work_total{status="settled"} 1'
-not_ready 'settings not applied: "quoted"'
-export WATCHDOG_SLACK_CHANNEL=UWATCHOP1 WATCHDOG_SLACK_API="http://127.0.0.1:$port"
-run >/dev/null; run >/dev/null
-posts=$(cat "$fake/slack-posts" 2>/dev/null)
-check "the alarm is posted to chat.postMessage" "/chat.postMessage" "$posts"
-check "the DM goes to the configured operator" '"channel":"UWATCHOP1"' "$posts"
-check "the DM authenticates with the deployment's token" "Bearer xoxb-watchdog-test-token" "$posts"
-check "the DM says what is wrong" "is not working" "$posts"
-refute "a quote in the reason still makes valid JSON" "INVALID-JSON" "$posts"
-
-# Without a token or a channel the alarm stays local and the log says why.
-reset
-grep -v SLACK_BOT_TOKEN "$deploy/runtime.env.up" > "$deploy/runtime.env"
-run >/dev/null; notoken=$(run)
-check "a deployment without a bot token skips the DM and says so" "no SLACK_BOT_TOKEN" "$notoken"
-cp "$deploy/runtime.env.up" "$deploy/runtime.env"
-unset WATCHDOG_SLACK_CHANNEL
-reset; run >/dev/null; nochannel=$(run)
-check "no configured channel skips the DM and says so" "WATCHDOG_SLACK_CHANNEL is not set" "$nochannel"
-unset WATCHDOG_SLACK_API
 
 # ---------------------------------------------------------------------------
 # A watchdog with nothing to watch is itself a failure, not a quiet success.

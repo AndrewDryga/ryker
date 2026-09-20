@@ -118,6 +118,10 @@ defmodule Ryker.ControlPlane.BehaviorPageTest do
     toolbar = LazyHTML.query(document, "form.filter-toolbar")
     assert LazyHTML.attribute(toolbar, "method") == ["get"]
     assert LazyHTML.attribute(toolbar, "action") == ["/rules"]
+
+    assert Enum.count(LazyHTML.query(toolbar, "details.filter-add-menu > summary.filter-add")) ==
+             1
+
     assert Enum.empty?(LazyHTML.query(toolbar, "button:not(noscript button)"))
 
     for {name, id} <- [
@@ -250,7 +254,8 @@ defmodule Ryker.ControlPlane.BehaviorPageTest do
   test "filtered empty libraries do not pretend all instructions are absent" do
     snapshot = %{
       view(:guidance, [])
-      | params: %{"q" => "missing", "status" => "all", "scope" => ""}
+      | counts: %{"active" => 1},
+        params: %{"q" => "missing", "status" => "all", "scope" => ""}
     }
 
     html = render_component(&BehaviorPage.render/1, view: snapshot)
@@ -479,7 +484,7 @@ defmodule Ryker.ControlPlane.BehaviorPageTest do
     do: %{
       kind: kind,
       items: items,
-      counts: %{},
+      counts: if(items == [], do: %{}, else: %{"active" => length(items)}),
       total: length(items),
       page: 1,
       pages: 1,

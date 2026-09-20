@@ -1,7 +1,7 @@
 defmodule Ryker.Work.SubmissionBuilderTest do
   use Ryker.DataCase, async: true
 
-  alias Ryker.{Artifacts, Episodes}
+  alias Ryker.{Artifacts, Episodes, Settings}
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.Knowledge, as: KnowledgeFixtures
   alias Ryker.GitHub.SourceRef, as: GitHubSourceRef
@@ -429,6 +429,63 @@ defmodule Ryker.Work.SubmissionBuilderTest do
     assert {:ok, submission} = SubmissionBuilder.build(claim)
     assert submission["context"]["repository_ref"] == "owner/trusted"
     assert submission["prompt"] =~ "host owns destination, identity, repository scope"
+  end
+
+  test "repository work receives the exact retained RYKER.md with proposal provenance" do
+    content = "# RYKER.md\n\nUse `mix test` for focused checks.\n"
+    commit = String.duplicate("b", 40)
+    {:ok, settings} = Settings.initialize("control-plane:local")
+
+    assert {:ok, _settings} =
+             Settings.put_repository(
+               %{
+                 ref: "knowledge-repo",
+                 github_repository: "owner/knowledge-repo",
+                 base_branch: "main",
+                 knowledge_content: content,
+                 knowledge_status: :proposed,
+                 knowledge_source_commit: commit,
+                 knowledge_sha256: Ryker.CanonicalJSON.digest(content)
+               },
+               settings.installation.revision,
+               "control-plane:local"
+             )
+
+    id = Ecto.UUID.generate()
+
+    command =
+      EpisodeFixtures.admit_input(%{
+        episode_id: id,
+        episode_key: "work-submission:repository-knowledge:#{id}",
+        native_input_id: "source:repository-knowledge:#{id}",
+        occurred_at: @now,
+        payload: %{"text" => "Review the repository"},
+        turn_ref: "turn:repository-knowledge:#{id}"
+      })
+
+    assert {:ok, _transition} = Episodes.apply(command)
+
+    assert {:ok, _session} =
+             Custody.pin_episode(
+               command.episode_id,
+               "work-read-only",
+               String.duplicate("a", 64),
+               "knowledge-repo"
+             )
+
+    assert {:ok, claim} = Custody.claim_next("worker:repository-knowledge", 60)
+    assert {:ok, submission} = SubmissionBuilder.build(claim)
+
+    assert submission["context"]["repository_knowledge"] == %{
+             "content" => content,
+             "path" => "RYKER.md",
+             "sha256" => Ryker.CanonicalJSON.digest(content),
+             "source_commit" => commit,
+             "status" => "proposed"
+           }
+
+    assert submission["prompt"] =~ "RYKER.md"
+    assert submission["prompt"] =~ "Use `mix test`"
   end
 
   test "the briefing names the fixed state tools without exposing the session binding" do

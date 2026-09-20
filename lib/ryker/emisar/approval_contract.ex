@@ -11,6 +11,7 @@ defmodule Ryker.Emisar.ApprovalContract do
   alias Ryker.CanonicalJSON
 
   @fields ~w(action_id approval_url expires_at operation_id pack_ref request_id run_id runner_ref status)
+  @host_fields ~w(account_ref connection_ref rpc_url)
   @maximum_payload_bytes 8 * 1_024
 
   @spec prepare(term(), String.t()) ::
@@ -26,6 +27,7 @@ defmodule Ryker.Emisar.ApprovalContract do
          :ok <- status(payload["status"]),
          {:ok, expires_at} <- utc_datetime(payload["expires_at"]),
          {:ok, approval_url} <- approval_url(payload["approval_url"], payload["request_id"]),
+         :ok <- host_authority(payload),
          prepared <- %{
            payload
            | "approval_url" => approval_url,
@@ -63,10 +65,26 @@ defmodule Ryker.Emisar.ApprovalContract do
     do: {:error, {:invalid_emisar_approval, :authority}}
 
   defp exact_fields(payload) do
-    if Map.keys(payload) |> Enum.sort() == @fields,
+    keys = Map.keys(payload) |> Enum.sort()
+
+    if keys in [@fields, Enum.sort(@fields ++ @host_fields)],
       do: :ok,
       else: {:error, {:invalid_emisar_approval, :fields}}
   end
+
+  defp host_authority(%{
+         "connection_ref" => connection_ref,
+         "account_ref" => account_ref,
+         "rpc_url" => rpc_url,
+         "approval_url" => approval_url
+       }) do
+    with :ok <- text(connection_ref, 64, :connection_ref),
+         :ok <- text(account_ref, 256, :account_ref) do
+      same_origin(approval_url, rpc_url)
+    end
+  end
+
+  defp host_authority(_model_payload), do: :ok
 
   defp status("pending_approval"), do: :ok
   defp status(_status), do: {:error, {:invalid_emisar_approval, :status}}

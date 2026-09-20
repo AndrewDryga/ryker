@@ -445,14 +445,11 @@ defmodule Ryker.ControlPlane.OperatorUsabilityTest do
 
   test "search keeps an accessible label bound to its input instead of an extra column" do
     # The label once sat in its own grid column; it then became a visible
-    # caption above the field. The approved toolbar shows the placeholder and
-    # keeps the label for assistive technology, immediately before the input.
+    # caption above the field. The shared toolbar groups the icon, label and
+    # input in one search-field while retaining the explicit label binding.
     document = HTML.repositories([]) |> IO.iodata_to_binary() |> LazyHTML.from_fragment()
 
-    assert outline(document, "form.filter-toolbar > *") |> Enum.take(2) == [
-             "label.sr-only",
-             "input"
-           ]
+    assert outline(document, "form.filter-toolbar > *") |> List.first() == "div.search-field"
 
     assert LazyHTML.query(document, "form.filter-toolbar label[for=operator-search]")
            |> LazyHTML.text() == "Repository name"

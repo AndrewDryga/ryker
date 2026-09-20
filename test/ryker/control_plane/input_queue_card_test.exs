@@ -82,6 +82,30 @@ defmodule Ryker.ControlPlane.InputQueueCardTest do
     assert Enum.map(retry.queue.events, & &1.label) == ["Retry scheduled", "Current"]
   end
 
+  test "a transport timeout reattaches the same routing attempt instead of inventing a retry" do
+    {entry, _input} = pending!()
+    claimed_at = DateTime.add(entry.inserted_at, 290, :millisecond)
+
+    :ok =
+      Inbox.record_transition_in_transaction(entry, :claimed,
+        occurred_at: claimed_at,
+        attempt: 1,
+        owner_ref: "routing:first"
+      )
+
+    :ok =
+      Inbox.record_transition_in_transaction(entry, :retry_scheduled,
+        occurred_at: DateTime.add(claimed_at, 1, :second),
+        attempt: 1,
+        eligible_at: DateTime.add(claimed_at, 2, :second),
+        error_code: "coop_timeout"
+      )
+
+    [_sealed, reattached] = queue_steps(entry)
+    assert reattached.queue.qualifier == "Reattached to attempt 1"
+    refute reattached.queue.qualifier =~ "Retry"
+  end
+
   test "a decided input was handed to routing at its recorded claim time" do
     {entry, episode} = decided!()
     claimed_at = DateTime.add(@now, 280, :millisecond)

@@ -51,6 +51,23 @@ defmodule Ryker.ControlPlane.ComponentsTest do
     assert IO.iodata_to_binary(Components.status("Ready", "done")) == String.trim(explicit)
   end
 
+  test "form feedback carries one semantic tone, icon and message target" do
+    html =
+      render_component(&Components.form_feedback/1,
+        message: "The value could not be saved.",
+        tone: :error
+      )
+      |> LazyHTML.from_fragment()
+
+    feedback =
+      LazyHTML.query(html, ".form-feedback.form-feedback-error[data-tone=error][role=alert]")
+
+    assert LazyHTML.query(feedback, ".form-feedback-icon") |> LazyHTML.text() == "!"
+
+    assert LazyHTML.query(feedback, ".form-feedback-message") |> LazyHTML.text() ==
+             "The value could not be saved."
+  end
+
   test "the pager renders nothing for one page and only the links that lead somewhere" do
     assigns = %{path: fn page -> "/findings?page=#{page}" end}
 
@@ -96,6 +113,120 @@ defmodule Ryker.ControlPlane.ComponentsTest do
 
     assert LazyHTML.query(middle, "a") |> LazyHTML.text() == "← Newer updatesOlder updates →"
     assert LazyHTML.text(middle) =~ "Page 2 of 3 · 12 entries"
+  end
+
+  test "the shared filter toolbar keeps one primary view and turns optional constraints into chips" do
+    html =
+      render_component(&Components.filter_toolbar/1,
+        id: "rules-search",
+        path: "/rules",
+        label: "Filter standing rules",
+        placeholder: "Search instructions or scope",
+        query: "deploy",
+        filtered: true,
+        selects: [
+          %{
+            id: "rules-status",
+            name: "status",
+            label: "Status",
+            value: "active",
+            options: [{"all", "Active & paused"}, {"active", "Active"}]
+          },
+          %{
+            id: "rules-scope",
+            name: "scope",
+            label: "Applies to",
+            value: "channel",
+            options: [{"", "All scopes"}, {"channel", "Channel"}]
+          }
+        ]
+      )
+      |> LazyHTML.from_fragment()
+
+    assert LazyHTML.query(html, "form.filter-toolbar > .search-field") |> Enum.count() == 1
+    assert LazyHTML.query(html, "select.filter-primary[name=status]") |> Enum.count() == 1
+
+    chip_text = LazyHTML.query(html, ".filter-chip[data-filter=scope]") |> LazyHTML.text()
+    assert chip_text =~ "Applies to"
+    assert chip_text =~ "Channel"
+
+    assert LazyHTML.query(html, "input[type=hidden][name=scope]")
+           |> LazyHTML.attribute("value") == ["channel"]
+
+    assert LazyHTML.query(html, ".filter-chip-remove") |> LazyHTML.attribute("href") ==
+             ["/rules?q=deploy&status=active"]
+
+    assert LazyHTML.query(html, ".filter-add-menu select[name=scope] option[selected]")
+           |> LazyHTML.attribute("value") == ["channel"]
+
+    assert LazyHTML.query(html, "a.filter-clear") |> LazyHTML.attribute("href") == ["/rules"]
+  end
+
+  test "the shared filter toolbar offers inactive optional constraints under Filter" do
+    html =
+      render_component(&Components.filter_toolbar/1,
+        id: "rules-search",
+        path: "/rules",
+        label: "Filter standing rules",
+        placeholder: "Search instructions or scope",
+        selects: [
+          %{
+            id: "rules-status",
+            name: "status",
+            label: "Status",
+            value: "all",
+            options: [{"all", "Active & paused"}, {"paused", "Paused"}]
+          },
+          %{
+            id: "rules-scope",
+            name: "scope",
+            label: "Applies to",
+            value: "",
+            options: [{"", "All scopes"}, {"channel", "Channel"}]
+          }
+        ]
+      )
+      |> LazyHTML.from_fragment()
+
+    assert LazyHTML.query(html, "details.filter-add-menu > summary") |> LazyHTML.text() ==
+             "Filter"
+
+    assert LazyHTML.query(html, ".filter-add-menu select[name=scope]") |> Enum.count() == 1
+    assert LazyHTML.query(html, ".filter-chip") |> Enum.empty?()
+    assert LazyHTML.query(html, "a.filter-clear") |> Enum.empty?()
+  end
+
+  test "the shared filter toolbar disables every control when its collection is empty" do
+    html =
+      render_component(&Components.filter_toolbar/1,
+        id: "rules-search",
+        path: "/rules",
+        label: "Filter standing rules",
+        placeholder: "Search instructions or scope",
+        disabled: true,
+        selects: [
+          %{
+            id: "rules-status",
+            name: "status",
+            label: "Status",
+            value: "all",
+            options: [{"all", "Active & paused"}, {"paused", "Paused"}]
+          },
+          %{
+            id: "rules-scope",
+            name: "scope",
+            label: "Applies to",
+            value: "",
+            options: [{"", "All scopes"}, {"channel", "Channel"}]
+          }
+        ]
+      )
+      |> LazyHTML.from_fragment()
+
+    assert LazyHTML.query(html, "input[type=search][disabled]") |> Enum.count() == 1
+    assert LazyHTML.query(html, "select.filter-primary[disabled]") |> Enum.count() == 1
+    assert LazyHTML.query(html, "button.filter-add[disabled]") |> Enum.count() == 1
+    assert LazyHTML.query(html, "details.filter-add-menu") |> Enum.empty?()
   end
 
   test "the page summary keeps facts, a message, a breakdown and related navigation in one vocabulary" do

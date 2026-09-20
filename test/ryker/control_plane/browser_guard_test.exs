@@ -34,6 +34,17 @@ defmodule Ryker.ControlPlane.BrowserGuardTest do
     refute BrowserGuard.loopback?(nil)
   end
 
+  test "container network access keeps the local-host boundary without pretending the peer is loopback" do
+    assert %{status: nil, halted: false} =
+             BrowserGuard.call(conn("/", "127.0.0.1", {172, 22, 0, 1}), access: :network)
+
+    assert %{status: 421, halted: true} =
+             BrowserGuard.call(conn("/", "ryker.example", {172, 22, 0, 1}), access: :network)
+
+    refute BrowserGuard.peer_allowed?({172, 22, 0, 1}, :loopback)
+    assert BrowserGuard.peer_allowed?({172, 22, 0, 1}, :network)
+  end
+
   test "every response carries the same browser boundary headers, refused or not" do
     # Until 2026-09-13 the HTTP router set cross-origin-resource-policy and the
     # live pages did not, because each path carried its own copy of the list.

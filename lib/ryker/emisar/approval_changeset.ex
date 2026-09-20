@@ -8,6 +8,7 @@ defmodule Ryker.Emisar.ApprovalChangeset do
   @fields [
     :action_id,
     :approval_url,
+    :connection_ref,
     :episode_id,
     :expires_at,
     :failure_count,
@@ -36,6 +37,7 @@ defmodule Ryker.Emisar.ApprovalChangeset do
   @insert_required [
     :action_id,
     :approval_url,
+    :connection_ref,
     :episode_id,
     :expires_at,
     :id,
@@ -56,7 +58,7 @@ defmodule Ryker.Emisar.ApprovalChangeset do
     |> validate_required(@insert_required)
     |> validate_common()
     |> unique_constraint(:record_id)
-    |> unique_constraint(:request_id)
+    |> unique_constraint([:connection_ref, :request_id])
     |> foreign_key_constraint(:record_id)
     |> foreign_key_constraint(:episode_id)
   end
@@ -70,6 +72,7 @@ defmodule Ryker.Emisar.ApprovalChangeset do
 
   defp validate_common(changeset) do
     changeset
+    |> validate_length(:connection_ref, min: 1, max: 64)
     |> validate_length(:request_id, min: 1, max: 80)
     |> validate_length(:run_id, min: 1, max: 200)
     |> validate_length(:operation_id, min: 1, max: 200)

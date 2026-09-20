@@ -35,9 +35,10 @@ defmodule Ryker.Emisar.Operator do
   end
 
   @spec fetch(String.t()) :: {:ok, map()} | {:error, term()}
-  def fetch(request_id) do
-    with :ok <- request_id(request_id),
-         %Approval{} = approval <- Repo.get_by(Approval, request_id: request_id) do
+  def fetch(ref) do
+    with {:ok, connection_ref, request_id} <- split_ref(ref),
+         %Approval{} = approval <-
+           Repo.get_by(Approval, connection_ref: connection_ref, request_id: request_id) do
       {:ok, item(approval)}
     else
       nil -> {:error, :emisar_approval_not_found}
@@ -46,18 +47,19 @@ defmodule Ryker.Emisar.Operator do
   end
 
   @spec rearm(String.t()) :: {:ok, map()} | {:error, term()}
-  def rearm(request_id) do
-    with :ok <- request_id(request_id) do
-      Repo.transaction(fn -> rearm_locked(request_id) end)
+  def rearm(ref) do
+    with {:ok, connection_ref, request_id} <- split_ref(ref) do
+      Repo.transaction(fn -> rearm_locked(connection_ref, request_id) end)
       |> transaction_result()
     end
   end
 
-  defp rearm_locked(request_id) do
+  defp rearm_locked(connection_ref, request_id) do
     approval =
       Repo.one(
         from(approval in Approval,
-          where: approval.request_id == ^request_id,
+          where:
+            approval.connection_ref == ^connection_ref and approval.request_id == ^request_id,
           lock: "FOR UPDATE"
         )
       )
@@ -115,12 +117,14 @@ defmodule Ryker.Emisar.Operator do
     %{
       action_id: approval.action_id,
       approval_url: approval.approval_url,
+      connection_ref: approval.connection_ref,
       episode_id: approval.episode_id,
       failure_count: approval.failure_count,
       last_error: approval.last_error,
       operation_id: approval.operation_id,
       pack_ref: approval.pack_ref,
       remote_status: approval.remote_status,
+      ref: operator_ref(approval.connection_ref, approval.request_id),
       request_id: approval.request_id,
       run_id: approval.run_id,
       runner_ref: approval.runner_ref,
@@ -129,12 +133,20 @@ defmodule Ryker.Emisar.Operator do
     }
   end
 
-  defp request_id(value) do
-    if is_binary(value) and String.valid?(value) and byte_size(value) in 1..80 and
-         :binary.match(value, <<0>>) == :nomatch and String.trim(value) != "",
-       do: :ok,
-       else: {:error, {:invalid_emisar_approval_operator, :request_id}}
+  defp split_ref(value) when is_binary(value) do
+    case String.split(value, "/", parts: 2) do
+      [connection_ref, request_id]
+      when byte_size(connection_ref) in 1..64 and byte_size(request_id) in 1..80 ->
+        {:ok, connection_ref, request_id}
+
+      _invalid ->
+        {:error, {:invalid_emisar_approval_operator, :ref}}
+    end
   end
+
+  defp split_ref(_value), do: {:error, {:invalid_emisar_approval_operator, :ref}}
+
+  defp operator_ref(connection_ref, request_id), do: connection_ref <> "/" <> request_id
 
   defp transaction_result({:ok, value}), do: {:ok, value}
   defp transaction_result({:error, reason}), do: {:error, reason}

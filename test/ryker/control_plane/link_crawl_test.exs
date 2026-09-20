@@ -24,11 +24,13 @@ defmodule Ryker.ControlPlane.LinkCrawlTest do
   # The pages the route map serves directly; everything else is discovered.
   @seeds ~w(/ /activity /conversations /incident-rooms /schedules /subscriptions /channels
             /repositories /failures /workspaces /findings /memory /rules /preferences /guidance
-            /instructions /usage /configuration)
+            /instructions /usage /settings /settings/slack /settings/github /settings/emisar
+            /settings/webhooks /settings/retention /settings/token-rates /settings/system)
 
   @live_routes [
     ~r{^/$},
-    ~r{^/(conversations|activity|incident-rooms|schedules|subscriptions|channels|repositories|failures|workspaces|findings|memory|rules|preferences|guidance|instructions|usage|configuration)$},
+    ~r{^/(conversations|activity|incident-rooms|schedules|subscriptions|channels|repositories|failures|workspaces|findings|memory|rules|preferences|guidance|instructions|usage)$},
+    ~r{^/settings(?:/(?:slack|github|emisar|webhooks|retention|token-rates|system))?$},
     ~r{^/conversations/[^/]+$},
     ~r{^/timeline/[^/]+(/model-calls)?$},
     ~r{^/incident-rooms/[^/]+$},

@@ -17,6 +17,9 @@ defmodule Ryker.Work.Session do
     field(:repository_ref, :string)
     field(:repository_context, Ryker.CanonicalJSON.Type)
     field(:repository_source, Ryker.CanonicalJSON.Type)
+    field(:emisar_connection_ref, :string)
+    field(:emisar_account_ref, :string)
+    field(:emisar_rpc_url, :string)
     field(:external_ref, :string)
     field(:generation, :integer, default: 1)
     field(:create_generation, :integer, default: 1)
@@ -82,6 +85,9 @@ defmodule Ryker.Work.Session do
           repository_ref: String.t() | nil,
           repository_context: map() | nil,
           repository_source: map() | nil,
+          emisar_connection_ref: String.t() | nil,
+          emisar_account_ref: String.t() | nil,
+          emisar_rpc_url: String.t() | nil,
           external_ref: String.t() | nil,
           generation: pos_integer(),
           create_generation: pos_integer(),

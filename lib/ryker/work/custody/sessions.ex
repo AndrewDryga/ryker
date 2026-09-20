@@ -11,6 +11,7 @@ defmodule Ryker.Work.Custody.Sessions do
   import Ecto.Query
   import Ryker.Work.Custody.Locks
 
+  alias Ryker.Emisar.Connections, as: EmisarConnections
   alias Ryker.Episodes.Episode
   alias Ryker.Repo
   alias Ryker.Work.Custody.Turns
@@ -444,6 +445,7 @@ defmodule Ryker.Work.Custody.Sessions do
         case latest_session(episode.id) do
           nil ->
             session_id = Ecto.UUID.generate()
+            emisar = emisar_pin(repository_ref, repository_context)
 
             session_id
             |> SessionChangeset.insert_with_authority(
@@ -457,6 +459,7 @@ defmodule Ryker.Work.Custody.Sessions do
                 authority_digest: authority_digest,
                 repository_context: repository_context,
                 repository_source: repository_source,
+                emisar: emisar,
                 workspace_task: nil
               }
             )
@@ -607,6 +610,11 @@ defmodule Ryker.Work.Custody.Sessions do
       repository_context: session.repository_context,
       repository_ref: session.repository_ref,
       repository_source: session.repository_source,
+      emisar: %{
+        connection_ref: session.emisar_connection_ref,
+        account_ref: session.emisar_account_ref,
+        rpc_url: session.emisar_rpc_url
+      },
       workspace_task: session.workspace_task
     }
   end
@@ -627,12 +635,28 @@ defmodule Ryker.Work.Custody.Sessions do
         authority_digest: authority.authority_digest,
         repository_context: authority.repository_context,
         repository_source: authority.repository_source,
+        emisar: present_emisar(authority.emisar),
         workspace_task: authority.workspace_task
       }
     )
     |> Repo.insert()
     |> persistence_result(:work_session)
   end
+
+  defp emisar_pin(repository_ref, repository_context) do
+    with {:ok, settings} <- Ryker.Settings.fetch(),
+         {:ok, pin} <- EmisarConnections.resolve(settings, repository_ref, repository_context) do
+      pin
+    else
+      _unconfigured -> nil
+    end
+  end
+
+  defp present_emisar(%{connection_ref: ref, account_ref: account, rpc_url: url})
+       when is_binary(ref) and is_binary(account) and is_binary(url),
+       do: %{connection_ref: ref, account_ref: account, rpc_url: url}
+
+  defp present_emisar(_pin), do: nil
 
   defp insert_session_or_rollback(episode_id, generation, authority) do
     case insert_session(episode_id, generation, authority) do

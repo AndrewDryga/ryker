@@ -70,6 +70,24 @@ defmodule Ryker.Ingress.MigrationUpgradeTest do
   @schedule_catch_up_version 20_260_912_000_400
   @rename_version 20_260_913_000_100
   @retired_ledger_version 20_260_913_000_200
+  @integration_versions [
+    20_260_919_000_100,
+    20_260_919_000_200,
+    20_260_920_000_100,
+    20_260_920_000_200,
+    20_260_920_000_300,
+    20_260_920_000_400,
+    20_260_920_000_500,
+    20_260_920_000_600,
+    20_260_920_000_700,
+    20_260_920_000_800,
+    20_260_920_000_900,
+    20_260_920_001_000,
+    20_260_920_001_100,
+    20_260_920_001_200,
+    20_260_920_001_300,
+    20_260_920_001_400
+  ]
   # Cross-conversation routing migrations stay named as their own group so the
   # ladder can be reconciled with sibling work.
   @routing_versions [
@@ -80,37 +98,37 @@ defmodule Ryker.Ingress.MigrationUpgradeTest do
     @retained_cases_version
   ]
   @latest_versions [
-    @typed_question_answers_version,
-    @answer_confirmed_global_facts_version,
-    @selected_work_inputs_version,
-    @rule_inventories_version,
-    @complete_rule_inventories_version,
-    @source_envelopes_version,
-    @worker_storage_reports_version,
-    @engagement_receipts_version,
-    @input_custody_version,
-    @default_channel_configurations_version,
-    @selection_ledger_version,
-    @episode_origins_version,
-    @routing_digests_version,
-    @delivery_targets_version,
-    @association_corrections_version,
-    @retained_cases_version,
-    @learning_executions_version,
-    @durable_settings_version,
-    @inherited_participation_version,
-    @work_placement_version,
-    @import_receipts_version,
-    @repository_source_version,
-    @coop_session_evidence_version,
-    @emisar_review_digests_version,
-    @session_evidence_commands_version,
-    @slack_workspace_url_version,
-    @channel_invitations_version,
-    @schedule_catch_up_version,
-    @rename_version,
-    @retired_ledger_version
-  ]
+                     @typed_question_answers_version,
+                     @answer_confirmed_global_facts_version,
+                     @selected_work_inputs_version,
+                     @rule_inventories_version,
+                     @complete_rule_inventories_version,
+                     @source_envelopes_version,
+                     @worker_storage_reports_version,
+                     @engagement_receipts_version,
+                     @input_custody_version,
+                     @default_channel_configurations_version,
+                     @selection_ledger_version,
+                     @episode_origins_version,
+                     @routing_digests_version,
+                     @delivery_targets_version,
+                     @association_corrections_version,
+                     @retained_cases_version,
+                     @learning_executions_version,
+                     @durable_settings_version,
+                     @inherited_participation_version,
+                     @work_placement_version,
+                     @import_receipts_version,
+                     @repository_source_version,
+                     @coop_session_evidence_version,
+                     @emisar_review_digests_version,
+                     @session_evidence_commands_version,
+                     @slack_workspace_url_version,
+                     @channel_invitations_version,
+                     @schedule_catch_up_version,
+                     @rename_version,
+                     @retired_ledger_version
+                   ] ++ @integration_versions
   @memory_versions Enum.to_list(20_260_908_000_100..20_260_908_001_100//100) ++
                      [@bounded_sources_version]
   @workspace_versions [
@@ -1679,26 +1697,27 @@ defmodule Ryker.Ingress.MigrationUpgradeTest do
       # evidence, the session-evidence command kind and the empty settings tables
       # are reversible on their own.
       assert Ecto.Migrator.run(repo, @migrations_path, :down,
-               step: 23 + length(@routing_versions),
+               step: 23 + length(@routing_versions) + length(@integration_versions),
                prefix: prefix,
                log: false
              ) ==
-               [
-                 @retired_ledger_version,
-                 @rename_version,
-                 @schedule_catch_up_version,
-                 @channel_invitations_version,
-                 @slack_workspace_url_version,
-                 @session_evidence_commands_version,
-                 @emisar_review_digests_version,
-                 @coop_session_evidence_version,
-                 @repository_source_version,
-                 @import_receipts_version,
-                 @work_placement_version,
-                 @inherited_participation_version,
-                 @durable_settings_version,
-                 @learning_executions_version
-               ] ++
+               Enum.reverse(@integration_versions) ++
+                 [
+                   @retired_ledger_version,
+                   @rename_version,
+                   @schedule_catch_up_version,
+                   @channel_invitations_version,
+                   @slack_workspace_url_version,
+                   @session_evidence_commands_version,
+                   @emisar_review_digests_version,
+                   @coop_session_evidence_version,
+                   @repository_source_version,
+                   @import_receipts_version,
+                   @work_placement_version,
+                   @inherited_participation_version,
+                   @durable_settings_version,
+                   @learning_executions_version
+                 ] ++
                  Enum.reverse(@routing_versions) ++
                  [
                    @selection_ledger_version,
@@ -1791,15 +1810,20 @@ defmodule Ryker.Ingress.MigrationUpgradeTest do
       # The worker session evidence and the session-evidence command kind sit
       # above the learning rungs and are empty in this schema, so they roll back
       # on their own first.
-      assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 6, prefix: prefix, log: false) ==
-               [
-                 @retired_ledger_version,
-                 @rename_version,
-                 @schedule_catch_up_version,
-                 @channel_invitations_version,
-                 @slack_workspace_url_version,
-                 @session_evidence_commands_version
-               ]
+      assert Ecto.Migrator.run(repo, @migrations_path, :down,
+               step: 6 + length(@integration_versions),
+               prefix: prefix,
+               log: false
+             ) ==
+               Enum.reverse(@integration_versions) ++
+                 [
+                   @retired_ledger_version,
+                   @rename_version,
+                   @schedule_catch_up_version,
+                   @channel_invitations_version,
+                   @slack_workspace_url_version,
+                   @session_evidence_commands_version
+                 ]
 
       approval_id = insert_presented_review!(repo, prefix, ids, record_id)
 
@@ -2070,7 +2094,7 @@ defmodule Ryker.Ingress.MigrationUpgradeTest do
                  @schedule_catch_up_version,
                  @rename_version,
                  @retired_ledger_version
-               ]
+               ] ++ @integration_versions
 
       assert table_exists?(repo, prefix, "episode_routing_digests")
       assert table_exists?(repo, prefix, "episode_association_corrections")
@@ -2084,26 +2108,27 @@ defmodule Ryker.Ingress.MigrationUpgradeTest do
       # in this schema, which recorded no worker evidence, no settings and no
       # metered learning execution.
       assert Ecto.Migrator.run(repo, @migrations_path, :down,
-               step: 14,
+               step: 14 + length(@integration_versions),
                prefix: prefix,
                log: false
              ) ==
-               [
-                 @retired_ledger_version,
-                 @rename_version,
-                 @schedule_catch_up_version,
-                 @channel_invitations_version,
-                 @slack_workspace_url_version,
-                 @session_evidence_commands_version,
-                 @emisar_review_digests_version,
-                 @coop_session_evidence_version,
-                 @repository_source_version,
-                 @import_receipts_version,
-                 @work_placement_version,
-                 @inherited_participation_version,
-                 @durable_settings_version,
-                 @learning_executions_version
-               ]
+               Enum.reverse(@integration_versions) ++
+                 [
+                   @retired_ledger_version,
+                   @rename_version,
+                   @schedule_catch_up_version,
+                   @channel_invitations_version,
+                   @slack_workspace_url_version,
+                   @session_evidence_commands_version,
+                   @emisar_review_digests_version,
+                   @coop_session_evidence_version,
+                   @repository_source_version,
+                   @import_receipts_version,
+                   @work_placement_version,
+                   @inherited_participation_version,
+                   @durable_settings_version,
+                   @learning_executions_version
+                 ]
 
       assert_raise Postgrex.Error, ~r/retained cases or lessons have data/, fn ->
         Ecto.Migrator.run(repo, @migrations_path, :down, step: 1, prefix: prefix, log: false)
@@ -2223,16 +2248,21 @@ defmodule Ryker.Ingress.MigrationUpgradeTest do
 
       # The review digests and the session-evidence command kind sit above this
       # table and hold nothing here.
-      assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 7, prefix: prefix, log: false) ==
-               [
-                 @retired_ledger_version,
-                 @rename_version,
-                 @schedule_catch_up_version,
-                 @channel_invitations_version,
-                 @slack_workspace_url_version,
-                 @session_evidence_commands_version,
-                 @emisar_review_digests_version
-               ]
+      assert Ecto.Migrator.run(repo, @migrations_path, :down,
+               step: 7 + length(@integration_versions),
+               prefix: prefix,
+               log: false
+             ) ==
+               Enum.reverse(@integration_versions) ++
+                 [
+                   @retired_ledger_version,
+                   @rename_version,
+                   @schedule_catch_up_version,
+                   @channel_invitations_version,
+                   @slack_workspace_url_version,
+                   @session_evidence_commands_version,
+                   @emisar_review_digests_version
+                 ]
 
       session_id = insert_admission_session!(repo, prefix)
       evidence_id = insert_session_evidence!(repo, prefix, session_id)
@@ -2270,7 +2300,7 @@ defmodule Ryker.Ingress.MigrationUpgradeTest do
                  @schedule_catch_up_version,
                  @rename_version,
                  @retired_ledger_version
-               ]
+               ] ++ @integration_versions
     after
       SQL.query!(repo, "DROP SCHEMA IF EXISTS #{prefix} CASCADE", [])
     end
@@ -2535,7 +2565,7 @@ defmodule Ryker.Ingress.MigrationUpgradeTest do
                )
 
       assert Ecto.Migrator.run(repo, @migrations_path, :up, all: true, prefix: prefix, log: false) ==
-               [@retired_ledger_version]
+               [@retired_ledger_version] ++ @integration_versions
     after
       SQL.query!(repo, "DROP SCHEMA IF EXISTS #{prefix} CASCADE", [])
     end
@@ -2580,18 +2610,23 @@ defmodule Ryker.Ingress.MigrationUpgradeTest do
       # The session-evidence command kind, the worker session evidence and the
       # repository source column sit above the settings tables and hold nothing
       # here, so they roll back on their own.
-      assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 9, prefix: prefix, log: false) ==
-               [
-                 @retired_ledger_version,
-                 @rename_version,
-                 @schedule_catch_up_version,
-                 @channel_invitations_version,
-                 @slack_workspace_url_version,
-                 @session_evidence_commands_version,
-                 @emisar_review_digests_version,
-                 @coop_session_evidence_version,
-                 @repository_source_version
-               ]
+      assert Ecto.Migrator.run(repo, @migrations_path, :down,
+               step: 9 + length(@integration_versions),
+               prefix: prefix,
+               log: false
+             ) ==
+               Enum.reverse(@integration_versions) ++
+                 [
+                   @retired_ledger_version,
+                   @rename_version,
+                   @schedule_catch_up_version,
+                   @channel_invitations_version,
+                   @slack_workspace_url_version,
+                   @session_evidence_commands_version,
+                   @emisar_review_digests_version,
+                   @coop_session_evidence_version,
+                   @repository_source_version
+                 ]
 
       # The receipt is the only proof that a rerun of the importer is already
       # applied; dropping it under a live installation would let a rerun write
@@ -2657,7 +2692,7 @@ defmodule Ryker.Ingress.MigrationUpgradeTest do
                  @schedule_catch_up_version,
                  @rename_version,
                  @retired_ledger_version
-               ]
+               ] ++ @integration_versions
     after
       SQL.query!(repo, "DROP SCHEMA IF EXISTS #{prefix} CASCADE", [])
     end
@@ -2887,6 +2922,7 @@ defmodule Ryker.Ingress.MigrationUpgradeTest do
             - 'source_exposure_count' - 'knowledge_exposure_count' - 'completion_receipt'
             - 'selected_input_refs' - 'selection_ledger' - 'source_envelope'
             - 'engagement_receipt' - 'delivery_target' - 'repository_source'
+            - 'emisar_connection_ref' - 'emisar_account_ref' - 'emisar_rpc_url'
             - 'cutover_item_id' AS value
           FROM #{prefix}.#{table} row ORDER BY 1
           """,

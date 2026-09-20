@@ -204,21 +204,27 @@ defmodule Ryker.ControlPlane.ReadabilityTest do
     assert Enum.map(Enum.drop(chapters, -1), & &1.conversation_turn) == [1, 1, 1, 1, 1]
   end
 
-  test "settings feedback colours stay legible on the white section panel" do
+  test "settings feedback colours stay legible on the dark section panel" do
     # A refusal an operator cannot read is a refusal they will retry blindly.
     css = Assets.call(Plug.Test.conn(:get, "/workspace.css"), []).resp_body
+    tokens = Assets.call(Plug.Test.conn(:get, "/ryker-tokens.css"), []).resp_body
+
+    assert css =~ ".form-feedback-error"
+    assert css =~ "color:var(--ryker-error)"
+
+    [_, error] = Regex.run(~r/--ryker-error:(#[0-9a-f]{6})/, tokens)
+    [_, panel] = Regex.run(~r/--ryker-error-soft:(#[0-9a-f]{6})/, tokens)
+
+    assert contrast(error, panel) >= 4.5,
+           "error text #{error} is unreadable on the feedback panel #{panel}"
 
     for selector <- [
-          ".settings-error",
           ".settings-row-status[data-tone=verified]",
           ".settings-row-status[data-tone=changed]",
           ".settings-row-status[data-tone=unavailable]"
         ] do
       [_, rule] = Regex.run(Regex.compile!(Regex.escape(selector) <> " \\{([^}]+)\\}"), css)
-      [_, colour] = Regex.run(~r/color:\s*(#[0-9a-f]{6})/, rule)
-
-      assert contrast(colour, "#ffffff") >= 4.5,
-             "#{selector} text #{colour} is unreadable on the section panel"
+      assert rule =~ "color:var(--ryker-text-secondary)"
     end
   end
 

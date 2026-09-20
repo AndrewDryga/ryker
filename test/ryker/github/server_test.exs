@@ -6,9 +6,9 @@ defmodule Ryker.GitHub.ServerTest do
   test "builds an optional GitHub listener from trusted repository bindings" do
     options =
       Server.options!(%{
+        bot_login: "ryker-test",
         bindings: %{
           "github-main" => %{
-            authorized_actor_ids: [7, 8],
             installation_id: 41,
             repository_full_name: "octo/example",
             repository_id: 99,
@@ -37,6 +37,7 @@ defmodule Ryker.GitHub.ServerTest do
 
     child =
       Server.child_spec(%{
+        bot_login: "ryker-test",
         bindings: options.bindings,
         confirmations: options.confirmations,
         port: 4_081,
@@ -123,7 +124,6 @@ defmodule Ryker.GitHub.ServerTest do
 
     assert {:ok, binding} =
              Binding.new(%{
-               authorized_actor_ids: [7, 8],
                installation_id: 41,
                name: "configured",
                repository_full_name: "octo/example",
@@ -144,7 +144,6 @@ defmodule Ryker.GitHub.ServerTest do
   test "accepts an explicit IPv6 listener with an already validated binding" do
     assert {:ok, binding} =
              Binding.new(%{
-               authorized_actor_ids: [7, 8],
                installation_id: 41,
                name: "github-main",
                repository_full_name: "octo/example",
@@ -156,6 +155,7 @@ defmodule Ryker.GitHub.ServerTest do
     assert %{ip: {0, 0, 0, 0, 0, 0, 0, 1}} =
              Server.options!(
                bindings: %{"github-main" => binding},
+               bot_login: "ryker-test",
                ip: {0, 0, 0, 0, 0, 0, 0, 1},
                port: 4_081,
                secret: String.duplicate("s", 32)

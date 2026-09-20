@@ -8,22 +8,19 @@ defmodule Ryker.ControlPlane.ConfigurationHelpTest do
 
   @settings ~w(admission work control_plane coop_worker_gateway delivery publication retention state_tools event_waits schedules emisar slack github webhooks runtime.mode admission.policy admission.decision_timeout_ms work.concurrency work.poll_interval_ms retention.operational_data_seconds retention.closed_work_seconds retention.episode_history_seconds retention.audit_data_seconds retention.disposable_bytes_limit retention.reclaim_target_seconds retention.storage_high_watermark_bytes retention.storage_low_watermark_bytes retention.storage_reserve_bytes)
 
-  test "code editing help explains the required setup without changing it" do
+  test "work execution help keeps compose recovery concise and custom fleet setup advanced" do
     page = html([])
     document = LazyHTML.from_document(page)
     section = LazyHTML.query(document, "#code-editing") |> LazyHTML.text()
-    assert section =~ "Set up code editing"
-    assert section =~ "recoverable copy"
-    assert section =~ "Work placement"
-    assert section =~ "Execution policies"
-    assert section =~ "fleet"
-    assert section =~ "Docker"
-    assert section =~ "does not enroll"
+    assert section =~ "Work execution"
+    assert section =~ "Docker Compose installations should provide work execution automatically"
+    refute section =~ "Prepare a coding worker"
+    refute section =~ "Settings → Work placement"
     commands = LazyHTML.query(document, "#code-editing details") |> LazyHTML.text()
-    assert commands =~ "Administrator commands and configuration"
+    assert commands =~ "Custom worker fleet"
     assert commands =~ "coop sessions doctor"
+    assert commands =~ "coop sessions connect"
     assert commands =~ "MIX_ENV=prod mix ryker.doctor"
-    assert commands =~ "applied revision beside the saved one"
     refute commands =~ "ryker.doctor --config"
     assert commands =~ "0600"
     refute page =~ "<form"
@@ -42,12 +39,13 @@ defmodule Ryker.ControlPlane.ConfigurationHelpTest do
     for config <- [nil, %{}, %{api: Ryker.Coop.Client}] do
       Application.put_env(:ryker, :work, config)
       refute CodeEditingSetup.checkpoint_supported?()
-      assert html([]) =~ "does not support saving coding work"
+      assert html([]) =~ "Code-changing work is unavailable"
     end
 
     Application.put_env(:ryker, :work, api: Ryker.CoopFleet.Client)
     assert CodeEditingSetup.checkpoint_supported?()
-    assert html([]) =~ "does not prove that a compatible coding worker is online"
+    assert html([]) =~ "Workspace recovery is configured"
+    refute html([]) =~ "Custom worker fleet"
   end
 
   test "each effective setting explains its purpose, behavior and default beside its value" do
@@ -84,9 +82,15 @@ defmodule Ryker.ControlPlane.ConfigurationHelpTest do
     assert page =~ "Required when retention is configured; there is no implicit default"
     # The evidence section must not send an operator back to a file or a
     # restart: these values are assembled from settings that apply live.
-    assert page =~ "read-only evidence"
-    assert page =~ "without a deployment"
-    refute page =~ "restart"
+    values =
+      page
+      |> LazyHTML.from_document()
+      |> LazyHTML.query(".configuration-values")
+      |> LazyHTML.text()
+
+    assert values =~ "read-only evidence"
+    assert values =~ "without a deployment"
+    refute values =~ "restart"
     refute page =~ "<form"
   end
 

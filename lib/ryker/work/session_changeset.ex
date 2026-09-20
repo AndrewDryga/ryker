@@ -63,6 +63,7 @@ defmodule Ryker.Work.SessionChangeset do
     workspace_task = Map.fetch!(options, :workspace_task)
     repository_context = Map.get(options, :repository_context)
     repository_source = Map.get(options, :repository_source)
+    emisar = Map.get(options, :emisar)
 
     %Session{}
     |> cast(
@@ -77,6 +78,9 @@ defmodule Ryker.Work.SessionChangeset do
         repository_ref: repository_ref,
         repository_context: repository_context,
         repository_source: repository_source,
+        emisar_connection_ref: emisar && emisar.connection_ref,
+        emisar_account_ref: emisar && emisar.account_ref,
+        emisar_rpc_url: emisar && emisar.rpc_url,
         external_ref: external_ref,
         workspace_task: workspace_task
       },
@@ -91,6 +95,9 @@ defmodule Ryker.Work.SessionChangeset do
         :repository_ref,
         :repository_context,
         :repository_source,
+        :emisar_connection_ref,
+        :emisar_account_ref,
+        :emisar_rpc_url,
         :external_ref,
         :workspace_task
       ]
@@ -111,6 +118,7 @@ defmodule Ryker.Work.SessionChangeset do
     |> validate_length(:external_ref, min: 1, max: 1_024)
     |> validate_repository_context()
     |> validate_repository_source()
+    |> validate_emisar_pin()
     |> validate_workspace_task()
     |> unique_constraint([:episode_id, :generation])
     |> foreign_key_constraint(:episode_id)
@@ -118,6 +126,26 @@ defmodule Ryker.Work.SessionChangeset do
     |> check_constraint(:repository_ref, name: :episode_work_session_repository_valid)
     |> check_constraint(:repository_context, name: :episode_work_session_repository_context_valid)
     |> check_constraint(:repository_source, name: :episode_work_session_repository_source_valid)
+    |> check_constraint(:emisar_connection_ref, name: :episode_work_session_emisar_pin_valid)
+  end
+
+  defp validate_emisar_pin(changeset) do
+    fields = [:emisar_connection_ref, :emisar_account_ref, :emisar_rpc_url]
+    values = Enum.map(fields, &get_field(changeset, &1))
+
+    cond do
+      Enum.all?(values, &is_nil/1) ->
+        changeset
+
+      Enum.all?(values, &is_binary/1) ->
+        changeset
+        |> validate_length(:emisar_connection_ref, min: 1, max: 64)
+        |> validate_length(:emisar_account_ref, min: 1, max: 256)
+        |> validate_length(:emisar_rpc_url, min: 9, max: 2_048)
+
+      true ->
+        add_error(changeset, :emisar_connection_ref, "must be pinned as one complete authority")
+    end
   end
 
   @spec bind(Session.t(), String.t()) :: Ecto.Changeset.t()

@@ -65,6 +65,20 @@ defmodule Ryker.Release do
     end)
   end
 
+  @doc "Prepares the bundled Compose worker without starting a second Ryker runtime."
+  @spec prepare_bundled_coop(keyword()) :: :ok
+  def prepare_bundled_coop(options \\ []) do
+    settings = settings!(options)
+    with_repo!(settings, fn _repo -> Ryker.BundledCoop.ensure_distribution!() end)
+  end
+
+  @doc "Checks the authenticated bundled worker and its automatically pinned ordinary policies."
+  @spec bundled_coop_ready?(keyword()) :: boolean()
+  def bundled_coop_ready?(options \\ []) do
+    settings = settings!(options)
+    with_repo!(settings, fn _repo -> Ryker.BundledCoop.ready?() end)
+  end
+
   defp latest_applied(repo, settings) do
     repo
     |> Ecto.Migrator.migrations(

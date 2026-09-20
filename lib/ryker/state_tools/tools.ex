@@ -12,7 +12,7 @@ defmodule Ryker.StateTools.Tools do
   def list(options \\ %{}) do
     tools = FixedTools.list(options)
 
-    if is_binary(emisar_rpc_url(options)),
+    if match?({:ok, _authority}, emisar_authority(options)),
       do: tools ++ [emisar_approval_tool()],
       else: tools
   end
@@ -25,14 +25,20 @@ defmodule Ryker.StateTools.Tools do
     payload_fields =
       ~w(action_id approval_url expires_at operation_id pack_ref request_id run_id runner_ref status)
 
-    with rpc_url when is_binary(rpc_url) <- emisar_rpc_url(options),
+    with {:ok, authority} <- emisar_authority(options),
          :ok <- exact_fields(arguments, payload_fields),
          {:ok, payload} <-
            ApprovalContract.authorize(
              Map.take(arguments, payload_fields),
-             rpc_url,
+             authority.rpc_url,
              DateTime.utc_now()
            ),
+         payload <-
+           Map.merge(payload, %{
+             "connection_ref" => authority.connection_ref,
+             "account_ref" => authority.account_ref,
+             "rpc_url" => authority.rpc_url
+           }),
          {:ok, state_token} <- state_token(options),
          {:ok, record} <-
            Records.create(
@@ -43,7 +49,7 @@ defmodule Ryker.StateTools.Tools do
            ) do
       {:ok, result(record)}
     else
-      nil -> {:error, "not_configured"}
+      {:error, :not_configured} -> {:error, "not_configured"}
       {:error, reason} -> {:error, ErrorCode.code(reason)}
     end
   end
@@ -96,12 +102,25 @@ defmodule Ryker.StateTools.Tools do
 
   defp exact_fields(_arguments, _fields), do: {:error, :invalid_arguments}
 
-  defp emisar_rpc_url(options) when is_list(options) do
-    if Keyword.keyword?(options), do: Keyword.get(options, :emisar_rpc_url), else: nil
+  defp emisar_authority(options) when is_list(options) do
+    if Keyword.keyword?(options),
+      do: options |> Map.new() |> emisar_authority(),
+      else: {:error, :not_configured}
   end
 
-  defp emisar_rpc_url(%{} = options), do: Map.get(options, :emisar_rpc_url)
-  defp emisar_rpc_url(_options), do: nil
+  defp emisar_authority(%{
+         binding: %{
+           session: %{
+             emisar_connection_ref: ref,
+             emisar_account_ref: account,
+             emisar_rpc_url: url
+           }
+         }
+       })
+       when is_binary(ref) and is_binary(account) and is_binary(url),
+       do: {:ok, %{connection_ref: ref, account_ref: account, rpc_url: url}}
+
+  defp emisar_authority(_options), do: {:error, :not_configured}
 
   defp state_token(options) when is_list(options) do
     if Keyword.keyword?(options), do: options |> Map.new() |> state_token(), else: nil

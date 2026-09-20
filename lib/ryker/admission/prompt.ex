@@ -102,9 +102,6 @@ defmodule Ryker.Admission.Prompt do
   no alert counts, or it does not mention Ryker. Track or investigate the event; this does not
   authorize approving a plan, performing a deployment, or operating notification controls.
 
-  execution_mode is host-owned. Shadow means observe-only: classify exactly as you would for live
-  traffic, but the host will isolate any longer investigation and suppress posts, reactions, offers,
-  incidents, and mutations while retaining read-only evaluation evidence.
   """
 
   @spec build(Context.t()) :: map()

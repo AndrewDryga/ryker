@@ -11,7 +11,6 @@ defmodule Ryker.StateTools.Server do
     :additional_tools,
     :answer_authorizer,
     :capabilities,
-    :emisar_rpc_url,
     :ip,
     :port,
     :token
@@ -24,7 +23,6 @@ defmodule Ryker.StateTools.Server do
     router_options =
       [token: options.token]
       |> Keyword.put(:capabilities, options.capabilities)
-      |> maybe_put(:emisar_rpc_url, Map.get(options, :emisar_rpc_url))
       |> maybe_put(:additional_tools, Map.get(options, :additional_tools))
       |> maybe_put(:additional_call, Map.get(options, :additional_call))
       |> maybe_put(:answer_authorizer, Map.get(options, :answer_authorizer))
@@ -44,7 +42,6 @@ defmodule Ryker.StateTools.Server do
     ip = Map.get(configuration, :ip, @default_ip)
     port = Map.fetch!(configuration, :port)
     token = Map.fetch!(configuration, :token)
-    emisar_rpc_url = Map.get(configuration, :emisar_rpc_url)
     capabilities = Map.get(configuration, :capabilities, [:event_waits, :publication, :schedules])
 
     unless loopback_ip?(ip), do: raise(ArgumentError, "state-tools IP must be loopback")
@@ -54,7 +51,6 @@ defmodule Ryker.StateTools.Server do
 
     router_options =
       [token: token, capabilities: capabilities]
-      |> maybe_put(:emisar_rpc_url, emisar_rpc_url)
       |> maybe_put(:additional_tools, Map.get(configuration, :additional_tools))
       |> maybe_put(:additional_call, Map.get(configuration, :additional_call))
       |> maybe_put(:answer_authorizer, Map.get(configuration, :answer_authorizer))
@@ -62,7 +58,6 @@ defmodule Ryker.StateTools.Server do
     _validated = Router.init(router_options)
 
     %{capabilities: capabilities, ip: ip, port: port, token: token}
-    |> maybe_put(:emisar_rpc_url, emisar_rpc_url)
     |> maybe_put(:additional_tools, Map.get(configuration, :additional_tools))
     |> maybe_put(:additional_call, Map.get(configuration, :additional_call))
     |> maybe_put(:answer_authorizer, Map.get(configuration, :answer_authorizer))

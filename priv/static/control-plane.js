@@ -25,10 +25,35 @@ const SettingsDraft = {
   mounted() { this.guard = createSettingsGuard(this.el) },
   destroyed() { this.guard.destroy() }
 }
+const PrivateKeyFile = {
+  mounted() {
+    this.read = async () => {
+      const file = this.el.files && this.el.files[0]
+      const target = document.getElementById(this.el.dataset.target)
+      if (!file || !target || file.size > 1024 * 1024) return
+      target.value = await file.text()
+      target.dispatchEvent(new Event("input", {bubbles: true}))
+    }
+    this.el.addEventListener("change", this.read)
+  },
+  destroyed() { this.el.removeEventListener("change", this.read) }
+}
+const RepositorySearch = {
+  mounted() {
+    this.filter = () => {
+      const query = this.el.value.trim().toLowerCase()
+      this.el.closest("form").querySelectorAll("[data-repository-name]").forEach(row => {
+        row.hidden = query !== "" && !row.dataset.repositoryName.toLowerCase().includes(query)
+      })
+    }
+    this.el.addEventListener("input", this.filter)
+  },
+  destroyed() { this.el.removeEventListener("input", this.filter) }
+}
 
 const csrfToken = document.querySelector("meta[name=csrf-token]").content
 const liveSocket = new LiveSocket("/live", Socket, {
   params: {_csrf_token: csrfToken},
-  hooks: {PreserveReadingState, InstructionDraft, SettingsDraft, ConversationHistory, FilterMenu}
+  hooks: {PreserveReadingState, InstructionDraft, SettingsDraft, PrivateKeyFile, RepositorySearch, ConversationHistory, FilterMenu}
 })
 liveSocket.connect()

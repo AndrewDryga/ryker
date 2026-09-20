@@ -5,18 +5,18 @@ defmodule Ryker.ControlPlane.SettingsWebhooksLiveTest do
   import Phoenix.LiveViewTest
 
   alias Ryker.ControlPlane.{Actions, Endpoint, Projection}
+  alias Ryker.Credentials
   alias Ryker.Ingress.Inbox
   alias Ryker.Settings
   alias Ryker.Webhooks.Presets
 
   @endpoint Endpoint
   @actor "control-plane:local"
-  @registered "ALERTMANAGER_WEBHOOK_SECRET"
-  @other "DEPLOYMENT_WEBHOOK_SECRET"
+  @registered "alertmanager"
 
   setup do
-    System.put_env("RYKER_WEBHOOK_SECRET_NAMES", "#{@registered},#{@other}")
-    on_exit(fn -> System.delete_env("RYKER_WEBHOOK_SECRET_NAMES") end)
+    {:ok, _} = Credentials.put(:webhook, @registered, "test-secret-long-enough", @actor)
+    {:ok, _} = Credentials.verify(:webhook, @registered, :verified, @actor)
 
     start_supervised!(
       {Endpoint,
@@ -37,11 +37,19 @@ defmodule Ryker.ControlPlane.SettingsWebhooksLiveTest do
     :ok
   end
 
-  test "a source may only reference a credential this deployment registered" do
-    # Accepting any name here would make the form a way to read the process
-    # environment, and would save a route that can never start.
+  test "a source may only reference a credential Ryker has in encrypted custody" do
     installation!()
     {:ok, view, _html} = open()
+
+    assert has_element?(
+             view,
+             "#settings-webhooks > button.settings-editor-add",
+             "+ Add webhook source"
+           )
+
+    assert has_element?(view, "button", "+ Add signing credential")
+
+    open_source_editor(view)
 
     assert has_element?(view, "#settings-webhooks-secret_name option[value='#{@registered}']")
     refute has_element?(view, "#settings-webhooks-secret_name option[value='SLACK_BOT_TOKEN']")
@@ -61,6 +69,8 @@ defmodule Ryker.ControlPlane.SettingsWebhooksLiveTest do
   test "a custom mapping is saved as bounded paths and its required fields are named" do
     installation!()
     {:ok, view, _html} = open()
+    open_source_editor(view)
+    choose_custom_json(view)
 
     view
     |> form(
@@ -72,7 +82,7 @@ defmodule Ryker.ControlPlane.SettingsWebhooksLiveTest do
     )
     |> render_submit()
 
-    assert has_element?(view, ".settings-error", "Custom field mapping")
+    assert has_element?(view, ".settings-error", "Field mapping")
     assert Settings.fetch!().webhook_sources == []
 
     view
@@ -93,6 +103,8 @@ defmodule Ryker.ControlPlane.SettingsWebhooksLiveTest do
   test "checking a payload maps it and records absolutely nothing" do
     installation!()
     {:ok, view, _html} = open()
+    open_source_editor(view)
+    choose_custom_json(view)
 
     view
     |> form(
@@ -124,6 +136,8 @@ defmodule Ryker.ControlPlane.SettingsWebhooksLiveTest do
   test "a payload the mapping cannot read names the field instead of guessing one" do
     installation!()
     {:ok, view, _html} = open()
+    open_source_editor(view)
+    choose_custom_json(view)
 
     view
     |> form(
@@ -150,6 +164,7 @@ defmodule Ryker.ControlPlane.SettingsWebhooksLiveTest do
   test "a sample that is not JSON, or is larger than a real request, is refused inertly" do
     installation!()
     {:ok, view, _html} = open()
+    open_source_editor(view)
     view |> form("#settings-webhooks-form", source_params()) |> render_submit()
 
     view
@@ -172,6 +187,7 @@ defmodule Ryker.ControlPlane.SettingsWebhooksLiveTest do
   test "a source that changed under the editor shows what is saved now, mapping and all" do
     installation!()
     {:ok, view, _html} = open()
+    open_source_editor(view)
     view |> form("#settings-webhooks-form", source_params()) |> render_submit()
 
     assert {:ok, _} =
@@ -195,17 +211,29 @@ defmodule Ryker.ControlPlane.SettingsWebhooksLiveTest do
            )
   end
 
-  test "a deployment that registered no webhook credentials says so instead of offering none" do
-    System.delete_env("RYKER_WEBHOOK_SECRET_NAMES")
+  test "an installation with no webhook credentials says how to create one" do
+    assert {:ok, :ok} = Credentials.delete(:webhook, @registered, @actor)
     installation!()
 
     {:ok, view, _html} = open()
 
-    assert has_element?(view, ".settings-notice", "registered no webhook credentials")
+    assert has_element?(view, ".settings-notice", "Create a signing credential")
     refute has_element?(view, "#settings-webhooks-secret_name option[value='#{@registered}']")
   end
 
-  defp open, do: live(build_conn() |> Map.put(:host, "localhost"), "/configuration")
+  defp open, do: live(build_conn() |> Map.put(:host, "localhost"), "/settings/webhooks")
+
+  defp open_source_editor(view) do
+    view |> element("#settings-webhooks > button.settings-editor-add") |> render_click()
+  end
+
+  defp choose_custom_json(view) do
+    view
+    |> form("#settings-webhooks-form", %{"adapter_kind" => "mapped_json"})
+    |> render_change()
+
+    assert has_element?(view, "#settings-webhooks-mapping-event_id")
+  end
 
   defp source_params(overrides \\ %{}) do
     Map.merge(

@@ -22,6 +22,8 @@ export function createReadingStateHook(environment = {}) {
       const pushEvent = (name, params) => this.pushEvent(name, params)
       this.conversation = createConversationControls(this.el, {storage, pushEvent})
       this.conversation.restore()
+      this.handleEvent?.("lab-action-accepted", detail => this.conversation.accept(detail))
+      this.handleEvent?.("lab-action-rejected", detail => this.conversation.reject(detail))
       this.composer = createComposer({pushEvent, active: () => this.active, storage, location: loc})
       this.onInput = event => {
         this.relearnPicker.change(event)

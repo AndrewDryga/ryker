@@ -7,7 +7,7 @@ defmodule Ryker.Settings.Learning do
   @fields ~w(enabled)a
 
   schema "learning_settings" do
-    field(:enabled, :boolean, default: false)
+    field(:enabled, :boolean, default: true)
   end
 
   def fields, do: @fields

@@ -10,6 +10,7 @@ defmodule Ryker.ControlPlane.ActivityPage do
   def render(assigns) do
     assigns =
       assigns
+      |> assign(:activity, Map.put_new(assigns.activity, :searchable, assigns.activity.total > 0))
       |> assign_new(:filter_menu, fn -> nil end)
       |> assign_new(:filter_values, fn -> [] end)
 
@@ -43,18 +44,17 @@ defmodule Ryker.ControlPlane.ActivityPage do
     ~H"""
     <div class={"activity-layout #{if @show_context, do: "with-context"}"}>
       <section class="activity-primary">
-        <div class="page-intro">
-          <div>
-            <h1>Activity</h1><p>Inspect incoming messages, running work, and delivered answers.</p>
-          </div>
-          <a :if={@activity.total > 0} class="ui-button secondary" href="/conversations"><.icon name={
-            :plus
-          } />New conversation</a>
-        </div>
+        <.page_header
+          title="Activity"
+          description="Inspect incoming messages, running work, and delivered answers."
+        >
+          <:action :if={@activity.searchable}>
+            <a class="ui-button secondary" href="/conversations"><.icon name={:plus} />New conversation</a>
+          </:action>
+        </.page_header>
         <.page_summary
           label="Current workload"
           facts={@summary_facts}
-          related={%{href: "/usage", label: "View usage and cost"}}
         />
         <section class="activity-inbox" aria-label="Activity">
           <div class="inbox-toolbar">
@@ -68,69 +68,63 @@ defmodule Ryker.ControlPlane.ActivityPage do
                     {"done", "Finished"}
                   ]
                 }
+                :if={@activity.searchable}
                 patch={filter_path(@path, @params, key)}
                 aria-current={if (@params["filter"] || "all") == key, do: "page"}
               >{name}</.link>
+              <span
+                :for={name <- ["All activity", "Needs you", "In progress", "Finished"]}
+                :if={!@activity.searchable}
+                class="ui-tab-disabled"
+              >{name}</span>
             </nav>
             <span class="inbox-total">{@activity.total} items</span>
           </div>
-          <div class="activity-toolbar">
-            <form
-              id="activity-filters"
-              class="activity-search"
-              phx-change="search-activity"
-              phx-submit="search-activity"
-            >
-              <div class="search-field">
-                <.icon name={:search} />
-                <label class="sr-only" for="activity-search">Search activity</label>
-                <input
-                  id="activity-search"
-                  name="q"
-                  type="search"
-                  value={@params["q"] || ""}
-                  phx-debounce="300"
-                  maxlength="200"
-                  placeholder="Search activity or repositories…"
-                  autocomplete="off"
-                />
-              </div>
-              <label class="sr-only" for="activity-mode">Work included</label><select
-                id="activity-mode"
-                name="mode"
-              ><option value="live" selected={@activity.mode == "live"}>Live work</option><option
-                value="shadow"
-                selected={@activity.mode == "shadow"}
-              >
-                Evaluations
-              </option><option value="all" selected={@activity.mode == "all"}>
-                All work
-              </option></select>
-            </form>
-            <span class="toolbar-divider" aria-hidden="true"></span>
+          <.live_filter_toolbar
+            id="activity-filters"
+            class="activity-toolbar"
+            label="Filter activity"
+            placeholder="Search activity or repositories…"
+            query={@params["q"] || ""}
+            disabled={!@activity.searchable}
+            event="search-activity"
+            primary={
+              %{
+                id: "activity-mode",
+                name: "mode",
+                label: "Work included",
+                value: @activity.mode,
+                options: [{"live", "Live work"}, {"shadow", "Evaluations"}, {"all", "All work"}]
+              }
+            }
+          >
             <RequestFilters.render
               values={@filter_values}
               params={@params}
               path={@path}
               menu={@filter_menu}
+              disabled={!@activity.searchable}
             />
-          </div>
+          </.live_filter_toolbar>
           <button :if={@new_items > 0} class="new-activity" phx-click="show-new">{@new_items} new or reordered items · Show latest
           <.icon name={:arrow} /></button>
-          <div :if={@activity.total == 0} class="activity-empty">
-            <h2>
-              {if filtered?(@params), do: "No matching activity", else: "No activity yet"}
-            </h2>
-            <p>
-              {if filtered?(@params),
+          <.empty_state
+            :if={@activity.total == 0}
+            kind={if filtered?(@params), do: :no_match, else: :empty}
+            title={if filtered?(@params), do: "No matching activity", else: "No activity yet"}
+            description={
+              if filtered?(@params),
                 do: "Try another phrase or view all activity. Your filters only change this view.",
                 else:
-                  "Messages from connected platforms and direct conversations appear here with their execution history."}
-            </p>
-            <.link :if={filtered?(@params)} class="ui-button secondary" patch={@path}>Clear filters</.link>
-            <a :if={!filtered?(@params)} class="ui-button primary" href="/conversations">New conversation
-            <.icon name={:arrow} /></a>
-          </div>
+                  "Messages from connected platforms and direct conversations appear here with their execution history."
+            }
+          >
+            <:action>
+              <.link :if={filtered?(@params)} class="ui-button secondary" patch={@path}>Clear filters</.link>
+              <a :if={!filtered?(@params)} class="ui-button primary" href="/conversations">New conversation
+              <.icon name={:arrow} /></a>
+            </:action>
+          </.empty_state>
           <div id="activity-stream" phx-update="stream" class="activity-list">
             <article :for={{dom_id, item} <- @stream} id={dom_id} class="activity-row">
               <span class={"source-glyph source-#{item.kind}"} aria-hidden="true"><.icon name={
@@ -159,15 +153,14 @@ defmodule Ryker.ControlPlane.ActivityPage do
               } /></.link>
             </article>
           </div>
-          <div :if={@activity.pages > 1} class="ui-pagination">
-            <span>Page {@activity.page} of {@activity.pages}</span><.link
-              :if={@activity.page > 1}
-              patch={page_path(@path, @params, @activity.page - 1)}
-            >Previous</.link><.link
-              :if={@activity.page < @activity.pages}
-              patch={page_path(@path, @params, @activity.page + 1)}
-            >Next <.icon name={:arrow} /></.link>
-          </div>
+          <.pager
+            page={@activity.page}
+            pages={@activity.pages}
+            path={&page_path(@path, @params, &1)}
+            label="Activity pages"
+            earlier="Previous"
+            later="Next"
+          />
         </section>
       </section>
       <aside :if={@show_context} class="activity-rail" aria-label="Execution context">
@@ -183,7 +176,7 @@ defmodule Ryker.ControlPlane.ActivityPage do
         </section>
         <section :if={worker_attention?(@overview)} class="rail-section rail-runtime">
           <div class="rail-heading">
-            <h2>Worker attention</h2><a href="/configuration">Inspect configuration</a>
+            <h2>Worker attention</h2><a href="/settings/system">Inspect system settings</a>
           </div>
           <p :if={get_in(@overview, [:fleet, :unavailable])} class="runtime-problem">
             Worker status is unavailable. Check configuration before starting work.

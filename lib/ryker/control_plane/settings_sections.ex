@@ -10,7 +10,6 @@ defmodule Ryker.ControlPlane.SettingsSections do
   """
 
   alias Ryker.Settings.{
-    Emisar,
     GitHub,
     GitHubBinding,
     Learning,
@@ -78,20 +77,20 @@ defmodule Ryker.ControlPlane.SettingsSections do
       kind: :singleton,
       schema: Slack,
       title: "Slack",
-      description:
-        "The workspace this installation answers in. Credentials alone never connect Slack: " <>
-          "the saved identity below is what binds the deployment's tokens to this workspace.",
-      credentials: ["SLACK_BOT_TOKEN", "SLACK_APP_TOKEN"],
+      description: "Choose how Ryker participates after the verified Slack connection is ready.",
       fields: [
-        %{name: :enabled, kind: :boolean, label: "Connect Slack"},
-        %{name: :workspace_ref, kind: :text, label: "Workspace ID", placeholder: "T0123456789"},
-        %{name: :bot_ref, kind: :text, label: "App ID", placeholder: "A0123456789"},
-        %{name: :bot_user_ref, kind: :text, label: "Bot user ID", placeholder: "U0123456789"},
+        %{
+          name: :enabled,
+          kind: :boolean,
+          label: "Use this Slack connection",
+          group: "Connection"
+        },
         %{
           name: :default_repository_ref,
           kind: :select,
           label: "Default repository",
           options: :repositories,
+          group: "Channel defaults",
           help: "Used by channels that have not chosen their own repository context."
         },
         %{
@@ -99,19 +98,22 @@ defmodule Ryker.ControlPlane.SettingsSections do
           kind: :select,
           label: "Default participation",
           options: @participation,
+          group: "Channel defaults",
           help:
             "Applies to every channel that has not chosen for itself. " <>
               "Channels with their own choice keep it."
         },
-        %{name: :channel_prefix, kind: :text, label: "Incident channel prefix"},
-        %{name: :incident_private, kind: :boolean, label: "Create incident channels private"},
         %{
-          name: :operators,
-          kind: :list,
-          label: "Operators",
-          help:
-            "Slack user IDs allowed to run operator commands. " <>
-              "A disconnected Slack does not revoke them; removing them here does."
+          name: :channel_prefix,
+          kind: :text,
+          label: "Incident channel prefix",
+          group: "Incident rooms"
+        },
+        %{
+          name: :incident_private,
+          kind: :boolean,
+          label: "Create incident channels private",
+          group: "Incident rooms"
         }
       ]
     },
@@ -121,27 +123,11 @@ defmodule Ryker.ControlPlane.SettingsSections do
       kind: :singleton,
       schema: GitHub,
       title: "GitHub",
-      description:
-        "The GitHub App identity this installation verified. " <>
-          "GITHUB_APP_ID in the environment must name the same app, or the connection is refused.",
-      credentials: ["GITHUB_APP_PRIVATE_KEY", "GITHUB_WEBHOOK_SECRET"],
+      description: "Use the verified GitHub App and choose its API endpoint.",
       fields: [
-        %{name: :enabled, kind: :boolean, label: "Connect GitHub"},
-        %{name: :app_id, kind: :integer, label: "App ID"},
-        %{name: :app_slug, kind: :text, label: "App slug"}
+        %{name: :enabled, kind: :boolean, label: "Use this GitHub App"},
+        %{name: :api_url, kind: :text, label: "GitHub API URL"}
       ]
-    },
-    %{
-      key: :emisar,
-      domain: :emisar,
-      kind: :singleton,
-      schema: Emisar,
-      title: "Emisar",
-      description:
-        "Watches for approvals on governed actions. Ryker can read a pending run " <>
-          "and resume its episode; it can never approve one.",
-      credentials: ["EMISAR_API_TOKEN"],
-      fields: [%{name: :enabled, kind: :boolean, label: "Monitor Emisar approvals"}]
     },
     %{
       key: :publication,
@@ -266,21 +252,14 @@ defmodule Ryker.ControlPlane.SettingsSections do
       item_key: :name,
       title: "GitHub repository bindings",
       description:
-        "The exact verified installation identity for one repository, and the GitHub actors " <>
-          "allowed to address Ryker there. Numeric identities come from the App " <>
-          "installation; a display name never confers access.",
+        "The exact verified installation identity for one repository. People with write " <>
+          "access to that repository can ask Ryker to work there.",
       fields: [
         %{name: :name, kind: :text, label: "Binding name", identity: true},
         %{name: :repository_ref, kind: :select, label: "Repository", options: :repositories},
         %{name: :installation_id, kind: :integer, label: "Installation ID"},
         %{name: :repository_id, kind: :integer, label: "Repository ID"},
         %{name: :ryker_actor_id, kind: :integer, label: "Ryker actor ID"},
-        %{
-          name: :authorized_actor_ids,
-          kind: :list,
-          label: "Authorized actor IDs",
-          help: "Numeric GitHub user IDs. Removing one revokes it at the next request."
-        },
         %{
           name: :repository_context_ref,
           kind: :select,
@@ -299,10 +278,8 @@ defmodule Ryker.ControlPlane.SettingsSections do
       row_status: {Ryker.Settings.WorkerPolicies, :binding_status},
       title: "Execution policies",
       description:
-        "Which reviewed worker policy runs each purpose. The digest is copied from the " <>
-          "authenticated worker advertisement, never typed: choose the policy by name and the " <>
-          "pin follows. Admission, learning, incidents, schedules, conversation, standard and " <>
-          "deep work and contributor writes stay separate grants.",
+        "Advanced only: choose which reviewed worker policy runs each kind of work. " <>
+          "The bundled worker supplies these automatically.",
       fields: [
         %{name: :purpose, kind: :select, label: "Purpose", options: @purposes},
         %{name: :scope_kind, kind: :select, label: "Scope", options: @scope_kinds},
@@ -332,49 +309,66 @@ defmodule Ryker.ControlPlane.SettingsSections do
       item_key: :name,
       title: "Webhook sources",
       description:
-        "Each source has its own credential, destination and repository context. A source may " <>
-          "only reference a credential this deployment registered, so a form can never turn " <>
-          "into a probe of the process environment, and one source's credential never " <>
-          "authenticates another's events.",
+        "Choose what events to accept, how to verify them, and where Ryker should send the work.",
       fields: [
-        %{name: :name, kind: :text, label: "Source name", identity: true},
-        %{name: :enabled, kind: :boolean, label: "Accept events"},
+        %{name: :name, kind: :text, label: "Source name", identity: true, group: "Source"},
+        %{name: :enabled, kind: :boolean, label: "Accept events", group: "Source"},
         %{
           name: :adapter_kind,
           kind: :select,
           label: "Payload shape",
+          group: "Source",
           options: :webhook_presets,
           help: "A preset fills in the shape and grouping; it never chooses the destination."
         },
-        %{name: :auth_kind, kind: :select, label: "Authentication", options: @auth_kinds},
+        %{
+          name: :auth_kind,
+          kind: :select,
+          label: "Authentication",
+          options: @auth_kinds,
+          group: "Verification"
+        },
         %{
           name: :secret_name,
           kind: :select,
           label: "Credential",
+          group: "Verification",
           options: :webhook_secrets,
-          help:
-            "One of the names in RYKER_WEBHOOK_SECRET_NAMES. The value stays in the " <>
-              "deployment environment and is never displayed here."
+          help: "A verified signing credential saved by Ryker. Its value is never shown again."
         },
         %{
           name: :destination_transport,
           kind: :select,
           label: "Destination",
-          options: @transports
+          options: @transports,
+          group: "Send work to"
         },
-        %{name: :destination_conversation_ref, kind: :text, label: "Conversation"},
-        %{name: :destination_thread_ref, kind: :text, label: "Thread"},
-        %{name: :context_ref, kind: :select, label: "Repository context", options: :scopes},
+        %{
+          name: :destination_conversation_ref,
+          kind: :text,
+          label: "Conversation",
+          group: "Send work to"
+        },
+        %{name: :destination_thread_ref, kind: :text, label: "Thread", group: "Send work to"},
+        %{
+          name: :context_ref,
+          kind: :select,
+          label: "Repository context",
+          options: :scopes,
+          group: "Send work to"
+        },
         %{
           name: :group_by_labels,
           kind: :list,
           label: "Correlate by labels",
+          group: "Send work to",
           help: "Events sharing these label values are treated as the same ongoing situation."
         },
         %{
           name: :mapping,
           kind: :mapping,
-          label: "Custom field mapping",
+          label: "Field mapping",
+          group: "Custom JSON",
           help:
             "Dotted paths into the payload, for a custom shape only. Event ID, status and " <>
               "title are required: without them an event cannot be identified, resolved or read."
@@ -382,7 +376,7 @@ defmodule Ryker.ControlPlane.SettingsSections do
         %{
           name: :publication_lifecycle,
           kind: :lifecycle,
-          label: "Deployment lifecycle filter",
+          label: "Deployment filters",
           help:
             "Optional. Restricts which deployment or Terraform events this source may report, " <>
               "to repositories that already have reviewed policies."
@@ -396,8 +390,7 @@ defmodule Ryker.ControlPlane.SettingsSections do
       schema: Work,
       title: "Work placement",
       description:
-        "The enrolled workspace that runs Work. Its workers are trusted infrastructure: " <>
-          "an unselected workspace means work is unconfigured, not that it runs somewhere else.",
+        "Choose a separately managed worker workspace. The bundled worker does not need changes here.",
       fields: [
         %{
           name: :workspace_ref,
@@ -436,23 +429,53 @@ defmodule Ryker.ControlPlane.SettingsSections do
       item_key: :id,
       title: "Token rates",
       description:
-        "Optional USD estimates per million tokens. Reported provider cost stays " <>
-          "authoritative; a missing rate stays unknown rather than being guessed, and " <>
-          "historical estimates keep the rate revision they were priced with.",
+        "Fallback USD estimates per million tokens. Ryker uses them only when the provider does not report cost.",
       fields: [
-        %{name: :execution_target, kind: :text, label: "Execution target"},
-        %{name: :input_usd_per_million, kind: :decimal, label: "Input"},
-        %{name: :cached_input_usd_per_million, kind: :decimal, label: "Cached input"},
-        %{name: :output_usd_per_million, kind: :decimal, label: "Output"},
-        %{name: :reasoning_usd_per_million, kind: :decimal, label: "Reasoning"},
-        %{name: :effective_from, kind: :date, label: "Effective from"},
-        %{name: :provenance, kind: :text, label: "Where this rate came from"}
+        %{name: :execution_target, kind: :text, label: "Execution target", group: "Model"},
+        %{
+          name: :input_usd_per_million,
+          kind: :decimal,
+          label: "Input",
+          group: "USD per million tokens"
+        },
+        %{
+          name: :cached_input_usd_per_million,
+          kind: :decimal,
+          label: "Cached input",
+          group: "USD per million tokens"
+        },
+        %{
+          name: :output_usd_per_million,
+          kind: :decimal,
+          label: "Output",
+          group: "USD per million tokens"
+        },
+        %{
+          name: :reasoning_usd_per_million,
+          kind: :decimal,
+          label: "Reasoning",
+          group: "USD per million tokens"
+        },
+        %{name: :effective_from, kind: :date, label: "Effective from", group: "Source"},
+        %{
+          name: :provenance,
+          kind: :text,
+          label: "Where this rate came from",
+          group: "Source"
+        }
       ]
     }
   ]
 
   @spec sections() :: [map()]
   def sections, do: @sections
+
+  @doc "Fields grouped for a readable form while preserving their declared order."
+  def field_groups(section) do
+    section.fields
+    |> Enum.chunk_by(&Map.get(&1, :group))
+    |> Enum.map(fn fields -> {Map.get(hd(fields), :group), fields} end)
+  end
 
   @spec fetch(atom() | String.t()) :: {:ok, map()} | :error
   def fetch(key) when is_atom(key) do

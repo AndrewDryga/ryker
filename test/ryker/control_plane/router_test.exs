@@ -216,11 +216,8 @@ defmodule Ryker.ControlPlane.RouterTest do
     assert conversation.resp_body =~ "class=\"lab-reaction-picker\""
     assert conversation.resp_body =~ "aria-label=\"Add reaction\""
 
-    assert conversation.resp_body =~
-             "/conversations/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6/messages/018f3ef7-1f62-7ee0-a83c-0c12f21d83e7/edit"
-
-    assert conversation.resp_body =~
-             "/conversations/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6/messages/018f3ef7-1f62-7ee0-a83c-0c12f21d83e7/delete"
+    refute conversation.resp_body =~ "/messages/018f3ef7-1f62-7ee0-a83c-0c12f21d83e7/edit"
+    refute conversation.resp_body =~ "/messages/018f3ef7-1f62-7ee0-a83c-0c12f21d83e7/delete"
 
     refute conversation.resp_body =~ "<script"
     assert length(Regex.scan(~r/>Staging</, conversation.resp_body)) == 1
@@ -313,134 +310,20 @@ defmodule Ryker.ControlPlane.RouterTest do
                        }
                      ]}
 
-    edit_resource =
-      "018f3ef7-1f62-7ee0-a83c-0c12f21d83e6:018f3ef7-1f62-7ee0-a83c-0c12f21d83e7:edit"
-
-    edit_token = CSRF.token(@secret, "conversation_lab:message", edit_resource)
-
-    rejected_edit =
-      request(
-        :post,
-        "/conversations/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6/messages/018f3ef7-1f62-7ee0-a83c-0c12f21d83e7/edit",
-        URI.encode_query(%{"_token" => "wrong", "message" => "Corrected request"})
-      )
-
-    assert rejected_edit.status == 403
-    refute_received {:lab_message_edit, _conversation, _item, _message}
-
-    accepted_edit =
-      request(
-        :post,
-        "/conversations/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6/messages/018f3ef7-1f62-7ee0-a83c-0c12f21d83e7/edit",
-        URI.encode_query(%{"_token" => edit_token, "message" => "Corrected request"})
-      )
-
-    assert accepted_edit.status == 303
-
-    assert_received {:lab_message_edit, "018f3ef7-1f62-7ee0-a83c-0c12f21d83e6",
-                     "018f3ef7-1f62-7ee0-a83c-0c12f21d83e7", "Corrected request"}
-
-    # The inline editor saves without leaving the page: it asks for JSON and
-    # gets the same 202 receipt as the composer, one revision per request.
-    live_edit =
-      json_request(
-        "/conversations/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6/messages/018f3ef7-1f62-7ee0-a83c-0c12f21d83e7/edit",
-        URI.encode_query(%{"_token" => edit_token, "message" => "Corrected again"})
-      )
-
-    assert live_edit.status == 202
-    assert Jason.decode!(live_edit.resp_body) == %{"accepted" => true}
-    assert get_resp_header(live_edit, "location") == []
-
-    assert_received {:lab_message_edit, "018f3ef7-1f62-7ee0-a83c-0c12f21d83e6",
-                     "018f3ef7-1f62-7ee0-a83c-0c12f21d83e7", "Corrected again"}
+    # Edit, delete and reaction mutations are LiveView-only. The retired HTTP
+    # endpoints fail like any unknown path so there is one authoritative
+    # mutation transport and no stale browser fallback.
+    for path <- [
+          "/conversations/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6/messages/018f3ef7-1f62-7ee0-a83c-0c12f21d83e7/edit",
+          "/conversations/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6/messages/018f3ef7-1f62-7ee0-a83c-0c12f21d83e7/delete",
+          "/conversations/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6/replies/control-plane-message%3Alab-reply/reactions"
+        ] do
+      assert request(:post, path, "_token=stale").status == 405
+    end
 
     refute_received {:lab_message_edit, _conversation, _item, _message}
-
-    rejected_live_edit =
-      json_request(
-        "/conversations/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6/messages/018f3ef7-1f62-7ee0-a83c-0c12f21d83e7/edit",
-        URI.encode_query(%{"_token" => "wrong", "message" => "Corrected again"})
-      )
-
-    assert rejected_live_edit.status == 403
-    refute_received {:lab_message_edit, _conversation, _item, _message}
-
-    delete_resource =
-      "018f3ef7-1f62-7ee0-a83c-0c12f21d83e6:018f3ef7-1f62-7ee0-a83c-0c12f21d83e7:delete"
-
-    delete_token = CSRF.token(@secret, "conversation_lab:message", delete_resource)
-
-    accepted_delete =
-      request(
-        :post,
-        "/conversations/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6/messages/018f3ef7-1f62-7ee0-a83c-0c12f21d83e7/delete",
-        URI.encode_query(%{"_token" => delete_token})
-      )
-
-    assert accepted_delete.status == 303
-
-    assert_received {:lab_message_delete, "018f3ef7-1f62-7ee0-a83c-0c12f21d83e6",
-                     "018f3ef7-1f62-7ee0-a83c-0c12f21d83e7"}
-
-    live_delete =
-      json_request(
-        "/conversations/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6/messages/018f3ef7-1f62-7ee0-a83c-0c12f21d83e7/delete",
-        URI.encode_query(%{"_token" => delete_token})
-      )
-
-    assert live_delete.status == 202
-    assert Jason.decode!(live_delete.resp_body) == %{"accepted" => true}
-
-    assert_received {:lab_message_delete, "018f3ef7-1f62-7ee0-a83c-0c12f21d83e6",
-                     "018f3ef7-1f62-7ee0-a83c-0c12f21d83e7"}
-
-    reaction_message_ref = "control-plane-message:lab-reply"
-
-    reaction_resource =
-      "018f3ef7-1f62-7ee0-a83c-0c12f21d83e6:#{reaction_message_ref}"
-
-    reaction_token = CSRF.token(@secret, "conversation_lab:reaction", reaction_resource)
-
-    rejected_reaction =
-      request(
-        :post,
-        "/conversations/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6/replies/control-plane-message%3Alab-reply/reactions",
-        URI.encode_query(%{"_token" => "wrong", "action" => "add", "emoji" => "heart"})
-      )
-
-    assert rejected_reaction.status == 403
+    refute_received {:lab_message_delete, _conversation, _item}
     refute_received {:lab_reaction, _conversation, _message, _action, _emoji}
-
-    accepted_reaction =
-      request(
-        :post,
-        "/conversations/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6/replies/control-plane-message%3Alab-reply/reactions",
-        URI.encode_query(%{
-          "_token" => reaction_token,
-          "action" => "add",
-          "emoji" => "heart"
-        })
-      )
-
-    assert accepted_reaction.status == 303
-
-    assert_received {:lab_reaction, "018f3ef7-1f62-7ee0-a83c-0c12f21d83e6",
-                     "control-plane-message:lab-reply", :add, "heart"}
-
-    # A pill or picker submission from the page gets the 202 receipt; the
-    # exact reply target and the normalized name still reach the action.
-    live_reaction =
-      json_request(
-        "/conversations/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6/replies/control-plane-message%3Alab-reply/reactions",
-        URI.encode_query(%{"_token" => reaction_token, "action" => "remove", "emoji" => "heart"})
-      )
-
-    assert live_reaction.status == 202
-    assert Jason.decode!(live_reaction.resp_body) == %{"accepted" => true}
-
-    assert_received {:lab_reaction, "018f3ef7-1f62-7ee0-a83c-0c12f21d83e6",
-                     "control-plane-message:lab-reply", :remove, "heart"}
 
     [_, task_token] =
       Regex.run(
@@ -1512,7 +1395,7 @@ defmodule Ryker.ControlPlane.RouterTest do
     assert shadow =~ "Where the time went"
     refute shadow =~ "Token pricing"
     refute shadow =~ "Rates used for estimates"
-    assert shadow =~ "Evaluation runs: replies and reactions are suppressed."
+    refute shadow =~ "Evaluation runs: replies and reactions are suppressed."
     # Scope defines every total, so it belongs above the figures, not inside
     # a footnote below two panels (and below both panels on narrow screens).
     {scope_at, _} = :binary.match(shadow, "Execution scope")
@@ -1579,18 +1462,6 @@ defmodule Ryker.ControlPlane.RouterTest do
       placeholder: LabPage.example_for(conversation_id),
       now: ~U[2026-08-28 12:30:00Z]
     )
-  end
-
-  # A form post from the page's own JavaScript: it asks for a JSON receipt
-  # instead of the redirect a plain browser submission gets.
-  defp json_request(path, body) do
-    :post
-    |> conn(path, body)
-    |> Map.put(:host, "localhost")
-    |> Map.put(:remote_ip, {127, 0, 0, 1})
-    |> put_req_header("content-type", "application/x-www-form-urlencoded")
-    |> put_req_header("accept", "application/json")
-    |> Router.call(Router.init(options()))
   end
 
   defp multipart_request(path, token, message, filename, media_type, data) do

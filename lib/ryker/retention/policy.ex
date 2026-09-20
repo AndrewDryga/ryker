@@ -58,14 +58,37 @@ defmodule Ryker.Retention.Policy do
         "exact verified installation, repository and actor identities for one connected repository"
     },
     %{
+      table: "github_repository_events",
+      class: :operational,
+      why:
+        "authenticated webhook delivery identity, quiet-routing disposition and connection lag evidence"
+    },
+    %{
       table: "publication_settings",
       class: :kept,
       why: "publication identity and desired state; existing branch namespaces depend on it"
     },
     %{
-      table: "emisar_settings",
+      table: "integration_credentials",
       class: :kept,
-      why: "Emisar approval monitoring desired state"
+      why:
+        "encrypted integration credentials and their verification status; values remain unreadable without the deployment root key"
+    },
+    %{
+      table: "integration_credential_events",
+      class: :audit,
+      why:
+        "content-free credential create, replace, verify and delete receipts expire at the audit horizon"
+    },
+    %{
+      table: "emisar_connection_settings",
+      class: :kept,
+      why: "verified named Emisar account identities, endpoints and desired monitoring state"
+    },
+    %{
+      table: "emisar_connection_bindings",
+      class: :kept,
+      why: "trusted repository, context and purpose routes to named Emisar accounts"
     },
     %{
       table: "report_settings",

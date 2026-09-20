@@ -14,9 +14,8 @@ function editableMessage(id, body) {
     focus() { this.focused++ }, setSelectionRange(a, b) { this.selection = [a, b] }, setCustomValidity() {}, reportValidity() {}}
   const error = {hidden: true, textContent: "", id: `lab-edit-${id}-error`, attributes: {}, setAttribute(n, v) { this.attributes[n] = v }, removeAttribute(n) { delete this.attributes[n] }}
   const save = {disabled: false, attributes: {}, setAttribute(n, v) { this.attributes[n] = v }, removeAttribute(n) { delete this.attributes[n] }}
-  const form = {id: `lab-edit-${id}`, hidden: true, dataset: {labEdit: id}, parent: article, selectors: [".lab-edit-form", "form"], isConnected: true,
-    action: `http://127.0.0.1/conversations/c/messages/${id}/edit`,
-    getAttribute(n) { return n === "action" ? `/conversations/c/messages/${id}/edit` : null },
+  const form = {id: `lab-edit-${id}`, hidden: true, dataset: {labEdit: id, draftAction: `message:${id}`}, parent: article, selectors: [".lab-edit-form", "form"], isConnected: true, submitted: 0,
+    getAttribute() { return null }, requestSubmit() { this.submitted++ },
     matches(s) { return this.selectors.includes(s) },
     querySelector(s) { return ({"textarea": textarea, "textarea[name=message]": textarea, ".lab-edit-error": error, ".lab-edit-save": save})[s] || null },
     elements: [textarea], checkValidity() { return true }}
@@ -81,7 +80,7 @@ test("Edit opens the stored body in place with the caret at the end; Cancel rest
   assert.equal(f.pushed.length, 0)
 })
 
-test("Escape cancels, Cmd/Ctrl+Enter saves, plain Enter is a newline", async () => {
+test("Escape cancels, Cmd/Ctrl+Enter submits the LiveView form, plain Enter is a newline", () => {
   const m = editableMessage(uuid, "Body")
   const f = page([m])
   f.controls.click({target: m.toggle})
@@ -93,8 +92,8 @@ test("Escape cancels, Cmd/Ctrl+Enter saves, plain Enter is a newline", async () 
   const save = {key: "Enter", metaKey: true, target: m.textarea, preventDefault() { prevented++ }}
   assert.equal(f.controls.keydown(save), true)
   assert.equal(prevented, 1)
-  await new Promise(resolve => setTimeout(resolve, 0))
-  assert.equal(f.fetches.length, 1)
+  assert.equal(m.form.submitted, 1)
+  assert.equal(f.fetches.length, 0)
   const again = editableMessage(uuid, "Body")
   const g = page([again])
   g.controls.click({target: again.toggle})
@@ -103,7 +102,7 @@ test("Escape cancels, Cmd/Ctrl+Enter saves, plain Enter is a newline", async () 
   assert.equal(again.toggle.focused, 1)
 })
 
-test("saving posts one revision to that message's own route and exits only on acceptance", async () => {
+test("saving leaves the mutation to LiveView and exits only on its acceptance event", () => {
   // A second click while the first save is in flight must not create a second
   // revision. Acceptance exits the editor and reconciles through the normal
   // live refresh; the browser never rewrites the transcript itself.
@@ -113,42 +112,38 @@ test("saving posts one revision to that message's own route and exits only on ac
   m.textarea.value = "Body, corrected"
   const event = {target: m.form, preventDefault() { this.prevented = true }}
   const first = f.controls.submit(event)
-  const second = f.controls.submit({target: m.form, preventDefault() {}})
-  assert.equal(event.prevented, true)
+  const duplicate = {target: m.form, preventDefault() { this.prevented = true }}
+  const second = f.controls.submit(duplicate)
+  assert.equal(first, false)
+  assert.equal(event.prevented, undefined)
   assert.equal(second, true)
-  assert.equal(m.save.disabled, true)
-  await first
-  assert.equal(f.fetches.length, 1)
-  assert.equal(f.fetches[0].url, m.form.getAttribute("action"))
-  assert.equal(f.fetches[0].options.method, "POST")
-  assert.equal(f.fetches[0].options.headers.Accept, "application/json")
+  assert.equal(duplicate.prevented, true)
+  assert.equal(f.fetches.length, 0)
+  f.controls.accept({kind: "edit", id: uuid})
   assert.equal(m.form.hidden, true)
   assert.equal(m.article.classList.contains("is-editing"), false)
-  assert.equal(m.save.disabled, false)
-  assert.deepEqual(f.pushed, [["refresh", {}]])
+  assert.deepEqual(f.pushed, [])
   assert.equal(f.store.size, 0)
   assert.equal(m.error.hidden, true)
 })
 
-test("a rejected or unconfirmed save keeps the editor open with an actionable error beside the text", async () => {
-  for (const [response, expected] of [
-    [{status: 409, json: async () => ({})}, /deleted or changed/],
-    [{status: 422, json: async () => ({})}, /too long|empty|plain text/],
-    [{status: 403, json: async () => ({})}, /could not be confirmed/],
-    [new Error("network failed"), /not confirmed/]
+test("a rejected save keeps the editor open with an actionable error beside the text", () => {
+  for (const [reason, expected] of [
+    ["conflict", /deleted or changed/],
+    ["invalid", /too long|empty|plain text/],
+    ["unauthorized", /could not be confirmed/]
   ]) {
     const m = editableMessage(uuid, "Body")
     const f = page([m])
-    f.setResponse(response)
     f.controls.click({target: m.toggle})
     m.textarea.value = "Body, corrected"
-    await f.controls.submit({target: m.form, preventDefault() {}})
+    assert.equal(f.controls.submit({target: m.form, preventDefault() {}}), false)
+    f.controls.reject({kind: "edit", id: uuid, reason})
     assert.equal(m.form.hidden, false, "editor stays open")
     assert.equal(m.textarea.value, "Body, corrected", "unsaved text is kept")
     assert.equal(m.error.hidden, false)
     assert.match(m.error.textContent, expected)
     assert.equal(m.textarea.attributes["aria-describedby"], m.error.id)
-    assert.equal(m.save.disabled, false)
     assert.equal(f.pushed.length, 0)
   }
 })
@@ -198,7 +193,7 @@ test("an editor reopens with its draft after a reconnect, without stealing focus
   const m = editableMessage(uuid, "Body")
   const f = page([m])
   f.store.set("ryker:editing:/conversations/c", uuid)
-  f.store.set(`ryker:draft:/conversations/c:/conversations/c/messages/${uuid}/edit:message`, "Body, from before the reconnect")
+  f.store.set(`ryker:draft:/conversations/c:message:${uuid}:message`, "Body, from before the reconnect")
   f.controls.restore()
   assert.equal(m.form.hidden, false)
   assert.equal(m.textarea.value, "Body, from before the reconnect")
@@ -207,7 +202,7 @@ test("an editor reopens with its draft after a reconnect, without stealing focus
 
 test("edit drafts are keyed by message and never share the composer's key", () => {
   const m = editableMessage(uuid, "Body")
-  assert.equal(draftKey(m.textarea, "/conversations/c"), `ryker:draft:/conversations/c:/conversations/c/messages/${uuid}/edit:message`)
+  assert.equal(draftKey(m.textarea, "/conversations/c"), `ryker:draft:/conversations/c:message:${uuid}:message`)
   const other = editableMessage("11111111-2222-4333-8444-555555555555", "Other")
   assert.notEqual(draftKey(other.textarea, "/conversations/c"), draftKey(m.textarea, "/conversations/c"))
   const composer = {name: "message", tagName: "TEXTAREA", form: {getAttribute: () => "/conversations/c/messages", matches: s => s === ".composer", dataset: {}}}

@@ -14,7 +14,7 @@ defmodule Ryker.ControlPlane.WorkRecoveryTest do
     assert brief.workspace == "No files changed. No checks ran."
     assert brief.model_output == nil
     assert brief.action == nil
-    assert brief.setup_href == "/configuration#code-editing"
+    assert brief.setup_href == "/settings/system#code-editing"
     assert WorkRecovery.not_started?(turn)
   end
 

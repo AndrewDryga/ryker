@@ -107,11 +107,13 @@ defmodule Ryker.ControlPlane.LabControls do
 
     Map.put(message, :message_controls, %{
       delete: %{
-        path: "/conversations/#{conversation_id}/messages/#{item_id}/delete",
+        conversation_id: conversation_id,
+        item_id: item_id,
         token: CSRF.token(csrf_secret, @message_action, delete_resource)
       },
       edit: %{
-        path: "/conversations/#{conversation_id}/messages/#{item_id}/edit",
+        conversation_id: conversation_id,
+        item_id: item_id,
         token: CSRF.token(csrf_secret, @message_action, edit_resource)
       }
     })
@@ -129,8 +131,8 @@ defmodule Ryker.ControlPlane.LabControls do
     resource = reaction_resource(conversation_id, message_ref)
 
     Map.put(message, :reaction_controls, %{
-      path:
-        "/conversations/#{conversation_id}/replies/#{URI.encode(message_ref, &URI.char_unreserved?/1)}/reactions",
+      conversation_id: conversation_id,
+      message_ref: message_ref,
       token: CSRF.token(csrf_secret, @reaction_action, resource)
     })
   end

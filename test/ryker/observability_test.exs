@@ -343,29 +343,51 @@ defmodule Ryker.ObservabilityTest do
     # Readiness that only looks at what assembled would call a failed apply
     # healthy, which is exactly how an operator ends up debugging the wrong
     # code: the settings say one thing and the process is running another.
+    previous_learning = Application.get_env(:ryker, :learning, :missing)
+    on_exit(fn -> restore_env(:learning, previous_learning) end)
+    Application.put_env(:ryker, :learning, %{configured: true})
+
     {:ok, saved} = Settings.initialize("control-plane:local")
-    assert {:ok, _ready} = Observability.ready(check_progress: false)
+    assert {:ok, _ready} = Observability.ready(check_progress: false, check_runtimes: false)
 
     :ok = Settings.record_application(saved.installation.revision, {:error, :assembly_failed})
 
-    assert {:error, readiness} = Observability.ready(check_progress: false)
+    assert {:error, readiness} =
+             Observability.ready(check_progress: false, check_runtimes: false)
+
     assert readiness.settings.failure == "assembly_failed"
     assert readiness.settings.revision == saved.installation.revision
     assert readiness.settings.applied_revision == 0
 
     :ok = Settings.record_application(saved.installation.revision, :ok)
-    assert {:ok, applied} = Observability.ready(check_progress: false)
+
+    assert {:ok, applied} =
+             Observability.ready(check_progress: false, check_runtimes: false)
+
     assert applied.settings.applied_revision == saved.installation.revision
   end
 
   test "an integration this installation turned on but never started is named" do
+    previous_slack = Application.get_env(:ryker, :slack, :missing)
+    on_exit(fn -> restore_env(:slack, previous_slack) end)
+    Application.delete_env(:ryker, :slack)
+
     {:ok, saved} = Settings.initialize("control-plane:local")
 
-    {:ok, _} =
-      Settings.save_learning(%{enabled: true}, saved.installation.revision, "control-plane:local")
+    {:ok, _saved} =
+      Settings.save_slack(
+        %{
+          enabled: true,
+          workspace_ref: "T0123456789",
+          bot_ref: "A0123456789",
+          bot_user_ref: "U0123456789"
+        },
+        saved.installation.revision,
+        "control-plane:local"
+      )
 
     assert {:error, readiness} = Observability.ready(check_progress: false)
-    assert readiness.settings.unconfigured == [:learning]
+    assert readiness.settings.unconfigured == [:slack]
     refute readiness.settings.failure
   end
 
@@ -977,13 +999,12 @@ defmodule Ryker.ObservabilityTest do
       state_tools: %{ip: {127, 0, 0, 1}, port: 0},
       worker_gateway: nil,
       github_listener: %{ip: {127, 0, 0, 1}, port: 0},
+      github_public_url: "http://127.0.0.1:4319/v1/github",
       webhook_listener: %{ip: {127, 0, 0, 1}, port: 0},
+      webhook_public_url: "http://127.0.0.1:4320",
       storage_root: System.tmp_dir!(),
-      github_api_url: "https://api.github.com",
-      github_app_id: nil,
-      emisar_rpc_url: "https://emisar.dev/api/mcp/rpc",
-      log_level: :warning,
-      webhook_secret_names: []
+      credential_key: :binary.copy(<<7>>, 32),
+      log_level: :warning
     }
   end
 end

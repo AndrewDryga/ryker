@@ -59,7 +59,7 @@ defmodule Ryker.ControlPlane.WorkRecovery do
           else: "A delivery receipt is recorded; check the conversation before sending again."
         ),
       workspace: workspace_status(unsupported, finalizing, closed),
-      setup_href: if(unsupported, do: "/configuration#code-editing"),
+      setup_href: if(unsupported, do: "/settings/system#code-editing"),
       not_started: not_started?(turn),
       action: action,
       action_label: action_label(finalizing, resumable),

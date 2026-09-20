@@ -57,6 +57,10 @@ defmodule Ryker.Settings.RepositoryContext do
           snapshot.policy_bindings,
           &(&1.scope_kind == :context and &1.scope_ref == context.ref)
         ) or
+        Enum.any?(
+          snapshot.emisar_bindings,
+          &(&1.scope_kind == :context and &1.scope_ref == context.ref)
+        ) or
         Enum.any?(snapshot.webhook_sources, &(&1.context_ref == context.ref))
 
     if referenced, do: {:error, [{:ref, :referenced}]}, else: :ok

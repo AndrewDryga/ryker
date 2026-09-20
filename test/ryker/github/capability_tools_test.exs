@@ -4,7 +4,7 @@ defmodule Ryker.GitHub.CapabilityToolsTest do
   alias Ryker.Delivery.PlatformAction
   alias Ryker.Episodes.Episode
   alias Ryker.GitHub.{CapabilityTools, SourceRef}
-  alias Ryker.Work.Turn
+  alias Ryker.Work.{Session, Turn}
 
   defmodule ContextAPI do
     def read_context(client, request) do
@@ -15,6 +15,26 @@ defmodule Ryker.GitHub.CapabilityToolsTest do
     def search(client, request) do
       send(client, {:search_github, request})
       {:ok, %{"items" => [%{"title" => "Matching issue"}], "next_cursor" => "page:2"}}
+    end
+
+    def read_ci_attempt(client, repository, run_id, attempt) do
+      send(client, {:read_ci, repository, run_id, attempt})
+      {:ok, %{"attempt" => attempt, "run_id" => run_id, "status" => "completed"}}
+    end
+
+    def rerun_failed_ci(client, repository, run_id, attempt) do
+      send(client, {:rerun_ci, repository, run_id, attempt})
+      {:ok, %{"requested_attempt" => attempt + 1, "run_id" => run_id}}
+    end
+
+    def cancel_ci(client, repository, run_id, attempt) do
+      send(client, {:cancel_ci, repository, run_id, attempt})
+      {:ok, %{"attempt" => attempt, "run_id" => run_id, "status" => "cancelling"}}
+    end
+
+    def submit_review(client, repository, number, sha, event, body, comments) do
+      send(client, {:submit_review, repository, number, sha, event, body, comments})
+      {:ok, %{"commit_id" => sha, "review_id" => 77}}
     end
   end
 
@@ -125,8 +145,10 @@ defmodule Ryker.GitHub.CapabilityToolsTest do
   test "exposes GitHub's exact emoji set and freezes a current comment reaction" do
     options = options()
 
-    assert [read, search, %{"name" => "set_github_reaction"} = tool] =
-             CapabilityTools.list(options)
+    tools = CapabilityTools.list(options)
+    read = Enum.find(tools, &(&1["name"] == "read_github_conversation"))
+    search = Enum.find(tools, &(&1["name"] == "search_github"))
+    tool = Enum.find(tools, &(&1["name"] == "set_github_reaction"))
 
     assert read["name"] == "read_github_conversation"
     assert search["name"] == "search_github"
@@ -198,6 +220,70 @@ defmodule Ryker.GitHub.CapabilityToolsTest do
                        repository: "octo/example",
                        state: "open"
                      }}
+  end
+
+  test "Slack work can review and rerun CI only for its host-bound repository grants" do
+    options = context_options()
+    binding = slack_work_binding()
+    sha = String.duplicate("a", 40)
+
+    assert {:ok, %{"items" => [%{"title" => "Exact pull"}]}} =
+             CapabilityTools.call(
+               "read_github_pull_request",
+               %{
+                 "cursor" => nil,
+                 "limit" => 20,
+                 "number" => 51,
+                 "review_root_id" => nil,
+                 "section" => "subject"
+               },
+               binding,
+               options
+             )
+
+    assert_received {:read_github_context,
+                     %{number: 51, repository: "octo/example", subject_kind: "pull"}}
+
+    assert {:ok, %{"review_id" => 77}} =
+             CapabilityTools.call(
+               "submit_github_review",
+               %{
+                 "body" => "One actionable finding.",
+                 "comments" => [
+                   %{
+                     "body" => "Handle this error.",
+                     "line" => 12,
+                     "path" => "lib/a.ex",
+                     "side" => "RIGHT"
+                   }
+                 ],
+                 "event" => "request_changes",
+                 "head_sha" => sha,
+                 "number" => 51
+               },
+               binding,
+               options
+             )
+
+    assert_received {:submit_review, "octo/example", 51, ^sha, "REQUEST_CHANGES",
+                     "One actionable finding.", [_comment]}
+
+    assert CapabilityTools.call(
+             "cancel_github_ci",
+             %{"attempt" => 1, "run_id" => 91},
+             binding,
+             options
+           ) == {:error, "unauthorized"}
+
+    assert {:ok, %{"requested_attempt" => 2}} =
+             CapabilityTools.call(
+               "rerun_github_ci",
+               %{"attempt" => 1, "run_id" => 91},
+               binding,
+               options
+             )
+
+    assert_received {:rerun_ci, "octo/example", 91, 1}
   end
 
   test "context tools reject crossed destinations cursors and unconfigured clients" do
@@ -498,6 +584,8 @@ defmodule Ryker.GitHub.CapabilityToolsTest do
         "github-main" => %{
           api: ContextAPI,
           client: self(),
+          grants: ~w(read review rerun_ci),
+          repository_ref: "repo-main",
           repository_full_name: "octo/example",
           repository_id: 2_001
         }
@@ -514,6 +602,19 @@ defmodule Ryker.GitHub.CapabilityToolsTest do
         destination_transport: "github"
       },
       turn: %Turn{id: "turn-id", lease_ref: Ecto.UUID.generate()}
+    }
+  end
+
+  defp slack_work_binding do
+    %{
+      episode: %Episode{
+        id: "episode-slack",
+        destination_conversation_ref: "slack:T1:C1",
+        destination_thread_ref: "slack:T1:C1:100.1",
+        destination_transport: "slack"
+      },
+      session: %Session{id: "session-slack", repository_ref: "repo-main"},
+      turn: %Turn{id: "turn-slack", lease_ref: Ecto.UUID.generate()}
     }
   end
 end

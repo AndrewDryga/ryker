@@ -20,14 +20,18 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
     LabPage,
     Navigation,
     Pages,
+    PathRef,
     RequestFilters,
     RequestPage,
     SettingsPage,
+    SettingsSections,
     SettingsView,
     SlackNames,
     Updates,
     UsageProjection
   }
+
+  alias Ryker.{IntegrationSetup, Settings}
 
   @impl true
   def mount(_params, _session, socket) do
@@ -58,6 +62,15 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
        settings: nil,
        settings_commands: nil,
        settings_error: nil,
+       settings_section: :overview,
+       area_settings: [],
+       setup_notice: nil,
+       setup_reveal: nil,
+       setup_incomplete: false,
+       github_repositories: [],
+       slack_members: [],
+       emisar_edit_ref: nil,
+       webhook_credential_editing: false,
        overview: nil,
        activity: nil,
        filter_menu: nil,
@@ -102,7 +115,8 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
        body: "",
        page_title: "Workspace",
        page_description: nil,
-       observed_at: nil
+       observed_at: nil,
+       webhook_credential_editing: false
      )
      |> assign_conversation_draft(location.path)
      |> refresh(true)}
@@ -185,6 +199,106 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
   def handle_event(event, _params, socket) when event in ["refresh", "show-new"],
     do: {:noreply, refresh(socket, true)}
 
+  def handle_event(
+        "edit-lab-message",
+        %{
+          "_token" => token,
+          "conversation_id" => conversation_id,
+          "item_id" => item_id,
+          "message" => message
+        },
+        socket
+      ) do
+    options = Endpoint.config(:control_plane)
+
+    result =
+      with {:ok, conversation_id} <- PathRef.uuid(conversation_id),
+           {:ok, item_id} <- PathRef.uuid(item_id),
+           true <-
+             LabControls.valid_message_token?(
+               options.csrf_secret,
+               conversation_id,
+               item_id,
+               :edit,
+               token
+             ),
+           {:ok, _receipt} <- options.actions.edit_lab_message.(conversation_id, item_id, message) do
+        {:ok, item_id}
+      else
+        false -> {:error, :unauthorized}
+        {:error, reason} -> {:error, reason}
+      end
+
+    lab_mutation_result(socket, :edit, item_id, result)
+  end
+
+  def handle_event(
+        "delete-lab-message",
+        %{
+          "_token" => token,
+          "conversation_id" => conversation_id,
+          "item_id" => item_id
+        },
+        socket
+      ) do
+    options = Endpoint.config(:control_plane)
+
+    result =
+      with {:ok, conversation_id} <- PathRef.uuid(conversation_id),
+           {:ok, item_id} <- PathRef.uuid(item_id),
+           true <-
+             LabControls.valid_message_token?(
+               options.csrf_secret,
+               conversation_id,
+               item_id,
+               :delete,
+               token
+             ),
+           {:ok, _receipt} <- options.actions.delete_lab_message.(conversation_id, item_id) do
+        {:ok, item_id}
+      else
+        false -> {:error, :unauthorized}
+        {:error, reason} -> {:error, reason}
+      end
+
+    lab_mutation_result(socket, :delete, item_id, result)
+  end
+
+  def handle_event(
+        "react-to-lab-message",
+        %{
+          "_token" => token,
+          "action" => action,
+          "conversation_id" => conversation_id,
+          "emoji" => emoji,
+          "message_ref" => message_ref
+        },
+        socket
+      ) do
+    options = Endpoint.config(:control_plane)
+
+    result =
+      with {:ok, conversation_id} <- PathRef.uuid(conversation_id),
+           {:ok, message_ref} <- PathRef.decode(message_ref),
+           {:ok, action} <- lab_reaction_action(action),
+           true <-
+             LabControls.valid_reaction_token?(
+               options.csrf_secret,
+               conversation_id,
+               message_ref,
+               token
+             ),
+           {:ok, _transition} <-
+             options.actions.react_to_lab_message.(conversation_id, message_ref, action, emoji) do
+        {:ok, message_ref}
+      else
+        false -> {:error, :unauthorized}
+        {:error, reason} -> {:error, reason}
+      end
+
+    lab_mutation_result(socket, :reaction, message_ref, result)
+  end
+
   def handle_event("initialize-settings", _params, socket) do
     case initialize_settings(socket) do
       {:ok, snapshot} ->
@@ -193,6 +307,261 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
 
       {:error, reason} ->
         {:noreply, assign(socket, :settings_error, initialize_error(reason))}
+    end
+  end
+
+  def handle_event("connect-slack", %{"connection" => params}, socket) do
+    case IntegrationSetup.connect_slack(params) do
+      {:ok, _result} ->
+        members =
+          case IntegrationSetup.slack_members() do
+            {:ok, found} -> found
+            _error -> []
+          end
+
+        {:noreply,
+         socket
+         |> refresh_settings()
+         |> assign(setup_notice: "Slack is verified.", setup_reveal: nil, slack_members: members)}
+
+      {:error, reason} ->
+        {:noreply, assign(socket, setup_notice: setup_error(reason), setup_reveal: nil)}
+    end
+  end
+
+  def handle_event("load-slack-members", _params, socket) do
+    case IntegrationSetup.slack_members() do
+      {:ok, members} -> {:noreply, assign(socket, slack_members: members, setup_notice: nil)}
+      {:error, reason} -> {:noreply, assign(socket, setup_notice: setup_error(reason))}
+    end
+  end
+
+  def handle_event("save-slack-choices", params, socket) do
+    allowed_members = MapSet.new(socket.assigns.slack_members, & &1.id)
+
+    operators =
+      params
+      |> Map.get("operators", [])
+      |> List.wrap()
+      |> Enum.filter(&MapSet.member?(allowed_members, &1))
+
+    view = elem(socket.assigns.settings, 1)
+
+    attributes = %{
+      enabled: true,
+      operators: operators,
+      default_participation: :mentions
+    }
+
+    case Settings.save_slack(attributes, view.revision, Settings.actor()) do
+      {:ok, _snapshot} ->
+        {:noreply,
+         socket |> refresh_settings() |> assign(setup_notice: "Slack choices are saved.")}
+
+      {:error, reason} ->
+        {:noreply, assign(socket, setup_notice: setup_error(reason))}
+    end
+  end
+
+  def handle_event("connect-github", %{"connection" => params}, socket) do
+    case IntegrationSetup.connect_github(params) do
+      {:ok, result} ->
+        {:noreply,
+         socket
+         |> refresh_settings()
+         |> assign(
+           setup_notice: "GitHub App #{result.app_slug} is verified.",
+           setup_reveal: %{label: "GitHub webhook secret", value: result.webhook_secret}
+         )}
+
+      {:error, reason} ->
+        {:noreply, assign(socket, setup_notice: setup_error(reason), setup_reveal: nil)}
+    end
+  end
+
+  def handle_event("discover-github-repositories", _params, socket) do
+    case IntegrationSetup.github_repositories() do
+      {:ok, repositories} ->
+        {:noreply,
+         assign(socket,
+           github_repositories: repositories,
+           setup_notice: "Found #{length(repositories)} available repositories.",
+           setup_reveal: nil
+         )}
+
+      {:error, reason} ->
+        {:noreply, assign(socket, setup_notice: setup_error(reason), setup_reveal: nil)}
+    end
+  end
+
+  def handle_event("import-github-repositories", params, socket) do
+    selected = params |> Map.get("repository_ids", []) |> List.wrap() |> MapSet.new()
+
+    repositories =
+      if Map.get(params, "import_mode") == "all" do
+        Enum.reject(socket.assigns.github_repositories, & &1.already_present)
+      else
+        Enum.filter(socket.assigns.github_repositories, fn repository ->
+          MapSet.member?(selected, to_string(repository.repository_id))
+        end)
+      end
+
+    case IntegrationSetup.import_github_repositories(repositories,
+           auto_add_repositories: Map.get(params, "auto_add_repositories") == "true"
+         ) do
+      {:ok, result} ->
+        message =
+          "#{length(result.added)} added · #{length(result.already_present)} already present · " <>
+            "#{length(result.failed)} failed"
+
+        {:noreply,
+         socket
+         |> refresh_settings()
+         |> assign(setup_notice: message, setup_reveal: nil)}
+
+      {:error, reason} ->
+        {:noreply, assign(socket, setup_notice: setup_error(reason), setup_reveal: nil)}
+    end
+  end
+
+  def handle_event("connect-emisar", %{"connection" => params}, socket) do
+    {:noreply,
+     finish_emisar_edit(
+       socket,
+       IntegrationSetup.connect_emisar(params),
+       "Emisar account is connected."
+     )}
+  end
+
+  def handle_event("show-emisar-form", %{"ref" => ref}, socket) when is_binary(ref) do
+    {:noreply, assign(socket, emisar_edit_ref: ref, setup_notice: nil)}
+  end
+
+  def handle_event("hide-emisar-form", _params, socket) do
+    {:noreply, assign(socket, :emisar_edit_ref, nil)}
+  end
+
+  def handle_event("rotate-emisar", %{"connection" => params}, socket) do
+    result =
+      IntegrationSetup.rotate_emisar(Map.get(params, "ref", ""), Map.get(params, "token", ""))
+
+    {:noreply, finish_emisar_edit(socket, result, "Emisar token was rotated.")}
+  end
+
+  def handle_event("disable-emisar", %{"ref" => ref}, socket) when is_binary(ref) do
+    {:noreply,
+     finish_setup(
+       socket,
+       IntegrationSetup.disable_emisar(ref),
+       "New work will not use this account."
+     )}
+  end
+
+  def handle_event("enable-emisar", %{"ref" => ref}, socket) when is_binary(ref) do
+    {:noreply,
+     finish_setup(socket, IntegrationSetup.enable_emisar(ref), "This account can serve new work.")}
+  end
+
+  def handle_event("disable-emisar-monitoring", %{"ref" => ref}, socket)
+      when is_binary(ref) do
+    {:noreply,
+     finish_emisar_edit(
+       socket,
+       IntegrationSetup.disable_emisar_monitoring(ref),
+       "Approval monitoring is off for this account."
+     )}
+  end
+
+  def handle_event("enable-emisar-monitoring", %{"ref" => ref}, socket)
+      when is_binary(ref) do
+    {:noreply,
+     finish_emisar_edit(
+       socket,
+       IntegrationSetup.enable_emisar_monitoring(ref),
+       "Approval monitoring is on for this account."
+     )}
+  end
+
+  def handle_event("rename-emisar", %{"connection" => params}, socket) do
+    result =
+      IntegrationSetup.rename_emisar(
+        Map.get(params, "ref", ""),
+        Map.get(params, "display_name", "")
+      )
+
+    {:noreply, finish_emisar_edit(socket, result, "Emisar account name was updated.")}
+  end
+
+  def handle_event("delete-emisar", %{"ref" => ref}, socket) when is_binary(ref) do
+    {:noreply,
+     finish_setup(socket, IntegrationSetup.delete_emisar(ref), "Emisar account was deleted.")}
+  end
+
+  def handle_event("bind-emisar", %{"binding" => params}, socket) do
+    params = normalize_emisar_binding(params)
+
+    result =
+      Settings.put_emisar_binding(
+        Map.put(params, "id", Ecto.UUID.generate()),
+        settings_revision(socket),
+        Settings.actor()
+      )
+
+    {:noreply, finish_setup(socket, result, "Approval route was saved.")}
+  end
+
+  def handle_event("delete-emisar-binding", %{"id" => id}, socket) when is_binary(id) do
+    result = Settings.delete_emisar_binding(id, settings_revision(socket), Settings.actor())
+    {:noreply, finish_setup(socket, result, "Approval route was deleted.")}
+  end
+
+  def handle_event("create-webhook-credential", %{"credential" => params}, socket) do
+    case IntegrationSetup.create_webhook_credential(
+           Map.get(params, "name", ""),
+           Map.get(params, "secret")
+         ) do
+      {:ok, result} ->
+        {:noreply,
+         socket
+         |> refresh_settings()
+         |> assign(
+           setup_notice: "Webhook credential #{result.name} is ready.",
+           setup_reveal: %{label: "Signing secret", value: result.secret},
+           webhook_credential_editing: false
+         )}
+
+      {:error, reason} ->
+        {:noreply, assign(socket, setup_notice: setup_error(reason), setup_reveal: nil)}
+    end
+  end
+
+  def handle_event("show-webhook-credential-form", _params, socket),
+    do: {:noreply, assign(socket, :webhook_credential_editing, true)}
+
+  def handle_event("hide-webhook-credential-form", _params, socket),
+    do: {:noreply, assign(socket, :webhook_credential_editing, false)}
+
+  def handle_event("disconnect-integration", %{"kind" => kind}, socket)
+      when kind in ["slack", "github"] do
+    result = IntegrationSetup.disconnect(String.to_existing_atom(kind))
+    {:noreply, finish_setup(socket, result, "#{String.capitalize(kind)} is disconnected.")}
+  end
+
+  def handle_event("delete-webhook-credential", %{"name" => name}, socket)
+      when is_binary(name) do
+    result = IntegrationSetup.delete_webhook_credential(name)
+    {:noreply, finish_setup(socket, result, "Webhook credential #{name} was deleted.")}
+  end
+
+  def handle_event("retry-github-onboarding", %{"repository" => ref}, socket)
+      when is_binary(ref) do
+    case IntegrationSetup.retry_github_onboarding(ref) do
+      {:ok, _snapshot} ->
+        {:noreply,
+         socket |> assign(setup_notice: "Repository setup will retry.") |> refresh(true)}
+
+      {:error, reason} ->
+        {:noreply, assign(socket, setup_notice: setup_error(reason))}
     end
   end
 
@@ -286,6 +655,53 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
   def handle_event("load-older", _params, socket),
     do: {:reply, %{"status" => "ignored"}, socket}
 
+  defp lab_reaction_action("add"), do: {:ok, :add}
+  defp lab_reaction_action("remove"), do: {:ok, :remove}
+  defp lab_reaction_action(_action), do: {:error, :invalid_reaction}
+
+  defp lab_mutation_result(socket, kind, id, {:ok, _accepted}) do
+    socket = push_event(socket, "lab-action-accepted", %{kind: kind, id: id})
+    {:noreply, refresh(socket, true)}
+  end
+
+  defp lab_mutation_result(socket, kind, id, {:error, reason}) do
+    {:noreply,
+     push_event(socket, "lab-action-rejected", %{
+       kind: kind,
+       id: id,
+       reason: lab_mutation_reason(reason)
+     })}
+  end
+
+  defp lab_mutation_reason(:unauthorized), do: "unauthorized"
+  defp lab_mutation_reason(:invalid_reaction), do: "invalid"
+  defp lab_mutation_reason({:invalid_conversation_lab, _field}), do: "invalid"
+  defp lab_mutation_reason(_reason), do: "conflict"
+
+  defp normalize_emisar_binding(
+         %{"scope" => "installation_purpose", "purpose" => purpose} = params
+       ),
+       do:
+         params
+         |> Map.drop(["scope"])
+         |> Map.put("scope_kind", "installation_purpose")
+         |> Map.put("scope_ref", purpose)
+
+  defp normalize_emisar_binding(%{"scope" => scope} = params) do
+    case String.split(scope, ":", parts: 2) do
+      [kind, ref] when kind in ["repository", "context"] and ref != "" ->
+        params
+        |> Map.drop(["scope"])
+        |> Map.put("scope_kind", kind)
+        |> Map.put("scope_ref", ref)
+
+      _invalid ->
+        params
+    end
+  end
+
+  defp normalize_emisar_binding(params), do: params
+
   defp patch_filters(socket, params) do
     query = URI.encode_query(params)
     path = if query == "", do: socket.assigns.path, else: socket.assigns.path <> "?" <> query
@@ -296,6 +712,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
     socket = assign(socket, :refresh_token, nil)
     options = Endpoint.config(:control_plane)
     socket = load_page(socket, options, reset)
+    socket = assign(socket, :setup_incomplete, !SettingsView.setup_complete?())
     assign(socket, unavailable: false, refresh_failures: 0, observed_at: DateTime.utc_now())
   rescue
     error -> projection_failed(socket, error.__struct__, __STACKTRACE__)
@@ -374,12 +791,15 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
     end
   end
 
-  defp load_detail(socket, options, ["configuration"]) do
+  defp load_detail(socket, options, ["settings" | rest]) do
+    section = settings_section(rest)
+
     assign(socket,
       native: :settings,
       page_title: "Settings",
       settings: options.projection.settings.(),
       settings_commands: settings_commands(options),
+      settings_section: section,
       body: configuration_evidence(options)
     )
   end
@@ -517,6 +937,47 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
   defp initialize_error(_reason),
     do: "Settings could not be created. Check that the database is reachable, then try again."
 
+  defp finish_setup(socket, {:ok, _result}, message) do
+    socket
+    |> refresh_settings()
+    |> assign(setup_notice: message, setup_reveal: nil)
+  end
+
+  defp finish_setup(socket, {:error, reason}, _message),
+    do: assign(socket, setup_notice: setup_error(reason), setup_reveal: nil)
+
+  defp finish_emisar_edit(socket, {:ok, _result} = result, message) do
+    socket
+    |> finish_setup(result, message)
+    |> assign(:emisar_edit_ref, nil)
+  end
+
+  defp finish_emisar_edit(socket, {:error, _reason} = result, message),
+    do: finish_setup(socket, result, message)
+
+  defp refresh_settings(socket), do: assign(socket, :settings, SettingsView.fetch())
+
+  defp settings_revision(%{assigns: %{settings: {:ok, view}}}), do: view.revision
+
+  defp setup_error({:slack_missing_scopes, scopes}),
+    do: "Slack is missing: " <> Enum.join(scopes, ", ")
+
+  defp setup_error({provider, reason}) when is_atom(provider),
+    do: "Connection could not be verified (#{reason})."
+
+  defp setup_error(_reason),
+    do: "Connection could not be verified. Check the values and try again."
+
+  defp settings_section([]), do: :overview
+  defp settings_section(["slack"]), do: :slack
+  defp settings_section(["github"]), do: :github
+  defp settings_section(["emisar"]), do: :emisar
+  defp settings_section(["webhooks"]), do: :webhooks
+  defp settings_section(["retention"]), do: :retention
+  defp settings_section(["token-rates"]), do: :pricing
+  defp settings_section(["system"]), do: :system
+  defp settings_section(_unknown), do: :overview
+
   # Read-only evidence of what the running process assembled. It is rendered
   # from the application environment the runtime published, not from settings,
   # so a saved-but-unapplied revision is visibly not in it.
@@ -538,8 +999,24 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
       native: nil,
       body: page.body,
       page_title: page.title,
-      page_description: page.description
+      page_description: page.description,
+      settings: options.projection.settings.(),
+      settings_commands: settings_commands(options),
+      area_settings: area_settings(socket.assigns.path)
     )
+  end
+
+  defp area_settings("/channels"), do: settings_sections([:slack])
+  defp area_settings("/repositories"), do: settings_sections([:publication])
+  defp area_settings("/memory"), do: settings_sections([:learning])
+  defp area_settings("/schedules"), do: settings_sections([:report])
+  defp area_settings(_path), do: []
+
+  defp settings_sections(keys) do
+    Enum.map(keys, fn key ->
+      {:ok, section} = SettingsSections.fetch(key)
+      section
+    end)
   end
 
   defp load_unassigned_input(
@@ -851,10 +1328,10 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
       data-connection-state={if @connected, do: "connected", else: "connecting"}
       data-updated-at={if @observed_at, do: DateTime.to_iso8601(@observed_at)}
     >
-      <Navigation.sidebar path={@path} live={true} />
+      <Navigation.sidebar path={@path} live={true} setup_incomplete={@setup_incomplete} />
       <div class="app-workspace">
         <div class="mobile-navigation">
-          <Navigation.mobile path={@path} live={true} />
+          <Navigation.mobile path={@path} live={true} setup_incomplete={@setup_incomplete} />
         </div>
         <div class="connection-offline app-warning" role="status">
           Reconnecting… Your view will update automatically.
@@ -909,6 +1386,13 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
             commands={@settings_commands}
             body={@body}
             error={@settings_error}
+            section={@settings_section}
+            notice={@setup_notice}
+            reveal={@setup_reveal}
+            github_repositories={@github_repositories}
+            slack_members={@slack_members}
+            emisar_edit_ref={@emisar_edit_ref}
+            webhook_credential_editing={@webhook_credential_editing}
           />
           <div :if={@native == :instructions} class="secondary-page instructions-page">
             <Components.page_header title={@page_title} description={@page_description} />
@@ -944,10 +1428,48 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
             <Components.page_header title={@page_title} description={@page_description} />{Phoenix.HTML.raw(
               @body
             )}
+            <SettingsPage.repository_import
+              :if={@path == "/repositories" && match?({:ok, _view}, @settings)}
+              view={elem(@settings, 1)}
+              repositories={@github_repositories}
+            />
+            <details
+              :if={area_settings_visible?(@area_settings, @settings)}
+              class="area-settings"
+            >
+              <summary>{area_settings_label(@area_settings)}</summary>
+              <p>Defaults and optional behavior for this area.</p>
+              <.live_component
+                :for={section <- @area_settings}
+                module={Ryker.ControlPlane.SettingsEditor}
+                id={"area-settings-#{section.key}"}
+                section={section}
+                view={elem(@settings, 1)}
+                commands={@settings_commands}
+              />
+            </details>
           </div>
         </main>
       </div>
     </div>
     """
   end
+
+  defp area_settings_visible?([], _settings), do: false
+
+  defp area_settings_visible?(sections, {:ok, view}) do
+    Enum.any?(sections, fn
+      %{key: :slack} -> view.snapshot.slack.enabled
+      %{key: :publication} -> view.snapshot.github.enabled
+      _section -> true
+    end)
+  end
+
+  defp area_settings_visible?(_sections, _settings), do: false
+
+  defp area_settings_label([%{key: :slack} | _]), do: "Channel defaults"
+  defp area_settings_label([%{key: :publication} | _]), do: "Publishing settings"
+  defp area_settings_label([%{key: :learning} | _]), do: "Learning settings"
+  defp area_settings_label([%{key: :report} | _]), do: "Weekly report settings"
+  defp area_settings_label(_sections), do: "Page settings"
 end

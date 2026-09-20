@@ -82,7 +82,9 @@ config :ryker, :webhooks,
   port: 4080,
   routes: %{
     "universal" => %{
-      auth: {:hmac_sha256, System.fetch_env!("RYKER_WEBHOOK_SECRET")},
+      # Production assembly resolves this from the source's encrypted
+      # credential reference. Tests may provide fixture bytes directly.
+      auth: {:hmac_sha256, "test-only-signing-secret"},
       destination: %{
         transport: "slack",
         conversation_ref: "slack:T0123456789:C0123456789",
@@ -199,14 +201,13 @@ This is durable settings, edited under **Settings**, not a configuration file:
   schedule) to a reviewed worker policy for that repository or context. The digest and authority
   digest are copied from the authenticated worker advertisement; nothing types one.
 - **GitHub** holds the App identity, and **GitHub repository bindings** holds one verified
-  binding per repository: installation ID, repository ID, the Ryker actor ID and the exact
-  authorized actor IDs.
-- `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY` and `GITHUB_WEBHOOK_SECRET` come from the deployment
-  environment under those fixed names. Credentials being present does not enable GitHub; the saved
-  connection does, and the runtime refuses to enable it when the environment names a different app.
+  binding per repository: installation ID, repository ID and the Ryker actor ID. For each
+  conversational webhook, Ryker asks GitHub for the sender's effective repository permission;
+  `write` and `admin` may request work, while `read`, `none` and failed checks do not.
+- GitHub's private key and webhook secret are entered once through guided setup and kept in encrypted
+  credential custody. The verified App identity is saved with the connection; runtime assembly refuses
+  a missing, invalid or mismatched credential instead of consulting environment fallbacks.
 
-The private-key environment value may be the complete PEM or its single-line standard-base64 encoding.
-Use the encoded form in the shipped systemd `EnvironmentFile`.
 The GitHub App must subscribe to issue comments, pull-request reviews, pull-request review comments,
 issues, and pull requests for the corresponding adapter and lifecycle paths to receive those events.
 

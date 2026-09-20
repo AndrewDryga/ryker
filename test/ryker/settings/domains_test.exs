@@ -12,6 +12,13 @@ defmodule Ryker.Settings.DomainsTest do
     %{snapshot: snapshot}
   end
 
+  test "a new installation starts with the built-in token rates", %{snapshot: snapshot} do
+    assert snapshot.pricing_rates
+           |> Enum.map(& &1.execution_target)
+           |> Enum.sort() ==
+             Enum.sort(["codex:gpt-5.6-sol", "codex:gpt-5.6-terra", "codex:gpt-5.6-luna"])
+  end
+
   test "collection edits share the single revision and each records one receipt", %{
     snapshot: snapshot
   } do
@@ -68,12 +75,13 @@ defmodule Ryker.Settings.DomainsTest do
     assert Repo.aggregate(Edit, :count) == 2
   end
 
-  test "enabling Slack requires the verified identity and an existing default repository" do
+  test "enabling Slack requires its detected identity while repository choice stays optional" do
     assert {:error, {:invalid_settings, errors}} =
              Settings.save_slack(%{enabled: true}, 1, @actor)
 
     assert {:workspace_ref, :required_to_enable} in errors
-    assert {:default_repository_ref, :required_to_enable} in errors
+    assert {:bot_ref, :required_to_enable} in errors
+    assert {:bot_user_ref, :required_to_enable} in errors
 
     assert {:error, {:invalid_settings, [{:default_repository_ref, :unknown_repository}]}} =
              Settings.save_slack(%{default_repository_ref: "missing"}, 1, @actor)
@@ -182,7 +190,7 @@ defmodule Ryker.Settings.DomainsTest do
       name: "alerts",
       adapter_kind: :mapped_json,
       auth_kind: :hmac_sha256,
-      secret_name: "ALERTS_SIGNING_KEY",
+      secret_name: "alerts",
       destination_transport: "slack",
       destination_conversation_ref: "slack:T0123456789:C1111111111",
       context_ref: "ryker",
@@ -213,12 +221,12 @@ defmodule Ryker.Settings.DomainsTest do
              Settings.put_webhook_source(%{source | context_ref: "missing"}, 3, @actor)
 
     assert {:error, {:invalid_settings, [{:secret_name, :format}]}} =
-             Settings.put_webhook_source(%{source | secret_name: "lowercase"}, 3, @actor)
+             Settings.put_webhook_source(%{source | secret_name: "UPPERCASE"}, 3, @actor)
   end
 
   test "pricing rates are versioned by the revision that introduced them" do
     rate = %{
-      execution_target: "codex:gpt-5.6-sol",
+      execution_target: "codex:test-model",
       input_usd_per_million: "4",
       cached_input_usd_per_million: "0.40",
       output_usd_per_million: "20",
@@ -227,7 +235,8 @@ defmodule Ryker.Settings.DomainsTest do
     }
 
     assert {:ok, saved} = Settings.put_pricing_rate(rate, 1, @actor)
-    assert [%{revision: 2, effective_from: ~D[2026-09-01]} = saved_rate] = saved.pricing_rates
+    saved_rate = Enum.find(saved.pricing_rates, &(&1.execution_target == "codex:test-model"))
+    assert %{revision: 2, effective_from: ~D[2026-09-01]} = saved_rate
     assert Decimal.equal?(saved_rate.input_usd_per_million, Decimal.new("4"))
 
     assert {:error, {:invalid_settings, [{:effective_from, :already_bound}]}} =
@@ -249,15 +258,13 @@ defmodule Ryker.Settings.DomainsTest do
                @actor
              )
 
-    assert Enum.map(saved.pricing_rates, & &1.revision) == [2, 3]
+    custom_rates = Enum.filter(saved.pricing_rates, &(&1.execution_target == "codex:test-model"))
+    assert Enum.map(custom_rates, & &1.revision) == [2, 3]
   end
 
   test "every settings save is attributed to a domain the edit log can hold" do
     # A domain the writer names but the edit log's enum does not accept raises
     # on insert, which fails the very save it was recording.
-    System.put_env("RYKER_WEBHOOK_SECRET_NAMES", "ALERTMANAGER_WEBHOOK_SECRET")
-    on_exit(fn -> System.delete_env("RYKER_WEBHOOK_SECRET_NAMES") end)
-
     revision =
       Enum.reduce(saves(), 1, fn save, revision ->
         assert {:ok, saved} = save.(revision), "save at revision #{revision} was refused"
@@ -292,13 +299,26 @@ defmodule Ryker.Settings.DomainsTest do
       ),
       &Settings.save_github(%{enabled: true, app_id: 12_345}, &1, @actor),
       &Settings.save_publication(%{enabled: true}, &1, @actor),
-      &Settings.save_emisar(%{enabled: true}, &1, @actor),
+      &Settings.put_emisar_connection(
+        %{
+          ref: "production",
+          display_name: "Production approvals",
+          rpc_url: "https://emisar.dev/api/mcp/rpc",
+          account_ref: "account-production",
+          account_label: "Production",
+          enabled_for_new_work: true,
+          monitoring_enabled: true,
+          verified_at: ~U[2026-09-19 12:00:00.000000Z]
+        },
+        &1,
+        @actor
+      ),
       &Settings.save_report(
         %{weekly_self_report_enabled: true, channel_ref: "C0123456789"},
         &1,
         @actor
       ),
-      &Settings.save_learning(%{enabled: true}, &1, @actor),
+      &Settings.save_learning(%{enabled: false}, &1, @actor),
       &Settings.save_work(%{workspace_ref: "ryker-local-main"}, &1, @actor),
       &Settings.put_policy_binding(
         %{
@@ -317,7 +337,7 @@ defmodule Ryker.Settings.DomainsTest do
           name: "alerts",
           adapter_kind: :universal,
           auth_kind: :hmac_sha256,
-          secret_name: "ALERTMANAGER_WEBHOOK_SECRET",
+          secret_name: "alerts",
           destination_transport: "slack",
           destination_conversation_ref: "slack:T0123456789:C0123456789",
           destination_thread_ref: "slack:T0123456789:C0123456789",

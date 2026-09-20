@@ -29,11 +29,11 @@ defmodule Ryker.Emisar.OperatorTaskTest do
 
   test "show and rearm fail closed for unknown approval custody" do
     assert_raise Mix.Error, ~r/emisar_approval_not_found/, fn ->
-      EmisarApproval.run(["show", "missing-approval"])
+      EmisarApproval.run(["show", "production/missing-approval"])
     end
 
     assert_raise Mix.Error, ~r/emisar_approval_not_found/, fn ->
-      EmisarApproval.run(["rearm", "missing-approval"])
+      EmisarApproval.run(["rearm", "production/missing-approval"])
     end
 
     assert_raise Mix.Error, ~r/invalid_emisar_approval_operator/, fn ->

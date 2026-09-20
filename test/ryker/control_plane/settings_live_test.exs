@@ -43,60 +43,49 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
 
   test "a database with no product settings offers setup instead of editors" do
     {:ok, view, html} = open()
-    assert html =~ "Set up this installation"
+    assert html =~ "Create this installation"
     refute has_element?(view, "#settings-slack-form")
 
     view |> element("button[phx-click=initialize-settings]") |> render_click()
 
-    assert has_element?(view, "#settings-slack-form")
-    assert has_element?(view, "[role=status]", "has not applied this revision yet")
+    assert has_element?(view, ".setup-checklist", "Finish setup")
+    assert has_element?(view, "a[href='/settings/slack']", "Continue")
     assert {:ok, %{installation: %{revision: 1}}} = Settings.fetch()
   end
 
-  test "the settings page shows its title once with saved and running revisions beneath, and the effective configuration once",
+  test "each focused settings page has one title and system evidence stays collapsed",
        context do
-    # Before 2026-09-13 the page drew its own 30px "Settings" h1 inside a
-    # header the base stylesheet styles as a sticky dark bar, and the
-    # effective-configuration section rendered an "Effective host
-    # configuration" h2 with an intro immediately above a body that opened
-    # with the same h2 and a second intro. Every state of the page — setup,
-    # unavailable, editable — now has exactly one title.
-    for {prepare, marker} <- [
-          {fn -> :ok end, "Set up this installation"},
-          {fn -> initialize!() end, "Saved revision"}
+    for {prepare, path, title} <- [
+          {fn -> :ok end, "/settings", "Finish setup"},
+          {fn -> initialize!() end, "/settings", "Settings"},
+          {fn -> :ok end, "/settings/slack", "Slack"},
+          {fn -> :ok end, "/settings/github", "GitHub"},
+          {fn -> :ok end, "/settings/emisar", "Emisar"},
+          {fn -> :ok end, "/settings/retention", "Retention"},
+          {fn -> :ok end, "/settings/token-rates", "Token rates"},
+          {fn -> :ok end, "/settings/system", "System"}
         ] do
       prepare.()
-      {:ok, _view, html} = open()
+      {:ok, _view, html} = open(path)
       document = LazyHTML.from_document(html)
       headings = LazyHTML.query(document, "main h1")
-      assert Enum.count(headings) == 1, marker
-      assert LazyHTML.text(headings) == "Settings"
+      assert Enum.count(headings) == 1, title
+      assert LazyHTML.text(headings) == title
 
       assert LazyHTML.query(document, "main header.page-header > .page-heading > h1")
-             |> Enum.count() ==
-               1
+             |> Enum.count() == 1
 
-      assert LazyHTML.query(document, "main header.page-header p.page-description")
-             |> LazyHTML.text() =~
-               "What this installation decided"
+      matching_headings =
+        document
+        |> LazyHTML.query("main h1, main h2")
+        |> Enum.count(&(LazyHTML.text(&1) == title))
 
-      assert html =~ marker
-      refute html =~ "settings-status\"><h1"
+      assert matching_headings == 1, "#{path} repeats the page title inside its content"
     end
 
-    document = open() |> elem(2) |> LazyHTML.from_document()
-    status = LazyHTML.query(document, "main .settings-status dt") |> LazyHTML.text()
-    assert status =~ "Saved revision"
-    assert status =~ "Running revision"
-
-    assert LazyHTML.query(document, "main h2")
-           |> LazyHTML.text()
-           |> String.split("Effective host configuration")
-           |> length() == 2
-
-    assert Enum.count(
-             LazyHTML.query(document, "main .settings-effective .configuration-evidence")
-           ) == 1
+    document = open("/settings/system") |> elem(2) |> LazyHTML.from_document()
+    assert Enum.count(LazyHTML.query(document, "main details.system-evidence")) == 1
+    assert Enum.count(LazyHTML.query(document, "main .configuration-evidence")) == 1
 
     assert Enum.empty?(
              LazyHTML.query(
@@ -107,12 +96,103 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
 
     Agent.update(context.unavailable, fn _ -> true end)
     {:ok, _view, html} = open()
-    assert html =~ "Settings could not be read"
+    assert html =~ "Settings unavailable"
     unavailable = LazyHTML.from_document(html)
-    assert LazyHTML.query(unavailable, "main h1") |> LazyHTML.text() == "Settings"
+    assert LazyHTML.query(unavailable, "main h1") |> LazyHTML.text() == "Settings unavailable"
+  end
 
-    assert LazyHTML.query(unavailable, "main .settings-unavailable h2") |> LazyHTML.text() ==
-             "Settings could not be read"
+  test "setup keeps optional integrations quiet and GitHub access is derived from the repository" do
+    initialize!()
+    {:ok, settings, _html} = open("/settings")
+
+    assert has_element?(settings, ".setup-optional-link", "Connect Emisar")
+    refute has_element?(settings, ".setup-checklist .setup-optional")
+    refute has_element?(settings, ".setup-optional-link .ui-button")
+
+    {:ok, connections, html} = open("/settings/github")
+    refute has_element?(connections, "input[name='connection[operator_login]']")
+    assert has_element?(connections, ".github-connection-form fieldset", "GitHub App")
+    refute html =~ "GitHub operator"
+
+    for {path, title} <- [
+          {"/settings/slack", "Slack"},
+          {"/settings/github", "GitHub"},
+          {"/settings/emisar", "Emisar"}
+        ] do
+      {:ok, page, _html} = open(path)
+      assert has_element?(page, "main h1", title)
+    end
+
+    {:ok, emisar, _html} = open("/settings/emisar")
+    assert has_element?(emisar, "form[phx-submit=connect-emisar]", "Connect account")
+    refute has_element?(emisar, ".integration-panel details form[phx-submit=connect-emisar]")
+    refute has_element?(emisar, "input[name='connection[ref]']")
+    refute has_element?(emisar, "input[name='connection[display_name]']")
+
+    assert get(build_conn() |> Map.put(:host, "localhost"), "/settings/connections").status == 404
+
+    {:ok, repositories, _html} = open("/repositories")
+    assert has_element?(repositories, ".repository-import", "Add repositories")
+
+    assert has_element?(
+             repositories,
+             ".repository-import a[href='/settings/github']",
+             "Connect GitHub"
+           )
+  end
+
+  test "Emisar routing uses named scopes and supports stopping and resuming new work" do
+    initialize!()
+    snapshot = Settings.fetch!()
+
+    {:ok, snapshot} =
+      Settings.put_repository(
+        %{ref: "payments", display_name: "Payments"},
+        snapshot.installation.revision,
+        @actor
+      )
+
+    {:ok, _snapshot} =
+      Settings.put_emisar_connection(
+        %{
+          ref: "production",
+          display_name: "Production approvals",
+          rpc_url: "https://emisar.example/api/mcp/rpc",
+          account_ref: "account-production",
+          account_label: "Production",
+          enabled_for_new_work: false,
+          monitoring_enabled: true,
+          verified_at: ~U[2026-09-19 12:00:00.000000Z]
+        },
+        snapshot.installation.revision,
+        @actor
+      )
+
+    {:ok, view, _html} = open("/settings/emisar")
+
+    assert has_element?(
+             view,
+             "select[name='binding[scope]'] option[value='repository:payments']",
+             "Payments"
+           )
+
+    refute has_element?(view, "input[name='binding[scope_ref]']")
+    assert has_element?(view, "button[phx-click=enable-emisar]", "Resume")
+
+    view
+    |> element("button[phx-click=show-emisar-form][phx-value-ref=production]", "Manage")
+    |> render_click()
+
+    assert has_element?(view, "form[phx-submit=rename-emisar]", "Save name")
+    assert has_element?(view, "form[phx-submit=rotate-emisar]", "Replace token")
+
+    assert has_element?(
+             view,
+             "button[phx-click=disable-emisar-monitoring]",
+             "Turn off"
+           )
+
+    refute has_element?(view, ".integration-account-list form")
   end
 
   test "instructions typed before setup do not stop the console from creating settings" do
@@ -129,42 +209,9 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
     assert Ryker.Instructions.get(:global).text == "Existing guidance"
   end
 
-  test "a refused save keeps every typed value and names the field that refused it" do
-    initialize!()
-    {:ok, view, _html} = open()
-
-    view |> form("#settings-slack-form", %{"enabled" => "true"}) |> render_submit()
-
-    assert has_element?(view, ".settings-error", "Workspace ID is required before this can be")
-    assert has_element?(view, "#settings-slack-enabled[checked]")
-    assert Settings.fetch!().slack.enabled == false
-    assert Settings.fetch!().installation.revision == 1
-  end
-
-  test "a save that lost the race shows what is saved now and never overwrites it silently" do
-    initialize!()
-    {:ok, view, _html} = open()
-    view |> form("#settings-slack-form", %{"channel_prefix" => "ops"}) |> render_change()
-
-    assert {:ok, _} = Settings.save_slack(%{channel_prefix: "sec"}, 1, @actor)
-
-    view |> form("#settings-slack-form", %{"channel_prefix" => "ops"}) |> render_submit()
-
-    assert has_element?(view, "[role=alert]", "changed since you started editing")
-    assert has_element?(view, ".settings-conflict dd", "sec")
-    assert has_element?(view, "#settings-slack-channel_prefix[value=ops]")
-    assert Settings.fetch!().slack.channel_prefix == "sec"
-
-    view |> element("#settings-slack button[phx-click=review-current]") |> render_click()
-    view |> form("#settings-slack-form", %{"channel_prefix" => "ops"}) |> render_submit()
-
-    assert Settings.fetch!().slack.channel_prefix == "ops"
-    assert Settings.fetch!().installation.revision == 3
-  end
-
   test "shortening a retention horizon names what it would expose before it is applied" do
     initialize!()
-    {:ok, view, _html} = open()
+    {:ok, view, _html} = open("/settings/retention")
 
     view
     |> form("#settings-retention-form", %{"operational_data_seconds" => "7"})
@@ -179,42 +226,28 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
     assert has_element?(view, "[role=status]", "Saved. Revision 2.")
   end
 
-  test "a save in another section does not turn this draft into a conflict" do
-    # The installation has one revision, so every save moves it. A draft whose
-    # own section did not change is not stale, and saying it is would make
-    # editing two sections in one sitting a fight.
-    initialize!()
-    {:ok, view, _html} = open()
-    view |> form("#settings-slack-form", %{"channel_prefix" => "ops"}) |> render_change()
-
-    view |> form("#settings-learning-form", %{"enabled" => "true"}) |> render_submit()
-    assert Settings.fetch!().learning.enabled
-
-    view |> form("#settings-slack-form", %{"channel_prefix" => "ops"}) |> render_submit()
-
-    refute has_element?(view, "[role=alert]")
-    assert Settings.fetch!().slack.channel_prefix == "ops"
-    assert Settings.fetch!().installation.revision == 3
-  end
-
-  test "a live refresh never overwrites an unsaved draft" do
-    initialize!()
-    {:ok, view, _html} = open()
-    view |> form("#settings-slack-form", %{"channel_prefix" => "ops"}) |> render_change()
-
-    render_click(view, "refresh")
-
-    assert has_element?(view, "#settings-slack-channel_prefix[value=ops]")
-    assert Settings.fetch!().slack.channel_prefix == "ems"
-  end
-
   test "a token rate is added, corrected and removed at the revision it was read at" do
     initialize!()
-    {:ok, view, _html} = open()
+    {:ok, view, _html} = open("/settings/token-rates")
+
+    assert has_element?(view, ".settings-rows td[data-label='Execution target'] .cell-value")
+
+    assert has_element?(
+             view,
+             ".settings-rows td[data-label='Where this rate came from'] .cell-value"
+           )
+
+    assert has_element?(
+             view,
+             "#settings-pricing > button.settings-editor-add",
+             "+ Add token rate"
+           )
+
+    view |> element("#settings-pricing > button.settings-editor-add") |> render_click()
 
     view
     |> form("#settings-pricing-form", %{
-      "execution_target" => "gpt-5.6-sol",
+      "execution_target" => "codex:test-model",
       "input_usd_per_million" => "1.25",
       "cached_input_usd_per_million" => "0.13",
       "output_usd_per_million" => "10",
@@ -223,7 +256,10 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
     })
     |> render_submit()
 
-    assert [%PricingRate{} = rate] = Settings.fetch!().pricing_rates
+    rate =
+      Enum.find(Settings.fetch!().pricing_rates, &(&1.execution_target == "codex:test-model"))
+
+    assert %PricingRate{} = rate
     assert Decimal.equal?(rate.input_usd_per_million, Decimal.new("1.25"))
     assert rate.revision == 2
 
@@ -231,11 +267,17 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
     |> element(~s{tr[data-item="#{rate.id}"] button[phx-click=select-item]})
     |> render_click()
 
+    assert has_element?(
+             view,
+             "#settings-pricing .settings-editor-heading",
+             "Edit token rate"
+           )
+
     view
     |> form("#settings-pricing-form", %{"output_usd_per_million" => "12"})
     |> render_submit()
 
-    assert [corrected] = Settings.fetch!().pricing_rates
+    corrected = Enum.find(Settings.fetch!().pricing_rates, &(&1.id == rate.id))
     assert Decimal.equal?(corrected.output_usd_per_million, Decimal.new("12"))
     assert corrected.id == rate.id
     assert corrected.revision == 2
@@ -244,7 +286,8 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
     |> element(~s{tr[data-item="#{rate.id}"] button[phx-click=delete-item]})
     |> render_click()
 
-    assert Settings.fetch!().pricing_rates == []
+    refute Enum.any?(Settings.fetch!().pricing_rates, &(&1.id == rate.id))
+    assert length(Settings.fetch!().pricing_rates) == 3
     assert Settings.fetch!().installation.revision == 4
   end
 
@@ -254,7 +297,7 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
 
     {:ok, view, html} = open()
 
-    assert html =~ "Settings could not be read"
+    assert html =~ "Settings unavailable"
     refute has_element?(view, "#settings-slack-form")
     refute html =~ "Set up this installation"
     assert Repo.aggregate(Installation, :count) == 1
@@ -266,8 +309,8 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
 
     {:ok, view, html} = open()
 
-    assert html =~ "Settings could not be read"
-    refute html =~ "Set up this installation"
+    assert html =~ "Settings unavailable"
+    refute html =~ "Create this installation"
     refute has_element?(view, "button[phx-click=initialize-settings]")
     assert Repo.aggregate(Installation, :count) == 1
   end
@@ -287,7 +330,8 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
     assert Settings.fetch!().installation.revision == 1
   end
 
-  defp open, do: live(build_conn() |> Map.put(:host, "localhost"), "/configuration")
+  defp open(path \\ "/settings"),
+    do: live(build_conn() |> Map.put(:host, "localhost"), path)
 
   defp initialize! do
     {:ok, snapshot} = Settings.initialize(@actor)

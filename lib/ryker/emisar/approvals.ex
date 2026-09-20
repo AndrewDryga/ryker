@@ -16,6 +16,7 @@ defmodule Ryker.Emisar.Approvals do
   alias Ryker.Ingress.Input
   alias Ryker.Repo
   alias Ryker.State.{Record, RecordChangeset}
+  alias Ryker.Work.{Session, Turn}
 
   @spec ensure_registered_in_transaction(Record.t()) :: :ok | {:error, term()}
   def ensure_registered_in_transaction(%Record{kind: kind}) when kind != "emisar_approval",
@@ -29,48 +30,82 @@ defmodule Ryker.Emisar.Approvals do
     end
   end
 
-  @spec claim_next(String.t(), pos_integer()) :: {:ok, map() | nil} | {:error, term()}
-  def claim_next(worker_ref, lease_seconds) do
-    with :ok <- reference(worker_ref, 1_024, :worker_ref),
+  @spec claim_next(String.t(), String.t(), pos_integer()) ::
+          {:ok, map() | nil} | {:error, term()}
+  def claim_next(connection_ref, worker_ref, lease_seconds) do
+    with :ok <- reference(connection_ref, 64, :connection_ref),
+         :ok <- reference(worker_ref, 1_024, :worker_ref),
          :ok <- positive(lease_seconds, :lease_seconds) do
-      Repo.transaction(fn -> claim_locked(worker_ref, lease_seconds) end)
+      Repo.transaction(fn -> claim_locked(connection_ref, worker_ref, lease_seconds) end)
       |> transaction_result()
     end
   end
 
-  @spec observe(String.t(), String.t(), RunState.t(), pos_integer()) ::
+  @spec observe(String.t(), String.t(), String.t(), RunState.t(), pos_integer()) ::
           {:ok, map()} | {:error, term()}
-  def observe(request_id, lease_ref, %RunState{} = state, poll_seconds) do
-    with :ok <- reference(request_id, 80, :request_id),
+  def observe(connection_ref, request_id, lease_ref, %RunState{} = state, poll_seconds) do
+    with :ok <- reference(connection_ref, 64, :connection_ref),
+         :ok <- reference(request_id, 80, :request_id),
          :ok <- reference(lease_ref, 1_024, :lease_ref),
          :ok <- positive(poll_seconds, :poll_seconds) do
-      observe_validated(request_id, lease_ref, state, poll_seconds)
+      observe_validated(connection_ref, request_id, lease_ref, state, poll_seconds)
     end
   end
 
-  def observe(_request_id, _lease_ref, _state, _poll_seconds),
+  def observe(_connection_ref, _request_id, _lease_ref, _state, _poll_seconds),
     do: {:error, {:invalid_emisar_approval_observation, :state}}
 
-  @spec authorize_presentation(String.t(), String.t(), RunState.t(), pos_integer()) ::
+  @spec authorize_presentation(
+          String.t(),
+          String.t(),
+          String.t(),
+          RunState.t(),
+          pos_integer()
+        ) ::
           {:ok, Approval.t()} | {:error, term()}
-  def authorize_presentation(request_id, lease_ref, %RunState{} = state, lease_seconds) do
-    with :ok <- reference(request_id, 80, :request_id),
+  def authorize_presentation(
+        connection_ref,
+        request_id,
+        lease_ref,
+        %RunState{} = state,
+        lease_seconds
+      ) do
+    with :ok <- reference(connection_ref, 64, :connection_ref),
+         :ok <- reference(request_id, 80, :request_id),
          :ok <- reference(lease_ref, 1_024, :lease_ref),
          :ok <- positive(lease_seconds, :lease_seconds) do
       Repo.transaction(fn ->
-        authorize_presentation_locked(request_id, lease_ref, state, lease_seconds)
+        authorize_presentation_locked(
+          connection_ref,
+          request_id,
+          lease_ref,
+          state,
+          lease_seconds
+        )
       end)
       |> transaction_result()
     end
   end
 
-  def authorize_presentation(_request_id, _lease_ref, _state, _lease_seconds),
-    do: {:error, {:invalid_emisar_approval_observation, :state}}
+  def authorize_presentation(
+        _connection_ref,
+        _request_id,
+        _lease_ref,
+        _state,
+        _lease_seconds
+      ),
+      do: {:error, {:invalid_emisar_approval_observation, :state}}
 
-  defp authorize_presentation_locked(request_id, lease_ref, state, lease_seconds) do
+  defp authorize_presentation_locked(
+         connection_ref,
+         request_id,
+         lease_ref,
+         state,
+         lease_seconds
+       ) do
     now = database_now!()
 
-    with {:ok, approval} <- live_lease(request_id, lease_ref, now),
+    with {:ok, approval} <- live_lease(connection_ref, request_id, lease_ref, now),
          :ok <- exact_run(approval, state) do
       update!(approval, %{lease_expires_at: DateTime.add(now, lease_seconds, :second)})
     else
@@ -78,37 +113,77 @@ defmodule Ryker.Emisar.Approvals do
     end
   end
 
-  @spec defer(String.t(), String.t(), pos_integer(), term()) ::
+  @spec defer(String.t(), String.t(), String.t(), pos_integer(), term()) ::
           {:ok, Approval.t()} | {:error, term()}
-  def defer(request_id, lease_ref, delay_seconds, reason) do
-    with :ok <- reference(request_id, 80, :request_id),
+  def defer(connection_ref, request_id, lease_ref, delay_seconds, reason) do
+    with :ok <- reference(connection_ref, 64, :connection_ref),
+         :ok <- reference(request_id, 80, :request_id),
          :ok <- reference(lease_ref, 1_024, :lease_ref),
          :ok <- positive(delay_seconds, :delay_seconds) do
-      Repo.transaction(fn -> defer_locked(request_id, lease_ref, delay_seconds, reason) end)
+      Repo.transaction(fn ->
+        defer_locked(connection_ref, request_id, lease_ref, delay_seconds, reason)
+      end)
       |> transaction_result()
     end
   end
 
-  @spec block(String.t(), String.t(), term()) :: {:ok, Approval.t()} | {:error, term()}
-  def block(request_id, lease_ref, reason) do
-    with :ok <- reference(request_id, 80, :request_id),
+  @spec block(String.t(), String.t(), String.t(), term()) ::
+          {:ok, Approval.t()} | {:error, term()}
+  def block(connection_ref, request_id, lease_ref, reason) do
+    with :ok <- reference(connection_ref, 64, :connection_ref),
+         :ok <- reference(request_id, 80, :request_id),
          :ok <- reference(lease_ref, 1_024, :lease_ref) do
-      Repo.transaction(fn -> block_locked(request_id, lease_ref, reason) end)
+      Repo.transaction(fn -> block_locked(connection_ref, request_id, lease_ref, reason) end)
       |> transaction_result()
     end
   end
 
-  @spec get_by_request_id(String.t()) :: Approval.t() | nil
-  def get_by_request_id(request_id) when is_binary(request_id),
-    do: Repo.one(from(approval in Approval, where: approval.request_id == ^request_id))
+  @spec get_by_request_id(String.t(), String.t()) :: Approval.t() | nil
+  def get_by_request_id(connection_ref, request_id)
+      when is_binary(connection_ref) and is_binary(request_id),
+      do:
+        Repo.one(
+          from(approval in Approval,
+            where:
+              approval.connection_ref == ^connection_ref and approval.request_id == ^request_id
+          )
+        )
 
-  def get_by_request_id(_request_id), do: nil
+  def get_by_request_id(_connection_ref, _request_id), do: nil
 
   defp ensure_registered(%Record{kind: "emisar_approval"} = record) do
-    case Repo.one(from(approval in Approval, where: approval.record_id == ^record.id)) do
-      nil -> insert_approval(record)
-      %Approval{} = approval -> exact_registration(approval, record)
+    with :ok <- exact_session_authority(record) do
+      case Repo.one(from(approval in Approval, where: approval.record_id == ^record.id)) do
+        nil -> insert_approval(record)
+        %Approval{} = approval -> exact_registration(approval, record)
+      end
     end
+  end
+
+  defp exact_session_authority(record) do
+    result =
+      Repo.one(
+        from(turn in Turn,
+          join: session in Session,
+          on: session.id == turn.session_id and session.episode_id == turn.episode_id,
+          where: turn.id == ^record.turn_id and turn.episode_id == ^record.episode_id,
+          select: {
+            session.emisar_connection_ref,
+            session.emisar_account_ref,
+            session.emisar_rpc_url
+          }
+        )
+      )
+
+    expected = {
+      record.payload["connection_ref"],
+      record.payload["account_ref"],
+      record.payload["rpc_url"]
+    }
+
+    if result == expected and Enum.all?(Tuple.to_list(expected), &is_binary/1),
+      do: :ok,
+      else: {:error, :emisar_approval_connection_mismatch}
   end
 
   defp insert_approval(record) do
@@ -118,6 +193,7 @@ defmodule Ryker.Emisar.Approvals do
       %{
         action_id: payload["action_id"],
         approval_url: payload["approval_url"],
+        connection_ref: payload["connection_ref"],
         episode_id: record.episode_id,
         expires_at: expires_at,
         id: Ecto.UUID.generate(),
@@ -145,6 +221,7 @@ defmodule Ryker.Emisar.Approvals do
     actual = %{
       "action_id" => approval.action_id,
       "approval_url" => approval.approval_url,
+      "connection_ref" => approval.connection_ref,
       "episode_id" => approval.episode_id,
       "expires_at" => DateTime.to_iso8601(approval.expires_at),
       "operation_id" => approval.operation_id,
@@ -155,18 +232,21 @@ defmodule Ryker.Emisar.Approvals do
       "status" => "pending_approval"
     }
 
-    expected = Map.put(payload, "episode_id", record.episode_id)
+    expected =
+      payload
+      |> Map.drop(["account_ref", "rpc_url"])
+      |> Map.put("episode_id", record.episode_id)
 
     if actual == expected, do: :ok, else: {:error, :emisar_approval_registration_conflict}
   end
 
-  defp claim_locked(worker_ref, lease_seconds) do
+  defp claim_locked(connection_ref, worker_ref, lease_seconds) do
     now = database_now!()
 
     approval =
       Repo.one(
         from(approval in Approval,
-          where: approval.id in subquery(eligible_approval_ids(now)),
+          where: approval.id in subquery(eligible_approval_ids(connection_ref, now)),
           order_by: [
             asc_nulls_first: approval.next_attempt_at,
             asc: approval.inserted_at,
@@ -196,22 +276,25 @@ defmodule Ryker.Emisar.Approvals do
     end
   end
 
-  defp observe_validated(request_id, lease_ref, state, poll_seconds) do
+  defp observe_validated(connection_ref, request_id, lease_ref, state, poll_seconds) do
     if RunState.terminal?(state) do
-      resume_terminal(request_id, lease_ref, state)
+      resume_terminal(connection_ref, request_id, lease_ref, state)
     else
-      Repo.transaction(fn -> observe_locked(request_id, lease_ref, state, poll_seconds) end)
+      Repo.transaction(fn ->
+        observe_locked(connection_ref, request_id, lease_ref, state, poll_seconds)
+      end)
       |> transaction_result()
     end
   end
 
-  defp eligible_approval_ids(now) do
+  defp eligible_approval_ids(connection_ref, now) do
     from(approval in Approval,
       join: record in Record,
       on: record.id == approval.record_id and record.episode_id == approval.episode_id,
       join: episode in Episode,
       on: episode.id == approval.episode_id,
       where: approval.status == :monitoring,
+      where: approval.connection_ref == ^connection_ref,
       where: record.kind == "emisar_approval" and record.status == :open,
       where:
         episode.state == :waiting_for_event and episode.owner_kind == :event and
@@ -222,10 +305,10 @@ defmodule Ryker.Emisar.Approvals do
     )
   end
 
-  defp observe_locked(request_id, lease_ref, state, poll_seconds) do
+  defp observe_locked(connection_ref, request_id, lease_ref, state, poll_seconds) do
     now = database_now!()
 
-    with {:ok, approval} <- live_lease(request_id, lease_ref, now),
+    with {:ok, approval} <- live_lease(connection_ref, request_id, lease_ref, now),
          :ok <- exact_run(approval, state) do
       approval =
         update!(approval, %{
@@ -248,16 +331,24 @@ defmodule Ryker.Emisar.Approvals do
     end
   end
 
-  defp resume_terminal(request_id, lease_ref, state) do
-    Repo.transaction(fn -> resume_terminal_locked(request_id, lease_ref, state) end)
+  defp resume_terminal(connection_ref, request_id, lease_ref, state) do
+    Repo.transaction(fn ->
+      resume_terminal_locked(connection_ref, request_id, lease_ref, state)
+    end)
     |> transaction_result()
   end
 
-  defp resume_terminal_locked(request_id, lease_ref, state) do
+  defp resume_terminal_locked(connection_ref, request_id, lease_ref, state) do
     now = database_now!()
 
     with %Approval{} = snapshot <-
-           Repo.one(from(approval in Approval, where: approval.request_id == ^request_id)),
+           Repo.one(
+             from(approval in Approval,
+               where:
+                 approval.connection_ref == ^connection_ref and
+                   approval.request_id == ^request_id
+             )
+           ),
          :ok <- exact_run(snapshot, state),
          %Episode{} = episode <- Repo.get(Episode, snapshot.episode_id),
          %Record{} = record <- Repo.get(Record, snapshot.record_id),
@@ -297,10 +388,10 @@ defmodule Ryker.Emisar.Approvals do
     end
   end
 
-  defp defer_locked(request_id, lease_ref, delay_seconds, reason) do
+  defp defer_locked(connection_ref, request_id, lease_ref, delay_seconds, reason) do
     now = database_now!()
 
-    case live_lease(request_id, lease_ref, now) do
+    case live_lease(connection_ref, request_id, lease_ref, now) do
       {:ok, approval} ->
         update!(approval, %{
           failure_count: approval.failure_count + 1,
@@ -316,10 +407,10 @@ defmodule Ryker.Emisar.Approvals do
     end
   end
 
-  defp block_locked(request_id, lease_ref, reason) do
+  defp block_locked(connection_ref, request_id, lease_ref, reason) do
     now = database_now!()
 
-    case live_lease(request_id, lease_ref, now) do
+    case live_lease(connection_ref, request_id, lease_ref, now) do
       {:ok, approval} ->
         update!(approval, %{
           last_error: bounded_error(reason),
@@ -335,10 +426,12 @@ defmodule Ryker.Emisar.Approvals do
     end
   end
 
-  defp live_lease(request_id, lease_ref, now) when is_binary(request_id) do
+  defp live_lease(connection_ref, request_id, lease_ref, now)
+       when is_binary(connection_ref) and is_binary(request_id) do
     case Repo.one(
            from(approval in Approval,
-             where: approval.request_id == ^request_id,
+             where:
+               approval.connection_ref == ^connection_ref and approval.request_id == ^request_id,
              lock: "FOR UPDATE"
            )
          ) do
@@ -411,8 +504,8 @@ defmodule Ryker.Emisar.Approvals do
         transport: episode.destination_transport
       },
       event_kind: :event,
-      event_ref: "emisar-approval-terminal:#{approval.request_id}",
-      native_input_id: "emisar-approval:#{approval.request_id}",
+      event_ref: "emisar-approval-terminal:#{approval.connection_ref}:#{approval.request_id}",
+      native_input_id: "emisar-approval:#{approval.connection_ref}:#{approval.request_id}",
       occurred_at: now,
       occurred_at_source: :ingress,
       revision: 1,

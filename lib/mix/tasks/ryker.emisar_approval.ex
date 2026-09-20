@@ -3,8 +3,8 @@ defmodule Mix.Tasks.Ryker.EmisarApproval do
   Inspects or rearms a blocked Emisar approval monitor.
 
       mix ryker.emisar_approval list
-      mix ryker.emisar_approval show REQUEST_ID
-      mix ryker.emisar_approval rearm REQUEST_ID
+      mix ryker.emisar_approval show CONNECTION/REQUEST_ID
+      mix ryker.emisar_approval rearm CONNECTION/REQUEST_ID
 
   This command cannot approve, deny, repeat, or replace an Emisar action.
   """
@@ -19,10 +19,17 @@ defmodule Mix.Tasks.Ryker.EmisarApproval do
   @impl Mix.Task
   def run(arguments) do
     case arguments do
-      ["list"] -> with_repo(&Operator.list_blocked/0)
-      ["show", request_id] -> with_repo(fn -> Operator.fetch(request_id) end)
-      ["rearm", request_id] -> with_repo(fn -> Operator.rearm(request_id) end)
-      _invalid -> Mix.raise("usage: mix ryker.emisar_approval list|show ID|rearm ID")
+      ["list"] ->
+        with_repo(&Operator.list_blocked/0)
+
+      ["show", ref] ->
+        with_repo(fn -> Operator.fetch(ref) end)
+
+      ["rearm", ref] ->
+        with_repo(fn -> Operator.rearm(ref) end)
+
+      _invalid ->
+        Mix.raise("usage: mix ryker.emisar_approval list|show CONNECTION/ID|rearm CONNECTION/ID")
     end
   end
 

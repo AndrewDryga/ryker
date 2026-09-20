@@ -14,7 +14,7 @@ defmodule Ryker.ControlPlane.SettingsEditor do
 
   @impl true
   def update(assigns, socket) do
-    socket = assign(socket, assigns)
+    socket = assign(socket, Map.put_new(assigns, :show_header, true))
 
     cond do
       not Map.has_key?(socket.assigns, :draft) -> {:ok, reset(socket)}
@@ -48,12 +48,16 @@ defmodule Ryker.ControlPlane.SettingsEditor do
     {:noreply, socket |> draft(params) |> assign(message: "")}
   end
 
+  def handle_event("cancel", _params, %{assigns: %{section: %{kind: :collection}}} = socket),
+    do: {:noreply, reset(socket, nil)}
+
   def handle_event("cancel", _params, socket), do: {:noreply, reset(socket)}
 
   def handle_event("select-item", %{"item" => key}, socket),
     do: {:noreply, reset(socket, key)}
 
-  def handle_event("new-item", _params, socket), do: {:noreply, reset(socket, nil)}
+  def handle_event("new-item", _params, socket),
+    do: {:noreply, socket |> reset(nil) |> assign(:editor_visible, true)}
 
   def handle_event("review-current", _params, socket),
     do: {:noreply, assign(socket, conflict: nil, expected_revision: socket.assigns.view.revision)}
@@ -204,7 +208,8 @@ defmodule Ryker.ControlPlane.SettingsEditor do
       impact: nil,
       item_key: item_key,
       message: "",
-      saved_revision: view.revision
+      saved_revision: view.revision,
+      editor_visible: section.kind != :collection or not is_nil(item_key)
     )
   end
 
@@ -228,8 +233,13 @@ defmodule Ryker.ControlPlane.SettingsEditor do
   @impl true
   def render(assigns) do
     ~H"""
-    <section id={@id} class="settings-section" aria-labelledby={"#{@id}-title"}>
-      <div class="settings-section-head">
+    <section
+      id={@id}
+      class={["settings-section", !@show_header && "settings-section-compact"]}
+      aria-labelledby={if @show_header, do: "#{@id}-title", else: nil}
+      aria-label={if @show_header, do: nil, else: @section.title}
+    >
+      <div :if={@show_header} class="settings-section-head">
         <h2 id={"#{@id}-title"}>{@section.title}</h2>
         <p class="settings-description">{@section.description}</p>
         <p :if={notice(@section, @view)} class="settings-notice">{notice(@section, @view)}</p>
@@ -250,17 +260,18 @@ defmodule Ryker.ControlPlane.SettingsEditor do
         </thead>
         <tbody>
           <tr :for={item <- items(@section, @view)} data-item={item_key(@section, item)}>
-            <td :for={field <- @section.fields}>
-              {SettingsSections.row_value(field, Map.get(item, field.name))}
+            <td :for={field <- @section.fields} data-label={field.label}>
+              <span class="cell-value">{SettingsSections.row_value(field, Map.get(item, field.name))}</span>
             </td>
             <td
               :if={@section[:row_status]}
               class="settings-row-status"
               data-tone={row_status(@section, item, @view).tone}
+              data-label="Fleet"
             >
-              {row_status(@section, item, @view).label}
+              <span class="cell-value">{row_status(@section, item, @view).label}</span>
             </td>
-            <td class="settings-row-actions">
+            <td class="settings-row-actions" data-label="Actions">
               <button
                 type="button"
                 class="ui-button secondary"
@@ -279,89 +290,203 @@ defmodule Ryker.ControlPlane.SettingsEditor do
           </tr>
         </tbody>
       </table>
-      <form
-        id={"#{@id}-form"}
-        phx-change="edit"
-        phx-submit="save"
+      <button
+        :if={@section.kind == :collection and !editor_open?(assigns)}
+        type="button"
+        class="ui-button secondary settings-editor-add"
+        phx-click="new-item"
         phx-target={@myself}
-        data-dirty={to_string(@dirty)}
+      >+ {collection_editor_label(@section, nil)}</button>
+      <div
+        :if={@section.kind != :collection or editor_open?(assigns)}
+        class={[
+          "settings-editor",
+          if(@section.kind == :collection,
+            do: "settings-editor-collection",
+            else: "settings-editor-singleton"
+          )
+        ]}
       >
-        <input :if={@item_key} type="hidden" name="item_key" value={@item_key} />
-        <div :for={field <- @section.fields} class="settings-field">
-          <label for={input_id(@id, field)}>{field.label}</label>
-          <p :if={field[:help]} class="settings-help" id={help_id(@id, field)}>{field.help}</p>
-          <.control
-            field={field}
-            id={input_id(@id, field)}
-            help={if field[:help], do: help_id(@id, field)}
-            value={Map.get(@draft, SettingsSections.field_name(field), "")}
-            options={options(field, @view)}
-            invalid={invalid?(@errors, field)}
-            locked={field[:identity] && not is_nil(@item_key)}
+        <div :if={@section.kind == :collection} class="settings-editor-heading">
+          <h3>{collection_editor_label(@section, @item_key)}</h3>
+          <button type="button" class="ui-button quiet" phx-click="cancel" phx-target={@myself}>
+            Close
+          </button>
+        </div>
+        <form
+          id={"#{@id}-form"}
+          phx-change="edit"
+          phx-submit="save"
+          phx-target={@myself}
+          data-dirty={to_string(@dirty)}
+        >
+          <input :if={@item_key} type="hidden" name="item_key" value={@item_key} />
+          <div class="settings-form-grid">
+            <section
+              :for={{group, fields} <- visible_field_groups(@section, @draft)}
+              class="settings-field-group"
+              data-layout={if length(fields) > 1, do: "grid", else: "single"}
+            >
+              <h3 :if={group}>{group}</h3>
+              <details
+                :for={field <- fields}
+                :if={field.kind == :lifecycle}
+                class="settings-optional-field"
+              >
+                <summary>
+                  <span><strong>{field.label}</strong><small>{field.help}</small></span>
+                  <span>Optional</span>
+                </summary>
+                <div class="settings-field settings-field-wide">
+                  <.control
+                    field={field}
+                    id={input_id(@id, field)}
+                    help={if field[:help], do: help_id(@id, field)}
+                    value={Map.get(@draft, SettingsSections.field_name(field), "")}
+                    options={options(field, @view)}
+                    invalid={invalid?(@errors, field)}
+                    locked={field[:identity] && not is_nil(@item_key)}
+                  />
+                  <Ryker.ControlPlane.Components.form_feedback
+                    :if={invalid?(@errors, field)}
+                    message={"#{field.label} #{reason(@errors, field)}"}
+                    tone={:error}
+                    class="settings-error"
+                  />
+                </div>
+              </details>
+              <div
+                :for={field <- fields}
+                :if={field.kind != :lifecycle}
+                class={[
+                  "settings-field",
+                  field.kind == :mapping && "settings-field-wide",
+                  field.kind == :boolean && "settings-field-boolean"
+                ]}
+              >
+                <label for={input_id(@id, field)}>{field.label}</label>
+                <p :if={field[:help]} class="settings-help" id={help_id(@id, field)}>{field.help}</p>
+                <.control
+                  field={field}
+                  id={input_id(@id, field)}
+                  help={if field[:help], do: help_id(@id, field)}
+                  value={Map.get(@draft, SettingsSections.field_name(field), "")}
+                  options={options(field, @view)}
+                  invalid={invalid?(@errors, field)}
+                  locked={field[:identity] && not is_nil(@item_key)}
+                />
+                <Ryker.ControlPlane.Components.form_feedback
+                  :if={invalid?(@errors, field)}
+                  message={"#{field.label} #{reason(@errors, field)}"}
+                  tone={:error}
+                  class="settings-error"
+                />
+              </div>
+            </section>
+          </div>
+          <div :if={@impact} class="settings-impact">
+            <h3>Shortening a horizon</h3>
+            <p>
+              These records would be older than the horizon you typed and become eligible for
+              cleanup. Live waits, approvals, schedules and unpublished work keep their history
+              regardless of age.
+            </p>
+            <ul>
+              <li :for={{field, rows} <- @impact.impact}>
+                <strong>{horizon_label(@section, field)}</strong>
+                <span :for={row <- rows}>{row.count} {row.label}</span>
+              </li>
+            </ul>
+            <button type="button" class="ui-button danger" phx-click="confirm" phx-target={@myself}>
+              Apply these horizons
+            </button>
+          </div>
+          <Ryker.ControlPlane.Components.form_feedback
+            :if={@error}
+            message={@error}
+            tone={:error}
+            class="settings-error"
           />
-          <p :if={invalid?(@errors, field)} class="settings-error" role="alert">
-            {field.label} {reason(@errors, field)}
-          </p>
-        </div>
-        <div :if={@impact} class="settings-impact">
-          <h3>Shortening a horizon</h3>
-          <p>
-            These records would be older than the horizon you typed and become eligible for
-            cleanup. Live waits, approvals, schedules and unpublished work keep their history
-            regardless of age.
-          </p>
-          <ul>
-            <li :for={{field, rows} <- @impact.impact}>
-              <strong>{horizon_label(@section, field)}</strong>
-              <span :for={row <- rows}>{row.count} {row.label}</span>
-            </li>
-          </ul>
-          <button type="button" class="ui-button danger" phx-click="confirm" phx-target={@myself}>
-            Apply these horizons
-          </button>
-        </div>
-        <p :if={@error} class="settings-error" role="alert">{@error}</p>
-        <div :if={@conflict} class="settings-conflict">
-          <h3>Saved now</h3>
-          <dl>
-            <div :for={field <- @section.fields}>
-              <dt>{field.label}</dt>
-              <dd>{saved_value(@section, @conflict, @item_key, field)}</dd>
-            </div>
-          </dl>
-          <button
-            type="button"
-            class="ui-button secondary"
-            phx-click="review-current"
-            phx-target={@myself}
-          >
-            Keep my draft and save over this version
-          </button>
-        </div>
-        <div class="settings-actions">
-          <button type="submit" class="ui-button primary" disabled={!@dirty or not is_nil(@conflict)}>
-            {if @section.kind == :collection and is_nil(@item_key), do: "Add", else: "Save changes"}
-          </button>
-          <button
-            type="button"
-            class="ui-button secondary"
-            phx-click="cancel"
-            phx-target={@myself}
-            disabled={!@dirty}
-          >Cancel</button>
-          <button
-            :if={@section.kind == :collection and @item_key}
-            type="button"
-            class="ui-button secondary"
-            phx-click="new-item"
-            phx-target={@myself}
-          >New entry</button>
-          <span role="status">{@message}</span>
-        </div>
-      </form>
+          <div :if={@conflict} class="settings-conflict">
+            <h3>Saved now</h3>
+            <dl>
+              <div :for={field <- @section.fields}>
+                <dt>{field.label}</dt>
+                <dd>{saved_value(@section, @conflict, @item_key, field)}</dd>
+              </div>
+            </dl>
+            <button
+              type="button"
+              class="ui-button secondary"
+              phx-click="review-current"
+              phx-target={@myself}
+            >
+              Keep my draft and save over this version
+            </button>
+          </div>
+          <div class="settings-actions">
+            <button
+              type="submit"
+              class="ui-button primary"
+              disabled={!@dirty or not is_nil(@conflict)}
+            >
+              {if @section.kind == :collection and is_nil(@item_key), do: "Add", else: "Save changes"}
+            </button>
+            <button
+              type="button"
+              class="ui-button secondary"
+              phx-click="cancel"
+              phx-target={@myself}
+              disabled={!@dirty and @section.kind != :collection}
+            >Cancel</button>
+            <button
+              :if={@section.kind == :collection and @item_key}
+              type="button"
+              class="ui-button secondary"
+              phx-click="new-item"
+              phx-target={@myself}
+            >New entry</button>
+            <span role="status">{@message}</span>
+          </div>
+        </form>
+      </div>
     </section>
     """
   end
+
+  defp editor_open?(assigns) do
+    assigns.editor_visible or not is_nil(assigns.item_key) or assigns.dirty or
+      assigns.errors != [] or
+      not is_nil(assigns.error) or not is_nil(assigns.conflict) or not is_nil(assigns.impact)
+  end
+
+  defp visible_field_groups(section, draft) do
+    section
+    |> SettingsSections.field_groups()
+    |> Enum.map(fn {group, fields} ->
+      {group, Enum.filter(fields, &field_visible?(&1, draft))}
+    end)
+    |> Enum.reject(fn {_group, fields} -> fields == [] end)
+  end
+
+  defp field_visible?(%{kind: :mapping}, draft),
+    do: Map.get(draft, "adapter_kind") == "mapped_json"
+
+  defp field_visible?(_field, _draft), do: true
+
+  defp collection_editor_label(section, item_key) do
+    action = if item_key, do: "Edit", else: "Add"
+    noun = Map.get(section, :item_label, collection_item_label(section.key))
+    "#{action} #{noun}"
+  end
+
+  defp collection_item_label(:webhooks), do: "webhook source"
+  defp collection_item_label(:pricing), do: "token rate"
+  defp collection_item_label(:policies), do: "execution policy"
+  defp collection_item_label(:repositories), do: "repository"
+  defp collection_item_label(:contexts), do: "repository context"
+  defp collection_item_label(:github_bindings), do: "GitHub repository binding"
+  defp collection_item_label(_key), do: "entry"
 
   attr(:field, :map, required: true)
   attr(:id, :string, required: true)
@@ -473,17 +598,8 @@ defmodule Ryker.ControlPlane.SettingsEditor do
   defp input_id(id, field), do: "#{id}-#{SettingsSections.field_name(field)}"
   defp help_id(id, field), do: input_id(id, field) <> "-help"
 
-  # A section the deployment has not made usable says so, rather than offering
-  # an empty list of credentials and a save that can only fail.
-  defp notice(%{key: :webhooks}, %{webhook_secret_names: :invalid}),
-    do:
-      "RYKER_WEBHOOK_SECRET_NAMES is not a valid list of credential names, " <>
-        "so no source can be saved until the deployment fixes it."
-
   defp notice(%{key: :webhooks}, %{webhook_secret_names: []}),
-    do:
-      "This deployment registered no webhook credentials. Add names to " <>
-        "RYKER_WEBHOOK_SECRET_NAMES, supply their values, and restart before saving a source."
+    do: "Create a signing credential above before adding a webhook source."
 
   defp notice(_section, _view), do: nil
 
