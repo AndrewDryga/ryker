@@ -53,6 +53,14 @@ defmodule Ryker.Slack.Gateway do
     end
   end
 
+  @doc "Returns whether the named Socket Mode gateway currently has a live connection."
+  @spec connected?(GenServer.server()) :: boolean()
+  def connected?(server \\ __MODULE__) do
+    GenServer.call(server, :connected?)
+  catch
+    :exit, _reason -> false
+  end
+
   @impl GenServer
   def init(options) do
     send(self(), :connect)
@@ -64,6 +72,9 @@ defmodule Ryker.Slack.Gateway do
        reconnect_scheduled: false
      })}
   end
+
+  @impl GenServer
+  def handle_call(:connected?, _from, state), do: {:reply, not is_nil(state.connection), state}
 
   @impl GenServer
   def handle_info(:connect, %{connection: nil} = state) do

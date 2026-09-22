@@ -108,9 +108,21 @@ defmodule Ryker.ControlPlane.NativePagesTest do
     refute LazyHTML.query(html, ".page-summary-link") |> Enum.any?()
 
     refute LazyHTML.query(html, ".activity-pulse") |> Enum.any?()
+    assert LazyHTML.query(html, ".activity-primary > .collection-shell") |> Enum.count() == 1
+
+    assert LazyHTML.query(html, ".collection-shell-header .ui-tabs") |> Enum.count() == 1
+
+    assert LazyHTML.query(html, ".collection-shell-filter-row #activity-filters-toolbar")
+           |> Enum.count() == 1
+
+    assert LazyHTML.query(html, ".collection-shell-content > .empty-state") |> Enum.count() == 1
+
     assert LazyHTML.query(html, "#activity-filters-search[disabled]") |> Enum.count() == 1
     assert LazyHTML.query(html, "#activity-mode[disabled]") |> Enum.count() == 1
     assert LazyHTML.query(html, "#filter-add[disabled]") |> Enum.count() == 1
+    assert LazyHTML.query(html, ".search-field.filter-control") |> Enum.count() == 1
+    assert LazyHTML.query(html, "#activity-mode.filter-control") |> Enum.count() == 1
+    assert LazyHTML.query(html, "#filter-add.filter-control") |> Enum.count() == 1
     assert LazyHTML.query(html, ".ui-tabs a") |> Enum.empty?()
     assert LazyHTML.query(html, ".ui-tabs .ui-tab-disabled") |> Enum.count() == 4
   end
@@ -153,7 +165,7 @@ defmodule Ryker.ControlPlane.NativePagesTest do
       status: "Delivery confirmed",
       available: true,
       text: "A retained answer <not markup>",
-      href: "model-calls?kind=work&attempt=confirmed"
+      href: "#request-confirmed"
     }
 
     trace =
@@ -193,7 +205,7 @@ defmodule Ryker.ControlPlane.NativePagesTest do
     assert html =~ "A retained answer &lt;not markup&gt;"
     refute html =~ "Inspect accepted answer"
     # A bounded window now names the bound instead of announcing that one exists.
-    assert html =~ "Older model calls stay under"
+    assert html =~ "Long artifacts are labeled when truncated"
     assert html =~ "Already attempted"
     assert html =~ "Reconciled the previous request"
     assert html =~ "Open recovery"
@@ -210,8 +222,8 @@ defmodule Ryker.ControlPlane.NativePagesTest do
     # The split panes hid the processing behind tabs and a second scroll area.
     assert html =~ "Execution timeline"
     assert html =~ "trace-chapter"
-    assert html =~ "Getting ready"
-    assert LazyHTML.from_fragment(html) |> LazyHTML.text() =~ "The answer"
+    assert html =~ "Episode setup"
+    assert LazyHTML.from_fragment(html) |> LazyHTML.text() =~ "Answer"
     refute html =~ "aria-label=\"Episode view\""
     refute html =~ "aria-label=\"Selected event\""
     refute html =~ "phx-click=\"inspect-step\""
@@ -292,7 +304,7 @@ defmodule Ryker.ControlPlane.NativePagesTest do
 
   test "the packaged asset allowlist serves local modules but never arbitrary paths" do
     for file <-
-          ~w(phoenix.mjs phoenix_live_view.esm.js control-plane.js reading-state.mjs composer.mjs conversation.mjs drafts.mjs filter-toolbar.mjs leave-guard.mjs control-plane.css workspace.css) do
+          ~w(phoenix.mjs phoenix_live_view.esm.js control-plane.js reading-state.mjs composer.mjs conversation.mjs drafts.mjs elapsed-time.mjs filter-toolbar.mjs leave-guard.mjs control-plane.css workspace.css) do
       conn = Assets.call(Plug.Test.conn(:get, "/#{file}"), [])
       assert conn.status == 200
       assert conn.halted

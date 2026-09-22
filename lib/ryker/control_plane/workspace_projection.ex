@@ -10,11 +10,13 @@ defmodule Ryker.ControlPlane.WorkspaceProjection do
   alias Ryker.ControlPlane.Activity
   alias Ryker.CoopFleet.Worker, as: FleetWorker
   alias Ryker.Episodes.Episode
+  alias Ryker.Learning.Batch, as: LearningBatch
   alias Ryker.Repo
   alias Ryker.Retention.Custody, as: RetentionCustody
+  alias Ryker.State.LearningRun
   alias Ryker.Work.Session
 
-  @doc "The newest hundred worker sessions with their cleanup state and safe action."
+  @doc "Current working copies followed by recent removed history, with safe actions."
   def list(_params) do
     # A learning session has no episode; an inner join left every learning
     # working copy, and any blocked cleanup of one, off this page. Admission
@@ -23,10 +25,20 @@ defmodule Ryker.ControlPlane.WorkspaceProjection do
       from(session in Session,
         left_join: episode in Episode,
         on: episode.id == session.episode_id,
-        where: session.execution_kind in [:work, :learning],
-        order_by: [desc: session.updated_at, desc: session.id],
+        left_join: learning_run in LearningRun,
+        on: learning_run.id == session.learning_run_id,
+        left_join: learning_batch in LearningBatch,
+        on: learning_batch.id == learning_run.batch_id,
+        where:
+          session.execution_kind == :learning or
+            (session.execution_kind == :work and not is_nil(session.repository_ref)),
+        order_by: [
+          asc: fragment("? = 'discarded'", session.cleanup_status),
+          desc: session.updated_at,
+          desc: session.id
+        ],
         limit: 100,
-        select: {session, episode.state, episode.key}
+        select: {session, episode.state, episode.key, learning_run, learning_batch}
       )
     )
     |> Enum.map(&workspace_item/1)
@@ -39,9 +51,13 @@ defmodule Ryker.ControlPlane.WorkspaceProjection do
            from(session in Session,
              left_join: episode in Episode,
              on: episode.id == session.episode_id,
+             left_join: learning_run in LearningRun,
+             on: learning_run.id == session.learning_run_id,
+             left_join: learning_batch in LearningBatch,
+             on: learning_batch.id == learning_run.batch_id,
              where: session.external_ref == ^ref,
              where: session.execution_kind in [:work, :learning],
-             select: {session, episode.state, episode.key}
+             select: {session, episode.state, episode.key, learning_run, learning_batch}
            )
          ) do
       nil -> :not_found
@@ -117,15 +133,18 @@ defmodule Ryker.ControlPlane.WorkspaceProjection do
       kind: session.execution_kind,
       reason: preview_reason(session.cleanup_status),
       ref: session.external_ref,
-      repository: session.repository_ref,
+      repository: workspace_label(session),
       status: session.cleanup_status,
       target: session.coop_session_id
     }
   end
 
-  defp preview_reason(:active), do: "close the remote session"
+  defp workspace_label(%Session{execution_kind: :learning}), do: "Background learning"
+  defp workspace_label(%Session{} = session), do: session.repository_ref
+
+  defp preview_reason(:active), do: "start the follow-up window"
   defp preview_reason(:close_pending), do: "retry the exact close"
-  defp preview_reason(:grace), do: "grace expired; ask Coop for a discard plan"
+  defp preview_reason(:grace), do: "follow-up window expired; close the remote session"
   defp preview_reason(:plan_pending), do: "retry the exact discard plan"
   defp preview_reason(:discard_pending), do: "discard the planned workspace"
   defp preview_reason(:retained), do: "replan from fresh workspace evidence"
@@ -138,13 +157,17 @@ defmodule Ryker.ControlPlane.WorkspaceProjection do
 
   defp age_seconds(now, value), do: max(DateTime.diff(now, value, :second), 0)
 
-  defp workspace_item({%Session{} = session, episode_state, episode_ref}) do
+  defp workspace_item(
+         {%Session{} = session, episode_state, episode_ref, learning_run, learning_batch}
+       ) do
     %{
       action: workspace_action(session),
       kind: "coop_session",
       episode_ref: episode_ref,
       execution_kind: session.execution_kind,
-      repository: session.repository_ref,
+      learning_state: learning_state(session, learning_run, learning_batch),
+      learning_retry_at: learning_retry_at(learning_batch),
+      repository: workspace_label(session),
       discard_after: session.discard_after,
       ref: session.external_ref,
       state: episode_state,
@@ -155,6 +178,37 @@ defmodule Ryker.ControlPlane.WorkspaceProjection do
       updated_at: session.updated_at
     }
   end
+
+  defp learning_state(%Session{execution_kind: kind}, _run, _batch) when kind != :learning,
+    do: nil
+
+  defp learning_state(
+         %Session{execution_kind: :learning},
+         %LearningRun{remote_stopped_at: %DateTime{}},
+         _batch
+       ),
+       do: :cleanup_pending
+
+  defp learning_state(
+         %Session{execution_kind: :learning},
+         %LearningRun{error_code: "learning_remote_unresolved"},
+         %LearningBatch{status: :deferred}
+       ),
+       do: :retry_scheduled
+
+  defp learning_state(
+         %Session{execution_kind: :learning},
+         %LearningRun{error_code: "learning_remote_unresolved"},
+         _batch
+       ),
+       do: :checking_worker
+
+  defp learning_state(%Session{execution_kind: :learning}, _run, _batch), do: :active
+
+  defp learning_retry_at(%LearningBatch{status: :deferred, next_attempt_at: retry_at}),
+    do: retry_at
+
+  defp learning_retry_at(_batch), do: nil
 
   defp workspace_action(%Session{
          cleanup_status: :blocked,

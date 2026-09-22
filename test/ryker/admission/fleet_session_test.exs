@@ -1,13 +1,17 @@
 defmodule Ryker.Admission.FleetSessionTest do
-  alias Ryker.Work.Activity
   use Ryker.DataCase, async: true
+
+  import Ecto.Query
 
   alias Ryker.Admission.FleetSession
   alias Ryker.ControlPlane.ModelRequests
+  alias Ryker.FakeRetentionCoopAPI, as: RetentionAPI
   alias Ryker.Ingress.Inbox
+  alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Repo
+  alias Ryker.Retention.Dispatcher, as: RetentionDispatcher
   alias Ryker.Slack.Input, as: SlackInput
-  alias Ryker.Work.Session
+  alias Ryker.Work.{Activity, Session}
 
   @policy "admission-read-only"
   @digest String.duplicate("a", 64)
@@ -76,10 +80,96 @@ defmodule Ryker.Admission.FleetSessionTest do
              Activity.ingest_fleet(bound.id, bound.coop_session_id, 1, [event])
 
     assert {:ok, settled} = FleetSession.settle(entry, "coop-admission-session")
-    assert settled.cleanup_status == :discarded
+    assert settled.cleanup_status == :plan_pending
     assert %DateTime{} = settled.closed_at
-    assert %DateTime{} = settled.discarded_at
+    assert is_nil(settled.discarded_at)
+
+    # Production, 2026-09-20: successful admission marked this row discarded
+    # after CloseSession, so retention never sent PlanDiscard/Discard and every
+    # routing fork remained protected on the worker. Once the input advances,
+    # the shared cleanup state machine must remove the exact remote session.
+    {1, nil} =
+      Repo.update_all(from(saved in Entry, where: saved.id == ^entry.id),
+        set: [execution_generation: 2]
+      )
+
+    remote = %{
+      "external_ref" => settled.external_ref,
+      "id" => settled.coop_session_id,
+      "policy" => settled.policy,
+      "policy_digest" => settled.policy_digest,
+      "revision" => 2,
+      "state" => "closed"
+    }
+
+    {:ok, cleanup} = RetentionAPI.start_link(sessions: [remote])
+
+    assert {:ok, {:executed, %{phase: :planned}}} = retention(cleanup, "plan")
+    assert {:ok, {:executed, %{phase: :discarded}}} = retention(cleanup, "discard")
+
+    assert Repo.get!(Session, settled.id).cleanup_status == :discarded
+    assert RetentionAPI.remote_session(cleanup, settled.coop_session_id)["state"] == "discarded"
 
     assert Repo.aggregate(Session, :count, :id) == 1
+  end
+
+  test "an older admission generation is remotely discarded after a failed close" do
+    # Production, 2026-09-20: generation 1 received the model response, its
+    # CloseSession command failed with 500, generation 2 completed, and no
+    # recovery path ever retried or discarded generation 1's physical fork.
+    assert {:ok, input} =
+             SlackInput.new(%{
+               actor: %{kind: :user, ref: "U123"},
+               channel_ref: "C456",
+               content: %{"text" => "Retry this admission safely."},
+               event_kind: :message,
+               event_ref: "Ev-fleet-admission-orphan",
+               message_ref: "1787832000.000200",
+               occurred_at: ~U[2026-08-30 12:01:00.000000Z],
+               revision: 1,
+               thread_ref: nil,
+               workspace_ref: "T4E9BBB321532"
+             })
+
+    assert {:ok, %{entry: entry}} = Inbox.record(input)
+    assert {:ok, _session} = FleetSession.ensure(entry, %{name: @policy, digest: @digest})
+    assert {:ok, session} = FleetSession.bind(entry, "coop-admission-orphan")
+
+    {1, nil} =
+      Repo.update_all(from(saved in Entry, where: saved.id == ^entry.id),
+        set: [execution_generation: 2]
+      )
+
+    remote = %{
+      "external_ref" => session.external_ref,
+      "id" => session.coop_session_id,
+      "policy" => session.policy,
+      "policy_digest" => session.policy_digest,
+      "revision" => 1,
+      "state" => "open"
+    }
+
+    {:ok, cleanup} = RetentionAPI.start_link(sessions: [remote])
+
+    assert {:ok, {:executed, %{phase: :closed}}} = retention(cleanup, "orphan-close")
+    assert {:ok, {:executed, %{phase: :planned}}} = retention(cleanup, "orphan-plan")
+    assert {:ok, {:executed, %{phase: :discarded}}} = retention(cleanup, "orphan-discard")
+
+    assert Repo.get!(Session, session.id).cleanup_status == :discarded
+    assert RetentionAPI.remote_session(cleanup, session.coop_session_id)["state"] == "discarded"
+  end
+
+  defp retention(client, suffix) do
+    RetentionDispatcher.run_once(
+      api: RetentionAPI,
+      client: client,
+      closed_session_grace_seconds: 900,
+      lease_seconds: 60,
+      max_attempts: 8,
+      retained_recheck_seconds: 21_600,
+      retry_base_seconds: 1,
+      retry_max_seconds: 60,
+      worker_ref: "admission-cleanup:#{suffix}"
+    )
   end
 end

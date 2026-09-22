@@ -192,7 +192,9 @@ defmodule Ryker.ControlPlane.ActivityTest do
              Activity.request_titles([episode.key])[episode.key]
 
     {:ok, _session} = Custody.pin_episode(episode.id, "label-test", String.duplicate("a", 64))
-    assert [%{request_title: "Inspect the slow admission request"}] = Projection.workspaces(%{})
+
+    # Direct conversation work has a worker session but no repository checkout.
+    assert Projection.workspaces(%{}) == []
 
     # The native list shows source text; moving off the metadata-only listing
     # must retain HTML escaping and never surface credentials or raw artifacts.

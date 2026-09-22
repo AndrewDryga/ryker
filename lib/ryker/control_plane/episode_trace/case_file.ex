@@ -147,7 +147,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.CaseFile do
         status: case_reply_status(turn),
         text: artifact.text,
         available: artifact.state == :retained,
-        href: "model-calls?attempt=#{turn.id}&section=delivery"
+        href: "#request-#{turn.id}"
       }
     ]
   end

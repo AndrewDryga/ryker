@@ -19,14 +19,13 @@ explicitly unmeasured rather than appearing as zero.
 
 ## Route map
 
-Execution reading uses three named surfaces, and their routes match those names.
+Execution reading uses two named surfaces, and their routes match those names.
 There are no compatibility aliases for earlier paths.
 
 | Surface | Route | What it holds |
 | --- | --- | --- |
 | **Activity** | `/` and `/activity` | The global list of inputs, running work and delivered answers, with its filters in the query string. One toolbar holds search, the work mode and a chip per filter; "+ Filter" picks a field, then a value, which applies at once. `/` is the application root and renders the same list. |
-| **Timeline** | `/timeline/:ref` | One request's chronological case file, titled by its subject. `:ref` is a durable episode key or `ingress-input:<id>` for an input with no episode yet. |
-| **Model calls** | `/timeline/:ref/model-calls` | The technical inspection of the retained model requests behind that Timeline, with `kind`, `attempt` and `generation` selecting the exact retained artifact. |
+| **Timeline** | `/timeline/:ref` | One request's chronological case file, titled by its subject. It includes each model request's retained briefing, response checks and technical identity in place. `:ref` is a durable episode key or `ingress-input:<id>` for an input with no episode yet. |
 
 Live invalidation domains follow the first path segment, so `activity` and
 `timeline` are also the PubSub domain names in `ControlPlane.Updates`.
@@ -134,8 +133,8 @@ stay loaded across refreshes; a confirmed expiry, redaction or authorization
 loss closes the disclosure and removes the body regardless of reading state.
 Retained tool result bodies (`output`, `error`, `content`, `locations`) and
 model plans follow the same contract, keyed by `activity-<event id>-<field>`;
-so do the retained payloads on the Model calls page, keyed by `tool-<event
-id>`. Tool **arguments** stay prepared, because the compact row a reader scans
+request evidence uses the same disclosure state on the Timeline. Tool
+**arguments** stay prepared, because the compact row a reader scans
 — the command it ran, the file it read, the observation it recorded — is
 derived from them.
 
@@ -147,7 +146,9 @@ Retained history is bounded and says so: the Timeline names how much of each
 retained total it is showing and offers "Show earlier activity", which loads
 one more bounded page of older activity events (`?events=N`, up to ten pages of
 1,000). Older events are added before the ones already read; nothing is dropped
-or duplicated, and when no further page exists the affordance is absent.
+or duplicated. Model-request history follows the same progressive pattern with
+"Show earlier requests" (`?calls=N`, up to ten pages of 20). When no further
+page exists, the corresponding affordance is absent.
 
 Two background sections follow the answer in reading order while keeping their
 own recorded times, because learning routinely overlaps the work and reading it

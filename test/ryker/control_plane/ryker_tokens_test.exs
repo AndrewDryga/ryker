@@ -230,6 +230,56 @@ defmodule Ryker.ControlPlane.RykerTokensTest do
     assert selected =~ "font-weight:600"
   end
 
+  test "filter fields and actions use one control shell in every state" do
+    # On an empty Activity page the search wrapper kept the normal strong
+    # border, Chrome dimmed the disabled select with its native treatment and
+    # Filter retained a third button rule. The three adjacent controls looked
+    # unrelated even though they were one filtering system.
+    workspace = workspace_css()
+
+    [_, shell] =
+      Regex.run(~r/\.ryker-app \.filter-toolbar \.filter-control \{([^}]+)\}/, workspace)
+
+    assert shell =~ "border:1px solid var(--ryker-control-border)"
+    assert shell =~ "border-radius:8px"
+    assert shell =~ "background-color:var(--ryker-control-bg)"
+
+    [_, disabled] =
+      Regex.run(
+        ~r/\.ryker-app \.filter-toolbar \.filter-control:is\(:disabled, \.is-disabled, :has\(:disabled\)\) \{([^}]+)\}/,
+        workspace
+      )
+
+    assert disabled =~ "opacity:1"
+    assert disabled =~ "border-color:var(--ryker-disabled-border)"
+    assert disabled =~ "background-color:var(--ryker-disabled-bg)"
+    assert disabled =~ "color:var(--ryker-disabled-text)"
+
+    # Live and static directories share one framed hierarchy instead of each
+    # page inventing its own toolbar, border and empty-state spacing.
+    assert workspace =~ ".collection-shell {"
+    assert workspace =~ ".collection-shell-filter-row {"
+    assert workspace =~ ".collection-shell-content > .empty-state {"
+    refute workspace =~ ".activity-inbox {"
+    refute workspace =~ ".inbox-toolbar {"
+  end
+
+  test "the selected conversation is a quiet row rather than a bordered control" do
+    # Andrew, 2026-09-20: a full outline made the selected conversation look
+    # like an input nested in the directory. Selection already has background,
+    # weight and aria-current, so the directory row must stay borderless.
+    workspace = workspace_css()
+
+    [_, row] = Regex.run(~r/\.lab-directory-item \{([^}]+)\}/, workspace)
+    refute row =~ "border:"
+
+    [_, selected] =
+      Regex.run(~r/\.lab-directory-item\[aria-current=page\] \{([^}]+)\}/, workspace)
+
+    assert selected =~ "background:var(--ryker-surface-raised)"
+    refute selected =~ "border"
+  end
+
   test "the brand link is a 44px target showing the artwork at or above its minimum" do
     # brand/ryker/README.md: complete lockup at 160px or more, standalone mark
     # at 24px or more, clear space of a quarter of the lowercase height around

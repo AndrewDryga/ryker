@@ -80,7 +80,7 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
 
     assert {:ok, queued} = Projection.lab_conversation(@conversation_id)
     assert [waiting] = queued.admission_progress
-    assert waiting.phase =~ "Queued"
+    assert waiting.phase == "Queued"
     assert waiting.href == "/timeline/ingress-input%3A#{entry.id}"
     assert queued.episodes == []
 
@@ -106,7 +106,7 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
 
     assert {:ok, running} = Projection.lab_conversation(@conversation_id)
     assert [observed] = running.admission_progress
-    assert observed.phase == "Provider running"
+    assert observed.phase == "Working"
     assert observed.target == "recorded-target"
     assert observed.generation == 1
     assert observed.claims == 1

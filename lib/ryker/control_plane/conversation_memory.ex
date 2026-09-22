@@ -32,17 +32,18 @@ defmodule Ryker.ControlPlane.ConversationMemory do
   @expired_text "Saved text expired under the conversation memory retention policy."
 
   def project(params) do
-    notes = from(note in ConversationObservation, where: not is_nil(note.note))
+    sources = from(source in ConversationObservation, where: not is_nil(source.note))
+    secrets = InspectionRedactor.configured_secrets()
+    source_parent = source_parent(params["related_to"], secrets)
 
     counts = %{
-      knowledge: Repo.aggregate(ConversationKnowledge, :count),
-      notes: Repo.aggregate(notes, :count),
-      summaries: Repo.aggregate(ConversationSummary, :count)
+      context: Repo.aggregate(ConversationSummary, :count),
+      knowledge: Repo.aggregate(ConversationKnowledge, :count)
     }
 
-    kind = selected_kind(params["kind"], counts)
+    kind = selected_kind(params["kind"], source_parent)
     search = search_text(params["q"])
-    query = kind_query(kind, notes) |> search(kind, search)
+    query = kind_query(kind, sources, source_parent) |> search(kind, search)
     selected = selected_id(params["item"])
 
     query =
@@ -62,11 +63,10 @@ defmodule Ryker.ControlPlane.ConversationMemory do
     items = page.items
     ids = items |> Enum.map(& &1.source_episode_id) |> Enum.reject(&is_nil/1)
     episodes = episode_keys(ids)
-    secrets = InspectionRedactor.configured_secrets()
     knowledge_ids = if kind == "knowledge", do: Enum.map(items, & &1.id), else: []
 
     available_ids = if kind == "knowledge", do: available_ids(items), else: MapSet.new()
-    sources = source_counts(knowledge_ids)
+    source_counts = source_counts(knowledge_ids)
     history = history(selected, kind, secrets, params)
     learning_activity = LearningActivity.project(params)
 
@@ -74,6 +74,8 @@ defmodule Ryker.ControlPlane.ConversationMemory do
       counts: counts,
       kind: kind,
       q: search,
+      related_to: if(source_parent, do: source_parent.ref),
+      source_parent: source_parent,
       page: page.page,
       pages: page.pages,
       total: page.total,
@@ -88,20 +90,31 @@ defmodule Ryker.ControlPlane.ConversationMemory do
         Enum.map(items, fn row ->
           rendered = item(row, episodes, secrets)
 
-          if kind == "knowledge" do
-            {count, direct, oldest} = Map.get(sources, row.id, {0, 0, nil})
+          case kind do
+            "knowledge" ->
+              {count, direct, oldest} = Map.get(source_counts, row.id, {0, 0, nil})
 
-            Map.merge(rendered, %{
-              available: MapSet.member?(available_ids, row.id),
-              source_count: count,
-              direct_source_count: direct,
-              inherited_source_count: count - direct,
-              version: row.version,
-              expires_at:
-                row.source_dependencies |> LearningSources.oldest(oldest) |> expires_at()
-            })
-          else
-            rendered
+              Map.merge(rendered, %{
+                available: MapSet.member?(available_ids, row.id),
+                source_count: count,
+                source_path: source_path("knowledge", row.id, count),
+                direct_source_count: direct,
+                inherited_source_count: count - direct,
+                version: row.version,
+                expires_at:
+                  row.source_dependencies |> LearningSources.oldest(oldest) |> expires_at()
+              })
+
+            "context" ->
+              count = row.source_dependencies |> source_ids() |> length()
+
+              Map.merge(rendered, %{
+                source_count: count,
+                source_path: source_path("context", row.id, count)
+              })
+
+            "sources" ->
+              rendered
           end
         end)
     }
@@ -209,23 +222,70 @@ defmodule Ryker.ControlPlane.ConversationMemory do
     end
   end
 
-  defp selected_kind(value, _) when value in ["knowledge", "notes", "summaries"], do: value
-
-  defp selected_kind(_, counts) do
-    cond do
-      counts.knowledge > 0 -> "knowledge"
-      counts.notes > 0 -> "notes"
-      counts.summaries > 0 -> "summaries"
-      true -> "knowledge"
+  defp source_parent("knowledge:" <> id, secrets) do
+    with id when is_binary(id) <- selected_id(id),
+         %ConversationKnowledge{} = knowledge <- Repo.get(ConversationKnowledge, id) do
+      %{
+        back_label: "Knowledge",
+        back_path: "/memory?" <> URI.encode_query(%{"item" => id, "kind" => "knowledge"}),
+        ref: "knowledge:#{id}",
+        source_ids: source_ids(knowledge.source_dependencies),
+        title: knowledge_title(knowledge, secrets)
+      }
+    else
+      _ -> nil
     end
   end
+
+  defp source_parent("context:" <> id, secrets) do
+    with id when is_binary(id) <- selected_id(id),
+         %ConversationSummary{} = summary <- Repo.get(ConversationSummary, id) do
+      %{
+        back_label: "Conversation context",
+        back_path: "/memory?kind=context#memory-#{id}",
+        ref: "context:#{id}",
+        source_ids: source_ids(summary.source_dependencies),
+        title: continuity_state(summary.state, secrets).title
+      }
+    else
+      _ -> nil
+    end
+  end
+
+  defp source_parent(_, _), do: nil
+
+  defp source_ids(dependencies) do
+    case LearningSources.expand(dependencies) do
+      roots when is_list(roots) ->
+        roots
+        |> Enum.map(&selected_id(&1["observation_id"]))
+        |> Enum.reject(&is_nil/1)
+        |> Enum.uniq()
+
+      _ ->
+        []
+    end
+  end
+
+  defp source_path(_kind, _id, 0), do: nil
+
+  defp source_path(kind, id, _count),
+    do:
+      "/memory?" <>
+        URI.encode_query(%{"kind" => "sources", "related_to" => "#{kind}:#{id}"})
+
+  defp selected_kind(value, _) when value in ["knowledge", "context"], do: value
+  defp selected_kind("sources", %{}), do: "sources"
+  defp selected_kind(_, _), do: "knowledge"
 
   defp search_text(value) when is_binary(value), do: String.slice(String.trim(value), 0, 200)
   defp search_text(_), do: ""
 
-  defp kind_query("knowledge", _), do: from(item in ConversationKnowledge)
-  defp kind_query("notes", notes), do: notes
-  defp kind_query("summaries", _), do: from(summary in ConversationSummary)
+  defp kind_query("knowledge", _sources, _parent), do: from(item in ConversationKnowledge)
+  defp kind_query("context", _sources, _parent), do: from(summary in ConversationSummary)
+
+  defp kind_query("sources", sources, %{source_ids: ids}),
+    do: from(source in sources, where: source.id in ^ids)
 
   defp search(query, _, ""), do: query
 
@@ -235,11 +295,13 @@ defmodule Ryker.ControlPlane.ConversationMemory do
         where: fragment("position(lower(?) in lower(?)) > 0", ^text, item.state)
       )
 
-  defp search(query, "notes", text),
+  defp search(query, "sources", text),
     do:
-      from(note in query, where: fragment("position(lower(?) in lower(?)) > 0", ^text, note.note))
+      from(source in query,
+        where: fragment("position(lower(?) in lower(?)) > 0", ^text, source.note)
+      )
 
-  defp search(query, "summaries", text),
+  defp search(query, "context", text),
     do:
       from(summary in query,
         where: fragment("position(lower(?) in lower(?)) > 0", ^text, summary.state)
@@ -265,11 +327,7 @@ defmodule Ryker.ControlPlane.ConversationMemory do
 
     base(knowledge, episodes)
     |> Map.merge(%{
-      title:
-        if(state["retention"] == "pruned",
-          do: "Expired knowledge",
-          else: state["title"] || "Conversation knowledge"
-        ),
+      title: knowledge_title(state),
       text: knowledge_text(state),
       groups: [],
       source: nil,
@@ -292,6 +350,15 @@ defmodule Ryker.ControlPlane.ConversationMemory do
       maintenance_retry_at: summary.compaction_retry_at,
       source_at: if(is_nil(warning), do: summary_source_at(summary.source_dependencies))
     })
+  end
+
+  defp knowledge_title(%ConversationKnowledge{} = knowledge, secrets),
+    do: knowledge.state |> InspectionRedactor.document(secrets) |> knowledge_title()
+
+  defp knowledge_title(state) do
+    if state["retention"] == "pruned",
+      do: "Expired knowledge",
+      else: state["title"] || "Conversation knowledge"
   end
 
   defp summary_source_at(dependencies) do

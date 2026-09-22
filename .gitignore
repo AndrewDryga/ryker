@@ -8,6 +8,7 @@
 /crash.dump
 /.elixir/
 /.elixir
+/.ryker/
 .DS_Store
 
 # Scratch git worktrees for parallel agents. They are checkouts of this same

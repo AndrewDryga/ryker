@@ -1321,7 +1321,9 @@ defmodule Ryker.ControlPlane.ProjectionTest do
                "verification" => "Verify the deployed revision."
              })
 
-    assert [%{status: :active, summary: "no repository"}] = Projection.workspaces(%{})
+    # Repository-less conversation sessions are not repository checkouts and do
+    # not belong on the Workspaces page.
+    assert [] = Projection.workspaces(%{})
 
     assert {:ok, detail} = Projection.episode(working.episode.key)
     assert Enum.flat_map(detail.trace.chapters, & &1.steps) == detail.trace.steps
@@ -1618,7 +1620,6 @@ defmodule Ryker.ControlPlane.ProjectionTest do
     refute Map.has_key?(Projection.callbacks(), :card_lab_feedback)
     refute Map.has_key?(Projection.callbacks(), :card_lab_slack)
     refute Map.has_key?(Projection.callbacks(), :card_lab_post)
-    assert is_function(Projection.callbacks().model_requests, 2)
     assert is_function(Projection.callbacks().admission_request, 2)
   end
 
@@ -2523,7 +2524,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
     assert [preview] = storage.preview
     assert preview.ref == session.external_ref
     assert preview.status == :active
-    assert preview.reason == "close the remote session"
+    assert preview.reason == "start the follow-up window"
     assert preview.kind == :work
     assert is_integer(preview.eligible_age_seconds)
 
@@ -2534,7 +2535,8 @@ defmodule Ryker.ControlPlane.ProjectionTest do
     assert html =~ "No report"
     assert html =~ "refused: reserve_exhausted"
     assert html =~ "unknown"
-    assert html =~ "close the remote session"
+    assert html =~ "Nothing is eligible for cleanup"
+    refute html =~ "start the follow-up window"
   end
 
   test "a publication that cannot proceed is visible on the failures page" do
@@ -2621,7 +2623,9 @@ defmodule Ryker.ControlPlane.ProjectionTest do
     refute inspect(workspace) =~ "private transport detail"
     refute Map.has_key?(workspace, :discard_plan)
     refute Map.has_key?(workspace, :discard_plan_fingerprint)
-    assert workspace in Projection.workspaces(%{})
+    # A repository-less Chat cleanup failure remains inspectable from Failures,
+    # but it is not presented as a repository checkout on Workspaces.
+    refute workspace in Projection.workspaces(%{})
 
     fixture = File.read!("testdata/control_plane/legacy_cleanup_failure.json") |> Jason.decode!()
 

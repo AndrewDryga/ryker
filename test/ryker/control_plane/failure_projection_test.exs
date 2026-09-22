@@ -11,6 +11,7 @@ defmodule Ryker.ControlPlane.FailureProjectionTest do
   alias Ryker.Delivery.ReactionCustody
   alias Ryker.Fixtures.Learning, as: LearningFixtures
   alias Ryker.Ingress.Inbox
+  alias Ryker.Learning.Batch, as: LearningBatch
   alias Ryker.Learning.FleetSession, as: LearningFleetSession
   alias Ryker.Retention.Custody, as: RetentionCustody
   alias Ryker.Slack.Input, as: SlackInput
@@ -137,5 +138,55 @@ defmodule Ryker.ControlPlane.FailureProjectionTest do
     page = [workspace] |> HTML.workspaces(storage) |> IO.iodata_to_binary()
     assert page =~ "Background learning"
     assert page =~ "/actions/retention/"
+  end
+
+  test "an unresolved learning worker reports the scheduled retry instead of being in use" do
+    assert {:ok, run} =
+             Learning.prepare(Enum.map(LearningFixtures.inputs!(), & &1.id), %{
+               policy: "recorded-read-only-policy",
+               policy_digest: String.duplicate("b", 64)
+             })
+
+    assert {:ok, session} = LearningFleetSession.ensure(run)
+    retry_at = ~U[2026-08-28 13:00:00.000000Z]
+
+    batch =
+      Repo.insert!(%LearningBatch{
+        id: Ecto.UUID.generate(),
+        scope_key: "workspace-learning-retry-#{System.unique_integer([:positive])}",
+        transport: "lab",
+        conversation_ref: "conversation:workspace-learning-retry",
+        execution_mode: :live,
+        policy: "recorded-read-only-policy",
+        policy_digest: String.duplicate("b", 64),
+        status: :deferred,
+        input_count: 1,
+        next_attempt_at: retry_at,
+        error_code: "learning_remote_unresolved"
+      })
+
+    run
+    |> Ecto.Changeset.change(
+      batch_id: batch.id,
+      status: :rejected,
+      reconcile_attempt_count: 4,
+      error_code: "learning_remote_unresolved"
+    )
+    |> Repo.update!()
+
+    workspace =
+      WorkspaceProjection.list(%{})
+      |> Enum.find(&(&1.ref == session.external_ref))
+
+    assert workspace.learning_state == :retry_scheduled
+    assert workspace.learning_retry_at == retry_at
+
+    page = HTML.workspaces([workspace], %{budget: %{}, preview: [], workers: []})
+    html = IO.iodata_to_binary(page)
+    document = LazyHTML.from_fragment(html)
+    lifecycle = LazyHTML.query(document, "section.workspace-learning td[data-label='Lifecycle']")
+    assert LazyHTML.text(lifecycle) =~ "Retry scheduled"
+    assert LazyHTML.text(lifecycle) =~ "Retry after 28 Aug, 13:00 UTC"
+    refute LazyHTML.text(lifecycle) =~ "In use"
   end
 end

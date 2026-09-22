@@ -19,7 +19,7 @@ defmodule Ryker.Retention.DispatcherTest do
     {:ok, api} = FakeAPI.start_link(sessions: [remote_session(session)])
 
     assert {:ok, {:executed, %{phase: :closed}}} = run(api, "cleanup:close")
-    assert Repo.get!(Session, session.id).cleanup_status == :grace
+    assert Repo.get!(Session, session.id).cleanup_status == :plan_pending
 
     assert {:ok, {:executed, %{phase: :planned}}} = run(api, "cleanup:plan")
     assert Repo.get!(Session, session.id).cleanup_status == :discard_pending
@@ -56,7 +56,7 @@ defmodule Ryker.Retention.DispatcherTest do
     assert {:ok, {:executed, %{phase: :closed}}} =
              run(api, "cleanup:writable-task-capacity")
 
-    assert Repo.get!(Session, session.id).cleanup_status == :grace
+    assert Repo.get!(Session, session.id).cleanup_status == :plan_pending
     assert Enum.any?(FakeAPI.calls(api), &match?({:close, _, _}, &1))
   end
 
@@ -298,6 +298,9 @@ defmodule Ryker.Retention.DispatcherTest do
 
     assert Enum.all?(sessions, &(Repo.get!(Session, &1.id).cleanup_status == :grace))
 
+    assert {:ok, closed_remote} = run_pass(api, "cleanup:burst:close-remote")
+    assert closed_remote.executed == 6
+
     assert {:ok, planned} = run_pass(api, "cleanup:burst:plan")
     assert planned.executed == 6
 
@@ -328,6 +331,8 @@ defmodule Ryker.Retention.DispatcherTest do
     session = terminal_session!("outage")
     {:ok, api} = FakeAPI.start_link(sessions: [remote_session(session)], offline: true)
 
+    assert {:ok, %{executed: 1}} = run_pass(api, "cleanup:outage:grace")
+
     for attempt <- 1..12 do
       assert {:ok, %{deferred: 1}} = run_pass(api, "cleanup:outage:#{attempt}")
       make_due!(session.id)
@@ -341,7 +346,7 @@ defmodule Ryker.Retention.DispatcherTest do
     FakeAPI.set_offline(api, false)
     assert {:ok, %{executed: 1}} = run_pass(api, "cleanup:outage:recovered")
     recovered = Repo.get!(Session, session.id)
-    assert recovered.cleanup_status == :grace
+    assert recovered.cleanup_status == :plan_pending
     assert recovered.cleanup_attempt_count == 0
   end
 
@@ -358,16 +363,18 @@ defmodule Ryker.Retention.DispatcherTest do
         offline_sessions: Enum.map(offline_sessions, & &1.coop_session_id)
       )
 
+    assert {:ok, %{executed: 4}} = run_pass(api, "cleanup:fairness:grace", batch_limit: 4)
+
     assert {:ok, pass} = run_pass(api, "cleanup:fairness", batch_limit: 4)
 
     assert pass.deferred == 1, "only the first call to an unreachable worker is worth making"
     assert pass.executed == 1
     assert pass.attempted == 2
-    assert Repo.get!(Session, healthy.id).cleanup_status == :grace
+    assert Repo.get!(Session, healthy.id).cleanup_status == :plan_pending
 
     assert Enum.all?(
              offline_sessions,
-             &(Repo.get!(Session, &1.id).cleanup_status in [:active, :close_pending])
+             &(Repo.get!(Session, &1.id).cleanup_status in [:active, :grace, :close_pending])
            )
   end
 
@@ -383,6 +390,9 @@ defmodule Ryker.Retention.DispatcherTest do
 
     long_backoff = [retry_base_seconds: 300, retry_max_seconds: 300]
 
+    assert {:ok, %{executed: 1}} =
+             run_pass(api, "cleanup:reconnect:grace", long_backoff)
+
     assert {:ok, %{deferred: 1}} = run_pass(api, "cleanup:reconnect:outage", long_backoff)
     deferred = Repo.get!(Session, session.id)
     assert %DateTime{} = deferred.cleanup_next_attempt_at
@@ -394,7 +404,7 @@ defmodule Ryker.Retention.DispatcherTest do
     heartbeat!("worker-reconnect")
 
     assert {:ok, %{executed: 1}} = run_pass(api2, "cleanup:reconnect:resumed")
-    assert Repo.get!(Session, session.id).cleanup_status == :grace
+    assert Repo.get!(Session, session.id).cleanup_status == :plan_pending
   end
 
   test "a dirty workspace that later becomes clean is reclaimed without a manual edit" do
@@ -409,6 +419,7 @@ defmodule Ryker.Retention.DispatcherTest do
         workspaces: %{session.coop_session_id => workspace(%{"dirty" => true})}
       )
 
+    assert {:ok, %{executed: 1}} = run_pass(api, "cleanup:dirty:grace")
     assert {:ok, %{executed: 1}} = run_pass(api, "cleanup:dirty:close")
     assert {:ok, %{executed: 1}} = run_pass(api, "cleanup:dirty:plan")
 
@@ -454,16 +465,25 @@ defmodule Ryker.Retention.DispatcherTest do
   end
 
   defp run(api, worker_ref) do
-    Dispatcher.run_once(
-      api: FakeAPI,
-      client: api,
-      closed_session_grace_seconds: 0,
-      lease_seconds: 60,
-      max_attempts: 8,
-      retry_base_seconds: 1,
-      retry_max_seconds: 60,
-      worker_ref: worker_ref
-    )
+    options =
+      [
+        api: FakeAPI,
+        client: api,
+        closed_session_grace_seconds: 0,
+        lease_seconds: 60,
+        max_attempts: 8,
+        retry_base_seconds: 1,
+        retry_max_seconds: 60,
+        worker_ref: worker_ref
+      ]
+
+    case Dispatcher.run_once(options) do
+      {:ok, {:executed, %{phase: :grace}}} ->
+        Dispatcher.run_once(Keyword.put(options, :worker_ref, worker_ref <> ":after-grace"))
+
+      outcome ->
+        outcome
+    end
   end
 
   defp run_pass(api, worker_ref, overrides \\ []) do

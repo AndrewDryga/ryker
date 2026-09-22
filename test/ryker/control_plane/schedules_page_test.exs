@@ -80,7 +80,7 @@ defmodule Ryker.ControlPlane.SchedulesPageTest do
     assert LazyHTML.query(row, "td[data-label='Failures']") |> LazyHTML.text() == "2"
   end
 
-  test "every schedule status keeps its own word and tone, and a paused schedule has no next occurrence" do
+  test "only active schedules advertise a next occurrence" do
     for {status, label, tone} <- [
           {:active, "Active", "done"},
           {:paused, "Paused", "quiet"},
@@ -88,13 +88,18 @@ defmodule Ryker.ControlPlane.SchedulesPageTest do
           {:expired, "Expired", "quiet"},
           {:deleted, "Deleted", "quiet"}
         ] do
-      document = render([%{@schedule | status: status, next_occurrence_at: nil}])
+      document = render([%{@schedule | status: status}])
       badge = LazyHTML.query(document, "tbody .ui-status")
       assert LazyHTML.text(badge) == label, inspect(status)
       assert LazyHTML.attribute(badge, "class") == ["ui-status status-#{tone}"], inspect(status)
 
-      assert LazyHTML.query(document, "td[data-label='Next occurrence']") |> LazyHTML.text() ==
-               "None scheduled"
+      next = LazyHTML.query(document, "td[data-label='Next occurrence']") |> LazyHTML.text()
+
+      if status == :active do
+        assert next =~ "29 Aug, 09:00 UTC"
+      else
+        assert next == "None scheduled"
+      end
     end
   end
 

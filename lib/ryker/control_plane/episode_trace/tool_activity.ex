@@ -344,7 +344,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.ToolActivity do
 
   defp tool_outcome(payload, "failed") do
     case payload["error"] || payload["output"] || payload["content"] do
-      nil -> "The tool failed. Its error detail was not retained."
+      nil -> "The tool failed. Its error response was not recorded for this older call."
       value -> value |> InspectionRedactor.artifact(max_bytes: 300) |> Map.fetch!(:text)
     end
   end

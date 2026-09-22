@@ -7,6 +7,7 @@ defmodule Ryker.Runtime.AssemblyTest do
   alias Ryker.{Bootstrap, Credentials, Settings}
   alias Ryker.ControlPlane.CapabilityTools, as: ControlPlaneCapabilityTools
   alias Ryker.Runtime.Assembly
+  alias Ryker.Slack.Runtime, as: SlackRuntime
 
   @actor "control-plane:local"
   @lab "control-plane:lab:6f1a0f38-0b74-4f77-9f20-7a0c1e2d3b44"
@@ -43,6 +44,76 @@ defmodule Ryker.Runtime.AssemblyTest do
     on_exit(fn -> Application.put_env(:ryker, :execution, execution) end)
 
     :ok
+  end
+
+  test "a clean installation gives Chat and Slack the bundled installation profile" do
+    {:ok, settings} = Settings.initialize(@actor)
+
+    for {kind, token} <- [
+          {:slack_app, "xapp-clean-install-token-long-enough"},
+          {:slack_bot, "xoxb-clean-install-token-long-enough"}
+        ] do
+      assert {:ok, _credential} = Credentials.put(kind, "primary", token, @actor)
+    end
+
+    saves = [
+      &policy(:conversational, :installation, "", "ryker-chat", &1),
+      &policy(:incident, :installation, "", "ryker-incident", &1),
+      &Settings.save_work(%{workspace_ref: "ryker-compose"}, &1, @actor),
+      &Settings.save_slack(
+        %{
+          enabled: true,
+          workspace_ref: @workspace,
+          bot_ref: "A0123456789",
+          bot_user_ref: "U0123456789"
+        },
+        &1,
+        @actor
+      )
+    ]
+
+    Enum.reduce(saves, settings.installation.revision, fn save, revision ->
+      {:ok, saved} = save.(revision)
+      saved.installation.revision
+    end)
+
+    assert {:ok, configuration} = Assembly.build(bootstrap(), Settings.fetch!())
+
+    assert configuration.control_plane.work_profile == %{
+             authority_digest: digest("authority"),
+             class_policies: %{
+               conversational: %{
+                 authority_digest: digest("authority"),
+                 policy: "ryker-chat",
+                 policy_digest: digest("ryker-chat")
+               },
+               deep: %{
+                 authority_digest: digest("authority"),
+                 policy: "ryker-chat",
+                 policy_digest: digest("ryker-chat")
+               },
+               standard: %{
+                 authority_digest: digest("authority"),
+                 policy: "ryker-chat",
+                 policy_digest: digest("ryker-chat")
+               }
+             },
+             policy: "ryker-chat",
+             policy_digest: digest("ryker-chat"),
+             repository_ref: nil
+           }
+
+    assert Enum.any?(configuration.fleet_profiles, fn {_key, profile} ->
+             profile.policy == "ryker-chat" and profile.repository_ref == nil
+           end)
+
+    slack = SlackRuntime.options!(configuration.slack)
+
+    assert {:ok, profile} =
+             slack.handler_settings.work_profile.(@workspace, "slack:#{@workspace}:C0123456789")
+
+    assert profile.policy == "ryker-chat"
+    assert profile.repository_ref == nil
   end
 
   test "a fully connected installation assembles one lane per saved connection" do

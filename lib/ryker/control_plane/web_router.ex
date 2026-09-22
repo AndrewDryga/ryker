@@ -35,7 +35,6 @@ defmodule Ryker.ControlPlane.WebRouter do
 
     live("/conversations/:id", Ryker.ControlPlane.WorkbenchLive)
     live("/timeline/:ref", Ryker.ControlPlane.WorkbenchLive)
-    live("/timeline/:ref/model-calls", Ryker.ControlPlane.WorkbenchLive)
     live("/incident-rooms/:ref", Ryker.ControlPlane.WorkbenchLive)
     live("/schedules/:ref", Ryker.ControlPlane.WorkbenchLive)
     live("/channels/:workspace/:channel", Ryker.ControlPlane.WorkbenchLive)

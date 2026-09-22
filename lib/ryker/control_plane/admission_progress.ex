@@ -8,14 +8,14 @@ defmodule Ryker.ControlPlane.AdmissionProgress do
   alias Ryker.Repo
 
   @labels %{
-    "context_prepared" => "Context prepared",
-    "execution_requested" => "Preparing or reconciling remote execution",
-    "request_frozen" => "Request saved · submitting to provider",
-    "provider_queued" => "Provider queued or starting",
-    "provider_running" => "Provider running",
-    "response_received" => "Response received",
-    "host_validation" => "Validating the decision",
-    "committed" => "Admission committed"
+    "context_prepared" => "Starting",
+    "execution_requested" => "Starting",
+    "request_frozen" => "Starting",
+    "provider_queued" => "Starting",
+    "provider_running" => "Working",
+    "response_received" => "Finishing",
+    "host_validation" => "Finishing",
+    "committed" => "Finishing"
   }
 
   def conversation(ref) do
@@ -81,18 +81,17 @@ defmodule Ryker.ControlPlane.AdmissionProgress do
   defp title(text, secrets),
     do: InspectionRedactor.artifact(text, secrets: secrets, max_bytes: 180).text
 
-  defp phase(%{status: :blocked}, _now), do: "Blocked · operator recovery required"
+  defp phase(%{status: :blocked}, _now), do: "Needs attention"
 
   defp phase(%{retry_at: %DateTime{} = at} = row, now) do
     if DateTime.compare(at, now) == :gt,
-      do: "Waiting to reconcile the existing request",
+      do: "Retrying",
       else: phase(%{row | retry_at: nil}, now)
   end
 
-  defp phase(%{leased: false}, _now),
-    do: "Queued · waiting for a slot or earlier conversation input"
+  defp phase(%{leased: false}, _now), do: "Queued"
 
   defp phase(%{phase: phase}, _now) do
-    Map.get(@labels, phase, "Classifying · detailed history not recorded")
+    Map.get(@labels, phase, "Starting")
   end
 end

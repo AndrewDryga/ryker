@@ -32,7 +32,7 @@ defmodule Ryker.ControlPlane.LinkCrawlTest do
     ~r{^/(conversations|activity|incident-rooms|schedules|subscriptions|channels|repositories|failures|workspaces|findings|memory|rules|preferences|guidance|instructions|usage)$},
     ~r{^/settings(?:/(?:slack|github|emisar|webhooks|retention|token-rates|system))?$},
     ~r{^/conversations/[^/]+$},
-    ~r{^/timeline/[^/]+(/model-calls)?$},
+    ~r{^/timeline/[^/]+$},
     ~r{^/incident-rooms/[^/]+$},
     ~r{^/schedules/[^/]+$},
     ~r{^/channels/[^/]+/[^/]+$},
@@ -53,11 +53,7 @@ defmodule Ryker.ControlPlane.LinkCrawlTest do
       |> Map.merge(Map.drop(fixture.projection, [:lab_conversation, :lab_index, :lab_artifact]))
       |> Map.merge(%{
         episode: fn _ref, params -> Projection.episode(episode.key, params) end,
-        model_timeline: fn _ref, params -> ModelRequests.timeline(episode.key, params) end,
-        # A stand-in input ref ("ingress-input:one") selects no real attempt.
-        model_requests: fn _ref, params ->
-          ModelRequests.project(episode.key, Map.delete(params, "attempt"))
-        end
+        model_timeline: fn _ref, params -> ModelRequests.timeline(episode.key, params) end
       })
 
     options = %{

@@ -1313,11 +1313,11 @@ defmodule Ryker.State.ContinuityTest do
 
     # Hundreds of saved summaries were invisible on Memory, making replay look empty.
     html =
-      Projection.memory()
+      Projection.memory(%{"kind" => "context"})
       |> HTML.memory("test-secret")
       |> IO.iodata_to_binary()
 
-    assert html =~ "Conversation memory"
+    assert html =~ "Conversation context"
     assert html =~ "Verify production delivery"
 
     recalled = Continuity.model_context(work.claim.episode, "ryker")

@@ -22,6 +22,8 @@ defmodule Ryker.BundledCoop do
   @default_workspace "ryker-compose"
   @installation_policies %{
     admission: "ryker-admission",
+    conversational: "ryker-chat",
+    incident: "ryker-incident",
     learning: "ryker-learning",
     schedule_governed: "ryker-schedule-governed",
     schedule_read_only: "ryker-schedule-read-only"
@@ -33,6 +35,12 @@ defmodule Ryker.BundledCoop do
     schedule: "schedule",
     standard: "standard"
   }
+
+  @doc false
+  def prepare_distribution! do
+    {:ok, _snapshot} = Settings.initialize(@actor)
+    ensure_distribution!()
+  end
 
   @doc false
   def ensure_distribution! do
@@ -86,9 +94,9 @@ defmodule Ryker.BundledCoop do
     worker = Repo.get(Worker, configured_worker_id())
     snapshot = Settings.fetch!()
 
-    match?(%Worker{state: :eligible}, worker) and
+    worker_ready?(worker) and
       snapshot.work.workspace_ref == configured_workspace_ref() and
-      Enum.all?([:admission, :learning], fn purpose ->
+      Enum.all?(Map.keys(@installation_policies), fn purpose ->
         Enum.any?(snapshot.policy_bindings, fn binding ->
           binding.purpose == purpose and binding.scope_kind == :installation and
             binding.scope_ref == ""
@@ -97,6 +105,20 @@ defmodule Ryker.BundledCoop do
   rescue
     _error -> false
   end
+
+  defp worker_ready?(%Worker{} = worker) do
+    cutoff = DateTime.add(DateTime.utc_now(), -60, :second)
+    capacity = worker.capacity || %{}
+
+    worker.state == :eligible and match?(%DateTime{}, worker.last_seen_at) and
+      DateTime.compare(worker.last_seen_at, cutoff) != :lt and capacity["state"] == "eligible" and
+      Enum.all?(~w(session turn workspace), fn kind ->
+        is_integer(capacity["#{kind}_slots_free"]) and capacity["#{kind}_slots_free"] > 0
+      end) and
+      Enum.any?(worker.capabilities, &(&1["name"] == "responder-state"))
+  end
+
+  defp worker_ready?(_worker), do: false
 
   defp configuration_current?(worker_id) do
     worker = Repo.get(Worker, worker_id)
@@ -388,7 +410,7 @@ defmodule Ryker.BundledCoop do
     File.mkdir_p!(shared)
     File.chmod!(shared, 0o700)
 
-    unless File.exists?(marker) do
+    unless File.exists?(marker) or File.exists?(token_path) do
       case Enrollment.issue_token(
              configured_worker_id(),
              configured_workspace_ref(),

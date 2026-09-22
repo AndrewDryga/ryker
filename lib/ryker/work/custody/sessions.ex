@@ -442,41 +442,71 @@ defmodule Ryker.Work.Custody.Sessions do
         Repo.rollback(:episode_not_found)
 
       %Episode{} = episode ->
-        case latest_session(episode.id) do
-          nil ->
-            session_id = Ecto.UUID.generate()
-            emisar = emisar_pin(repository_ref, repository_context)
-
-            session_id
-            |> SessionChangeset.insert_with_authority(
-              episode.id,
-              1,
-              policy,
-              policy_digest,
-              repository_ref,
-              session_external_ref(episode.id, 1),
-              %{
-                authority_digest: authority_digest,
-                repository_context: repository_context,
-                repository_source: repository_source,
-                emisar: emisar,
-                workspace_task: nil
-              }
-            )
-            |> Repo.insert()
-            |> unwrap_or_rollback(:work_session)
-
-          %Session{cleanup_status: :active} = session ->
-            session
-
-          %Session{} = session ->
-            insert_session_or_rollback(
-              episode.id,
-              session.generation + 1,
-              session_authority(session)
-            )
-        end
+        pin_session_locked(episode, %{
+          authority_digest: authority_digest,
+          policy: policy,
+          policy_digest: policy_digest,
+          repository_context: repository_context,
+          repository_ref: repository_ref,
+          repository_source: repository_source
+        })
     end
+  end
+
+  defp pin_session_locked(episode, authority) do
+    case latest_session(episode.id) do
+      nil ->
+        session_id = Ecto.UUID.generate()
+        emisar = emisar_pin(authority.repository_ref, authority.repository_context)
+
+        session_id
+        |> SessionChangeset.insert_with_authority(
+          episode.id,
+          1,
+          authority.policy,
+          authority.policy_digest,
+          authority.repository_ref,
+          session_external_ref(episode.id, 1),
+          %{
+            authority_digest: authority.authority_digest,
+            repository_context: authority.repository_context,
+            repository_source: authority.repository_source,
+            emisar: emisar,
+            workspace_task: nil
+          }
+        )
+        |> Repo.insert()
+        |> unwrap_or_rollback(:work_session)
+
+      %Session{cleanup_status: :active} = session ->
+        session
+
+      %Session{
+        cleanup_status: :grace,
+        cleanup_lease_ref: nil,
+        closed_at: nil,
+        discard_after: %DateTime{}
+      } = session ->
+        reuse_or_replace_grace(episode, session)
+
+      %Session{} = session ->
+        insert_session_or_rollback(
+          episode.id,
+          session.generation + 1,
+          session_authority(session)
+        )
+    end
+  end
+
+  defp reuse_or_replace_grace(episode, session) do
+    if reusable_grace?(session),
+      do: reactivate_grace!(session),
+      else:
+        insert_session_or_rollback(
+          episode.id,
+          session.generation + 1,
+          session_authority(session)
+        )
   end
 
   @doc false
@@ -487,6 +517,16 @@ defmodule Ryker.Work.Custody.Sessions do
 
       %Session{cleanup_status: :active} = session ->
         {:ok, session}
+
+      %Session{
+        cleanup_status: :grace,
+        cleanup_lease_ref: nil,
+        closed_at: nil,
+        discard_after: %DateTime{}
+      } = session ->
+        if reusable_grace?(session),
+          do: {:ok, reactivate_grace!(session)},
+          else: insert_session(episode.id, session.generation + 1, session_authority(session))
 
       %Session{} = session ->
         insert_session(episode.id, session.generation + 1, session_authority(session))
@@ -502,6 +542,30 @@ defmodule Ryker.Work.Custody.Sessions do
         lock: "FOR UPDATE"
       )
     )
+  end
+
+  defp reusable_grace?(%Session{
+         cleanup_status: :grace,
+         cleanup_lease_ref: nil,
+         closed_at: nil,
+         discard_after: %DateTime{} = discard_after
+       }) do
+    DateTime.compare(discard_after, Repo.now!()) == :gt
+  end
+
+  defp reusable_grace?(_session), do: false
+
+  defp reactivate_grace!(session) do
+    session
+    |> Ecto.Changeset.change(%{
+      cleanup_attempt_count: 0,
+      cleanup_last_error_code: nil,
+      cleanup_last_error_detail: nil,
+      cleanup_next_attempt_at: nil,
+      cleanup_status: :active,
+      discard_after: nil
+    })
+    |> Repo.update!()
   end
 
   @doc false

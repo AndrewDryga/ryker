@@ -11,9 +11,12 @@ defmodule Ryker.ControlPlane.SettingsView do
 
   import Ecto.Query
 
-  alias Ryker.ControlPlane.ChannelDirectory
-  alias Ryker.{Credentials, Repo, Settings}
+  alias Ryker.ControlPlane.{ChannelDirectory, ProductReadiness}
+  alias Ryker.Credentials
   alias Ryker.Episodes.Episode
+  alias Ryker.GitHub.AppJWT
+  alias Ryker.Repo
+  alias Ryker.Settings
   alias Ryker.Settings.WorkerPolicies
   alias Ryker.Work.Turn
 
@@ -30,7 +33,8 @@ defmodule Ryker.ControlPlane.SettingsView do
           github_callback_url: String.t(),
           webhook_base_url: String.t(),
           webhook_secret_names: [String.t()] | :invalid,
-          workers: WorkerPolicies.catalog()
+          workers: WorkerPolicies.catalog(),
+          github_connection: :ready | :missing | :invalid
         }
 
   @spec fetch() :: {:ok, t()} | {:error, :settings_not_initialized | :settings_unavailable}
@@ -52,7 +56,8 @@ defmodule Ryker.ControlPlane.SettingsView do
   @spec view(Settings.snapshot()) :: t()
   def view(%{installation: installation} = snapshot) do
     credentials = Credentials.statuses()
-    setup = setup_status(snapshot, credentials)
+    github_connection = github_connection(snapshot, credentials)
+    setup = setup_status(snapshot, credentials, github_connection)
 
     %{
       snapshot: snapshot,
@@ -63,6 +68,8 @@ defmodule Ryker.ControlPlane.SettingsView do
       saved_by: installation.saved_by,
       saved_at: installation.saved_at,
       credentials: credentials,
+      github_connection: github_connection,
+      readiness: ProductReadiness.current(snapshot),
       setup: setup,
       github_callback_url: Application.fetch_env!(:ryker, :github_public_url),
       webhook_base_url: Application.fetch_env!(:ryker, :webhook_public_url),
@@ -85,13 +92,13 @@ defmodule Ryker.ControlPlane.SettingsView do
     |> Enum.map(& &1.name)
   end
 
-  defp setup_status(snapshot, credentials) do
+  defp setup_status(snapshot, credentials, github_connection) do
     channels = ChannelDirectory.list(%{})
 
     slack =
       snapshot.slack.enabled and verified?(credentials, [:slack_app, :slack_bot])
 
-    github = verified?(credentials, [:github_private_key, :github_webhook])
+    github = github_connection == :ready
     repositories = snapshot.repositories != []
     invited = Enum.count(channels, &(&1.membership == :joined))
 
@@ -114,6 +121,35 @@ defmodule Ryker.ControlPlane.SettingsView do
         slack and github and repositories and invited > 0 and configured > 0 and
           successful_request
     }
+  end
+
+  defp github_connection(snapshot, credentials) do
+    kinds = [:github_private_key, :github_webhook]
+    present? = Enum.any?(credentials, &(&1.kind in kinds))
+
+    cond do
+      not present? ->
+        :missing
+
+      not verified?(credentials, kinds) or not complete_github_identity?(snapshot.github) ->
+        :invalid
+
+      true ->
+        with {:ok, private_key} <- Credentials.fetch(:github_private_key, "primary"),
+             {:ok, _webhook} <- Credentials.fetch(:github_webhook, "primary"),
+             {:ok, _signer} <- AppJWT.new(snapshot.github.app_id, private_key) do
+          :ready
+        else
+          _error -> :invalid
+        end
+    end
+  end
+
+  defp complete_github_identity?(github) do
+    is_integer(github.app_id) and github.app_id > 0 and
+      is_binary(github.app_slug) and github.app_slug != "" and
+      is_integer(github.bot_actor_id) and github.bot_actor_id > 0 and
+      is_binary(github.bot_login) and github.bot_login != ""
   end
 
   defp successful_channel_request?([]), do: false

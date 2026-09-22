@@ -12,6 +12,7 @@ defmodule Ryker.ControlPlane.ModelRequests do
   alias Ryker.Work.FailureCause
 
   @page_size 20
+  @timeline_max_pages 10
   @tool_page_size 30
   @response_page_size 10
   @tool_kinds ~w(tool.started tool.completed permission.decided activity.elided provider.backoff)
@@ -86,7 +87,7 @@ defmodule Ryker.ControlPlane.ModelRequests do
   def timeline(ref, params) do
     case Repo.get_by(Episode, key: episode_ref(ref)) do
       nil -> :not_found
-      episode -> timeline_for(episode, disclosed(params))
+      episode -> timeline_for(episode, params)
     end
   end
 
@@ -102,39 +103,55 @@ defmodule Ryker.ControlPlane.ModelRequests do
 
   def disclosed(_params), do: MapSet.new()
 
-  defp timeline_for(episode, disclosed) do
-    turns =
+  defp timeline_for(episode, params) do
+    disclosed = disclosed(params)
+    page = min(PagedRelation.requested(params, "calls"), @timeline_max_pages)
+    limit = page * @page_size
+
+    turn_window =
       Repo.all(
         from(t in Turn,
           where: t.episode_id == ^episode.id,
           order_by: [desc: t.inserted_at, desc: t.id],
-          limit: 21
+          limit: ^(limit + 1)
         )
       )
 
-    entries =
+    turns =
+      turn_window
+      |> Enum.take(limit)
+      |> include_selected_turn(selected_timeline_turn(episode, params))
+
+    entry_window =
       Repo.all(
         from(e in Entry,
           where: e.episode_id == ^episode.id,
           order_by: [desc: e.inserted_at, desc: e.id],
-          limit: 21
+          limit: ^(limit + 1)
         )
       )
 
-    ids = Enum.map(Enum.take(entries, 20), & &1.id)
+    entries = Enum.take(entry_window, limit)
+    ids = Enum.map(entries, & &1.id)
 
-    attempts =
+    attempt_window =
       Repo.all(
         from(a in Attempt,
           where: a.input_id in ^ids,
           order_by: [desc: a.inserted_at, desc: a.id],
-          limit: 21
+          limit: ^(limit + 1)
         )
       )
 
+    attempts = Enum.take(attempt_window, limit)
+
+    truncated =
+      length(turn_window) > limit or length(entry_window) > limit or
+        length(attempt_window) > limit
+
     admission_failures = admission_failures(ids, attempts)
 
-    session_ids = Enum.map(Enum.take(turns, 20), & &1.session_id)
+    session_ids = Enum.map(turns, & &1.session_id)
 
     sessions =
       Repo.all(from(s in Session, where: s.episode_id == ^episode.id and s.id in ^session_ids))
@@ -151,14 +168,13 @@ defmodule Ryker.ControlPlane.ModelRequests do
         admission_failures: admission_failures,
         disclosed: disclosed
       ]
-      |> with_responses(Enum.take(turns, 20), %{})
+      |> with_responses(turns, params)
 
     work =
       turns
-      |> Enum.take(20)
       |> Enum.reject(&WorkRecovery.retained_absent_submission?/1)
       |> Enum.flat_map(fn turn ->
-        request = inspect_row(turn, %{}, options)
+        request = inspect_row(turn, response_params(turn, params), options)
 
         timing = [
           %{label: "Coop queue", value: milliseconds(turn.usage_queued_ms)},
@@ -173,19 +189,19 @@ defmodule Ryker.ControlPlane.ModelRequests do
           turn.remote_finished_at,
           turn.candidate != nil or turn.validation_history != [] or turn.accepted_at != nil,
           timing,
-          "/timeline/#{URI.encode_www_form(episode.key)}/model-calls?attempt=#{turn.id}",
+          "/timeline/#{URI.encode_www_form(episode.key)}#request-#{turn.id}",
           %{kind: :work}
         )
       end)
 
-    by_input = Enum.group_by(Enum.take(attempts, 20), & &1.input_id)
+    by_input = Enum.group_by(attempts, & &1.input_id)
 
     retained_inputs =
       Repo.all(from(a in Attempt, where: a.input_id in ^ids, distinct: true, select: a.input_id))
       |> MapSet.new()
 
     admission =
-      Enum.flat_map(Enum.take(entries, 20), fn entry ->
+      Enum.flat_map(entries, fn entry ->
         missing = if MapSet.member?(retained_inputs, entry.id), do: [], else: [nil]
         Enum.flat_map(Map.get(by_input, entry.id, missing), &admission_events(entry, &1, options))
       end)
@@ -193,8 +209,35 @@ defmodule Ryker.ControlPlane.ModelRequests do
     {:ok,
      %{
        items: work ++ admission,
-       truncated: length(turns) > 20 or length(entries) > 20 or length(attempts) > 20
+       truncated: truncated,
+       call_history: %{
+         page: page,
+         shown:
+           length(turns) + length(attempts) +
+             Enum.count(entries, &(!MapSet.member?(retained_inputs, &1.id))),
+         more: if(truncated && page < @timeline_max_pages, do: page + 1)
+       }
      }}
+  end
+
+  defp selected_timeline_turn(episode, %{"attempt" => id}) when is_binary(id) do
+    case Ecto.UUID.cast(id) do
+      {:ok, id} ->
+        Repo.one(from(t in Turn, where: t.id == ^id and t.episode_id == ^episode.id))
+
+      :error ->
+        nil
+    end
+  end
+
+  defp selected_timeline_turn(_episode, _params), do: nil
+
+  defp include_selected_turn(turns, nil), do: turns
+
+  defp include_selected_turn(turns, selected) do
+    [selected | turns]
+    |> Enum.uniq_by(& &1.id)
+    |> Enum.sort_by(&{&1.inserted_at, &1.id}, :desc)
   end
 
   defp admission_events(entry, attempt, options) do
@@ -225,7 +268,7 @@ defmodule Ryker.ControlPlane.ModelRequests do
       completed,
       attempt != nil and attempt.phase in ~w(response_received host_validation committed),
       timing,
-      "/timeline/#{URI.encode_www_form(options[:episode_ref])}/model-calls?kind=admission&attempt=#{entry.id}&generation=#{generation}",
+      "/timeline/#{URI.encode_www_form(options[:episode_ref])}#admission-#{entry.id}-#{generation}",
       %{failure: failure, kind: :admission}
     )
   end
@@ -308,6 +351,8 @@ defmodule Ryker.ControlPlane.ModelRequests do
       target: request.target,
       status: request.status,
       fingerprint: Map.get(request, :fingerprint),
+      policy: Map.get(request, :policy),
+      request_id: request.id,
       generation: Map.get(request, :generation),
       generations: Map.get(request, :generations),
       failure: failure,
@@ -346,8 +391,13 @@ defmodule Ryker.ControlPlane.ModelRequests do
   defp milliseconds(ms) when ms < 1_000, do: "#{ms} ms"
   defp milliseconds(ms), do: "#{Float.round(ms / 1_000, 1)} s"
 
+  defp response_params(%Turn{id: id}, %{"attempt" => id} = params), do: params
+  defp response_params(_turn, _params), do: %{}
+
   def project_input(id, params) when is_map(params) do
     with {:ok, id} <- Ecto.UUID.cast(id), %Entry{} = entry <- Repo.get(Entry, id) do
+      request = inspect_row(entry, params, secrets: Redactor.configured_secrets())
+
       {:ok,
        %{
          episode_ref:
@@ -373,11 +423,44 @@ defmodule Ryker.ControlPlane.ModelRequests do
              )
          },
          preparation: EpisodeTrace.input_preparation(entry),
-         selected: inspect_row(entry, params, secrets: Redactor.configured_secrets())
+         timeline: input_request_events(entry, params),
+         selected: request
        }}
     else
       _missing -> :not_found
     end
+  end
+
+  defp input_request_events(entry, params) do
+    attempts =
+      Repo.all(
+        from(attempt in Attempt,
+          where: attempt.input_id == ^entry.id,
+          order_by: [desc: attempt.generation],
+          limit: @page_size
+        )
+      )
+      |> Enum.reverse()
+
+    attempts =
+      if Enum.any?(attempts, &(&1.generation == entry.execution_generation)),
+        do: attempts,
+        else: attempts ++ [nil]
+
+    disclosed = disclosed(params)
+
+    options = [
+      secrets: Redactor.configured_secrets(),
+      max_bytes: 2 * 1_024 * 1_024,
+      timeline: true,
+      episode_ref: "ingress-input:#{entry.id}",
+      execution_mode: entry.execution_mode,
+      admission_failures: admission_failures([entry.id], Enum.reject(attempts, &is_nil/1)),
+      disclosed: disclosed,
+      tool_disclosed: disclosed
+    ]
+
+    Enum.flat_map(attempts, &admission_events(entry, &1, options))
   end
 
   defp selected_row(_base, nil, []), do: nil
@@ -730,7 +813,7 @@ defmodule Ryker.ControlPlane.ModelRequests do
         else: selected
 
     offset =
-      if timeline?,
+      if timeline? && !params["responses_page"],
         do: max(total - @response_page_size, 0),
         else: (page - 1) * @response_page_size
 
@@ -826,10 +909,10 @@ defmodule Ryker.ControlPlane.ModelRequests do
            if(current?,
              do:
                response_request_path(turn, options, %{section: "candidate"}) <>
-                 "#selected-#{turn.id}-candidate-body",
+                 "#turn-#{turn.id}-response-#{attempt}-body",
              else:
                response_page_link(turn, page, page, options) <>
-                 "#selected-#{turn.id}-response-#{attempt}-body"
+                 "#turn-#{turn.id}-response-#{attempt}-body"
            )
        }}
     end
@@ -858,8 +941,9 @@ defmodule Ryker.ControlPlane.ModelRequests do
   end
 
   defp response_request_path(turn, options, params) do
-    "/timeline/#{URI.encode_www_form(options[:episode_ref])}/model-calls?" <>
-      URI.encode_query(Map.put(params, :attempt, turn.id))
+    query = URI.encode_query(Map.put(params, :attempt, turn.id))
+
+    "/timeline/#{URI.encode_www_form(options[:episode_ref])}?#{query}"
   end
 
   defp admission_recovery(%{status: :blocked} = entry) do

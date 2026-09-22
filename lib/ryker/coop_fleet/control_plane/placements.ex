@@ -96,6 +96,8 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
   # the same rule, so the offer and the restore cannot disagree.
   # A checkpoint bundle is up to 64 MiB of ciphertext, and none of it belongs on
   # a recovery page, so this reads identity only.
+  defp portable_checkpoint(%Session{repository_ref: nil}), do: nil
+
   defp portable_checkpoint(%Session{} = session) do
     from(transfer in WorkspaceCheckpointTransfer,
       join: command in Command,

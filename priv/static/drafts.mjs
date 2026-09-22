@@ -33,6 +33,7 @@ export const sendDraft = async (url, body, fetcher = fetch) => {
     method: "POST", body, credentials: "same-origin", redirect: "error",
     headers: {Accept: "application/json"}
   })
+  if (response.status === 503) throw new Error("unavailable:chat")
   if ([400, 403, 409, 413, 422].includes(response.status)) throw new Error(`rejected:${response.status}`)
   if (response.status !== 202) throw new Error("not_accepted")
   const receipt = await response.json()

@@ -592,15 +592,15 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
       assert length(view.summaries.items) == @page_size
 
       html = page("/channels/T123/C456?summary_page=2")
-      refute html =~ "No conversation summaries are retained"
+      refute html =~ "No conversation context is retained"
     end
 
     test "a channel with only paged-out rows never reads as empty" do
       membership!("T123", "C456", private: false, external_shared: false)
       summary!("slack:T123", "slack:T123:C456", [])
       html = page("/channels/T123/C456?summary_page=9")
-      refute html =~ "No conversation summaries are retained"
-      assert html =~ "1 summary"
+      refute html =~ "No conversation context is retained"
+      assert html =~ "1 context record"
     end
   end
 
@@ -840,15 +840,15 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
 
       html = page("/channels/T123/C456")
       section = html |> LazyHTML.from_document() |> LazyHTML.query("#summaries")
-      assert LazyHTML.text(section) =~ "1 summary draft in flight"
-      assert LazyHTML.text(section) =~ "1 handover not saved"
+      assert LazyHTML.text(section) =~ "1 context update in flight"
+      assert LazyHTML.text(section) =~ "1 context update not saved"
 
       assert "/memory#handover-failures" in LazyHTML.attribute(
                LazyHTML.query(section, "a"),
                "href"
              )
 
-      assert LazyHTML.text(section) =~ "No conversation summaries are retained"
+      assert LazyHTML.text(section) =~ "No conversation context is retained"
       refute html =~ "must-not-render-draft"
 
       assert {:ok, quiet} = Projection.channel("T123", "C999", %{})

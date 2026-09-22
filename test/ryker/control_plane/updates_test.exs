@@ -103,7 +103,7 @@ defmodule Ryker.ControlPlane.UpdatesTest do
     end
 
     assert Updates.domain("/") == "activity"
-    assert Updates.domain("/timeline/an-episode/model-calls") == "timeline"
+    assert Updates.domain("/timeline/an-episode") == "timeline"
     assert Updates.domain("/activity") == "activity"
     # The live domain is the first URL segment; the renamed page must still
     # receive every conversation invalidation, and nothing subscribes to "lab".

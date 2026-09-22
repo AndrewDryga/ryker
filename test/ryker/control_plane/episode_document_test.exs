@@ -215,7 +215,7 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
       title: "Result",
       status: :settled,
       coverage: "Retained",
-      href: "model-calls",
+      href: "#request-turn",
       timing: [],
       sections: [section("candidate", "Response", %{"message" => text})]
     }
@@ -292,9 +292,17 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
     document = render_episode(snapshot, [start, result, briefing]) |> LazyHTML.from_fragment()
 
     assert document |> LazyHTML.query(".chapter-heading h3") |> Enum.map(&LazyHTML.text/1) ==
-             ["Routing", "The work", "The answer"]
+             ["Episode setup"]
 
-    assert document |> LazyHTML.query(".phase-routing .case-request") |> Enum.count() == 2
+    assert document
+           |> LazyHTML.query(".conversation-phase-heading h4")
+           |> Enum.map(&LazyHTML.text/1) == ["Routing", "Work", "Answer"]
+
+    assert document
+           |> LazyHTML.query(
+             "section.conversation-phase.phase-routing > .phase-entries > article.case-request"
+           )
+           |> Enum.count() == 2
 
     assert document |> LazyHTML.query(".phase-routing") |> LazyHTML.text() =~
              "The user sent a greeting that can be answered directly."
@@ -302,82 +310,22 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
     assert document |> LazyHTML.query("#routing-1-result time") |> LazyHTML.text() ==
              Calendar.strftime(result.at, "%H:%M:%S")
 
+    assert document
+           |> LazyHTML.query("#routing-1-result time")
+           |> LazyHTML.attribute("datetime") == [DateTime.to_iso8601(result.at)]
+
     assert Enum.empty?(LazyHTML.query(document, ".case-receipt-group, .case-system-event"))
     assert LazyHTML.query(document, "#routing-1-result") |> Enum.count() == 1
 
     assert LazyHTML.query(document, ".phase-routing .chapter-span") |> LazyHTML.text() ==
-             "+0s to +1s from start"
+             "+0s → +1s from start"
 
     # Truncated history may retain either side of the pair. Neither disappears.
     assert render_episode(snapshot, [result]) =~ "Conversational reply"
     assert render_episode(snapshot, [start]) =~ "Routing briefing"
   end
 
-  test "recovered routing remains one forward-moving phase and reuses an identical briefing" do
-    # A retained production history repeatedly returned to Getting ready after
-    # routing transport failures. The page then read 01, 02, 01, 02 even though
-    # every later row happened later in time. Keep one chronological phase and
-    # do not print the same several-thousand-token briefing on every recovery.
-    {:ok, %{episode: episode}} = Episodes.apply(EpisodeFixtures.admit_input())
-    {:ok, snapshot} = Projection.episode(episode.key)
-    at = snapshot.trace.received_at
-    [step | _] = snapshot.trace.steps
-
-    briefing = %{
-      id: "routing-1",
-      at: at,
-      kind: :request,
-      source_kind: :admission,
-      phase: :submission,
-      band: :ready,
-      fingerprint: "same-retained-briefing",
-      target: "codex:gpt-5.6-luna/low@emisar",
-      timing: [],
-      coverage: "Retained",
-      href: "/timeline/ingress-input%3Aone",
-      sections: [section("request", "Prompt", "large retained routing briefing")]
-    }
-
-    first_result = %{
-      briefing
-      | id: "routing-1-result",
-        at: DateTime.add(at, 1),
-        phase: :result,
-        sections: []
-    }
-
-    recovery_queue = %{
-      step
-      | id: "recovery-queue",
-        at: DateTime.add(at, 60),
-        band: :ready,
-        stage: "Recovery"
-    }
-
-    repeated = %{briefing | id: "routing-2", at: DateTime.add(at, 61)}
-    second_result = %{first_result | id: "routing-2-result", at: DateTime.add(at, 62)}
-
-    snapshot = put_in(snapshot, [:trace, :steps], [recovery_queue])
-
-    document =
-      render_episode(snapshot, [briefing, first_result, repeated, second_result])
-      |> LazyHTML.from_fragment()
-
-    assert document |> LazyHTML.query(".chapter-heading h3") |> Enum.map(&LazyHTML.text/1) ==
-             ["Routing"]
-
-    assert document |> LazyHTML.query(".phase-routing .phase-number") |> LazyHTML.text() == "01"
-    assert document |> LazyHTML.query(".phase-routing .episode-request") |> Enum.count() == 4
-
-    assert document |> LazyHTML.query(".phase-routing") |> LazyHTML.text() =~
-             "Routing briefing reused"
-
-    assert document
-           |> LazyHTML.query(".phase-routing .final-prompt")
-           |> Enum.count() == 1
-  end
-
-  test "follow-up setup stays after earlier model activity in its own message group" do
+  test "a follow-up and earlier work stay in their own causal message groups" do
     {:ok, %{episode: episode}} = Episodes.apply(EpisodeFixtures.admit_input())
     {:ok, snapshot} = Projection.episode(episode.key)
     at = snapshot.trace.received_at
@@ -405,10 +353,66 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
              ["story-message-first", "event-running", "story-message-next"]
 
     assert LazyHTML.query(document, ".chapter-heading h3") |> Enum.map(&LazyHTML.text/1) ==
-             ["Getting ready", "The work", "New input received"]
+             ["Message 1", "Message 2"]
 
-    assert LazyHTML.query(document, ".conversation-boundary .turn-divider-label")
-           |> LazyHTML.text() =~ "Message 2"
+    assert LazyHTML.query(document, ".conversation-chapter")
+           |> LazyHTML.attribute("data-conversation-turn") == ["1", "2"]
+
+    assert LazyHTML.query(document, ".conversation-chapter")
+           |> Enum.map(fn chapter ->
+             chapter |> LazyHTML.query(".conversation-phase-heading h4") |> LazyHTML.text()
+           end) ==
+             ["ReceivedWork", "Received"]
+  end
+
+  test "timeline jumps visit adjacent messages and existing stages without dead end controls" do
+    {:ok, %{episode: episode}} = Episodes.apply(EpisodeFixtures.admit_input())
+    {:ok, snapshot} = Projection.episode(episode.key)
+    at = snapshot.trace.received_at
+    [step | _] = snapshot.trace.steps
+
+    messages =
+      for index <- 1..3 do
+        %{
+          id: "message-#{index}",
+          at: DateTime.add(at, index * 2),
+          actor: "User",
+          text: "Message #{index}",
+          available: true
+        }
+      end
+
+    snapshot =
+      snapshot
+      |> put_in([:trace, :case_file, :conversation], messages)
+      |> put_in([:trace, :steps], [%{step | id: "running", band: :work, at: DateTime.add(at, 3)}])
+
+    document = render_episode(snapshot, []) |> LazyHTML.from_fragment()
+
+    for {message, targets} <- [{1, [2]}, {2, [1, 3]}, {3, [2]}] do
+      links =
+        LazyHTML.query(document, "#timeline-message-#{message} .timeline-jumps a")
+
+      assert LazyHTML.attribute(links, "href") == Enum.map(targets, &"#timeline-message-#{&1}")
+    end
+
+    assert document
+           |> LazyHTML.query("#timeline-message-1-ready .timeline-jumps a")
+           |> LazyHTML.attribute("href") == ["#timeline-message-1-work"]
+
+    assert document
+           |> LazyHTML.query("#timeline-message-1-work .timeline-jumps a")
+           |> LazyHTML.attribute("href") == ["#timeline-message-1-ready"]
+
+    assert document
+           |> LazyHTML.query("#timeline-message-1-ready .timeline-jumps a")
+           |> LazyHTML.attribute("aria-label") == ["Next stage: Work"]
+
+    assert Enum.empty?(LazyHTML.query(document, "#timeline-message-2-ready .timeline-jumps"))
+
+    for href <- document |> LazyHTML.query(".timeline-jumps a") |> LazyHTML.attribute("href") do
+      assert Enum.count(LazyHTML.query(document, href)) == 1
+    end
   end
 
   test "the briefing lists prompt sources without outer or recursively nested disclosures" do
@@ -529,6 +533,32 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
     end
   end
 
+  test "a model call keeps its forensic identity in one quiet technical disclosure" do
+    request = %{
+      id: "request-turn-recorded",
+      request_id: "turn-recorded",
+      phase: :submission,
+      source_kind: :work,
+      target: "codex:gpt-5.6-sol/medium@default",
+      policy: "ryker-chat",
+      fingerprint: String.duplicate("a", 64),
+      timing: [],
+      coverage: "Retained",
+      sections: []
+    }
+
+    document =
+      render_component(&EpisodeRequest.render/1, request: request)
+      |> LazyHTML.from_fragment()
+
+    details = LazyHTML.query(document, "details.request-technical-details")
+    assert Enum.count(details) == 1
+    assert LazyHTML.query(details, "summary") |> LazyHTML.text() == "Technical details"
+    assert LazyHTML.text(details) =~ "turn-recorded"
+    assert LazyHTML.text(details) =~ "ryker-chat"
+    assert LazyHTML.text(details) =~ String.duplicate("a", 64)
+  end
+
   test "a greeting explains routing without expanding protocol JSON or duplicating delivery chapters" do
     # The real September 5 "Hi" took 11,151 pixels and 63 disclosures to explain;
     # its accepted reply was separated from delivery by a second answer chapter.
@@ -578,8 +608,8 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
     refute html =~ ">codex:gpt-5.6-luna/low@emisar<"
 
     assert Enum.count(
-             LazyHTML.query(document, ".chapter-heading h3"),
-             &(LazyHTML.text(&1) == "The answer")
+             LazyHTML.query(document, ".conversation-phase-heading h4"),
+             &(LazyHTML.text(&1) == "Answer")
            ) == 1
 
     # Each record is its own disclosure under one heading, and none of them is
@@ -608,7 +638,7 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
       target: "codex:gpt-5.6-terra/medium@emisar",
       status: :settled,
       coverage: "Retained submission only",
-      href: "/timeline/example/model-calls?attempt=retained",
+      href: "/timeline/example?attempt=retained#request-retained",
       timing: [],
       sections: [
         section("instructions", "Ryker instructions", "Retained instructions <not HTML>"),
@@ -763,17 +793,17 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
     links = LazyHTML.query(document, ".episode-location > a")
 
     assert Enum.map(links, &LazyHTML.text/1) == [
-             "Jump to latest outcome",
-             "Open source message",
-             "All activity in this conversation",
-             "This Slack thread"
+             "Jump to latest outcome ↓",
+             "Open source message →",
+             "All activity in this conversation →",
+             "This Slack thread →"
            ]
 
     blank_links = LazyHTML.query(document, ".episode-location > a[target='_blank']")
 
     assert Enum.map(blank_links, &LazyHTML.text/1) == [
-             "Open source message",
-             "This Slack thread"
+             "Open source message →",
+             "This Slack thread →"
            ]
 
     assert LazyHTML.attribute(blank_links, "rel") == [
@@ -785,7 +815,7 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
              document,
              ".episode-location > a:not([target]):nth-of-type(3)"
            )
-           |> LazyHTML.text() == "All activity in this conversation"
+           |> LazyHTML.text() == "All activity in this conversation →"
 
     assert Enum.empty?(LazyHTML.query(document, ".case-actions"))
   end
@@ -813,7 +843,7 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
   test "model labels separate the saved profile without guessing a missing target" do
     assert EpisodeRequest.model("codex:gpt-5.6-sol/high@emisar") == %{
              name: "gpt-5.6-sol/high",
-             account: "codex"
+             account: "codex · emisar"
            }
 
     assert EpisodeRequest.model("codex:gpt-5.6-sol/high") == %{
@@ -1089,7 +1119,7 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
         target: "codex:gpt-5.6-terra/medium@emisar",
         timing: [],
         coverage: "Retained only",
-        href: "/timeline/example/model-calls",
+        href: "/timeline/example#recorded-request",
         sections: sections
       }
     )

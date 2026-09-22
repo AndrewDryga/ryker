@@ -1663,6 +1663,30 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
     assert ControlPlane.portable_workspace(moved, requirements) == nil
   end
 
+  test "repository-free chat work has no portable workspace" do
+    # Clean-install Chat is intentionally useful before a repository is
+    # imported. Its failure recovery page must not turn a nil repository into
+    # an unsafe Ecto comparison and crash while trying to find a checkpoint.
+    session = session!("portable-conversation")
+
+    Repo.update_all(from(s in Session, where: s.id == ^session.id),
+      set: [repository_ref: nil, repository_source: nil]
+    )
+
+    session = Repo.get!(Session, session.id)
+    authorize_and_poll!("worker-portable-conversation")
+
+    requirements = %{
+      capability_names: ["responder-state"],
+      capability_versions: %{},
+      repository_ref: nil,
+      workspace_ref: "workspace-main"
+    }
+
+    assert ControlPlane.worker_available?(session, requirements)
+    assert ControlPlane.portable_workspace(session, requirements) == nil
+  end
+
   defp authorize_and_poll!(worker_id, options \\ []) do
     assert {:ok, _worker} =
              ControlPlane.authorize_worker(

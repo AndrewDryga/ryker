@@ -286,6 +286,28 @@ defmodule Ryker.State.RecordsTest do
              "wait_kind" => "event",
              "wait_ref" => event_wait.ref
            }
+
+    assert Records.validation_records(claim.episode.id)[event_wait.ref]["wait_mode"] ==
+             "external"
+  end
+
+  test "timer validation records identify waits that must not acknowledge early" do
+    claim = claim!("timer-validation-record")
+    token = Records.token(claim.turn)
+
+    assert {:ok, timer} =
+             Records.create(token, "short-delay", "event_wait", %{
+               "deadline_at" => "2099-08-28T13:00:00.000000Z",
+               "event_matcher" => %{
+                 "delay" => "30s",
+                 "on_timeout" => "Resume and report that the wait elapsed.",
+                 "type" => "after"
+               },
+               "kind" => "after",
+               "verification" => "Resume after thirty seconds."
+             })
+
+    assert Records.validation_records(claim.episode.id)[timer.ref]["wait_mode"] == "timer"
   end
 
   test "a record capability is scoped to the exact live episode turn" do

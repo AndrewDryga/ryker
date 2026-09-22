@@ -25,7 +25,7 @@ defmodule Ryker.ControlPlane.ModelRequestsTest do
       render_component(&RequestPage.render/1,
         view: view,
         params: %{},
-        path: "/timeline/#{URI.encode_www_form(episode.key)}/model-calls"
+        path: "/timeline/#{URI.encode_www_form(episode.key)}"
       )
 
     refute LazyHTML.from_fragment(html) |> LazyHTML.text() =~ "$.work.inputs"
@@ -40,7 +40,7 @@ defmodule Ryker.ControlPlane.ModelRequestsTest do
         render_component(&RequestPage.render/1,
           view: view,
           params: %{"section" => section.id},
-          path: "/timeline/#{URI.encode_www_form(episode.key)}/model-calls"
+          path: "/timeline/#{URI.encode_www_form(episode.key)}"
         )
 
       expected_title =
@@ -97,7 +97,7 @@ defmodule Ryker.ControlPlane.ModelRequestsTest do
           render_component(&RequestPage.render/1,
             view: view,
             params: %{},
-            path: "/timeline/#{URI.encode_www_form(episode.key)}/model-calls"
+            path: "/timeline/#{URI.encode_www_form(episode.key)}"
           )
         ] do
       document = LazyHTML.from_document(html)
@@ -137,7 +137,7 @@ defmodule Ryker.ControlPlane.ModelRequestsTest do
         render_component(&RequestPage.render/1,
           view: view,
           params: %{},
-          path: "/timeline/#{URI.encode_www_form(episode.key)}/model-calls"
+          path: "/timeline/#{URI.encode_www_form(episode.key)}"
         )
       )
 
@@ -180,7 +180,7 @@ defmodule Ryker.ControlPlane.ModelRequestsTest do
       render_component(&RequestPage.render/1,
         view: view,
         params: %{},
-        path: "/timeline/#{URI.encode_www_form(episode.key)}/model-calls"
+        path: "/timeline/#{URI.encode_www_form(episode.key)}"
       )
 
     document = LazyHTML.from_document(html)
@@ -551,7 +551,8 @@ defmodule Ryker.ControlPlane.ModelRequestsTest do
       assert request =
                Enum.find(timeline.items, &(&1.id == "admission-#{entry.id}-#{generation}"))
 
-      assert request.href =~ "generation=#{generation}"
+      assert request.href ==
+               "/timeline/#{URI.encode_www_form(episode.key)}#admission-#{entry.id}-#{generation}"
 
       assert result =
                Enum.find(timeline.items, &(&1.id == "admission-#{entry.id}-#{generation}-result"))
@@ -593,7 +594,25 @@ defmodule Ryker.ControlPlane.ModelRequestsTest do
 
     {:ok, bounded} = ModelRequests.timeline(episode.key, %{})
     assert bounded.truncated
+    assert bounded.call_history.more == 2
     refute Enum.any?(bounded.items, &(&1.coverage =~ "no retained submitted prompt"))
+
+    {:ok, snapshot} = Projection.episode(episode.key)
+
+    html =
+      render_component(&EpisodePage.render/1,
+        snapshot: snapshot,
+        timeline: bounded,
+        params: %{}
+      )
+
+    assert html =~ "Show earlier requests"
+    assert html =~ "?calls=2"
+
+    {:ok, expanded} = ModelRequests.timeline(episode.key, %{"calls" => "2"})
+    refute expanded.truncated
+    assert expanded.call_history.more == nil
+    assert expanded.call_history.shown > bounded.call_history.shown
   end
 
   test "pruned request content is expired rather than silently reconstructed" do
@@ -611,7 +630,7 @@ defmodule Ryker.ControlPlane.ModelRequestsTest do
       render_component(&RequestPage.render/1,
         view: view,
         params: %{"section" => "request"},
-        path: "/timeline/retained/model-calls"
+        path: "/timeline/retained"
       )
 
     assert native =~ "This artifact has expired"

@@ -10,6 +10,7 @@ defmodule Ryker.ControlPlane.Assets do
     "composer.mjs" => {:ryker, "priv/static/composer.mjs", "text/javascript"},
     "conversation.mjs" => {:ryker, "priv/static/conversation.mjs", "text/javascript"},
     "drafts.mjs" => {:ryker, "priv/static/drafts.mjs", "text/javascript"},
+    "elapsed-time.mjs" => {:ryker, "priv/static/elapsed-time.mjs", "text/javascript"},
     "filter-toolbar.mjs" => {:ryker, "priv/static/filter-toolbar.mjs", "text/javascript"},
     "filter-menu.mjs" => {:ryker, "priv/static/filter-menu.mjs", "text/javascript"},
     "history.mjs" => {:ryker, "priv/static/history.mjs", "text/javascript"},

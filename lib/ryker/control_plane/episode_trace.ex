@@ -455,19 +455,25 @@ defmodule Ryker.ControlPlane.EpisodeTrace do
     end
   end
 
-  defp conversation_part(step, {part, seen}, causality) do
+  defp conversation_part(step, {frontier, seen}, causality) do
     owner = Map.get(step, :owner) || :episode
     boundary = message_boundary?(step, seen)
+    owner_position = EpisodeCausality.position(causality, owner)
 
     part =
       cond do
-        boundary -> part + 1
-        position = EpisodeCausality.position(causality, owner) -> position
-        true -> part
+        boundary && owner_position -> owner_position
+        boundary -> frontier + 1
+        owner_position -> owner_position
+        true -> frontier
       end
 
     seen = if boundary, do: MapSet.put(seen, step.id), else: seen
-    {{step, part, boundary, owner}, {part, seen}}
+
+    # A late receipt keeps its older owner's position, but it must never move
+    # the chronological frontier backwards. The next unowned message boundary
+    # advances from the furthest message already observed.
+    {{step, part, boundary, owner}, {max(frontier, part), seen}}
   end
 
   defp message_boundary?(%{kind: :message, band: :input, id: id}, seen),

@@ -403,6 +403,19 @@ defmodule Ryker.Retention.DataTest do
     ])
 
     assert {:ok, _result} = Data.prune(settings())
+    assert Repo.get(Placement, placement.id)
+    assert Repo.get(Session, session.id).cleanup_status == :plan_pending
+
+    # Historical pruning cannot stand in for remote cleanup. Once the remote
+    # discard receipt exists, the old placement and session may retire.
+    discard_session!(%{session: Repo.get!(Session, session.id)})
+
+    Repo.query!("UPDATE episode_work_sessions SET updated_at = $1 WHERE id = $2", [
+      @old,
+      uuid!(session.id)
+    ])
+
+    assert {:ok, _result} = Data.prune(settings())
     assert Repo.get(Placement, placement.id) == nil
     assert Repo.get(Session, session.id) == nil
   end

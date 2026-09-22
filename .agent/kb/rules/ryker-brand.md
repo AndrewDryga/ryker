@@ -70,6 +70,14 @@ neutrals, deliberate mint accents, clear control/focus/selected/disabled states 
 semantic statuses. Retain approved compact type sizes and 4px-based rhythm rather than copying
 the umbrella website's 36–72px display text or large editorial section gaps wholesale.
 
+Every visible label, badge, status and sentence must help the person identify the object, understand
+its current consequence, or choose an action. Do not add decorative lifecycle text, boilerplate,
+or a far-edge status that merely repeats what the card content or available controls already make
+clear. In particular, an inert `open` or `confirmed` label on a proposal adds no value. Remove
+duplicate fields and translate retained enum values into concise human language. Prefer one shared,
+compact information hierarchy over per-page chrome or empty space used to make a component feel
+substantial.
+
 Verify actual rendered contrast in every state: normal text at least 4.5:1, large text 3:1,
 visible focus and control boundaries. Use at least 44×44px hit areas for primary controls/icon
 buttons even if their visible glyph is small. Link meaning/status cannot rely on color alone.

@@ -2,7 +2,7 @@ defmodule Ryker.State.ObservationsTest do
   use Ryker.DataCase, async: false
   @moduletag isolation: "REPEATABLE READ"
   import Ecto.Query
-  alias Ryker.{Admission, Repo}
+  alias Ryker.{Admission, CanonicalJSON, Repo}
   alias Ryker.Admission.{Context, Decision, Executor, Prompt}
   alias Ryker.ControlPlane.{Components, ConversationMemory, HTML, Projection}
   alias Ryker.Episodes.Episode
@@ -10,7 +10,16 @@ defmodule Ryker.State.ObservationsTest do
   alias Ryker.Ingress.Inbox
   alias Ryker.Retention.Data
   alias Ryker.Slack.{ChannelMembership, Input}
-  alias Ryker.State.{Continuity, ConversationObservation, MemorySearchPage, Observations}
+
+  alias Ryker.State.{
+    Continuity,
+    ConversationObservation,
+    ConversationSummary,
+    LearningSources,
+    MemorySearchPage,
+    Observations
+  }
+
   alias Ryker.TestSupport.FakeCoopAPI, as: FakeAPI
 
   @now ~U[2026-09-06 10:00:00.000000Z]
@@ -38,22 +47,30 @@ defmodule Ryker.State.ObservationsTest do
     assert source.updated_at == database_time
   end
 
-  test "Memory shows original source excerpts with sources and visible search controls" do
+  test "Memory shows original messages only as source provenance for a context record" do
     entry = observe!("visible", "C1", @note)
     # A replay's import time and raw UUID are not the date or substance of the discussion.
     Repo.update_all(from(n in ConversationObservation, where: n.id == ^entry.id),
       set: [note: %{@note | "summary" => @note["summary"] <> " Source: message #{entry.id}."}]
     )
 
-    snapshot = Projection.memory()
+    summary = summary!(LearningSources.for_entry(entry))
+
+    snapshot =
+      Projection.memory(%{
+        "kind" => "sources",
+        "related_to" => "context:#{summary.id}"
+      })
+
     [item] = snapshot.conversation_memory.items
     assert item.at == @now
     assert item.text == @note["summary"]
     html = HTML.memory(snapshot, "test-secret") |> IO.iodata_to_binary()
     assert html =~ "draft-ai-suggestions"
-    assert html =~ "Source message"
+    assert html =~ "Sources for Retained conversation context"
+    assert html =~ "Open source"
     assert html =~ "name=\"q\""
-    assert html =~ "Source excerpts"
+    refute html =~ "Source excerpts"
   end
 
   test "memory resolves bare people references without corrupting mentions, code or links" do
@@ -61,8 +78,17 @@ defmodule Ryker.State.ObservationsTest do
     text =
       "U03EPT4RP5M and <@U03EPT4RP5M> kept `U03EPT4RP5M`.\n\n```U03EPT4RP5M```\n\n[record](https://example.test/U03EPT4RP5M)"
 
-    observe!("formatting", "C1", %{@note | "summary" => text})
-    html = HTML.memory(Projection.memory(), "test-secret") |> IO.iodata_to_binary()
+    entry = observe!("formatting", "C1", %{@note | "summary" => text})
+    summary = summary!(LearningSources.for_entry(entry))
+
+    html =
+      Projection.memory(%{
+        "kind" => "sources",
+        "related_to" => "context:#{summary.id}"
+      })
+      |> HTML.memory("test-secret")
+      |> IO.iodata_to_binary()
+
     assert length(Regex.scan(~r/class="slack-mention"/, html)) == 2
     assert html =~ "<code>U03EPT4RP5M</code>"
     assert html =~ "<pre><code>U03EPT4RP5M</code></pre>"
@@ -82,13 +108,11 @@ defmodule Ryker.State.ObservationsTest do
     Application.put_env(:ryker, :retention, %{conversation_memory_seconds: 7_776_000})
     entry = observe!("expiry", "C1", @note)
     saved = Repo.get!(ConversationObservation, entry.id)
-    [item] = ConversationMemory.project(%{"kind" => "notes"}).items
+    [item] = ConversationMemory.present([saved])
     assert item.expires_at == DateTime.add(saved.updated_at, 7_776_000)
-    html = HTML.memory(Projection.memory(), "test-secret") |> IO.iodata_to_binary()
-    assert html =~ "Retention"
-    assert html =~ "Retention: until #{Components.timestamp(item.expires_at)}"
+    assert Components.timestamp(item.expires_at)
     Application.delete_env(:ryker, :retention)
-    [item] = ConversationMemory.project(%{"kind" => "notes"}).items
+    [item] = ConversationMemory.present([saved])
     assert item.expires_at == nil
   end
 
@@ -223,22 +247,30 @@ defmodule Ryker.State.ObservationsTest do
     assert Observations.context(entry, nil) == []
   end
 
-  test "Memory searches all notes before paging and malformed filter values remain usable" do
+  test "source provenance searches all retained sources before paging" do
     # A decision must remain discoverable after newer chat pushes it off the first page.
-    for n <- 1..32 do
-      observe!("page-#{n}", "C1", %{@note | "summary" => "Decision #{n}"},
-        message_ref: "1787832000.#{String.pad_leading(to_string(n), 6, "0")}"
-      )
-    end
+    entries =
+      for n <- 1..32 do
+        observe!("page-#{n}", "C1", %{@note | "summary" => "Decision #{n}"},
+          message_ref: "1787832000.#{String.pad_leading(to_string(n), 6, "0")}"
+        )
+      end
 
-    first = ConversationMemory.project(%{"kind" => "notes"})
+    observe!("unrelated", "C1", %{@note | "summary" => "Not part of this context"},
+      message_ref: "1787832000.999999"
+    )
+
+    summary = summary!(Enum.flat_map(entries, &LearningSources.for_entry/1))
+    parent = "context:#{summary.id}"
+    first = ConversationMemory.project(%{"kind" => "sources", "related_to" => parent})
     assert first.total == 32
     assert length(first.items) == 30
     assert first.pages == 2
 
     filtered =
       ConversationMemory.project(%{
-        "kind" => "notes",
+        "kind" => "sources",
+        "related_to" => parent,
         "q" => "Decision 32",
         "page" => "99"
       })
@@ -378,6 +410,29 @@ defmodule Ryker.State.ObservationsTest do
 
     {:ok, %{entry: decided}} = Admission.commit(context, decision, "learned:#{event}")
     decided
+  end
+
+  defp summary!(dependencies) do
+    id = Ecto.UUID.generate()
+
+    state = %{
+      "purpose" => "Retained conversation context",
+      "situation" => "Context derived from retained source messages."
+    }
+
+    Repo.insert!(%ConversationSummary{
+      id: id,
+      ref: "continuity:#{id}",
+      identity_key: CanonicalJSON.digest(id),
+      transport: "slack",
+      workspace_ref: "slack:TNOTES",
+      conversation_ref: "slack:TNOTES:C1",
+      visibility: :public,
+      state: state,
+      state_fingerprint: CanonicalJSON.digest(state),
+      source_dependencies: dependencies,
+      source_result_ref: "result:#{id}"
+    })
   end
 
   defp input!(event, channel, options \\ []) do

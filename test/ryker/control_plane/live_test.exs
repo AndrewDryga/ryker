@@ -3,11 +3,14 @@ defmodule Ryker.ControlPlane.LiveTest do
 
   import Phoenix.ConnTest
   import Phoenix.LiveViewTest
+  alias Ryker.Admission.Attempts
   alias Ryker.ControlPlane.{Actions, BehaviorLibrary, ConversationLab, LiveSocket, Projection}
   alias Ryker.ControlPlane.LabPage
+  alias Ryker.ControlPlane.PubSub
   alias Ryker.ControlPlane.WorkbenchLive
   alias Ryker.Fixtures.SavedEntities
   alias Ryker.Ingress.Inbox
+  alias Ryker.Ingress.Inbox.EntryChangeset
   alias Ryker.Ingress.WorkProfile
 
   alias Ryker.ControlPlane.Endpoint
@@ -17,7 +20,7 @@ defmodule Ryker.ControlPlane.LiveTest do
 
   setup do
     observer = self()
-    {:ok, counters} = Agent.start_link(fn -> %{active: 1} end)
+    {:ok, counters} = Agent.start_link(fn -> %{active: 1, chat_readiness: :ready} end)
 
     {:ok, lab_profile} =
       WorkProfile.new(%{
@@ -43,6 +46,29 @@ defmodule Ryker.ControlPlane.LiveTest do
             send(observer, {:lab_projected, Enum.sum(Enum.map(items, & &1.message_count))})
             items
           end,
+          readiness: fn ->
+            case Agent.get(counters, & &1.chat_readiness) do
+              :ready ->
+                %{
+                  chat: %{
+                    state: :ready,
+                    title: "Chat is ready",
+                    detail: "Messages can be accepted and processed."
+                  },
+                  slack: %{state: :not_connected}
+                }
+
+              :worker_unavailable ->
+                %{
+                  chat: %{
+                    state: :worker_unavailable,
+                    title: "Chat is waiting for its worker",
+                    detail: "The bundled worker is offline or still starting."
+                  },
+                  slack: %{state: :worker_unavailable}
+                }
+            end
+          end,
           activity: fn params ->
             %{
               items: [],
@@ -52,6 +78,9 @@ defmodule Ryker.ControlPlane.LiveTest do
               mode: params["mode"] || "live",
               searchable: true
             }
+          end,
+          memory: fn params ->
+            Agent.get(counters, & &1[:memory_snapshot]) || Projection.memory(params)
           end,
           episode: fn ref, params ->
             if Agent.get(counters, & &1[:episode_fail]),
@@ -720,6 +749,29 @@ defmodule Ryker.ControlPlane.LiveTest do
            )
   end
 
+  test "Chat replaces the composer with its actual worker readiness", %{counters: counters} do
+    Agent.update(counters, &Map.put(&1, :chat_readiness, :worker_unavailable))
+
+    {:ok, view, _html} =
+      live(build_conn() |> Map.put(:host, "localhost"), "/conversations")
+
+    assert has_element?(view, ".lab-readiness", "Chat is waiting for its worker")
+
+    assert has_element?(
+             view,
+             ".lab-readiness",
+             "The bundled worker is offline or still starting."
+           )
+
+    refute has_element?(view, "form.lab-native-composer")
+
+    Agent.update(counters, &Map.put(&1, :chat_readiness, :ready))
+    render_hook(view, "refresh", %{})
+
+    refute has_element?(view, ".lab-readiness")
+    assert has_element?(view, "form.lab-native-composer")
+  end
+
   test "the composer placeholder is one of ten authored examples and holds still through patches" do
     # A placeholder that re-rolled on every refresh flickered under the
     # operator's eyes every five seconds. It is chosen once per opened view
@@ -986,7 +1038,7 @@ defmodule Ryker.ControlPlane.LiveTest do
 
     # The reply links the work request of the turn that produced it.
     reply_href =
-      "/timeline/#{URI.encode_www_form(episode.key)}/model-calls?attempt=#{turn.id}&section=delivery"
+      "/timeline/#{URI.encode_www_form(episode.key)}?attempt=#{turn.id}#request-#{turn.id}"
 
     assert has_element?(
              view,
@@ -1005,10 +1057,9 @@ defmodule Ryker.ControlPlane.LiveTest do
 
     # Both targets open the exact retained request they name.
     {:ok, admission, _} = live(conn, input_href)
-    assert has_element?(admission, ".request-reader[data-request-id='#{first.id}']")
-    assert has_element?(admission, ".request-reader-heading", "Admission")
-    {:ok, work, _} = live(conn, reply_href)
-    assert has_element?(work, ".request-reader[data-request-id='#{turn.id}']")
+    assert has_element?(admission, "[id^='admission-#{first.id}-']")
+    {:ok, work, _} = live(conn, reply_href |> String.split("#", parts: 2) |> hd())
+    assert has_element?(work, "#request-#{turn.id}")
 
     # An ignored input has a recorded decision and no episode; it must not borrow one.
     Repo.get!(Ryker.Ingress.Inbox.Entry, second.id)
@@ -1031,6 +1082,75 @@ defmodule Ryker.ControlPlane.LiveTest do
 
     refute has_element?(view, "#lab-messages a[href*='#{episode.key}'][href*='#{second.id}']")
     assert find_all(view, ".lab-message-progress") == []
+  end
+
+  test "a conversation patches an unchanged message when its work phase advances" do
+    # A queued message stayed on "0.0s" until navigation because the transcript
+    # stream keyed updates only to message data. Admission progress changes must
+    # replace that existing row as soon as the conversations domain is invalidated.
+    {:ok, profile} =
+      WorkProfile.new(%{
+        policy: "lab-live-test",
+        policy_digest: String.duplicate("a", 64),
+        repository_ref: nil
+      })
+
+    id = Ecto.UUID.generate()
+    {:ok, %{entry: entry}} = ConversationLab.send_message(id, "Track this work", profile)
+    conn = build_conn() |> Map.put(:host, "localhost")
+    {:ok, view, _html} = live(conn, "/conversations/#{id}")
+
+    assert has_element?(view, ".lab-message-progress", "Queued")
+    assert has_element?(view, ".lab-progress-elapsed[phx-hook=ElapsedTime]", "now")
+    refute render(view) =~ "waiting for a slot"
+    assert_receive {:lab_projected, 1}
+    flush_lab_projections()
+
+    now = DateTime.utc_now()
+    lease_ref = "ingress-lease:#{Ecto.UUID.generate()}"
+
+    claimed =
+      entry
+      |> EntryChangeset.claim(%{
+        attempt_count: entry.attempt_count + 1,
+        last_error_code: nil,
+        last_error_detail: nil,
+        lease_expires_at: DateTime.add(now, 60, :second),
+        lease_owner: "live-progress-test",
+        lease_ref: lease_ref,
+        next_attempt_at: nil
+      })
+      |> Repo.update!()
+
+    settings = %{
+      lease_ref: lease_ref,
+      now: fn -> now end,
+      policy: "admission",
+      policy_digest: String.duplicate("a", 64)
+    }
+
+    {:ok, _attempt} = Attempts.prepare(claimed, settings)
+
+    :ok =
+      Attempts.observe(
+        claimed,
+        "provider_running",
+        %{execution_target: "recorded-target"},
+        settings
+      )
+
+    assert {:ok, %{admission_progress: [%{phase: "Working"}]}} =
+             Projection.lab_conversation(id)
+
+    Phoenix.PubSub.broadcast(
+      PubSub,
+      "control-plane:conversations",
+      :control_plane_changed
+    )
+
+    assert_receive {:lab_projected, 1}, 2_000
+    assert has_element?(view, ".lab-message-progress", "Working")
+    refute render(view) =~ "Provider running"
   end
 
   test "a message whose model work stopped says so beside the message, with the retry" do
@@ -1079,8 +1199,8 @@ defmodule Ryker.ControlPlane.LiveTest do
              "#lab-messages .lab-message-failure a[href='#{retry}'][data-phx-link]"
            )
 
-    # Once the turn is working again the failure line is gone and the message
-    # says it is working, once.
+    # Once the turn is working again the failure line is gone and the transcript
+    # shows one quiet typing indicator until the reply arrives.
     Repo.get!(Ryker.Work.Turn, turn.id)
     |> Ecto.Changeset.change(
       status: :pending,
@@ -1092,7 +1212,9 @@ defmodule Ryker.ControlPlane.LiveTest do
 
     render_hook(view, "refresh", %{})
     refute has_element?(view, "#lab-messages .lab-message-failure")
-    assert has_element?(view, "#lab-messages .lab-message-state", "Working")
+    refute has_element?(view, "#lab-messages .lab-message-state", "Working")
+    assert has_element?(view, "#lab-messages .lab-typing-indicator", "Working")
+    assert length(find_all(view, ".lab-typing-indicator")) == 1
   end
 
   test "a conversation keeps its identity, history and links across the URL rename" do
@@ -1458,7 +1580,7 @@ defmodule Ryker.ControlPlane.LiveTest do
     refute render(view) =~ source
   end
 
-  test "an episode has one continuous execution document and preserves exact request links" do
+  test "an episode has one continuous execution document without a duplicate request page" do
     {:ok, %{episode: episode}} =
       Ryker.Episodes.apply(Ryker.Fixtures.Episodes.admit_input())
 
@@ -1468,20 +1590,8 @@ defmodule Ryker.ControlPlane.LiveTest do
     assert has_element?(view, ".case-event", "Input admitted")
     refute has_element?(view, "button.execution-event")
     refute has_element?(view, "nav[aria-label='Episode view']")
-    view |> element("a", "Model calls") |> render_click()
-    assert_patch(view, path <> "/model-calls")
-    assert has_element?(view, ".model-inspector", "What the model received")
-    assert has_element?(view, ".document-unavailable", "No model calls recorded")
-    refute has_element?(view, "#execution-timeline")
-    view |> element("a", "Back to the timeline") |> render_click()
-    assert_patch(view, path)
-    assert has_element?(view, "#execution-timeline", "Input admitted")
-
-    # Direct inspector entry must use the same native reader as in-page navigation.
-    {:ok, direct, _} = live(build_conn() |> Map.put(:host, "localhost"), path <> "/model-calls")
-    assert has_element?(direct, ".model-inspector", "What the model received")
-    refute has_element?(direct, ".request-workbench")
-    refute has_element?(direct, "#execution-timeline")
+    refute has_element?(view, "a", "Model calls")
+    refute render(view) =~ "/model-calls"
   end
 
   test "native episode details distinguish missing records from unavailable projections", %{
@@ -1608,21 +1718,35 @@ defmodule Ryker.ControlPlane.LiveTest do
     assert :error = LiveSocket.connect(%{}, socket, %{})
   end
 
-  test "refreshing admission never changes the execution the operator is reading" do
+  test "an input keeps one canonical timeline while routing adds evidence and becomes work" do
     {entry, _id} = lab_input!()
     conn = build_conn() |> Map.put(:host, "localhost")
     {:ok, view, _} = live(conn, "/timeline/ingress-input%3A#{entry.id}")
-    assert has_element?(view, ".request-reader-heading", "Admission · execution 1")
-    entry |> Ecto.Changeset.change(execution_generation: 2) |> Repo.update!()
+
+    assert has_element?(view, "#execution-timeline")
+    assert has_element?(view, "#admission-#{entry.id}-1", "Routing briefing")
+    refute has_element?(view, ".model-inspector")
+
+    Repo.insert!(%Ryker.Admission.Attempt{
+      input_id: entry.id,
+      generation: 1,
+      policy: "admission",
+      policy_digest: String.duplicate("b", 64),
+      phase: "response_received",
+      milestones: %{
+        "context_prepared" => DateTime.to_iso8601(entry.inserted_at),
+        "response_received" => DateTime.to_iso8601(DateTime.add(entry.inserted_at, 2, :second))
+      },
+      response: %{"state" => "completed"}
+    })
+
     render_hook(view, "refresh", %{})
-    assert has_element?(view, ".request-reader-heading", "Admission · execution 1")
-    assert has_element?(view, ".request-reader[data-generation='1']")
-    assert has_element?(view, ".artifact-instructions", "Ryker admission instructions")
-    assert has_element?(view, ".artifact-context", "Frozen admission context")
+    assert has_element?(view, "#admission-#{entry.id}-1", "Routing briefing")
+    assert has_element?(view, "#admission-#{entry.id}-1-result", "Routing result")
+    refute has_element?(view, ".model-inspector")
 
-    assert has_element?(view, ".request-reader .pagination", "Page 1 of 2")
-
-    # Assignment used to erase the reader's pinned routing attempt mid-inspection.
+    # Assignment adds the work stages without changing the page into another
+    # product or replacing the routing history with a separate inspector.
     {:ok, %{episode: episode}} =
       Ryker.Episodes.apply(Ryker.Fixtures.Episodes.admit_input())
 
@@ -1638,13 +1762,22 @@ defmodule Ryker.ControlPlane.LiveTest do
     |> Repo.update!()
 
     render_hook(view, "refresh", %{})
-    assert has_element?(view, ".request-reader[data-generation='1']")
-    assert has_element?(view, ".request-reader .pagination", "Page 1 of 2")
+    assert has_element?(view, "#execution-timeline")
+
+    admission_ids =
+      render(view)
+      |> LazyHTML.from_document()
+      |> LazyHTML.query("[id^='admission-#{entry.id}-']")
+      |> LazyHTML.attribute("id")
+
+    assert "admission-#{entry.id}-1" in admission_ids
+    refute has_element?(view, ".model-inspector")
 
     {:ok, reopened, _} =
       live(conn, "/timeline/ingress-input%3A#{entry.id}?generation=1")
 
-    assert has_element?(reopened, ".request-reader[data-generation='1']")
+    assert has_element?(reopened, "#execution-timeline")
+    assert has_element?(reopened, "#admission-#{entry.id}-1")
   end
 
   test "a blocked admission shows its recovery reason and a correctly bound confirmation" do
@@ -1743,6 +1876,68 @@ defmodule Ryker.ControlPlane.LiveTest do
            )
 
     refute has_element?(view, "a[href='/audit']")
+  end
+
+  test "source provenance stays focused and does not inherit memory settings", %{
+    counters: counters
+  } do
+    at = ~U[2026-09-20 22:47:00Z]
+
+    source = %{
+      id: "source-1",
+      title: "",
+      conversation: "Direct conversation",
+      conversation_path: "/conversations/conversation-1",
+      at: at,
+      repository: nil,
+      text: "The original source message.",
+      workspace: nil,
+      groups: [],
+      source: nil,
+      source_count: nil,
+      source_path: nil,
+      request_path: nil,
+      changed_at: at,
+      source_at: at
+    }
+
+    Agent.update(counters, fn values ->
+      Map.put(values, :memory_snapshot, %{
+        memories: [],
+        reviews: [],
+        conversation_memory: %{
+          counts: %{context: 1, knowledge: 0},
+          kind: "sources",
+          q: "",
+          page: 1,
+          pages: 1,
+          total: 1,
+          related_to: "context:context-1",
+          source_parent: %{
+            back_label: "Conversation context",
+            back_path: "/memory?kind=context#memory-context-1",
+            title: "Validation schedule"
+          },
+          selected: nil,
+          rebuild: nil,
+          history: [],
+          history_page: 1,
+          history_pages: 1,
+          learning_activity: nil,
+          learning: nil,
+          items: [source]
+        }
+      })
+    end)
+
+    {:ok, view, _html} =
+      live(
+        build_conn() |> Map.put(:host, "localhost"),
+        "/memory?kind=sources&related_to=context%3Acontext-1"
+      )
+
+    assert has_element?(view, ".memory-source-context", "Sources for Validation schedule")
+    refute has_element?(view, "details.area-settings")
   end
 
   test "projection failures preserve stale state but log only a safe diagnostic category", %{
@@ -1849,6 +2044,14 @@ defmodule Ryker.ControlPlane.LiveTest do
     |> LazyHTML.from_document()
     |> LazyHTML.query(selector)
     |> LazyHTML.to_tree()
+  end
+
+  defp flush_lab_projections do
+    receive do
+      {:lab_projected, _count} -> flush_lab_projections()
+    after
+      0 -> :ok
+    end
   end
 
   # An admitted conversation input, its episode, and one accepted, delivered

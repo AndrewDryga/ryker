@@ -112,7 +112,9 @@ defmodule Ryker.ControlPlane.LearningActivity do
           request_path:
             "/timeline/" <>
               URI.encode(item.episode_key, &URI.char_unreserved?/1) <>
-              "/model-calls?" <> URI.encode_query(%{"attempt" => item.turn_id})
+              "?" <>
+              URI.encode_query(%{"attempt" => item.turn_id}) <>
+              "#request-#{item.turn_id}"
         }
       end)
 
@@ -120,14 +122,14 @@ defmodule Ryker.ControlPlane.LearningActivity do
   end
 
   defp handover_error("source_capacity"),
-    do: "Its source history exceeded the safe memory limit, so no handover was saved."
+    do: "Its source history exceeded the safe memory limit, so no conversation context was saved."
 
   defp handover_error("no_sources"),
     do: "No complete, usable source history was available. No unsupported summary was saved."
 
   defp handover_error(_),
     do:
-      "The conversation handover could not be saved. Inspect the original work turn for its retained context."
+      "Conversation context could not be saved. Inspect the original work turn for its retained inputs."
 
   defp selected(row, params, secrets) do
     # SELECTs only. The mutation owner rechecks source eligibility and both
@@ -301,11 +303,11 @@ defmodule Ryker.ControlPlane.LearningActivity do
 
   def error("source_capacity"),
     do:
-      "The source history is too large to combine safely. Existing handovers remain saved; other conversation groups can still progress."
+      "The source history is too large to combine safely. Existing conversation context remains saved; other conversation groups can still progress."
 
   def error("scope_capacity"),
     do:
-      "The combined handover would span too many source scopes. The original handovers remain saved."
+      "The combined conversation context would span too many source scopes. The original context remains saved."
 
   def error("learning_judgment_deferred"),
     do:

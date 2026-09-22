@@ -78,9 +78,20 @@ docker compose --env-file "$env_file" run --rm --no-deps --entrypoint coop ryker
 if ! docker compose --env-file "$env_file" run --rm --no-deps -T \
   --entrypoint sh ryker-coop -c \
   'find /var/lib/coop/agents/codex/profiles -type f -name auth.json -size +0c 2>/dev/null | grep -q .'; then
-  echo "Connect the model account Ryker will use for work. This is stored only in the private worker volume."
-  docker compose --env-file "$env_file" run --rm --no-deps --entrypoint coop \
-    ryker-coop login codex
+  codex_auth_root=${CODEX_HOME:-$HOME/.codex}
+  codex_auth=$codex_auth_root/auth.json
+
+  if [ -s "$codex_auth" ]; then
+    docker compose --env-file "$env_file" run --rm --no-deps -T \
+      --entrypoint sh ryker-coop -c \
+      'umask 077; mkdir -p /var/lib/coop/agents/codex/profiles/default; cat > /var/lib/coop/agents/codex/profiles/default/auth.json' \
+      <"$codex_auth"
+    echo "Imported the existing Codex sign-in into Ryker's private worker volume."
+  else
+    echo "Connect the model account Ryker will use for work. This is stored only in the private worker volume."
+    docker compose --env-file "$env_file" run --rm --no-deps --entrypoint coop \
+      ryker-coop login codex
+  fi
 fi
 
 docker compose --env-file "$env_file" up --detach --build --wait ryker-coop

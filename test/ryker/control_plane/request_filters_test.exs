@@ -96,7 +96,7 @@ defmodule Ryker.ControlPlane.RequestFiltersTest do
              ~w(state transport usage_profile usage_actor_kind usage_measurement usage_window)
 
     # The add control comes after every chip, not before them.
-    {last_chip, _} = :binary.matches(html, ~s(class="filter-chip")) |> List.last()
+    {last_chip, _} = :binary.matches(html, ~s(data-filter=)) |> List.last()
     {add, _} = :binary.match(html, ~s(id="filter-add"))
     assert add > last_chip
   end

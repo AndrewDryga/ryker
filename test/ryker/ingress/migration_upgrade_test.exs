@@ -70,6 +70,8 @@ defmodule Ryker.Ingress.MigrationUpgradeTest do
   @schedule_catch_up_version 20_260_912_000_400
   @rename_version 20_260_913_000_100
   @retired_ledger_version 20_260_913_000_200
+  @token_rates_version 20_260_920_001_300
+  @admission_cleanup_repair_version 20_260_921_000_300
   @integration_versions [
     20_260_919_000_100,
     20_260_919_000_200,
@@ -85,8 +87,12 @@ defmodule Ryker.Ingress.MigrationUpgradeTest do
     20_260_920_001_000,
     20_260_920_001_100,
     20_260_920_001_200,
-    20_260_920_001_300,
-    20_260_920_001_400
+    @token_rates_version,
+    20_260_920_001_400,
+    20_260_920_001_500,
+    20_260_921_000_100,
+    20_260_921_000_200,
+    @admission_cleanup_repair_version
   ]
   # Cross-conversation routing migrations stay named as their own group so the
   # ladder can be reconciled with sibling work.
@@ -147,6 +153,116 @@ defmodule Ryker.Ingress.MigrationUpgradeTest do
     @candidate_responses_version
   ]
   @migrations_path Path.expand("../../../priv/repo/migrations", __DIR__)
+
+  test "an upgrade reclaims admission sessions the old host falsely marked discarded" do
+    repo = start_migration_repo!()
+    prefix = "admission_cleanup_repair_#{System.unique_integer([:positive])}"
+    SQL.query!(repo, "CREATE SCHEMA #{prefix}", [])
+
+    try do
+      Ecto.Migrator.run(repo, @migrations_path, :up,
+        to: 20_260_921_000_200,
+        prefix: prefix,
+        log: false
+      )
+
+      input_id = Ecto.UUID.generate()
+      leaked_id = Ecto.UUID.generate()
+      settled_id = Ecto.UUID.generate()
+
+      SQL.query!(
+        repo,
+        """
+        INSERT INTO #{prefix}.ingress_inbox_entries (
+          id, dedupe_key, event_fingerprint, source_kind, source_ref, event_ref,
+          event_kind, native_input_id, actor_kind, actor_ref, destination_transport,
+          destination_conversation_ref, revision, occurred_at, content, status,
+          source_capabilities, inserted_at, updated_at
+        ) VALUES (
+          $1::text::uuid, 'dedupe:admission-repair', repeat('a', 64), 'local',
+          'control-plane', 'event:admission-repair', 'message', 'input:admission-repair',
+          'user', 'control-plane:operator', 'control-plane', 'conversation:repair', 1,
+          clock_timestamp(), '{"text":"repair me"}', 'pending', '{}',
+          clock_timestamp(), clock_timestamp()
+        )
+        """,
+        [input_id]
+      )
+
+      for {session_id, remote_id, receipt, fingerprint} <- [
+            {leaked_id, "remote_leaked", nil, nil},
+            {settled_id, "remote_settled", ~s({"kind":"discarded"}), String.duplicate("f", 64)}
+          ] do
+        SQL.query!(
+          repo,
+          """
+          INSERT INTO #{prefix}.episode_work_sessions (
+            id, execution_kind, policy, policy_digest, external_ref, generation,
+            create_generation, coop_session_id, admission_input_id, cleanup_status,
+            closed_at, discarded_at, cleanup_receipt, cleanup_receipt_fingerprint,
+            inserted_at, updated_at
+          ) VALUES (
+            $1::text::uuid, 'admission', 'admission-read-only', repeat('b', 64),
+            'ryker-admission:' || $2 || ':g1', 1, 1, $2, $3::text::uuid,
+            'discarded', clock_timestamp(), clock_timestamp(), $4::jsonb, $5,
+            clock_timestamp(), clock_timestamp()
+          )
+          """,
+          [session_id, remote_id, input_id, receipt, fingerprint]
+        )
+      end
+
+      assert Ecto.Migrator.run(repo, @migrations_path, :up,
+               to: @admission_cleanup_repair_version,
+               prefix: prefix,
+               log: false
+             ) == [@admission_cleanup_repair_version]
+
+      assert %{rows: [["close_pending", nil, nil]]} =
+               SQL.query!(
+                 repo,
+                 "SELECT cleanup_status, closed_at, discarded_at FROM #{prefix}.episode_work_sessions WHERE id = $1::text::uuid",
+                 [leaked_id]
+               )
+
+      assert %{rows: [["discarded", true]]} =
+               SQL.query!(
+                 repo,
+                 "SELECT cleanup_status, cleanup_receipt IS NOT NULL FROM #{prefix}.episode_work_sessions WHERE id = $1::text::uuid",
+                 [settled_id]
+               )
+    after
+      SQL.query!(repo, "DROP SCHEMA IF EXISTS #{prefix} CASCADE", [])
+    end
+  end
+
+  test "token-rate seed and rollback stay inside the requested migration prefix" do
+    repo = start_migration_repo!()
+    prefix = "token_rate_prefix_#{System.unique_integer([:positive])}"
+    SQL.query!(repo, "CREATE SCHEMA #{prefix}", [])
+
+    try do
+      Ecto.Migrator.run(repo, @migrations_path, :up,
+        to: @token_rates_version,
+        prefix: prefix,
+        log: false
+      )
+
+      assert %{rows: [[3]]} =
+               SQL.query!(repo, "SELECT count(*) FROM #{prefix}.pricing_rates", [])
+
+      assert Ecto.Migrator.run(repo, @migrations_path, :down,
+               step: 1,
+               prefix: prefix,
+               log: false
+             ) == [@token_rates_version]
+
+      assert %{rows: [[0]]} =
+               SQL.query!(repo, "SELECT count(*) FROM #{prefix}.pricing_rates", [])
+    after
+      SQL.query!(repo, "DROP SCHEMA IF EXISTS #{prefix} CASCADE", [])
+    end
+  end
 
   test "the custody ledger installs on an already-renamed database" do
     repo = start_migration_repo!()

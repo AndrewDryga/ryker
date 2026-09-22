@@ -22,6 +22,7 @@ defmodule Ryker.ControlPlane.ConversationLabEndToEndTest do
   alias Ryker.Episodes.Episode
   alias Ryker.Ingress.WorkProfile
   alias Ryker.Repo
+  alias Ryker.Retention.Dispatcher, as: RetentionDispatcher
   alias Ryker.State.{Record, Records}
   alias Ryker.TestSupport.{FakeCoopAPI, FakeWorkCoopAPI}
 
@@ -182,6 +183,18 @@ defmodule Ryker.ControlPlane.ConversationLabEndToEndTest do
     assert first_receipt["transport"] == "control_plane"
     assert first_receipt["conversation_ref"] == conversation_ref()
 
+    # Production, 2026-09-20: cleanup closed the remote session before starting
+    # the advertised follow-up window. The next message therefore had to create
+    # another session even though it arrived eight seconds later. Cleanup between
+    # turns must keep the same remote session open until the window expires.
+    assert {:ok, {:executed, %{phase: :grace}}} =
+             RetentionDispatcher.run_once(retention_options(work, "between-turns"))
+
+    assert %Session{cleanup_status: :grace, closed_at: nil} =
+             Repo.get!(Session, first_session_id)
+
+    assert FakeWorkCoopAPI.state(work).session["state"] == "open"
+
     assert {:ok, %{status: :applied}} =
              ConversationLab.react_to_message(
                @conversation_id,
@@ -212,6 +225,8 @@ defmodule Ryker.ControlPlane.ConversationLabEndToEndTest do
 
     assert second_admission.result.entry.decision_action == :continue_episode
     assert second_admission.result.episode.id == episode.id
+
+    assert %Session{cleanup_status: :active} = Repo.get!(Session, first_session_id)
 
     assert {:ok, {:executed, second_execution}} =
              Ryker.Work.Dispatcher.run_once(work_options(work, "second"))
@@ -635,6 +650,20 @@ defmodule Ryker.ControlPlane.ConversationLabEndToEndTest do
       retry_base_seconds: 1,
       retry_max_seconds: 60,
       worker_ref: "conversation-lab-delivery:#{suffix}"
+    ]
+  end
+
+  defp retention_options(fake, suffix) do
+    [
+      api: FakeWorkCoopAPI,
+      client: fake,
+      closed_session_grace_seconds: 900,
+      lease_seconds: 60,
+      max_attempts: 8,
+      retained_recheck_seconds: 21_600,
+      retry_base_seconds: 1,
+      retry_max_seconds: 60,
+      worker_ref: "conversation-lab-retention:#{suffix}"
     ]
   end
 

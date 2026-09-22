@@ -417,7 +417,7 @@ defmodule Ryker.ControlPlane.OperatorUsabilityTest do
       )
       |> IO.iodata_to_binary()
 
-    assert html =~ "Working copy removed"
+    assert html =~ "Removed safely"
     assert html =~ "05 Sep, 12:00 UTC"
     refute html =~ ">emisar</span>"
   end

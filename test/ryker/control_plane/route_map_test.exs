@@ -44,7 +44,7 @@ defmodule Ryker.ControlPlane.RouteMapTest do
 
   defp conn, do: build_conn() |> Map.put(:host, "localhost")
 
-  test "Activity, Timeline and Model calls answer at their approved routes" do
+  test "Activity and Timeline answer while the duplicate Model calls route is removed" do
     {:ok, %{episode: episode}} =
       Ryker.Episodes.apply(Ryker.Fixtures.Episodes.admit_input())
 
@@ -59,8 +59,9 @@ defmodule Ryker.ControlPlane.RouteMapTest do
     assert {:ok, view, _html} = live(conn(), timeline)
     assert has_element?(view, "#execution-timeline")
 
-    assert {:ok, calls, _html} = live(conn(), timeline <> "/model-calls")
-    assert has_element?(calls, ".model-inspector")
+    response = get(conn(), timeline <> "/model-calls")
+    assert response.status == 404
+    assert get_resp_header(response, "location") == []
   end
 
   test "superseded episode routes are removed rather than redirected" do
@@ -97,7 +98,8 @@ defmodule Ryker.ControlPlane.RouteMapTest do
       |> Enum.map(& &1[:href])
       |> Enum.reject(&is_nil/1)
 
-    assert Enum.all?(hrefs, &String.contains?(&1, "model-calls"))
+    assert Enum.all?(hrefs, &String.starts_with?(&1, timeline <> "#request-"))
+    refute Enum.any?(hrefs, &String.contains?(&1, "model-calls"))
 
     sidebar = Phoenix.LiveViewTest.render_component(&Navigation.sidebar/1, path: "/", live: false)
     assert sidebar =~ "Activity"
@@ -109,14 +111,15 @@ defmodule Ryker.ControlPlane.RouteMapTest do
 
     assert {:ok, view, _html} = live(conn(), "/timeline/ingress-input%3A#{entry.id}")
     assert has_element?(view, ".back-to-activity", "Activity")
-    assert has_element?(view, ".model-inspector")
+    assert has_element?(view, "#execution-timeline")
+    assert has_element?(view, ".episode-request", "Routing briefing")
+    refute has_element?(view, ".model-inspector")
   end
 
   test "live invalidation reaches the renamed surfaces a reader is actually on" do
     assert Updates.domain("/") == "activity"
     assert Updates.domain("/activity") == "activity"
     assert Updates.domain("/timeline/episode%3Aone") == "timeline"
-    assert Updates.domain("/timeline/episode%3Aone/model-calls") == "timeline"
 
     # A renamed route with a stale invalidation table leaves an open Timeline
     # frozen while execution continues, which reads exactly like a stuck run.

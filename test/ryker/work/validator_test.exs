@@ -454,6 +454,63 @@ defmodule Ryker.Work.ValidatorTest do
     assert accepted.final.record_refs == ["record:emisar:approval:1"]
   end
 
+  test "a timer wait stays silent until the timer resumes the episode" do
+    continuation = %{
+      "deadline_at" => "2099-08-29T12:00:00.000000Z",
+      "kind" => "wait",
+      "wait_kind" => "event",
+      "wait_ref" => "record:wait:timer"
+    }
+
+    records = %{
+      "record:wait:timer" =>
+        record("event_wait", continuation)
+        |> Map.put("wait_mode", "timer")
+    }
+
+    premature_reply =
+      candidate(
+        %{
+          "artifact_refs" => [],
+          "record_refs" => ["record:wait:timer"],
+          "state" => "waiting_for_event"
+        },
+        "The 30-second durable wait is armed."
+      )
+
+    assert {:reject, violations} =
+             Validator.validate(
+               premature_reply,
+               context(records: records, visible_reply_required: true),
+               @now
+             )
+
+    assert Enum.any?(violations, &String.contains?(&1, "timer wait"))
+    assert Enum.any?(violations, &String.contains?(&1, "delivery to none"))
+
+    silent_wait =
+      Jason.encode!(%{
+        "decision_reason" => "The timer will resume this episode at its scheduled time.",
+        "delivery" => "none",
+        "message" => nil,
+        "outcome" => %{
+          "artifact_refs" => [],
+          "record_refs" => ["record:wait:timer"],
+          "state" => "waiting_for_event"
+        }
+      })
+
+    assert {:accept, accepted} =
+             Validator.validate(
+               silent_wait,
+               context(records: records, visible_reply_required: true),
+               @now
+             )
+
+    assert accepted.result.delivery == :none
+    assert accepted.result.continuation == continuation
+  end
+
   test "invalid JSON and an elapsed event wait receive self-contained correction text" do
     assert {:reject, [invalid_json]} = Validator.validate("not json", context(), @now)
     assert invalid_json =~ "not valid JSON"

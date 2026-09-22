@@ -102,12 +102,13 @@ defmodule Ryker.Runtime.Assembly do
     contexts = repository_contexts(settings, repositories, policies)
     work = work(settings)
     admission = admission(settings, policies, work)
+    chat = installation_work_profile(policies)
     learning = learning(settings, policies, work)
     schedules = schedules(settings, repositories, policies)
     gateway = worker_gateway(bootstrap)
     github = github(bootstrap, settings, repositories, contexts)
-    slack = slack(bootstrap, settings, contexts, schedules, policies)
-    control_plane = control_plane(bootstrap, settings, contexts, work, schedules)
+    slack = slack(bootstrap, settings, contexts, schedules, policies, chat)
+    control_plane = control_plane(bootstrap, settings, contexts, work, schedules, chat)
     adapters = adapters(slack, github, control_plane)
     delivery = delivery(settings, adapters)
     publication = publication(bootstrap, settings, work, repositories, github, adapters)
@@ -127,7 +128,7 @@ defmodule Ryker.Runtime.Assembly do
 
     %{
       execution_mode: Defaults.execution(),
-      fleet_profiles: fleet_profiles(repositories, admission)
+      fleet_profiles: fleet_profiles(repositories, admission, chat)
     }
     |> put_optional(:work, work)
     |> put_optional(:admission, admission)
@@ -278,7 +279,7 @@ defmodule Ryker.Runtime.Assembly do
     }
   end
 
-  defp fleet_profiles(repositories, admission) do
+  defp fleet_profiles(repositories, admission, chat) do
     repository_profiles =
       Enum.flat_map(repositories, fn {ref, repository} ->
         [
@@ -288,22 +289,20 @@ defmodule Ryker.Runtime.Assembly do
       end)
 
     base =
-      case admission do
-        nil ->
-          []
-
-        admission ->
-          [
-            {{"read_only", nil},
-             %{
-               policy: admission.policy,
-               policy_digest: admission.policy_digest,
-               repository_ref: nil
-             }}
-          ]
-      end
+      []
+      |> maybe_profile("admission", admission)
+      |> maybe_profile("conversation", chat)
 
     Map.new(base ++ repository_profiles)
+  end
+
+  defp maybe_profile(profiles, _kind, nil), do: profiles
+
+  defp maybe_profile(profiles, kind, profile) do
+    [
+      {kind, Map.take(profile, [:authority_digest, :policy, :policy_digest, :repository_ref])}
+      | profiles
+    ]
   end
 
   # A reviewed binding names the policy; a Work profile pins it per work class.
@@ -644,7 +643,7 @@ defmodule Ryker.Runtime.Assembly do
     }
   end
 
-  defp slack(_bootstrap, settings, contexts, schedules, policies) do
+  defp slack(_bootstrap, settings, contexts, schedules, policies, chat) do
     with true <- settings.slack.enabled,
          %{} = incident_policy <- installation_policy(policies, :incident) do
       defaults = Defaults.fetch!(:slack)
@@ -674,6 +673,7 @@ defmodule Ryker.Runtime.Assembly do
           channel_prefix: settings.slack.channel_prefix,
           default_participation: settings.slack.default_participation,
           default_repository: settings.slack.default_repository_ref,
+          fallback_work_profile: chat,
           identity: %{
             bot_ref: settings.slack.bot_ref,
             bot_user_ref: settings.slack.bot_user_ref,
@@ -702,7 +702,7 @@ defmodule Ryker.Runtime.Assembly do
     end
   end
 
-  defp control_plane(bootstrap, _settings, contexts, work, schedules) do
+  defp control_plane(bootstrap, _settings, contexts, work, schedules, chat) do
     %{
       access: Map.get(bootstrap.control_plane, :access, :loopback),
       coop_api: work && work.api,
@@ -712,16 +712,34 @@ defmodule Ryker.Runtime.Assembly do
       schedule_policies: schedules,
       task_policies:
         Map.new(contexts, fn {ref, context} -> {ref, context.contributor_policy} end),
-      work_profile: default_work_profile(contexts)
+      work_profile: default_work_profile(contexts, chat)
     }
   end
 
   # The local console uses the installation's default repository context when one
   # is configured. It never selects or widens authority from the browser.
-  defp default_work_profile(contexts) do
+  defp default_work_profile(contexts, fallback) do
     case Enum.sort(Map.keys(contexts)) do
-      [] -> nil
+      [] -> fallback
       [ref | _rest] -> Map.fetch!(contexts, ref).work_profile
+    end
+  end
+
+  defp installation_work_profile(policies) do
+    case installation_policy(policies, :conversational) do
+      nil ->
+        nil
+
+      policy ->
+        class = class_policy(policy)
+
+        %{
+          authority_digest: Map.get(policy, :authority_digest),
+          class_policies: %{conversational: class, deep: class, standard: class},
+          policy: policy.name,
+          policy_digest: policy.digest,
+          repository_ref: nil
+        }
     end
   end
 

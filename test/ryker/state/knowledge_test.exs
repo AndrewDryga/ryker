@@ -699,7 +699,7 @@ defmodule Ryker.State.KnowledgeTest do
       |> IO.iodata_to_binary()
 
     assert html =~ "Current knowledge"
-    assert html =~ "Sources: 2 direct · 0 inherited"
+    assert html =~ "Sources · 2 →"
     assert html =~ "Update history"
     assert html =~ @firing["summary"] |> String.split(" [Alert]") |> hd()
     refute html =~ "Source result ref"

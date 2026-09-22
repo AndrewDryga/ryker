@@ -65,6 +65,7 @@ defmodule Ryker.Slack.Runtime do
     :bot_client,
     :channel_prefix,
     :default_repository,
+    :fallback_work_profile,
     :handshake_timeout_ms,
     :identity,
     :incident_policy,
@@ -139,6 +140,7 @@ defmodule Ryker.Slack.Runtime do
     app_http = Map.fetch!(configuration, :app_http)
     bot_client = Map.fetch!(configuration, :bot_client)
     default_repository = Map.fetch!(configuration, :default_repository)
+    fallback_work_profile = optional_work_profile(Map.get(configuration, :fallback_work_profile))
     identity = Map.fetch!(configuration, :identity)
     incident_policy = Map.fetch!(configuration, :incident_policy)
     repositories = Map.fetch!(configuration, :repositories)
@@ -390,7 +392,7 @@ defmodule Ryker.Slack.Runtime do
       setup_allowed: setup_allowed(),
       setup_handler: ChannelSetup,
       setup_options: setup_options,
-      work_profile: work_profile(default_repository, repositories)
+      work_profile: work_profile(default_repository, repositories, fallback_work_profile)
     }
 
     gateway =
@@ -534,7 +536,7 @@ defmodule Ryker.Slack.Runtime do
     end
   end
 
-  defp work_profile(default_repository, repositories) do
+  defp work_profile(default_repository, repositories, fallback) do
     fn workspace_ref, conversation_ref ->
       channel_ref = conversation_ref |> String.split(":", parts: 3) |> List.last()
 
@@ -552,8 +554,16 @@ defmodule Ryker.Slack.Runtime do
 
         :not_found ->
           repository_ref = configured_repository(workspace_ref, channel_ref, default_repository)
-          {:ok, repositories |> Map.fetch!(repository_ref) |> Map.fetch!(:work_profile)}
+          configured_work_profile(repositories, repository_ref, fallback)
       end
+    end
+  end
+
+  defp configured_work_profile(repositories, repository_ref, fallback) do
+    case Map.fetch(repositories, repository_ref) do
+      {:ok, repository} -> {:ok, Map.fetch!(repository, :work_profile)}
+      :error when not is_nil(fallback) -> {:ok, fallback}
+      :error -> {:error, :work_profile_unavailable}
     end
   end
 
@@ -738,9 +748,20 @@ defmodule Ryker.Slack.Runtime do
   end
 
   defp default_repository!(repository, repositories) do
-    if is_binary(repository) and Map.has_key?(repositories, repository),
-      do: repository,
-      else: raise(ArgumentError, "Slack default_repository must name a configured repository")
+    cond do
+      is_nil(repository) -> nil
+      is_binary(repository) and Map.has_key?(repositories, repository) -> repository
+      true -> raise ArgumentError, "Slack default_repository must name a configured repository"
+    end
+  end
+
+  defp optional_work_profile(nil), do: nil
+
+  defp optional_work_profile(profile) do
+    case WorkProfile.prepare(profile) do
+      {:ok, %WorkProfile{} = prepared} -> prepared
+      _invalid -> raise ArgumentError, "Slack fallback_work_profile must be a valid Work profile"
+    end
   end
 
   defp file_client!(%Client{http: %JSONClient{} = http, requester: requester}) do

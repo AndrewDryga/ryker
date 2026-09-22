@@ -6,8 +6,7 @@ defmodule Ryker.Admission.ExecutorTest do
 
   @moduletag isolation: "REPEATABLE READ"
 
-  alias Ryker.ControlPlane.ModelRequests
-  alias Ryker.ControlPlane.RequestPage
+  alias Ryker.ControlPlane.{EpisodePage, ModelRequests}
 
   alias Ryker.Admission.Executor
   alias Ryker.Ingress.Inbox
@@ -82,14 +81,13 @@ defmodule Ryker.Admission.ExecutorTest do
     assert request.artifact.text =~ "Please investigate the unfamiliar failure"
 
     html =
-      render_component(&RequestPage.render/1,
-        view: inspector,
-        params: %{},
-        path: "/timeline/ingress-input%3A#{entry.id}"
+      render_component(&EpisodePage.getting_ready/1,
+        steps: inspector.preparation,
+        requests: inspector.timeline
       )
 
     assert html =~ "Observed execution milestones"
-    assert html =~ "frozen Ryker admission submission"
+    assert html =~ "Routing briefing"
   end
 
   test "a completed admission closes a Coop session that exhausted its final turn" do

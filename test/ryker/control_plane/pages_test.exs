@@ -54,7 +54,7 @@ defmodule Ryker.ControlPlane.PagesTest do
           {"/schedules/schedule%3Aone", "Execution history"},
           {"/subscriptions", "Waits"},
           {"/channels", "Slack channels Ryker knows about"},
-          {"/channels/T123/C456", "Conversation summaries"},
+          {"/channels/T123/C456", "Conversation context"},
           {"/repositories", "Connected repositories"},
           {"/workspaces", "Workspaces"},
           {"/findings", "Findings"}
@@ -119,7 +119,18 @@ defmodule Ryker.ControlPlane.PagesTest do
   test "incident rooms count, mark status and tell time the way every other list does" do
     document = body("/incident-rooms")
 
-    assert LazyHTML.query(document, ".result-count") |> LazyHTML.text() == "1 incident room"
+    assert LazyHTML.query(document, ".incident-rooms-page > .collection-shell")
+           |> Enum.count() == 1
+
+    assert LazyHTML.query(document, ".collection-shell-filter-row form.filter-toolbar")
+           |> Enum.count() == 1
+
+    assert LazyHTML.query(document, ".collection-shell-content > table.data-table")
+           |> Enum.count() == 1
+
+    assert document |> LazyHTML.query(".result-count") |> LazyHTML.text() |> String.trim() ==
+             "1 incident room"
+
     assert LazyHTML.query(document, "table.data-table") |> LazyHTML.to_tree() != []
     assert LazyHTML.query(document, ".table-wrap") |> LazyHTML.to_tree() == []
 
@@ -135,7 +146,9 @@ defmodule Ryker.ControlPlane.PagesTest do
     # An empty page first says which it is: nothing matches, or nothing exists.
     none = put_in(options(), [:projection, :incidents], fn _params -> [] end)
 
-    assert page("/incident-rooms", %{}, none).body =~ "No incident rooms yet"
+    empty = page("/incident-rooms", %{}, none).body |> LazyHTML.from_fragment()
+    assert LazyHTML.query(empty, ".collection-shell-content > .empty-state") |> Enum.count() == 1
+    assert LazyHTML.text(empty) =~ "No incident rooms yet"
 
     assert page("/incident-rooms", %{"status" => "closed"}, none).body =~
              "No incident rooms match these filters."
@@ -337,8 +350,8 @@ defmodule Ryker.ControlPlane.PagesTest do
         %{memories: [], reviews: []}
       end)
 
-    assert page("/memory", %{"kind" => "notes", "q" => "deploy"}, memory).status == 200
-    assert_received {:memory, %{"kind" => "notes", "q" => "deploy"}}
+    assert page("/memory", %{"kind" => "context", "q" => "deploy"}, memory).status == 200
+    assert_received {:memory, %{"kind" => "context", "q" => "deploy"}}
   end
 
   defp page(path, params \\ %{}, options \\ options()) do

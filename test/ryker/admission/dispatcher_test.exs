@@ -300,6 +300,26 @@ defmodule Ryker.Admission.DispatcherTest do
     assert Enum.any?(state.turn_keys, &String.contains?(&1, ":g2:"))
   end
 
+  test "a terminal worker failure still spends its generation when session cleanup fails" do
+    # A broken Compose mount made the model process exit, then cleanup of that
+    # same broken session returned 500. The cleanup error used to replace the
+    # terminal turn result, so eight retries reused the spent turn and operator
+    # rearm could never launch a repaired worker session.
+    entry = record_input!("Ev-dispatch-terminal-turn-close-loss")
+
+    {:ok, fake} =
+      FakeAPI.start_link([decision()], fail_first_turn: true, fail_first_close: true)
+
+    assert {:ok, {:blocked, input_ref, {:coop_turn_failed, "failed", _, _}}} =
+             Dispatcher.run_once(real_options(fake, @now))
+
+    assert input_ref == Inbox.ref(entry)
+    assert {:ok, blocked} = Inbox.fetch(input_ref)
+    assert blocked.status == :blocked
+    assert blocked.execution_generation == 2
+    assert FakeAPI.state(fake).submit_count == 1
+  end
+
   test "recorded worker startup and quota failures block once with their actual diagnosis" do
     # Input b8bff9f3 on 2026-09-09 spent fifteen admission executions on an
     # incompatible worker and an exhausted account. Coop already owns failover;

@@ -41,8 +41,8 @@ LABEL org.opencontainers.image.title="Ryker" \
 RUN apt-get update \
  && apt-get install -y --no-install-recommends ca-certificates curl git openssh-client openssl libstdc++6 libncurses6 \
  && rm -rf /var/lib/apt/lists/* \
- && groupadd --gid 10001 ryker \
- && useradd --uid 10001 --gid ryker --home-dir /var/lib/ryker --create-home --shell /usr/sbin/nologin ryker
+ && groupadd --gid 1000 ryker \
+ && useradd --uid 1000 --gid ryker --home-dir /var/lib/ryker --create-home --shell /usr/sbin/nologin ryker
 
 WORKDIR /opt/ryker
 COPY --from=build --chown=ryker:ryker /build/_build/prod/rel/ryker ./

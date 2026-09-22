@@ -10,21 +10,64 @@ worker=$state/worker.json
 identity=$state/identity.pem
 token=$shared/enrollment-token
 ca=$shared/worker-ca.pem
+trusted_box=ryker-coop-box
+trusted_box_dockerfile=/usr/local/share/ryker/Box.Dockerfile
 
-mkdir -p "$state/sessions" "$state/journal" "$state/agents"
-chmod 0700 "$state" "$state/sessions" "$state/journal" "$state/agents"
+mkdir -p "$state/sessions" "$state/journal" "$state/agents" "$state/tmp"
+chmod 0700 "$state" "$state/sessions" "$state/journal" "$state/agents" "$state/tmp"
 
-until [ -r "$ca" ] && [ -r "$policies" ] && [ -r "$repositories" ] &&
-      { [ -r "$identity" ] || [ -r "$token" ]; }; do
-  sleep 1
-done
+recover_expired_identity() {
+  if [ -s "$identity" ] &&
+     ! openssl x509 -in "$identity" -noout -checkend 0 >/dev/null 2>&1; then
+    echo "Ryker's worker identity expired; requesting a replacement." >&2
+    rm -f "$identity" "$marker" "$token"
+  fi
+}
+
+wait_for_identity() {
+  until [ -r "$ca" ] && [ -r "$policies" ] && [ -r "$repositories" ] &&
+        { [ -r "$identity" ] || [ -r "$token" ]; }; do
+    sleep 1
+  done
+}
+
+marker=$shared/enrolled
+recover_expired_identity
+wait_for_identity
 
 if ! docker image inspect coop-box >/dev/null 2>&1 &&
    ! docker images --format '{{.Repository}}:{{.Tag}}' | grep -q '^coop-box:'; then
   coop build
 fi
 
+prepare_ryker_box() {
+  context=$state/tmp/ryker-box
+  mkdir -p "$context"
+  cp "$ca" "$context/ryker-ca.pem"
+
+  base_id=$(docker image inspect coop-box --format '{{.Id}}')
+  inputs=$(sha256sum "$context/ryker-ca.pem" "$trusted_box_dockerfile" | sha256sum | awk '{print $1}')
+  fingerprint=$(printf '%s\n%s\n' "$base_id" "$inputs" | sha256sum | awk '{print $1}')
+  current=$(docker image inspect "$trusted_box" --format '{{index .Config.Labels "dev.ryker.box-inputs"}}' 2>/dev/null || true)
+
+  if [ "$current" != "$fingerprint" ]; then
+    docker build \
+      --build-arg COOP_BASE_IMAGE=coop-box \
+      --label "dev.ryker.box-inputs=$fingerprint" \
+      --tag "$trusted_box" \
+      --file "$trusted_box_dockerfile" \
+      "$context"
+  fi
+
+  export COOP_BASE_IMAGE=ryker-coop-box
+}
+
+prepare_ryker_box
+
 while :; do
+  recover_expired_identity
+  wait_for_identity
+
   if ! policy_json=$(coop sessions policies --policies "$policies" --json 2>/dev/null); then
     echo "Ryker's worker is waiting for model access. Open Settings to connect a model account." >&2
     sleep 10
@@ -39,7 +82,7 @@ while :; do
     --arg identity "$identity" \
     --arg journal "$state/journal" \
     --arg policies "$policies" \
-    --arg responder "https://ryker:4322" \
+    --arg state_endpoint "https://172.30.42.10:4322" \
     --arg sandbox "$sandbox_digest" \
     --arg socket "$state/sessions/control.sock" \
     --arg state "$state/sessions" \
@@ -53,7 +96,7 @@ while :; do
       version: 1,
       worker_id: $worker_id,
       workspace_ref: $workspace_ref,
-      responder_url: $responder,
+      responder_url: $state_endpoint,
       ca_file: $ca,
       identity_file: $identity,
       enrollment_token_file: $token,
@@ -65,7 +108,7 @@ while :; do
       policy_digests: $digests,
       policy_authority_digests: $authority,
       repositories: $repositories,
-      capabilities: [],
+      capabilities: [{name: "responder-state", version: "1"}],
       capacity: {
         session_slots_free: 4,
         session_slots_total: 4,
@@ -87,9 +130,16 @@ while :; do
   connector=$!
 
   while kill -0 "$connector" 2>/dev/null; do
+    if [ -s "$identity" ] &&
+       ! openssl x509 -in "$identity" -noout -checkend 0 >/dev/null 2>&1; then
+      kill "$connector" 2>/dev/null || true
+      recover_expired_identity
+      break
+    fi
+
     if [ -r "$identity" ]; then
-      : >"$shared/enrolled"
-      chmod 0600 "$shared/enrolled"
+      : >"$marker"
+      chmod 0600 "$marker"
     fi
 
     current=$(sha256sum "$policies" "$repositories" | sha256sum | awk '{print $1}')
