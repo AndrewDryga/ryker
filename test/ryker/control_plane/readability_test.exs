@@ -81,14 +81,18 @@ defmodule Ryker.ControlPlane.ReadabilityTest do
     assert tooltip =~ "calc(100vw - 32px)"
   end
 
-  test "expanded request-context source fields remain contained and readable" do
-    # A 3.4kpx source-field JSON line pushed the whole episode page sideways at
-    # 390px; wrapping and a bounded scroll container keep every character
-    # available without widening the document.
+  test "expanded request-context fields and raw prompts remain contained" do
+    # A 3.4kpx source-field JSON line pushed a 390px episode page sideways, and
+    # a retained raw prompt widened a 1,440px page to 1,517px. One source-card
+    # boundary keeps every character available without widening the document.
     css = Assets.call(Plug.Test.conn(:get, "/workspace.css"), []).resp_body
 
+    assert [_, source_body] = Regex.run(~r/^\.prompt-source-body \{([^}]+)\}/m, css)
+    assert source_body =~ "min-width:0"
+    assert source_body =~ "overflow-wrap:anywhere"
+
     assert [_, source_fields] =
-             Regex.run(~r/\.prompt-source-body details > pre \{([^}]+)\}/, css)
+             Regex.run(~r/^\.prompt-source-body pre \{([^}]+)\}/m, css)
 
     assert source_fields =~ "max-width:100%"
     assert source_fields =~ "box-sizing:border-box"
@@ -96,6 +100,23 @@ defmodule Ryker.ControlPlane.ReadabilityTest do
     assert source_fields =~ "overflow-wrap:anywhere"
     assert source_fields =~ "overflow:auto"
     refute source_fields =~ "overflow:visible"
+  end
+
+  test "the open mobile workspace menu remains inside the viewport" do
+    # At 390px the menu's 320px content box opened from the More trigger and
+    # widened the document to 447px. Anchor it to the full mobile navigation.
+    css = Assets.call(Plug.Test.conn(:get, "/workspace.css"), []).resp_body
+    assert [_, navigation] = Regex.run(~r/^\.mobile-navigation \{([^}]+)\}/m, css)
+    assert navigation =~ "position:relative"
+
+    assert [_, manage] = Regex.run(~r/\.mobile-manage \{([^}]+)\}/, css)
+    assert manage =~ "position:static"
+
+    assert [_, menu] = Regex.run(~r/\.mobile-manage nav \{([^}]+)\}/, css)
+    assert menu =~ "left:20px"
+    assert menu =~ "right:20px"
+    assert menu =~ "width:auto"
+    assert menu =~ "box-sizing:border-box"
   end
 
   test "shared fact lists cannot inherit the page surface column grid" do

@@ -1,5 +1,5 @@
 /* One graphite operator workspace using the surface roles in ryker-tokens.css. */
-.mobile-navigation { display:none; }
+.mobile-navigation { display:none; position:relative; }
 .connection-offline.app-warning { display:none; }
 .phx-disconnected .connection-offline.app-warning { display:block; }
 @media(max-width:800px) { .mobile-navigation { display:flex; justify-content:flex-end; padding:8px 20px; } }
@@ -515,11 +515,11 @@ details.measurement-notes > summary { cursor:pointer; font-weight:600; color:var
 @media (max-width:580px) { .activity-primary > .page-summary { margin:16px 0; } .page-summary-main { gap:8px 20px; } .page-summary-link { width:100%; margin-left:0; white-space:normal; } .collection-shell-header { overflow:auto; padding:0 14px; } .collection-total { display:none; } .ui-tabs { gap:19px; } .ui-tabs a { font-size:14px; } .activity-row { flex-wrap:wrap; padding:15px; gap:10px; } .activity-row-copy { width:calc(100% - 45px); } .activity-row-status { flex-direction:row; align-items:center; margin-left:42px; flex:1; } .activity-title { white-space:normal; } .activity-meta time { display:none; } .row-open { margin-left:auto; } .ryker-app .collection-shell-content > .empty-state { padding:24px 16px; } .activity-rail { grid-template-columns:1fr; } }
 @media (prefers-reduced-motion:no-preference) { .activity-row, .app-nav a, .ui-button { transition:background-color .12s ease; } .ui-disclosure > summary .ui-icon { transition:transform .12s ease; } }
 .slack-mention { color:var(--ryker-text-secondary); background:var(--ryker-surface-raised); border-radius:3px; padding:0 2px; }
-.mobile-manage { display:none; position:relative; }
+.mobile-manage { display:none; position:static; }
 @media (max-width:800px) {
   .mobile-manage { display:block; margin-right:auto; flex-shrink:0; }
   .mobile-manage summary { cursor:pointer; font-size:14px; color:var(--ryker-text-secondary); padding:10px 0; }
-  .mobile-manage nav { position:absolute; z-index:30; top:100%; left:0; width:min(320px,85vw); max-height:70vh; overflow:auto; background:var(--ryker-surface-raised); border:1px solid var(--ryker-stroke); box-shadow:0 12px 30px var(--ryker-shadow-medium); border-radius:6px; padding:18px; }
+  .mobile-manage nav { position:absolute; z-index:30; top:100%; left:20px; right:20px; width:auto; box-sizing:border-box; max-height:70vh; overflow:auto; background:var(--ryker-surface-raised); border:1px solid var(--ryker-stroke); box-shadow:0 12px 30px var(--ryker-shadow-medium); border-radius:6px; padding:18px; }
   .mobile-manage section + section { margin-top:16px; }
   .mobile-manage .mobile-primary-overflow { padding-bottom:16px; border-bottom:1px solid var(--ryker-stroke); }
   .mobile-manage strong { display:block; font-size:14px; color:var(--ryker-text-secondary); margin-bottom:8px; }
@@ -962,7 +962,7 @@ details.measurement-notes > summary { cursor:pointer; font-weight:600; color:var
 .prompt-source-state { float:right; font-size:12px; color:var(--secondary); margin-left:12px; }
 .prompt-source-location { display:block; font-size:12px; line-height:1.5; color:var(--secondary); padding-left:16px; margin-top:4px; overflow-wrap:anywhere; }
 .prompt-source-location code { font-size:12px; background:transparent; color:inherit; }
-.prompt-source-body { padding:0 16px 16px; }
+.prompt-source-body { min-width:0; padding:0 16px 16px; overflow-wrap:anywhere; }
 .prompt-source-body > p:first-child { font-size:14px; color:var(--secondary); margin:0 0 12px; }
 .prompt-source-body .model-document-text { padding:0; margin:0; background:transparent; }
 .prompt-source-body h3 { font-size:15px; margin:12px 0 8px; }
@@ -1027,7 +1027,7 @@ details.measurement-notes > summary { cursor:pointer; font-weight:600; color:var
 .readable-model-context .context-message header strong { font-size:15px; }
 .readable-model-context .context-message header span, .readable-model-context .context-message details { font-size:13px; }
 .readable-model-context .request-context-readable pre,
-.prompt-source-body details > pre { font-size:14px; max-height:none; max-width:100%; box-sizing:border-box; white-space:pre-wrap; overflow-wrap:anywhere; overflow:auto; }
+.prompt-source-body pre { font-size:14px; max-height:none; max-width:100%; box-sizing:border-box; white-space:pre-wrap; overflow-wrap:anywhere; overflow:auto; }
 .readable-model-context .context-omission { color:var(--ryker-text-secondary); background:var(--ryker-surface-raised); }
 .request-timing { display:flex; flex-wrap:wrap; gap:8px 24px; margin:8px 0; padding:0; }
 .request-timing > div { display:flex; align-items:baseline; gap:8px; }
