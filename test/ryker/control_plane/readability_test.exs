@@ -98,6 +98,15 @@ defmodule Ryker.ControlPlane.ReadabilityTest do
     refute source_fields =~ "overflow:visible"
   end
 
+  test "shared fact lists cannot inherit the page surface column grid" do
+    # An open Input details disclosure widened the 320px episode page to
+    # 396px because the generic page-surface dl columns placed fact rows
+    # beside one another instead of stacking them.
+    css = Assets.call(Plug.Test.conn(:get, "/workspace.css"), []).resp_body
+    assert [_, facts] = Regex.run(~r/\.ui-facts \{([^}]+)\}/, css)
+    assert facts =~ "grid-template-columns:minmax(0,1fr)"
+  end
+
   test "candidate evidence cannot squeeze event reasons into a side column" do
     # Full-page Chromium screenshots caught unreadably narrow rejection text
     # despite a passing page-overflow check; geometry is also browser-tested.
