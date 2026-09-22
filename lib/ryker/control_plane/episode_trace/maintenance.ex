@@ -29,7 +29,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Maintenance do
                 compact_details([
                   {"Repository", session.repository_ref},
                   {"Cleanup eligible after", session.discard_after},
-                  {"Session", session.coop_session_id || "No remote session was bound"}
+                  {"Remote session", session.coop_session_id, identifier: true}
                 ])
             })
           ]
@@ -54,7 +54,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Maintenance do
           compact_details([
             {"Repository", session.repository_ref},
             {"Receipt", get_in(session.cleanup_receipt || %{}, ["outcome"])},
-            {"Session", session.coop_session_id}
+            {"Remote session", session.coop_session_id, identifier: true}
           ])
       })
     ]
@@ -73,7 +73,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Maintenance do
           compact_details([
             {"Repository", session.repository_ref},
             {"Reason", session.retained_reason},
-            {"Session", session.coop_session_id}
+            {"Remote session", session.coop_session_id, identifier: true}
           ])
       })
     ]

@@ -24,14 +24,23 @@ defmodule Ryker.ControlPlane.RequestContextHTMLTest do
     # said anything without opening the workspace text.
     assert html =~ "Global instructions"
     assert html =~ "Channel instructions"
-    assert html =~ "Applies across the workspace"
-    assert html =~ "Adds channel guidance; wins only when the two conflict"
+    assert html =~ "Configured in Settings for this request"
+    assert html =~ "Configured for this Slack channel at request time"
     refute html =~ "Saved with this request"
     assert html =~ "Saved global"
-    assert html =~ "Revision 7"
-    assert html =~ "slack:T1:C1"
+    assert html =~ "Revision 7 at request time"
+    refute html =~ "Scope global"
+    refute html =~ "Scope slack:T1:C1"
     refute html =~ "PRIVATE_TOKEN"
     refute html =~ "<script>text</script>"
+
+    document = LazyHTML.from_fragment(html)
+
+    assert document
+           |> LazyHTML.query(".prompt-group[data-group=policy] .prompt-source-title")
+           |> Enum.map(&LazyHTML.text/1) == ["Global instructions", "Channel instructions"]
+
+    refute LazyHTML.text(document) =~ "Retained input"
     expired = InspectionRedactor.artifact(nil, expired: true)
     assert RequestContextHTML.assembly(expired, "$.work", "instructions") == []
   end
@@ -61,9 +70,36 @@ defmodule Ryker.ControlPlane.RequestContextHTMLTest do
     assert LazyHTML.text(global) =~ "≈ 1 estimated tokens"
     refute LazyHTML.text(global) =~ "≈ 100"
     refute LazyHTML.text(channel) =~ "estimated tokens"
-    assert LazyHTML.text(channel) =~ "No instruction saved at this scope"
+    assert LazyHTML.text(channel) =~ "Not configured"
+    assert LazyHTML.text(channel) =~ "No channel instructions were configured at request time"
+    refute LazyHTML.text(channel) =~ "Retained input"
     refute LazyHTML.text(document) =~ "$.work.custom_instructions"
     assert Enum.empty?(LazyHTML.query(document, ".prompt-source-path"))
+  end
+
+  test "non-Slack requests show why channel instructions did not apply" do
+    artifact =
+      InspectionRedactor.artifact(%{
+        "custom_instructions" => %{
+          "global" => %{"scope" => "global", "revision" => 0, "text" => ""},
+          "channel" => nil
+        }
+      })
+
+    document =
+      artifact
+      |> RequestContextHTML.assembly("$.work", "instructions")
+      |> IO.iodata_to_binary()
+      |> LazyHTML.from_fragment()
+
+    global = LazyHTML.query(document, ".prompt-source[data-source=global]")
+    channel = LazyHTML.query(document, ".prompt-source[data-source=channel]")
+
+    assert LazyHTML.text(global) =~ "Not configured"
+    assert LazyHTML.text(global) =~ "No global instructions were configured for this request"
+    assert LazyHTML.text(channel) =~ "Not applicable"
+    assert LazyHTML.text(channel) =~ "did not have a Slack channel scope"
+    refute LazyHTML.text(document) =~ "Retained input"
   end
 
   test "Slack addressing is a collapsed message component with its exact retained source" do
@@ -488,7 +524,8 @@ defmodule Ryker.ControlPlane.RequestContextHTMLTest do
     assert text =~ "Why offered"
     assert text =~ "same thread"
     assert text =~ "direct reference"
-    assert text =~ "Technical details"
+    refute text =~ "Technical details"
+    assert Enum.empty?(LazyHTML.query(option, ".context-candidate-technical"))
     refute LazyHTML.text(option) =~ "Allowed relations"
     assert Enum.empty?(LazyHTML.query(option, ".context-field"))
   end
@@ -544,6 +581,7 @@ defmodule Ryker.ControlPlane.RequestContextHTMLTest do
 
     malformed = options |> Enum.drop(2) |> Enum.map_join(&LazyHTML.text/1)
     assert malformed =~ "Historical candidate - retained shape unavailable"
+    assert malformed =~ "Retained raw candidate"
     assert String.length(malformed) < 1_000
   end
 end

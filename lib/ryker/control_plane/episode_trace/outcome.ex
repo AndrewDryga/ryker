@@ -38,9 +38,9 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Outcome do
             actor: action.transport,
             details:
               compact_details([
-                {"Action", action.action_ref},
-                {"Conversation", action.conversation_ref},
-                {"Thread", action.thread_ref}
+                {"Action", action.action_ref, identifier: true},
+                {"Conversation", action.conversation_ref, identifier: true},
+                {"Thread", action.thread_ref, identifier: true}
               ]),
             stage: "Platform action",
             state: "queued",
@@ -87,7 +87,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Outcome do
           actor: "Ryker",
           details:
             compact_details([
-              {"Incident room", room.ref},
+              {"Incident room", room.ref, identifier: true},
               {"Repository", room.repository_ref}
             ]),
           href: "/incident-rooms/#{segment(room.ref)}",
@@ -124,7 +124,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Outcome do
             actor: "Ryker",
             details:
               compact_details([
-                {"Publication", publication.ref},
+                {"Publication", publication.ref, identifier: true},
                 {"Repository", publication.repository}
               ]),
             stage: "Publication",
@@ -148,7 +148,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Outcome do
               compact_details([
                 {"Repository", publication.repository},
                 {"Branch", publication.branch_ref},
-                {"Commit", publication.commit_sha}
+                {"Commit", publication.commit_sha, identifier: true}
               ]),
             tone: :good
           })
@@ -214,7 +214,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Outcome do
           actor: "Ryker",
           details:
             compact_details([
-              {"Schedule", schedule.ref}
+              {"Schedule", schedule.ref, identifier: true}
             ]),
           href: "/schedules/#{segment(schedule.ref)}",
           stage: "Schedule",

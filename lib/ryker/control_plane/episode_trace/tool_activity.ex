@@ -76,7 +76,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.ToolActivity do
           compact_details(
             [
               {"Kind", event.payload["kind"]},
-              {"Tool call", event.payload["tool_call_id"]}
+              {"Tool call", event.payload["tool_call_id"], identifier: true}
             ] ++ activity_tool_details(input)
           ),
         stage: if(diagnostic?, do: "Setup diagnostic", else: "Tool call"),
@@ -108,7 +108,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.ToolActivity do
         details:
           compact_details([
             {"Kind", event.payload["kind"]},
-            {"Tool call", event.payload["tool_call_id"]},
+            {"Tool call", event.payload["tool_call_id"], identifier: true},
             {"Status", status}
           ]),
         stage: if(diagnostic?, do: "Setup diagnostic", else: "Tool call"),
@@ -205,7 +205,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.ToolActivity do
         actor: "Coop policy",
         details:
           compact_details([
-            {"Tool call", event.payload["tool_call_id"]},
+            {"Tool call", event.payload["tool_call_id"], identifier: true},
             {"Option", event.payload["option_kind"]}
           ]),
         stage: "Permission",

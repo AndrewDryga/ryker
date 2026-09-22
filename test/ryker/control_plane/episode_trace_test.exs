@@ -105,6 +105,8 @@ defmodule Ryker.ControlPlane.EpisodeTraceTest do
     refute html =~ "lacks Docker"
     assert LazyHTML.query(document, ".episode-metrics") |> Enum.empty?()
     assert LazyHTML.query(document, ".story-wait") |> Enum.empty?()
+    assert LazyHTML.query(document, ".case-timeline") |> Enum.count() == 1
+    assert LazyHTML.query(document, ".story-identity .case-timeline") |> Enum.empty?()
     assert timeline.items == []
 
     # A later configuration failure must not erase earlier work on this episode.
@@ -189,8 +191,7 @@ defmodule Ryker.ControlPlane.EpisodeTraceTest do
            }
 
     step = Enum.find(detail.trace.steps, &(&1.title == "Input admitted"))
-    assert %{label: "Actor", value: "user:U123"} in step.details
-    assert %{label: "Event", value: "message"} in step.details
+    assert step.details == []
     refute String.starts_with?(entry.dedupe_key, "admit_input:")
   end
 
@@ -586,8 +587,21 @@ defmodule Ryker.ControlPlane.EpisodeTraceTest do
     html = render_component(&EpisodePage.render/1, snapshot: detail, requests: nil, params: %{})
     assert html =~ "execution-timeline"
     assert html =~ "Investigate &lt;script&gt;"
-    assert html =~ "Technical details"
+    assert html =~ "Request identity"
+    assert html =~ "Review history"
+    refute html =~ "Technical details &amp; review history"
     assert html =~ "Created"
+
+    assert Enum.all?(
+             LazyHTML.query(LazyHTML.from_document(html), ".case-event-details"),
+             fn detail ->
+               Enum.any?(
+                 LazyHTML.attribute(detail, "class"),
+                 &String.contains?(&1, "ui-disclosure")
+               )
+             end
+           )
+
     refute html =~ "<script>steal()"
     refute html =~ "ghp_abcdefghijklmnopqrstuvwxyz"
   end

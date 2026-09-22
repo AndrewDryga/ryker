@@ -7,6 +7,7 @@ defmodule Ryker.ControlPlane.Assets do
     "phoenix_live_view.esm.js" =>
       {:phoenix_live_view, "priv/static/phoenix_live_view.esm.js", "text/javascript"},
     "control-plane.js" => {:ryker, "priv/static/control-plane.js", "text/javascript"},
+    "copy-value.mjs" => {:ryker, "priv/static/copy-value.mjs", "text/javascript"},
     "composer.mjs" => {:ryker, "priv/static/composer.mjs", "text/javascript"},
     "conversation.mjs" => {:ryker, "priv/static/conversation.mjs", "text/javascript"},
     "drafts.mjs" => {:ryker, "priv/static/drafts.mjs", "text/javascript"},

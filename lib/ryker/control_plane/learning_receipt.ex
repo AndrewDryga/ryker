@@ -3,6 +3,8 @@ defmodule Ryker.ControlPlane.LearningReceipt do
   import Ecto.Query
   use Phoenix.Component
 
+  import Ryker.ControlPlane.Components, only: [execution_target: 1]
+
   alias Ryker.ControlPlane.{
     InspectionRedactor,
     LearningActivity,
@@ -194,7 +196,10 @@ defmodule Ryker.ControlPlane.LearningReceipt do
             do: "How update #{@receipt.version} was learned",
             else: "Learning attempt #{@receipt.attempt_number}"}
         </h2>
-        <p>{@receipt.input_count} messages · {@receipt.target}</p>
+        <div class="learning-receipt-meta">
+          <span>{@receipt.input_count} messages</span>
+          <.execution_target target={@receipt.target} compact />
+        </div>
       </div>
       <p :if={!@receipt.version}>{@receipt.outcome}</p>
       <p>No reply was sent by this learning pass.</p>

@@ -34,6 +34,28 @@ defmodule Ryker.ControlPlane.ModelRequestsTest do
     refute html =~ "xoxb-recorded-credential"
     assert html =~ "source message"
     assert html =~ "Not recorded"
+    refute html =~ "Artifact identity"
+    refute html =~ "Original retained bytes"
+    refute html =~ raw.artifact.sha256
+
+    identity =
+      LazyHTML.from_fragment(html)
+      |> LazyHTML.query("details.document-provenance[id^=request-identity-]")
+
+    assert identity |> LazyHTML.query("summary") |> LazyHTML.text() |> String.trim() ==
+             "Request identity"
+
+    assert LazyHTML.text(identity) =~ "Execution policy"
+    assert LazyHTML.text(identity) =~ view.selected.policy
+
+    assert identity
+           |> LazyHTML.query("button[data-copy-value]")
+           |> LazyHTML.attribute("data-copy-value") == [view.selected.id]
+
+    refute LazyHTML.text(identity) =~ "Request fingerprint"
+    refute LazyHTML.text(identity) =~ view.selected.fingerprint
+
+    refute LazyHTML.text(identity) =~ "Model call identity and policy"
 
     for section <- view.selected.sections do
       native =

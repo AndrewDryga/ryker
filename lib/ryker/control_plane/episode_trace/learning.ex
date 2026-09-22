@@ -69,9 +69,8 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Learning do
       details:
         compact_details([
           {"Messages read", learning_membership(total_inputs, local_inputs)},
-          {"Model", get_in(run.producer || %{}, ["target"]) || "Not recorded"},
-          {"Prompt", if(run.prompt_sha256, do: short_digest(run.prompt_sha256))},
-          {"Result", if(run.result_sha256, do: short_digest(run.result_sha256))},
+          {"Model", get_in(run.producer || %{}, ["target"]) || "Not recorded",
+           presentation: :execution_target},
           {"Outcome", outcome.detail},
           {"Applied", run.applied_at},
           {"Bodies", if(run.pruned_at, do: "Expired #{timestamp_precise(run.pruned_at)}")}

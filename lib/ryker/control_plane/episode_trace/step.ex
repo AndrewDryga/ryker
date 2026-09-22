@@ -41,10 +41,32 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Step do
   def compact_details(values) do
     values
     |> Enum.flat_map(fn
-      {_label, nil} -> []
-      {_label, ""} -> []
-      {label, %DateTime{} = value} -> [%{label: label, value: DateTime.to_iso8601(value)}]
-      {label, value} -> [%{label: label, value: bounded(to_string(value), 1_024)}]
+      {_label, nil} ->
+        []
+
+      {_label, ""} ->
+        []
+
+      {_label, nil, _options} ->
+        []
+
+      {_label, "", _options} ->
+        []
+
+      {label, %DateTime{} = value} ->
+        [%{label: label, value: DateTime.to_iso8601(value)}]
+
+      {label, value} ->
+        [%{label: label, value: bounded(to_string(value), 1_024)}]
+
+      {label, %DateTime{} = value, options} ->
+        [%{label: label, value: DateTime.to_iso8601(value)} |> Map.merge(Map.new(options))]
+
+      {label, value, options} ->
+        [
+          %{label: label, value: bounded(to_string(value), 1_024)}
+          |> Map.merge(Map.new(options))
+        ]
     end)
     |> Enum.take(20)
   end
@@ -57,12 +79,6 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Step do
 
   def bounded(value, maximum) when byte_size(value) <= maximum, do: value
   def bounded(value, maximum), do: String.slice(value, 0, maximum) <> "…"
-
-  def short_digest(value) when is_binary(value) and byte_size(value) > 12,
-    do: binary_part(value, 0, 12) <> "…"
-
-  def short_digest(value) when is_binary(value), do: value
-  def short_digest(_value), do: nil
 
   def join_ref(nil, nil), do: nil
 

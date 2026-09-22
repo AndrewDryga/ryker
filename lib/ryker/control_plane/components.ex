@@ -4,6 +4,7 @@ defmodule Ryker.ControlPlane.Components do
 
   import Phoenix.HTML.Form, only: [options_for_select: 2]
   alias Phoenix.HTML.Safe
+  alias Ryker.ControlPlane.ExecutionTarget
 
   @icons %{
     activity: "M3 12h4l3-8 4 16 3-8h4",
@@ -22,6 +23,9 @@ defmodule Ryker.ControlPlane.Components do
     book: "M12 5v16 M3 3l9 2 9-2v16l-9 2-9-2V3Z",
     settings: "M4 6h16 M4 12h16 M4 18h16 M8 3v6 M16 9v6 M10 15v6",
     grid: "M3 3h7v7H3z M14 3h7v7h-7z M3 14h7v7H3z M14 14h7v7h-7z",
+    arrow_up: "M12 19V5 M6 11l6-6 6 6",
+    arrow_down: "M12 5v14 M18 13l-6 6-6-6",
+    copy: "M9 9h10v10H9z M5 5h10v4 M5 5v10h4",
     chevron: "m9 5 7 7-7 7"
   }
 
@@ -39,6 +43,121 @@ defmodule Ryker.ControlPlane.Components do
       stroke-linejoin="round"
       aria-hidden="true"
     ><path d={@path} /></svg>
+    """
+  end
+
+  attr(:target, :string, default: nil)
+  attr(:compact, :boolean, default: false)
+  attr(:class, :any, default: nil)
+
+  @doc "The shared human presentation of a retained co:op execution target."
+  def execution_target(assigns) do
+    assigns = assign(assigns, :presentation, ExecutionTarget.present(assigns.target))
+
+    ~H"""
+    <span
+      class={["execution-target", @compact && "execution-target-compact", @class]}
+      title={@presentation.canonical}
+    >
+      <span :if={@compact} class="execution-target-inline">{@presentation.compact}</span>
+      <%= if !@compact do %>
+        <strong class="execution-target-model">{@presentation.model}</strong>
+        <span :if={@presentation.meta} class="execution-target-meta">{@presentation.meta}</span>
+      <% end %>
+    </span>
+    """
+  end
+
+  attr(:value, :string, required: true)
+  attr(:label, :string, default: "identifier")
+  attr(:class, :any, default: nil)
+  attr(:copy, :boolean, default: true)
+
+  @doc "A compact technical identifier with its exact value available on hover and copy."
+  def identifier(assigns) do
+    assigns = assign(assigns, :display, compact_identifier(assigns.value))
+
+    ~H"""
+    <span class={["ui-identifier", @class]} title={@value}>
+      <code>{@display}</code>
+      <button
+        :if={@copy}
+        type="button"
+        class="copy-value"
+        data-copy-value={@value}
+        aria-label={"Copy #{@label}"}
+      >
+        <.icon name={:copy} />
+        <span class="sr-only" data-copy-status aria-live="polite"></span>
+      </button>
+    </span>
+    """
+  end
+
+  def compact_identifier(value, maximum \\ 27)
+
+  def compact_identifier(value, maximum)
+      when is_binary(value) and is_integer(maximum) and maximum >= 9 do
+    if String.length(value) <= maximum do
+      value
+    else
+      prefix = div(maximum, 2)
+      suffix = maximum - prefix - 1
+      String.slice(value, 0, prefix) <> "…" <> String.slice(value, -suffix, suffix)
+    end
+  end
+
+  def compact_identifier(value, _maximum), do: to_string(value)
+
+  attr(:id, :string, required: true)
+  attr(:label, :string, required: true)
+  attr(:kind, :atom, values: [:details, :diagnostic], default: :details)
+  attr(:open, :boolean, default: false)
+  attr(:class, :any, default: nil)
+  attr(:summary_aria_label, :string, default: nil)
+  slot(:inner_block, required: true)
+
+  @doc "The shared disclosure shell for supporting detail and failure diagnostics."
+  def disclosure(assigns) do
+    ~H"""
+    <details
+      id={@id}
+      class={["ui-disclosure", "ui-disclosure-#{@kind}", @class]}
+      open={@open}
+    >
+      <summary aria-label={@summary_aria_label}>
+        <span>{@label}</span><.icon name={:chevron} />
+      </summary>
+      <div class="ui-disclosure-body">{render_slot(@inner_block)}</div>
+    </details>
+    """
+  end
+
+  attr(:facts, :list, required: true)
+  attr(:class, :any, default: nil)
+
+  @doc "The shared label/value typography for timeline facts and diagnostics."
+  def fact_list(assigns) do
+    ~H"""
+    <dl class={["ui-facts", @class]}>
+      <div :for={fact <- @facts}>
+        <dt>{fact.label}</dt>
+        <dd>
+          <.identifier
+            :if={fact[:identifier] && is_binary(fact.value)}
+            value={fact.value}
+            label={fact[:copy_label] || fact.label}
+          />
+          <.execution_target
+            :if={fact[:presentation] == :execution_target}
+            target={fact.value}
+          />
+          <span :if={!fact[:identifier] && fact[:presentation] != :execution_target}>
+            {fact.value}
+          </span>
+        </dd>
+      </div>
+    </dl>
     """
   end
 

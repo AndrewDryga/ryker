@@ -16,6 +16,8 @@ defmodule Ryker.ControlPlane.WorkerEvidenceCard do
 
   use Phoenix.Component
 
+  import Ryker.ControlPlane.Components, only: [disclosure: 1, fact_list: 1, identifier: 1]
+
   alias Ryker.ControlPlane.WorkerEvidence
 
   @doc """
@@ -76,28 +78,22 @@ defmodule Ryker.ControlPlane.WorkerEvidenceCard do
       >
         {@card.access.availability.detail}
       </p>
-      <dl :if={@card.access.availability.state == :recorded} class="event-facts">
-        <div>
-          <dt>Enforcement</dt>
-          <dd>{enforcement(@card.access.enforcement)}</dd>
-        </div>
-        <div :if={!@card.access.destinations_disclosed?}>
-          <dt>Allowed destinations</dt>
-          <dd>Withheld by this session's policy</dd>
-        </div>
-      </dl>
-      <details
+      <.fact_list
+        :if={@card.access.availability.state == :recorded}
+        facts={access_facts(@card.access)}
+      />
+      <.disclosure
         :if={@card.access.destinations_disclosed? && @card.access.effective != []}
         id={"network-access-#{@card.id}"}
+        label="Allowed destinations and rules"
         class="case-event-details"
       >
-        <summary>Allowed destinations and rules</summary>
         <ul>
           <li :for={rule <- @card.access.effective}>
             {rule}<span :if={rule not in @card.access.requested}> · derived grant</span>
           </li>
         </ul>
-      </details>
+      </.disclosure>
     </div>
     """
   end
@@ -111,6 +107,16 @@ defmodule Ryker.ControlPlane.WorkerEvidenceCard do
     do: "Enforcer reported #{status} (#{reason})"
 
   defp enforcement(_enforcement), do: "Not recorded — configured is not enforced"
+
+  defp access_facts(access) do
+    [
+      %{label: "Enforcement", value: enforcement(access.enforcement)},
+      if(!access.destinations_disclosed?,
+        do: %{label: "Allowed destinations", value: "Withheld by this session's policy"}
+      )
+    ]
+    |> Enum.reject(&is_nil/1)
+  end
 
   defp network(assigns) do
     ~H"""
@@ -132,26 +138,16 @@ defmodule Ryker.ControlPlane.WorkerEvidenceCard do
       >
         {@card.network.availability.detail}
       </p>
-      <dl :if={@card.network.availability.state == :recorded} class="event-facts">
-        <div>
-          <dt>Traffic</dt><dd>{traffic(@card.network.counters)}</dd>
-        </div>
-        <div>
-          <dt>Refusals</dt><dd>{refusals(@card.network)}</dd>
-        </div>
-        <div :if={@card.network.freshness}>
-          <dt>Observation</dt><dd>{freshness(@card.network)}</dd>
-        </div>
-        <div :if={coverage_caveat(@card.network)}>
-          <dt>Coverage</dt><dd>{coverage_caveat(@card.network)}</dd>
-        </div>
-      </dl>
-      <details
+      <.fact_list
+        :if={@card.network.availability.state == :recorded}
+        facts={network_facts(@card.network)}
+      />
+      <.disclosure
         :if={disclosable?(@card.network)}
         id={"network-activity-#{@card.id}"}
+        label="Connections and activity"
         class="case-event-details"
       >
-        <summary>Connections and activity</summary>
         <ul class="network-denials">
           <li :for={denial <- @card.network.denials}>
             {denial.at} · Network blocked · {destination(denial.destination)} · {denial.reason}
@@ -179,25 +175,12 @@ defmodule Ryker.ControlPlane.WorkerEvidenceCard do
         <p :if={@card.network.omitted_alerts.value not in [nil, 0]}>
           {@card.network.omitted_alerts.value} more alerts were omitted by the worker's export bound.
         </p>
-        <dl :if={@card.network.availability.state == :recorded} class="event-facts">
-          <div>
-            <dt>Measured</dt><dd>{@card.network.measured || "Not recorded"}</dd>
-          </div>
-          <div>
-            <dt>Run</dt><dd>{run_identity(@card.network)}</dd>
-          </div>
-          <div>
-            <dt>Layers</dt><dd>{layers(@card.network.health)}</dd>
-          </div>
-          <div>
-            <dt>Coverage</dt><dd>{coverage_detail(@card.network.coverage)}</dd>
-          </div>
-          <div>
-            <dt>Records lost</dt><dd>{loss_detail(@card.network.loss)}</dd>
-          </div>
-        </dl>
+        <.fact_list
+          :if={@card.network.availability.state == :recorded}
+          facts={network_detail_facts(@card.network)}
+        />
         <.receipt receipt={@card.network.receipt} />
-      </details>
+      </.disclosure>
     </div>
     """
   end
@@ -210,6 +193,33 @@ defmodule Ryker.ControlPlane.WorkerEvidenceCard do
       network.availability.state == :recorded or
         network.receipt.availability.state == :recorded
 
+  defp network_facts(network) do
+    [
+      %{label: "Traffic", value: traffic(network.counters)},
+      %{label: "Refusals", value: refusals(network)},
+      if(network.freshness, do: %{label: "Observation", value: freshness(network)}),
+      if(coverage_caveat(network), do: %{label: "Coverage", value: coverage_caveat(network)})
+    ]
+    |> Enum.reject(&is_nil/1)
+  end
+
+  defp network_detail_facts(network) do
+    [
+      %{label: "Measured", value: network.measured || "Not recorded"},
+      if(network.run_id,
+        do: %{label: "Run ID", value: network.run_id, identifier: true}
+      ),
+      if(network.gateway_epoch,
+        do: %{label: "Gateway epoch", value: network.gateway_epoch, identifier: true}
+      ),
+      if(network.as_of, do: %{label: "Observed at", value: network.as_of}),
+      %{label: "Layers", value: layers(network.health)},
+      %{label: "Coverage", value: coverage_detail(network.coverage)},
+      %{label: "Records lost", value: loss_detail(network.loss)}
+    ]
+    |> Enum.reject(&is_nil/1)
+  end
+
   # The session receipt is the aggregate the runs roll into; the run references
   # are what it aggregated. Final and complete are independent, so both words
   # are shown: a closed session's receipt can be final and honestly partial.
@@ -220,43 +230,38 @@ defmodule Ryker.ControlPlane.WorkerEvidenceCard do
       <p :if={@receipt.availability.state != :recorded}>
         {@receipt.availability.label}<span :if={@receipt[:reason]}>: {@receipt.reason}</span>
       </p>
-      <dl :if={@receipt.availability.state == :recorded} class="event-facts">
-        <div>
-          <dt>Standing</dt>
-          <dd>
-            {String.capitalize(@receipt.finality)} · {@receipt.completeness} · {@receipt.scope}
-          </dd>
-        </div>
-        <div>
-          <dt>Window</dt>
-          <dd>{@receipt.started_at} → {@receipt.closed_at || "still open"}</dd>
-        </div>
-        <div>
-          <dt>Runs</dt>
-          <dd>
-            {@receipt.run_count.label}<span :if={
-              @receipt.omitted_run_references.value not in [nil, 0]
-            }> · {@receipt.omitted_run_references.value} references omitted</span>
-          </dd>
-        </div>
-        <div>
-          <dt>Coverage</dt><dd>{coverage_detail(@receipt.coverage)}</dd>
-        </div>
-        <div>
-          <dt>Records lost</dt><dd>{loss_detail(@receipt.loss)}</dd>
-        </div>
-      </dl>
+      <.fact_list
+        :if={@receipt.availability.state == :recorded}
+        facts={receipt_facts(@receipt)}
+      />
       <ul :if={@receipt.runs != []} class="network-receipt-runs">
         <li :for={run <- @receipt.runs}>
-          {run.run_id} · {run.gateway_epoch} · {run.finality} · {run.completeness} · {run.as_of}
+          <.identifier value={run.run_id} label="Run ID" />
+          <span> · {run.gateway_epoch} · {run.finality} · {run.completeness} · {run.as_of}</span>
         </li>
       </ul>
     </div>
     """
   end
 
-  defp run_identity(%{run_id: run, gateway_epoch: epoch, as_of: as_of}) do
-    [run, epoch, as_of] |> Enum.reject(&is_nil/1) |> Enum.join(" · ")
+  defp receipt_facts(receipt) do
+    omitted = receipt.omitted_run_references.value
+
+    runs =
+      receipt.run_count.label <>
+        if(omitted in [nil, 0], do: "", else: " · #{omitted} references omitted")
+
+    [
+      %{
+        label: "Standing",
+        value:
+          "#{String.capitalize(receipt.finality)} · #{receipt.completeness} · #{receipt.scope}"
+      },
+      %{label: "Window", value: "#{receipt.started_at} → #{receipt.closed_at || "still open"}"},
+      %{label: "Runs", value: runs},
+      %{label: "Coverage", value: coverage_detail(receipt.coverage)},
+      %{label: "Records lost", value: loss_detail(receipt.loss)}
+    ]
   end
 
   defp layers(%{availability: %{state: :recorded}, layers: layers}) do
@@ -385,8 +390,12 @@ defmodule Ryker.ControlPlane.WorkerEvidenceCard do
         Checklist {@card.task.snapshot.checked.value}/{@card.task.snapshot.total.value} recorded ·
         as of {@card.observed_at}
       </p>
-      <details :if={@card.task.snapshot} id={"coop-task-#{@card.id}"} class="case-event-details">
-        <summary>Task details</summary>
+      <.disclosure
+        :if={@card.task.snapshot}
+        id={"coop-task-#{@card.id}"}
+        label="Task details"
+        class="case-event-details"
+      >
         <ul class="task-checklist">
           <li :for={item <- @card.task.snapshot.checklist} data-checked={item.checked?}>
             {if item.checked?, do: "✓", else: "○"} {item.label}
@@ -401,20 +410,18 @@ defmodule Ryker.ControlPlane.WorkerEvidenceCard do
         >
           The task's state note was withheld: {@card.task.snapshot.state_note.reason}
         </p>
-        <dl class="event-facts">
-          <div>
-            <dt>Task</dt><dd>{@card.task.id}</dd>
-          </div>
-          <div>
-            <dt>Offer</dt><dd>{@card.task.offer_ref}</dd>
-          </div>
-          <div>
-            <dt>Worker</dt><dd>{@card.worker}</dd>
-          </div>
-        </dl>
-      </details>
+        <.fact_list facts={task_facts(@card)} />
+      </.disclosure>
     </div>
     """
+  end
+
+  defp task_facts(card) do
+    [
+      %{label: "Task", value: card.task.id, identifier: true},
+      %{label: "Offer", value: card.task.offer_ref, identifier: true},
+      %{label: "Worker", value: card.worker, identifier: true}
+    ]
   end
 
   defp bytes(nil), do: "Not recorded"

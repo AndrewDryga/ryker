@@ -398,7 +398,7 @@ defmodule Ryker.ControlPlane.HTML do
     ]
   end
 
-  # Waits keep their row layout (purpose, timing, collapsed technical details);
+  # Waits keep their row layout (purpose, timing and a compact Wait details disclosure);
   # the shell adds the help, the one toolbar and the quiet count around it.
   def subscriptions(items, params \\ %{}) do
     [

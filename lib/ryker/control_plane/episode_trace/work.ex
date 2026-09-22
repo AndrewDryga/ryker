@@ -35,8 +35,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Work do
             owner: {:turn, turn.id},
             details:
               compact_details([
-                {"Turn", turn.turn_ref},
-                {"Policy", session && session.policy},
+                {"Execution policy", session && session.policy},
                 {"Repository", session && session.repository_ref}
               ]),
             stage: "Routing",
@@ -68,7 +67,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Work do
         owner: {:turn, turn.id},
         details:
           compact_details([
-            {"Target", turn.execution_target},
+            {"Model", turn.execution_target, presentation: :execution_target},
             {"Queued", format_ms(turn.usage_queued_ms)},
             {"Provider", format_ms(turn.usage_provider_ms)},
             {"Host", format_ms(turn.usage_host_ms)},
@@ -143,7 +142,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Work do
     )
   end
 
-  defp validation_step(turn, ordinal, options) do
+  defp validation_step(turn, _ordinal, options) do
     verdict = Keyword.fetch!(options, :verdict)
     violations = Keyword.fetch!(options, :violations)
     attempt = Keyword.fetch!(options, :attempt)
@@ -160,13 +159,10 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Work do
         owner: {:turn, turn.id},
         details:
           compact_details([
-            {"Turn", ordinal},
             {"Candidate attempt", attempt},
             {"Response bytes", Keyword.fetch!(options, :response_bytes)},
             {"Parse", Keyword.fetch!(options, :parse)},
-            {"Verdict", verdict},
-            {"Violations", Enum.join(violations, " · ")},
-            {"Result", if(verdict == "accept", do: "Passed the response checks")}
+            {"Violations", Enum.join(violations, " · ")}
           ]),
         stage: "Validation",
         state: state,
@@ -194,7 +190,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Work do
         result_ref: turn.result_ref,
         details:
           compact_details([
-            {"Result", turn.result_ref},
+            {"Result", turn.result_ref, identifier: true},
             {"Delivery", delivery_kind(turn.delivery_document)},
             {"Artifacts", outcome_count(turn.delivery_document, "artifact_refs")},
             {"Records", outcome_count(turn.delivery_document, "record_refs")},
@@ -225,7 +221,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Work do
           actor: "Ryker",
           owner: {:turn, turn.id},
           delivery_ref: turn.delivery_ref,
-          details: compact_details([{"Turn", ordinal}]),
+          details: [],
           stage: "Delivery",
           state: "queued",
           summary: "The accepted response was queued for delivery.",
@@ -239,7 +235,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Work do
 
   defp confirmed_delivery_step(%Turn{delivered_at: nil}, _ordinal), do: []
 
-  defp confirmed_delivery_step(turn, ordinal) do
+  defp confirmed_delivery_step(turn, _ordinal) do
     [
       step(
         "turn-#{turn.id}-delivery-confirmed",
@@ -251,10 +247,9 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Work do
           delivery_ref: turn.delivery_ref,
           details:
             compact_details([
-              {"Turn", ordinal},
-              {"Delivery", turn.delivery_ref},
+              {"Delivery", turn.delivery_ref, identifier: true},
               {"Transport", get_in(turn.external_receipt || %{}, ["transport"])},
-              {"Message", get_in(turn.external_receipt || %{}, ["message_ref"])}
+              {"Message", get_in(turn.external_receipt || %{}, ["message_ref"]), identifier: true}
             ]),
           stage: "Delivery",
           state: "delivered",
@@ -326,11 +321,9 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Work do
           actor: "Coop fleet",
           details:
             compact_details([
-              {"Worker", event.worker_id},
+              {"Worker", event.worker_id, identifier: true},
               {"Placement generation", event.placement_generation},
-              {"Sequence", event.sequence},
-              {"Event", event.kind},
-              {"Payload", short_digest(event.payload_fingerprint)}
+              {"Sequence", event.sequence}
             ]),
           stage: "Worker",
           state: event.kind,
@@ -355,12 +348,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Work do
         state: if(receipt.error, do: "failed", else: ""),
         title: status_title(receipt),
         summary: receipt.error || if(clear, do: nil, else: receipt.text),
-        details:
-          compact_details([
-            {"Confirmation",
-             if(receipt.acknowledged_at, do: "Slack acknowledged this status update.")},
-            {"Status generation", receipt.generation}
-          ]),
+        details: [],
         tone: if(receipt.error, do: :warn)
       })
     end)
@@ -408,10 +396,16 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Work do
   defp record_summary(%Record{operation_id: value}, _card), do: value
 
   defp record_details(record, nil),
-    do: [{"Record", record.ref}, {"Operation", record.operation_id}]
+    do: [
+      {"Record", record.ref, identifier: true},
+      {"Operation", record.operation_id, identifier: true}
+    ]
 
   defp record_details(record, card) do
-    [{"Record", record.ref}, {"Operation", record.operation_id}] ++
+    [
+      {"Record", record.ref, identifier: true},
+      {"Operation", record.operation_id, identifier: true}
+    ] ++
       Map.get(card, :details, [])
   end
 

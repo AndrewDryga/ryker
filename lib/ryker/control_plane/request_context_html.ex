@@ -77,6 +77,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
        "The retained parent submission reference for this continuing turn."}
   }
   @order ~w(custom_instructions input slack_addressing inputs current_inputs continuity operator_context records related_outcomes prior_outcome candidates responder_state_tools source_and_action_tools workspace repository_ref destination allowed_actions execution_mode mode offer_confirmation_supported linked_history_ref parent_submission_ref)
+  @instruction_not_recorded :instruction_not_recorded
 
   @doc "The complete submitted components, grouped for reading without hiding source labels."
   def briefing(sections, kind, prefix, counts \\ %{}) do
@@ -158,9 +159,14 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
   defp artifact_availability(%{truncated: true}), do: "Partial display"
   defp artifact_availability(_), do: nil
 
-  defp group(title, description, content),
+  defp group(title, description, content, options \\ []),
     do: [
-      "<section class=\"prompt-group\"><header><h4>",
+      "<section class=\"prompt-group\"",
+      if(group_name = Keyword.get(options, :group),
+        do: [" data-group=\"", escape(group_name), "\""],
+        else: []
+      ),
+      "><header><h4>",
       title,
       "</h4><p>",
       description,
@@ -204,10 +210,8 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
 
         # One collapsible per scope. A single "Custom instructions" block made a
         # reader open it to find out whether the channel had said anything.
-        {"custom_instructions", value} when is_map(value) and map_size(value) > 0 ->
-          Enum.map(Enum.sort(value), fn {key, value} ->
-            {key, value, root <> ".custom_instructions"}
-          end)
+        {"custom_instructions", value} when is_map(value) ->
+          instruction_parts(value, root <> ".custom_instructions")
 
         {key, value} ->
           [{key, value, root}]
@@ -218,7 +222,9 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
     {components, scope} =
       Enum.split_with(parts, fn {key, value, parent} ->
         {_, origin, _, _} = metadata(key, parent)
-        origin not in ["runtime", "other"] && value not in [nil, [], %{}, ""]
+
+        origin not in ["runtime", "other"] &&
+          (instruction_parent?(parent) || value not in [nil, [], %{}, ""])
       end)
 
     groups = Enum.group_by(components, fn {key, _, parent} -> elem(metadata(key, parent), 1) end)
@@ -226,8 +232,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
     [
       Enum.map(
         [
-          {"policy", "Custom instructions",
-           "Explicit operator settings included in this request."},
+          {"policy", "Custom instructions", "Operator settings supplied to this model request."},
           {"conversation", "Messages",
            "The original input and any conversation history supplied to this call."},
           {"memory", "Selected knowledge",
@@ -249,18 +254,19 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
 
                   options =
                     [count: Map.get(counts, key)]
-                    |> maybe_instruction_estimate(parent, value)
+                    |> instruction_options(key, parent, value)
 
                   source(
                     key,
                     path,
                     value,
-                    metadata(key, parent),
+                    source_metadata(key, parent, value),
                     body(key, value, path, prefix),
                     prefix,
                     options
                   )
-                end)
+                end),
+                group: origin
               )
           end
         end
@@ -276,6 +282,15 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
       )
     ]
   end
+
+  defp instruction_parts(value, parent) do
+    Enum.map(["global", "channel"], fn key ->
+      {key, Map.get(value, key, @instruction_not_recorded), parent}
+    end)
+  end
+
+  defp instruction_parent?(parent),
+    do: parent in ["$.work.custom_instructions", "$.context.custom_instructions"]
 
   # One collapsible named after a JSON path, holding whatever was left over,
   # answered "what is in the struct" when the reader is asking what the model
@@ -599,7 +614,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
        when root in ["$.work.custom_instructions", "$.context.custom_instructions"] do
     case key do
       "global" ->
-        {"Global instructions", "policy", "Applies across the workspace", nil}
+        {"Global instructions", "policy", "Configured in Settings", nil}
 
       "channel" ->
         {"Channel instructions", "policy",
@@ -643,6 +658,42 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
          "This field was present in the retained request. More specific provenance was not recorded by this viewer."}
       )
 
+  defp source_metadata(key, parent, value) when key in ["global", "channel"] do
+    if instruction_parent?(parent),
+      do: instruction_metadata(key, value),
+      else: metadata(key, parent)
+  end
+
+  defp source_metadata(key, parent, _value), do: metadata(key, parent)
+
+  defp instruction_metadata("global", @instruction_not_recorded),
+    do: {"Global instructions", "policy", "Availability at request time not recorded", nil}
+
+  defp instruction_metadata("global", value),
+    do:
+      {"Global instructions", "policy",
+       if(instruction_text?(value),
+         do: "Configured in Settings for this request",
+         else: "No global instructions configured"
+       ), nil}
+
+  defp instruction_metadata("channel", @instruction_not_recorded),
+    do: {"Channel instructions", "policy", "Availability at request time not recorded", nil}
+
+  defp instruction_metadata("channel", nil),
+    do: {"Channel instructions", "policy", "Not applicable outside Slack", nil}
+
+  defp instruction_metadata("channel", value),
+    do:
+      {"Channel instructions", "policy",
+       if(instruction_text?(value),
+         do: "Configured for this Slack channel at request time",
+         else: "No channel instructions configured"
+       ), nil}
+
+  defp instruction_text?(%{"text" => text}) when is_binary(text), do: text != ""
+  defp instruction_text?(_value), do: false
+
   def source_label("$.inputs"), do: "Source messages · Retained conversation inputs"
   def source_label("$.knowledge"), do: "Prior knowledge · Frozen topic versions"
 
@@ -661,25 +712,37 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
 
   @doc "One instruction scope: its identity on a line, then the text itself."
   def instruction_scope(%{} = layer) do
+    instruction_scope(layer, "global")
+  end
+
+  defp instruction_scope(%{} = layer, key) do
     identity =
-      [{"Revision", layer["revision"]}, {"Scope", layer["scope"]}]
-      |> Enum.filter(fn {_label, value} -> value not in [nil, ""] end)
-      |> Enum.map_join(" · ", fn {label, value} -> "#{label} #{value}" end)
+      case layer["revision"] do
+        revision when revision not in [nil, ""] -> "Revision #{revision} at request time"
+        _absent -> ""
+      end
 
     [
       if(identity == "",
         do: [],
         else: ["<p class=\"instruction-identity\">", escape(identity), "</p>"]
       ),
-      instruction_text(layer["text"])
+      instruction_text(layer["text"], key)
     ]
   end
 
-  defp instruction_text(text) when is_binary(text) and text != "",
+  defp instruction_text(text, _key) when is_binary(text) and text != "",
     do: ["<pre class=\"model-document-text\">", escape(text), "</pre>"]
 
-  defp instruction_text(_text),
-    do: ["<p class=\"context-absent\">No instruction saved at this scope.</p>"]
+  defp instruction_text(_text, "channel"),
+    do: [
+      "<p class=\"context-absent\">No channel instructions were configured at request time.</p>"
+    ]
+
+  defp instruction_text(_text, _key),
+    do: [
+      "<p class=\"context-absent\">No global instructions were configured for this request.</p>"
+    ]
 
   def instruction_layers(value) when is_map(value) do
     Enum.map([{"global", "Global instructions"}, {"channel", "Channel instructions"}], fn {key,
@@ -707,8 +770,24 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
   defp body(key, value, path, _prefix)
        when key in ~w(global channel) and is_map(value) do
     if String.contains?(path, ".custom_instructions."),
-      do: instruction_scope(value),
+      do: instruction_scope(value, key),
       else: fields(value, 0)
+  end
+
+  defp body("channel", nil, path, _prefix) do
+    if String.contains?(path, ".custom_instructions."),
+      do: [
+        "<p class=\"context-absent\">This request did not have a Slack channel scope, so channel instructions did not apply.</p>"
+      ],
+      else: fields(nil, 0)
+  end
+
+  defp body(key, @instruction_not_recorded, path, _prefix) when key in ~w(global channel) do
+    if String.contains?(path, ".custom_instructions."),
+      do: [
+        "<p class=\"context-absent\">Instruction availability was not recorded for this older request.</p>"
+      ],
+      else: fields(@instruction_not_recorded, 0)
   end
 
   defp body("custom_instructions", value, _path, _prefix) when is_map(value),
@@ -874,12 +953,27 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
       estimated_tokens(estimate)
     ]
 
-  defp maybe_instruction_estimate(options, parent, value)
-       when parent in ["$.work.custom_instructions", "$.context.custom_instructions"] and
-              is_map(value),
-       do: Keyword.put(options, :estimate, value["text"])
+  defp instruction_options(options, key, parent, value) when key in ["global", "channel"] do
+    if instruction_parent?(parent) do
+      case {key, value} do
+        {_key, @instruction_not_recorded} ->
+          options |> Keyword.put(:state, "Not recorded") |> Keyword.put(:estimate, nil)
 
-  defp maybe_instruction_estimate(options, _parent, _value), do: options
+        {"channel", nil} ->
+          options |> Keyword.put(:state, "Not applicable") |> Keyword.put(:estimate, nil)
+
+        {_key, %{"text" => text}} when is_binary(text) and text != "" ->
+          Keyword.put(options, :estimate, text)
+
+        _empty ->
+          options |> Keyword.put(:state, "Not configured") |> Keyword.put(:estimate, nil)
+      end
+    else
+      options
+    end
+  end
+
+  defp instruction_options(options, _key, _parent, _value), do: options
 
   # Provider totals are measured separately. Component counts are estimates over
   # the displayed, sanitized text, not fabricated provider tokenizer receipts.
@@ -1079,7 +1173,6 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
       candidate_previews(item),
       candidate_rationale(item["match"]),
       "</div>",
-      technical_candidate(item, false),
       "</details>"
     ]
   end
@@ -1089,7 +1182,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
       "<details class=\"context-candidate context-candidate-malformed\"><summary>",
       "Historical candidate - retained shape unavailable",
       "</summary><p class=\"context-absent\">This older option cannot be summarized safely.</p>",
-      technical_candidate(item, true),
+      retained_raw_candidate(item),
       "</details>"
     ]
   end
@@ -1238,12 +1331,12 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
   defp positive_integer?(value), do: is_integer(value) and value > 0
   defp positive_number?(value), do: is_number(value) and value > 0
 
-  defp technical_candidate(item, bounded?) do
+  defp retained_raw_candidate(item) do
     encoded = if is_binary(item), do: item, else: Jason.encode!(item, pretty: true)
-    encoded = if bounded?, do: bounded(encoded, 500), else: encoded
+    encoded = bounded(encoded, 500)
 
     [
-      "<details class=\"context-candidate-technical\"><summary>Technical details</summary><pre>",
+      "<details class=\"context-candidate-raw\"><summary>Retained raw candidate</summary><pre>",
       escape(encoded),
       "</pre></details>"
     ]

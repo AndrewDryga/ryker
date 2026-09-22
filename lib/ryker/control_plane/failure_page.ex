@@ -14,6 +14,7 @@ defmodule Ryker.ControlPlane.FailurePage do
       |> assign(:destination, destination(row))
       |> assign(:steps, cleanup_steps(row))
       |> assign(:outcome, request_outcome(row))
+      |> assign(:diagnostics, diagnostics(row))
 
     ~H"""
     <section class="failure-detail">
@@ -89,21 +90,13 @@ defmodule Ryker.ControlPlane.FailurePage do
         </details>
       </div>
 
-      <details class="failure-diagnostics">
-        <summary>Technical details</summary>
-        <dl>
-          <dt>Operation</dt><dd>{@row.kind}</dd>
-          <dt :if={@ownership_missing}>Attempts</dt>
-          <dd :if={@ownership_missing}>{Map.get(@row, :attempt_count, 0)}</dd>
-          <dt :if={@row[:diagnosis]}>Worker response</dt>
-          <dd :if={@row[:diagnosis]}>HTTP {@row.diagnosis.http_status}</dd>
-          <dt>Error code</dt><dd>{get_in(@row, [:diagnosis, :code]) || @row.summary}</dd>
-          <dt>Record</dt><dd>{@row.ref}</dd>
-          <dt :if={@row[:source]}>Source</dt><dd :if={@row[:source]}>{@row.source}</dd>
-          <dt :if={@destination && @ownership_missing}>Conversation</dt>
-          <dd :if={@destination && @ownership_missing}>{@destination}</dd>
-          <dt :if={@row[:detail]}>Fingerprint</dt><dd :if={@row[:detail]}>{@row.detail}</dd>
-        </dl>
+      <Components.disclosure
+        id={"failure-diagnostics-#{@row.ref}"}
+        label="Failure diagnostics"
+        kind={:diagnostic}
+        class="failure-diagnostics"
+      >
+        <Components.fact_list facts={@diagnostics} />
         <ol :if={@steps != []} class="failure-progress" aria-label="Cleanup progress">
           <li :for={step <- @steps} class={step.state}>
             <span class="failure-step-state">{step.status}</span><strong>{step.label}</strong>
@@ -115,10 +108,35 @@ defmodule Ryker.ControlPlane.FailurePage do
           </p>
           {Phoenix.HTML.raw(@recovery)}
         </div>
-      </details>
+      </Components.disclosure>
       <a class="failure-back" href="/failures">← All failures</a>
     </section>
     """
+  end
+
+  defp diagnostics(row) do
+    ownership_missing = manual_repair?(row)
+    destination = destination(row)
+
+    [
+      %{label: "Operation", value: row.kind},
+      if(ownership_missing,
+        do: %{label: "Attempts", value: to_string(Map.get(row, :attempt_count, 0))}
+      ),
+      if(row[:diagnosis],
+        do: %{label: "Worker response", value: "HTTP #{row.diagnosis.http_status}"}
+      ),
+      %{label: "Error code", value: get_in(row, [:diagnosis, :code]) || row.summary},
+      %{label: "Record", value: row.ref, identifier: true},
+      if(row[:source], do: %{label: "Source", value: row.source, identifier: true}),
+      if(destination && ownership_missing,
+        do: %{label: "Conversation", value: destination}
+      ),
+      if(row[:detail],
+        do: %{label: "Diagnostic reference", value: row.detail, identifier: true}
+      )
+    ]
+    |> Enum.reject(&is_nil/1)
   end
 
   def cause(%{kind: "retention", diagnosis: %{reason: :missing_ownership}}),

@@ -156,8 +156,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
       recovery_href:
         if(last.kind == :blocked,
           do: "/failures/admission/#{segment("ingress-input:#{input.id}")}"
-        ),
-      technical: queue_technical(input)
+        )
     }
   end
 
@@ -289,15 +288,6 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
   defp error_reason(nil), do: ""
   defp error_reason(code), do: " Reason: #{error_label(code)}."
 
-  defp queue_technical(input) do
-    compact_details([
-      {"Input ID", "ingress-input:#{input.id}"},
-      {"Source revision", input.revision},
-      {"Event identity", input.dedupe_key},
-      {"Content fingerprint", short_digest(input.event_fingerprint)}
-    ])
-  end
-
   defp legacy_queue(input, _now) do
     current = input.status == :pending
 
@@ -318,8 +308,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
       ended_at: nil,
       duration_ms: nil,
       tone: nil,
-      recovery_href: nil,
-      technical: queue_technical(input)
+      recovery_href: nil
     }
   end
 
@@ -639,14 +628,14 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
       ordinal: ordinal,
       rows:
         compact_details([
-          {"Session", session_state.face},
+          {"Session", session_state.detail},
           {"Worker", worker},
-          {"Profile", session && session.policy},
+          {"Execution policy", session && session.policy},
           {"Workspace", workspace.face},
           {"Current step", outcome.current_step}
         ]),
       details: setup_details(turn, session, session_state, worker, workspace),
-      technical: setup_technical(turn, session, placement)
+      diagnostics: setup_diagnostics(outcome.kind, turn, session, placement)
     })
   end
 
@@ -682,35 +671,30 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
     }
   end
 
-  defp setup_details(turn, session, session_state, worker, workspace) do
+  defp setup_details(turn, session, _session_state, _worker, workspace) do
     compact_details([
-      {"Session", session_state.detail},
-      {"Profile", session && session.policy},
-      {"Selected from", "Not recorded"},
-      {"Worker", worker},
       {"Repository access", workspace.access},
       {"Ryker tools", if(is_binary(turn.state_tools_endpoint), do: "Bound to this work turn")},
-      {"Bound task", session && setup_task(session.workspace_task)},
-      {"Preparation checks", "Individual check results not recorded"}
+      {"Bound task", session && setup_task(session.workspace_task)}
     ])
   end
 
-  defp setup_technical(turn, nil, _placement),
-    do: compact_details([{"Turn", turn.turn_ref}, {"Work claims", turn.work_attempt_count}])
+  defp setup_diagnostics(kind, _turn, _session, _placement) when kind != :blocked, do: []
 
-  defp setup_technical(turn, session, placement) do
+  defp setup_diagnostics(:blocked, turn, nil, _placement),
+    do:
+      compact_details([
+        {"Turn ID", turn.turn_ref, identifier: true},
+        {"Work claims", turn.work_attempt_count}
+      ])
+
+  defp setup_diagnostics(:blocked, turn, session, placement) do
     compact_details([
-      {"Turn", turn.turn_ref},
-      {"Session", session.id},
-      {"Session generation", session.generation},
-      {"Create generation", session.create_generation},
-      {"Remote session", session.coop_session_id},
-      {"Remote turn", turn.coop_turn_id},
-      {"Policy digest", short_digest(session.policy_digest)},
-      {"Authority digest", short_digest(session.authority_digest)},
-      {"Repository", session.repository_ref},
-      {"Placement worker", placement && placement.worker_id},
-      {"Placement generation", placement && placement.generation},
+      {"Turn ID", turn.turn_ref, identifier: true},
+      {"Session ID", session.id, identifier: true},
+      {"Remote session", session.coop_session_id, identifier: true},
+      {"Remote turn", turn.coop_turn_id, identifier: true},
+      {"Worker", placement && placement.worker_id, identifier: true},
       {"Work claims", turn.work_attempt_count}
     ])
   end
@@ -727,22 +711,14 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
       rows:
         compact_details([
           {"Session", "Not created"},
-          {"Profile", session.policy}
+          {"Execution policy", session.policy}
         ]),
       details:
         compact_details([
-          {"Profile", session.policy},
-          {"Selected from", "Not recorded"},
           {"Worker", setup_worker(session, placement)},
           {"Repository", session.repository_ref}
         ]),
-      technical:
-        compact_details([
-          {"Session", session.id},
-          {"Session generation", session.generation},
-          {"Policy digest", short_digest(session.policy_digest)},
-          {"Authority digest", short_digest(session.authority_digest)}
-        ])
+      diagnostics: []
     }
   end
 
@@ -750,24 +726,22 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
   # same row. The rotation reason is not retained anywhere, so a replacement
   # says "Reason not recorded" rather than borrowing today's session state.
   defp session_state(nil, _earlier_turns),
-    do: %{face: "Not recorded", detail: "Not recorded"}
+    do: %{detail: "Not recorded"}
 
   defp session_state(session, earlier_turns) do
     cond do
       earlier_turns != [] ->
         %{
-          face: "Reused from previous work round",
           detail: "Reused from previous work round · Generation #{session.generation}"
         }
 
       session.generation > 1 or session.create_generation > 1 ->
         %{
-          face: "Replaced · Reason not recorded",
           detail: "Replaced · Generation #{session.generation} · Reason not recorded"
         }
 
       true ->
-        %{face: "New", detail: "New · Generation #{session.generation}"}
+        %{detail: "New · Generation #{session.generation}"}
     end
   end
 

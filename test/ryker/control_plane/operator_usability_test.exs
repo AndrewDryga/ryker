@@ -430,6 +430,7 @@ defmodule Ryker.ControlPlane.OperatorUsabilityTest do
         episode_ref: "episode:one",
         status: "blocked",
         summary: "coop_error",
+        detail: "stored diagnostic sha256:" <> String.duplicate("a", 64),
         destination: "control_plane:control-plane:lab:one / control-plane:lab:one",
         updated_at: ~U[2026-09-05 12:00:00Z]
       })
@@ -439,7 +440,10 @@ defmodule Ryker.ControlPlane.OperatorUsabilityTest do
     assert html =~ "Open request"
     assert html =~ "Direct conversation"
     refute html =~ "Conversation Lab"
-    assert html =~ "<summary>Technical details</summary>"
+    assert html =~ "Failure diagnostics"
+    assert html =~ "Diagnostic reference"
+    refute html =~ ">Fingerprint<"
+    assert html =~ ~s(data-copy-value="stored diagnostic sha256:)
     refute html =~ ">Custody reference</dt>"
   end
 

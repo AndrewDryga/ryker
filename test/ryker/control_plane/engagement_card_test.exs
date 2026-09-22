@@ -107,13 +107,18 @@ defmodule Ryker.ControlPlane.EngagementCardTest do
     setup = LazyHTML.query(card, ".participation-settings")
 
     assert LazyHTML.query(setup, "h4") |> LazyHTML.text() == "Channel setup at the time"
+    assert LazyHTML.query(setup, ".ui-facts") |> Enum.count() == 1
+    assert LazyHTML.query(setup, ".event-facts") |> Enum.empty?()
 
     assert LazyHTML.query(setup, "dt") |> Enum.map(&LazyHTML.text/1) == [
              "Proactive replies",
              "Shadow evaluation"
            ]
 
-    assert LazyHTML.query(setup, "dd") |> Enum.map(&LazyHTML.text/1) == ["Off", "Off"]
+    assert LazyHTML.query(setup, "dd") |> Enum.map(&(LazyHTML.text(&1) |> String.trim())) == [
+             "Off",
+             "Off"
+           ]
 
     text = LazyHTML.text(card)
     refute text =~ "Saved channel setup"

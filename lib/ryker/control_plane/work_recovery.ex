@@ -231,7 +231,7 @@ defmodule Ryker.ControlPlane.WorkRecovery do
 
       nil ->
         {@unexplained_cause,
-         "Inspect the saved response and technical details. Correct the underlying problem and preserve unfinished changes before retrying."}
+         "Inspect the saved response and failure diagnostics. Correct the underlying problem and preserve unfinished changes before retrying."}
     end
   end
 

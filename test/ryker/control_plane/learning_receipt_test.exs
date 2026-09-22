@@ -33,7 +33,7 @@ defmodule Ryker.ControlPlane.LearningReceiptTest do
     assert view.learning.version == revision.version
     assert view.learning.input_count == 2
     assert view.learning.reason == "Merge the firing and resolved reports."
-    assert view.learning.target == "receipt-test-model"
+    assert view.learning.target == "codex:gpt-5.6-sol/medium@default"
 
     assert Enum.map(view.learning.sections, & &1.id) ==
              ~w(inputs knowledge instructions custom_instructions contract prompt result validation)
@@ -59,6 +59,9 @@ defmodule Ryker.ControlPlane.LearningReceiptTest do
     assert html =~ "Response format"
     assert html =~ "estimated tokens"
     assert html =~ "2 messages"
+    assert html =~ "gpt-5.6-sol"
+    assert html =~ "Medium reasoning · Codex · Default profile"
+    refute html =~ ">codex:gpt-5.6-sol/medium@default<"
     assert html =~ "No reply was sent by this learning pass."
 
     for {source, label} <- [
@@ -159,7 +162,9 @@ defmodule Ryker.ControlPlane.LearningReceiptTest do
       })
 
     {:ok, applied} =
-      Ryker.Fixtures.Learning.accept(run.id, result, %{"model" => "receipt-test-model"})
+      Ryker.Fixtures.Learning.accept(run.id, result, %{
+        "target" => "codex:gpt-5.6-sol/medium@default"
+      })
 
     {applied, Repo.one!(KnowledgeRevision)}
   end
