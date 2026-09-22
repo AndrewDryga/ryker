@@ -40,9 +40,11 @@ defmodule Ryker.ControlPlane.ReceivedInputCardTest do
     text = LazyHTML.text(details)
 
     for label <- [
+          "Input ID",
           "Source",
           "Event",
           "Event ID",
+          "Event identity",
           "Message ID",
           "Sender ID",
           "Source revision",
@@ -53,6 +55,12 @@ defmodule Ryker.ControlPlane.ReceivedInputCardTest do
     end
 
     assert text =~ "time reported by the source"
+    refute text =~ "Extracted metadata"
+
+    assert details
+           |> LazyHTML.query("button[data-copy-value]")
+           |> LazyHTML.attribute("data-copy-value")
+           |> Enum.take(2) == ["ingress-input:#{entry.id}", entry.dedupe_key]
 
     # Metadata precedes the three bodies, and the bodies come in the approved order.
     positions =
@@ -64,12 +72,25 @@ defmodule Ryker.ControlPlane.ReceivedInputCardTest do
           do: :binary.match(html, ~s(id="#{id}")) |> elem(0)
 
     assert positions == Enum.sort(positions)
-    assert :binary.match(html, "Extracted metadata") |> elem(0) < hd(positions)
+    assert :binary.match(html, ~s(id="input-details-#{entry.id}")) |> elem(0) < hd(positions)
 
     # Bodies are lazy: nothing raw-only or normalized is in the page until opened.
     refute html =~ "raw-only-field"
     assert html =~ ~s(data-artifact="input-#{entry.id}-raw")
     assert html =~ ~s(data-artifact="input-#{entry.id}-normalized")
+  end
+
+  test "kernel lifecycle cards do not repeat metadata owned by input details" do
+    {_entry, episode} = admitted!(source_envelope: @envelope)
+    {:ok, detail} = Projection.episode(episode.key, %{})
+
+    input_transition =
+      Enum.find(detail.trace.steps, fn step ->
+        String.starts_with?(step.id, "kernel-") && step.stage == "Input"
+      end)
+
+    assert input_transition
+    assert input_transition.details == []
   end
 
   test "opening the raw body shows the adapter's payload, not the normalized document" do
@@ -147,6 +168,8 @@ defmodule Ryker.ControlPlane.ReceivedInputCardTest do
     assert text =~ "Planning"
     assert text =~ "Dryga/emisar"
     assert text =~ "run-k9CpPp3nWjQrkCMG"
+    assert LazyHTML.query(card, ".provider-facts.ui-facts") |> Enum.count() == 1
+    assert LazyHTML.query(card, ".event-facts") |> Enum.empty?()
 
     # Links sit after Input details, outside the disclosure, visible when collapsed.
     details_at = :binary.match(html, ~s(id="input-details-#{entry.id}")) |> elem(0)

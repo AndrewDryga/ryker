@@ -12,7 +12,6 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
 
     assigns =
       assigns
-      |> assign(:model, model(request.target))
       |> assign(:headline, headline(request))
       |> assign(:explanation, explanation(request))
       |> assign(:timing, request.timing)
@@ -41,9 +40,7 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
     <div class="episode-request">
       <div class="case-request-heading">
         <h3>{@headline}</h3>
-        <div class="request-model" title={@request.target}>
-          <strong>{@model.name}</strong><span>{@model.account}</span>
-        </div>
+        <div class="request-model"><Components.execution_target target={@request.target} /></div>
       </div>
       <p :if={@explanation} class="request-explanation">{@explanation}</p>
       <section
@@ -74,17 +71,6 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
           <dt>{timing_label(metric.label)}</dt><dd>{metric.value}</dd>
         </div>
       </dl>
-      <details
-        :if={@request.phase == :submission && technical_details(@request) != []}
-        class="request-technical-details case-event-details"
-      >
-        <summary>Technical details</summary>
-        <dl>
-          <div :for={fact <- technical_details(@request)}>
-            <dt>{fact.label}</dt><dd>{fact.value}</dd>
-          </div>
-        </dl>
-      </details>
       <div
         :if={!@result? && (@input_sections != [] || @contract_section)}
         class="prompt-assembly"
@@ -238,16 +224,6 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
     """
   end
 
-  def model(target) when is_binary(target) do
-    case Regex.run(~r/\A([^:]+):([^@]+)(?:@(.+))?\z/, target) do
-      [_, provider, name, profile] -> %{name: name, account: provider <> " · " <> profile}
-      [_, provider, name] -> %{name: name, account: provider}
-      _ -> %{name: target, account: nil}
-    end
-  end
-
-  def model(_), do: %{name: "Model not recorded", account: nil}
-
   defp applied_context(%{phase: :submission} = request) do
     case document(request, "context") do
       %{"operator_context" => context} when is_map(context) ->
@@ -285,20 +261,6 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
   end
 
   defp applied_context(_), do: []
-
-  defp technical_details(request) do
-    [
-      technical_detail("Request", request[:request_id]),
-      technical_detail("Policy", request[:policy]),
-      technical_detail("Fingerprint", request[:fingerprint])
-    ]
-    |> Enum.reject(&is_nil/1)
-  end
-
-  defp technical_detail(label, value) when is_binary(value) and value != "",
-    do: %{label: label, value: value}
-
-  defp technical_detail(_label, _value), do: nil
 
   defp context_entries(entries, title_key, text_key) when is_list(entries) do
     Enum.flat_map(entries, fn

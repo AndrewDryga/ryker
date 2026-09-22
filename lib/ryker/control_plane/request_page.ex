@@ -50,7 +50,9 @@ defmodule Ryker.ControlPlane.RequestPage do
         >
           <div class="request-reader-heading">
             <div>
-              <span>{@view.selected.title}</span><h3>{@view.selected.target}</h3>
+              <span>{@view.selected.title}</span><h3>
+                <.execution_target target={@view.selected.target} />
+              </h3>
             </div><.status state={to_string(@view.selected.status)} />
           </div>
           <p class="coverage-note">{@view.selected.coverage}</p>
@@ -121,13 +123,13 @@ defmodule Ryker.ControlPlane.RequestPage do
               key="tools_page"
             />
           </section>
-          <details class="document-provenance">
-            <summary>Model call identity and policy</summary><dl>
-              <dt>Request</dt><dd>{@view.selected.id}</dd><dt>Policy</dt><dd>
-                {@view.selected.policy}
-              </dd><dt>Fingerprint</dt><dd>{@view.selected.fingerprint || "Not recorded"}</dd>
-            </dl>
-          </details>
+          <.disclosure
+            id={"request-identity-#{@view.selected.id}"}
+            label="Request identity"
+            class="document-provenance"
+          >
+            <.fact_list facts={request_identity(@view.selected)} />
+          </.disclosure>
         </article>
         <div :if={!@view.selected} class="document-unavailable">
           <.icon name={:book} /><h3>No request recorded</h3><p>
@@ -138,6 +140,17 @@ defmodule Ryker.ControlPlane.RequestPage do
     </section>
     """
   end
+
+  defp request_identity(request) do
+    [
+      %{label: "Request ID", value: request.id, identifier: true},
+      optional_identity("Execution policy", request[:policy])
+    ]
+    |> Enum.reject(&is_nil/1)
+  end
+
+  defp optional_identity(_label, value) when value in [nil, ""], do: nil
+  defp optional_identity(label, value), do: %{label: label, value: value}
 
   def artifact(assigns) do
     assigns =
@@ -222,15 +235,14 @@ defmodule Ryker.ControlPlane.RequestPage do
         tabindex="0"
       >{@section.artifact.text}</pre>
       <details
+        :if={@section.id in ["context", "validation"]}
         class={["document-provenance", @section.id == "validation" && "validation-raw"]}
         id={"#{@prefix}-#{@section.id}-provenance"}
       >
         <summary>
-          {if @section.id == "validation", do: "Raw validation record", else: "Artifact identity"}{if @section.artifact.redacted,
-            do: " · redacted display"}
+          {if @section.id == "validation", do: "Raw validation record", else: "Raw context"}
         </summary>
-        <p>Original retained bytes: {@section.artifact.bytes}</p><code>{@section.artifact.sha256}</code>
-        <pre :if={@section.id in ["context", "validation"]} class="model-document-text" tabindex="0">{@section.artifact.text}</pre>
+        <pre class="model-document-text" tabindex="0">{@section.artifact.text}</pre>
       </details>
     </div>
     """

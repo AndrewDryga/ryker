@@ -220,38 +220,48 @@ defmodule Ryker.ControlPlane.EpisodePage do
       </section>
       <Ryker.ControlPlane.WorkerEvidenceCard.render episode_id={@snapshot.episode[:id]} />
       <.execution_timeline
-        :if={!@startup}
         snapshot={@snapshot}
         timeline={@timeline}
         groups={@timeline_groups}
         params={@params}
       />
-      <details class="story-identity">
-        <summary>Technical details &amp; review history</summary>
-        <.execution_timeline
-          :if={@startup}
-          snapshot={@snapshot}
-          timeline={@timeline}
-          groups={@timeline_groups}
-          params={@params}
-        />
+      <.disclosure
+        id={"request-identity-#{@snapshot.episode.ref}"}
+        label="Request identity"
+        class="story-identity"
+      >
+        <.fact_list facts={episode_identity(@snapshot)} />
+      </.disclosure>
+      <.disclosure
+        id={"review-history-#{@snapshot.episode.ref}"}
+        label="Review history"
+        class="story-review"
+      >
         <p>{coverage(@snapshot[:accounting])}</p>
         <p :if={@snapshot.trace.review[:note] not in [nil, ""]}>
           {@snapshot.trace.review[:note]
           |> Ryker.ControlPlane.InspectionRedactor.artifact(max_bytes: 2_048)
           |> Map.fetch!(:text)}
         </p>
-        <dl>
-          <dt>Episode</dt><dd>{@snapshot.episode.ref}</dd><dt>Destination</dt><dd>
-            {@snapshot.episode.destination}
-          </dd>
-          <dt>Created</dt><dd>{timestamp(@snapshot.episode.created_at)}</dd><dt>Reviewed</dt><dd>
-            {timestamp(@snapshot.trace.review[:at])}
-          </dd>
-        </dl>
-      </details>
+        <.fact_list facts={review_identity(@snapshot)} />
+      </.disclosure>
     </div>
     """
+  end
+
+  defp episode_identity(snapshot) do
+    [
+      %{label: "Request ID", value: snapshot.episode.ref, identifier: true},
+      %{label: "Destination", value: snapshot.episode.destination},
+      %{label: "Created", value: timestamp(snapshot.episode.created_at)}
+    ]
+  end
+
+  defp review_identity(snapshot) do
+    case snapshot.trace.review[:at] do
+      nil -> []
+      at -> [%{label: "Reviewed", value: timestamp(at)}]
+    end
   end
 
   @doc """
@@ -448,7 +458,7 @@ defmodule Ryker.ControlPlane.EpisodePage do
         aria-label={link.label}
         title={link.label}
         data-direction={link.direction}
-      ><.icon name={:chevron} /></a>
+      ><.icon name={if(link.direction == :previous, do: :arrow_up, else: :arrow_down)} /></a>
     </nav>
     """
   end
@@ -719,27 +729,24 @@ defmodule Ryker.ControlPlane.EpisodePage do
         </span>
       </div>
       <p :if={@step.summary} class="case-event-summary">{@step.summary}</p>
-      <dl class="event-facts setup-facts">
-        <div :for={row <- @step.setup.rows}>
-          <dt>{row.label}</dt><dd>{row.value}</dd>
-        </div>
-      </dl>
-      <details class="case-event-details" id={"setup-details-#{@step.id}"}>
-        <summary>Setup details</summary>
-        <dl class="event-facts">
-          <div :for={fact <- @step.setup.details}>
-            <dt>{fact.label}</dt><dd>{fact.value}</dd>
-          </div>
-        </dl>
-        <details :if={@step.setup.technical != []} id={"setup-technical-#{@step.id}"}>
-          <summary>Technical details</summary>
-          <dl class="event-facts">
-            <div :for={fact <- @step.setup.technical}>
-              <dt>{fact.label}</dt><dd>{fact.value}</dd>
-            </div>
-          </dl>
-        </details>
-      </details>
+      <.fact_list facts={@step.setup.rows} class="setup-facts" />
+      <.disclosure
+        :if={@step.setup.details != []}
+        id={"setup-details-#{@step.id}"}
+        label="Setup details"
+        class="case-event-details"
+      >
+        <.fact_list facts={@step.setup.details} />
+      </.disclosure>
+      <.disclosure
+        :if={@step.setup.diagnostics != []}
+        id={"setup-diagnostics-#{@step.id}"}
+        label="Failure diagnostics"
+        kind={:diagnostic}
+        class="case-event-details"
+      >
+        <.fact_list facts={@step.setup.diagnostics} />
+      </.disclosure>
     </div>
     """
   end
@@ -770,18 +777,6 @@ defmodule Ryker.ControlPlane.EpisodePage do
       <p :if={@step.queue.recovery_href} class="queue-recovery">
         <a href={@step.queue.recovery_href}>View recovery →</a>
       </p>
-      <details
-        :if={@step.queue.technical != []}
-        class="case-event-details"
-        id={"queue-technical-#{@step.id}"}
-      >
-        <summary>Technical details</summary>
-        <dl class="event-facts">
-          <div :for={fact <- @step.queue.technical}>
-            <dt>{fact.label}</dt><dd>{fact.value}</dd>
-          </div>
-        </dl>
-      </details>
     </div>
     """
   end
@@ -828,11 +823,11 @@ defmodule Ryker.ControlPlane.EpisodePage do
         <p :if={@step.participation.settings == []} class="case-event-summary">
           {@step.participation.summary}
         </p>
-        <dl :if={@step.participation.settings != []} class="event-facts participation-facts">
-          <div :for={setting <- @step.participation.settings}>
-            <dt>{setting.label}</dt><dd><strong>{setting.value}</strong></dd>
-          </div>
-        </dl>
+        <.fact_list
+          :if={@step.participation.settings != []}
+          facts={@step.participation.settings}
+          class="participation-facts"
+        />
       </section>
 
       <section
@@ -861,27 +856,14 @@ defmodule Ryker.ControlPlane.EpisodePage do
               <strong>{rule.title}</strong>
             </div>
             <p class="standing-rule-reason">{rule.reason}</p>
-            <details
+            <.disclosure
               :if={rule.ref}
-              class="standing-rule-definition"
               id={"rule-#{@step.id}-#{rule.ref}"}
+              label="Rule details"
+              class="standing-rule-definition"
             >
-              <summary>Rule details</summary>
-              <dl class="event-facts">
-                <div>
-                  <dt>Rule</dt><dd>{rule.ref}</dd>
-                </div>
-                <div>
-                  <dt>Revision at the time</dt><dd>{rule.revision || "Not recorded"}</dd>
-                </div>
-                <div>
-                  <dt>Status at the time</dt><dd>{rule.status}</dd>
-                </div>
-                <div :if={rule.scope_ref}>
-                  <dt>Scope</dt><dd>{rule.scope_ref}</dd>
-                </div>
-              </dl>
-            </details>
+              <.fact_list facts={rule_facts(rule)} />
+            </.disclosure>
           </li>
         </ul>
       </section>
@@ -940,23 +922,15 @@ defmodule Ryker.ControlPlane.EpisodePage do
         <span :if={@provider.state} class={"provider-state tone-#{@provider.tone}"}>{@provider.state}</span>
       </div>
       <p :if={@provider.subject} class="provider-subject">{@provider.subject}</p>
-      <dl :if={@provider.facts != []} class="provider-facts">
-        <div :for={fact <- @provider.facts}>
-          <dt>{fact.label}</dt><dd>{fact.value}</dd>
-        </div>
-      </dl>
-      <details
+      <.fact_list :if={@provider.facts != []} facts={@provider.facts} class="provider-facts" />
+      <.disclosure
         :for={group <- @provider[:groups] || []}
+        label={group.label}
         class="provider-group"
         id={"provider-#{@provider.provider}-#{String.downcase(group.label)}"}
       >
-        <summary>{group.label}</summary>
-        <dl class="event-facts">
-          <div :for={entry <- group.entries}>
-            <dt>{entry.label}</dt><dd>{entry.value}</dd>
-          </div>
-        </dl>
-      </details>
+        <.fact_list facts={group.entries} />
+      </.disclosure>
     </div>
     """
   end
@@ -964,20 +938,28 @@ defmodule Ryker.ControlPlane.EpisodePage do
   defp source_transport(%{provider: :grafana}), do: "webhook"
   defp source_transport(_provider), do: "Slack"
 
+  defp rule_facts(rule) do
+    [
+      %{label: "Rule", value: rule.ref, identifier: true},
+      %{label: "Revision at the time", value: rule.revision || "Not recorded"},
+      %{label: "Status at the time", value: rule.status},
+      if(rule.scope_ref, do: %{label: "Scope", value: rule.scope_ref, identifier: true})
+    ]
+    |> Enum.reject(&is_nil/1)
+  end
+
   # Extracted metadata is visible as soon as the disclosure opens; the raw
   # envelope, the normalized input and the original message are each their own
   # collapsed body underneath, loaded when opened. Raw and normalized are never
   # shown under each other's name, and an unrecorded envelope says so.
   defp input_details(assigns) do
     ~H"""
-    <details class="input-details" id={"input-details-#{@message.id}"}>
-      <summary>Input details</summary>
-      <h4>Extracted metadata</h4>
-      <dl class="event-facts">
-        <div :for={fact <- @message.details.metadata}>
-          <dt>{fact.label}</dt><dd>{fact.value}</dd>
-        </div>
-      </dl>
+    <.disclosure
+      id={"input-details-#{@message.id}"}
+      label="Input details"
+      class="input-details"
+    >
+      <.fact_list facts={@message.details.metadata} />
       <.input_body
         id={"input-raw-#{@message.id}"}
         title="Raw input (JSON)"
@@ -997,7 +979,7 @@ defmodule Ryker.ControlPlane.EpisodePage do
         </p>
         <pre :if={@message.available}>{@message.text}</pre>
       </details>
-    </details>
+    </.disclosure>
     """
   end
 
@@ -1096,15 +1078,14 @@ defmodule Ryker.ControlPlane.EpisodePage do
           item={item}
         />
       </div>
-      <details
+      <.disclosure
         :if={@step.details != [] || @step.href}
-        class="case-event-details"
         id={"event-detail-#{@step.id}"}
+        label={if @step.stage == "Tool call", do: "Call metadata", else: "Details"}
+        class="case-event-details"
       >
-        <summary>{if @step.stage == "Tool call", do: "Call metadata", else: "Details"}</summary><.event_details step={
-          @step
-        } />
-      </details>
+        <.event_details step={@step} />
+      </.disclosure>
     </div>
     """
   end
@@ -1140,11 +1121,7 @@ defmodule Ryker.ControlPlane.EpisodePage do
   defp event_details(assigns) do
     ~H"""
     <a :if={@step.href} href={@step.href}>Inspect related record →</a>
-    <dl class="event-facts">
-      <div :for={detail <- @step.details}>
-        <dt>{detail.label}</dt><dd>{detail.value}</dd>
-      </div>
-    </dl>
+    <.fact_list :if={@step.details != []} facts={@step.details} />
     """
   end
 

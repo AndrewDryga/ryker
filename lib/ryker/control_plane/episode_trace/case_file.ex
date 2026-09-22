@@ -233,13 +233,15 @@ defmodule Ryker.ControlPlane.EpisodeTrace.CaseFile do
 
   defp input_metadata(input) do
     compact_details([
+      {"Input ID", "ingress-input:#{input.id}", identifier: true},
+      {"Event identity", input.dedupe_key, identifier: true},
       {"Source", source_label(input.source_kind)},
       {"Event", input_event_label(input.event_kind)},
-      {"Event ID", input.event_ref},
-      {"Message ID", input.source_item_ref},
-      {"Sender ID", join_ref(input.actor_kind, input.actor_ref)},
-      {"Conversation", input.destination_conversation_ref},
-      {"Thread", input.destination_thread_ref},
+      {"Event ID", input.event_ref, identifier: true},
+      {"Message ID", input.source_item_ref, identifier: true},
+      {"Sender ID", join_ref(input.actor_kind, input.actor_ref), identifier: true},
+      {"Conversation", input.destination_conversation_ref, identifier: true},
+      {"Thread", input.destination_thread_ref, identifier: true},
       {"Source revision", input.revision},
       {"Source event time",
        "#{timestamp_precise(input.occurred_at)} · #{provenance_label(input.occurred_at_source)}"},

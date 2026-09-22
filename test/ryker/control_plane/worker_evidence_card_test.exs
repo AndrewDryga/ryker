@@ -74,10 +74,11 @@ defmodule Ryker.ControlPlane.WorkerEvidenceCardTest do
       )
 
     rendered = html(session.episode_id)
+    document = LazyHTML.from_fragment(rendered)
 
     assert rendered =~ "Network access"
     assert rendered =~ "Filtered"
-    assert rendered =~ "Withheld by this session's policy"
+    assert LazyHTML.text(document) =~ "Withheld by this session's policy"
     assert rendered =~ "Enforcer reported ok"
 
     assert rendered =~ "Destination withheld"
@@ -87,6 +88,14 @@ defmodule Ryker.ControlPlane.WorkerEvidenceCardTest do
     assert rendered =~ "Coop task"
     assert rendered =~ "Fix API timeout"
     assert rendered =~ "Checklist 3/4 recorded"
+    assert LazyHTML.query(document, ".event-facts") |> Enum.empty?()
+
+    assert Enum.all?(LazyHTML.query(document, ".case-event-details"), fn detail ->
+             Enum.any?(
+               LazyHTML.attribute(detail, "class"),
+               &String.contains?(&1, "ui-disclosure")
+             )
+           end)
 
     # The projection withholds the names, and so does the page.
     refute rendered =~ "blocked.example"
@@ -118,9 +127,14 @@ defmodule Ryker.ControlPlane.WorkerEvidenceCardTest do
     assert rendered =~ "1 more alerts were omitted"
 
     # Coverage is per metric, and the run this observation belongs to is named
-    # with its epoch rather than borrowed from whatever turn is on screen.
+    # with its epoch rather than borrowed from whatever turn is on screen. Its
+    # opaque identity uses the shared exact-copy treatment.
     assert rendered =~ "All 9 measurements exact"
-    assert rendered =~ "run-7f3a · epoch-1"
+    assert rendered =~ ~s(data-copy-value="run-7f3a")
+
+    assert fact_value(rendered, ".network-summary .ui-disclosure-body", "Gateway epoch") ==
+             "epoch-1"
+
     assert rendered =~ "proxy-streams-and-sampled-tcp-sockets"
 
     # The session receipt: final and complete are independent words.
@@ -198,7 +212,7 @@ defmodule Ryker.ControlPlane.WorkerEvidenceCardTest do
 
     rendered = html(session.episode_id)
 
-    assert rendered =~ ~r|<dt>Refusals</dt><dd>Not recorded</dd>|
+    assert fact_value(rendered, ".network-summary", "Refusals") == "Not recorded"
     refute rendered =~ ~r|<dt>Refusals</dt><dd>None|
   end
 
@@ -213,7 +227,7 @@ defmodule Ryker.ControlPlane.WorkerEvidenceCardTest do
     {:ok, _stored} =
       SessionEvidence.record(session.id, none, worker_id: "worker-a", placement_generation: 1)
 
-    assert html(session.episode_id) =~ ~r|<dt>Refusals</dt><dd>None</dd>|
+    assert fact_value(html(session.episode_id), ".network-summary", "Refusals") == "None"
   end
 
   test "an open unbound capture renders no empty worker evidence" do
@@ -295,5 +309,15 @@ defmodule Ryker.ControlPlane.WorkerEvidenceCardTest do
     # Several callers pass a snapshot whose episode is a reference only. A card
     # with nothing to show must not be the reason a page cannot render.
     assert html(nil) |> String.trim() == ""
+  end
+
+  defp fact_value(rendered, scope, label) do
+    rendered
+    |> LazyHTML.from_fragment()
+    |> LazyHTML.query("#{scope} > .ui-facts > div")
+    |> Enum.find(&(LazyHTML.query(&1, "dt") |> LazyHTML.text() |> String.trim() == label))
+    |> LazyHTML.query("dd")
+    |> LazyHTML.text()
+    |> String.trim()
   end
 end

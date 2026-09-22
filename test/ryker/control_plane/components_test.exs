@@ -68,6 +68,71 @@ defmodule Ryker.ControlPlane.ComponentsTest do
              "The value could not be saved."
   end
 
+  test "diagnostic identifiers stay compact while preserving an exact copy target" do
+    value = "ingress-input:2b6e9fb1-996b-4eab-bcfd-f448d69bab4e"
+
+    document =
+      render_component(&Components.identifier/1, value: value, label: "Input ID")
+      |> LazyHTML.from_fragment()
+
+    identifier = LazyHTML.query(document, ".ui-identifier")
+    assert LazyHTML.attribute(identifier, "title") == [value]
+    assert LazyHTML.text(LazyHTML.query(identifier, "code")) =~ "…"
+    refute LazyHTML.text(LazyHTML.query(identifier, "code")) == value
+
+    copy = LazyHTML.query(identifier, "button[data-copy-value]")
+    assert LazyHTML.attribute(copy, "data-copy-value") == [value]
+    assert LazyHTML.attribute(copy, "aria-label") == ["Copy Input ID"]
+  end
+
+  test "a shared disclosure and fact list keep diagnostics in one visual contract" do
+    html =
+      render_component(
+        fn assigns ->
+          ~H"""
+          <Components.disclosure id="failure-diagnostics" label="Failure diagnostics" kind={:diagnostic}>
+            <Components.fact_list facts={@facts} />
+          </Components.disclosure>
+          """
+        end,
+        facts: [
+          %{label: "Operation", value: "deliver"},
+          %{label: "Record", value: "failure:123", identifier: true}
+        ]
+      )
+      |> LazyHTML.from_fragment()
+
+    assert html
+           |> LazyHTML.query("details.ui-disclosure-diagnostic > summary")
+           |> LazyHTML.text()
+           |> String.trim() == "Failure diagnostics"
+
+    assert LazyHTML.query(html, ".ui-facts > div") |> Enum.count() == 2
+    assert LazyHTML.query(html, ".ui-facts .ui-identifier") |> Enum.count() == 1
+    assert LazyHTML.query(html, "summary .ui-icon") |> Enum.count() == 1
+  end
+
+  test "fact lists render retained execution targets through the shared presentation" do
+    html =
+      render_component(&Components.fact_list/1,
+        facts: [
+          %{
+            label: "Model",
+            value: "codex:gpt-5.6-sol/medium@default",
+            presentation: :execution_target
+          }
+        ]
+      )
+      |> LazyHTML.from_fragment()
+
+    assert LazyHTML.query(html, ".execution-target-model") |> LazyHTML.text() == "gpt-5.6-sol"
+
+    assert LazyHTML.query(html, ".execution-target-meta") |> LazyHTML.text() ==
+             "Medium reasoning · Codex · Default profile"
+
+    refute LazyHTML.text(html) =~ "codex:gpt-5.6-sol/medium@default"
+  end
+
   test "the pager renders nothing for one page and only the links that lead somewhere" do
     assigns = %{path: fn page -> "/findings?page=#{page}" end}
 

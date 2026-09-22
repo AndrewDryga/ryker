@@ -89,7 +89,10 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Input do
           owner: if(input, do: {:input, input.id}, else: :episode),
           delivery_ref: get_in(event.payload || %{}, ["expected_delivery_ref"]),
           result_ref: get_in(event.payload || %{}, ["result_ref"]),
-          details: kernel_details(event, input),
+          # The source card owns input identity, message metadata and retained
+          # bodies. Repeating those facts on every durable transition made the
+          # timeline look like it contained new evidence when it did not.
+          details: [],
           stage: kernel_stage(event.kind),
           state: event.kind,
           summary: kernel_summary(event.kind),
@@ -98,27 +101,6 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Input do
         }
       )
     end)
-  end
-
-  defp kernel_details(event, nil) do
-    compact_details([
-      {"Sequence", event.sequence},
-      {"Identity", event.dedupe_key},
-      {"Fingerprint", short_digest(event.fingerprint)}
-    ])
-  end
-
-  defp kernel_details(event, input) do
-    compact_details([
-      {"Sequence", event.sequence},
-      {"Source", join_ref(input.source_kind, input.source_ref)},
-      {"Actor", join_ref(input.actor_kind, input.actor_ref)},
-      {"Event", input.event_kind},
-      {"Revision", input.revision},
-      {"Message", source_text(input)},
-      {"Attachments", source_attachments(input)},
-      {"Fingerprint", short_digest(event.fingerprint)}
-    ])
   end
 
   defp kernel_band(kind)
@@ -229,8 +211,8 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Input do
         summary: correction.reason,
         details:
           compact_details([
-            {"Confirmed by", correction.actor_ref},
-            {"Confirmation", correction.confirmation_ref},
+            {"Confirmed by", correction.actor_ref, identifier: true},
+            {"Confirmation", correction.confirmation_ref, identifier: true},
             {"Messages moved", length(correction.input_refs)}
           ])
       })
@@ -251,36 +233,6 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Input do
 
   defp correction_title(%{kind: :reassign}, _episode),
     do: "Messages moved into this episode by an audited correction"
-
-  defp source_text(%Entry{content: %{"text" => value}}) when is_binary(value),
-    do: retained_text(value)
-
-  defp source_text(%Entry{source_kind: "github", content: %{"payload" => payload}})
-       when is_map(payload) do
-    value =
-      get_in(payload, ["comment", "body"]) || get_in(payload, ["review", "body"]) ||
-        get_in(payload, ["issue", "body"]) || get_in(payload, ["pull_request", "body"])
-
-    if is_binary(value), do: retained_text(value), else: nil
-  end
-
-  defp source_text(_input), do: nil
-
-  defp source_attachments(%Entry{content: %{"files" => files}}) when is_list(files) do
-    names =
-      files
-      |> Enum.flat_map(fn
-        %{"name" => name} when is_binary(name) -> [bounded(name, 128)]
-        _file -> []
-      end)
-      |> Enum.take(5)
-
-    [plural(length(files), "file"), Enum.join(names, " · ")]
-    |> Enum.reject(&(&1 == ""))
-    |> Enum.join(" · ")
-  end
-
-  defp source_attachments(_input), do: nil
 
   @doc "A link to the source message of the first input that has one, or nil."
   def source_link(episode, events, inputs) do
@@ -431,10 +383,4 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Input do
       }
     end
   end
-
-  defp retained_text(value) do
-    "retained · #{byte_size(value)} bytes · sha256 #{value |> sha256() |> short_digest()} · content withheld"
-  end
-
-  defp sha256(value), do: :crypto.hash(:sha256, value) |> Base.encode16(case: :lower)
 end

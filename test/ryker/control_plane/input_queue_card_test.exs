@@ -116,7 +116,8 @@ defmodule Ryker.ControlPlane.InputQueueCardTest do
     assert card =~ "A routing worker claimed the input."
     assert card =~ "280 ms"
     assert card =~ "22:51:44.280"
-    assert card =~ "Input ID"
+    refute card =~ "Input ID"
+    refute card =~ "Technical details"
   end
 
   test "a missing pickup transition is not reconstructed from terminal state" do

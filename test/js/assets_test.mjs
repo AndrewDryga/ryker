@@ -28,7 +28,7 @@ test("every module the shell imports is on the served allowlist", () => {
     queue.push(...imports(file))
   }
   // The local modules that exist to be imported are all reachable from the shell.
-  for (const file of ["reading-state.mjs", "composer.mjs", "leave-guard.mjs", "drafts.mjs", "history.mjs", "filter-menu.mjs"]) {
+  for (const file of ["reading-state.mjs", "copy-value.mjs", "composer.mjs", "leave-guard.mjs", "drafts.mjs", "history.mjs", "filter-menu.mjs"]) {
     assert.ok(seen.has(file), `${file} is served but nothing imports it`)
   }
 })

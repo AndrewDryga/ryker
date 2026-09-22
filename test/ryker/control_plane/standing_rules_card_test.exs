@@ -214,6 +214,15 @@ defmodule Ryker.ControlPlane.StandingRulesCardTest do
     assert Enum.any?(reasons, &(&1 =~ "expired before the message arrived"))
     assert Enum.any?(reasons, &(&1 =~ "first 100 applicable rules"))
     refute Enum.any?(reasons, &(&1 =~ "slack:"))
+
+    assert Enum.all?(LazyHTML.query(rules, ".standing-rule-definition"), fn detail ->
+             Enum.any?(
+               LazyHTML.attribute(detail, "class"),
+               &String.contains?(&1, "ui-disclosure")
+             )
+           end)
+
+    assert LazyHTML.query(rules, ".standing-rule-definition .event-facts") |> Enum.empty?()
   end
 
   test "a complete inventory with no matches keeps every rule and reports zero matched" do

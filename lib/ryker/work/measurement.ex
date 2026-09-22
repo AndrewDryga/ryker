@@ -1,6 +1,8 @@
 defmodule Ryker.Work.Measurement do
   @moduledoc false
 
+  alias Ryker.ControlPlane.ExecutionTarget
+
   @maximum_target_bytes 512
   @maximum_cost_usd Decimal.new("1000000000")
   @maximum_counter 9_223_372_036_854_775_807
@@ -40,15 +42,14 @@ defmodule Ryker.Work.Measurement do
     do: %{effort: "default", model: "default", provider: "unrecorded"}
 
   def target_parts(target) when is_binary(target) do
-    [head | _accounts] = String.split(target, "@", parts: 2)
-    [model_spec | effort] = String.split(head, "/", parts: 2)
-    [provider | model] = String.split(model_spec, ":", parts: 2)
+    case ExecutionTarget.parts(target) do
+      %{effort: effort, model: model, provider: provider} ->
+        %{effort: effort || "default", model: model, provider: provider}
 
-    %{
-      effort: List.first(effort) || "default",
-      model: List.first(model) || "default",
-      provider: provider
-    }
+      nil ->
+        [provider | _rest] = String.split(target, [":", "/", "@"], parts: 2)
+        %{effort: "default", model: "default", provider: provider}
+    end
   end
 
   defp target(%{"target" => value}, errors)

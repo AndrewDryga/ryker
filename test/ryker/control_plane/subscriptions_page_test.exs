@@ -14,7 +14,7 @@ defmodule Ryker.ControlPlane.SubscriptionsPageTest do
     %{item: item_fixture()}
   end
 
-  test "waits lead with their purpose and keep internal identities in collapsed details", %{
+  test "waits lead with their purpose and keep only nonduplicated identity in Wait details", %{
     item: item
   } do
     document =
@@ -34,12 +34,43 @@ defmodule Ryker.ControlPlane.SubscriptionsPageTest do
 
     assert LazyHTML.text(document) =~ "When a matching update arrives"
     assert LazyHTML.text(document) =~ "No deadline"
-    assert LazyHTML.query(document, "details:not([open])") |> LazyHTML.text() =~ item.ref
+    details = LazyHTML.query(document, ".subscription-details")
 
-    assert LazyHTML.query(document, "details:not([open])") |> LazyHTML.text() =~
-             item.matcher_digest
+    assert details |> LazyHTML.query("summary") |> LazyHTML.text() |> String.trim() ==
+             "Wait details"
+
+    assert details
+           |> LazyHTML.query("button[data-copy-value]")
+           |> LazyHTML.attribute("data-copy-value") == [item.ref]
+
+    assert LazyHTML.text(details) =~ "Source revision"
+    refute LazyHTML.text(details) =~ item.matcher_digest
+    refute LazyHTML.text(details) =~ "Episode"
+    refute LazyHTML.text(details) =~ "Next wake-up"
 
     assert LazyHTML.query(document, "table") |> Enum.empty?()
+  end
+
+  test "completed waits expose digest references only when they help diagnose the outcome", %{
+    item: item
+  } do
+    item = %{
+      item
+      | status: :timed_out,
+        cursor_digest: String.duplicate("c", 64),
+        last_observation_digest: String.duplicate("o", 64)
+    }
+
+    details =
+      render_component(&SubscriptionsPage.render/1, items: [item])
+      |> LazyHTML.from_fragment()
+      |> LazyHTML.query(".subscription-details")
+
+    text = LazyHTML.text(details)
+    assert text =~ "Matcher reference"
+    assert text =~ "Cursor reference"
+    assert text =~ "Observation reference"
+    assert details |> LazyHTML.query("button[data-copy-value]") |> Enum.count() == 4
   end
 
   test "unchanged wait rows advance relative labels while exposing exact UTC times on focus", %{
@@ -87,8 +118,8 @@ defmodule Ryker.ControlPlane.SubscriptionsPageTest do
     assert LazyHTML.query(document, ".subscription-target") |> LazyHTML.attribute("aria-label") ==
              ["Open target for #{title}"]
 
-    assert LazyHTML.query(document, "summary") |> LazyHTML.attribute("aria-label") ==
-             ["Technical details for #{title}"]
+    assert LazyHTML.query(document, ".subscription-details > summary")
+           |> LazyHTML.attribute("aria-label") == ["Wait details for #{title}"]
 
     html = HTML.subscriptions([], %{"q" => "absent"}) |> IO.iodata_to_binary()
     assert html =~ "No waits match these filters"

@@ -107,6 +107,42 @@ defmodule Ryker.ControlPlane.ReadabilityTest do
     assert rule =~ "min-width:0"
   end
 
+  test "timeline cards share one readable type hierarchy" do
+    css = Assets.call(Plug.Test.conn(:get, "/workspace.css"), []).resp_body
+
+    [_, heading] =
+      Regex.run(~r/\.case-event-heading h3, \.case-request-heading h3 \{([^}]+)\}/, css)
+
+    assert heading =~ "font-size:16px"
+    assert heading =~ "line-height:24px"
+    assert heading =~ "color:var(--ink)"
+
+    [_, message] = Regex.run(~r/\.case-message-text \{([^}]+)\}/, css)
+    assert message =~ "font-size:16px"
+    assert message =~ "line-height:24px"
+    assert message =~ "color:var(--ink)"
+
+    [_, summary] = Regex.run(~r/\.case-event-summary \{ (margin:[^}]+)\}/, css)
+    assert summary =~ "font-size:14px"
+    assert summary =~ "line-height:20px"
+    assert summary =~ "color:var(--ryker-text-secondary)"
+  end
+
+  test "timeline navigation, disclosures and copy controls keep full-size targets" do
+    css = Assets.call(Plug.Test.conn(:get, "/workspace.css"), []).resp_body
+
+    [_, jumps] = Regex.run(~r/\.timeline-jumps a \{([^}]+)\}/, css)
+    assert jumps =~ "width:44px"
+    assert jumps =~ "height:44px"
+
+    [_, disclosure] = Regex.run(~r/\.ui-disclosure > summary \{([^}]+)\}/, css)
+    assert disclosure =~ "min-height:44px"
+
+    [_, copy] = Regex.run(~r/\.copy-value \{([^}]+)\}/, css)
+    assert copy =~ "width:44px"
+    assert copy =~ "height:44px"
+  end
+
   test "the episode summary keeps timing together while semantic groups reflow without scrolling" do
     # The three groups must survive both a 200% zoom viewport and a 320px
     # phone without turning the summary into a horizontally scrolling table.

@@ -39,6 +39,8 @@ defmodule Ryker.ControlPlane.BackgroundSectionsTest do
     assert step.summary =~ "Saved 1 topic update"
     assert step.tone == :good
     assert step.href =~ "/memory?"
+    assert Enum.find(step.details, &(&1.label == "Model")).presentation == :execution_target
+    refute Enum.any?(step.details, &(&1.label in ["Prompt", "Result"]))
   end
 
   test "a batch that only shares a channel is not this request's learning" do
@@ -193,7 +195,7 @@ defmodule Ryker.ControlPlane.BackgroundSectionsTest do
       output_schema: %{"type" => "object"},
       result: result,
       result_sha256: if(result, do: CanonicalJSON.digest(result)),
-      producer: %{"target" => "codex:recorded"},
+      producer: %{"target" => "codex:gpt-5.6-sol/medium@default"},
       error_code: Keyword.get(options, :error_code),
       applied_at: DateTime.add(@now, 120, :second)
     })

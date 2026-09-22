@@ -47,7 +47,7 @@ defmodule Ryker.ControlPlane.WorkSetupCardTest do
     refute card =~ "Ready"
     assert card =~ "Session"
     assert card =~ "New"
-    assert card =~ "Profile"
+    assert card =~ "Execution policy"
     assert card =~ "setup-policy"
     assert card =~ "Worker"
     assert card =~ "Local Coop"
@@ -56,7 +56,7 @@ defmodule Ryker.ControlPlane.WorkSetupCardTest do
     refute html =~ "Workspace selected"
   end
 
-  test "setup details show access, tools and generation without repeating the catalog" do
+  test "setup details show access and tools without repeating face facts or internal receipts" do
     work = submitted!("details")
     html = rendered(work.episode)
     card = card(html, work.turn)
@@ -70,8 +70,21 @@ defmodule Ryker.ControlPlane.WorkSetupCardTest do
     assert card =~ "ryker writable · coop read-only"
     assert card =~ "Ryker tools"
     assert card =~ "Bound to this work turn"
-    assert card =~ "Selected from"
-    assert card =~ "Not recorded"
+    refute card =~ "Selected from"
+    refute card =~ "Preparation checks"
+    refute card =~ "Technical details"
+    refute card =~ "Policy digest"
+    refute card =~ "Authority digest"
+
+    labels =
+      html
+      |> LazyHTML.from_document()
+      |> LazyHTML.query("#event-setup-#{work.turn.id} dt")
+      |> Enum.map(&LazyHTML.text/1)
+
+    assert Enum.count(labels, &(&1 == "Session")) == 1
+    assert Enum.count(labels, &(&1 == "Execution policy")) == 1
+    assert Enum.count(labels, &(&1 == "Worker")) == 1
     # The briefing owns the repo@sha chips and the tool catalog; setup does not repeat them.
     refute card =~ "e36a37be36a"
     refute card =~ "get_work_state"
@@ -167,6 +180,9 @@ defmodule Ryker.ControlPlane.WorkSetupCardTest do
     card = card(html, work.turn)
     assert card =~ "Blocked"
     assert card =~ "No eligible worker with available capacity was found."
+    assert card =~ "Failure diagnostics"
+    refute card =~ "Policy digest"
+    refute card =~ "Authority digest"
     refute card =~ "all workers were busy"
     refute ready?(html, work.turn)
   end

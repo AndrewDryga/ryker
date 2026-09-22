@@ -463,7 +463,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
     prepared = Enum.find(detail.trace.steps, &(&1.title == "Turn 1 queued"))
     prepared_details = Map.new(prepared.details, &{&1.label, &1.value})
 
-    assert Map.keys(prepared_details) |> Enum.sort() == ["Policy", "Turn"]
+    assert Map.keys(prepared_details) == ["Execution policy"]
     assert prepared.state == ""
     refute inspect(detail.trace) =~ "redacted by projection"
 
@@ -471,6 +471,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
     # A completed execution used to be stamped at its start, above tools it had not run yet.
     model_work = Enum.find(detail.trace.steps, &(&1.title == "Turn 1 finished"))
     assert model_work.at == measured.remote_finished_at
+    assert Enum.find(model_work.details, &(&1.label == "Model")).presentation == :execution_target
     # validate_final can finish before the model returns its answer; that is
     # still work, not evidence of an already-delivered answer.
     for {offset, band} <- [{-1, :work}, {1, :answer}] do
@@ -2184,6 +2185,12 @@ defmodule Ryker.ControlPlane.ProjectionTest do
     assert Enum.any?(episode_detail.trace.steps, &(&1.title == "Schedule created"))
     assert Enum.any?(episode_detail.trace.steps, &(&1.title == "Worker · turn"))
     assert Enum.any?(episode_detail.trace.steps, &(&1.title == "Worker · candidate"))
+
+    worker_step = Enum.find(episode_detail.trace.steps, &(&1.title == "Worker · turn"))
+    worker_detail = Enum.find(worker_step.details, &(&1.label == "Worker"))
+    assert worker_detail.identifier
+    refute Enum.any?(worker_step.details, &(&1.label in ["Event", "Payload"]))
+
     assert Enum.any?(episode_detail.trace.steps, &(&1.title == "Additional message"))
     assert Enum.any?(episode_detail.trace.steps, &(&1.title == "Slack reaction"))
     assert Enum.any?(episode_detail.trace.steps, &(&1.title == "GitHub reaction"))

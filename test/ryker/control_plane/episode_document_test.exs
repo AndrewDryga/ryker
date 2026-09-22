@@ -413,6 +413,13 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
     for href <- document |> LazyHTML.query(".timeline-jumps a") |> LazyHTML.attribute("href") do
       assert Enum.count(LazyHTML.query(document, href)) == 1
     end
+
+    assert document
+           |> LazyHTML.query(".timeline-jumps .ui-icon path")
+           |> LazyHTML.attribute("d")
+           |> Enum.uniq()
+           |> Enum.sort() ==
+             ["M12 19V5 M6 11l6-6 6 6", "M12 5v14 M18 13l-6 6-6-6"] |> Enum.sort()
   end
 
   test "the briefing lists prompt sources without outer or recursively nested disclosures" do
@@ -533,7 +540,7 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
     end
   end
 
-  test "a model call keeps its forensic identity in one quiet technical disclosure" do
+  test "the timeline leaves forensic identity to the dedicated request inspector" do
     request = %{
       id: "request-turn-recorded",
       request_id: "turn-recorded",
@@ -551,12 +558,10 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
       render_component(&EpisodeRequest.render/1, request: request)
       |> LazyHTML.from_fragment()
 
-    details = LazyHTML.query(document, "details.request-technical-details")
-    assert Enum.count(details) == 1
-    assert LazyHTML.query(details, "summary") |> LazyHTML.text() == "Technical details"
-    assert LazyHTML.text(details) =~ "turn-recorded"
-    assert LazyHTML.text(details) =~ "ryker-chat"
-    assert LazyHTML.text(details) =~ String.duplicate("a", 64)
+    assert Enum.empty?(LazyHTML.query(document, "details.request-technical-details"))
+    refute LazyHTML.text(document) =~ "turn-recorded"
+    refute LazyHTML.text(document) =~ "ryker-chat"
+    refute LazyHTML.text(document) =~ String.duplicate("a", 64)
   end
 
   test "a greeting explains routing without expanding protocol JSON or duplicating delivery chapters" do
@@ -838,25 +843,6 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
 
     document = render_episode(snapshot, []) |> LazyHTML.from_fragment()
     assert LazyHTML.query(document, ".episode-metrics") |> LazyHTML.text() =~ "1m 24s"
-  end
-
-  test "model labels separate the saved profile without guessing a missing target" do
-    assert EpisodeRequest.model("codex:gpt-5.6-sol/high@emisar") == %{
-             name: "gpt-5.6-sol/high",
-             account: "codex · emisar"
-           }
-
-    assert EpisodeRequest.model("codex:gpt-5.6-sol/high") == %{
-             name: "gpt-5.6-sol/high",
-             account: "codex"
-           }
-
-    assert EpisodeRequest.model("Execution target not recorded") == %{
-             name: "Execution target not recorded",
-             account: nil
-           }
-
-    assert EpisodeRequest.model(nil) == %{name: "Model not recorded", account: nil}
   end
 
   test "silent outcomes stay visible and never jump to an older answer" do

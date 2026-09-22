@@ -3,6 +3,7 @@ defmodule Ryker.ControlPlane.SubscriptionsPage do
   use Phoenix.Component
 
   import Ryker.ControlPlane.Components, only: [status: 1, timestamp: 1]
+  alias Ryker.ControlPlane.Components
   alias Ryker.ControlPlane.SubscriptionPresentation, as: Presentation
 
   # The rows only; the window and search semantics live in the page help, and
@@ -62,19 +63,14 @@ defmodule Ryker.ControlPlane.SubscriptionsPage do
               </div>
             </dl>
           </div>
-          <details class="subscription-details" id={"wait-details-#{item.ref}"}>
-            <summary
-              id={"wait-summary-#{item.ref}"}
-              aria-label={"Technical details for #{item.title}"}
-            >
-              Technical details
-            </summary>
-            <dl>
-              <div :for={{label, value} <- details(item)}>
-                <dt>{label}</dt><dd>{value || "Not recorded"}</dd>
-              </div>
-            </dl>
-          </details>
+          <Components.disclosure
+            id={"wait-details-#{item.ref}"}
+            label="Wait details"
+            summary_aria_label={"Wait details for #{item.title}"}
+            class="subscription-details"
+          >
+            <Components.fact_list facts={details(item)} />
+          </Components.disclosure>
         </article>
       </div>
     </div>
@@ -82,19 +78,27 @@ defmodule Ryker.ControlPlane.SubscriptionsPage do
   end
 
   defp details(item) do
-    [
-      {"Subscription", item.ref},
-      {"Episode", item.episode_ref},
-      {"Source", item.source_kind},
-      {"Revision", item.revision},
-      {"Matcher digest", item.matcher_digest},
-      {"Cursor digest", item.cursor_digest},
-      {"Observation digest", item.last_observation_digest},
-      {"Next wake-up (UTC)", exact(item.poll_after)},
-      {"Deadline (UTC)", exact(item.deadline_at)},
-      {"Observed (UTC)", exact(item.last_observed_at)},
-      {"Updated (UTC)", exact(item.updated_at)}
+    identity = [
+      %{label: "Wait ID", value: item.ref, identifier: true},
+      %{label: "Source revision", value: to_string(item.revision)}
     ]
+
+    if item.status == :timed_out do
+      identity ++
+        Enum.flat_map(
+          [
+            {"Matcher reference", item.matcher_digest},
+            {"Cursor reference", item.cursor_digest},
+            {"Observation reference", item.last_observation_digest}
+          ],
+          fn
+            {_label, nil} -> []
+            {label, value} -> [%{label: label, value: value, identifier: true}]
+          end
+        )
+    else
+      identity
+    end
   end
 
   defp exact(nil), do: nil

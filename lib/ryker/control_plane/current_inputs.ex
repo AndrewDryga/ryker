@@ -66,6 +66,7 @@ defmodule Ryker.ControlPlane.CurrentInputs do
         operational_pruned_at: current.operational_pruned_at,
         event_kind: current.event_kind,
         event_ref: current.event_ref,
+        dedupe_key: current.dedupe_key,
         source_item_ref: current.source_item_ref,
         revision: current.revision,
         execution_mode: current.execution_mode,

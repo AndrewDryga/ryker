@@ -135,7 +135,7 @@ defmodule Ryker.ControlPlane.ActivityPage do
                 <.link navigate={item.href} class="activity-title">{title(item)}</.link><div class="activity-meta">
                   <span>{item.source}</span><span :if={item.repository}>{item.repository}</span><span :if={
                     item.target
-                  }>{item.target}</span><span
+                  }><.execution_target target={item.target} compact /></span><span
                     :if={item.source == "Slack" && item[:conversation]}
                     title={item[:conversation]}
                   >{SlackNames.destination(item.conversation)}</span><time title={

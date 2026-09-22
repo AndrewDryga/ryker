@@ -7,6 +7,7 @@ import {applyFilterChange} from "/assets/filter-toolbar.mjs"
 import {ConversationHistory} from "/assets/history.mjs"
 import {FilterMenu} from "/assets/filter-menu.mjs"
 import {ElapsedTime} from "/assets/elapsed-time.mjs"
+import {copyValueFromEvent} from "/assets/copy-value.mjs"
 
 // The shell: one LiveView socket and the hooks that keep a reader's place,
 // drafts and unsaved edits across patches. Each hook's behaviour lives in its
@@ -15,6 +16,7 @@ import {ElapsedTime} from "/assets/elapsed-time.mjs"
 // Filter toolbars are plain GET forms and work before the socket connects,
 // so their dropdowns are handled at the document, not inside the hook.
 document.addEventListener("change", applyFilterChange)
+document.addEventListener("click", copyValueFromEvent)
 
 const PreserveReadingState = createReadingStateHook()
 const InstructionDraft = {
