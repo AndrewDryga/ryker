@@ -94,7 +94,7 @@ defmodule Ryker.Work.ActivityTest do
 
     {:ok, detail} = Projection.episode(started.episode.key)
     steps = Enum.filter(detail.trace.steps, &String.starts_with?(&1.id, "activity-"))
-    assert length(steps) == 3
+    assert length(steps) == 2
 
     for step <- steps do
       refute inspect(step.path_context) =~ secret
@@ -191,15 +191,14 @@ defmodule Ryker.Work.ActivityTest do
     refute last.payload["text"] =~ "opaque-configured-secret"
 
     {:ok, detail} = Projection.episode(started.episode.key)
-    start = Enum.find(detail.trace.steps, &(&1.stage == "Tool call" && &1.state == "started"))
     tool = Enum.find(detail.trace.steps, &(&1.stage == "Tool call" && &1.state == "failed"))
-    refute start.summary =~ "unauthorized"
-    assert DateTime.compare(start.at, tool.at) == :lt
+    refute Enum.any?(detail.trace.steps, &(&1.stage == "Tool call" && &1.state == "started"))
+    assert tool.duration_ms == 1_000
     assert tool.summary =~ "unauthorized"
     assert Enum.any?(tool.artifacts, &(&1.label == "Arguments" && &1.artifact.text =~ "emisar"))
     refute Enum.any?(detail.trace.steps, &(&1.title == "Model reasoning checkpoint"))
 
-    # A late path must appear on the completed event, never rewrite its start.
+    # A late path is merged into the one completed card for the call.
     paths = %{
       "basis" => "lexical",
       "paths" => [
@@ -224,10 +223,9 @@ defmodule Ryker.Work.ActivityTest do
 
     {:ok, detail} = Projection.episode(started.episode.key)
     reads = Enum.filter(detail.trace.steps, &(&1.title == "Read file 'config.ex'"))
-    assert [read_start, read_finish] = reads
-    assert Map.get(read_start, :path_context) == nil
-    assert Map.get(read_finish, :path_context) == paths
-    assert read_finish.tool_kind == "read"
+    assert [read] = reads
+    assert Map.get(read, :path_context) == paths
+    assert read.tool_kind == "read"
   end
 
   test "a replayed Coop page advances one durable cursor without duplicating activity" do

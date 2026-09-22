@@ -28,6 +28,9 @@ defmodule Ryker.ControlPlane.CandidateResponseViewTest do
 
     assert Enum.count(attempts) == 3
 
+    assert LazyHTML.query(document, ".validation-attempt > .case-card-heading") |> Enum.count() ==
+             3
+
     for {attempt, response} <- [{1, first}, {2, second}, {3, second}] do
       card = Enum.at(attempts, attempt - 1)
       assert LazyHTML.query(card, ".candidate-response pre") |> LazyHTML.text() == response.text
@@ -35,10 +38,13 @@ defmodule Ryker.ControlPlane.CandidateResponseViewTest do
 
       assert LazyHTML.query(card, ".candidate-response") |> LazyHTML.attribute("id") ==
                ["recorded-response-#{attempt}"]
+
+      disclosure = LazyHTML.query(card, ".candidate-response .ui-disclosure")
+      assert LazyHTML.query(disclosure, "summary") |> LazyHTML.text() =~ "Raw response"
+      assert LazyHTML.query(disclosure, "summary") |> LazyHTML.text() =~ "JSON"
     end
 
-    first_id = "#recorded-response-1-body"
-    assert first_id in (LazyHTML.query(document, "a") |> LazyHTML.attribute("href"))
+    assert Enum.empty?(LazyHTML.query(document, ".candidate-response a"))
     refute html =~ "Response body not retained for this attempt"
     refute html =~ "Response sent"
   end

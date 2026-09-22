@@ -440,7 +440,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
     now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
 
     measured = measured_turn!("measured", "claude:opus/high@work", now)
-    _unmeasured = measured_turn!("unmeasured", "codex:gpt-5.6-sol/xhigh@work", now, false)
+    unmeasured = measured_turn!("unmeasured", "codex:gpt-5.6-sol/xhigh@work", now, false)
 
     snapshot = Projection.usage(%{"window" => "24h"})
 
@@ -471,7 +471,16 @@ defmodule Ryker.ControlPlane.ProjectionTest do
     # A completed execution used to be stamped at its start, above tools it had not run yet.
     model_work = Enum.find(detail.trace.steps, &(&1.title == "Turn 1 finished"))
     assert model_work.at == measured.remote_finished_at
-    assert Enum.find(model_work.details, &(&1.label == "Model")).presentation == :execution_target
+    assert model_work.duration_ms == measured.usage_provider_ms
+    assert model_work.summary == nil
+    assert model_work.details == []
+
+    assert {:ok, unmeasured_detail} = Projection.episode(episode_key!(unmeasured.episode_id))
+    unmeasured_work = Enum.find(unmeasured_detail.trace.steps, &(&1.title == "Turn 1 finished"))
+    assert unmeasured_work.at == unmeasured.accepted_at
+    assert unmeasured_work.duration_ms == nil
+    assert unmeasured_work.summary == "Timing and usage were not reported."
+    assert unmeasured_work.tone == :warn
     # validate_final can finish before the model returns its answer; that is
     # still work, not evidence of an already-delivered answer.
     for {offset, band} <- [{-1, :work}, {1, :answer}] do
@@ -500,8 +509,8 @@ defmodule Ryker.ControlPlane.ProjectionTest do
     assert Enum.any?(detail.trace.steps, &(&1.title == "Turn 1 result accepted"))
     assert Enum.any?(detail.trace.chapters, &(&1.title == "The answer"))
 
-    for {candidate, parse} <- [
-          {Jason.encode!(%{"delivery" => "none"}), "JSON object"},
+    for {candidate, expected_parse} <- [
+          {Jason.encode!(%{"delivery" => "none"}), nil},
           {Jason.encode!(["not", "an", "object"]), "JSON value; object required"},
           {"not-json", "invalid JSON"}
         ] do
@@ -519,7 +528,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
       assert {:ok, legacy_detail} = Projection.episode(episode_key!(measured.episode_id))
       validation = Enum.find(legacy_detail.trace.steps, &(&1.title == "Answer validated"))
       validation_details = Map.new(validation.details, &{&1.label, &1.value})
-      assert validation_details["Parse"] == parse
+      assert validation_details["Parse"] == expected_parse
     end
 
     current = Repo.get!(Ryker.Work.Turn, measured.id)
@@ -567,7 +576,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
 
     assert Enum.map(validation_steps, & &1.summary) == [
              "Supply the missing evidence.",
-             "The response passed the checks for this attempt.",
+             "Passed checks on attempt 3.",
              "Ryker rejected this candidate and requested a same-turn correction."
            ]
 
@@ -587,7 +596,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
       assert setup_details["Bound task"] == expected
     end
 
-    for {provider_ms, expected} <- [{120_000, "2m"}, {7_200_000, "2h"}] do
+    for provider_ms <- [120_000, 7_200_000] do
       Repo.update_all(
         from(saved in Ryker.Work.Turn, where: saved.id == ^measured.id),
         set: [usage_provider_ms: provider_ms]
@@ -596,7 +605,8 @@ defmodule Ryker.ControlPlane.ProjectionTest do
       assert {:ok, duration_detail} = Projection.episode(episode_key!(measured.episode_id))
       work_step = Enum.find(duration_detail.trace.steps, &(&1.title == "Turn 1 finished"))
       work_details = Map.new(work_step.details, &{&1.label, &1.value})
-      assert work_details["Provider"] == expected
+      assert work_step.duration_ms == provider_ms
+      assert work_details == %{}
     end
 
     assert %{provider: "claude", model: "opus", effort: "high", attempts: 1} =
@@ -1193,14 +1203,18 @@ defmodule Ryker.ControlPlane.ProjectionTest do
       "tool_call_id" => "tool:nomad"
     })
 
-    # A completed tool was previously rewritten into its earlier start card.
+    # A completed tool used to leave its earlier start card behind, so one call
+    # appeared as two separate operations in the timeline.
     {:ok, after_completion} = Projection.episode(working.episode.key)
-    assert Enum.find(after_completion.trace.steps, &(&1.id == started.id)) == started
+    refute Enum.any?(after_completion.trace.steps, &(&1.id == started.id))
 
-    assert Enum.any?(
-             after_completion.trace.steps,
-             &(&1.stage == "Tool call" && &1.state == "completed" && &1.at > started.at)
-           )
+    completed_tools =
+      Enum.filter(
+        after_completion.trace.steps,
+        &(&1.stage == "Tool call" && &1.state == "completed" && &1.at > started.at)
+      )
+
+    assert [%{duration_ms: 1_000, title: "emisar · nomad.job_status"}] = completed_tools
 
     record_activity!(working.episode.id, session.id, 4, "tool.completed", %{
       "status" => "failed",
@@ -1261,6 +1275,12 @@ defmodule Ryker.ControlPlane.ProjectionTest do
 
     record_activity!(working.episode.id, session.id, 19, "tool.started", %{
       "input" => %{"path" => "lib/ryker/control_plane"}
+    })
+
+    # Coop heartbeats can legally record progress without display text. These
+    # preserve liveness evidence but must not create blank timeline cards.
+    record_activity!(working.episode.id, session.id, 20, "model.progress", %{
+      "evidence_version" => 1
     })
 
     assert {:ok, progress} =
@@ -1349,6 +1369,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
            )
 
     refute Enum.any?(detail.trace.steps, &(&1.title == "Model reasoning checkpoint"))
+    refute Enum.any?(detail.trace.steps, &(&1.title == "Progress update"))
 
     assert Enum.any?(detail.trace.steps, &(&1.title == "Model plan updated"))
     assert Enum.any?(detail.trace.steps, &(&1.title == "Tool permission decided"))
@@ -1370,9 +1391,9 @@ defmodule Ryker.ControlPlane.ProjectionTest do
     # has all of it: a bounded window has to say whether anything is behind it.
     assert detail.trace.activity == %{
              more: nil,
-             shown: 19,
+             shown: 20,
              tool_calls: 4,
-             total: 19,
+             total: 20,
              truncated: false
            }
 

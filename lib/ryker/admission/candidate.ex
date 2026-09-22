@@ -128,6 +128,9 @@ defmodule Ryker.Admission.Candidate do
   @doc false
   def preview_limit, do: @preview_limit
 
+  @doc false
+  def event_preview(event), do: preview(event)
+
   @doc "Narrow captured source text without rereading an episode or inventing omitted bytes."
   @spec with_preview_limit(t(), pos_integer()) :: t()
   def with_preview_limit(%__MODULE__{} = candidate, limit)

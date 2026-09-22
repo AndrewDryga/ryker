@@ -35,13 +35,18 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
         :input_sections,
         Enum.filter(request.sections, &(&1.id in ~w(instructions context)))
       )
+      |> assign(
+        :result_evidence,
+        result_evidence(request)
+      )
 
     ~H"""
     <div class="episode-request">
-      <div class="case-request-heading">
-        <h3>{@headline}</h3>
-        <div class="request-model"><Components.execution_target target={@request.target} /></div>
-      </div>
+      <Components.card_heading title={@headline} meta_layout={:stack_on_narrow}>
+        <:meta>
+          <div class="request-model"><Components.execution_target target={@request.target} /></div>
+        </:meta>
+      </Components.card_heading>
       <p :if={@explanation} class="request-explanation">{@explanation}</p>
       <section
         :if={@applied != []}
@@ -135,19 +140,17 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
           View response with attempt {@archived_response.attempt}'s checks ↑
         </a>
       </p>
-      <section
-        :if={@result? && !@archived_response}
-        class="request-evidence request-result-evidence"
-        id={"#{@request.id}-evidence"}
+      <div
+        :if={@result? && !@archived_response && @result_evidence != []}
+        class="routing-evidence"
+        aria-label="Routing evidence"
       >
-        <h4>{if @request.source_kind == :work, do: "Raw model response", else: "Routing records"}</h4>
         <.artifact_disclosure
-          :for={section <- @request.sections}
-          :if={@request.source_kind != :work || section.id == "candidate"}
+          :for={section <- @result_evidence}
           id={"#{@request.id}-evidence-#{section.id}"}
           section={section}
         />
-      </section>
+      </div>
     </div>
     """
   end
@@ -160,57 +163,196 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
       section.artifact.state != :retained || section.artifact.truncated ||
         not is_map(document(%{sections: [section]}, "context"))
 
-  # One disclosure per record, not one disclosure over all of them. A routing
-  # result carries the evidence, the committed decision, the milestones and the
-  # exact response; stacking every one of them inside a single "Routing records"
-  # toggle meant opening all of it to read any of it, and the titles that say
-  # which is which were only visible after that.
+  defp result_evidence(%{source_kind: :work, sections: sections}),
+    do: Enum.filter(sections, &(&1.id == "candidate"))
+
+  defp result_evidence(%{source_kind: :admission, sections: sections} = request) do
+    ids =
+      if decision_artifact_needed?(request),
+        do: ~w(routing response candidate),
+        else: ~w(routing response)
+
+    Enum.filter(sections, &(&1.id in ids))
+  end
+
+  defp result_evidence(_request), do: []
+
+  # The committed decision and timings are already readable above this point.
+  # These peer disclosures retain only the records that explain how routing
+  # selected its context and the exact model response that proposed the result.
   defp artifact_disclosure(assigns) do
-    assigns = assign(assigns, :rows, decided_rows(assigns.section))
+    assigns =
+      assigns
+      |> assign(:label, evidence_label(assigns.section))
+      |> assign(:meta, artifact_meta(assigns.section.artifact))
+      |> assign(:selection_facts, selection_facts(assigns.section))
 
     ~H"""
-    <details class={"timeline-artifact artifact-#{@section.id}"} id={@id}>
-      <summary>
-        {@section.title}<span :if={availability(@section.artifact)}>{availability(@section.artifact)}</span>
-      </summary>
-      <dl :if={@rows != []} class="context-rows">
-        <div :for={{label, value} <- @rows}>
-          <dt>{label}</dt><dd>{value}</dd>
+    <Components.disclosure
+      id={@id}
+      label={@label}
+      kind={:source}
+      class={["routing-evidence-item", "artifact-#{@section.id}"]}
+    >
+      <:meta :if={@meta}>{@meta}</:meta>
+      <dl :if={@selection_facts} class="selection-evidence-facts">
+        <div :for={fact <- @selection_facts}>
+          <dt>{fact.label}</dt><dd>{fact.value}</dd>
         </div>
       </dl>
-      <pre :if={@section.artifact.state == :retained}>{@section.artifact.text}</pre>
-    </details>
+      <Components.disclosure
+        :if={@selection_facts}
+        id={@id <> "-technical"}
+        label="Technical record"
+        class="selection-evidence-technical"
+      >
+        <pre class="model-document-text" tabindex="0">{@section.artifact.text}</pre>
+      </Components.disclosure>
+      <pre
+        :if={@section.artifact.state == :retained && !@selection_facts}
+        class="model-document-text"
+        tabindex="0"
+      >{@section.artifact.text}</pre>
+      <p :if={@section.artifact.state != :retained} class="artifact-unavailable">
+        {@meta || "This record was not retained."}
+      </p>
+    </Components.disclosure>
     """
   end
 
-  # "What can we extract from routing records to make this informative?" — the
-  # committed decision is the record a reader opens this section for, and it was
-  # a JSON blob. Its own fields answer the question directly: what the host
-  # decided, how it related this to existing work, and why.
-  @decision_rows [
-    {"action", "Decision"},
-    {"work_class", "Work class"},
-    {"relation", "Relation to existing work"},
-    {"episode_ref", "Related episode"},
-    {"reaction", "Reaction"},
-    {"reason", "Reason"}
-  ]
+  defp evidence_label(%{id: "routing"}), do: "Selection evidence"
+  defp evidence_label(%{id: "response"}), do: "Raw routing response"
+  defp evidence_label(%{id: "candidate", title: title}), do: title
+  defp evidence_label(section), do: section.title
 
-  defp decided_rows(%{id: "candidate", artifact: %{state: :retained, text: text}})
-       when is_binary(text) do
-    case Jason.decode(text) do
-      {:ok, decision} when is_map(decision) ->
-        for {key, label} <- @decision_rows,
-            value = decision[key],
-            is_binary(value) and value != "",
-            do: {label, value}
+  defp artifact_meta(%{state: :retained, text: text, bytes: bytes} = artifact) do
+    kind =
+      if is_binary(text) && match?({:ok, _value}, Jason.decode(text)), do: "JSON", else: "Text"
 
-      _other ->
-        []
+    [
+      kind,
+      artifact_size(bytes),
+      artifact[:redacted] && "Secrets redacted",
+      artifact[:truncated] && "Partial display"
+    ]
+    |> Enum.reject(&(&1 in [nil, false]))
+    |> Enum.join(" · ")
+  end
+
+  defp artifact_meta(artifact), do: availability(artifact)
+
+  defp artifact_size(nil), do: "Size not recorded"
+  defp artifact_size(count) when count < 1_024, do: "#{count} bytes"
+  defp artifact_size(count), do: "#{div(count, 1_024)} KiB"
+
+  defp decision_artifact_needed?(request) do
+    case Enum.find(request.sections, &(&1.id == "candidate")) do
+      %{artifact: %{state: state}} when state != :not_recorded ->
+        is_nil(document(request, "candidate"))
+
+      _ ->
+        false
     end
   end
 
-  defp decided_rows(_section), do: []
+  defp selection_facts(%{id: "routing", artifact: artifact}) do
+    case artifact_document(artifact) do
+      %{} = evidence -> routing_facts(evidence)
+      _ -> nil
+    end
+  end
+
+  defp selection_facts(_section), do: nil
+
+  defp routing_facts(evidence) do
+    receipt = if is_map(evidence["routing_receipt"]), do: evidence["routing_receipt"], else: %{}
+
+    manifest =
+      if is_map(evidence["context_manifest"]), do: evidence["context_manifest"], else: %{}
+
+    [
+      routing_candidate_fact(receipt),
+      routing_omission_fact(receipt),
+      routing_scope_fact(receipt),
+      routing_lanes_fact(receipt),
+      routing_context_fact(manifest)
+    ]
+    |> Enum.reject(&is_nil/1)
+    |> case do
+      [] -> nil
+      facts -> facts
+    end
+  end
+
+  defp routing_candidate_fact(%{"offered" => offered, "examined" => examined})
+       when is_integer(offered) and is_integer(examined),
+       do: %{label: "Candidates", value: "#{offered} of #{examined} supplied"}
+
+  defp routing_candidate_fact(_receipt), do: nil
+
+  defp routing_omission_fact(%{"omitted" => omitted} = receipt)
+       when is_integer(omitted) and omitted > 0 do
+    reason = receipt["cutoff_reason"] |> readable_code()
+    value = "#{omitted} omitted" <> if(reason, do: " · #{reason}", else: "")
+    %{label: "Why some were excluded", value: value}
+  end
+
+  defp routing_omission_fact(_receipt), do: nil
+
+  defp routing_scope_fact(%{"scope" => scope} = receipt) when is_binary(scope) do
+    conversations = receipt["eligible_conversations"]
+
+    value =
+      readable_code(scope) <>
+        if(is_integer(conversations), do: " · #{conversations} eligible conversations", else: "")
+
+    %{label: "Search scope", value: value}
+  end
+
+  defp routing_scope_fact(_receipt), do: nil
+
+  defp routing_lanes_fact(%{"lanes" => lanes}) when is_map(lanes) and map_size(lanes) > 0 do
+    value =
+      lanes
+      |> Enum.sort_by(&elem(&1, 0))
+      |> Enum.map_join(" · ", fn {lane, facts} ->
+        returned = if is_map(facts), do: facts["returned"]
+        saturated = is_map(facts) && facts["saturated"] == true
+
+        readable_code(lane) <>
+          if(is_integer(returned), do: " #{returned}", else: "") <>
+          if(saturated, do: " (limit reached)", else: "")
+      end)
+
+    %{label: "Search lanes", value: value}
+  end
+
+  defp routing_lanes_fact(_receipt), do: nil
+
+  defp routing_context_fact(%{"included" => included, "requested" => requested})
+       when is_integer(included) and is_integer(requested),
+       do: %{
+         label: "Conversation context",
+         value: "#{included} of #{requested} earlier messages included"
+       }
+
+  defp routing_context_fact(_manifest), do: nil
+
+  defp artifact_document(%{state: :retained, truncated: false, text: text})
+       when is_binary(text) do
+    case Jason.decode(text) do
+      {:ok, %{} = document} -> document
+      _ -> nil
+    end
+  end
+
+  defp artifact_document(_artifact), do: nil
+
+  defp readable_code(value) when is_binary(value) and value != "" do
+    value |> String.replace("_", " ") |> String.capitalize()
+  end
+
+  defp readable_code(_value), do: nil
 
   # Identity and artifact-level inspection remain on the linked full request
   # record; this is the body inside a disclosure that already named the record.

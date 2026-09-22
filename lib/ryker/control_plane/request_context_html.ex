@@ -7,20 +7,16 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
 
   @sources %{
     "custom_instructions" =>
-      {"Custom instructions", "policy", "Submitted settings",
+      {"Custom instructions", "policy", nil,
        "The global and channel text, scopes and revisions saved with this request, not today's settings. Empty text means no instruction at that scope."},
-    "input" =>
-      {"Messages supplied to this request", "conversation", "Incoming message",
-       "The message that started this routing call."},
+    "input" => {"Current message", "conversation", nil, nil},
     "slack_addressing" =>
       {"Who this Slack message addresses", "conversation", "Slack addressing at receipt",
        "The audience and host-configured Ryker user reference saved on the first receipt. This context does not grant authority."},
-    "inputs" =>
-      {"Messages supplied to this request", "conversation", "Episode input history",
-       "Messages selected for this work turn, in their retained order. Any recorded budget omissions are shown below."},
+    "inputs" => {"Conversation messages", "conversation", nil, nil},
     "current_inputs" =>
-      {"New messages in this turn", "conversation", "Episode input history",
-       "Inputs added to the continuing session. Earlier turns are not resubmitted in this field."},
+      {"New messages in this turn", "conversation", nil,
+       "Earlier turns remain in the session and are not resubmitted here."},
     "continuity" =>
       {"Conversation continuity", "memory", "Earlier accepted work",
        "The saved first input, previous delivery and host continuation request. Historical context does not prove current state."},
@@ -40,8 +36,8 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
       {"Previous accepted answer", "memory", "Earlier accepted work",
        "The delivery and submission reference from the previous work turn."},
     "candidates" =>
-      {"Episodes offered to admission", "memory", "Admission candidate selection",
-       "These were the allowed candidates and relations at submission time, not a new search of today's state."},
+      {"Candidate selection", "memory", nil,
+       "How Ryker filtered earlier work for this routing decision."},
     "responder_state_tools" =>
       {"Ryker state tools", "tools", "Host tool catalog",
        "State operations advertised to this request. Availability is not a receipt that a tool ran."},
@@ -105,12 +101,10 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
   @doc "The retained prompt and separately supplied output format, without rebuilding either."
   def submitted(sections, prefix, artifact_id \\ nil) do
     [
-      "<p class=\"prompt-legend\">Ryker's retained submission; provider-owned instructions and wrappers are not recorded here. Point to or focus a highlight to identify its component.</p>",
+      "<p class=\"prompt-legend\">Provider-owned instructions and wrappers are not part of this record. Point to or focus a highlight to identify its component.</p>",
       Enum.map(
         [
-          {"request", "Prompt",
-           "The exact retained prompt text, including its messages and context.", "Prompt text",
-           "$.prompt"},
+          {"request", "Prompt", "Prompt sent to the model.", "Prompt text", "$.prompt"},
           {"contract", "Response format", "Supplied alongside the prompt, not added to its text.",
            "Output contract", "$.output_schema"}
         ],
@@ -138,7 +132,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
       id,
       path,
       artifact.text,
-      {title, "policy", "Retained submission", "Sanitized for inspection; secrets are redacted."},
+      {title, "policy", nil, submitted_provenance(id, artifact)},
       case artifact.state do
         :retained -> PromptDocument.render(artifact)
         :collapsed -> ["<p>", state, ".</p>"]
@@ -151,8 +145,13 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
     )
   end
 
+  defp submitted_provenance("request", %{redacted: true}),
+    do: "Sensitive values are hidden in this view."
+
+  defp submitted_provenance(_id, _artifact), do: nil
+
   defp artifact_availability(%{state: :collapsed}),
-    do: "The retained prompt loads when this disclosure is opened"
+    do: "Loads on open"
 
   defp artifact_availability(%{state: :expired}), do: "Expired"
   defp artifact_availability(%{state: :not_recorded}), do: "Not recorded"
@@ -168,9 +167,9 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
       ),
       "><header><h4>",
       title,
-      "</h4><p>",
-      description,
-      "</p></header>",
+      "</h4>",
+      if(description, do: ["<p>", description, "</p>"], else: []),
+      "</header>",
       content,
       "</section>"
     ]
@@ -199,89 +198,210 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
   def assembly(_, _, _, _), do: []
 
   defp assemble_context(context, root, prefix, counts) do
-    parts =
-      context
-      |> Enum.sort_by(fn {key, _} -> {Enum.find_index(@order, &(&1 == key)) || 100, key} end)
-      |> Enum.flat_map(fn
-        {"operator_context", value} when is_map(value) and map_size(value) > 0 ->
-          Enum.map(Enum.sort(value), fn {key, value} ->
-            {key, value, root <> ".operator_context"}
-          end)
-
-        # One collapsible per scope. A single "Custom instructions" block made a
-        # reader open it to find out whether the channel had said anything.
-        {"custom_instructions", value} when is_map(value) ->
-          instruction_parts(value, root <> ".custom_instructions")
-
-        {key, value} ->
-          [{key, value, root}]
-      end)
+    parts = context_parts(context, root)
 
     # Keep exact runtime fields and empty values, without giving every scalar
     # flag its own prompt component.
-    {components, scope} =
-      Enum.split_with(parts, fn {key, value, parent} ->
-        {_, origin, _, _} = metadata(key, parent)
-
-        origin not in ["runtime", "other"] &&
-          (instruction_parent?(parent) || value not in [nil, [], %{}, ""])
-      end)
+    {components, scope} = Enum.split_with(parts, &display_component?/1)
 
     groups = Enum.group_by(components, fn {key, _, parent} -> elem(metadata(key, parent), 1) end)
 
     [
       Enum.map(
         [
-          {"policy", "Custom instructions", "Operator settings supplied to this model request."},
-          {"conversation", "Messages",
-           "The original input and any conversation history supplied to this call."},
+          {"policy", "Custom instructions", "Settings captured for this model call."},
+          {"conversation", "Messages", nil},
           {"memory", "Selected knowledge",
            "Earlier work, decisions and instructions recalled for this request."},
           {"tools", "Tools and workspace",
            "The capabilities and project context available to the model."}
         ],
-        fn {origin, title, description} ->
-          case Map.get(groups, origin, []) do
-            [] ->
-              []
-
-            entries ->
-              group(
-                title,
-                description,
-                Enum.map(entries, fn {key, value, parent} ->
-                  path = field_path(parent, key)
-
-                  options =
-                    [count: Map.get(counts, key)]
-                    |> instruction_options(key, parent, value)
-
-                  source(
-                    key,
-                    path,
-                    value,
-                    source_metadata(key, parent, value),
-                    body(key, value, path, prefix),
-                    prefix,
-                    options
-                  )
-                end),
-                group: origin
-              )
-          end
-        end
+        &assembled_group(&1, groups, prefix, counts)
       ),
       if(scope != [],
         do:
           group(
-            "Request settings",
-            "Where the request came from and the limits applied to it.",
-            runtime_context(scope, root, prefix)
+            "Context and permissions",
+            "What additional context the model received and what it was allowed to do.",
+            runtime_context(scope, root, prefix),
+            group: "runtime"
           ),
         else: []
       )
     ]
   end
+
+  defp context_parts(context, root) do
+    context
+    |> Enum.sort_by(fn {key, _} -> {Enum.find_index(@order, &(&1 == key)) || 100, key} end)
+    |> Enum.flat_map(&context_part(&1, root))
+  end
+
+  defp context_part({"operator_context", value}, root)
+       when is_map(value) and map_size(value) > 0 do
+    Enum.map(Enum.sort(value), fn {key, nested} ->
+      {key, nested, root <> ".operator_context"}
+    end)
+  end
+
+  # One collapsible per scope. A single "Custom instructions" block made a
+  # reader open it to find out whether the channel had said anything.
+  defp context_part({"custom_instructions", value}, root) when is_map(value),
+    do: instruction_parts(value, root <> ".custom_instructions")
+
+  defp context_part({key, value}, root), do: [{key, value, root}]
+
+  defp display_component?({key, value, parent}) do
+    {_, origin, _, _} = metadata(key, parent)
+
+    origin not in ["runtime", "other"] &&
+      (instruction_parent?(parent) || value not in [nil, [], %{}, ""])
+  end
+
+  defp assembled_group({origin, title, description}, groups, prefix, counts) do
+    case Map.get(groups, origin, []) do
+      [] ->
+        []
+
+      entries ->
+        {title, description} = group_presentation(origin, title, description, entries, counts)
+
+        group(
+          title,
+          description,
+          Enum.map(entries, &assembled_source(&1, prefix, counts)),
+          group: origin
+        )
+    end
+  end
+
+  defp assembled_source({key, value, parent}, prefix, counts) do
+    path = field_path(parent, key)
+
+    options =
+      [count: Map.get(counts, key)]
+      |> instruction_options(key, parent, value)
+      |> source_count_option(key)
+
+    if key == "candidates" and is_list(value) do
+      candidate_sources(value, path, prefix, counts)
+    else
+      source(
+        key,
+        path,
+        value,
+        source_metadata(key, parent, value),
+        body(key, value, path, prefix),
+        prefix,
+        options
+      )
+    end
+  end
+
+  defp source_count_option(options, key) when key in ~w(input inputs current_inputs),
+    do: Keyword.delete(options, :count)
+
+  defp source_count_option(options, _key), do: options
+
+  defp group_presentation("conversation", title, _description, entries, _counts) do
+    count =
+      Enum.reduce(entries, 0, fn {key, value, _parent}, total ->
+        total + message_count(key, value)
+      end)
+
+    {title, if(count > 0, do: count(count, "message"), else: nil)}
+  end
+
+  defp group_presentation("memory", _title, _description, [{"candidates", _, _}], counts) do
+    description =
+      case counts["candidates"] do
+        %{label: label} when is_binary(label) -> label
+        _ -> "How earlier work could be used for this routing decision."
+      end
+
+    {"Related history", description}
+  end
+
+  defp group_presentation(_origin, title, description, _entries, _counts),
+    do: {title, description}
+
+  defp candidate_sources(items, path, prefix, counts) do
+    {continuations, context_only} =
+      Enum.split_with(items, fn
+        %{"allowed_relations" => relations} when is_list(relations) -> "same_work" in relations
+        _ -> false
+      end)
+
+    histories = Map.get(counts, "candidate_histories", %{})
+    candidate_count = Map.get(counts, "candidates", %{})
+
+    [
+      candidate_group_source(
+        "continuation_candidates",
+        "Continuation candidates",
+        "Earlier work the router could continue.",
+        continuations,
+        histories,
+        path <> ".continuation",
+        prefix
+      ),
+      candidate_group_source(
+        "context_matches",
+        "Context matches",
+        "Earlier work supplied as background only.",
+        context_only,
+        histories,
+        path <> ".context",
+        prefix
+      ),
+      excluded_candidate_source(candidate_count, path, prefix)
+    ]
+  end
+
+  defp candidate_group_source(_key, _title, _description, [], _histories, _path, _prefix),
+    do: []
+
+  defp candidate_group_source(key, title, description, items, histories, path, prefix) do
+    source(
+      key,
+      path,
+      items,
+      {title, "memory", nil, description},
+      candidates(items, histories),
+      prefix,
+      count: %{label: count(length(items), "candidate"), known?: true},
+      estimate: items
+    )
+  end
+
+  defp excluded_candidate_source(%{excluded: excluded} = count, path, prefix)
+       when is_integer(excluded) and excluded > 0 do
+    reason = count[:reason] || "The routing shortlist limit excluded these candidates."
+
+    source(
+      "not_supplied",
+      path <> ".excluded",
+      %{"excluded" => excluded},
+      {"Not supplied", "memory", nil, nil},
+      ["<p>", escape(reason), "</p>"],
+      prefix,
+      count: %{label: count(excluded, "candidate"), known?: true},
+      estimate: nil
+    )
+  end
+
+  defp excluded_candidate_source(_count, _path, _prefix), do: []
+
+  defp message_count(key, value) when key in ~w(input inputs current_inputs) do
+    case value do
+      %{"items" => items} when is_list(items) -> length(items)
+      items when is_list(items) -> length(items)
+      value when is_map(value) -> 1
+      _ -> 0
+    end
+  end
+
+  defp message_count(_key, _value), do: 0
 
   defp instruction_parts(value, parent) do
     Enum.map(["global", "channel"], fn key ->
@@ -292,69 +412,133 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
   defp instruction_parent?(parent),
     do: parent in ["$.work.custom_instructions", "$.context.custom_instructions"]
 
-  # One collapsible named after a JSON path, holding whatever was left over,
-  # answered "what is in the struct" when the reader is asking what the model
-  # knew. Three named blocks answer that instead, each readable closed, and the
-  # exact bytes keep their own block at the end where the path belongs.
   defp runtime_context(scope, root, prefix) do
     values = Map.new(scope, fn {key, value, _parent} -> {key, value} end)
-
-    # Raw context keeps every retained field, without exposing implementation
-    # JSON paths as reader-facing labels.
     exact = Map.new(scope, fn {key, value, _parent} -> {key, value} end)
 
+    bundle =
+      if is_map(values["conversation_context"]), do: values["conversation_context"], else: %{}
+
+    manifest = if is_map(values["context_manifest"]), do: values["context_manifest"], else: %{}
+    messages = List.wrap(bundle["messages"])
+    permission_rows = allowed_rows(values)
+
     [
-      context_block(
-        "where",
-        "Where this ran",
-        where_summary(values),
-        where_rows(values),
-        values,
-        root,
-        prefix
+      if(Map.has_key?(values, "conversation_context") or Map.has_key?(values, "context_manifest"),
+        do:
+          source(
+            "earlier_messages",
+            root <> ".conversation_context.messages",
+            if(messages == [], do: %{"messages" => []}, else: messages),
+            {"Earlier messages", "conversation", nil, nil},
+            earlier_messages_body(messages, manifest),
+            prefix,
+            count: %{label: count(length(messages), "message"), known?: true},
+            estimate: if(messages == [], do: nil, else: messages)
+          ),
+        else: []
       ),
-      context_block(
-        "seen",
-        "What it could see",
-        seen_summary(values),
-        seen_rows(values),
-        values,
-        root,
-        prefix
-      ),
-      context_block(
-        "allowed",
-        "What it was allowed to do",
-        allowed_summary(values),
-        allowed_rows(values),
-        values,
-        root,
-        prefix
+      summary_source("channel", bundle, manifest, root, prefix),
+      summary_source("thread", bundle, manifest, root, prefix),
+      if(permission_rows != [],
+        do:
+          source(
+            "permitted_actions",
+            root <> ".allowed_actions",
+            permission_values(values),
+            {"Permitted actions", "runtime", nil, nil},
+            ["<dl class=\"context-rows\">", permission_rows, "</dl>"],
+            prefix,
+            estimate: nil
+          ),
+        else: []
       ),
       source(
-        "raw",
+        "raw_context",
         root,
         exact,
-        {"Raw context", "runtime", "exact retained bytes",
-         "The context as submitted, for reading the record rather than the request."},
+        {"Raw context", "runtime", nil, nil},
         ["<pre>", escape(Jason.encode!(exact, pretty: true)), "</pre>"],
-        prefix
+        prefix,
+        state: "Technical",
+        estimate: nil
       )
     ]
   end
 
-  defp context_block(_key, _title, _summary, [], _values, _root, _prefix), do: []
-
-  defp context_block(key, title, summary, rows, values, root, prefix) do
-    source(
-      key,
-      root <> "." <> key,
-      values,
-      {title, "runtime", summary, nil},
-      ["<dl class=\"context-rows\">", rows, "</dl>"],
-      prefix
-    )
+  defp earlier_messages_body([], manifest) do
+    [
+      context_limit(manifest),
+      "<p class=\"context-absent\">No earlier messages were supplied.</p>"
+    ]
   end
+
+  defp earlier_messages_body(messages, manifest) do
+    [context_limit(manifest), messages(%{"inputs" => messages})]
+  end
+
+  defp context_limit(manifest) do
+    case manifest["requested"] do
+      requested when is_integer(requested) and requested > 0 ->
+        cutoff = readable_candidate_time(manifest["cutoff"])
+
+        [
+          "<p class=\"context-note\">Up to ",
+          escape(requested),
+          " earlier messages",
+          if(cutoff, do: [" before ", escape(cutoff)], else: []),
+          ".</p>"
+        ]
+
+      _ ->
+        []
+    end
+  end
+
+  defp summary_source(kind, bundle, manifest, root, prefix) do
+    key = kind <> "_summary"
+
+    if Map.has_key?(bundle, key) or Map.has_key?(manifest, key) do
+      value = bundle[key]
+      recorded = manifest[key]
+      available? = value not in [nil, %{}, ""]
+
+      source(
+        key,
+        root <> ".conversation_context." <> key,
+        if(available?, do: value, else: %{"status" => "unavailable"}),
+        {human(kind) <> " summary", "conversation", nil, nil},
+        summary_body(value, recorded),
+        prefix,
+        state: if(available?, do: nil, else: "Not available"),
+        estimate: if(available?, do: value, else: nil)
+      )
+    else
+      []
+    end
+  end
+
+  defp summary_body(value, _recorded) when value not in [nil, %{}, ""], do: fields(value, 0)
+
+  defp summary_body(_value, %{"reason" => reason}) when is_binary(reason) do
+    ["<p class=\"context-absent\">", summary_reason(reason), "</p>"]
+  end
+
+  defp summary_body(_value, _recorded),
+    do: "<p class=\"context-absent\">No summary was available for this request.</p>"
+
+  defp summary_reason("not_applicable"), do: "This summary did not apply to the conversation."
+  defp summary_reason("after_cutoff"), do: "The summary was created after this request."
+  defp summary_reason("absent"), do: "No summary had been saved for this conversation."
+  defp summary_reason(reason), do: human(reason) <> "."
+
+  defp permission_values(values),
+    do:
+      Map.take(values, [
+        "allowed_actions",
+        "repository_source_kinds",
+        "offer_confirmation_supported"
+      ])
 
   defp context_row(_label, nil), do: []
   defp context_row(_label, ""), do: []
@@ -461,71 +645,10 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
 
   defp compact_time(value), do: value
 
-  defp where_rows(values) do
-    Enum.reject(
-      [
-        context_row("Source", source_name(values["input"])),
-        context_row("Asked by", actor_name(values["input"])),
-        context_row("Execution", values["execution_mode"]),
-        context_row("Assembly", values["mode"])
-      ],
-      &(&1 == [])
-    )
-  end
-
-  defp where_summary(values) do
-    [source_name(values["input"]), actor_name(values["input"]), values["execution_mode"]]
-    |> Enum.filter(&is_binary/1)
-    |> Enum.join(" · ")
-  end
-
-  defp source_name(%{"source" => %{"kind" => kind, "ref" => ref}}), do: "#{kind}:#{ref}"
-  defp source_name(_input), do: nil
-
-  defp actor_name(%{"actor" => %{"ref" => ref}}), do: ref
-  defp actor_name(_input), do: nil
-
-  defp seen_rows(values) do
-    manifest = values["context_manifest"] || %{}
-
-    Enum.reject(
-      [
-        context_row("Earlier messages", messages_seen(manifest)),
-        context_row("Channel summary", summary_state(manifest["channel_summary"])),
-        context_row("Thread summary", summary_state(manifest["thread_summary"])),
-        context_row("Read", manifest["source_read"] && human(manifest["source_read"])),
-        context_row("Up to", manifest["cutoff"])
-      ],
-      &(&1 == [])
-    )
-  end
-
-  defp seen_summary(values) do
-    case values["context_manifest"] do
-      %{} = manifest -> messages_seen(manifest) || "no history recorded"
-      _absent -> "no history recorded"
-    end
-  end
-
-  # The number a reader wants is how much of what was asked for actually
-  # arrived: "0 of 20" is usually why a decision looks wrong.
-  defp messages_seen(%{"included" => included, "requested" => requested})
-       when is_integer(included) and is_integer(requested),
-       do: "#{included} of #{requested} asked for"
-
-  defp messages_seen(%{"included" => included}) when is_integer(included),
-    do: "#{included} included"
-
-  defp messages_seen(_manifest), do: nil
-
-  defp summary_state(%{"status" => "unavailable"}), do: "none saved"
-  defp summary_state(%{"status" => status}), do: human(status)
-  defp summary_state(_summary), do: nil
-
   defp allowed_rows(values) do
     Enum.reject(
       [
-        context_row("Actions", word_list(values["allowed_actions"])),
+        context_row("Actions", action_list(values["allowed_actions"])),
         context_row("Repository sources", word_list(values["repository_source_kinds"])),
         context_row("Offer confirmation", values["offer_confirmation_supported"])
       ],
@@ -533,31 +656,29 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
     )
   end
 
-  defp allowed_summary(values) do
-    [
-      count_label(values["allowed_actions"], "action"),
-      count_label(values["repository_source_kinds"], "source kind")
-    ]
-    |> Enum.filter(&is_binary/1)
-    |> Enum.join(" · ")
-  end
-
-  defp count_label(values, noun) when is_list(values) and values != [],
-    do: "#{length(values)} #{noun}#{if length(values) == 1, do: "", else: "s"}"
-
-  defp count_label(_values, _noun), do: nil
-
   defp word_list(values) when is_list(values) and values != [],
     do: Enum.map_join(values, " · ", &human/1)
 
   defp word_list(_values), do: nil
+
+  defp action_list(values) when is_list(values) and values != [],
+    do: Enum.map_join(values, " · ", &action_label/1)
+
+  defp action_list(_values), do: nil
+
+  defp action_label("start_episode"), do: "Start work"
+  defp action_label("continue_episode"), do: "Continue work"
+  defp action_label("reply"), do: "Reply"
+  defp action_label("react"), do: "React"
+  defp action_label("ignore"), do: "Ignore"
+  defp action_label(value), do: human(value)
 
   def assembly_instructions(%{state: :retained, text: text} = artifact, prefix) do
     source(
       "instructions",
       "$.instructions",
       text,
-      {"Ryker instructions", "policy", "Host-authored instructions",
+      {"System prompt", "policy", nil,
        if(artifact.truncated,
          do: "Partial display of the retained instruction field.",
          else: nil
@@ -573,13 +694,13 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
   def instructions(artifact, kind, prefix \\ "instructions", open \\ false)
 
   def instructions(%{state: :retained, text: text}, kind, prefix, open) do
-    title = if kind == :admission, do: "Ryker admission policy", else: "Ryker work policy"
+    title = if kind == :admission, do: "Admission system prompt", else: "Work system prompt"
 
     source(
       "instructions",
       "$.instructions",
       text,
-      {title, "policy", "Host-authored instructions",
+      {title, "policy", nil,
        "The instruction field retained with this exact request. This is not the Coop wrapper or provider system prompt, and it is not loaded from today's source code."},
       ["<pre class=\"model-document-text\">", escape(text), "</pre>"],
       prefix,
@@ -667,47 +788,47 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
   defp source_metadata(key, parent, _value), do: metadata(key, parent)
 
   defp instruction_metadata("global", @instruction_not_recorded),
-    do: {"Global instructions", "policy", "Availability at request time not recorded", nil}
+    do: {"Global instructions", "policy", nil, nil}
 
-  defp instruction_metadata("global", value),
-    do:
-      {"Global instructions", "policy",
-       if(instruction_text?(value),
-         do: "Configured in Settings for this request",
-         else: "No global instructions configured"
-       ), nil}
+  defp instruction_metadata("global", _value),
+    do: {"Global instructions", "policy", nil, nil}
 
   defp instruction_metadata("channel", @instruction_not_recorded),
-    do: {"Channel instructions", "policy", "Availability at request time not recorded", nil}
+    do: {"Channel instructions", "policy", nil, nil}
 
   defp instruction_metadata("channel", nil),
-    do: {"Channel instructions", "policy", "Not applicable outside Slack", nil}
+    do: {"Channel instructions", "policy", nil, nil}
 
-  defp instruction_metadata("channel", value),
-    do:
-      {"Channel instructions", "policy",
-       if(instruction_text?(value),
-         do: "Configured for this Slack channel at request time",
-         else: "No channel instructions configured"
-       ), nil}
-
-  defp instruction_text?(%{"text" => text}) when is_binary(text), do: text != ""
-  defp instruction_text?(_value), do: false
+  defp instruction_metadata("channel", _value),
+    do: {"Channel instructions", "policy", nil, nil}
 
   def source_label("$.inputs"), do: "Source messages · Retained conversation inputs"
   def source_label("$.knowledge"), do: "Prior knowledge · Frozen topic versions"
+  def source_label("$.instructions"), do: "System prompt"
+  def source_label("$.context.custom_instructions.global"), do: "Global instructions"
+  def source_label("$.work.custom_instructions.global"), do: "Global instructions"
+  def source_label("$.context.custom_instructions.channel"), do: "Channel instructions"
+  def source_label("$.work.custom_instructions.channel"), do: "Channel instructions"
+  def source_label("$.context.conversation_context.messages"), do: "Earlier messages"
+  def source_label("$.work.conversation_context.messages"), do: "Earlier messages"
+  def source_label("$.context.conversation_context.channel_summary"), do: "Channel summary"
+  def source_label("$.work.conversation_context.channel_summary"), do: "Channel summary"
+  def source_label("$.context.conversation_context.thread_summary"), do: "Thread summary"
+  def source_label("$.work.conversation_context.thread_summary"), do: "Thread summary"
+  def source_label("$.context.allowed_actions"), do: "Permitted actions"
+  def source_label("$.work.allowed_actions"), do: "Permitted actions"
+  def source_label("$.context.conversation_observations"), do: "Conversation observations"
+  def source_label("$.context.conversation_knowledge"), do: "Conversation knowledge"
+  def source_label("$.context.slack_addressing"), do: "Slack addressing"
+  def source_label("$.context.repository_source_kinds"), do: "Repository sources"
 
   def source_label(path) do
     parts = String.split(path, ".")
     key = List.last(parts)
     parent = parts |> Enum.drop(-1) |> Enum.join(".")
 
-    if path == "$.instructions" do
-      "Ryker instructions · Host-authored instructions"
-    else
-      {title, _, owner, _} = metadata(key, parent)
-      title <> " · " <> owner
-    end
+    {title, _, owner, _} = metadata(key, parent)
+    if(owner, do: title <> " · " <> owner, else: title)
   end
 
   @doc "One instruction scope: its identity on a line, then the text itself."
@@ -716,19 +837,28 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
   end
 
   defp instruction_scope(%{} = layer, key) do
-    identity =
-      case layer["revision"] do
-        revision when revision not in [nil, ""] -> "Revision #{revision} at request time"
-        _absent -> ""
-      end
+    text = layer["text"]
+
+    identity = instruction_identity(key, layer["revision"], text)
 
     [
       if(identity == "",
         do: [],
         else: ["<p class=\"instruction-identity\">", escape(identity), "</p>"]
       ),
-      instruction_text(layer["text"], key)
+      instruction_text(text, key)
     ]
+  end
+
+  defp instruction_identity(_key, _revision, text) when text in [nil, ""], do: ""
+
+  defp instruction_identity(key, revision, _text) do
+    source = if key == "global", do: "From Settings", else: "From Slack channel"
+    revision = if revision in [nil, ""], do: nil, else: "Revision #{revision}"
+
+    [source, revision]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.join(" · ")
   end
 
   defp instruction_text(text, _key) when is_binary(text) and text != "",
@@ -736,12 +866,12 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
 
   defp instruction_text(_text, "channel"),
     do: [
-      "<p class=\"context-absent\">No channel instructions were configured at request time.</p>"
+      "<p class=\"context-absent\">No channel instructions were saved for this Slack channel when this request ran.</p>"
     ]
 
   defp instruction_text(_text, _key),
     do: [
-      "<p class=\"context-absent\">No global instructions were configured for this request.</p>"
+      "<p class=\"context-absent\">No global instructions were saved in Settings when this request ran.</p>"
     ]
 
   def instruction_layers(value) when is_map(value) do
@@ -777,7 +907,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
   defp body("channel", nil, path, _prefix) do
     if String.contains?(path, ".custom_instructions."),
       do: [
-        "<p class=\"context-absent\">This request did not have a Slack channel scope, so channel instructions did not apply.</p>"
+        "<p class=\"context-absent\">This request did not come through Slack, so channel instructions did not apply.</p>"
       ],
       else: fields(nil, 0)
   end
@@ -800,7 +930,9 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
     if String.contains?(path, ".operator_context."),
       do: [
         recall(value),
-        "<details><summary>Exact component</summary><pre>",
+        "<details class=\"context-inline-disclosure\"><summary>",
+        disclosure_chevron(),
+        "<span>Exact component</span></summary><pre>",
         escape(Jason.encode!(value, pretty: true)),
         "</pre></details>"
       ],
@@ -862,28 +994,20 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
     do:
       "<p>Saved summary is not structured. Its retained value is in the exact component below.</p>"
 
+  defp disclosure_chevron do
+    "<svg class=\"prompt-source-chevron\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"m9 5 7 7-7 7\"></path></svg>"
+  end
+
   defp source(key, path, value, metadata, body, prefix, options \\ []) do
     {title, origin, owner, description} = metadata
-    open = Keyword.get(options, :open, false)
-    state_override = Keyword.get(options, :state)
+    settings = source_settings(value, options)
     count = Keyword.get(options, :count)
-    artifact = Keyword.get(options, :artifact)
-    revoked = Keyword.get(options, :revoked, false)
-
-    estimate =
-      if Keyword.has_key?(options, :estimate),
-        do: Keyword.get(options, :estimate),
-        else: value
-
-    state =
-      state_override ||
-        if value in [nil, [], %{}, ""], do: "Empty in request", else: "Retained input"
 
     [
       "<details id=\"",
       escape(prefix <> "-source-" <> Base.url_encode64(path, padding: false)),
       "\" class=\"prompt-source",
-      if(state_override, do: " prompt-source-partial", else: ""),
+      source_partial_class(settings.state_override),
       "\" data-source=\"",
       escape(key),
       "\" data-origin=\"",
@@ -891,31 +1015,62 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
       "\"",
       # The component carries its own lazy load. The outer disclosure used to,
       # which is why it had to stay a disclosure at all.
-      if(artifact, do: [" data-artifact=\"", escape(artifact), "\""], else: ""),
+      source_artifact_attribute(settings.artifact),
       # An expired body must never be fetched back, and the reader's open copy
       # goes with it: privacy and retention win over preserving their place.
-      if(revoked, do: " data-revoked=\"true\"", else: ""),
-      if(open, do: " open", else: ""),
+      source_revoked_attribute(settings.revoked),
+      source_open_attribute(settings.open),
       "><summary>",
-      "<span class=\"prompt-source-state\">",
-      source_state(value, state, state_override, estimate),
-      "</span>",
-      # The reader wants the name of the thing first, then how much of it there
-      # is, then where it came from. Leading with a bare count read as
-      # "1 includedMessages supplied to this request".
-      "<span class=\"prompt-source-title\">",
+      disclosure_chevron(),
+      "<span class=\"prompt-source-main\"><span class=\"prompt-source-title\">",
       escape(title),
       "</span>",
       source_count(count),
-      "<span class=\"prompt-source-location\">",
-      escape(owner),
-      "</span></summary>",
+      source_owner(owner),
+      "</span>",
+      "<span class=\"prompt-source-meta\">",
+      source_status(value, settings.state, settings.state_override),
+      source_estimate(value, settings.state_override, settings.estimate),
+      "</span>",
+      "</summary>",
       "<div class=\"prompt-source-body\">",
-      if(description, do: ["<p>", escape(description), "</p>"], else: []),
+      source_description(description),
       body,
       "</div></details>"
     ]
   end
+
+  defp source_settings(value, options) do
+    state_override = Keyword.get(options, :state)
+
+    %{
+      artifact: Keyword.get(options, :artifact),
+      estimate: if(Keyword.has_key?(options, :estimate), do: options[:estimate], else: value),
+      open: Keyword.get(options, :open, false),
+      revoked: Keyword.get(options, :revoked, false),
+      state:
+        state_override ||
+          if(value in [nil, [], %{}, ""], do: "Empty in request", else: "Retained input"),
+      state_override: state_override
+    }
+  end
+
+  defp source_partial_class(nil), do: ""
+  defp source_partial_class(_state), do: " prompt-source-partial"
+  defp source_artifact_attribute(nil), do: ""
+  defp source_artifact_attribute(artifact), do: [" data-artifact=\"", escape(artifact), "\""]
+  defp source_revoked_attribute(true), do: " data-revoked=\"true\""
+  defp source_revoked_attribute(_revoked), do: ""
+  defp source_open_attribute(true), do: " open"
+  defp source_open_attribute(_open), do: ""
+
+  defp source_owner(nil), do: []
+
+  defp source_owner(owner),
+    do: ["<span class=\"prompt-source-location\">", escape(owner), "</span>"]
+
+  defp source_description(nil), do: []
+  defp source_description(description), do: ["<p>", escape(description), "</p>"]
 
   # The counted summary a reader reads before opening anything. A count nobody
   # recorded says so; it never renders as a zero.
@@ -931,27 +1086,29 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
 
   defp source_count(_count), do: []
 
-  defp source_state(_value, state, unavailable, _estimate)
-       when unavailable in ["Expired", "Not recorded"],
-       do: state
+  defp source_status(value, state, override) do
+    label =
+      cond do
+        is_binary(override) -> state
+        value in [nil, [], %{}, ""] -> state
+        true -> nil
+      end
 
-  # A body that has not loaded yet has no text to estimate from. "≈ 1 estimated
-  # tokens" on a prompt that is actually thousands is worse than no number.
-  defp source_state(
-         _value,
-         state,
-         "The retained prompt loads when this disclosure is opened",
-         _estimate
-       ),
-       do: state
+    if label, do: ["<span class=\"prompt-source-status\">", escape(label), "</span>"], else: []
+  end
 
-  defp source_state(_value, state, _override, estimate) when estimate in [nil, ""], do: state
+  defp source_estimate(_value, unavailable, _estimate)
+       when unavailable in [
+              "Expired",
+              "Not recorded",
+              "Loads on open"
+            ],
+       do: []
 
-  defp source_state(value, state, override, estimate),
-    do: [
-      if(override || value in [nil, [], %{}, ""], do: [state, " · "], else: []),
-      estimated_tokens(estimate)
-    ]
+  defp source_estimate(_value, _override, estimate) when estimate in [nil, ""], do: []
+
+  defp source_estimate(_value, _override, estimate),
+    do: ["<span class=\"prompt-source-estimate\">", estimated_tokens(estimate), "</span>"]
 
   defp instruction_options(options, key, parent, value) when key in ["global", "channel"] do
     if instruction_parent?(parent) do
@@ -963,7 +1120,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
           options |> Keyword.put(:state, "Not applicable") |> Keyword.put(:estimate, nil)
 
         {_key, %{"text" => text}} when is_binary(text) and text != "" ->
-          Keyword.put(options, :estimate, text)
+          options |> Keyword.put(:state, "Applied") |> Keyword.put(:estimate, text)
 
         _empty ->
           options |> Keyword.put(:state, "Not configured") |> Keyword.put(:estimate, nil)
@@ -1009,8 +1166,10 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
         end
 
       [
-        "<section>",
-        Enum.map(items, &message/1),
+        "<section class=\"context-messages\">",
+        items
+        |> Enum.with_index()
+        |> Enum.map(fn {item, index} -> message(item, length(items), index) end),
         if(is_integer(omitted) and omitted > 0,
           do: [
             "<p class=\"context-omission\">",
@@ -1024,29 +1183,83 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
     end)
   end
 
-  defp message(input) when is_map(input) do
+  defp message(input, total, index) when is_map(input) do
     actor = actor_label(input)
     body = message_text(input["content"] || input)
+    context = message_context(input, total, index)
+    raw = Jason.encode!(input, pretty: true)
 
     [
-      "<article class=\"context-message\"><header><strong>",
+      "<article class=\"context-message\" data-message-context=\"",
+      escape(context),
+      "\"><header><div>",
+      if(total > 1,
+        do: ["<span class=\"context-message-context\">", escape(context), "</span>"],
+        else: []
+      ),
+      "<strong>",
       escape(actor),
-      "</strong><span>",
-      if(input["current"] == false, do: "Earlier context", else: "Input"),
-      " · ",
-      escape(input["occurred_at"] || "Time not recorded"),
-      "</span></header>",
+      "</strong></div>",
+      if(input["occurred_at"],
+        do: [
+          "<time datetime=\"",
+          escape(input["occurred_at"]),
+          "\">",
+          escape(readable_candidate_time(input["occurred_at"])),
+          "</time>"
+        ],
+        else: []
+      ),
+      "</header>",
       if(body,
         do: ["<div class=\"context-message-body\">", message_body(body, input), "</div>"],
-        else: "<p>Structured source event · fields below</p>"
+        else: "<p class=\"context-absent\">This source event has no text body.</p>"
       ),
-      "<details><summary>Source fields and attachment metadata</summary><pre>",
-      escape(Jason.encode!(input, pretty: true)),
-      "</pre></details></article>"
+      "<details class=\"context-message-details\"><summary>",
+      disclosure_chevron(),
+      "<span>Message details</span></summary>",
+      "<dl class=\"context-rows\">",
+      message_detail("Source", message_source(input)),
+      message_detail("Sender ID", message_sender(input)),
+      message_detail("Attachments", attachment_count(input)),
+      "</dl><button type=\"button\" class=\"context-copy-raw\" data-copy-value=\"",
+      escape(raw),
+      "\">Copy raw event<span class=\"sr-only\" data-copy-status aria-live=\"polite\"></span></button></details></article>"
     ]
   end
 
-  defp message(_input), do: []
+  defp message(_input, _total, _index), do: []
+
+  defp message_context(%{"current" => false}, _total, _index), do: "Earlier context"
+  defp message_context(_input, _total, _index), do: "Current message"
+
+  defp message_detail(_label, nil), do: []
+  defp message_detail(_label, ""), do: []
+
+  defp message_detail(label, value),
+    do: ["<div><dt>", escape(label), "</dt><dd>", escape(value), "</dd></div>"]
+
+  defp message_source(%{"source" => %{"kind" => "control_plane"}}), do: "Chat"
+  defp message_source(%{"source" => %{"kind" => "slack"}}), do: "Slack"
+  defp message_source(%{"source" => %{"kind" => "github"}}), do: "GitHub"
+  defp message_source(%{"source" => %{"kind" => kind}}) when is_binary(kind), do: human(kind)
+  defp message_source(_input), do: nil
+
+  defp message_sender(input) do
+    actor = if is_map(input["actor"]), do: input["actor"], else: %{}
+    actor["display_name"] || actor["name"] || actor["ref"] || input["actor_ref"]
+  end
+
+  defp attachment_count(input) do
+    content = if is_map(input["content"]), do: input["content"], else: %{}
+
+    count =
+      [content["attachments"], content["files"]]
+      |> Enum.flat_map(&List.wrap/1)
+      |> length()
+
+    if count > 0, do: count(count, "attachment")
+  end
 
   defp actor_label(input) do
     actor = if is_map(input["actor"]), do: input["actor"], else: %{}
@@ -1091,7 +1304,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
 
   defp actor_name("slack:user:" <> _, _actor), do: "Slack user"
   defp actor_name("github:user:" <> _, _actor), do: "GitHub user"
-  defp actor_name("local-operator", _actor), do: "You · local operator"
+  defp actor_name("local-operator", _actor), do: "Local operator"
   defp actor_name(name, _actor) when is_binary(name), do: name
   defp actor_name(_name, actor), do: human(actor["kind"] || "Source")
 
@@ -1139,90 +1352,99 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
   defp fields(nil, _depth), do: "<p class=\"context-absent\">Not supplied</p>"
   defp fields(value, _depth), do: ["<p>", escape(value), "</p>"]
 
-  defp candidates(items) when is_list(items) and items != [] do
+  defp candidates(items, histories \\ %{}) when is_list(items) and items != [] do
     [
-      "<section><h3>Episodes offered to admission</h3><p>These were the allowed candidates, not a new search of today's state.</p>",
-      Enum.map(items, &candidate/1),
+      "<section class=\"context-candidates\">",
+      Enum.map(items, fn item ->
+        history = if is_map(item), do: Map.get(histories, item["episode_ref"], []), else: []
+        candidate(item, history)
+      end),
       "</section>"
     ]
   end
 
-  defp candidate(%{"state" => state} = item) when is_binary(state) do
+  defp candidate(%{"state" => state} = item, enriched_history) when is_binary(state) do
     digest = if is_map(item["digest"]), do: item["digest"], else: %{}
     objective = present(digest["objective"])
+    latest_development = present(digest["latest_development"])
+    {previews, omitted} = candidate_preview_list(item, enriched_history)
+    latest = List.last(previews)
+
+    history_count =
+      if is_list(item["message_history"]) and item["message_history"] != [],
+        do: length(previews) + omitted,
+        else: digest["input_count"] || length(previews) + omitted
 
     [
-      "<details class=\"context-candidate\"><summary><span>",
-      escape(candidate_lifecycle(state)),
-      " - ",
-      escape(candidate_use(item["allowed_relations"])),
-      "</span></summary><div class=\"candidate-readable\">",
-      if(objective,
-        do: ["<h4>", escape(objective), "</h4>"],
-        else: "<p class=\"context-absent\">Objective was not recorded.</p>"
+      "<article class=\"context-candidate\"><header class=\"candidate-heading\"><h4>",
+      candidate_title(objective),
+      "</h4>",
+      candidate_time(digest),
+      "</header><div class=\"candidate-readable\">",
+      candidate_state_warning(state),
+      candidate_excerpt(
+        if(history_count > 1, do: nil, else: latest),
+        objective,
+        latest_development
       ),
-      candidate_facts(digest),
-      if(present(digest["latest_development"]),
-        do: [
-          "<p class=\"candidate-development\"><strong>Latest development</strong> ",
-          escape(digest["latest_development"]),
-          "</p>"
-        ],
-        else: []
-      ),
-      candidate_previews(item),
       candidate_rationale(item["match"]),
-      "</div>",
-      "</details>"
+      candidate_history_section(previews, history_count, omitted, enriched_history),
+      "</div></article>"
     ]
   end
 
-  defp candidate(item) do
+  defp candidate(item, _history) do
     [
-      "<details class=\"context-candidate context-candidate-malformed\"><summary>",
-      "Historical candidate - retained shape unavailable",
-      "</summary><p class=\"context-absent\">This older option cannot be summarized safely.</p>",
+      "<article class=\"context-candidate context-candidate-malformed\"><p class=\"context-absent\">",
+      "Historical candidate · retained shape unavailable",
+      "</p>",
       retained_raw_candidate(item),
-      "</details>"
+      "</article>"
     ]
   end
 
-  defp candidate_lifecycle("active"), do: "Active"
-  defp candidate_lifecycle("complete"), do: "Completed"
-  defp candidate_lifecycle("cancelled"), do: "Cancelled"
-  defp candidate_lifecycle(other), do: human(other)
+  defp candidate_title(nil), do: "Objective was not recorded"
+  defp candidate_title(objective), do: escape(objective)
 
-  defp candidate_use(relations) when is_list(relations) do
-    same_work = "same_work" in relations
-    history = "history_only" in relations
+  defp candidate_history_section(
+         _previews,
+         history_count,
+         _omitted,
+         %{"artifact_id" => artifact_id, "state" => "collapsed"}
+       ) do
+    related_candidate_history([], history_count, 0, artifact_id, true)
+  end
 
-    cond do
-      same_work and history -> "may continue or provide background"
-      same_work -> "may continue"
-      history -> "background only"
-      true -> "permitted use not recorded"
+  defp candidate_history_section(
+         previews,
+         history_count,
+         omitted,
+         %{"artifact_id" => artifact_id, "state" => "retained"}
+       ) do
+    related_candidate_history(previews, history_count, omitted, artifact_id, false)
+  end
+
+  defp candidate_history_section(previews, history_count, omitted, _enriched_history)
+       when length(previews) > 1 or omitted > 0,
+       do: candidate_history(previews, history_count, omitted)
+
+  defp candidate_history_section(previews, history_count, omitted, _enriched_history)
+       when is_integer(history_count) and history_count > 1,
+       do: candidate_history(previews, history_count, omitted)
+
+  defp candidate_history_section(_previews, _history_count, _omitted, _enriched_history), do: []
+
+  defp candidate_time(digest) do
+    case readable_candidate_time(digest["covered_through"]) do
+      nil -> []
+      value -> ["<time>", escape(value), "</time>"]
     end
   end
 
-  defp candidate_use(_relations), do: "permitted use not recorded"
+  defp candidate_state_warning("cancelled"),
+    do: "<p class=\"candidate-warning\">This work was cancelled.</p>"
 
-  defp candidate_facts(digest) do
-    facts =
-      [
-        candidate_fact("Messages", count(digest["input_count"], "message")),
-        candidate_fact("Conversations", count(digest["conversations"], "conversation")),
-        candidate_fact("Covered through", readable_candidate_time(digest["covered_through"])),
-        candidate_fact("Freshness", present(digest["freshness"]) && human(digest["freshness"]))
-      ]
-      |> Enum.reject(&(&1 == []))
-
-    if facts == [], do: [], else: ["<dl class=\"candidate-facts\">", facts, "</dl>"]
-  end
-
-  defp candidate_fact(_label, nil), do: []
-
-  defp candidate_fact(label, value),
-    do: ["<div><dt>", label, "</dt><dd>", escape(value), "</dd></div>"]
+  defp candidate_state_warning(_state), do: []
 
   defp count(value, noun) when is_integer(value) and value >= 0,
     do: "#{value} #{noun}#{if value == 1, do: "", else: "s"}"
@@ -1231,34 +1453,137 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
 
   defp readable_candidate_time(value) when is_binary(value) do
     case DateTime.from_iso8601(value) do
-      {:ok, at, _offset} -> Calendar.strftime(at, "%d %b %Y, %H:%M UTC")
+      {:ok, at, _offset} -> Calendar.strftime(at, "%d %b, %H:%M:%S UTC")
       _invalid -> bounded(value, 120)
     end
   end
 
   defp readable_candidate_time(_value), do: nil
 
-  defp candidate_previews(item) do
-    first = candidate_preview(item["first_input"], "First message")
+  defp candidate_preview_list(item, enriched_history) do
+    history = candidate_source_history(item, enriched_history)
+
+    if is_list(history) and history != [] do
+      {previews, omitted} = bounded_candidate_history(history)
+      {previews, candidate_omitted(omitted, enriched_history)}
+    else
+      fallback_candidate_previews(item)
+    end
+  end
+
+  defp candidate_source_history(%{"message_history" => history}, _enriched)
+       when is_list(history) and history != [],
+       do: history
+
+  defp candidate_source_history(_item, %{} = enriched), do: enriched["items"]
+  defp candidate_source_history(_item, enriched), do: enriched
+
+  defp candidate_omitted(omitted, %{"omitted" => enriched}) when is_integer(enriched),
+    do: max(omitted, enriched)
+
+  defp candidate_omitted(omitted, _enriched), do: omitted
+
+  defp fallback_candidate_previews(item) do
+    first = candidate_preview(item["first_input"], "Message 1")
     latest = candidate_preview(item["latest_input"], "Latest message")
+    latest = if same_preview?(first, latest), do: nil, else: latest
+    {[first, latest] |> Enum.reject(&is_nil/1), 0}
+  end
 
-    latest =
-      if first != nil and latest != nil and first.text == latest.text, do: nil, else: latest
+  defp same_preview?(%{text: text}, %{text: text}), do: true
+  defp same_preview?(_first, _latest), do: false
 
-    [first, latest]
-    |> Enum.reject(&is_nil/1)
-    |> Enum.map(fn preview ->
-      [
-        "<article class=\"candidate-preview\"><header><strong>",
-        preview.label,
-        "</strong>",
-        if(preview.at, do: ["<time>", escape(preview.at), "</time>"], else: []),
-        "</header><p>",
-        escape(preview.text),
-        if(preview.truncated, do: " <span>(truncated)</span>", else: []),
-        "</p></article>"
-      ]
-    end)
+  defp bounded_candidate_history(history) do
+    total = length(history)
+
+    indexed =
+      if total <= 20 do
+        Enum.with_index(history, 1)
+      else
+        [{hd(history), 1} | Enum.with_index(Enum.take(history, -19), total - 18)]
+      end
+
+    previews =
+      indexed
+      |> Enum.map(fn {preview, index} ->
+        position = preview["history_position"] || index
+        candidate_preview(preview, "Message #{position}")
+      end)
+      |> Enum.reject(&is_nil/1)
+
+    {previews, max(total - 20, 0)}
+  end
+
+  defp candidate_excerpt(nil, _objective, _latest_development), do: []
+
+  defp candidate_excerpt(%{text: text}, objective, _latest_development)
+       when text == objective,
+       do: []
+
+  defp candidate_excerpt(preview, _objective, _latest_development) do
+    [
+      "<p class=\"candidate-excerpt\">",
+      escape(preview.text),
+      if(preview.truncated, do: " <span>(truncated)</span>", else: []),
+      "</p>"
+    ]
+  end
+
+  defp candidate_history(previews, count, omitted) do
+    [
+      "<details class=\"candidate-history\"><summary>",
+      disclosure_chevron(),
+      "<span>Message history",
+      if(is_integer(count) and count > 1, do: [" · ", count(count, "message")], else: []),
+      "</span></summary><div>",
+      if(omitted > 0,
+        do: [
+          "<p class=\"candidate-history-omission\">",
+          count(omitted, "earlier message"),
+          " omitted</p>"
+        ],
+        else: []
+      ),
+      Enum.map(previews, &candidate_preview_card/1),
+      "</div></details>"
+    ]
+  end
+
+  defp related_candidate_history(previews, count, omitted, artifact_id, collapsed?) do
+    [
+      "<details class=\"candidate-history candidate-related-history\" data-artifact=\"",
+      escape(artifact_id),
+      "\"><summary>",
+      disclosure_chevron(),
+      "<span>Related episode history",
+      if(is_integer(count) and count > 1, do: [" · ", count(count, "message")], else: []),
+      "</span><span class=\"candidate-history-status\">Full history not supplied to routing",
+      if(collapsed?, do: " · loads on open", else: []),
+      "</span></summary><div>",
+      if(omitted > 0,
+        do: [
+          "<p class=\"candidate-history-omission\">",
+          count(omitted, "message"),
+          " not shown</p>"
+        ],
+        else: []
+      ),
+      Enum.map(previews, &candidate_preview_card/1),
+      "</div></details>"
+    ]
+  end
+
+  defp candidate_preview_card(preview) do
+    [
+      "<article class=\"candidate-preview\"><header><strong>",
+      preview.label,
+      "</strong>",
+      if(preview.at, do: ["<time>", escape(preview.at), "</time>"], else: []),
+      "</header><p>",
+      escape(preview.text),
+      if(preview.truncated, do: " <span>(truncated)</span>", else: []),
+      "</p></article>"
+    ]
   end
 
   defp candidate_preview(%{} = preview, label) do
@@ -1307,16 +1632,19 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
       |> maybe_reason(positive_integer?(match["direct_references"]), fn ->
         count(match["direct_references"], "direct reference")
       end)
-      |> maybe_reason(match["same_thread"] == true, "same thread")
-      |> maybe_reason(match["same_conversation"] == true, "same conversation")
-      |> maybe_reason(positive_number?(match["topic_fit"]), "related wording")
-      |> maybe_reason(match["active"] == true, "active work")
+      |> maybe_reason(match["same_thread"] == true, "Same thread")
+      |> maybe_reason(
+        match["same_conversation"] == true and match["same_thread"] != true,
+        "Same conversation"
+      )
+      |> maybe_reason(positive_number?(match["topic_fit"]), "Similar request")
+      |> maybe_reason(match["active"] == true, "Active work")
       |> Enum.reverse()
 
     if reasons == [],
       do: [],
       else: [
-        "<p class=\"candidate-rationale\"><strong>Why offered</strong> ",
+        "<p class=\"candidate-rationale\"><strong>Matched on</strong> ",
         Enum.join(reasons, " · "),
         "</p>"
       ]
@@ -1336,7 +1664,9 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
     encoded = bounded(encoded, 500)
 
     [
-      "<details class=\"context-candidate-raw\"><summary>Retained raw candidate</summary><pre>",
+      "<details class=\"context-candidate-raw context-inline-disclosure\"><summary>",
+      disclosure_chevron(),
+      "<span>Retained raw candidate</span></summary><pre>",
       escape(encoded),
       "</pre></details>"
     ]

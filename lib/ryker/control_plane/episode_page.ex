@@ -721,13 +721,14 @@ defmodule Ryker.ControlPlane.EpisodePage do
   defp work_setup(assigns) do
     ~H"""
     <div class="case-event-content work-setup" data-state={@step.setup.kind}>
-      <div class="case-event-heading">
-        <h3>Work setup</h3>
-        <.success_mark :if={@step.setup.kind == :ready} label="Ready" />
-        <span :if={@step.setup.kind != :ready} class={"event-state tone-#{@step.tone}"}>
-          {@step.setup.label}<small :if={@step.setup.current}> · current</small>
-        </span>
-      </div>
+      <.card_heading title="Work setup">
+        <:meta>
+          <.success_mark :if={@step.setup.kind == :ready} label="Ready" />
+          <span :if={@step.setup.kind != :ready} class={"event-state tone-#{@step.tone}"}>
+            {@step.setup.label}<small :if={@step.setup.current}> · current</small>
+          </span>
+        </:meta>
+      </.card_heading>
       <p :if={@step.summary} class="case-event-summary">{@step.summary}</p>
       <.fact_list facts={@step.setup.rows} class="setup-facts" />
       <.disclosure
@@ -757,13 +758,21 @@ defmodule Ryker.ControlPlane.EpisodePage do
   defp input_queue(assigns) do
     ~H"""
     <div class="case-event-content input-queue" data-state={@step.queue.kind}>
-      <div class="case-event-heading">
-        <h3>
-          Input queue<small :if={@step.queue.qualifier}> · {@step.queue.qualifier}</small>
-        </h3>
-        <span :if={@step.queue.current} class="event-state">Current</span>
-      </div>
-      <p class="queue-span">{queue_span(@step.queue)}</p>
+      <.card_heading title="Input queue">
+        <:detail :if={@step.queue.qualifier}>{@step.queue.qualifier}</:detail>
+        <:meta>
+          <span :if={@step.queue.current} class="event-state">Current</span>
+          <span
+            :if={
+              !@step.queue.current && is_number(@step.queue.duration_ms) &&
+                @step.queue.duration_ms > 0
+            }
+            class="action-duration"
+          >
+            {duration(@step.queue.duration_ms)}
+          </span>
+        </:meta>
+      </.card_heading>
       <ol class="queue-events">
         <li :for={event <- @step.queue.events}>
           <div class="queue-event-heading">
@@ -780,15 +789,6 @@ defmodule Ryker.ControlPlane.EpisodePage do
     </div>
     """
   end
-
-  defp queue_span(%{current: true, started_at: started_at}),
-    do: "Since #{precise_clock(started_at)}"
-
-  defp queue_span(%{started_at: started_at, ended_at: ended_at, duration_ms: duration_ms})
-       when not is_nil(ended_at) and duration_ms > 0,
-       do: "#{precise_clock(started_at)} to #{precise_clock(ended_at)} · #{duration(duration_ms)}"
-
-  defp queue_span(%{started_at: started_at}), do: precise_clock(started_at)
 
   defp precise_clock(nil), do: "Not recorded"
 
@@ -809,9 +809,7 @@ defmodule Ryker.ControlPlane.EpisodePage do
       data-state={@step.engagement.state}
       data-rules-state={@step.rules.state}
     >
-      <div class="case-event-heading">
-        <h3>Participation</h3>
-      </div>
+      <.card_heading title="Participation" />
       <p class="case-event-summary participation-summary">{@step.engagement.reason}</p>
 
       <section
@@ -890,11 +888,9 @@ defmodule Ryker.ControlPlane.EpisodePage do
   defp message(assigns) do
     ~H"""
     <.provider_header :if={@message[:provider]} provider={@message.provider} />
-    <div :if={!@message[:provider]} class="story-byline">
-      <strong title={@message[:actor_ref]}>{@message[:display_actor] || @message.actor}</strong><span :if={
-        @message[:status]
-      }>{@message.status}</span>
-    </div>
+    <.card_heading :if={!@message[:provider]} title={@message[:display_actor] || @message.actor}>
+      <:meta :if={@message[:status]}><span>{@message.status}</span></:meta>
+    </.card_heading>
     <p :if={@message[:response_reference]} class="response-reference">
       <a href={@message.response_reference}>View response ↑</a>
     </p>
@@ -1035,13 +1031,15 @@ defmodule Ryker.ControlPlane.EpisodePage do
   defp event(assigns) do
     ~H"""
     <div class="case-event-content">
-      <div class="case-event-heading">
-        <h3>{event_title(@step)}</h3><span
-          :if={show_event_state?(@step)}
-          class={"event-state tone-#{@step.tone}"}
-        >{label(@step.state)}</span>
-        <span :if={@step.duration_ms}>{duration(@step.duration_ms)}</span>
-      </div>
+      <.card_heading title={event_title(@step)}>
+        <:meta :if={show_event_state?(@step) || @step.duration_ms}>
+          <span
+            :if={show_event_state?(@step)}
+            class={"event-state tone-#{@step.tone}"}
+          >{label(@step.state)}</span>
+          <span :if={@step.duration_ms}>{duration(@step.duration_ms)}</span>
+        </:meta>
+      </.card_heading>
       <p :if={@step.summary && @step.summary != event_title(@step)} class="case-event-summary">
         {@step.summary}
       </p>
@@ -1129,7 +1127,15 @@ defmodule Ryker.ControlPlane.EpisodePage do
     do:
       step.tone not in [:bad, :warn] and
         not silent_result?(step) and
-        step.stage in ["Preparation", "Routing", "Input", "Result", "Delivery", "Validation"]
+        step.stage in [
+          "Preparation",
+          "Routing",
+          "Input",
+          "Execution",
+          "Result",
+          "Delivery",
+          "Validation"
+        ]
 
   defp compact_entry?(%{kind: :event, step: step}), do: bookkeeping?(step)
   defp compact_entry?(_), do: false
@@ -1169,7 +1175,7 @@ defmodule Ryker.ControlPlane.EpisodePage do
   defp phase_number(:work), do: "03"
   defp phase_number(:answer), do: "04"
 
-  defp phase_title(:ready), do: "Received"
+  defp phase_title(:ready), do: "Intake"
   defp phase_title(:routing), do: "Routing"
   defp phase_title(:work), do: "Work"
   defp phase_title(:answer), do: "Answer"

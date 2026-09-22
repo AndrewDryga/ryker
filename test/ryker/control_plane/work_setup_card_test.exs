@@ -40,8 +40,15 @@ defmodule Ryker.ControlPlane.WorkSetupCardTest do
     work = submitted!("ready")
     html = rendered(work.episode)
     card = card(html, work.turn)
+    document = LazyHTML.from_document(html)
+    heading = LazyHTML.query(document, "#event-setup-#{work.turn.id} .case-card-heading")
 
     assert card =~ "Work setup"
+
+    assert LazyHTML.query(heading, ".case-card-heading-main > h3") |> LazyHTML.text() ==
+             "Work setup"
+
+    assert LazyHTML.query(heading, ".case-card-heading-meta .success-mark") |> Enum.count() == 1
     # A success mark carries the state; the word is for assistive technology only.
     assert ready?(html, work.turn)
     refute card =~ "Ready"

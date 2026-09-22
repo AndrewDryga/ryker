@@ -13,6 +13,11 @@ defmodule Ryker.ControlPlane.ToolCardTest do
     html = render_component(&ToolCard.render/1, step: completed)
     doc = LazyHTML.from_fragment(html)
 
+    assert LazyHTML.query(doc, ".action-card > .case-card-heading") |> Enum.count() == 1
+
+    assert LazyHTML.query(doc, ".case-card-heading-main > h3") |> LazyHTML.text() ==
+             "Citation saved"
+
     assert Enum.empty?(LazyHTML.query(doc, ".action-observation"))
     assert Enum.empty?(LazyHTML.query(doc, ".action-facts"))
 

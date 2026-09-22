@@ -16,7 +16,8 @@ defmodule Ryker.ControlPlane.WorkerEvidenceCard do
 
   use Phoenix.Component
 
-  import Ryker.ControlPlane.Components, only: [disclosure: 1, fact_list: 1, identifier: 1]
+  import Ryker.ControlPlane.Components,
+    only: [card_heading: 1, disclosure: 1, fact_list: 1, identifier: 1]
 
   alias Ryker.ControlPlane.WorkerEvidence
 
@@ -68,9 +69,9 @@ defmodule Ryker.ControlPlane.WorkerEvidenceCard do
   defp access(assigns) do
     ~H"""
     <div class="case-event-content network-access" data-mode={@card.access.mode}>
-      <div class="case-event-heading">
-        <h3>Network access</h3><span class="event-state">{@card.access.headline}</span>
-      </div>
+      <.card_heading title="Network access">
+        <:meta><span class="event-state">{@card.access.headline}</span></:meta>
+      </.card_heading>
       <p :if={@card.access.reason} class="case-event-summary">{@card.access.reason}</p>
       <p
         :if={!@card.access.reason && @card.access.availability.state == :not_applicable}
@@ -124,13 +125,14 @@ defmodule Ryker.ControlPlane.WorkerEvidenceCard do
       class="case-event-content network-summary"
       data-availability={@card.network.availability.state}
     >
-      <div class="case-event-heading">
-        <h3>Network</h3>
-        <span :if={@card.network.scope} class="event-state">{@card.network.scope}</span>
-        <span :if={@card.network.availability.state != :recorded} class="event-state">
-          {@card.network.availability.label}
-        </span>
-      </div>
+      <.card_heading title="Network">
+        <:meta :if={@card.network.scope || @card.network.availability.state != :recorded}>
+          <span :if={@card.network.scope} class="event-state">{@card.network.scope}</span>
+          <span :if={@card.network.availability.state != :recorded} class="event-state">
+            {@card.network.availability.label}
+          </span>
+        </:meta>
+      </.card_heading>
       <p :if={@card.network.reason} class="case-event-summary">{@card.network.reason}</p>
       <p
         :if={@card.network.availability.state in [:not_applicable, :not_reached]}
@@ -380,11 +382,13 @@ defmodule Ryker.ControlPlane.WorkerEvidenceCard do
   defp coop_task(assigns) do
     ~H"""
     <div class="case-event-content coop-task" data-state={@card.task.state}>
-      <div class="case-event-heading">
-        <h3>Coop task{if @card.task.snapshot, do: " · " <> @card.task.snapshot.title}</h3>
-        <span :if={@card.task.snapshot} class="event-state">{@card.task.snapshot.state_label}</span>
-        <span :if={!@card.task.snapshot} class="event-state">{@card.task.availability.label}</span>
-      </div>
+      <.card_heading title="Coop task">
+        <:detail :if={@card.task.snapshot}>{@card.task.snapshot.title}</:detail>
+        <:meta>
+          <span :if={@card.task.snapshot} class="event-state">{@card.task.snapshot.state_label}</span>
+          <span :if={!@card.task.snapshot} class="event-state">{@card.task.availability.label}</span>
+        </:meta>
+      </.card_heading>
       <p :if={@card.task.reason} class="case-event-summary">{@card.task.reason}</p>
       <p :if={@card.task.snapshot} class="case-event-summary">
         Checklist {@card.task.snapshot.checked.value}/{@card.task.snapshot.total.value} recorded ·

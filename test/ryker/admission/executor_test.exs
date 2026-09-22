@@ -86,7 +86,9 @@ defmodule Ryker.Admission.ExecutorTest do
         requests: inspector.timeline
       )
 
-    assert html =~ "Observed execution milestones"
+    assert html =~ "Selection evidence"
+    assert html =~ "Raw routing response"
+    refute html =~ "Observed execution milestones"
     assert html =~ "Routing briefing"
   end
 

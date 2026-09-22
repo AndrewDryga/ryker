@@ -15,8 +15,9 @@ defmodule Ryker.ControlPlane.EpisodeTrace.ToolActivity do
   @doc """
   The narrated activity as steps, each owned by the Work turn that produced it.
 
-  A tool completion is appended as its own step beside the start it answers,
-  rather than rewriting the earlier card the reader may already have open.
+  A tool start remains visible while it is running. Once its completion is
+  retained, the pair becomes one completed step with the start's request and
+  the completion's outcome.
   """
   def steps(activity_events, causality, disclosed) do
     routing_ids =
@@ -26,7 +27,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.ToolActivity do
       |> MapSet.new()
 
     activity_events
-    |> Enum.reject(&(&1.kind == "model.thought"))
+    |> Enum.reject(&hidden_activity?/1)
     |> Enum.reduce({[], %{}}, &fold_activity(&1, &2, disclosed))
     |> elem(0)
     |> Enum.reverse()
@@ -53,13 +54,28 @@ defmodule Ryker.ControlPlane.EpisodeTrace.ToolActivity do
 
   defp fold_activity(%ActivityEvent{kind: "tool.completed"} = event, {steps, open}, disclosed) do
     case Map.pop(open, activity_tool_key(event)) do
-      {nil, open} -> {[tool_completed_step(event, disclosed) | steps], open}
-      {started, open} -> {[complete_tool(started, event, disclosed) | steps], open}
+      {nil, open} ->
+        {[tool_completed_step(event, disclosed) | steps], open}
+
+      {started, open} ->
+        remaining = Enum.reject(steps, &(&1.id == started.id))
+        {[complete_tool(started, event, disclosed) | remaining], open}
     end
   end
 
   defp fold_activity(event, {steps, open}, disclosed),
     do: {[activity_step(event, disclosed) | steps], open}
+
+  defp hidden_activity?(%ActivityEvent{kind: "model.thought"}), do: true
+
+  defp hidden_activity?(%ActivityEvent{kind: "model.progress", payload: payload}) do
+    case payload["text"] do
+      text when is_binary(text) -> String.trim(text) == ""
+      _other -> true
+    end
+  end
+
+  defp hidden_activity?(_event), do: false
 
   defp tool_started_step(event, disclosed) do
     input = event.payload["input"]

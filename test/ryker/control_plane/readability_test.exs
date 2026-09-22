@@ -45,7 +45,7 @@ defmodule Ryker.ControlPlane.ReadabilityTest do
   test "prompt and action headings cannot inherit the dark application banner" do
     css = Assets.call(Plug.Test.conn(:get, "/workspace.css"), []).resp_body
 
-    for selector <- [".prompt-group > header", ".action-card > header"] do
+    for selector <- [".prompt-group > header", ".case-card-heading"] do
       [_, rule] = Regex.run(Regex.compile!(Regex.escape(selector) <> " \\{([^}]+)\\}"), css)
       assert rule =~ "background:transparent"
       assert rule =~ "position:static"
@@ -68,17 +68,41 @@ defmodule Ryker.ControlPlane.ReadabilityTest do
     # Desktop HTML tests missed a hidden token-count rule and an inherited
     # two-column grid that pushed a 390px viewport to 753px.
     css = Assets.call(Plug.Test.conn(:get, "/workspace.css"), []).resp_body
-    [_, tokens] = Regex.run(~r/\.prompt-assembly \.prompt-source-state \{([^}]+)\}/, css)
-    assert tokens =~ "display:inline"
+    [_, tokens] = Regex.run(~r/\.prompt-source-estimate \{([^}]+)\}/, css)
+    assert tokens =~ "font-variant-numeric:tabular-nums"
     [_, facts] = Regex.run(~r/\.action-facts \{([^}]+)\}/, css)
     assert facts =~ "grid-template-columns:minmax(0,1fr)"
     [_, cards] = Regex.run(~r/\.memory-cards \{([^}]+)\}/, css)
     assert cards =~ "grid-template-columns:minmax(0,1fr)"
     [_, card] = Regex.run(~r/\.memory-card \{([^}]+)\}/, css)
     assert card =~ "overflow-wrap:anywhere"
-    [_, tooltip] = Regex.run(~r/\.prompt-fragment:focus::before \{([^}]+)\}/, css)
+    [_, tooltip] = Regex.run(~r/\.prompt-inspector-tooltip \{([^}]+)\}/, css)
     assert tooltip =~ "position:fixed"
-    assert tooltip =~ "calc(100vw - 32px)"
+    assert tooltip =~ "max-width:min(420px, calc(100vw - 24px))"
+  end
+
+  test "prompt source disclosures have a shared chevron and right metadata slot" do
+    css = Assets.call(Plug.Test.conn(:get, "/workspace.css"), []).resp_body
+
+    assert [_, summary] = Regex.run(~r/^\.prompt-source > summary \{([^}]+)\}/m, css)
+    assert summary =~ "grid-template-columns"
+
+    assert [_, chevron] = Regex.run(~r/^\.prompt-source-chevron \{([^}]+)\}/m, css)
+    refute chevron =~ "transition:transform"
+
+    assert css =~
+             "@media (prefers-reduced-motion:no-preference) { .activity-row, .app-nav a, .ui-button { transition:background-color .12s ease; } .ui-disclosure > summary .ui-icon, .prompt-source-chevron { transition:transform .12s ease; } }"
+
+    assert [_, open_chevron] =
+             Regex.run(
+               ~r/^\.prompt-source\[open\] > summary \.prompt-source-chevron \{([^}]+)\}/m,
+               css
+             )
+
+    assert open_chevron =~ "rotate(90deg)"
+
+    assert [_, metadata] = Regex.run(~r/^\.prompt-source-meta \{([^}]+)\}/m, css)
+    assert metadata =~ "margin-left:auto"
   end
 
   test "expanded request-context fields and raw prompts remain contained" do
@@ -140,12 +164,25 @@ defmodule Ryker.ControlPlane.ReadabilityTest do
   test "timeline cards share one readable type hierarchy" do
     css = Assets.call(Plug.Test.conn(:get, "/workspace.css"), []).resp_body
 
-    [_, heading] =
-      Regex.run(~r/\.case-event-heading h3, \.case-request-heading h3 \{([^}]+)\}/, css)
+    [_, shell] = Regex.run(~r/\.case-card-heading \{([^}]+)\}/, css)
+    assert shell =~ "grid-template-columns:minmax(0,1fr) auto"
+    assert shell =~ "align-items:start"
+
+    [_, heading] = Regex.run(~r/\.case-card-heading h3 \{([^}]+)\}/, css)
 
     assert heading =~ "font-size:16px"
     assert heading =~ "line-height:24px"
     assert heading =~ "color:var(--ink)"
+
+    [_, metadata] = Regex.run(~r/\.case-card-heading-meta \{([^}]+)\}/, css)
+    assert metadata =~ "justify-content:flex-end"
+    assert metadata =~ "text-align:right"
+
+    [_, narrow_metadata] =
+      Regex.run(~r/\.case-card-heading-stack-meta \.case-card-heading-meta \{([^}]+)\}/, css)
+
+    assert narrow_metadata =~ "justify-content:flex-start"
+    assert narrow_metadata =~ "text-align:left"
 
     [_, message] = Regex.run(~r/\.case-message-text \{([^}]+)\}/, css)
     assert message =~ "font-size:16px"
