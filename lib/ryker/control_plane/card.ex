@@ -7,7 +7,11 @@ defmodule Ryker.ControlPlane.Card do
   alias Ryker.Slack.TaskCardProjection
   alias Ryker.State.{Record, RecordPayload}
 
-  @doc "Only actionable cards expose their custody status; facts and transitions have no open lifecycle."
+  @doc "Only a lifecycle state that changes the card's meaning is shown."
+  def display_status(%{status: status})
+      when status in [nil, :open, :confirmed, "open", "confirmed"],
+      do: nil
+
   def display_status(%{kind: kind})
       when kind in ~w(evidence coverage finding progress goal goal_state alert_assessment),
       do: nil
@@ -229,10 +233,14 @@ defmodule Ryker.ControlPlane.Card do
   defp card(%Record{kind: "memory_offer"} = record, payload) do
     details =
       []
-      |> optional_detail("Kind", payload["kind"])
-      |> optional_detail("Scope", payload["scope"])
-      |> optional_detail("Visibility", payload["visibility"])
-      |> optional_detail("Expires", payload["expires_in"])
+      |> optional_detail("Kind", humanize_optional(payload["kind"]))
+      |> optional_detail("Scope", scope_label(payload["scope"]))
+      |> optional_distinct_detail(
+        "Visibility",
+        scope_label(payload["visibility"]),
+        scope_label(payload["scope"])
+      )
+      |> optional_detail("Expires", duration_label(payload["expires_in"]))
       |> optional_detail("Repository", payload["repository"])
 
     common(
@@ -248,8 +256,8 @@ defmodule Ryker.ControlPlane.Card do
   defp card(%Record{kind: "preference_offer"} = record, payload) do
     details =
       []
-      |> optional_detail("Scope", payload["scope"])
-      |> optional_detail("Expires", payload["expires_in"])
+      |> optional_detail("Scope", scope_label(payload["scope"]))
+      |> optional_detail("Expires", duration_label(payload["expires_in"]))
       |> optional_detail("Repository", payload["repository"])
 
     common(
@@ -265,9 +273,13 @@ defmodule Ryker.ControlPlane.Card do
   defp card(%Record{kind: "guidance_offer"} = record, payload) do
     details =
       []
-      |> optional_detail("Scope", payload["scope"])
-      |> optional_detail("Visibility", payload["visibility"])
-      |> optional_detail("Expires", payload["expires_in"])
+      |> optional_detail("Scope", scope_label(payload["scope"]))
+      |> optional_distinct_detail(
+        "Visibility",
+        scope_label(payload["visibility"]),
+        scope_label(payload["scope"])
+      )
+      |> optional_detail("Expires", duration_label(payload["expires_in"]))
       |> optional_detail("Repository", payload["repository"])
 
     common(
@@ -552,6 +564,42 @@ defmodule Ryker.ControlPlane.Card do
 
   defp optional_detail(details, _label, nil), do: details
   defp optional_detail(details, label, value), do: details ++ [{label, to_string(value)}]
+
+  defp optional_distinct_detail(details, _label, nil, _existing), do: details
+  defp optional_distinct_detail(details, _label, value, value), do: details
+
+  defp optional_distinct_detail(details, label, value, _existing),
+    do: optional_detail(details, label, value)
+
+  defp scope_label("conversation"), do: "This conversation"
+  defp scope_label("repository"), do: "This repository"
+  defp scope_label("workspace"), do: "Workspace"
+  defp scope_label(nil), do: nil
+  defp scope_label(value), do: humanize(value)
+
+  defp duration_label(value) when is_binary(value) do
+    case Regex.run(~r/^(\d+)([smhdw])$/, value) do
+      [_, count, unit] -> count <> " " <> duration_unit(unit, count)
+      _other -> humanize(value)
+    end
+  end
+
+  defp duration_label(nil), do: nil
+  defp duration_label(value), do: to_string(value)
+
+  defp duration_unit("s", "1"), do: "second"
+  defp duration_unit("s", _count), do: "seconds"
+  defp duration_unit("m", "1"), do: "minute"
+  defp duration_unit("m", _count), do: "minutes"
+  defp duration_unit("h", "1"), do: "hour"
+  defp duration_unit("h", _count), do: "hours"
+  defp duration_unit("d", "1"), do: "day"
+  defp duration_unit("d", _count), do: "days"
+  defp duration_unit("w", "1"), do: "week"
+  defp duration_unit("w", _count), do: "weeks"
+
+  defp humanize_optional(nil), do: nil
+  defp humanize_optional(value), do: humanize(value)
 
   defp humanize(value) when is_binary(value),
     do: value |> String.replace("_", " ") |> String.capitalize()

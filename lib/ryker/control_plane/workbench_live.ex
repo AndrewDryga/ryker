@@ -22,7 +22,6 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
     Pages,
     PathRef,
     RequestFilters,
-    RequestPage,
     SettingsPage,
     SettingsSections,
     SettingsView,
@@ -68,6 +67,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
        setup_reveal: nil,
        setup_incomplete: false,
        github_repositories: [],
+       github_repository_discovery: :idle,
        slack_members: [],
        emisar_edit_ref: nil,
        webhook_credential_editing: false,
@@ -81,14 +81,14 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
        episode: nil,
        disclosed: MapSet.new(),
        requests: nil,
-       request_selection: %{},
        lab: nil,
        lab_token: nil,
        lab_announcement: "",
        lab_items: [],
        lab_window: nil,
        lab_draft_id: nil,
-       lab_placeholder: nil
+       lab_placeholder: nil,
+       readiness: nil
      )
      |> stream_configure(:activity, dom_id: &dom_id/1)
      |> stream(:activity, [])
@@ -109,7 +109,6 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
        domain: domain,
        params: params,
        filter_menu: nil,
-       request_selection: %{},
        disclosed: navigation_disclosures(socket, location.path),
        native: :loading,
        body: "",
@@ -385,12 +384,20 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
         {:noreply,
          assign(socket,
            github_repositories: repositories,
+           github_repository_discovery: :complete,
            setup_notice: "Found #{length(repositories)} available repositories.",
            setup_reveal: nil
          )}
 
       {:error, reason} ->
-        {:noreply, assign(socket, setup_notice: setup_error(reason), setup_reveal: nil)}
+        message = setup_error(reason)
+
+        {:noreply,
+         assign(socket,
+           github_repository_discovery: {:error, message},
+           setup_notice: message,
+           setup_reveal: nil
+         )}
     end
   end
 
@@ -775,16 +782,20 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
       |> Map.merge(Map.take(socket.assigns.params, ["events"]))
 
     with {:ok, episode} <- options.projection.episode.(socket.assigns.params["ref"], disclosed),
-         {:ok, requests} <- episode_requests(socket, options, episode.episode.ref),
          {:ok, timeline} <-
-           options.projection.model_timeline.(socket.assigns.params["ref"], disclosed) do
+           options.projection.model_timeline.(
+             socket.assigns.params["ref"],
+             Map.merge(
+               disclosed,
+               Map.take(socket.assigns.params, ["attempt", "responses_page", "calls"])
+             )
+           ) do
       assign(socket,
         native: :episode,
         page_title: "Timeline",
         episode: episode,
         timeline: timeline,
-        requests: requests,
-        request_selection: request_selection(requests)
+        requests: nil
       )
     else
       :not_found -> load_unassigned_input(socket, options)
@@ -902,7 +913,8 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
               socket.assigns.lab_announcement
         ),
       lab_token: token,
-      lab_items: options.projection.lab_index.()
+      lab_items: options.projection.lab_index.(),
+      readiness: options.projection.readiness.()
     )
   end
 
@@ -962,6 +974,9 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
   defp setup_error({:slack_missing_scopes, scopes}),
     do: "Slack is missing: " <> Enum.join(scopes, ", ")
 
+  defp setup_error({:invalid_github_app_jwt, :private_key}),
+    do: "GitHub could not read the App private key. Replace the connection, then try again."
+
   defp setup_error({provider, reason}) when is_atom(provider),
     do: "Connection could not be verified (#{reason})."
 
@@ -1002,15 +1017,16 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
       page_description: page.description,
       settings: options.projection.settings.(),
       settings_commands: settings_commands(options),
-      area_settings: area_settings(socket.assigns.path)
+      area_settings: area_settings(socket.assigns.path, socket.assigns.params)
     )
   end
 
-  defp area_settings("/channels"), do: settings_sections([:slack])
-  defp area_settings("/repositories"), do: settings_sections([:publication])
-  defp area_settings("/memory"), do: settings_sections([:learning])
-  defp area_settings("/schedules"), do: settings_sections([:report])
-  defp area_settings(_path), do: []
+  defp area_settings("/channels", _params), do: settings_sections([:slack])
+  defp area_settings("/repositories", _params), do: settings_sections([:publication])
+  defp area_settings("/memory", %{"kind" => "sources"}), do: []
+  defp area_settings("/memory", _params), do: settings_sections([:learning])
+  defp area_settings("/schedules", _params), do: settings_sections([:report])
+  defp area_settings(_path, _params), do: []
 
   defp settings_sections(keys) do
     Enum.map(keys, fn key ->
@@ -1025,14 +1041,17 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
        ) do
     case options.projection.admission_request.(
            id,
-           inspection_params(socket)
+           Map.put(
+             socket.assigns.params,
+             "disclosed",
+             MapSet.to_list(socket.assigns.disclosed)
+           )
          ) do
       {:ok, %{episode_ref: nil} = requests} ->
         assign(socket,
           native: :request,
           page_title: "Request",
-          requests: requests,
-          request_selection: request_selection(requests)
+          requests: requests
         )
 
       _ ->
@@ -1042,37 +1061,6 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
 
   defp load_unassigned_input(socket, _options),
     do: assign(socket, native: :not_found, page_title: "Not found")
-
-  defp episode_requests(socket, options, episode_ref) do
-    params = inspection_params(socket)
-
-    selection =
-      case socket.assigns.params["ref"] do
-        "ingress-input:" <> id = input_ref
-        when input_ref != episode_ref or is_map_key(params, "generation") ->
-          Map.merge(params, %{"kind" => "admission", "attempt" => id})
-
-        _ ->
-          params
-      end
-
-    if String.ends_with?(socket.assigns.path, "/model-calls") or selection["kind"] == "admission",
-      do: options.projection.model_requests.(episode_ref, selection),
-      else: {:ok, nil}
-  end
-
-  defp inspection_params(socket),
-    do: Map.merge(socket.assigns.params, socket.assigns.request_selection)
-
-  defp request_selection(%{selected: %{id: id} = selected, kind: kind}) do
-    params = %{"kind" => to_string(kind), "attempt" => id}
-
-    if selected[:generation],
-      do: Map.put(params, "generation", to_string(selected.generation)),
-      else: params
-  end
-
-  defp request_selection(_), do: %{}
 
   defp update_activity(socket, items, true) do
     socket
@@ -1116,6 +1104,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
   # conversation resets it.
   defp sync_lab_window(socket, snapshot, true, _options) do
     history = lab_history_of(snapshot)
+    progress = lab_progress_by_input(snapshot)
 
     socket
     |> stream(:lab_messages, snapshot.messages, reset: true)
@@ -1132,7 +1121,8 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
           rows: [],
           synced_at: DateTime.utc_now()
         },
-        snapshot.messages
+        snapshot.messages,
+        progress
       )
     )
   end
@@ -1145,13 +1135,14 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
   defp sync_lab_window(socket, snapshot, false, options) do
     window = socket.assigns.lab_window
     history = lab_history_of(snapshot)
+    progress = lab_progress_by_input(snapshot)
     since = DateTime.add(window.synced_at, -10, :second)
     synced_at = DateTime.utc_now()
 
     socket =
       case lab_bridge(snapshot.messages, history, window, options) do
         {:merge, messages} ->
-          merge_lab_rows(socket, messages, nil)
+          merge_lab_rows(socket, messages, nil, progress)
 
         {:adopt, messages, history} ->
           socket
@@ -1164,12 +1155,12 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
               failed: false,
               rows: []
           })
-          |> merge_lab_rows(messages, nil)
+          |> merge_lab_rows(messages, nil, progress)
       end
 
     socket =
       case LabControls.changes(window.conversation_id, since, window.page_size, options) do
-        {:ok, changed} -> merge_lab_rows(socket, changed, lab_window_floor(socket))
+        {:ok, changed} -> merge_lab_rows(socket, changed, lab_window_floor(socket), progress)
         {:error, _reason} -> throw({:projection_unavailable, :lab})
       end
 
@@ -1240,18 +1231,18 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
   # shows has changed, so an untouched row is never patched at all. With a
   # `floor`, a new row older than the window's oldest row is left for paging:
   # inserting it at the top would hide the gap between it and the window.
-  defp merge_lab_rows(socket, messages, floor) do
+  defp merge_lab_rows(socket, messages, floor, progress) do
     {socket, window} =
       Enum.reduce(messages, {socket, socket.assigns.lab_window}, fn message, {socket, window} ->
-        merge_lab_row(socket, window, message, floor)
+        merge_lab_row(socket, window, message, floor, progress)
       end)
 
     assign(socket, :lab_window, window)
   end
 
-  defp merge_lab_row(socket, window, message, floor) do
+  defp merge_lab_row(socket, window, message, floor, progress) do
     dom_id = lab_dom_id(message)
-    digest = :crypto.hash(:sha256, :erlang.term_to_binary(message))
+    digest = lab_row_digest(message, progress)
 
     case Map.fetch(window.digests, dom_id) do
       {:ok, ^digest} ->
@@ -1277,18 +1268,34 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
     end
   end
 
-  defp lab_window_rows(window, messages) do
+  defp lab_window_rows(window, messages, progress) do
     rows = Enum.map(messages, &{lab_dom_id(&1), &1.sort_key})
 
     digests =
-      Map.new(messages, &{lab_dom_id(&1), :crypto.hash(:sha256, :erlang.term_to_binary(&1))})
+      Map.new(messages, &{lab_dom_id(&1), lab_row_digest(&1, progress)})
 
     %{window | digests: digests, rows: rows}
+  end
+
+  defp lab_row_digest(message, progress) do
+    visible_progress =
+      progress
+      |> Map.get(message[:native_input_id], [])
+      |> Enum.map(&Map.take(&1, [:href, :id, :phase]))
+
+    :crypto.hash(:sha256, :erlang.term_to_binary({message, visible_progress}))
+  end
+
+  defp lab_progress_by_input(snapshot) do
+    snapshot
+    |> Map.get(:admission_progress, [])
+    |> Enum.group_by(& &1.native_input_id)
   end
 
   defp load_older_page(socket) do
     window = socket.assigns.lab_window
     options = Endpoint.config(:control_plane)
+    progress = lab_progress_by_input(socket.assigns.lab)
 
     case LabControls.history(window.conversation_id, window.before, window.page_size, options) do
       {:ok, page} ->
@@ -1300,7 +1307,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
               exhausted: page.exhausted,
               failed: false
           })
-          |> merge_lab_rows(page.messages, nil)
+          |> merge_lab_rows(page.messages, nil, progress)
 
         {:reply, %{"status" => "loaded"}, socket}
 
@@ -1365,7 +1372,6 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
           <EpisodePage.render
             :if={@native == :episode}
             snapshot={@episode}
-            requests={@requests}
             params={@params}
             timeline={@timeline}
           />
@@ -1378,6 +1384,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
             history={@lab_window}
             announcement={@lab_announcement}
             placeholder={@lab_placeholder}
+            readiness={@readiness}
             now={@observed_at || DateTime.utc_now()}
           />
           <SettingsPage.render
@@ -1413,11 +1420,15 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
               received_at={@requests.heading.received_at}
               conversation_href={@requests.heading.conversation_href}
             />
+            <EpisodePage.admission_recovery
+              :if={@requests.selected[:recovery]}
+              recovery={@requests.selected.recovery}
+            />
             <EpisodePage.getting_ready
               :if={@requests[:preparation]}
               steps={@requests.preparation}
+              requests={@requests.timeline}
             />
-            <RequestPage.render view={@requests} params={@params} path={@path} />
           </div>
           <section :if={@native == :not_found} class="document-unavailable">
             <h1>This record is unavailable</h1><p>
@@ -1432,6 +1443,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
               :if={@path == "/repositories" && match?({:ok, _view}, @settings)}
               view={elem(@settings, 1)}
               repositories={@github_repositories}
+              discovery={@github_repository_discovery}
             />
             <details
               :if={area_settings_visible?(@area_settings, @settings)}

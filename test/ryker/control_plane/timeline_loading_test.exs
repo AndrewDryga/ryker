@@ -73,8 +73,8 @@ defmodule Ryker.ControlPlane.TimelineLoadingTest do
     refute html =~ String.duplicate("d", 200)
   end
 
-  test "the Model calls page collapses retained tool payloads until opened" do
-    work = episode_with_tool!("model-calls", String.duplicate("e", 40_000))
+  test "the retained request inspector collapses tool payloads until opened" do
+    work = episode_with_tool!("request-inspector", String.duplicate("e", 40_000))
     {:ok, view} = ModelRequests.project(work.episode.key, %{"kind" => "work"})
     [tool | _] = view.selected.tools.items
 

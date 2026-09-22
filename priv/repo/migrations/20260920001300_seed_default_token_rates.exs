@@ -4,8 +4,10 @@ defmodule Ryker.Repo.Migrations.SeedDefaultTokenRates do
   @provenance "https://developers.openai.com/api/docs/pricing"
 
   def up do
+    table = rates_table()
+
     execute("""
-    INSERT INTO pricing_rates
+    INSERT INTO #{table}
       (id, execution_target, input_usd_per_million, cached_input_usd_per_million,
        output_usd_per_million, reasoning_usd_per_million, effective_from, revision,
        provenance, inserted_at)
@@ -18,11 +20,16 @@ defmodule Ryker.Repo.Migrations.SeedDefaultTokenRates do
   end
 
   def down do
+    table = rates_table()
+
     execute("""
-    DELETE FROM pricing_rates
+    DELETE FROM #{table}
     WHERE provenance = '#{@provenance}'
       AND effective_from = '2026-09-05'
       AND execution_target IN ('codex:gpt-5.6-sol', 'codex:gpt-5.6-terra', 'codex:gpt-5.6-luna')
     """)
   end
+
+  defp rates_table,
+    do: ~s("#{String.replace(prefix() || "public", "\"", "\"\"")}".pricing_rates)
 end

@@ -142,8 +142,9 @@ defmodule Ryker.Admission.FleetSession do
       %Session{
         execution_kind: :admission,
         coop_session_id: ^coop_session_id,
-        cleanup_status: :discarded
-      } = session ->
+        cleanup_status: status
+      } = session
+      when status in [:plan_pending, :discard_pending, :retained, :discarded] ->
         session
 
       %Session{
@@ -155,9 +156,8 @@ defmodule Ryker.Admission.FleetSession do
 
         session
         |> Ecto.Changeset.change(%{
-          cleanup_status: :discarded,
-          closed_at: now,
-          discarded_at: now
+          cleanup_status: :plan_pending,
+          closed_at: now
         })
         |> Repo.update!()
 

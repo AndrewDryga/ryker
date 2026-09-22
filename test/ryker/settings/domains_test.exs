@@ -19,6 +19,10 @@ defmodule Ryker.Settings.DomainsTest do
              Enum.sort(["codex:gpt-5.6-sol", "codex:gpt-5.6-terra", "codex:gpt-5.6-luna"])
   end
 
+  test "a new installation learns by default", %{snapshot: snapshot} do
+    assert snapshot.learning.enabled
+  end
+
   test "collection edits share the single revision and each records one receipt", %{
     snapshot: snapshot
   } do

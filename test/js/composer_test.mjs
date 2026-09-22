@@ -5,7 +5,7 @@ import {createComposer} from "../../priv/static/composer.mjs"
 // The composer form as the server renders it: the message, the file field
 // described by its error slot, the status line and Send. Real layout is
 // checked in Chromium.
-function composer() {
+function composer(options = {}) {
   const attributes = {}
   const error = {hidden: true, textContent: "", dataset: {}}
   const status = {hidden: true, textContent: "", dataset: {}}
@@ -15,6 +15,10 @@ function composer() {
   const files = {type: "file", files: [], disabled: false,
     setAttribute(name, value) { attributes[name] = value }, removeAttribute(name) { delete attributes[name] }}
   const form = {
+    action: "/conversations/00000000-0000-0000-0000-000000000000/messages",
+    dataset: {},
+    elements: [],
+    isConnected: true,
     matches: selector => selector === ".composer",
     checkValidity: () => true,
     querySelector: selector => ({
@@ -24,7 +28,10 @@ function composer() {
   }
   textarea.form = form
   files.form = form
-  const controls = createComposer({pushEvent() {}, active: () => true, storage: () => ({}), location: {pathname: "/conversations"}})
+  const controls = createComposer({
+    pushEvent() {}, active: () => true, storage: () => ({}),
+    location: {pathname: "/conversations"}, ...options
+  })
   return {controls, form, textarea, files, error, status, button, attributes}
 }
 
@@ -45,6 +52,30 @@ test("a file choice that breaks a limit is explained beside the composer at once
   assert.equal(c.error.hidden, true)
   assert.equal(c.error.textContent, "")
   assert.equal(c.attributes["aria-invalid"], undefined)
+})
+
+test("a confirmed message clears transient status instead of congratulating the sender", async () => {
+  // Andrew, 2026-09-20: the accepted message already appears in the transcript.
+  // A second green "Message saved" banner duplicated that proof and pushed the
+  // composer around after every normal send.
+  const OriginalFormData = globalThis.FormData
+  const originalFetch = globalThis.fetch
+  globalThis.FormData = class FormData {}
+  globalThis.fetch = async () => ({status: 202, json: async () => ({accepted: true})})
+
+  try {
+    const c = composer()
+    c.textarea.value = "Hello"
+    c.controls.submit({target: c.form, defaultPrevented: false, preventDefault() {}})
+
+    await new Promise(resolve => setTimeout(resolve, 0))
+
+    assert.equal(c.status.hidden, true)
+    assert.equal(c.status.textContent, "")
+  } finally {
+    globalThis.FormData = OriginalFormData
+    globalThis.fetch = originalFetch
+  }
 })
 
 test("sending files over the limit is refused in place with the same reason and no request", () => {

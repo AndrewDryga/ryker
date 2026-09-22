@@ -9,23 +9,26 @@ defmodule Ryker.ControlPlane.MemoryPage do
 
   @views [
     {"knowledge", "Current knowledge", "knowledge topic", "knowledge topics"},
-    {"notes", "Source excerpts", "source excerpt", "source excerpts"},
-    {"summaries", "Conversation handovers", "conversation handover", "conversation handovers"}
+    {"context", "Conversation context", "conversation context", "conversation contexts"}
   ]
 
   # What Ryker learned from conversations: the learning state line (it is
-  # functional state, so it stays visible), the three views as compact tabs,
-  # the one toolbar that searches within the chosen view, a quiet count, the
-  # entries with their recall warnings, then the related history and learning
-  # activity beneath. The shell renders the title, description and help.
+  # functional state, so it stays visible), the two primary views as compact
+  # tabs, the one toolbar that searches within the chosen view, a quiet count,
+  # the entries with their recall warnings, then the related history and
+  # learning activity beneath. Original messages are inspected only from the
+  # record they support. The shell renders the title, description and help.
   def render(assigns) do
     ~H"""
     <div class="conversation-memory" role="region" aria-label="Learned from conversations">
-      <div :if={Map.get(@view, :learning_activity)} class="learning-summary">
+      <div
+        :if={@view.kind != "sources" and Map.get(@view, :learning_activity)}
+        class="learning-summary"
+      >
         <strong>{learning_state(@view.learning_activity)}</strong>
         <span>{count_label(@view.learning_activity.waiting_inputs, "message")} waiting</span>
         <a :if={@view.learning_activity.handover_failures.total > 0} href="#handover-failures">
-          Handovers not saved: {@view.learning_activity.handover_failures.total}
+          Context not saved: {@view.learning_activity.handover_failures.total}
         </a>
         <a href="#learning-activity">Inspect learning activity →</a>
       </div>
@@ -38,16 +41,20 @@ defmodule Ryker.ControlPlane.MemoryPage do
           {label} <span>{Map.fetch!(@view.counts, String.to_existing_atom(kind))}</span>
         </a>
       </nav>
+      <div :if={@view.kind == "sources"} class="memory-source-context">
+        <a href={@view.source_parent.back_path}>← {@view.source_parent.back_label}</a>
+        <h2>Sources for {@view.source_parent.title}</h2>
+      </div>
       <.filter_toolbar
         id="memory-search"
         path="/memory"
         label="Search conversation memory"
-        placeholder="Topics, decisions or context"
+        placeholder={search_placeholder(@view.kind)}
         query={@view.q}
         filtered={@view.q != ""}
         disabled={Enum.sum(Map.values(@view.counts)) == 0}
-        hidden={[{"kind", @view.kind}]}
-        clear={"/memory?" <> URI.encode_query(%{"kind" => @view.kind})}
+        hidden={filter_hidden(@view)}
+        clear={filter_clear(@view)}
       />
       <.result_count
         :if={@view.total > 0}
@@ -57,9 +64,9 @@ defmodule Ryker.ControlPlane.MemoryPage do
       />
       <p :if={@view.selected}><a href={path(@view, "knowledge", 1)}>← All knowledge</a></p>
       <p :if={@view.total == 0} class="empty-state">
-        {if @view.q != "", do: "No matching conversation memory.", else: "Nothing learned here yet."}
+        {empty_message(@view)}
       </p>
-      <div class="memory-cards">
+      <div :if={@view.kind != "sources"} class="memory-cards">
         <article :for={item <- @view.items} class="memory-card" id={"memory-#{item.id}"}>
           <header>
             <h2>{if item.title == "", do: item.conversation, else: item.title}</h2>
@@ -90,7 +97,7 @@ defmodule Ryker.ControlPlane.MemoryPage do
             </ul>
           </div>
           <footer>
-            <span :if={Map.has_key?(item, :source_count)}>Sources: {item.direct_source_count} direct · {item.inherited_source_count} inherited</span>
+            <a :if={Map.get(item, :source_path)} href={item.source_path}>Sources · {item.source_count} →</a>
             <a
               :if={Map.has_key?(item, :version)}
               href={"/memory?" <> URI.encode_query(%{"kind" => "knowledge", "item" => item.id})}
@@ -101,7 +108,6 @@ defmodule Ryker.ControlPlane.MemoryPage do
                 do: "revision",
                 else: "revisions"} →
             </a>
-            <a :if={item.source} href={item.source} rel="noopener noreferrer">Source message →</a>
             <a :if={item.request_path} href={item.request_path}>Source request →</a>
             <span class="memory-expiry">Retention: {retention_label(item)}</span>
           </footer>
@@ -119,6 +125,20 @@ defmodule Ryker.ControlPlane.MemoryPage do
           </dl>
         </article>
       </div>
+      <ol :if={@view.kind == "sources" and @view.items != []} class="memory-source-list">
+        <li :for={item <- @view.items} id={"memory-#{item.id}"}>
+          <header>
+            <a href={item.conversation_path}>{item.conversation}</a>
+            <time datetime={DateTime.to_iso8601(item.at)}>{timestamp(item.at)}</time>
+          </header>
+          <div class="markdown-preview">{Phoenix.HTML.raw(preview(item.text, item.workspace))}</div>
+          <footer>
+            <a :if={item.source} href={item.source} target="_blank" rel="noopener noreferrer">Open source ↗</a>
+            <a :if={item.request_path} href={item.request_path}>Source request →</a>
+            <span class="memory-expiry">Retention: {retention_label(item)}</span>
+          </footer>
+        </li>
+      </ol>
       <Ryker.ControlPlane.RelearnPanel.render
         :if={Map.get(@view, :rebuild)}
         preview={@view.rebuild}
@@ -151,7 +171,7 @@ defmodule Ryker.ControlPlane.MemoryPage do
         />
       </section>
       <.learning
-        :if={Map.get(@view, :learning_activity)}
+        :if={@view.kind != "sources" and Map.get(@view, :learning_activity)}
         activity={@view.learning_activity}
         csrf_secret={Map.get(assigns, :csrf_secret)}
       />
@@ -165,6 +185,9 @@ defmodule Ryker.ControlPlane.MemoryPage do
     </div>
     """
   end
+
+  defp search_placeholder("sources"), do: "Search source messages"
+  defp search_placeholder(_kind), do: "Topics, decisions or context"
 
   defp learning(assigns) do
     ~H"""
@@ -199,14 +222,14 @@ defmodule Ryker.ControlPlane.MemoryPage do
         class="handover-failures"
       >
         <summary>
-          <strong>Conversation handovers not saved</strong> · {@activity.handover_failures.total}
+          <strong>Conversation context not saved</strong> · {@activity.handover_failures.total}
         </summary>
         <p>
-          A handover helps future work recall what happened. This does not change the response or its delivery status. Background learning from retained messages is a separate process.
+          Conversation context helps future work continue where this turn stopped. This does not change the response or its delivery status. Background learning from retained messages is a separate process.
         </p>
         <ul class="learning-attempts">
           <li :for={failure <- @activity.handover_failures.items}>
-            <strong>Conversation handover not saved · {failure.conversation}</strong>
+            <strong>Conversation context not saved · {failure.conversation}</strong>
             <p>{failure.explanation}</p>
             <p>
               {failure.response_status} · <time datetime={iso(failure.at)}>{date(failure.at)}</time>
@@ -219,8 +242,8 @@ defmodule Ryker.ControlPlane.MemoryPage do
           pages={@activity.handover_failures.pages}
           path={&handovers_path/1}
           label="Handover failure pages"
-          earlier="← Newer handovers"
-          later="Older handovers →"
+          earlier="← Newer failures"
+          later="Older failures →"
         />
       </details>
       <nav class="learning-outcomes" aria-label="Learning outcomes">
@@ -360,6 +383,8 @@ defmodule Ryker.ControlPlane.MemoryPage do
 
   defp views, do: @views
 
+  defp noun("sources", 2), do: "source"
+  defp noun("sources", 3), do: "sources"
   defp noun(kind, index), do: @views |> List.keyfind!(kind, 0) |> elem(index)
 
   defp count_label(1, label), do: "1 " <> label
@@ -384,8 +409,28 @@ defmodule Ryker.ControlPlane.MemoryPage do
   defp learning_state(%{worker_running: true}), do: "Learning is enabled"
   defp learning_state(_), do: "Learning configured · worker is not running here"
 
-  defp path(view, kind, page),
-    do: "/memory?" <> URI.encode_query(%{"kind" => kind, "q" => view.q, "page" => page})
+  defp path(view, kind, page) do
+    query = %{"kind" => kind, "q" => view.q, "page" => page}
+    query = if kind == "sources", do: Map.put(query, "related_to", view.related_to), else: query
+    "/memory?" <> URI.encode_query(query)
+  end
+
+  defp filter_hidden(%{kind: "sources", related_to: related_to}),
+    do: [{"kind", "sources"}, {"related_to", related_to}]
+
+  defp filter_hidden(view), do: [{"kind", view.kind}]
+
+  defp filter_clear(%{kind: "sources", related_to: related_to}),
+    do: "/memory?" <> URI.encode_query(%{"kind" => "sources", "related_to" => related_to})
+
+  defp filter_clear(view), do: "/memory?" <> URI.encode_query(%{"kind" => view.kind})
+
+  defp empty_message(%{q: q}) when q != "", do: "No matching conversation memory."
+
+  defp empty_message(%{kind: kind}) when kind in ["knowledge", "context"],
+    do: "Nothing learned here yet."
+
+  defp empty_message(%{kind: "sources"}), do: "No retained sources are available for this record."
 
   defp history_path(view, page),
     do:

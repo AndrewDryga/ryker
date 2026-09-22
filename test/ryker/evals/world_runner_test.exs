@@ -700,7 +700,7 @@ defmodule Ryker.Evals.WorldRunnerTest do
     assert [initial, timer, fallback] = report.runtime.turns
     assert FakeWorkCoopAPI.state(fake).submit_count == 3
     assert FakeWorkCoopAPI.state(fake).create_count == 1
-    assert length(report.deliveries) == 3
+    assert length(report.deliveries) == 2
 
     [wait_ref] = initial.candidate["outcome"]["record_refs"]
     record = Repo.get_by!(Record, ref: wait_ref)
@@ -796,7 +796,7 @@ defmodule Ryker.Evals.WorldRunnerTest do
     assert completed.input_provenance.actor_ref == "system:system:event-wait-timer"
     assert FakeWorkCoopAPI.state(fake).submit_count == 2
     assert FakeWorkCoopAPI.state(fake).create_count == 1
-    assert length(report.deliveries) == 2
+    assert length(report.deliveries) == 1
     assert Repo.aggregate(Turn, :count) == 2
     # The timer is admitted by the episode transaction, not as a second external inbox receipt.
     assert Repo.aggregate(Ryker.Ingress.Inbox.Entry, :count) == 1
@@ -932,13 +932,17 @@ defmodule Ryker.Evals.WorldRunnerTest do
   defp harvested_timer_scenario(scenario, harvested) do
     payload = harvested["record"]["payload"]
     deadline = DateTime.utc_now() |> DateTime.add(900, :second) |> DateTime.to_iso8601()
-    captured_clock = String.slice(payload["deadline_at"], 11, 5)
     replay_clock = String.slice(deadline, 11, 5)
 
     candidate =
       harvested["candidate"]
       |> put_in(["outcome", "record_refs"], ["$call:0:record_ref"])
-      |> update_in(["message"], &String.replace(&1, captured_clock, replay_clock))
+      |> Map.put("delivery", "none")
+      |> Map.put("message", nil)
+      |> Map.put(
+        "decision_reason",
+        "The timer is armed; the resumed turn will deliver the verified result at #{replay_clock}."
+      )
 
     call = %{
       "arguments" => %{
@@ -999,9 +1003,12 @@ defmodule Ryker.Evals.WorldRunnerTest do
 
       candidate =
         if index == 0 do
-          update_in(
-            candidate["message"],
-            &String.replace(&1, "13:18", String.slice(deadline, 11, 5))
+          candidate
+          |> Map.put("delivery", "none")
+          |> Map.put("message", nil)
+          |> Map.put(
+            "decision_reason",
+            "The timer is armed; the resumed turn will deliver the verified result."
           )
         else
           candidate

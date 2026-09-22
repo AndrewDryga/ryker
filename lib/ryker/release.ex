@@ -69,7 +69,10 @@ defmodule Ryker.Release do
   @spec prepare_bundled_coop(keyword()) :: :ok
   def prepare_bundled_coop(options \\ []) do
     settings = settings!(options)
-    with_repo!(settings, fn _repo -> Ryker.BundledCoop.ensure_distribution!() end)
+
+    with_repo!(settings, fn _repo ->
+      with_settings_pubsub(fn -> Ryker.BundledCoop.prepare_distribution!() end)
+    end)
   end
 
   @doc "Checks the authenticated bundled worker and its automatically pinned ordinary policies."
@@ -102,6 +105,31 @@ defmodule Ryker.Release do
          ) do
       {:ok, result, _started_apps} -> result
       {:error, reason} -> raise "could not start migration repository: #{inspect(reason)}"
+    end
+  end
+
+  # Release `eval` deliberately starts only the repository. Distribution
+  # bootstrap writes settings and therefore needs the event bus long enough to
+  # complete the same transaction path used by the running application.
+  defp with_settings_pubsub(function) do
+    case Process.whereis(Ryker.ControlPlane.PubSub) do
+      nil ->
+        {:ok, _started} = Application.ensure_all_started(:phoenix_pubsub)
+
+        {:ok, pubsub} =
+          Supervisor.start_link(
+            [{Phoenix.PubSub, name: Ryker.ControlPlane.PubSub}],
+            strategy: :one_for_one
+          )
+
+        try do
+          function.()
+        after
+          Supervisor.stop(pubsub)
+        end
+
+      _running ->
+        function.()
     end
   end
 

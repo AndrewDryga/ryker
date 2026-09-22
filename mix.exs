@@ -10,6 +10,7 @@ defmodule Ryker.MixProject do
     install.sh
     Dockerfile
     deploy/compose/entrypoint.sh
+    deploy/compose/coop/Box.Dockerfile
     deploy/compose/coop/Dockerfile
     deploy/compose/coop/entrypoint.sh
     deploy/nginx/ryker.conf

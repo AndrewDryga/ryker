@@ -495,6 +495,27 @@ defmodule Ryker.ControlPlane.RouterTest do
            ).status == 422
   end
 
+  test "a Chat readiness race returns a specific unavailable response" do
+    id = Ecto.UUID.generate()
+    token = CSRF.token(@secret, "conversation_lab:send", id)
+
+    options =
+      put_in(options(), [:actions, :send_lab_message], fn _id, _message, _files ->
+        {:error, :conversation_lab_not_configured}
+      end)
+
+    response =
+      request_with_options(
+        :post,
+        "/conversations/#{id}/messages",
+        URI.encode_query(%{"_token" => token, "message" => "Hello"}),
+        options
+      )
+
+    assert response.status == 503
+    assert response.resp_body == "Chat is not ready. The bundled worker is still starting."
+  end
+
   test "new and malformed Lab routes fail closed without creating hidden authority" do
     empty_id = "018f3ef7-1f62-7ee0-a83c-0c12f21d83ff"
 
@@ -1405,7 +1426,7 @@ defmodule Ryker.ControlPlane.RouterTest do
     assert HTML.failures([]) =~ "Nothing needs attention"
 
     assert HTML.workspaces([], %{budget: %{}, preview: [], workers: []}) |> IO.iodata_to_binary() =~
-             "No working copies right now"
+             "No repository working copies right now"
 
     assert HTML.not_found("Unknown") |> IO.iodata_to_binary() =~ "This unknown does not exist"
   end

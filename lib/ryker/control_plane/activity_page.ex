@@ -56,8 +56,8 @@ defmodule Ryker.ControlPlane.ActivityPage do
           label="Current workload"
           facts={@summary_facts}
         />
-        <section class="activity-inbox" aria-label="Activity">
-          <div class="inbox-toolbar">
+        <.collection_shell label="Activity" count={@activity.total} class="activity-collection">
+          <:navigation>
             <nav class="ui-tabs" aria-label="Activity status">
               <.link
                 :for={
@@ -78,34 +78,35 @@ defmodule Ryker.ControlPlane.ActivityPage do
                 class="ui-tab-disabled"
               >{name}</span>
             </nav>
-            <span class="inbox-total">{@activity.total} items</span>
-          </div>
-          <.live_filter_toolbar
-            id="activity-filters"
-            class="activity-toolbar"
-            label="Filter activity"
-            placeholder="Search activity or repositories…"
-            query={@params["q"] || ""}
-            disabled={!@activity.searchable}
-            event="search-activity"
-            primary={
-              %{
-                id: "activity-mode",
-                name: "mode",
-                label: "Work included",
-                value: @activity.mode,
-                options: [{"live", "Live work"}, {"shadow", "Evaluations"}, {"all", "All work"}]
-              }
-            }
-          >
-            <RequestFilters.render
-              values={@filter_values}
-              params={@params}
-              path={@path}
-              menu={@filter_menu}
+          </:navigation>
+          <:filters>
+            <.live_filter_toolbar
+              id="activity-filters"
+              class="activity-toolbar"
+              label="Filter activity"
+              placeholder="Search activity or repositories…"
+              query={@params["q"] || ""}
               disabled={!@activity.searchable}
-            />
-          </.live_filter_toolbar>
+              event="search-activity"
+              primary={
+                %{
+                  id: "activity-mode",
+                  name: "mode",
+                  label: "Work included",
+                  value: @activity.mode,
+                  options: [{"live", "Live work"}, {"shadow", "Evaluations"}, {"all", "All work"}]
+                }
+              }
+            >
+              <RequestFilters.render
+                values={@filter_values}
+                params={@params}
+                path={@path}
+                menu={@filter_menu}
+                disabled={!@activity.searchable}
+              />
+            </.live_filter_toolbar>
+          </:filters>
           <button :if={@new_items > 0} class="new-activity" phx-click="show-new">{@new_items} new or reordered items · Show latest
           <.icon name={:arrow} /></button>
           <.empty_state
@@ -161,7 +162,7 @@ defmodule Ryker.ControlPlane.ActivityPage do
             earlier="Previous"
             later="Next"
           />
-        </section>
+        </.collection_shell>
       </section>
       <aside :if={@show_context} class="activity-rail" aria-label="Execution context">
         <section :if={@schedules != []} class="rail-section">

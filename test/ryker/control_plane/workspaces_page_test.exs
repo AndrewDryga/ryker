@@ -34,6 +34,38 @@ defmodule Ryker.ControlPlane.WorkspacesPageTest do
       status: :retained,
       summary: "dirty"
   }
+  @removed %{
+    @blocked
+    | action: nil,
+      ref: "workspace:removed",
+      status: :discarded,
+      summary: "ryker"
+  }
+  @learning Map.merge(@blocked, %{
+              action: nil,
+              discard_after: nil,
+              episode_ref: nil,
+              execution_kind: :learning,
+              learning_state: :active,
+              learning_retry_at: nil,
+              repository: "Background learning",
+              ref: "ryker-learning:one",
+              state: nil,
+              status: :active,
+              summary: "no repository"
+            })
+  @learning_grace %{
+    @learning
+    | discard_after: ~U[2026-08-28 12:30:00Z],
+      status: :grace,
+      updated_at: ~U[2026-08-28 12:15:00Z]
+  }
+  @learning_retry %{
+    @learning
+    | learning_retry_at: ~U[2026-08-28 13:00:00Z],
+      learning_state: :retry_scheduled,
+      updated_at: ~U[2026-08-28 12:15:00Z]
+  }
 
   @storage %{
     budget: %{
@@ -162,7 +194,7 @@ defmodule Ryker.ControlPlane.WorkspacesPageTest do
     assert LazyHTML.attribute(discard, "class") == ["ui-button danger"]
 
     actions = LazyHTML.query(document, "td[data-label='Action']") |> LazyHTML.text()
-    assert actions =~ "Managed automatically"
+    refute actions =~ "Managed automatically"
   end
 
   test "a working copy row reads its lifecycle as a word, keeps the request link and its exact reference" do
@@ -186,7 +218,7 @@ defmodule Ryker.ControlPlane.WorkspacesPageTest do
 
     assert LazyHTML.query(identity, "code") |> LazyHTML.text() == "workspace:blocked"
 
-    assert LazyHTML.query(first, "td[data-label='What happens next']") |> LazyHTML.text() =~
+    assert LazyHTML.query(first, "td[data-label='Lifecycle']") |> LazyHTML.text() =~
              "could not finish this step"
 
     assert LazyHTML.query(first, "td[data-label='Request']") |> LazyHTML.text() == "Completed"
@@ -197,15 +229,72 @@ defmodule Ryker.ControlPlane.WorkspacesPageTest do
     unmerged =
       LazyHTML.query(
         document,
-        "div.workspaces-page > table.data-table tbody tr:nth-child(2) td[data-label='What happens next']"
+        "div.workspaces-page > table.data-table tbody tr:nth-child(2) td[data-label='Lifecycle']"
       )
 
     assert LazyHTML.text(unmerged) =~ "Unmerged commits are being kept safe"
   end
 
+  test "background learning is explained without pretending its worker sessions are repository copies" do
+    document = render([@learning], @storage)
+    learning = LazyHTML.query(document, "section.workspace-learning")
+    table = LazyHTML.query(learning, "table.data-table")
+
+    assert LazyHTML.query(table, "thead th") |> LazyHTML.text() ==
+             "ActivityLifecycleUpdated"
+
+    assert LazyHTML.query(document, "p.empty-state") |> LazyHTML.text() =~
+             "No repository working copies right now"
+
+    assert Enum.empty?(LazyHTML.query(document, "p.result-count"))
+
+    explanation = LazyHTML.query(learning, "p.section-description") |> LazyHTML.text()
+    assert explanation =~ "reviews retained conversation messages"
+    assert explanation =~ "updates Memory"
+    assert explanation =~ "does not create a repository checkout"
+    assert explanation =~ "close automatically"
+
+    text = LazyHTML.text(table)
+    assert text =~ "Background learning"
+    assert text =~ "In use"
+    refute text =~ "ryker-learning:"
+    refute text =~ "Available to the current request"
+    refute text =~ "follow-up"
+    refute text =~ "Managed automatically"
+    refute text =~ "What happens next"
+  end
+
+  test "background learning shows a concrete automatic cleanup deadline without follow-up language" do
+    document = render([@learning_grace], @storage)
+    lifecycle = LazyHTML.query(document, "section.workspace-learning td[data-label='Lifecycle']")
+
+    assert LazyHTML.query(lifecycle, ".ui-status") |> LazyHTML.text() == "Cleanup scheduled"
+
+    assert LazyHTML.query(lifecycle, ".workspace-lifecycle-detail") |> LazyHTML.text() ==
+             "Cleanup after 28 Aug, 12:30 UTC"
+
+    refute LazyHTML.text(lifecycle) =~ "follow-up"
+  end
+
+  test "background learning names an unresolved worker and its exact automatic retry" do
+    document = render([@learning_retry], @storage)
+    lifecycle = LazyHTML.query(document, "section.workspace-learning td[data-label='Lifecycle']")
+
+    assert LazyHTML.query(lifecycle, ".ui-status") |> LazyHTML.text() == "Retry scheduled"
+
+    assert LazyHTML.query(lifecycle, ".workspace-lifecycle-detail") |> LazyHTML.text() ==
+             "Worker session not confirmed. Retry after 28 Aug, 13:00 UTC"
+
+    refute LazyHTML.text(lifecycle) =~ "In use"
+    refute LazyHTML.text(document) =~ "ryker-learning:"
+  end
+
   test "an empty working-copy list still reports storage and the cleanup preview honestly" do
     document = render([], %{@storage | preview: [], workers: []})
-    assert LazyHTML.query(document, "p.empty-state") |> LazyHTML.text() =~ "No working copies"
+
+    assert LazyHTML.query(document, "p.empty-state") |> LazyHTML.text() =~
+             "No repository working copies"
+
     assert Enum.empty?(LazyHTML.query(document, "p.result-count, div.workspaces-page > table"))
 
     assert LazyHTML.text(LazyHTML.query(document, "section.workspace-storage")) =~
@@ -215,6 +304,21 @@ defmodule Ryker.ControlPlane.WorkspacesPageTest do
              "Nothing is eligible for cleanup"
 
     refute LazyHTML.text(document) =~ "durable records"
+  end
+
+  test "removed working copies do not inflate the current count and stay in optional history" do
+    document = render([@blocked, @removed], @storage)
+
+    assert LazyHTML.query(document, "p.result-count") |> LazyHTML.text() == "1 working copy"
+
+    assert Enum.count(LazyHTML.query(document, "div.workspaces-page > table.data-table tbody tr")) ==
+             1
+
+    history =
+      LazyHTML.query(document, "details.workspace-history:not([open])")
+
+    assert LazyHTML.query(history, "summary") |> LazyHTML.text() == "Removed copies (1)"
+    assert LazyHTML.text(history) =~ "workspace:removed"
   end
 
   test "storage keeps unknown and stale measurements distinct from zero and names a refusal" do

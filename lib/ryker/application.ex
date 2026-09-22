@@ -20,7 +20,7 @@ defmodule Ryker.Application do
         {Finch, name: Ryker.CoopFinch},
         {Phoenix.PubSub, name: Ryker.ControlPlane.PubSub},
         {DynamicSupervisor, name: Ryker.Runtime.Supervisor, strategy: :one_for_one}
-      ] ++ runtime_owner()
+      ] ++ bundled_coop_reconciler() ++ runtime_owner()
 
     Supervisor.start_link(children, name: Ryker.Supervisor, strategy: :one_for_one)
   end
@@ -31,5 +31,12 @@ defmodule Ryker.Application do
     if Application.get_env(:ryker, :runtime_owner, true),
       do: [Ryker.Runtime.Owner],
       else: []
+  end
+
+  defp bundled_coop_reconciler do
+    if System.get_env("RYKER_BUNDLED_COOP_ROOT") &&
+         System.get_env("RYKER_BUNDLED_COOP_SHARED"),
+       do: [Ryker.BundledCoop.Reconciler],
+       else: []
   end
 end

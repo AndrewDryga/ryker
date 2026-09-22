@@ -52,7 +52,7 @@ defmodule Ryker.Learning.RetentionTest do
     assert {:ok, nil} = Custody.claim_next("other-cleanup", 60)
     assert {:error, :retention_lease_lost} = Custody.freeze_close_revision(session.id, "lost", 1)
     assert {:ok, _} = Custody.freeze_close_revision(session.id, claim.lease_ref, 1)
-    assert {:ok, _} = Custody.mark_closed(session.id, claim.lease_ref, 0)
+    assert {:ok, _} = Custody.mark_closed(session.id, claim.lease_ref)
     assert {:ok, claim} = Custody.claim_next("cleanup", 60)
     assert claim.session.cleanup_status == :plan_pending
 

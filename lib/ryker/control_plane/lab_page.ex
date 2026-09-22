@@ -61,6 +61,16 @@ defmodule Ryker.ControlPlane.LabPage do
       |> assign(:example_groups, @example_groups)
       |> assign(:groups, directory_groups(assigns.items, assigns.now))
       |> assign(:progress, progress_by_input(assigns.snapshot))
+      |> assign_new(:readiness, fn ->
+        %{
+          chat: %{
+            state: :ready,
+            title: "Chat is ready",
+            detail: "Messages can be accepted and processed."
+          }
+        }
+      end)
+      |> then(&assign(&1, :chat_ready, get_in(&1, [:readiness, :chat, :state]) == :ready))
       |> assign(
         :selected,
         if(assigns.snapshot[:draft], do: nil, else: assigns.snapshot.conversation_id)
@@ -190,7 +200,12 @@ defmodule Ryker.ControlPlane.LabPage do
           </section>
           <div id="lab-notices" class="lab-notices" phx-update="ignore" aria-live="polite"></div>
           <div class="lab-composer-dock">
+            <section :if={!@chat_ready} class="lab-readiness" role="status">
+              <strong>{@readiness.chat.title}</strong>
+              <p>{@readiness.chat.detail}</p>
+            </section>
             <form
+              :if={@chat_ready}
               id={"lab-composer-#{if @snapshot[:draft], do: "new", else: @snapshot.conversation_id}"}
               phx-update="ignore"
               class="composer lab-native-composer"
@@ -234,7 +249,7 @@ defmodule Ryker.ControlPlane.LabPage do
                 class="composer-status"
               />
             </form>
-            <p class="lab-chat-footer">⌘ / Ctrl + Enter to send</p>
+            <p :if={@chat_ready} class="lab-chat-footer">⌘ / Ctrl + Enter to send</p>
           </div>
         </div>
       </section>
@@ -248,12 +263,15 @@ defmodule Ryker.ControlPlane.LabPage do
   attr(:progress, :map, required: true)
 
   defp chat_message(assigns) do
+    rows = Map.get(assigns.progress, assigns.message[:native_input_id], [])
+
     assigns =
       assigns
       |> assign(:link, inspection_link(assigns.message))
       |> assign(:state, message_state(assigns.message))
       |> assign(:failure, message_failure(assigns.message))
-      |> assign(:rows, Map.get(assigns.progress, assigns.message[:native_input_id], []))
+      |> assign(:rows, rows)
+      |> assign(:typing, rows == [] and message_working?(assigns.message))
 
     ~H"""
     <article id={@id} class={"lab-chat-message actor-#{@message.actor}"}>
@@ -284,14 +302,21 @@ defmodule Ryker.ControlPlane.LabPage do
         <.link navigate={@failure.inspect}>Inspect cause</.link>
       </p>
       <p :for={row <- @rows} id={"lab-progress-#{row.id}"} class="lab-message-progress" role="status">
-        <span>{row.phase}</span><span class="lab-progress-elapsed">{Float.round(
-          row.elapsed_ms / 1000,
-          1
-        )}s</span><.link
+        <span class="lab-progress-status">{row.phase}</span><span
+          id={"lab-progress-elapsed-#{row.id}"}
+          class="lab-progress-elapsed"
+          phx-hook="ElapsedTime"
+          data-elapsed-ms={row.elapsed_ms}
+          aria-hidden="true"
+        >{elapsed(row.elapsed_ms)}</span><.link
           :if={row.id != @message[:input_id]}
           navigate={row.href}
         >Inspect this revision</.link>
       </p>
+      <div :if={@typing} class="lab-typing-indicator" role="status" aria-label="Ryker is working">
+        <span class="lab-typing-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+        <span>Working</span>
+      </div>
     </article>
     """
   end
@@ -302,6 +327,18 @@ defmodule Ryker.ControlPlane.LabPage do
   defp history_state(%{failed: true}), do: "failed"
   defp history_state(%{exhausted: true}), do: "exhausted"
   defp history_state(_history), do: "more"
+
+  defp elapsed(milliseconds) when milliseconds < 1_000, do: "now"
+
+  defp elapsed(milliseconds) when milliseconds < 60_000,
+    do: "#{div(milliseconds, 1_000)}s"
+
+  defp elapsed(milliseconds) do
+    seconds = div(milliseconds, 1_000)
+    minutes = div(seconds, 60)
+    remainder = rem(seconds, 60)
+    if remainder == 0, do: "#{minutes}m", else: "#{minutes}m #{remainder}s"
+  end
 
   def announcement(nil, _current), do: ""
 
@@ -391,7 +428,7 @@ defmodule Ryker.ControlPlane.LabPage do
 
     case message[:turn_id] do
       turn_id when is_binary(turn_id) ->
-        %{href: path <> "/model-calls?attempt=#{turn_id}&section=delivery", label: "View request"}
+        %{href: path <> "?attempt=#{turn_id}#request-#{turn_id}", label: "View request"}
 
       _no_turn ->
         %{href: path, label: "View execution"}
@@ -405,10 +442,6 @@ defmodule Ryker.ControlPlane.LabPage do
   defp message_state(%{event_kind: :edit}), do: "edited"
   defp message_state(%{actor: :operator, status: :blocked}), do: "Needs attention"
   defp message_state(%{actor: :operator, execution: %{state: "blocked"}}), do: "Needs attention"
-
-  defp message_state(%{actor: :operator, execution: %{state: state}})
-       when state in ["working", "pending"],
-       do: "Working"
 
   defp message_state(%{actor: :operator}), do: nil
   defp message_state(%{actor: :integration}), do: nil
@@ -426,6 +459,9 @@ defmodule Ryker.ControlPlane.LabPage do
   end
 
   defp message_failure(_message), do: nil
+
+  defp message_working?(%{actor: :operator, execution: %{state: "working"}}), do: true
+  defp message_working?(_message), do: false
 
   defp progress_by_input(snapshot) do
     snapshot

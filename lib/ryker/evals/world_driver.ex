@@ -312,6 +312,7 @@ defmodule Ryker.Evals.WorldDriver do
   end
 
   defp accepted(%{status: :accepted, turn: %{status: :delivery_pending}}), do: :ok
+  defp accepted(%{status: :accepted, turn: %{status: :settled}}), do: :ok
 
   defp accepted(execution) do
     metadata = %{
@@ -376,6 +377,9 @@ defmodule Ryker.Evals.WorldDriver do
 
     :ok
   end
+
+  defp deliver_message(%{turn: %{status: :settled}}, _adapters, _settings, _index, _left),
+    do: :ok
 
   defp deliver_message(_execution, _adapters, _settings, _index, 0),
     do: {:error, {:world_eval_failed, :delivery_retry_exhausted}}

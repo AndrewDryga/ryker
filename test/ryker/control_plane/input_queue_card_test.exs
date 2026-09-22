@@ -15,7 +15,7 @@ defmodule Ryker.ControlPlane.InputQueueCardTest do
 
   alias Ryker.Admission.Attempt
   alias Ryker.CanonicalJSON
-  alias Ryker.ControlPlane.{EpisodePage, ModelRequests, Projection, RequestPage}
+  alias Ryker.ControlPlane.{EpisodePage, ModelRequests, Projection}
   alias Ryker.ControlPlane.EpisodeTrace.Preparation
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
@@ -310,12 +310,10 @@ defmodule Ryker.ControlPlane.InputQueueCardTest do
   defp standalone(entry) do
     {:ok, view} = ModelRequests.project_input(entry.id, %{})
 
-    render_component(&EpisodePage.getting_ready/1, steps: view.preparation) <>
-      render_component(&RequestPage.render/1,
-        view: view,
-        params: %{},
-        path: "/timeline/ingress-input:#{entry.id}"
-      )
+    render_component(&EpisodePage.getting_ready/1,
+      steps: view.preparation,
+      requests: view.timeline
+    )
   end
 
   defp attempt!(entry, at) do

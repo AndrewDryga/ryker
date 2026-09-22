@@ -92,8 +92,7 @@ defmodule Ryker.ControlPlane.HTML do
         ]
       end)
 
-    [
-      "<div class=\"incident-rooms-page\">",
+    filters =
       search_form(
         "/incident-rooms",
         "Title, room, repository or channel",
@@ -101,25 +100,39 @@ defmodule Ryker.ControlPlane.HTML do
         @incident_statuses,
         &Components.label/1,
         items == []
-      ),
+      )
+
+    content =
       cond do
         rows != [] ->
-          [
-            result_count(length(rows), "incident room", "incident rooms"),
-            data_table(
-              ["Incident room", "Status", "Repository", "Channel", "Publication", "Updated"],
-              rows
-            )
-          ]
+          data_table(
+            ["Incident room", "Status", "Repository", "Channel", "Publication", "Updated"],
+            rows
+          )
 
         filtered?(params, @incident_statuses) ->
-          empty_state("No incident rooms match these filters.")
+          directory_empty_state(
+            "No incident rooms match these filters.",
+            "Try another phrase or status, or clear the filters."
+          )
 
         true ->
-          empty_state(
-            "No incident rooms yet. A room appears here once Ryker is asked to open one from a conversation."
+          directory_empty_state(
+            "No incident rooms yet",
+            "A room appears here once Ryker is asked to open one from a conversation."
           )
-      end,
+      end
+
+    [
+      "<div class=\"incident-rooms-page\">",
+      collection_shell(
+        "Incident rooms",
+        filters,
+        length(rows),
+        "incident room",
+        "incident rooms",
+        content
+      ),
       "</div>"
     ]
   end
@@ -269,7 +282,7 @@ defmodule Ryker.ControlPlane.HTML do
 
   defp schedule_destination(_item), do: []
 
-  defp schedule_next(%{next_occurrence_at: %DateTime{} = at} = item),
+  defp schedule_next(%{status: :active, next_occurrence_at: %DateTime{} = at} = item),
     do: [
       readable_time(at),
       "<span class=\"row-secondary\">",
@@ -322,13 +335,16 @@ defmodule Ryker.ControlPlane.HTML do
       {"Authority", Components.label(schedule.authority)},
       {"Repository", schedule.repository || "None"},
       {"Destination", destination(schedule)},
-      {"Next occurrence", schedule.next_occurrence_at || "None scheduled"},
+      {"Next occurrence", schedule_next_fact(schedule)},
       {"Expires", schedule.expires_at || "Never"},
       {"Failures", schedule.failure_count},
       {"Last failure", schedule.last_error || "None"},
       {"Source episode", {:safe, episode_link(schedule.source_episode_ref)}}
     ]
   end
+
+  defp schedule_next_fact(%{status: :active, next_occurrence_at: %DateTime{} = at}), do: at
+  defp schedule_next_fact(_schedule), do: "None scheduled"
 
   # One dispatched or missed occurrence: when it was due, how it was triggered
   # and dispatched, the episode it became and how that execution went.
@@ -701,6 +717,7 @@ defmodule Ryker.ControlPlane.HTML do
     reviews = Map.get(snapshot, :reviews, [])
     memory_rows = Enum.map(memories, &memory_row/1)
     review_rows = Enum.map(reviews, &review_row/1)
+    source_inspector? = get_in(snapshot, [:conversation_memory, :kind]) == "sources"
 
     [
       "<div class=\"memory-page\">",
@@ -715,21 +732,31 @@ defmodule Ryker.ControlPlane.HTML do
           |> Safe.to_iodata(),
         else: []
       ),
-      "<section class=\"operational-memory\"><h2>Operational memory</h2>",
-      if(memory_rows == [],
-        do: empty_state("No confirmed memory is active."),
-        else:
-          data_table(
-            ["Subject", "Value", "Applies to", "Status", {"row-action", "Action"}],
-            memory_rows
-          )
+      if(source_inspector?,
+        do: [],
+        else: [
+          "<section class=\"operational-memory\"><h2>Operational memory</h2>",
+          if(memory_rows == [],
+            do: empty_state("No confirmed memory is active."),
+            else:
+              data_table(
+                ["Subject", "Value", "Applies to", "Status", {"row-action", "Action"}],
+                memory_rows
+              )
+          ),
+          "</section><section class=\"memory-review\"><h2>Memory review</h2>",
+          if(review_rows == [],
+            do: empty_state("No stale or duplicate memories need review."),
+            else:
+              data_table(
+                ["Kind", "Entries", "Reason", {"row-action", "Action"}],
+                review_rows
+              )
+          ),
+          "</section>"
+        ]
       ),
-      "</section><section class=\"memory-review\"><h2>Memory review</h2>",
-      if(review_rows == [],
-        do: empty_state("No stale or duplicate memories need review."),
-        else: data_table(["Kind", "Entries", "Reason", {"row-action", "Action"}], review_rows)
-      ),
-      "</section></div>"
+      "</div>"
     ]
   end
 
@@ -983,13 +1010,15 @@ defmodule Ryker.ControlPlane.HTML do
       end)
 
     preview_rows =
-      Enum.map(preview, fn item ->
+      preview
+      |> Enum.filter(&is_binary(&1.repository))
+      |> Enum.map(fn item ->
         [
           [
             "<code>",
             escape(item.ref),
             "</code><span class=\"row-secondary\">",
-            escape(item.repository || "Repository not recorded"),
+            escape(item.repository),
             " · ",
             escape(item.target || "no remote session"),
             "</span>"
@@ -1109,62 +1138,16 @@ defmodule Ryker.ControlPlane.HTML do
   # operational sections. The GET button only opens the existing confirmation;
   # its protected POST performs the discard or the resume.
   def workspaces(rows, storage) do
-    body =
-      Enum.map(rows, fn row ->
-        {status, tone} = workspace_status(row.status)
+    current = Enum.filter(rows, &(workspace_row?(&1) and &1.status != :discarded))
+    working = Enum.reject(current, &(Map.get(&1, :execution_kind) == :learning))
+    learning = Enum.filter(current, &(Map.get(&1, :execution_kind) == :learning))
 
-        action =
-          case row.action do
-            :rearm ->
-              Components.action_button(
-                "/actions/retention/#{segment(row.ref)}/rearm",
-                "Resume cleanup",
-                :primary
-              )
-
-            :discard_unmerged ->
-              Components.action_button(
-                "/actions/retention/#{segment(row.ref)}/discard",
-                "Discard unmerged",
-                :danger
-              )
-
-            nil ->
-              "Managed automatically"
-          end
-
-        [
-          [
-            "<strong>",
-            escape(Map.get(row, :repository) || "Repository not recorded"),
-            "</strong><span class=\"row-secondary\">",
-            if(row[:episode_ref],
-              do: [
-                "<a class=\"workspace-request-title\" href=\"/timeline/",
-                segment(row.episode_ref),
-                "\">",
-                workspace_request_label(row),
-                "</a> · "
-              ],
-              else: []
-            ),
-            "<code>",
-            escape(row.ref),
-            "</code></span>"
-          ],
-          Components.status(status, tone),
-          [
-            "<span title=\"",
-            escape(row.summary),
-            "\">",
-            escape(workspace_reason(row)),
-            "</span>"
-          ],
-          workspace_request_state(row),
-          readable_time(row.updated_at),
-          action
-        ]
-      end)
+    removed =
+      Enum.filter(
+        rows,
+        &(workspace_row?(&1) and &1.status == :discarded and
+            Map.get(&1, :execution_kind) != :learning)
+      )
 
     [
       "<div class=\"workspaces-page\">",
@@ -1177,24 +1160,25 @@ defmodule Ryker.ControlPlane.HTML do
         ],
         "page-help-near-header"
       ),
-      if(body == [],
+      if(working == [],
         do:
           empty_state(
-            "No working copies right now. A checkout appears here while a task uses it and until cleanup has safely removed it."
+            "No repository working copies right now. A checkout appears here while a task uses it and until cleanup has safely removed it."
           ),
         else: [
-          result_count(length(body), "working copy", "working copies"),
-          data_table(
-            [
-              "Working copy",
-              "Lifecycle",
-              "What happens next",
-              "Request",
-              "Updated",
-              {"row-action", "Action"}
-            ],
-            body
-          )
+          result_count(length(working), "working copy", "working copies"),
+          workspace_table(working)
+        ]
+      ),
+      workspace_learning(learning),
+      if(removed == [],
+        do: [],
+        else: [
+          "<details class=\"workspace-history\"><summary>Removed copies (",
+          Integer.to_string(length(removed)),
+          ")</summary>",
+          workspace_table(removed),
+          "</details>"
         ]
       ),
       workspace_storage(storage),
@@ -1202,8 +1186,93 @@ defmodule Ryker.ControlPlane.HTML do
     ]
   end
 
-  # A learning working copy belongs to no request; its column says what owns it.
-  defp workspace_request_state(%{execution_kind: :learning}), do: "Background learning"
+  defp workspace_learning([]), do: []
+
+  defp workspace_learning(rows) do
+    [
+      "<section class=\"workspace-learning\"><h2>Background learning</h2>",
+      "<p class=\"section-description\">Ryker reviews retained conversation messages and updates Memory when it finds something useful. This does not create a repository checkout. Active runs show as In use; an interrupted worker shows when Ryker will retry. Finished sessions close automatically.</p>",
+      workspace_table(rows, "Activity"),
+      "</section>"
+    ]
+  end
+
+  defp workspace_table(rows, first_column \\ "Working copy") do
+    request? = Enum.any?(rows, &(Map.get(&1, :execution_kind) != :learning))
+    action? = Enum.any?(rows, &(!is_nil(Map.get(&1, :action))))
+
+    columns =
+      [first_column, "Lifecycle"] ++
+        if(request?, do: ["Request"], else: []) ++
+        ["Updated"] ++ if(action?, do: [{"row-action", "Action"}], else: [])
+
+    data_table(columns, workspace_rows(rows, request?, action?))
+  end
+
+  defp workspace_rows(rows, request?, action?) do
+    Enum.map(rows, fn row ->
+      {status, tone} = workspace_status(row)
+
+      action =
+        case row.action do
+          :rearm ->
+            Components.action_button(
+              "/actions/retention/#{segment(row.ref)}/rearm",
+              "Resume cleanup",
+              :primary
+            )
+
+          :discard_unmerged ->
+            Components.action_button(
+              "/actions/retention/#{segment(row.ref)}/discard",
+              "Discard unmerged",
+              :danger
+            )
+
+          nil ->
+            []
+        end
+
+      identity = workspace_identity(row)
+
+      lifecycle = [
+        Components.status(status, tone),
+        workspace_lifecycle_detail(row)
+      ]
+
+      [identity, lifecycle] ++
+        if(request?, do: [workspace_request_state(row)], else: []) ++
+        [readable_time(row.updated_at)] ++ if(action?, do: [action], else: [])
+    end)
+  end
+
+  defp workspace_row?(row), do: is_binary(Map.get(row, :repository))
+
+  defp workspace_identity(%{execution_kind: :learning}),
+    do: ["<strong>Background learning</strong>"]
+
+  defp workspace_identity(row) do
+    [
+      "<strong>",
+      escape(Map.get(row, :repository)),
+      "</strong><span class=\"row-secondary\">",
+      if(row[:episode_ref],
+        do: [
+          "<a class=\"workspace-request-title\" href=\"/timeline/",
+          segment(row.episode_ref),
+          "\">",
+          workspace_request_label(row),
+          "</a> · "
+        ],
+        else: []
+      ),
+      "<code>",
+      escape(row.ref),
+      "</code></span>"
+    ]
+  end
+
+  defp workspace_request_state(%{execution_kind: :learning}), do: []
   defp workspace_request_state(row), do: escape(Components.label(to_string(row.state)))
 
   defp workspace_request_label(row) do
@@ -1687,7 +1756,13 @@ defmodule Ryker.ControlPlane.HTML do
   defp lab_card(card) do
     details =
       Enum.map(card.details, fn {label, value} ->
-        ["<dt>", escape(label), "</dt><dd>", escape(value), "</dd>"]
+        [
+          "<div class=\"lab-card-detail\"><dt>",
+          escape(label),
+          "</dt><dd>",
+          escape(value),
+          "</dd></div>"
+        ]
       end)
 
     controls = Map.get(card, :controls, []) |> Enum.map(&lab_card_control/1)
@@ -1708,7 +1783,7 @@ defmodule Ryker.ControlPlane.HTML do
       escape(card.label),
       "</span>",
       if(Card.display_status(card),
-        do: ["<span>", escape(Card.display_status(card)), "</span>"],
+        do: ["<span class=\"lab-card-status\">", escape(Card.display_status(card)), "</span>"],
         else: ""
       ),
       "</div><h3>",
@@ -1723,7 +1798,7 @@ defmodule Ryker.ControlPlane.HTML do
         ],
         else: ""
       ),
-      if(details == [], do: "", else: ["<dl>", details, "</dl>"]),
+      if(details == [], do: "", else: ["<dl class=\"lab-card-details\">", details, "</dl>"]),
       if(choices == [], do: "", else: ["<div class=\"choice-list\">", choices, "</div>"]),
       if(controls == [],
         do: "",
@@ -1873,6 +1948,43 @@ defmodule Ryker.ControlPlane.HTML do
     |> Safe.to_iodata()
   end
 
+  defp collection_shell(label, filters, count, one, many, content) do
+    raw_slot = fn body ->
+      [
+        %{
+          __slot__: :inner_block,
+          inner_block: fn _, _ -> Phoenix.HTML.raw(IO.iodata_to_binary(body)) end
+        }
+      ]
+    end
+
+    %{
+      __changed__: nil,
+      label: label,
+      count: count,
+      one: one,
+      many: many,
+      class: nil,
+      navigation: [],
+      filters: raw_slot.(filters),
+      inner_block: raw_slot.(content)
+    }
+    |> Components.collection_shell()
+    |> Safe.to_iodata()
+  end
+
+  defp directory_empty_state(title, description) do
+    %{
+      __changed__: nil,
+      kind: :empty,
+      title: title,
+      description: description,
+      action: []
+    }
+    |> Components.empty_state()
+    |> Safe.to_iodata()
+  end
+
   defp empty_state(text), do: ["<p class=\"empty-state\">", escape(text), "</p>"]
 
   # A comparison table whose every cell names its column, so a narrow screen
@@ -1962,6 +2074,31 @@ defmodule Ryker.ControlPlane.HTML do
   defp channel_label(workspace_ref, channel_ref),
     do: SlackNames.name(workspace_ref, channel_ref)
 
+  defp workspace_status(%{execution_kind: :learning, status: :grace}),
+    do: {"Cleanup scheduled", "quiet"}
+
+  defp workspace_status(%{
+         execution_kind: :learning,
+         status: :active,
+         learning_state: :retry_scheduled
+       }),
+       do: {"Retry scheduled", "attention"}
+
+  defp workspace_status(%{
+         execution_kind: :learning,
+         status: :active,
+         learning_state: :checking_worker
+       }),
+       do: {"Checking worker", "active"}
+
+  defp workspace_status(%{
+         execution_kind: :learning,
+         status: :active,
+         learning_state: :cleanup_pending
+       }),
+       do: {"Cleanup pending", "quiet"}
+
+  defp workspace_status(%{status: status}), do: workspace_status(status)
   defp workspace_status(:active), do: {"In use", "active"}
   defp workspace_status(:grace), do: {"Kept for follow-up", "quiet"}
   defp workspace_status(:retained), do: {"Changes preserved", "quiet"}
@@ -1969,22 +2106,59 @@ defmodule Ryker.ControlPlane.HTML do
   defp workspace_status(:blocked), do: {"Cleanup needs attention", "attention"}
   defp workspace_status(_), do: {"Cleanup in progress", "active"}
 
-  defp workspace_reason(%{status: :discarded}),
-    do: "Working copy removed; request history remains available."
+  defp workspace_lifecycle_detail(%{status: :grace, discard_after: %DateTime{} = at}),
+    do: [
+      "<span class=\"workspace-lifecycle-detail\">Cleanup after ",
+      readable_time(at),
+      "</span>"
+    ]
 
-  defp workspace_reason(%{status: :active}),
-    do: "Available to the current request and its follow-ups."
+  defp workspace_lifecycle_detail(%{
+         execution_kind: :learning,
+         learning_state: :retry_scheduled,
+         learning_retry_at: %DateTime{} = at
+       }),
+       do: [
+         "<span class=\"workspace-lifecycle-detail\">Worker session not confirmed. Retry after ",
+         readable_time(at),
+         "</span>"
+       ]
 
-  defp workspace_reason(%{status: :grace}),
-    do: "Kept temporarily so a follow-up can reuse the same checkout."
+  defp workspace_lifecycle_detail(%{
+         execution_kind: :learning,
+         learning_state: :retry_scheduled
+       }),
+       do:
+         "<span class=\"workspace-lifecycle-detail\">Worker session not confirmed. Retrying automatically.</span>"
 
-  defp workspace_reason(%{summary: "unpublished_unmerged"}),
-    do: "Unmerged commits are being kept safe."
+  defp workspace_lifecycle_detail(%{
+         execution_kind: :learning,
+         learning_state: :checking_worker
+       }),
+       do:
+         "<span class=\"workspace-lifecycle-detail\">Confirming whether the worker session stopped.</span>"
 
-  defp workspace_reason(%{summary: "dirty"}), do: "Uncommitted changes are being kept safe."
-  defp workspace_reason(%{status: :retained}), do: "Changes are preserved until cleanup is safe."
-  defp workspace_reason(%{status: :blocked, summary: value}), do: failure_cause(value)
-  defp workspace_reason(_), do: "Automatic cleanup is pending."
+  defp workspace_lifecycle_detail(%{
+         execution_kind: :learning,
+         learning_state: :cleanup_pending
+       }),
+       do: "<span class=\"workspace-lifecycle-detail\">Worker stopped. Cleanup is next.</span>"
+
+  defp workspace_lifecycle_detail(%{summary: "unpublished_unmerged"}),
+    do: "<span class=\"workspace-lifecycle-detail\">Unmerged commits are being kept safe.</span>"
+
+  defp workspace_lifecycle_detail(%{summary: "dirty"}),
+    do:
+      "<span class=\"workspace-lifecycle-detail\">Uncommitted changes are being kept safe.</span>"
+
+  defp workspace_lifecycle_detail(%{status: :retained}),
+    do:
+      "<span class=\"workspace-lifecycle-detail\">Changes are preserved until cleanup is safe.</span>"
+
+  defp workspace_lifecycle_detail(%{status: :blocked, summary: value}),
+    do: ["<span class=\"workspace-lifecycle-detail\">", escape(failure_cause(value)), "</span>"]
+
+  defp workspace_lifecycle_detail(_), do: []
 
   defp repository_revision(nil), do: "No revision recorded yet"
 

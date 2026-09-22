@@ -33,6 +33,26 @@ defmodule Ryker.Retention.Executor do
     end
   end
 
+  defp execute(
+         :close_pending,
+         %Session{
+           execution_kind: :work,
+           close_expected_revision: nil,
+           discard_after: nil
+         } = session,
+         lease_ref,
+         settings
+       ) do
+    with {:ok, stored} <-
+           Custody.begin_grace(
+             session.id,
+             lease_ref,
+             settings.closed_session_grace_seconds
+           ) do
+      {:ok, %{phase: :grace, session: stored}}
+    end
+  end
+
   defp execute(:close_pending, session, lease_ref, settings) do
     with {:ok, remote} <- fetch_session(session, settings) do
       close_from_state(remote["state"], session, lease_ref, remote, settings)
@@ -57,8 +77,8 @@ defmodule Ryker.Retention.Executor do
   defp close_from_state("discarded", session, lease_ref, _remote, _settings),
     do: settle_already_discarded(session, lease_ref)
 
-  defp close_from_state("closed", session, lease_ref, _remote, settings),
-    do: mark_closed(session, lease_ref, settings)
+  defp close_from_state("closed", session, lease_ref, _remote, _settings),
+    do: mark_closed(session, lease_ref)
 
   defp close_from_state(state, session, lease_ref, remote, settings)
        when state in ["open", "exhausted"] do
@@ -82,15 +102,15 @@ defmodule Ryker.Retention.Executor do
              session.close_expected_revision
            )
          end) do
-      {:ok, response} -> handle_close_response(response, session, lease_ref, settings)
+      {:ok, response} -> handle_close_response(response, session, lease_ref)
       {:error, reason} -> handle_close_error(reason, session, lease_ref)
     end
   end
 
-  defp handle_close_response(response, session, lease_ref, settings) do
+  defp handle_close_response(response, session, lease_ref) do
     case mutation_session(response, "CloseSession", session, ~w(closed discarded)) do
       {:ok, %{"state" => "discarded"}} -> settle_already_discarded(session, lease_ref)
-      {:ok, %{"state" => "closed"}} -> mark_closed(session, lease_ref, settings)
+      {:ok, %{"state" => "closed"}} -> mark_closed(session, lease_ref)
       {:error, reason} -> {:error, {:coop_mutation_response_unresolved, :close, reason}}
     end
   end
@@ -120,13 +140,8 @@ defmodule Ryker.Retention.Executor do
 
   defp handle_close_error(reason, _session, _lease_ref), do: {:error, reason}
 
-  defp mark_closed(session, lease_ref, settings) do
-    with {:ok, stored} <-
-           Custody.mark_closed(
-             session.id,
-             lease_ref,
-             settings.closed_session_grace_seconds
-           ) do
+  defp mark_closed(session, lease_ref) do
+    with {:ok, stored} <- Custody.mark_closed(session.id, lease_ref) do
       {:ok, %{phase: :closed, session: stored}}
     end
   end

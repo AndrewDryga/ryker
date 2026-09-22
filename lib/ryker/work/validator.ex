@@ -74,6 +74,7 @@ defmodule Ryker.Work.Validator do
     []
     |> shadow_violations(final, context)
     |> mention_violations(final, context)
+    |> timer_wait_delivery_violations(final, context)
     |> visibility_violations(final, context)
     |> platform_action_violations(context)
     |> missing_record_violations(final, context)
@@ -197,7 +198,7 @@ defmodule Ryker.Work.Validator do
          %{delivery: :none} = final,
          %{visible_reply_required: true} = context
        ) do
-    if delivered_reaction_referenced?(final, context) do
+    if delivered_reaction_referenced?(final, context) or referenced_timer_wait?(final, context) do
       violations
     else
       [
@@ -208,6 +209,29 @@ defmodule Ryker.Work.Validator do
   end
 
   defp visibility_violations(violations, _final, _context), do: violations
+
+  defp timer_wait_delivery_violations(
+         violations,
+         %{delivery: :reply} = final,
+         context
+       ) do
+    if referenced_timer_wait?(final, context) do
+      [
+        "A timer wait must not acknowledge completion before it fires. Set delivery to none and keep the timer record in outcome.record_refs; the resumed turn can reply after the wait finishes."
+        | violations
+      ]
+    else
+      violations
+    end
+  end
+
+  defp timer_wait_delivery_violations(violations, _final, _context), do: violations
+
+  defp referenced_timer_wait?(final, context) do
+    Enum.any?(final.record_refs, fn ref ->
+      match?(%{kind: "event_wait", wait_mode: :timer}, context.records[ref])
+    end)
+  end
 
   defp platform_action_violations(violations, %{records: records}) do
     unresolved =
@@ -637,6 +661,25 @@ defmodule Ryker.Work.Validator do
          true <- reference?(kind),
          {:ok, continuation} <- prepare_record_continuation(continuation) do
       {:ok, %{continuation: continuation, kind: kind}}
+    else
+      false -> {:error, {:invalid_work_validation_context, :record}}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp prepare_record(
+         ref,
+         %{
+           "continuation" => continuation,
+           "kind" => "event_wait",
+           "wait_mode" => wait_mode
+         } = record
+       )
+       when map_size(record) == 3 and wait_mode in ["external", "timer"] do
+    with true <- reference?(ref),
+         {:ok, continuation} <- prepare_record_continuation(continuation) do
+      {:ok,
+       %{continuation: continuation, kind: "event_wait", wait_mode: String.to_atom(wait_mode)}}
     else
       false -> {:error, {:invalid_work_validation_context, :record}}
       {:error, _reason} = error -> error

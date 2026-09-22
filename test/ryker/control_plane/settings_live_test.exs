@@ -5,6 +5,7 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
   import Phoenix.LiveViewTest
 
   alias Ryker.ControlPlane.{Actions, Endpoint, Projection}
+  alias Ryker.Credentials
   alias Ryker.Settings
   alias Ryker.Settings.{Installation, PricingRate}
 
@@ -139,6 +140,55 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
              ".repository-import a[href='/settings/github']",
              "Connect GitHub"
            )
+  end
+
+  test "an unreadable stored GitHub key blocks discovery and offers repair" do
+    snapshot = initialize!()
+
+    assert {:ok, _snapshot} =
+             Settings.save_github(
+               %{enabled: true, app_id: 1_234},
+               snapshot.installation.revision,
+               @actor
+             )
+
+    assert {:ok, _} =
+             Credentials.put(
+               :github_private_key,
+               "primary",
+               "not-a-private-key-long-enough",
+               @actor
+             )
+
+    assert {:ok, _} =
+             Credentials.verify(:github_private_key, "primary", :verified, @actor)
+
+    assert {:ok, _} =
+             Credentials.put(
+               :github_webhook,
+               "primary",
+               "test-webhook-secret-long-enough",
+               @actor
+             )
+
+    assert {:ok, _} = Credentials.verify(:github_webhook, "primary", :verified, @actor)
+
+    {:ok, repositories, _html} = open("/repositories")
+
+    refute has_element?(
+             repositories,
+             ".repository-import button[phx-click=discover-github-repositories]"
+           )
+
+    assert has_element?(
+             repositories,
+             ".repository-import a[href='/settings/github']",
+             "Repair GitHub connection"
+           )
+
+    {:ok, github, _html} = open("/settings/github")
+    assert has_element?(github, "h2", "Repair GitHub connection")
+    refute has_element?(github, "h2", "GitHub App verified")
   end
 
   test "Emisar routing uses named scopes and supports stopping and resuming new work" do

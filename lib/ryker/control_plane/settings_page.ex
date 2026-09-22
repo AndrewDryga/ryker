@@ -155,7 +155,7 @@ defmodule Ryker.ControlPlane.SettingsPage do
       assigns.view.snapshot.slack.enabled and
         verified?(assigns.view, [:slack_app, :slack_bot])
 
-    github = verified?(assigns.view, [:github_private_key, :github_webhook])
+    github = assigns.view.github_connection == :ready
 
     repositories = length(assigns.view.snapshot.repositories)
 
@@ -252,7 +252,9 @@ defmodule Ryker.ControlPlane.SettingsPage do
         slack_connected:
           assigns.view.snapshot.slack.enabled and
             verified?(assigns.view, [:slack_app, :slack_bot]),
-        github_verified: verified?(assigns.view, [:github_private_key, :github_webhook]),
+        slack_readiness: assigns.view.readiness.slack,
+        github_verified: assigns.view.github_connection == :ready,
+        github_invalid: assigns.view.github_connection == :invalid,
         github_connected:
           assigns.view.snapshot.github.enabled and
             verified?(assigns.view, [:github_private_key, :github_webhook]),
@@ -269,21 +271,25 @@ defmodule Ryker.ControlPlane.SettingsPage do
         <header class="integration-overview">
           <div>
             <span class="integration-eyebrow">Connection</span>
-            <h2>{if @slack_verified, do: "Slack is verified", else: "Connect Slack"}</h2>
+            <h2>{if @slack_verified, do: @slack_readiness.title, else: "Connect Slack"}</h2>
             <p :if={!@slack_verified}>
               Paste your Slack app tokens. Ryker detects the workspace, app and bot for you.
             </p>
             <p :if={@slack_verified && !@slack_connected}>
               Choose who can operate Ryker to finish setup.
             </p>
-            <p :if={@slack_connected}>
+            <p :if={@slack_connected && @slack_readiness.state == :ready}>
               {@view.snapshot.slack.bot_name || "Ryker"} is connected to {@view.snapshot.slack.workspace_name ||
                 @view.snapshot.slack.workspace_ref}.
+            </p>
+            <p :if={@slack_connected && @slack_readiness.state != :ready}>
+              {@slack_readiness.detail}
             </p>
           </div>
           <.connection_state state={
             cond do
-              @slack_connected -> :connected
+              @slack_readiness.state == :ready -> :connected
+              @slack_connected -> :starting
               @slack_verified -> :pending
               true -> :missing
             end
@@ -357,9 +363,18 @@ defmodule Ryker.ControlPlane.SettingsPage do
         <header class="integration-overview">
           <div>
             <span class="integration-eyebrow">Connection</span>
-            <h2>{if @github_verified, do: "GitHub App verified", else: "Connect GitHub"}</h2>
-            <p :if={!@github_verified}>
+            <h2>
+              {cond do
+                @github_verified -> "GitHub App verified"
+                @github_invalid -> "Repair GitHub connection"
+                true -> "Connect GitHub"
+              end}
+            </h2>
+            <p :if={!@github_verified && !@github_invalid}>
               Add the GitHub App credentials once. Ryker verifies the app and detects its identity.
+            </p>
+            <p :if={@github_invalid}>
+              The saved GitHub identity or private key is incomplete. Verify the App again before importing repositories.
             </p>
             <p :if={@github_verified && !@github_connected}>
               Add a repository to enable GitHub work.
@@ -702,13 +717,14 @@ defmodule Ryker.ControlPlane.SettingsPage do
 
   attr(:view, :map, required: true)
   attr(:repositories, :list, required: true)
+  attr(:discovery, :any, default: :idle)
 
   def repository_import(assigns) do
     assigns =
       assign(
         assigns,
         :github_connected,
-        verified?(assigns.view, [:github_private_key, :github_webhook])
+        assigns.view.github_connection == :ready
       )
 
     ~H"""
@@ -718,18 +734,65 @@ defmodule Ryker.ControlPlane.SettingsPage do
           <h2 id="repository-import-title">Add repositories</h2>
           <p>Import repositories the connected GitHub App can access.</p>
         </div>
-        <span :if={@repositories != []}>{length(@repositories)} found</span>
+        <span :if={@discovery == :complete && @repositories != []}>
+          {length(@repositories)} found
+        </span>
       </header>
       <div :if={!@github_connected} class="repository-connect-prompt">
-        <p>Connect GitHub before importing repositories.</p>
-        <.link navigate="/settings/github" class="ui-button secondary">Connect GitHub</.link>
+        <p>
+          {if @view.github_connection == :invalid,
+            do: "Repair the GitHub connection before importing repositories.",
+            else: "Connect GitHub before importing repositories."}
+        </p>
+        <.link navigate="/settings/github" class="ui-button secondary">
+          {if @view.github_connection == :invalid,
+            do: "Repair GitHub connection",
+            else: "Connect GitHub"}
+        </.link>
       </div>
       <button
-        :if={@github_connected && @repositories == []}
+        :if={@github_connected && @discovery == :idle}
         type="button"
         class="ui-button secondary"
         phx-click="discover-github-repositories"
+        phx-disable-with="Finding repositories…"
       >Find repositories</button>
+      <div
+        :if={@github_connected && @discovery == :complete && @repositories == []}
+        class="repository-discovery-result"
+      >
+        <div>
+          <strong>No repositories found</strong>
+          <p>Give the GitHub App access to at least one repository, then try again.</p>
+        </div>
+        <button
+          type="button"
+          class="ui-button secondary"
+          phx-click="discover-github-repositories"
+          phx-disable-with="Checking again…"
+        >Try again</button>
+      </div>
+      <div
+        :if={@github_connected && match?({:error, _}, @discovery)}
+        class="repository-discovery-result repository-discovery-error"
+      >
+        <Components.form_feedback
+          message={elem(@discovery, 1)}
+          tone={:error}
+          class="repository-discovery-feedback"
+        />
+        <div class="repository-discovery-actions">
+          <button
+            type="button"
+            class="ui-button secondary"
+            phx-click="discover-github-repositories"
+            phx-disable-with="Trying again…"
+          >Try again</button>
+          <.link navigate="/settings/github" class="ui-button secondary">
+            Review GitHub connection
+          </.link>
+        </div>
+      </div>
       <form :if={@github_connected && @repositories != []} phx-submit="import-github-repositories">
         <label class="repository-search">Search repositories<input
           id="repository-search"
@@ -842,6 +905,7 @@ defmodule Ryker.ControlPlane.SettingsPage do
         :connected -> "Connected"
         :verified -> "App verified"
         :pending -> "Finish setup"
+        :starting -> "Starting"
         :missing -> "Not connected"
       end}
     </span>

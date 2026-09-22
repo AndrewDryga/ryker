@@ -10,7 +10,7 @@ const retained = JSON.parse(readFileSync(new URL("../ryker/work/fixtures/airflow
 function fixture(hash = "") {
   let hook
   const listeners = new Map(), nodes = new Map(), scrolled = []
-  const location = {pathname: "/timeline/candidate-ui/model-calls", search: "?responses_page=1", hash}
+  const location = {pathname: "/timeline/candidate-ui", search: "?responses_page=1", hash}
   Object.defineProperty(location, "href", {get() { return `http://127.0.0.1:45459${this.pathname}${this.search}${this.hash}` }})
   const document = {body: {id: ""}, documentElement: {scrollHeight: 2000},
     querySelector: () => ({content: "host-test-csrf"}), getElementById: id => nodes.get(id),

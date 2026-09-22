@@ -60,7 +60,9 @@ defmodule Ryker.ControlPlane.LearningActivityTest do
     html = HTML.memory(Projection.memory(), String.duplicate("s", 32)) |> IO.iodata_to_binary()
     assert html =~ "Learning is disabled"
     assert html =~ "2 messages waiting"
-    assert html =~ "Source excerpts"
+    assert html =~ "Current knowledge"
+    assert html =~ "Conversation context"
+    refute html =~ "Source excerpts"
     refute html =~ "A new source can rebuild this topic"
   end
 
@@ -439,7 +441,7 @@ defmodule Ryker.ControlPlane.LearningActivityTest do
     assert failure.explanation =~ "source history exceeded"
     assert failure.request_path =~ "attempt=#{claim.turn.id}"
     html = HTML.memory(Projection.memory(), String.duplicate("s", 32)) |> IO.iodata_to_binary()
-    assert html =~ "Conversation handover not saved"
+    assert html =~ "Conversation context not saved"
     assert html =~ "Response sent"
     assert html =~ "This does not change the response or its delivery status"
     assert Repo.get!(Turn, claim.turn.id) == before

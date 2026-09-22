@@ -80,14 +80,16 @@ export function createComposer({pushEvent, active, storage, location: loc}) {
       try { store = storage() } catch (_) { store = {removeItem() {}} }
       acceptDrafts(drafts, store)
       if (files) files.value = ""
-      showFeedback(status, "Message saved. Admission progress appears above.", "success")
+      showFeedback(status, "", "info")
       pushEvent("refresh", {})
       followSentDraft(form, pushEvent)
     } catch (error) {
       if (!active() || !form.isConnected) return
       showFeedback(
         status,
-        error.message.startsWith("rejected:")
+        error.message === "unavailable:chat"
+          ? "Chat is waiting for its worker. Your draft is preserved; try again when Chat shows ready."
+          : error.message.startsWith("rejected:")
           ? "The server rejected this message. Your draft is preserved. Check message and file limits, or reload the conversation if its form has expired."
           : "Acceptance was not confirmed. Your draft is preserved. Check the conversation before sending again; no automatic retry was made.",
         "error"

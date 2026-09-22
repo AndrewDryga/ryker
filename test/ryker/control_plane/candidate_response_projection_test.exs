@@ -62,17 +62,26 @@ defmodule Ryker.ControlPlane.CandidateResponseProjectionTest do
     params = URI.decode_query(uri.query)
     assert params["responses_page"] == "1"
     assert params["attempt"] == turn.id
-    assert uri.fragment == "selected-#{turn.id}-response-1-body"
+    assert uri.path == "/timeline/#{URI.encode_www_form(episode.key)}"
+    assert uri.fragment == "turn-#{turn.id}-response-1-body"
 
-    {:ok, older} = ModelRequests.project(episode.key, params)
-    checks = validation(older)
-    assert checks.response_page.page == 1
-    assert Map.keys(checks.responses) |> Enum.sort() == Enum.to_list(1..10)
-    assert checks.response_page.total == 12
-    html = render_inspector(older, params)
-    assert html =~ "checks 1–10 of 12"
+    {:ok, older} = ModelRequests.timeline(episode.key, params)
+    {:ok, snapshot} = Projection.episode(episode.key)
+
+    html =
+      render_component(&EpisodePage.render/1,
+        snapshot: snapshot,
+        timeline: older,
+        params: params
+      )
+
     assert html =~ uri.fragment
-    refute html =~ "response-11-body"
+
+    assert html
+           |> LazyHTML.from_document()
+           |> LazyHTML.query(".candidate-response")
+           |> LazyHTML.attribute("id") ==
+             Enum.map(1..10, &"turn-#{turn.id}-response-#{&1}")
 
     {other, _turn, _bodies} = recorded_turn!(1)
     assert :not_found == ModelRequests.project(other.key, params)
@@ -230,9 +239,17 @@ defmodule Ryker.ControlPlane.CandidateResponseProjectionTest do
     uri = URI.parse(href)
     params = URI.decode_query(uri.query)
     assert params["section"] == "candidate"
-    assert uri.fragment == "selected-#{turn.id}-candidate-body"
-    {:ok, selected} = ModelRequests.project(episode.key, params)
-    assert render_inspector(selected, params) =~ uri.fragment
+    assert uri.fragment == "turn-#{turn.id}-response-2-body"
+    {:ok, selected} = ModelRequests.timeline(episode.key, params)
+
+    selected_html =
+      render_component(&EpisodePage.render/1,
+        snapshot: snapshot,
+        timeline: selected,
+        params: params
+      )
+
+    assert selected_html =~ uri.fragment
     assert Repo.aggregate(CandidateResponse, :count) == 0
   end
 
@@ -266,6 +283,10 @@ defmodule Ryker.ControlPlane.CandidateResponseProjectionTest do
       do: send(owner, {:response_query, query, result.num_rows})
   end
 
+  # Rejected writes in the surrounding constraint tests are expected. They
+  # must not detach this telemetry handler before the read it measures.
+  def record_query(_event, _measurements, %{result: {:error, _reason}}, _owner), do: :ok
+
   defp copy_turn!(turn) do
     fields =
       turn
@@ -295,7 +316,7 @@ defmodule Ryker.ControlPlane.CandidateResponseProjectionTest do
     render_component(&RequestPage.render/1,
       view: view,
       params: params,
-      path: "/timeline/#{URI.encode_www_form(view.episode_ref)}/model-calls"
+      path: "/timeline/#{URI.encode_www_form(view.episode_ref)}"
     )
   end
 

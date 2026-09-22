@@ -11,6 +11,7 @@ defmodule Ryker.Settings.PolicyBinding do
 
   @installation_purposes [
     :admission,
+    :conversational,
     :learning,
     :incident,
     :schedule_read_only,
@@ -18,11 +19,12 @@ defmodule Ryker.Settings.PolicyBinding do
   ]
   @context_purposes [:conversational, :standard, :deep, :contributor]
   @repository_purposes @context_purposes ++ [:schedule]
+  @purposes Enum.uniq(@installation_purposes ++ @repository_purposes)
   @primary_key {:id, :binary_id, autogenerate: false}
   @fields ~w(id purpose scope_kind scope_ref policy_name policy_digest authority_digest verified_by verified_worker_ref)a
 
   schema "policy_bindings" do
-    field(:purpose, Ecto.Enum, values: @installation_purposes ++ @repository_purposes)
+    field(:purpose, Ecto.Enum, values: @purposes)
     field(:scope_kind, Ecto.Enum, values: [:installation, :repository, :context])
     field(:scope_ref, :string, default: "")
     field(:policy_name, :string)

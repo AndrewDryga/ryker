@@ -504,8 +504,7 @@ defmodule Ryker.ControlPlane.EpisodeTraceTest do
 
     assert Enum.all?(timeline.items, fn request ->
              request.source_kind != :admission ||
-               (request.href =~ "/model-calls?" && request.href =~ "kind=admission" &&
-                  request.href =~ entry.id)
+               request.href =~ "#admission-#{entry.id}-"
            end)
   end
 
@@ -587,10 +586,8 @@ defmodule Ryker.ControlPlane.EpisodeTraceTest do
     html = render_component(&EpisodePage.render/1, snapshot: detail, requests: nil, params: %{})
     assert html =~ "execution-timeline"
     assert html =~ "Investigate &lt;script&gt;"
-    assert html =~ "Model calls"
     assert html =~ "Technical details"
     assert html =~ "Created"
-    assert html =~ URI.encode_www_form(episode.key)
     refute html =~ "<script>steal()"
     refute html =~ "ghp_abcdefghijklmnopqrstuvwxyz"
   end

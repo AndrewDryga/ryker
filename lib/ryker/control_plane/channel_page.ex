@@ -245,11 +245,11 @@ defmodule Ryker.ControlPlane.ChannelPage do
       id="summaries"
       base={@base}
       params={@view.params}
-      title="Conversation summaries"
+      title="Conversation context"
       relation={@view.summaries}
-      one="summary"
-      many="summaries"
-      empty="No conversation summaries are retained for this channel."
+      one="context record"
+      many="context records"
+      empty="No conversation context is retained for this channel."
     >
       <:health>
         <p
@@ -257,10 +257,10 @@ defmodule Ryker.ControlPlane.ChannelPage do
           class="channel-health"
         >
           <span :if={@view.continuity.drafts > 0}>
-            {count(@view.continuity.drafts, "summary draft", "summary drafts")} in flight
+            {count(@view.continuity.drafts, "context update", "context updates")} in flight
           </span>
           <a :if={@view.continuity.handover_failures > 0} href="/memory#handover-failures">
-            {count(@view.continuity.handover_failures, "handover", "handovers")} not saved →
+            {count(@view.continuity.handover_failures, "context update", "context updates")} not saved →
           </a>
         </p>
       </:health>

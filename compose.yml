@@ -5,7 +5,7 @@ services:
     image: alpine:3.21.3
     restart: "no"
     user: root
-    command: ["sh", "-c", "chown -R 10001:10001 /var/lib/ryker /var/lib/coop /var/lib/ryker-coop /var/lib/ryker-workspaces"]
+    command: ["sh", "-c", "chown -R 1000:1000 /var/lib/ryker /var/lib/coop /var/lib/ryker-coop /var/lib/ryker-workspaces"]
     volumes:
       - ryker-state:/var/lib/ryker
       - ryker-coop-state:/var/lib/coop
@@ -13,14 +13,14 @@ services:
       - ryker-workspaces:/var/lib/ryker-workspaces
 
   database:
-    image: postgres:17.6-bookworm
+    image: postgres:18.4-bookworm
     restart: unless-stopped
     environment:
       POSTGRES_DB: ryker
       POSTGRES_USER: ryker
       POSTGRES_PASSWORD: ${RYKER_DATABASE_PASSWORD:?run ./install.sh first}
     volumes:
-      - ryker-database:/var/lib/postgresql/data
+      - ryker-database:/var/lib/postgresql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ryker -d ryker"]
       interval: 2s
@@ -63,7 +63,8 @@ services:
       RYKER_STATE_TOOLS_TOKEN: ${RYKER_STATE_TOOLS_TOKEN:?run ./install.sh first}
       RYKER_WORKER_IP: 0.0.0.0
       RYKER_WORKER_PORT: 4322
-      RYKER_WORKER_PUBLIC_URL: https://ryker:4322
+      RYKER_WORKER_PUBLIC_URL: https://172.30.42.10:4322
+      RYKER_COMPOSE_WORKER_IP: 172.30.42.10
       RYKER_WORKER_CA_FILE: /var/lib/ryker/pki/ca.pem
       RYKER_WORKER_CA_KEY_FILE: /var/lib/ryker/pki/ca-key.pem
       RYKER_WORKER_CERT_FILE: /var/lib/ryker/pki/server.pem
@@ -77,6 +78,9 @@ services:
       - ryker-state:/var/lib/ryker
       - ryker-coop-config:/var/lib/ryker-coop
       - ryker-workspaces:/var/lib/ryker-workspaces
+    networks:
+      default:
+        ipv4_address: 172.30.42.10
     ports:
       - "${RYKER_CONTROL_BIND:-127.0.0.1}:${RYKER_CONTROL_PORT:-4321}:4321"
       - "${RYKER_GITHUB_BIND:-127.0.0.1}:${RYKER_GITHUB_PORT:-4319}:4319"
@@ -120,12 +124,12 @@ services:
         max-file: "3"
 
   ryker-coop:
-    image: ${RYKER_COOP_IMAGE:-ryker-coop:${COOP_VERSION:-v9.0.0}}
+    image: ${RYKER_COOP_IMAGE:-ryker-coop:${COOP_VERSION:-v9.0.0-389-gcb5178eb}}
     build:
       context: .
       dockerfile: deploy/compose/coop/Dockerfile
       args:
-        COOP_VERSION: ${COOP_VERSION:-v9.0.0}
+        COOP_VERSION: ${COOP_VERSION:-v9.0.0-389-gcb5178eb}
     restart: unless-stopped
     depends_on:
       ryker:
@@ -159,3 +163,9 @@ volumes:
   ryker-coop-config:
   ryker-coop-docker:
   ryker-workspaces:
+
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: 172.30.42.0/24

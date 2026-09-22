@@ -138,8 +138,25 @@ defmodule Ryker.State.Records do
       )
     )
     |> Map.new(fn record ->
-      {record.ref, %{"continuation" => record.continuation, "kind" => record.kind}}
+      {record.ref, validation_record(record)}
     end)
+  end
+
+  defp validation_record(%Record{
+         continuation: continuation,
+         kind: "event_wait",
+         payload: %{"event_matcher" => %{"type" => type}}
+       })
+       when type in ["after", "at"] do
+    %{"continuation" => continuation, "kind" => "event_wait", "wait_mode" => "timer"}
+  end
+
+  defp validation_record(%Record{continuation: continuation, kind: "event_wait"}) do
+    %{"continuation" => continuation, "kind" => "event_wait", "wait_mode" => "external"}
+  end
+
+  defp validation_record(%Record{continuation: continuation, kind: kind}) do
+    %{"continuation" => continuation, "kind" => kind}
   end
 
   @doc "Read-only retained history for operator projections, not a model disclosure."

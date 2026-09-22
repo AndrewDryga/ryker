@@ -151,6 +151,12 @@ defmodule Ryker.Fixtures.ControlPlaneOptions do
         ready: fn -> {:ok, %{stalled_queues: []}} end
       },
       projection: %{
+        readiness: fn ->
+          %{
+            chat: %{state: :ready, title: "Chat is ready", detail: "Ready."},
+            slack: %{state: :not_connected}
+          }
+        end,
         admission: fn
           "ingress-input:one" ->
             {:ok,
@@ -1181,7 +1187,9 @@ defmodule Ryker.Fixtures.ControlPlaneOptions do
             {:ok,
              %{
                action: :rearm,
+               execution_kind: :work,
                kind: "coop_session",
+               repository: "ryker",
                ref: "workspace:blocked",
                state: :complete,
                status: :blocked,
@@ -1193,7 +1201,9 @@ defmodule Ryker.Fixtures.ControlPlaneOptions do
             {:ok,
              %{
                action: :discard_unmerged,
+               execution_kind: :work,
                kind: "coop_session",
+               repository: "ryker",
                ref: "workspace:unmerged",
                state: :complete,
                status: :retained,
@@ -1205,7 +1215,9 @@ defmodule Ryker.Fixtures.ControlPlaneOptions do
             {:ok,
              %{
                action: nil,
+               execution_kind: :work,
                kind: "coop_session",
+               repository: "ryker",
                ref: "workspace:dirty",
                state: :complete,
                status: :retained,
@@ -1262,7 +1274,9 @@ defmodule Ryker.Fixtures.ControlPlaneOptions do
           [
             %{
               action: :rearm,
+              execution_kind: :work,
               kind: "coop_session",
+              repository: "ryker",
               ref: "workspace:blocked",
               state: :complete,
               status: :blocked,
@@ -1271,7 +1285,9 @@ defmodule Ryker.Fixtures.ControlPlaneOptions do
             },
             %{
               action: :discard_unmerged,
+              execution_kind: :work,
               kind: "coop_session",
+              repository: "ryker",
               ref: "workspace:unmerged",
               state: :complete,
               status: :retained,
@@ -1280,7 +1296,9 @@ defmodule Ryker.Fixtures.ControlPlaneOptions do
             },
             %{
               action: nil,
+              execution_kind: :work,
               kind: "coop_session",
+              repository: "ryker",
               ref: "workspace:dirty",
               state: :complete,
               status: :retained,

@@ -53,6 +53,69 @@ defmodule Ryker.ControlPlane.EpisodeCausalityTest do
     refute {:input, second_input_id(episode)} in late_chapter.owners
   end
 
+  test "an older turn receipt cannot rewind the ordinal of the next message" do
+    # Five rapid messages in one live conversation produced 35 alternating
+    # chapters. A late Turn 1 tool receipt correctly kept Message 1 ownership,
+    # but it also rewound the grouping cursor, so the actual Message 3 was
+    # labelled Message 2 and its preparation appeared under Message 3.
+    %{episode: episode, turn: turn, session: session} = started_work()
+    admit!(episode, "Ev2", DateTime.add(@now, 30, :second))
+
+    late =
+      activity!(episode.id, session.id, turn.coop_turn_id, 9, "tool.completed", %{
+        "status" => "ok",
+        "title" => "Read file",
+        "tool_call_id" => "call-before-third"
+      })
+
+    admit!(episode, "Ev3", DateTime.add(@now, 90, :second))
+    third_id = episode |> inputs() |> Enum.at(2) |> Map.fetch!(:id)
+    chapters = chapters(episode)
+
+    late_chapter =
+      Enum.find(chapters, fn chapter ->
+        Enum.any?(chapter.steps, &(&1.id == "event-activity-#{late.id}"))
+      end)
+
+    third_chapters =
+      Enum.filter(chapters, fn chapter -> {:input, third_id} in chapter.owners end)
+
+    assert late_chapter.conversation_turn == 1
+    assert third_chapters != []
+    assert Enum.all?(third_chapters, &(&1.conversation_turn == 3))
+  end
+
+  test "rapid messages render as one causal chapter per message" do
+    # The operator must be able to scan one message and everything it caused.
+    # Alternating top-level Routing / Work / Answer chapters turned five quick
+    # messages into 35 headings and visually mixed concurrent turns together.
+    %{episode: episode, turn: turn, session: session} = started_work()
+    admit!(episode, "Ev2", DateTime.add(@now, 30, :second))
+
+    activity!(episode.id, session.id, turn.coop_turn_id, 9, "tool.completed", %{
+      "status" => "ok",
+      "title" => "Read file",
+      "tool_call_id" => "call-grouped"
+    })
+
+    admit!(episode, "Ev3", DateTime.add(@now, 90, :second))
+
+    groups =
+      episode
+      |> rendered()
+      |> LazyHTML.from_fragment()
+      |> LazyHTML.query(".conversation-chapter")
+
+    assert LazyHTML.attribute(groups, "data-conversation-turn") == ["1", "2", "3"]
+    assert Enum.count(groups) == 3
+
+    [first, second, third] = Enum.to_list(groups)
+    assert LazyHTML.text(first) =~ "Read file"
+    assert LazyHTML.text(second) =~ "Investigate Ev2"
+    assert LazyHTML.text(third) =~ "Investigate Ev3"
+    assert Enum.count(LazyHTML.query(groups, ".conversation-phase")) <= 12
+  end
+
   test "a turn built from two inputs names both of them" do
     %{episode: episode, turn: turn} = started_work()
 

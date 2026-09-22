@@ -281,6 +281,50 @@ defmodule Ryker.ControlPlane.Components do
     """
   end
 
+  attr(:label, :string, required: true)
+  attr(:count, :integer, required: true)
+  attr(:one, :string, default: "item")
+  attr(:many, :string, default: "items")
+  attr(:class, :any, default: nil)
+  slot(:navigation)
+  slot(:filters, required: true)
+  slot(:inner_block, required: true)
+
+  @doc """
+  The shared frame for searchable collections.
+
+  Navigation is optional because it is only useful when a collection has real
+  alternate views. The toolbar, count, content and empty state keep the same
+  hierarchy whether the rows are rendered by a LiveView or a static page.
+  """
+  def collection_shell(assigns) do
+    assigns =
+      assigns
+      |> assign_new(:class, fn -> nil end)
+      |> assign_new(:navigation, fn -> [] end)
+
+    ~H"""
+    <section class={["collection-shell", @class]} aria-label={@label}>
+      <header :if={@navigation != []} class="collection-shell-header">
+        <div class="collection-shell-navigation">{render_slot(@navigation)}</div>
+        <p class={["collection-total", @count > 0 && "result-count"]}>
+          {@count} {if @count == 1, do: @one, else: @many}
+        </p>
+      </header>
+      <div class="collection-shell-filter-row">
+        <div class="collection-shell-filters">{render_slot(@filters)}</div>
+        <p
+          :if={@navigation == []}
+          class={["collection-total", @count > 0 && "result-count"]}
+        >
+          {@count} {if @count == 1, do: @one, else: @many}
+        </p>
+      </div>
+      <div class="collection-shell-content">{render_slot(@inner_block)}</div>
+    </section>
+    """
+  end
+
   attr(:id, :string, required: true)
   attr(:label, :string, required: true, doc: "Specific, e.g. \"How to add and manage rules\"")
   attr(:class, :any, default: nil)
@@ -374,7 +418,7 @@ defmodule Ryker.ControlPlane.Components do
     ~H"""
     <form class="filter-toolbar" method="get" action={@path} role="search" aria-label={@label}>
       <input :for={{name, value} <- @hidden} type="hidden" name={name} value={value} />
-      <div class="search-field">
+      <div class="search-field filter-control">
         <.icon name={:search} />
         <label class="sr-only" for={@id}>{@placeholder}</label>
         <input
@@ -390,7 +434,7 @@ defmodule Ryker.ControlPlane.Components do
       <%= if @primary do %>
         <label class="sr-only" for={@primary.id}>{@primary.label}</label>
         <select
-          class="filter-primary"
+          class="filter-primary filter-control"
           id={@primary.id}
           name={@primary.name}
           disabled={@disabled}
@@ -403,7 +447,10 @@ defmodule Ryker.ControlPlane.Components do
       <% end %>
       <%= for chip <- @filter_chips do %>
         <input type="hidden" name={chip.name} value={chip.value} />
-        <span class={["filter-chip", @disabled && "is-disabled"]} data-filter={chip.name}>
+        <span
+          class={["filter-chip", "filter-control", @disabled && "is-disabled"]}
+          data-filter={chip.name}
+        >
           <span class="filter-chip-key">{chip.label}</span>
           <span class="filter-chip-value">{chip.display}</span>
           <a
@@ -418,11 +465,11 @@ defmodule Ryker.ControlPlane.Components do
       <button
         :if={@available_filters != [] && @disabled}
         type="button"
-        class="filter-add"
+        class="filter-add filter-control"
         disabled
       ><.icon name={:plus} />Filter</button>
       <details :if={@available_filters != [] && !@disabled} class="filter-add-menu">
-        <summary class="filter-add"><.icon name={:plus} />Filter</summary>
+        <summary class="filter-add filter-control"><.icon name={:plus} />Filter</summary>
         <div class="filter-popover">
           <%= for select <- @available_filters do %>
             <label for={select.id}>{select.label}</label>
@@ -476,7 +523,7 @@ defmodule Ryker.ControlPlane.Components do
     ~H"""
     <div id={"#{@id}-toolbar"} class={["filter-toolbar", @class]} role="search" aria-label={@label}>
       <form id={@id} class="filter-live-form" phx-change={@event} phx-submit={@event}>
-        <div class="search-field">
+        <div class="search-field filter-control">
           <.icon name={:search} />
           <label class="sr-only" for={"#{@id}-search"}>{@placeholder}</label>
           <input
@@ -493,7 +540,7 @@ defmodule Ryker.ControlPlane.Components do
         </div>
         <%= if @primary do %>
           <label class="sr-only" for={@primary.id}>{@primary.label}</label>
-          <select id={@primary.id} name={@primary.name} disabled={@disabled}>
+          <select class="filter-control" id={@primary.id} name={@primary.name} disabled={@disabled}>
             {options_for_select(
               Enum.map(@primary.options, fn {value, text} -> {text, value} end),
               @primary.value

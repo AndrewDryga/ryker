@@ -46,7 +46,13 @@ defmodule Ryker.ControlPlane.ConversationHistoryLiveTest do
               do: raise(DBConnection.ConnectionError, "history store unavailable"),
               else: Projection.lab_history(conversation_id, cursor, limit)
           end,
-          schedules: fn _params -> [] end
+          schedules: fn _params -> [] end,
+          readiness: fn ->
+            %{
+              chat: %{state: :ready, title: "Chat is ready", detail: "Ready."},
+              slack: %{state: :not_connected}
+            }
+          end
         })
     }
 

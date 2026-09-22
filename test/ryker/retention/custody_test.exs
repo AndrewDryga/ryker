@@ -62,7 +62,16 @@ defmodule Ryker.Retention.CustodyTest do
 
   test "close and discard phases freeze exact revisions and survive lease turnover" do
     session = terminal_session!("lifecycle")
+    assert {:ok, grace_claim} = Ryker.Retention.Custody.claim_next("cleanup:grace", 60)
+
+    assert {:ok, grace} = Custody.begin_grace(session.id, grace_claim.lease_ref, 0)
+    assert grace.cleanup_status == :grace
+    assert grace.cleanup_lease_ref == nil
+    assert is_nil(grace.closed_at)
+    assert %DateTime{} = grace.discard_after
+
     assert {:ok, claim} = Ryker.Retention.Custody.claim_next("cleanup:a", 60)
+    assert claim.session.cleanup_status == :close_pending
 
     assert {:ok, frozen} =
              Custody.freeze_close_revision(session.id, claim.lease_ref, 7)
@@ -88,13 +97,11 @@ defmodule Ryker.Retention.CustodyTest do
     assert {:error, :retention_lease_lost} =
              Custody.freeze_close_revision(session.id, "stale", 8)
 
-    assert {:ok, grace} =
-             Custody.mark_closed(session.id, claim.lease_ref, 0)
+    assert {:ok, closed} = Custody.mark_closed(session.id, claim.lease_ref)
 
-    assert grace.cleanup_status == :grace
-    assert grace.cleanup_lease_ref == nil
-    assert %DateTime{} = grace.closed_at
-    assert DateTime.compare(grace.discard_after, grace.closed_at) in [:eq, :gt]
+    assert closed.cleanup_status == :plan_pending
+    assert closed.cleanup_lease_ref == nil
+    assert %DateTime{} = closed.closed_at
 
     assert {:ok, plan_claim} =
              Custody.claim_next("cleanup:b", 60)
@@ -208,10 +215,7 @@ defmodule Ryker.Retention.CustodyTest do
           {"unpublished", false, true, "unpublished_unmerged"}
         ] do
       session = terminal_session!(suffix)
-      assert {:ok, claim} = Ryker.Retention.Custody.claim_next("cleanup:#{suffix}", 60)
-
-      assert {:ok, _closed} =
-               Ryker.Retention.Custody.mark_closed(session.id, claim.lease_ref, 0)
+      assert {:ok, _closed} = grace_and_close!(session, suffix)
 
       assert {:ok, plan_claim} =
                Ryker.Retention.Custody.claim_next("cleanup:plan:#{suffix}", 60)
@@ -243,8 +247,7 @@ defmodule Ryker.Retention.CustodyTest do
 
   test "an operator rearms the exact blocked cleanup phase with an audited idempotency key" do
     session = terminal_session!("operator-rearm")
-    assert {:ok, close_claim} = Custody.claim_next("cleanup:close", 60)
-    assert {:ok, _closed} = Custody.mark_closed(session.id, close_claim.lease_ref, 0)
+    assert {:ok, _closed} = grace_and_close!(session, "operator-rearm")
     assert {:ok, plan_claim} = Custody.claim_next("cleanup:plan", 60)
 
     assert {:ok, frozen} =
@@ -500,9 +503,7 @@ defmodule Ryker.Retention.CustodyTest do
 
   defp retained_session!(suffix, dirty, unmerged) do
     session = terminal_session!(suffix)
-    assert {:ok, close_claim} = Custody.claim_next("cleanup:close:#{suffix}", 60)
-    assert close_claim.session.id == session.id
-    assert {:ok, _closed} = Custody.mark_closed(session.id, close_claim.lease_ref, 0)
+    assert {:ok, _closed} = grace_and_close!(session, suffix)
     assert {:ok, plan_claim} = Custody.claim_next("cleanup:plan:#{suffix}", 60)
     assert plan_claim.session.id == session.id
 
@@ -513,6 +514,15 @@ defmodule Ryker.Retention.CustodyTest do
     assert {:ok, plan} = Plan.prepare(response, session.coop_session_id, 8, false)
     assert {:ok, retained} = Custody.store_plan(session.id, plan_claim.lease_ref, plan, 21_600)
     retained
+  end
+
+  defp grace_and_close!(session, suffix) do
+    assert {:ok, grace_claim} = Custody.claim_next("cleanup:grace:#{suffix}", 60)
+    assert grace_claim.session.id == session.id
+    assert {:ok, _grace} = Custody.begin_grace(session.id, grace_claim.lease_ref, 0)
+    assert {:ok, close_claim} = Custody.claim_next("cleanup:close:#{suffix}", 60)
+    assert close_claim.session.id == session.id
+    Custody.mark_closed(session.id, close_claim.lease_ref)
   end
 
   defp operator_action_task(parent, session_ref, action_ref, label) do

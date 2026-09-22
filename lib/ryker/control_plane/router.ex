@@ -128,11 +128,23 @@ defmodule Ryker.ControlPlane.Router do
            options.actions.send_lab_message.(conversation_id, message, attachments) do
       lab_accepted(conn, conversation_id)
     else
-      false -> text(conn, 403, "Invalid confirmation token")
-      {:error, :path_ref} -> text(conn, 404, "Conversation not found")
-      {:error, :form} -> text(conn, 400, "Invalid form")
-      {:error, {:invalid_conversation_lab, _field}} -> text(conn, 422, "Invalid message")
-      {:error, _reason} -> text(conn, 409, "Message could not be accepted")
+      false ->
+        text(conn, 403, "Invalid confirmation token")
+
+      {:error, :path_ref} ->
+        text(conn, 404, "Conversation not found")
+
+      {:error, :form} ->
+        text(conn, 400, "Invalid form")
+
+      {:error, :conversation_lab_not_configured} ->
+        text(conn, 503, "Chat is not ready. The bundled worker is still starting.")
+
+      {:error, {:invalid_conversation_lab, _field}} ->
+        text(conn, 422, "Invalid message")
+
+      {:error, _reason} ->
+        text(conn, 409, "Message could not be accepted")
     end
   end
 

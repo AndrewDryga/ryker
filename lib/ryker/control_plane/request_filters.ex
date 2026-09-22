@@ -100,7 +100,7 @@ defmodule Ryker.ControlPlane.RequestFilters do
         class="filter-chip-wrap"
         phx-click-away={if @menu == chip.key, do: "filter-menu-close"}
       >
-        <span class="filter-chip" data-filter={chip.key}>
+        <span class="filter-chip filter-control" data-filter={chip.key}>
           <button
             type="button"
             class="filter-chip-edit"
@@ -131,7 +131,7 @@ defmodule Ryker.ControlPlane.RequestFilters do
         <button
           id="filter-add"
           type="button"
-          class="filter-add"
+          class="filter-add filter-control"
           disabled={@disabled}
           phx-click="filter-menu"
           phx-value-key="fields"

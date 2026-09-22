@@ -37,7 +37,7 @@ defmodule Ryker.ControlPlane.IsolatedFailureTest do
 
     html = rendered(episode)
 
-    assert html =~ "Getting ready"
+    assert html =~ "Received"
     assert html =~ "Standing rules"
     assert html =~ "Input queue"
     assert html =~ "Investigate tool"
@@ -67,7 +67,7 @@ defmodule Ryker.ControlPlane.IsolatedFailureTest do
     )
 
     html = rendered(episode)
-    assert html =~ "Getting ready"
+    assert html =~ "Received"
     assert html =~ "Investigate delivery"
   end
 

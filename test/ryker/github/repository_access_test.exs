@@ -25,7 +25,9 @@ defmodule Ryker.GitHub.RepositoryAccessTest do
         end)
 
       assert_receive {:request, :get,
-                      "/repos/acme/widget/collaborators/Ada%20Lovelace/permission", nil, _headers}
+                      "/repos/acme/widget/collaborators/Ada%20Lovelace/permission", nil,
+                      _headers},
+                     1_000
 
       send(task.pid, {:respond, {:ok, %{body: %{"permission" => permission}, status: 200}}})
       assert Task.await(task) == :ok
@@ -40,7 +42,7 @@ defmodule Ryker.GitHub.RepositoryAccessTest do
         RepositoryAccess.authorize(binding!(), payload("reader"), parent, requester: Requester)
       end)
 
-    assert_receive {:request, :get, _path, nil, _headers}
+    assert_receive {:request, :get, _path, nil, _headers}, 1_000
     send(task.pid, {:respond, {:ok, %{body: %{"permission" => "read"}, status: 200}}})
     assert Task.await(task) == {:error, :actor_not_authorized}
 
@@ -49,7 +51,7 @@ defmodule Ryker.GitHub.RepositoryAccessTest do
         RepositoryAccess.authorize(binding!(), payload("missing"), parent, requester: Requester)
       end)
 
-    assert_receive {:request, :get, _path, nil, _headers}
+    assert_receive {:request, :get, _path, nil, _headers}, 1_000
     send(task.pid, {:respond, {:ok, %{body: %{}, status: 404}}})
     assert Task.await(task) == {:error, :actor_not_authorized}
   end
@@ -62,7 +64,7 @@ defmodule Ryker.GitHub.RepositoryAccessTest do
         RepositoryAccess.authorize(binding!(), payload("ada"), parent, requester: Requester)
       end)
 
-    assert_receive {:request, :get, _path, nil, _headers}
+    assert_receive {:request, :get, _path, nil, _headers}, 1_000
     send(task.pid, {:respond, {:ok, %{body: %{}, status: 503}}})
 
     assert Task.await(task) ==

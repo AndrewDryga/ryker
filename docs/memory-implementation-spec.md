@@ -14,8 +14,8 @@ messages, even when there is nothing useful to say back. It looks for existing r
 then updates one, creates a genuinely different topic, or saves nothing. Before accepting a new
 topic, the host checks once more for an existing match the learner might have missed.
 
-Topics hold the current understanding and its update history. Conversation handovers summarize
-ongoing work; they are not another topic database. Confirmed preferences and guidance keep their
+Topics hold the current understanding and its update history. Conversation context summarizes
+ongoing work so later turns can continue; it is not another topic database. Confirmed preferences and guidance keep their
 separate human-confirmation rules. Search finds relevant memories and links back to original
 messages. None of these memories grants permission to act or proves that an old deployment is
 still healthy.
@@ -322,8 +322,9 @@ search. No claim that a last-page cursor freezes historical versions of every mu
 
 Current knowledge remains the main memory page. Show learning enabled/disabled, queued/deferred
 batches, oldest unprocessed age, no-change receipts, and actionable error descriptions. A failed
-batch links to its frozen input/result and permits bounded explicit retry. Observations are labelled
-source excerpts; summaries are conversation handovers. Show change/source/expiry dates separately.
+batch links to its frozen input/result and permits bounded explicit retry. Present topic knowledge
+and conversation context as the two primary views. Original messages are provenance reached from
+the record they support, not a third peer memory type. Show change/source/expiry dates separately.
 
 ### Repairing unavailable knowledge
 

@@ -88,3 +88,7 @@ test("attachment limits are judged on the chosen files alone, before any message
 test("definite HTTP validation rejections are distinguishable from uncertain transport outcomes", async () => {
   await assert.rejects(sendDraft("/conversations/test/messages", "body", async () => ({status: 422})), {message: "rejected:422"})
 })
+
+test("worker readiness is distinct from an invalid message", async () => {
+  await assert.rejects(sendDraft("/conversations/test/messages", "body", async () => ({status: 503})), {message: "unavailable:chat"})
+})

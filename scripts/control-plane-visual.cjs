@@ -179,7 +179,6 @@ async function discover(page) {
     if (await link.count()) {
       const href = await link.getAttribute('href');
       routes.push([name, href]);
-      if (name === 'episode-detail') routes.push(['request-detail', href + '/model-calls']);
     } else absent.push(name);
   }
   return absent;

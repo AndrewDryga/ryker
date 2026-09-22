@@ -111,8 +111,7 @@ defmodule Ryker.ControlPlane.LabPageTest do
 
     assert LabPage.inspection_link(reply) ==
              %{
-               href:
-                 "/timeline/conversation-lab%3Aabc/model-calls?attempt=turn-uuid&section=delivery",
+               href: "/timeline/conversation-lab%3Aabc?attempt=turn-uuid#request-turn-uuid",
                label: "View request"
              }
 

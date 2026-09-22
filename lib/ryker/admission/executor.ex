@@ -955,6 +955,20 @@ defmodule Ryker.Admission.Executor do
     end
   end
 
+  defp close_then(
+         session,
+         entry,
+         settings,
+         {:error, {:admission_generation_spent, _reason}} = result
+       ) do
+    # A terminal turn has consumed this immutable execution generation whether
+    # or not cleanup of its already-broken remote session succeeds. Preserve
+    # that primary result so the dispatcher advances the generation; otherwise
+    # retries and an operator rearm reconcile the same terminal turn forever.
+    _ = close_session(session, entry, settings)
+    result
+  end
+
   defp close_then(session, entry, settings, result) do
     case close_session(session, entry, settings) do
       :ok -> result

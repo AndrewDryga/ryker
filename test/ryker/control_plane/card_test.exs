@@ -213,6 +213,40 @@ defmodule Ryker.ControlPlane.CardTest do
     refute html =~ ">open<"
   end
 
+  test "a confirmed memory card keeps only readable information that helps evaluate it" do
+    # A confirmed memory proposal used to spend an entire header column saying
+    # CONFIRMED, then repeat conversation as both Scope and Visibility. Neither
+    # changed what the reader could understand or do, and the stacked raw enum
+    # values made a short fact occupy most of the conversation viewport.
+    payload = %{
+      "expires_in" => "90d",
+      "kind" => "entity_relationship",
+      "repository" => nil,
+      "scope" => "conversation",
+      "subject" => "Temporary validation codename",
+      "value" => "The temporary validation codename is saffron.",
+      "visibility" => "conversation"
+    }
+
+    assert {:ok, card} = Card.project(record("memory_offer", payload, :confirmed))
+    assert Card.display_status(card) == nil
+
+    assert card.details == [
+             {"Kind", "Entity relationship"},
+             {"Scope", "This conversation"},
+             {"Expires", "90 days"}
+           ]
+
+    html = HTML.lab_message_extras(%{cards: [card]}) |> IO.iodata_to_binary()
+    assert html =~ ~s(<dl class="lab-card-details">)
+
+    assert html =~
+             ~s(<div class="lab-card-detail"><dt>Kind</dt><dd>Entity relationship</dd></div>)
+
+    refute html =~ ">confirmed<"
+    refute html =~ ">Visibility<"
+  end
+
   test "publication review and result cards expose only typed host actions" do
     publication = %Publication{
       ref: "publication:lab:one",

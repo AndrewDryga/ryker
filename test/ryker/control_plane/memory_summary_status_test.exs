@@ -44,7 +44,7 @@ defmodule Ryker.ControlPlane.MemorySummaryStatusTest do
       # The replay retains hundreds of receiptless summaries. Hiding them from
       # model recall must not look like deleted history or usable memory in UI.
       summary = summary!(unquote(Macro.escape(dependencies)))
-      [item] = ConversationMemory.project(%{"kind" => "summaries"}).items
+      [item] = ConversationMemory.project(%{"kind" => "context"}).items
       assert item.recall_warning == :missing_source_history
       assert item.expires_at == nil
 
@@ -67,7 +67,7 @@ defmodule Ryker.ControlPlane.MemorySummaryStatusTest do
     assert [_] = dependencies = LearningSources.for_entry(entry)
     summary!(dependencies)
 
-    [item] = ConversationMemory.project(%{"kind" => "summaries"}).items
+    [item] = ConversationMemory.project(%{"kind" => "context"}).items
     assert item.recall_warning == nil
     assert %DateTime{} = item.expires_at
     refute render_summaries() =~ "No complete source history was saved"
@@ -84,7 +84,7 @@ defmodule Ryker.ControlPlane.MemorySummaryStatusTest do
       )
     )
 
-    [item] = ConversationMemory.project(%{"kind" => "summaries"}).items
+    [item] = ConversationMemory.project(%{"kind" => "context"}).items
     assert item.source_at == entry.occurred_at
     assert item.changed_at != item.source_at
     html = render_summaries()
@@ -102,7 +102,7 @@ defmodule Ryker.ControlPlane.MemorySummaryStatusTest do
       assert [receipt] = LearningSources.for_entry(entry)
       summary = summary!([Map.put(receipt, "retained_at", unquote(retained_at))])
 
-      [item] = ConversationMemory.project(%{"kind" => "summaries"}).items
+      [item] = ConversationMemory.project(%{"kind" => "context"}).items
       assert item.recall_warning == :invalid_source_history
       assert item.expires_at == nil
 
@@ -121,7 +121,7 @@ defmodule Ryker.ControlPlane.MemorySummaryStatusTest do
   end
 
   defp render_summaries do
-    Projection.memory(%{"kind" => "summaries"})
+    Projection.memory(%{"kind" => "context"})
     |> HTML.memory("test-secret")
     |> IO.iodata_to_binary()
   end

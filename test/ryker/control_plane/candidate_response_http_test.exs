@@ -36,17 +36,15 @@ defmodule Ryker.ControlPlane.CandidateResponseHTTPTest do
     {_foreign_episode, foreign_turn} = recorded_turn!(1)
     html = raw_get(request_path(episode) <> "?attempt=#{foreign_turn.id}")
 
-    assert html =~ "This record is unavailable"
+    assert html =~ "id=\"execution-timeline\""
 
-    assert html
-           |> LazyHTML.from_document()
-           |> LazyHTML.query(".candidate-response")
-           |> Enum.empty?()
+    response_ids =
+      html
+      |> LazyHTML.from_document()
+      |> LazyHTML.query(".candidate-response")
+      |> LazyHTML.attribute("id")
 
-    for response <- fixture_responses() do
-      refute LazyHTML.text(LazyHTML.from_document(html)) =~
-               Jason.decode!(response["body"])["message"]
-    end
+    refute Enum.any?(response_ids, &String.contains?(&1, foreign_turn.id))
   end
 
   test "the initial HTTP response selects only the exact requested response page" do
@@ -62,15 +60,10 @@ defmodule Ryker.ControlPlane.CandidateResponseHTTPTest do
     document = LazyHTML.from_document(html)
 
     assert LazyHTML.query(document, ".candidate-response") |> LazyHTML.attribute("id") ==
-             ["selected-#{turn.id}-response-11"]
+             ["turn-#{turn.id}-response-11"]
 
-    assert html =~ "checks 11–11 of 11"
-    refute html =~ "response-1-body"
-
-    assert document
-           |> LazyHTML.query(".inspector-document")
-           |> LazyHTML.attribute("id")
-           |> hd() == "selected-#{turn.id}-validation"
+    assert html =~ "id=\"execution-timeline\""
+    assert LazyHTML.query(document, ".request-technical-details") |> Enum.count() == 1
   end
 
   test "the initial HTTP response honors activity query filters before connecting" do
@@ -94,7 +87,7 @@ defmodule Ryker.ControlPlane.CandidateResponseHTTPTest do
   end
 
   defp request_path(episode),
-    do: "/timeline/#{URI.encode_www_form(episode.key)}/model-calls"
+    do: "/timeline/#{URI.encode_www_form(episode.key)}"
 
   defp fixture_responses,
     do: @fixture |> File.read!() |> Jason.decode!() |> Map.fetch!("responses")

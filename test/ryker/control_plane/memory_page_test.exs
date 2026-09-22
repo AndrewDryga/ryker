@@ -23,18 +23,22 @@ defmodule Ryker.ControlPlane.MemoryPageTest do
     workspace: nil,
     groups: [],
     source: "https://slack.com/archives/C456/p1757494800000000",
+    source_count: 2,
+    source_path: "/memory?kind=sources&related_to=context:note-1",
     request_path: nil,
     changed_at: @at,
     source_at: @at
   }
 
   @view %{
-    counts: %{knowledge: 3, notes: 10, summaries: 2},
-    kind: "notes",
+    counts: %{context: 2, knowledge: 3},
+    kind: "context",
     q: "",
     page: 1,
     pages: 1,
     total: 1,
+    related_to: nil,
+    source_parent: nil,
     selected: nil,
     rebuild: nil,
     history: [],
@@ -60,7 +64,7 @@ defmodule Ryker.ControlPlane.MemoryPageTest do
     selected: nil
   }
 
-  test "conversation memory keeps its views as compact tabs, one toolbar that carries the view, and a quiet count" do
+  test "knowledge and conversation context are primary while sources stay record-level provenance" do
     # Before 2026-09-13 the three views were 28px numbers in bordered boxes —
     # the statistics dashboard the approved shell removes — above a search
     # form with a visible Search label, a Search button and its own Clear
@@ -82,13 +86,15 @@ defmodule Ryker.ControlPlane.MemoryPageTest do
            )
 
     tabs = LazyHTML.query(document, "nav.memory-views a")
-    assert Enum.count(tabs) == 3
+    assert Enum.count(tabs) == 2
 
     assert LazyHTML.query(document, "nav.memory-views a[aria-current=page]") |> LazyHTML.text() =~
-             "Source excerpts"
+             "Conversation context"
 
     assert LazyHTML.query(document, "nav.memory-views a[aria-current=page]") |> LazyHTML.text() =~
-             "10"
+             "2"
+
+    refute LazyHTML.text(tabs) =~ "Source"
 
     assert LazyHTML.query(
              document,
@@ -99,16 +105,23 @@ defmodule Ryker.ControlPlane.MemoryPageTest do
     toolbar = LazyHTML.query(document, "form.filter-toolbar[action='/memory'][method=get]")
 
     assert LazyHTML.query(toolbar, "input[type=hidden][name=kind]") |> LazyHTML.attribute("value") ==
-             ["notes"]
+             ["context"]
 
     assert LazyHTML.query(toolbar, "input#memory-search[type=search][name=q]")
            |> LazyHTML.attribute("value") == ["deploy"]
 
     assert LazyHTML.query(toolbar, "a.filter-clear") |> LazyHTML.attribute("href") == [
-             "/memory?kind=notes"
+             "/memory?kind=context"
            ]
 
-    assert LazyHTML.query(document, "p.result-count") |> LazyHTML.text() == "1 source excerpt"
+    assert LazyHTML.query(document, "p.result-count") |> LazyHTML.text() ==
+             "1 conversation context"
+
+    assert LazyHTML.query(
+             document,
+             "a[href='/memory?kind=sources&related_to=context:note-1']"
+           )
+           |> LazyHTML.text() == "Sources · 2 →"
 
     knowledge = render_page(%{@view | kind: "knowledge", total: 3, items: [@item, @item, @item]})
     assert LazyHTML.query(knowledge, "p.result-count") |> LazyHTML.text() == "3 knowledge topics"
@@ -131,7 +144,7 @@ defmodule Ryker.ControlPlane.MemoryPageTest do
     unavailable =
       render_page(%{
         @view
-        | kind: "summaries",
+        | kind: "context",
           items: [Map.put(@item, :recall_warning, :missing_source_history)]
       })
 
@@ -140,7 +153,68 @@ defmodule Ryker.ControlPlane.MemoryPageTest do
     assert warning =~ "No complete source history was saved"
 
     assert LazyHTML.query(unavailable, "p.result-count") |> LazyHTML.text() ==
-             "1 conversation handover"
+             "1 conversation context"
+  end
+
+  test "the source inspector is secondary, compact, and returns to its parent record" do
+    source = %{
+      @item
+      | id: "source-1",
+        source_path: nil,
+        source_count: nil,
+        title: "",
+        text: "The original source message."
+    }
+
+    view = %{
+      @view
+      | kind: "sources",
+        counts: %{context: 1, knowledge: 1},
+        items: [source],
+        related_to: "context:summary-1",
+        source_parent: %{
+          back_label: "Conversation context",
+          back_path: "/memory?kind=context#memory-summary-1",
+          title: "Recurring validation schedule"
+        }
+    }
+
+    document = render_page(%{view | learning_activity: @learning})
+
+    assert Enum.count(LazyHTML.query(document, "nav.memory-views a")) == 2
+    assert Enum.empty?(LazyHTML.query(document, "nav.memory-views a[aria-current=page]"))
+
+    heading = LazyHTML.query(document, ".memory-source-context")
+    assert LazyHTML.text(heading) =~ "Sources for Recurring validation schedule"
+
+    assert LazyHTML.query(heading, "a[href='/memory?kind=context#memory-summary-1']")
+           |> LazyHTML.text() == "← Conversation context"
+
+    assert Enum.count(LazyHTML.query(document, "ol.memory-source-list > li")) == 1
+    assert Enum.empty?(LazyHTML.query(document, "div.memory-cards"))
+    assert Enum.empty?(LazyHTML.query(document, ".learning-summary, section.learning-activity"))
+
+    assert LazyHTML.query(document, "input#memory-search")
+           |> LazyHTML.attribute("placeholder") == ["Search source messages"]
+
+    source_link = LazyHTML.query(document, ".memory-source-list a[href^='https://slack.com/']")
+    assert LazyHTML.attribute(source_link, "target") == ["_blank"]
+    assert LazyHTML.attribute(source_link, "rel") == ["noopener noreferrer"]
+
+    full_page =
+      HTML.memory(
+        %{memories: [], reviews: [], conversation_memory: %{view | learning_activity: @learning}},
+        String.duplicate("s", 32)
+      )
+      |> IO.iodata_to_binary()
+      |> LazyHTML.from_fragment()
+
+    assert Enum.empty?(
+             LazyHTML.query(
+               full_page,
+               ".learning-summary, section.learning-activity, section.operational-memory, section.memory-review"
+             )
+           )
   end
 
   test "learning state stays visible above the views and the activity section follows the entries" do
@@ -263,7 +337,7 @@ defmodule Ryker.ControlPlane.MemoryPageTest do
 
   test "the route keeps the shell's title and description" do
     page =
-      Pages.page(["memory"], %{"kind" => "notes", "q" => "deploy"}, %{
+      Pages.page(["memory"], %{"kind" => "context", "q" => "deploy"}, %{
         csrf_secret: String.duplicate("s", 32),
         projection: %{
           memory: fn params ->
