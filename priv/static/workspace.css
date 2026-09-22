@@ -860,10 +860,11 @@ details.measurement-notes > summary { cursor:pointer; font-weight:600; color:var
 .ui-disclosure[open] > summary .ui-icon { transform:rotate(90deg); }
 .ui-disclosure-body { padding:0 0 8px; }
 .ui-disclosure-diagnostic .ui-disclosure-body { padding:4px 12px 12px; border-left:2px solid var(--ryker-stroke-strong); }
-.ui-facts { display:grid; gap:0; margin:0; }
-.ui-facts > div { display:grid; grid-template-columns:minmax(112px, 160px) minmax(0,1fr); gap:12px; padding:8px 0; border-top:1px solid var(--ryker-stroke); }
-.ui-facts dt { color:var(--ryker-text-secondary); font-size:12px; line-height:20px; }
-.ui-facts dd { min-width:0; margin:0; color:var(--ryker-text); font-size:14px; line-height:20px; overflow-wrap:anywhere; }
+.ryker-app .ui-facts { display:grid; grid-template-columns:minmax(0,1fr); gap:0; margin:0; }
+.ryker-app .ui-facts > div { display:grid; grid-template-columns:minmax(112px, 160px) minmax(0,1fr); gap:12px; padding:8px 0; border-top:1px solid var(--ryker-stroke); }
+.ryker-app .ui-facts dt, .ryker-app .ui-facts dd { padding:0; border:0; }
+.ryker-app .ui-facts dt { color:var(--ryker-text-secondary); font-size:12px; line-height:20px; }
+.ryker-app .ui-facts dd { min-width:0; margin:0; color:var(--ryker-text); font-size:14px; line-height:20px; font-variant-numeric:normal; overflow-wrap:anywhere; }
 .request-model { display:flex; align-items:flex-start; justify-content:flex-end; min-width:0; text-align:right; }
 .request-explanation { margin:4px 0 12px; font-size:15px; color:var(--ink); max-width:88ch; }
 .request-evidence { border:1px solid var(--stroke); border-radius:5px; background:var(--ryker-surface-raised); min-width:0; }
@@ -1075,7 +1076,7 @@ details.measurement-notes > summary { cursor:pointer; font-weight:600; color:var
   .episode-metrics .metric-group-cost { padding:16px 0 0; border-left:0; border-top:1px solid var(--stroke); }
   .episode-metrics dd { font-size:24px; }
   .candidate-facts { grid-template-columns:1fr; }
-  .ui-facts > div { grid-template-columns:1fr; gap:4px; }
+  .ryker-app .ui-facts > div { grid-template-columns:1fr; gap:4px; }
   .request-timing { gap:12px; }
   .prompt-assembly .prompt-source-location { display:block; padding-left:15px; }
   .activity-primary { padding:20px 16px; }
