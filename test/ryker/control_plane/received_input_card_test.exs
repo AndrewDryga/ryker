@@ -35,6 +35,13 @@ defmodule Ryker.ControlPlane.ReceivedInputCardTest do
     html = rendered(episode, [])
     document = LazyHTML.from_document(html)
 
+    message = LazyHTML.query(document, "#story-message-#{entry.id}")
+
+    assert LazyHTML.query(message, ".case-card-heading h3") |> LazyHTML.text() ==
+             "Slack user U123"
+
+    assert LazyHTML.query(message, ".case-message-text") |> LazyHTML.text() =~ "Terraform plan"
+
     details = LazyHTML.query(document, "#input-details-#{entry.id}")
     assert Enum.count(details) == 1
     text = LazyHTML.text(details)
@@ -54,7 +61,8 @@ defmodule Ryker.ControlPlane.ReceivedInputCardTest do
       assert text =~ label
     end
 
-    assert text =~ "time reported by the source"
+    refute text =~ "time reported by the source"
+    refute text =~ "time assigned at ingress"
     refute text =~ "Extracted metadata"
 
     assert details

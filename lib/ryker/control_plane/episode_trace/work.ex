@@ -55,32 +55,25 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Work do
     end)
   end
 
-  defp work_step(%Turn{remote_finished_at: nil}, _ordinal), do: nil
+  defp work_step(%Turn{remote_finished_at: nil, accepted_at: nil}, _ordinal), do: nil
 
   defp work_step(turn, ordinal) do
+    issue = measurement_issue(turn)
+
     step(
       "turn-#{turn.id}-work",
       :work,
-      turn.remote_finished_at || turn.remote_started_at,
+      turn.remote_finished_at || turn.accepted_at || turn.remote_started_at,
       %{
         actor: "Coop",
         owner: {:turn, turn.id},
-        details:
-          compact_details([
-            {"Model", turn.execution_target, presentation: :execution_target},
-            {"Queued", format_ms(turn.usage_queued_ms)},
-            {"Provider", format_ms(turn.usage_provider_ms)},
-            {"Host", format_ms(turn.usage_host_ms)},
-            {"Work claims", turn.work_attempt_count},
-            {"Remote operation", turn.remote_operation_kind},
-            {"Measurement", turn.measurement_error_code || measurement_state(turn)}
-          ]),
+        details: work_details(turn),
         duration_ms: turn.usage_provider_ms,
         stage: "Execution",
         state: work_state(turn),
-        summary: work_summary(turn),
+        summary: issue,
         title: "Turn #{ordinal} finished",
-        tone: state_tone(work_state(turn))
+        tone: if(issue, do: :warn)
       }
     )
   end
@@ -157,16 +150,10 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Work do
       %{
         actor: "Ryker",
         owner: {:turn, turn.id},
-        details:
-          compact_details([
-            {"Candidate attempt", attempt},
-            {"Response bytes", Keyword.fetch!(options, :response_bytes)},
-            {"Parse", Keyword.fetch!(options, :parse)},
-            {"Violations", Enum.join(violations, " · ")}
-          ]),
+        details: validation_details(Keyword.fetch!(options, :parse)),
         stage: "Validation",
         state: state,
-        summary: validation_summary(verdict, violations, turn),
+        summary: validation_summary(verdict, violations, attempt, turn),
         title: title,
         tone: tone
       }
@@ -417,23 +404,40 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Work do
   defp coop_tone(kind) when kind in ["candidate", "validation"], do: :good
   defp coop_tone(_kind), do: nil
 
-  defp work_state(%Turn{remote_finished_at: nil}), do: "running"
+  defp work_state(%Turn{remote_finished_at: nil, accepted_at: nil}), do: "running"
   defp work_state(_turn), do: "finished"
 
-  defp work_summary(%Turn{remote_finished_at: nil}),
-    do: "The provider is still handling this turn."
+  defp work_details(turn) do
+    compact_details([
+      {"Work claims", if(turn.work_attempt_count > 1, do: turn.work_attempt_count)}
+    ])
+  end
 
-  defp work_summary(_turn), do: "The provider finished and returned control to Ryker."
+  defp measurement_issue(%Turn{measurement_error_code: code})
+       when is_binary(code) and code != "",
+       do: "Measurement failed: #{human(code)}."
 
-  defp validation_summary("reject", [], _turn),
+  defp measurement_issue(%Turn{timing_recorded: false, usage_recorded: false}),
+    do: "Timing and usage were not reported."
+
+  defp measurement_issue(%Turn{timing_recorded: false}), do: "Timing was not reported."
+  defp measurement_issue(%Turn{usage_recorded: false}), do: "Usage was not reported."
+  defp measurement_issue(_turn), do: nil
+
+  defp validation_details(parse) when parse in ["JSON object", nil], do: []
+  defp validation_details(parse), do: compact_details([{"Parse", parse}])
+
+  defp validation_summary("reject", [], _attempt, _turn),
     do: "Ryker rejected this candidate and requested a same-turn correction."
 
-  defp validation_summary("reject", violations, _turn), do: Enum.join(violations, " ")
+  defp validation_summary("reject", violations, _attempt, _turn), do: Enum.join(violations, " ")
 
-  defp validation_summary("accept", _violations, _turn),
-    do: "The response passed the checks for this attempt."
+  defp validation_summary("accept", _violations, attempt, _turn) when is_integer(attempt),
+    do: "Passed checks on attempt #{attempt}."
 
-  defp validation_summary(_verdict, _violations, _turn),
+  defp validation_summary("accept", _violations, _attempt, _turn), do: "Passed checks."
+
+  defp validation_summary(_verdict, _violations, _attempt, _turn),
     do: "A candidate reached the host validation boundary."
 
   defp delivery_summary(%{"delivery" => "reply", "message" => message}) when is_binary(message),
@@ -472,12 +476,6 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Work do
       _other -> nil
     end
   end
-
-  defp measurement_state(%Turn{timing_recorded: true, usage_recorded: true}),
-    do: "usage and timing recorded"
-
-  defp measurement_state(%Turn{timing_recorded: true}), do: "timing recorded; usage unmeasured"
-  defp measurement_state(_turn), do: "unmeasured"
 
   defp candidate_parse(candidate) when is_binary(candidate) do
     case Jason.decode(candidate) do

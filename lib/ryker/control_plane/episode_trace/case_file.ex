@@ -196,6 +196,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.CaseFile do
   end
 
   defp actor_label(%{actor_kind: :user, source_kind: "slack"}), do: "Slack user"
+  defp actor_label(%{actor_kind: :user, actor_ref: "local-operator"}), do: "Local operator"
   defp actor_label(%{actor_kind: :user}), do: "User"
   defp actor_label(_input), do: "Source event"
 
@@ -243,8 +244,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.CaseFile do
       {"Conversation", input.destination_conversation_ref, identifier: true},
       {"Thread", input.destination_thread_ref, identifier: true},
       {"Source revision", input.revision},
-      {"Source event time",
-       "#{timestamp_precise(input.occurred_at)} · #{provenance_label(input.occurred_at_source)}"},
+      {"Source event time", source_event_time(input)},
       {"Recorded by Ryker", timestamp_precise(input.inserted_at)},
       {"Execution mode", input.execution_mode}
     ])
@@ -307,9 +307,10 @@ defmodule Ryker.ControlPlane.EpisodeTrace.CaseFile do
   defp input_event_label(:event), do: "Source event"
   defp input_event_label(other), do: to_string(other)
 
-  defp provenance_label(:source), do: "time reported by the source"
-  defp provenance_label(:ingress), do: "time assigned at ingress; the source gave none"
-  defp provenance_label(other), do: to_string(other)
+  defp source_event_time(%{occurred_at: at, occurred_at_source: :ingress}),
+    do: "#{timestamp_precise(at)} · Recorded by Ryker when received"
+
+  defp source_event_time(%{occurred_at: at}), do: timestamp_precise(at)
 
   defp case_reply_status(%{
          delivered_at: %DateTime{},

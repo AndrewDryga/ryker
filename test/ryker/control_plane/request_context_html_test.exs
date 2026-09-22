@@ -24,11 +24,14 @@ defmodule Ryker.ControlPlane.RequestContextHTMLTest do
     # said anything without opening the workspace text.
     assert html =~ "Global instructions"
     assert html =~ "Channel instructions"
-    assert html =~ "Configured in Settings for this request"
-    assert html =~ "Configured for this Slack channel at request time"
+    assert html =~ "Global instructions"
+    assert html =~ "Channel instructions"
+    assert html =~ "Applied"
     refute html =~ "Saved with this request"
     assert html =~ "Saved global"
-    assert html =~ "Revision 7 at request time"
+    assert html =~ "From Settings"
+    assert html =~ "Revision 7"
+    refute html =~ "Captured when request arrived"
     refute html =~ "Scope global"
     refute html =~ "Scope slack:T1:C1"
     refute html =~ "PRIVATE_TOKEN"
@@ -71,7 +74,10 @@ defmodule Ryker.ControlPlane.RequestContextHTMLTest do
     refute LazyHTML.text(global) =~ "≈ 100"
     refute LazyHTML.text(channel) =~ "estimated tokens"
     assert LazyHTML.text(channel) =~ "Not configured"
-    assert LazyHTML.text(channel) =~ "No channel instructions were configured at request time"
+
+    assert LazyHTML.text(channel) =~
+             "No channel instructions were saved for this Slack channel when this request ran"
+
     refute LazyHTML.text(channel) =~ "Retained input"
     refute LazyHTML.text(document) =~ "$.work.custom_instructions"
     assert Enum.empty?(LazyHTML.query(document, ".prompt-source-path"))
@@ -96,9 +102,32 @@ defmodule Ryker.ControlPlane.RequestContextHTMLTest do
     channel = LazyHTML.query(document, ".prompt-source[data-source=channel]")
 
     assert LazyHTML.text(global) =~ "Not configured"
-    assert LazyHTML.text(global) =~ "No global instructions were configured for this request"
+
+    assert global
+           |> LazyHTML.query("summary > .prompt-source-meta > .prompt-source-status")
+           |> LazyHTML.text() == "Not configured"
+
+    assert channel
+           |> LazyHTML.query("summary > .prompt-source-meta > .prompt-source-status")
+           |> LazyHTML.text() == "Not applicable"
+
+    assert Enum.empty?(LazyHTML.query(document, ".prompt-source-main .prompt-source-status"))
+
+    assert Enum.count(LazyHTML.query(document, ".prompt-source")) ==
+             Enum.count(
+               LazyHTML.query(document, ".prompt-source > summary > .prompt-source-chevron")
+             )
+
+    assert LazyHTML.text(global) =~
+             "No global instructions were saved in Settings when this request ran"
+
     assert LazyHTML.text(channel) =~ "Not applicable"
-    assert LazyHTML.text(channel) =~ "did not have a Slack channel scope"
+
+    assert LazyHTML.text(channel) =~
+             "did not come through Slack, so channel instructions did not apply"
+
+    refute LazyHTML.text(channel) =~ "came through Chat"
+
     refute LazyHTML.text(document) =~ "Retained input"
   end
 
@@ -277,7 +306,7 @@ defmodule Ryker.ControlPlane.RequestContextHTMLTest do
     end
   end
 
-  test "the flat briefing retains empty runtime fields and escapes unfamiliar paths" do
+  test "context and permissions are peer disclosures without a request-scope wrapper" do
     # Flattening the prompt inventory must not erase less common retained fields.
     artifact =
       InspectionRedactor.artifact(%{
@@ -287,9 +316,11 @@ defmodule Ryker.ControlPlane.RequestContextHTMLTest do
       })
 
     html = artifact |> RequestContextHTML.assembly("$.work", "request-1") |> IO.iodata_to_binary()
-    # The request settings read as named blocks now; no field is erased by that,
-    # because Raw context carries the exact submitted bytes.
-    assert html =~ "What it was allowed to do"
+    assert html =~ "Context and permissions"
+    refute html =~ "Request settings"
+    refute html =~ "Request scope"
+    refute html =~ "Frozen context and permissions used for this model call"
+    assert html =~ "Permitted actions"
     assert html =~ "Raw context"
     refute html =~ "$.work.operator_context.guidance"
     refute html =~ "$.work.operator_context.memory"
@@ -333,6 +364,62 @@ defmodule Ryker.ControlPlane.RequestContextHTMLTest do
              "Partial display"
 
     assert Enum.empty?(LazyHTML.query(document, ".prompt-source[open]"))
+  end
+
+  test "conversation context is split into useful top-level disclosures" do
+    artifact =
+      InspectionRedactor.artifact(%{
+        "input" => %{
+          "source" => %{"kind" => "control_plane", "ref" => "local"},
+          "actor" => %{"ref" => "local-operator"}
+        },
+        "context_manifest" => %{
+          "included" => 5,
+          "requested" => 20,
+          "source_read" => "retained_only",
+          "cutoff" => "2026-09-21T05:48:52.427135Z",
+          "channel_summary" => %{"status" => "unavailable", "reason" => "absent"},
+          "thread_summary" => %{"status" => "unavailable", "reason" => "not_applicable"}
+        },
+        "conversation_context" => %{
+          "messages" => [
+            %{
+              "actor_ref" => "local-operator",
+              "content" => %{"text" => "Earlier question"},
+              "occurred_at" => "2026-09-21T05:47:00Z"
+            }
+          ],
+          "channel_summary" => nil,
+          "thread_summary" => nil
+        },
+        "allowed_actions" => ["start_episode", "reply"]
+      })
+
+    document =
+      artifact
+      |> RequestContextHTML.assembly("$.work", "request-1")
+      |> IO.iodata_to_binary()
+      |> LazyHTML.from_fragment()
+
+    assert LazyHTML.text(document) =~ "Context and permissions"
+    assert LazyHTML.text(document) =~ "Earlier messages"
+    assert LazyHTML.text(document) =~ "1 message"
+    assert LazyHTML.text(document) =~ "Earlier question"
+    assert LazyHTML.text(document) =~ "Up to 20 earlier messages"
+    assert LazyHTML.text(document) =~ "Channel summary"
+    assert LazyHTML.text(document) =~ "Thread summary"
+    assert LazyHTML.text(document) =~ "Not available"
+    assert LazyHTML.text(document) =~ "Start work · Reply"
+
+    sources = LazyHTML.query(document, ".prompt-group[data-group=runtime] > .prompt-source")
+    assert Enum.count(sources) == 5
+
+    assert Enum.count(
+             LazyHTML.query(
+               document,
+               ".prompt-group[data-group=runtime] > .prompt-source > summary > .prompt-source-chevron"
+             )
+           ) == 5
   end
 
   test "each collapsed partial exposes every retained value without a second hidden cutoff" do
@@ -466,7 +553,61 @@ defmodule Ryker.ControlPlane.RequestContextHTMLTest do
     assert body =~ "RESOLVED - 1 alert"
   end
 
-  test "admission candidates lead with a readable objective, evidence and rationale" do
+  test "supplied messages read as a transcript and keep the raw event subordinate" do
+    context = %{
+      "inputs" => %{
+        "items" => [
+          %{
+            "current" => false,
+            "source" => %{"kind" => "control_plane", "ref" => "local"},
+            "actor" => %{"kind" => "user", "ref" => "local-operator"},
+            "content" => %{"text" => "Earlier question"},
+            "occurred_at" => "2026-09-21T05:44:38.329569Z"
+          },
+          %{
+            "current" => true,
+            "source" => %{"kind" => "control_plane", "ref" => "local"},
+            "actor" => %{"kind" => "user", "ref" => "local-operator"},
+            "content" => %{"text" => "Current question"},
+            "occurred_at" => "2026-09-21T05:48:52.427135Z"
+          }
+        ]
+      }
+    }
+
+    document =
+      context
+      |> InspectionRedactor.artifact()
+      |> RequestContextHTML.assembly("$.work", "messages", %{
+        "inputs" => %{label: "2 current and earlier messages", known?: true}
+      })
+      |> IO.iodata_to_binary()
+      |> LazyHTML.from_fragment()
+
+    text = LazyHTML.text(document)
+    assert text =~ "Messages"
+    assert text =~ "2 messages"
+    assert text =~ "Earlier context"
+    assert text =~ "Current message"
+    assert text =~ "Local operator"
+    assert text =~ "21 Sep, 05:48:52 UTC"
+    assert text =~ "Message details"
+    assert text =~ "Chat"
+    assert text =~ "Copy raw event"
+    assert text =~ "Sender ID"
+
+    assert Enum.empty?(
+             LazyHTML.query(document, ".context-message-details dt")
+             |> Enum.filter(&(LazyHTML.text(&1) == "Received"))
+           )
+
+    assert Enum.count(LazyHTML.query(document, "[data-copy-status][aria-live=polite]")) == 2
+    refute text =~ "The message that started this routing call"
+    refute text =~ "You"
+    refute text =~ "Source fields and attachment metadata"
+  end
+
+  test "related history separates continuation and context matches with compact counts" do
     preview = fn text, at, truncated ->
       %{
         "content_preview" =>
@@ -494,6 +635,11 @@ defmodule Ryker.ControlPlane.RequestContextHTMLTest do
       },
       "first_input" => preview.("Deployment is failing", "2026-09-18T17:00:00Z", false),
       "latest_input" => preview.("Replacement is healthy", "2026-09-18T18:10:00Z", true),
+      "message_history" => [
+        preview.("Deployment is failing", "2026-09-18T17:00:00Z", false),
+        preview.("A replacement was started", "2026-09-18T17:30:00Z", false),
+        preview.("Replacement is healthy", "2026-09-18T18:10:00Z", true)
+      ],
       "match" => %{
         "same_thread" => true,
         "topic_fit" => 0.91,
@@ -504,30 +650,129 @@ defmodule Ryker.ControlPlane.RequestContextHTMLTest do
     document =
       %{"candidates" => [candidate]}
       |> InspectionRedactor.artifact()
-      |> RequestContextHTML.assembly("$.context", "admission")
+      |> RequestContextHTML.assembly("$.context", "admission", %{
+        "candidates" => %{
+          label: "1/4 supplied to routing",
+          known?: true,
+          eligible: 4,
+          supplied: 1,
+          excluded: 3,
+          reason: "Shortlist limit reached"
+        }
+      })
       |> IO.iodata_to_binary()
       |> LazyHTML.from_fragment()
 
+    assert LazyHTML.text(document) =~ "Related history"
+    assert LazyHTML.text(document) =~ "1/4 supplied to routing"
+    refute LazyHTML.text(document) =~ "Episodes offered to admission"
+    assert LazyHTML.text(document) =~ "Context matches"
+    assert LazyHTML.text(document) =~ "Not supplied"
+    assert LazyHTML.text(document) =~ "3 candidates"
+    assert LazyHTML.text(document) =~ "Shortlist limit reached"
+
     option = LazyHTML.query(document, ".context-candidate")
     text = LazyHTML.text(option)
-    assert text =~ "Completed - background only"
+    refute text =~ "Background only"
+    refute text =~ "Can continue"
     assert text =~ "Restore the production deployment"
-    assert text =~ "4 messages"
-    assert text =~ "2 conversations"
-    assert text =~ "Current"
-    assert text =~ "The replacement allocation became healthy."
-    assert text =~ "First message"
+    assert Enum.count(Regex.scan(~r/3 messages/, text)) == 1
+    refute text =~ "2 conversations"
+    refute text =~ "Freshness"
+    refute text =~ "Latest update"
+    assert text =~ "Message history"
     assert text =~ "Deployment is failing"
-    assert text =~ "Latest message"
+    assert text =~ "A replacement was started"
     assert text =~ "Replacement is healthy"
+    assert Enum.count(Regex.scan(~r/Replacement is healthy/, text)) == 1
     assert text =~ "truncated"
-    assert text =~ "Why offered"
-    assert text =~ "same thread"
+    assert text =~ "Matched on"
+    assert text =~ "Same thread"
     assert text =~ "direct reference"
     refute text =~ "Technical details"
     assert Enum.empty?(LazyHTML.query(option, ".context-candidate-technical"))
     refute LazyHTML.text(option) =~ "Allowed relations"
     assert Enum.empty?(LazyHTML.query(option, ".context-field"))
+  end
+
+  test "candidate history shows the first and latest nineteen of longer histories" do
+    preview = fn index ->
+      %{
+        "content_preview" => Jason.encode!(%{"content" => %{"text" => "Message #{index}"}}),
+        "occurred_at" => "2026-09-18T17:#{String.pad_leading(to_string(index), 2, "0")}:00Z",
+        "truncated" => false
+      }
+    end
+
+    history = Enum.map(1..25, preview)
+
+    candidate = %{
+      "state" => "active",
+      "allowed_relations" => ["same_work", "history_only"],
+      "digest" => %{"objective" => "Long-running incident", "input_count" => 25},
+      "message_history" => history,
+      "match" => %{"same_thread" => true}
+    }
+
+    document =
+      %{"candidates" => [candidate]}
+      |> InspectionRedactor.artifact()
+      |> RequestContextHTML.assembly("$.context", "admission")
+      |> IO.iodata_to_binary()
+      |> LazyHTML.from_fragment()
+
+    text = LazyHTML.text(document)
+    assert text =~ "Message 1"
+
+    labels =
+      LazyHTML.query(document, ".candidate-preview header strong") |> Enum.map(&LazyHTML.text/1)
+
+    refute "Message 2" in labels
+    refute "Message 6" in labels
+    assert text =~ "5 earlier messages omitted"
+    assert text =~ "Message 7"
+    assert text =~ "Message 25"
+    assert Enum.count(LazyHTML.query(document, ".candidate-preview")) == 20
+  end
+
+  test "related episode history is lazy and says it was not supplied to routing" do
+    preview = fn text, at ->
+      %{
+        "content_preview" => Jason.encode!(%{"content" => %{"text" => text}}),
+        "occurred_at" => at,
+        "truncated" => false
+      }
+    end
+
+    candidate = %{
+      "state" => "complete",
+      "episode_ref" => "candidate:history",
+      "digest" => %{"objective" => "Investigate the incident", "input_count" => 3},
+      "first_input" => preview.("First supplied preview", "2026-09-18T17:00:00Z"),
+      "latest_input" => preview.("Latest supplied preview", "2026-09-18T18:00:00Z"),
+      "match" => %{"same_thread" => true}
+    }
+
+    document =
+      %{"candidates" => [candidate]}
+      |> InspectionRedactor.artifact()
+      |> RequestContextHTML.assembly("$.context", "admission", %{
+        "candidate_histories" => %{
+          "candidate:history" => %{
+            "artifact_id" => "candidate-history-1",
+            "state" => "collapsed"
+          }
+        }
+      })
+      |> IO.iodata_to_binary()
+      |> LazyHTML.from_fragment()
+
+    history = LazyHTML.query(document, ".candidate-history")
+    assert LazyHTML.attribute(history, "data-artifact") == ["candidate-history-1"]
+    assert LazyHTML.text(history) =~ "Related episode history"
+    assert LazyHTML.text(history) =~ "Full history not supplied to routing · loads on open"
+    refute LazyHTML.text(history) =~ "First supplied preview"
+    refute LazyHTML.text(history) =~ "Latest supplied preview"
   end
 
   test "candidate previews omit duplicates and sparse or malformed history stays bounded" do
@@ -542,7 +787,10 @@ defmodule Ryker.ControlPlane.RequestContextHTMLTest do
         "episode_ref" => "candidate:sparse",
         "state" => "active",
         "allowed_relations" => ["same_work", "history_only"],
-        "digest" => %{"objective" => "Continue the incident"},
+        "digest" => %{
+          "objective" => "Continue the incident",
+          "latest_development" => "Same message"
+        },
         "first_input" => preview,
         "latest_input" => preview
       },
@@ -572,15 +820,17 @@ defmodule Ryker.ControlPlane.RequestContextHTMLTest do
     assert Enum.count(options) == 4
 
     sparse = Enum.at(options, 0)
-    assert LazyHTML.text(sparse) =~ "Active - may continue or provide background"
-    assert Enum.count(LazyHTML.query(sparse, ".candidate-preview")) == 1
+    refute LazyHTML.text(sparse) =~ "Can continue"
+    assert Enum.count(LazyHTML.query(sparse, ".candidate-excerpt")) == 1
+    assert Enum.count(Regex.scan(~r/Same message/, LazyHTML.text(sparse))) == 1
+    assert Enum.empty?(LazyHTML.query(sparse, ".candidate-history"))
 
     truncated = Enum.at(options, 1) |> LazyHTML.text()
     assert truncated =~ "Readable prefix from a partial preview"
     assert truncated =~ "truncated"
 
     malformed = options |> Enum.drop(2) |> Enum.map_join(&LazyHTML.text/1)
-    assert malformed =~ "Historical candidate - retained shape unavailable"
+    assert malformed =~ "Historical candidate · retained shape unavailable"
     assert malformed =~ "Retained raw candidate"
     assert String.length(malformed) < 1_000
   end

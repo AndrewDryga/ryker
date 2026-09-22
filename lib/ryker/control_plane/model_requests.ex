@@ -1,10 +1,10 @@
 defmodule Ryker.ControlPlane.ModelRequests do
   @moduledoc "Bounded, explicitly sensitive read boundary for retained model requests."
   import Ecto.Query
-  alias Ryker.Admission.Attempt
+  alias Ryker.Admission.{Attempt, Candidate}
   alias Ryker.ControlPlane.{Activity, EpisodeTrace, PagedRelation, WorkRecovery}
   alias Ryker.ControlPlane.InspectionRedactor, as: Redactor
-  alias Ryker.Episodes.Episode
+  alias Ryker.Episodes.{Episode, Event}
   alias Ryker.Ingress.{Inbox, InputCustodyTransition}
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Repo
@@ -46,6 +46,7 @@ defmodule Ryker.ControlPlane.ModelRequests do
                 secrets: Redactor.configured_secrets(),
                 episode_ref: episode.key,
                 execution_mode: episode.execution_mode,
+                candidate_disclosed: disclosed(params),
                 tool_disclosed: disclosed(params)
               ]
               |> with_responses(List.wrap(selected), params)
@@ -396,7 +397,16 @@ defmodule Ryker.ControlPlane.ModelRequests do
 
   def project_input(id, params) when is_map(params) do
     with {:ok, id} <- Ecto.UUID.cast(id), %Entry{} = entry <- Repo.get(Entry, id) do
-      request = inspect_row(entry, params, secrets: Redactor.configured_secrets())
+      options = [secrets: Redactor.configured_secrets(), candidate_disclosed: disclosed(params)]
+
+      options =
+        Keyword.put(
+          options,
+          :candidate_histories,
+          candidate_histories(entry.admission_context || %{}, entry, options)
+        )
+
+      request = inspect_row(entry, params, options)
 
       {:ok,
        %{
@@ -423,7 +433,7 @@ defmodule Ryker.ControlPlane.ModelRequests do
              )
          },
          preparation: EpisodeTrace.input_preparation(entry),
-         timeline: input_request_events(entry, params),
+         timeline: input_request_events(entry, params, options),
          selected: request
        }}
     else
@@ -431,7 +441,7 @@ defmodule Ryker.ControlPlane.ModelRequests do
     end
   end
 
-  defp input_request_events(entry, params) do
+  defp input_request_events(entry, params, shared_options) do
     attempts =
       Repo.all(
         from(attempt in Attempt,
@@ -449,16 +459,18 @@ defmodule Ryker.ControlPlane.ModelRequests do
 
     disclosed = disclosed(params)
 
-    options = [
-      secrets: Redactor.configured_secrets(),
-      max_bytes: 2 * 1_024 * 1_024,
-      timeline: true,
-      episode_ref: "ingress-input:#{entry.id}",
-      execution_mode: entry.execution_mode,
-      admission_failures: admission_failures([entry.id], Enum.reject(attempts, &is_nil/1)),
-      disclosed: disclosed,
-      tool_disclosed: disclosed
-    ]
+    options =
+      [
+        secrets: Redactor.configured_secrets(),
+        max_bytes: 2 * 1_024 * 1_024,
+        timeline: true,
+        episode_ref: "ingress-input:#{entry.id}",
+        execution_mode: entry.execution_mode,
+        admission_failures: admission_failures([entry.id], Enum.reject(attempts, &is_nil/1)),
+        disclosed: disclosed,
+        tool_disclosed: disclosed
+      ]
+      |> Keyword.put(:candidate_histories, shared_options[:candidate_histories])
 
     Enum.flat_map(attempts, &admission_events(entry, &1, options))
   end
@@ -572,7 +584,12 @@ defmodule Ryker.ControlPlane.ModelRequests do
 
     %{
       id: entry.id,
-      counts: admission_counts(entry, prompt["context"]),
+      counts:
+        admission_counts(
+          entry,
+          prompt["context"],
+          Keyword.put(options, :current_generation, generation == entry.execution_generation)
+        ),
       title: "Admission · execution #{generation}",
       generation: generation,
       generations: entry.execution_generation,
@@ -723,22 +740,27 @@ defmodule Ryker.ControlPlane.ModelRequests do
   # episodes the bounded search checked, how many it offered the model, and the
   # knowledge it recorded as omitted. Offered is not chosen; the model's choice
   # is a later fact on its own card.
-  defp admission_counts(entry, context) when is_map(context) do
-    snapshot = if is_map(entry.admission_context), do: entry.admission_context, else: %{}
+  defp admission_counts(entry, context, options) when is_map(context) do
+    snapshot =
+      if options[:current_generation] != false and is_map(entry.admission_context),
+        do: entry.admission_context,
+        else: %{}
+
     offered = length(List.wrap(context["candidates"]))
-    checked = snapshot["conversation_episode_count"]
+    receipt = if is_map(snapshot["routing_receipt"]), do: snapshot["routing_receipt"], else: %{}
+    eligible = receipt["examined"] || snapshot["conversation_episode_count"]
     omissions = length(List.wrap(snapshot["knowledge_omissions"]))
 
     %{
       "candidates" =>
-        if is_integer(checked) and checked >= offered do
-          count(
-            "#{checked} checked · #{offered} offered" <>
-              omission_phrase(checked - offered, "not offered"),
-            true
-          )
+        if is_integer(eligible) and eligible >= offered do
+          excluded = eligible - offered
+
+          count("#{offered}/#{eligible} supplied to routing", true)
+          |> Map.put(:excluded, excluded)
+          |> Map.put(:reason, candidate_exclusion_reason(receipt["cutoff_reason"]))
         else
-          count("#{offered} offered · search scope not recorded", false)
+          count("#{offered} supplied to routing · eligible set not recorded", false)
         end,
       "conversation_knowledge" =>
         count(
@@ -748,11 +770,182 @@ defmodule Ryker.ControlPlane.ModelRequests do
         ),
       "conversation_observations" =>
         count("#{length(List.wrap(context["conversation_observations"]))} included", true),
-      "input" => count("1 included", true)
+      "input" => count("1 included", true),
+      "candidate_histories" =>
+        if(options[:current_generation] == false,
+          do: %{},
+          else: options[:candidate_histories] || candidate_histories(snapshot, entry, options)
+        )
     }
   end
 
-  defp admission_counts(_entry, _context), do: %{}
+  defp admission_counts(_entry, _context, _options), do: %{}
+
+  # Candidate cards first render only the first/latest previews that were in
+  # the frozen model request. The wider retained episode history is inspection
+  # context, not model input, so it is fetched only when its own disclosure is
+  # opened. One ranked query serves every opened candidate in this admission.
+  defp candidate_histories(snapshot, entry, options) do
+    specs = candidate_history_specs(snapshot, entry)
+
+    disclosed =
+      Keyword.get_lazy(options, :candidate_disclosed, fn ->
+        Keyword.get(options, :disclosed, MapSet.new())
+      end)
+
+    opened =
+      Enum.filter(specs, fn spec ->
+        not match?(%MapSet{}, disclosed) or MapSet.member?(disclosed, spec.artifact_id)
+      end)
+
+    rows = candidate_history_rows(opened)
+
+    Map.new(specs, fn spec ->
+      history =
+        if spec in opened,
+          do: retained_candidate_history(spec, Map.get(rows, spec.episode_id, []), options),
+          else: %{"artifact_id" => spec.artifact_id, "state" => "collapsed"}
+
+      {spec.ref, history}
+    end)
+  end
+
+  defp candidate_history_specs(snapshot, entry) do
+    with built_at when is_binary(built_at) <- snapshot["built_at"],
+         {:ok, built_at, _offset} <- DateTime.from_iso8601(built_at) do
+      snapshot
+      |> Map.get("candidates", [])
+      |> Enum.map(&candidate_history_spec(&1, entry.id, built_at))
+      |> Enum.reject(&is_nil/1)
+      |> Enum.uniq_by(& &1.episode_id)
+    else
+      _ -> []
+    end
+  end
+
+  defp candidate_history_spec(
+         %{
+           "episode_id" => episode_id,
+           "episode_ref" => ref,
+           "digest" => %{"covered_through" => covered_through} = digest
+         },
+         entry_id,
+         built_at
+       )
+       when is_binary(ref) and is_binary(covered_through) do
+    with {:ok, episode_id} <- Ecto.UUID.cast(episode_id),
+         {:ok, cutoff, _offset} <- DateTime.from_iso8601(covered_through) do
+      %{
+        artifact_id: "candidate-history-#{entry_id}-#{episode_id}",
+        built_at: built_at,
+        cutoff: cutoff,
+        episode_id: episode_id,
+        ref: ref,
+        total: digest["input_count"]
+      }
+    else
+      _ -> nil
+    end
+  end
+
+  defp candidate_history_spec(_candidate, _entry_id, _built_at), do: nil
+
+  defp candidate_history_rows([]), do: %{}
+
+  defp candidate_history_rows(specs) do
+    predicate =
+      Enum.reduce(specs, dynamic(false), fn spec, predicate ->
+        dynamic(
+          [event],
+          ^predicate or
+            (event.episode_id == ^spec.episode_id and event.occurred_at <= ^spec.cutoff and
+               event.inserted_at <= ^spec.built_at)
+        )
+      end)
+
+    ranked =
+      from(event in Event,
+        where: event.kind == :input_admitted,
+        where: ^predicate,
+        select: %{
+          id: event.id,
+          episode_id: event.episode_id,
+          occurred_at: event.occurred_at,
+          payload: event.payload,
+          sequence: event.sequence,
+          first_rank:
+            over(row_number(),
+              partition_by: event.episode_id,
+              order_by: [asc: event.sequence, asc: event.id]
+            ),
+          recent_rank:
+            over(row_number(),
+              partition_by: event.episode_id,
+              order_by: [desc: event.sequence, desc: event.id]
+            )
+        }
+      )
+
+    Repo.all(
+      from(event in subquery(ranked),
+        join: input in Entry,
+        on:
+          input.episode_id == event.episode_id and
+            input.native_input_id ==
+              fragment("(?::jsonb)->'payload'->>'native_input_id'", event.payload) and
+            input.source_kind ==
+              fragment("(?::jsonb)->'payload'->'source'->>'kind'", event.payload) and
+            input.source_ref ==
+              fragment("(?::jsonb)->'payload'->'source'->>'ref'", event.payload) and
+            input.event_ref ==
+              fragment("(?::jsonb)->'payload'->>'event_ref'", event.payload),
+        where: is_nil(input.operational_pruned_at),
+        where: event.first_rank == 1 or event.recent_rank <= 19,
+        order_by: [asc: event.episode_id, asc: event.sequence, asc: event.id]
+      )
+    )
+    |> Enum.group_by(& &1.episode_id)
+  end
+
+  defp retained_candidate_history(spec, rows, options) do
+    items =
+      rows
+      |> Enum.map(fn row ->
+        case Candidate.event_preview(row) do
+          %{} = preview -> Map.put(preview, "history_position", row.first_rank)
+          nil -> nil
+        end
+      end)
+      |> Enum.reject(&is_nil/1)
+
+    omitted = if is_integer(spec.total), do: max(spec.total - length(items), 0), else: 0
+
+    value = %{
+      "artifact_id" => spec.artifact_id,
+      "items" => items,
+      "omitted" => omitted,
+      "state" => "retained"
+    }
+
+    case Redactor.artifact(value, secrets: options[:secrets]) do
+      %{state: :retained, text: text} ->
+        case Jason.decode(text) do
+          {:ok, redacted} when is_map(redacted) -> redacted
+          _ -> %{"artifact_id" => spec.artifact_id, "state" => "collapsed"}
+        end
+
+      _ ->
+        %{"artifact_id" => spec.artifact_id, "state" => "collapsed"}
+    end
+  end
+
+  defp candidate_exclusion_reason("limit"), do: "Shortlist limit reached."
+
+  defp candidate_exclusion_reason(reason) when is_binary(reason) and reason != "",
+    do: reason |> String.replace("_", " ") |> String.capitalize() |> Kernel.<>(".")
+
+  defp candidate_exclusion_reason(_reason),
+    do: "The remaining eligible candidates were not supplied."
 
   defp count(label, known?), do: %{label: label, known?: known?}
 

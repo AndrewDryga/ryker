@@ -1,6 +1,7 @@
 defmodule Ryker.ControlPlane.ToolCard do
   @moduledoc "Readable actions, derived only from retained, sanitized tool evidence."
   use Phoenix.Component
+  alias Ryker.ControlPlane.Components
   alias Ryker.ControlPlane.SlackMarkdown
   alias Ryker.Work.ActivityPaths
 
@@ -60,15 +61,18 @@ defmodule Ryker.ControlPlane.ToolCard do
 
     ~H"""
     <div class={"action-card action-#{@action.kind} action-event-#{@step.state}"}>
-      <header>
-        <span class="action-symbol" aria-hidden="true">{@action.symbol}</span>
-        <h3>{if @step.state == "started", do: "Started: "}{@action.title}</h3>
-        <span
-          :if={@step.state in ["failed", "cancelled", "running"]}
-          class={"action-state action-#{@step.state}"}
-        >{@step.state}</span>
-        <span :if={@step.duration_ms} class="action-duration">{duration(@step.duration_ms)}</span>
-      </header>
+      <Components.card_heading title={
+        if @step.state == "started", do: "Started: #{@action.title}", else: @action.title
+      }>
+        <:leading><span class="action-symbol" aria-hidden="true">{@action.symbol}</span></:leading>
+        <:meta :if={@step.state in ["failed", "cancelled", "running"] || @step.duration_ms}>
+          <span
+            :if={@step.state in ["failed", "cancelled", "running"]}
+            class={"action-state action-#{@step.state}"}
+          >{@step.state}</span>
+          <span :if={@step.duration_ms} class="action-duration">{duration(@step.duration_ms)}</span>
+        </:meta>
+      </Components.card_heading>
       <p :if={@action.description && @step.state != "started"} class="action-description">
         {@action.description}
       </p>

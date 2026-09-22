@@ -112,6 +112,63 @@ defmodule Ryker.ControlPlane.ComponentsTest do
     assert LazyHTML.query(html, "summary .ui-icon") |> Enum.count() == 1
   end
 
+  test "a source disclosure keeps its title and right-aligned metadata in the shared shell" do
+    html =
+      render_component(
+        fn assigns ->
+          ~H"""
+          <Components.disclosure
+            id="raw-response"
+            label="Raw response"
+            kind={:source}
+          >
+            <:meta>JSON · 147 bytes</:meta>
+            <pre>{"retained"}</pre>
+          </Components.disclosure>
+          """
+        end,
+        %{}
+      )
+      |> LazyHTML.from_fragment()
+
+    summary = LazyHTML.query(html, "details.ui-disclosure-source > summary")
+    assert LazyHTML.query(summary, ".ui-disclosure-label") |> LazyHTML.text() == "Raw response"
+    assert LazyHTML.query(summary, ".ui-disclosure-meta") |> LazyHTML.text() == "JSON · 147 bytes"
+    assert LazyHTML.query(summary, ".ui-icon") |> Enum.count() == 1
+  end
+
+  test "timeline cards share one title and metadata header anatomy" do
+    html =
+      render_component(
+        fn assigns ->
+          ~H"""
+          <Components.card_heading title="Model briefing" meta_layout={:stack_on_narrow}>
+            <:leading><span class="test-symbol">◇</span></:leading>
+            <:detail>Work request</:detail>
+            <:meta>
+              <Components.execution_target target="codex:gpt-5.6-sol/medium@default" />
+            </:meta>
+          </Components.card_heading>
+          """
+        end,
+        %{}
+      )
+      |> LazyHTML.from_fragment()
+
+    heading = LazyHTML.query(html, "header.case-card-heading.case-card-heading-stack-meta")
+
+    assert LazyHTML.query(heading, ".case-card-heading-main > h3") |> LazyHTML.text() ==
+             "Model briefing"
+
+    assert LazyHTML.query(heading, ".case-card-heading-leading") |> LazyHTML.text() == "◇"
+
+    assert LazyHTML.query(heading, ".case-card-heading-detail") |> LazyHTML.text() ==
+             "Work request"
+
+    assert LazyHTML.query(heading, ".case-card-heading-meta .execution-target-model")
+           |> LazyHTML.text() == "gpt-5.6-sol"
+  end
+
   test "fact lists render retained execution targets through the shared presentation" do
     html =
       render_component(&Components.fact_list/1,

@@ -29,12 +29,15 @@ defmodule Ryker.ControlPlane.Components do
     chevron: "m9 5 7 7-7 7"
   }
 
+  attr(:name, :atom, required: true)
+  attr(:class, :any, default: nil)
+
   def icon(assigns) do
     assigns = assign(assigns, :path, Map.get(@icons, assigns.name, @icons.activity))
 
     ~H"""
     <svg
-      class="ui-icon"
+      class={["ui-icon", @class]}
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
@@ -111,10 +114,11 @@ defmodule Ryker.ControlPlane.Components do
 
   attr(:id, :string, required: true)
   attr(:label, :string, required: true)
-  attr(:kind, :atom, values: [:details, :diagnostic], default: :details)
+  attr(:kind, :atom, values: [:details, :diagnostic, :source], default: :details)
   attr(:open, :boolean, default: false)
   attr(:class, :any, default: nil)
   attr(:summary_aria_label, :string, default: nil)
+  slot(:meta, doc: "Status, type, or size aligned opposite a source title")
   slot(:inner_block, required: true)
 
   @doc "The shared disclosure shell for supporting detail and failure diagnostics."
@@ -126,7 +130,9 @@ defmodule Ryker.ControlPlane.Components do
       open={@open}
     >
       <summary aria-label={@summary_aria_label}>
-        <span>{@label}</span><.icon name={:chevron} />
+        <.icon name={:chevron} />
+        <span class="ui-disclosure-label">{@label}</span>
+        <span :if={@meta != []} class="ui-disclosure-meta">{render_slot(@meta)}</span>
       </summary>
       <div class="ui-disclosure-body">{render_slot(@inner_block)}</div>
     </details>
@@ -158,6 +164,31 @@ defmodule Ryker.ControlPlane.Components do
         </dd>
       </div>
     </dl>
+    """
+  end
+
+  attr(:title, :string, required: true)
+  attr(:class, :any, default: nil)
+  attr(:meta_layout, :atom, values: [:inline, :stack_on_narrow], default: :inline)
+  slot(:leading, doc: "A compact symbol that identifies the card kind")
+  slot(:detail, doc: "Short title-adjacent context, never status or timing")
+  slot(:meta, doc: "State, timing, or execution target aligned opposite the title")
+
+  @doc "The shared title-left and metadata-right header for timeline cards."
+  def card_heading(assigns) do
+    ~H"""
+    <header class={[
+      "case-card-heading",
+      @meta_layout == :stack_on_narrow && "case-card-heading-stack-meta",
+      @class
+    ]}>
+      <div class="case-card-heading-main">
+        <span :if={@leading != []} class="case-card-heading-leading">{render_slot(@leading)}</span>
+        <h3>{@title}</h3>
+        <span :if={@detail != []} class="case-card-heading-detail">{render_slot(@detail)}</span>
+      </div>
+      <div :if={@meta != []} class="case-card-heading-meta">{render_slot(@meta)}</div>
+    </header>
     """
   end
 

@@ -96,18 +96,24 @@ defmodule Ryker.ControlPlane.PromptDocument do
   end
 
   defp annotate(html, path) do
-    if path in ~w($.instructions $.custom_instructions $.inputs $.knowledge) ||
-         Regex.match?(
-           ~r/^\$\.(work|context)\.((?!operator_context$)[^.\[\]]+|operator_context\.[^.\[\]]+)$/,
-           path
-         ) do
+    if source_path?(path) do
       label = RequestContextHTML.source_label(path)
 
+      {title, context} =
+        case String.split(label, " · ", parts: 2) do
+          [title, context] -> {title, context}
+          [title] -> {title, "Request component"}
+        end
+
       [
-        "<span tabindex=\"0\" class=\"prompt-fragment\" data-source=\"",
+        "<span tabindex=\"0\" aria-describedby=\"prompt-inspector-tooltip\" class=\"prompt-fragment\" data-source=\"",
         escape(path),
-        "\" data-source-label=\"",
-        escape(label <> " · " <> path),
+        "\" data-source-title=\"",
+        escape(title),
+        "\" data-source-context=\"",
+        escape(context),
+        "\" data-source-path=\"",
+        escape(path),
         "\">",
         html,
         "</span>"
@@ -115,6 +121,18 @@ defmodule Ryker.ControlPlane.PromptDocument do
     else
       html
     end
+  end
+
+  defp source_path?(path) do
+    path in ~w($.instructions $.custom_instructions $.inputs $.knowledge) or
+      Regex.match?(
+        ~r/^\$\.(work|context)\.(input|inputs|current_inputs|candidates|allowed_actions|repository_ref|repository_source_kinds|destination|execution_mode|mode|offer_confirmation_supported|linked_history_ref|parent_submission_ref|responder_state_tools|source_and_action_tools|workspace|records|related_outcomes|prior_outcome|conversation_observations|conversation_knowledge|slack_addressing)$/,
+        path
+      ) or
+      Regex.match?(
+        ~r/^\$\.(work|context)\.(custom_instructions\.(global|channel)|conversation_context\.(messages|channel_summary|thread_summary)|operator_context\.[^.\[\]]+)$/,
+        path
+      )
   end
 
   defp whitespace?(token), do: String.trim(token) == ""

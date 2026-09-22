@@ -264,13 +264,12 @@ defmodule Ryker.ControlPlane.RequestPage do
         class="memory-card validation-attempt"
         data-candidate-attempt={step.attempt}
       >
-        <header class="case-event-heading">
-          <h3>{step.title}</h3><time :if={step.at}>{timestamp(step.at)}</time>
-        </header>
+        <.card_heading title={step.title}>
+          <:meta :if={step.at}><time>{timestamp(step.at)}</time></:meta>
+        </.card_heading>
         <ul :if={step.violations != []}>
           <li :for={violation <- step.violations}>{violation}</li>
         </ul>
-        <p :if={step.attempt && step.violations == []}>No violations recorded.</p>
         <.candidate_response
           :if={step.response}
           response={step.response}
@@ -354,34 +353,38 @@ defmodule Ryker.ControlPlane.RequestPage do
   end
 
   def candidate_response(assigns) do
-    assigns = assign(assigns, :document, candidate_document(assigns.response))
+    assigns =
+      assigns
+      |> assign(:document, candidate_document(assigns.response))
+      |> assign(:response_meta, candidate_response_meta(assigns.response))
 
     ~H"""
-    <details
+    <section
       :if={@response.state == :retained}
-      class="candidate-response inspector-document"
+      class="candidate-response"
       id={"#{@prefix}-response-#{@attempt}"}
     >
-      <summary>
-        Response for attempt {@attempt}
-        <span :if={@response.redacted}> · Secrets redacted</span>
-        <span :if={@response.truncated}> · Display truncated</span>
-      </summary>
-      <div id={"#{@prefix}-response-#{@attempt}-body"} tabindex="-1">
+      <div id={"#{@prefix}-response-#{@attempt}-body"} class="candidate-response-body" tabindex="-1">
         <div :if={@document && is_binary(@document["message"])} class="markdown-preview">
           {Phoenix.HTML.raw(Ryker.ControlPlane.SlackMarkdown.preview(@document["message"]))}
         </div>
-        <p :if={@document && is_binary(@document["decision_reason"])}>
+        <p
+          :if={@document && is_binary(@document["decision_reason"])}
+          class="candidate-decision-reason"
+        >
           {@document["decision_reason"]}
         </p>
-        <details :if={@document} id={"#{@prefix}-response-#{@attempt}-json"}>
-          <summary>Full response document</summary>
+        <.disclosure
+          id={"#{@prefix}-response-#{@attempt}-raw"}
+          label="Raw response"
+          kind={:source}
+          class="candidate-response-raw"
+        >
+          <:meta>{@response_meta}</:meta>
           <pre class="model-document-text" tabindex="0">{@response.text}</pre>
-        </details>
-        <pre :if={!@document} class="model-document-text" tabindex="0">{@response.text}</pre>
-        <p><a href={"##{@prefix}-response-#{@attempt}-body"}>Link to this response</a></p>
+        </.disclosure>
       </div>
-    </details>
+    </section>
     <p :if={@response.state == :expired} class="artifact-unavailable">
       Response body expired for this attempt. Its check receipt is preserved here.
     </p>
@@ -396,6 +399,23 @@ defmodule Ryker.ControlPlane.RequestPage do
   end
 
   defp candidate_document(_), do: nil
+
+  defp candidate_response_meta(response) do
+    kind = if candidate_document(response), do: "JSON", else: "Text"
+
+    [
+      kind,
+      response_size(response.bytes),
+      response.redacted && "Secrets redacted",
+      response.truncated && "Display truncated"
+    ]
+    |> Enum.reject(&(&1 in [nil, false]))
+    |> Enum.join(" · ")
+  end
+
+  defp response_size(nil), do: "Size not recorded"
+  defp response_size(count) when count < 1_024, do: "#{count} bytes"
+  defp response_size(count), do: "#{div(count, 1_024)} KiB"
 
   def latest_archived_response(sections) do
     with %{artifact: %{state: :retained, sha256: digest}} <-

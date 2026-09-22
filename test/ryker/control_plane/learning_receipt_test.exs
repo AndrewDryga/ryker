@@ -67,10 +67,10 @@ defmodule Ryker.ControlPlane.LearningReceiptTest do
     for {source, label} <- [
           {"$.inputs", "Source messages"},
           {"$.knowledge", "Prior knowledge"},
-          {"$.instructions", "Ryker instructions"}
+          {"$.instructions", "System prompt"}
         ] do
       fragment = LazyHTML.query(doc, ".learning-receipt [data-source='#{source}']")
-      assert [labelled] = LazyHTML.attribute(fragment, "data-source-label")
+      assert [labelled] = LazyHTML.attribute(fragment, "data-source-title")
       assert labelled =~ label
     end
   end

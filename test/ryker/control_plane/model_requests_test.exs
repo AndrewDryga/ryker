@@ -143,8 +143,14 @@ defmodule Ryker.ControlPlane.ModelRequestsTest do
         assert LazyHTML.query(component, ".submitted-prompt code") |> LazyHTML.text() == text
       end
 
+      prompt_component = LazyHTML.query(full, ".prompt-source[data-source=request]")
+      refute LazyHTML.text(prompt_component) =~ "Recorded when the request was sent"
+      refute LazyHTML.text(full) =~ "Recorded with this request"
+      assert LazyHTML.text(prompt_component) =~ "Sensitive values are hidden in this view"
+      refute LazyHTML.text(prompt_component) =~ "Retained submission"
+      refute LazyHTML.text(prompt_component) =~ "exact retained prompt text"
       assert LazyHTML.text(full) =~ "alongside"
-      assert LazyHTML.text(full) =~ "provider"
+      assert LazyHTML.text(full) |> String.downcase() =~ "provider"
       ids = LazyHTML.query(document, "[id]") |> LazyHTML.attribute("id")
       assert ids == Enum.uniq(ids)
       refute html =~ "xoxb-recorded-credential"
@@ -394,10 +400,11 @@ defmodule Ryker.ControlPlane.ModelRequestsTest do
       )
 
     assert html =~ "Host-authored retained instructions"
-    assert html =~ "Messages supplied to this request"
+    assert html =~ "Messages"
+    refute html =~ "Messages supplied to this request"
     # The old flat prompt hid which host/context source shaped the answer.
     assert html =~ "data-source=\"instructions\""
-    assert html =~ "Ryker instructions"
+    assert html =~ "System prompt"
     assert html =~ "Run mode"
     assert html =~ "Live"
     visible = LazyHTML.from_document(html) |> LazyHTML.text()

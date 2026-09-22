@@ -35,6 +35,69 @@ defmodule Ryker.ControlPlane.PromptDocumentTest do
     assert LazyHTML.query(document, ~s([data-source="$.work.inputs"])) |> Enum.count() == 1
   end
 
+  test "the prompt inspector maps logical components instead of whole JSON containers" do
+    prompt =
+      Jason.encode!(%{
+        "instructions" => "Route carefully.",
+        "context" => %{
+          "input" => %{"content" => %{"text" => "Current question"}},
+          "custom_instructions" => %{
+            "global" => %{"text" => "Global text"},
+            "channel" => %{"text" => "Channel text"}
+          },
+          "conversation_context" => %{
+            "messages" => [%{"content" => %{"text" => "Earlier question"}}],
+            "channel_summary" => %{"summary" => "Channel context"},
+            "thread_summary" => %{"summary" => "Thread context"}
+          },
+          "conversation_observations" => [%{"text" => "Observed earlier"}],
+          "conversation_knowledge" => [%{"text" => "Known earlier"}],
+          "slack_addressing" => %{"audience" => "ambient"},
+          "repository_source_kinds" => ["workspace"],
+          "candidates" => [%{"digest" => %{"objective" => "Earlier work"}}],
+          "allowed_actions" => ["reply"]
+        }
+      })
+
+    document =
+      prompt
+      |> InspectionRedactor.artifact(preserve_format: true)
+      |> PromptDocument.render()
+      |> IO.iodata_to_binary()
+      |> LazyHTML.from_fragment()
+
+    for {path, title} <- [
+          {"$.instructions", "System prompt"},
+          {"$.context.input", "Current message"},
+          {"$.context.custom_instructions.global", "Global instructions"},
+          {"$.context.custom_instructions.channel", "Channel instructions"},
+          {"$.context.conversation_context.messages", "Earlier messages"},
+          {"$.context.conversation_context.channel_summary", "Channel summary"},
+          {"$.context.conversation_context.thread_summary", "Thread summary"},
+          {"$.context.conversation_observations", "Conversation observations"},
+          {"$.context.conversation_knowledge", "Conversation knowledge"},
+          {"$.context.slack_addressing", "Slack addressing"},
+          {"$.context.repository_source_kinds", "Repository sources"},
+          {"$.context.candidates", "Candidate selection"},
+          {"$.context.allowed_actions", "Permitted actions"}
+        ] do
+      fragment = LazyHTML.query(document, ~s([data-source="#{path}"]))
+      assert Enum.count(fragment) == 1
+      assert LazyHTML.attribute(fragment, "data-source-title") == [title]
+      assert LazyHTML.attribute(fragment, "aria-describedby") == ["prompt-inspector-tooltip"]
+    end
+
+    assert Enum.empty?(LazyHTML.query(document, ~s([data-source="$.context"])))
+
+    assert Enum.empty?(
+             LazyHTML.query(document, ~s([data-source="$.context.custom_instructions"]))
+           )
+
+    assert Enum.empty?(
+             LazyHTML.query(document, ~s([data-source="$.context.conversation_context"]))
+           )
+  end
+
   test "conversation recall is a compact situation and open questions, not nested empty fields" do
     context = %{
       "operator_context" => %{
