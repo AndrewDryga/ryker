@@ -35,6 +35,13 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
       "digest" => %{"objective" => "Check the response"}
     }
 
+    other = %{
+      "episode_ref" => "candidate:background",
+      "state" => "complete",
+      "allowed_relations" => ["history_only"],
+      "digest" => %{"objective" => "Earlier notes"}
+    }
+
     request = %{
       id: "routing-link",
       at: snapshot.trace.received_at,
@@ -48,7 +55,7 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
       timing: [],
       coverage: "Retained",
       href: "#routing-link",
-      sections: [section("context", "Context", %{"candidates" => [candidate]})]
+      sections: [section("context", "Context", %{"candidates" => [candidate, other]})]
     }
 
     result = %{
@@ -68,6 +75,10 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
     assert LazyHTML.text(link) == "Check the response"
     ["#" <> id] = LazyHTML.attribute(link, "href")
     assert LazyHTML.query(document, ".context-candidate[id='#{id}']") |> Enum.count() == 1
+
+    outcomes = LazyHTML.query(document, ".routing-candidate-outcomes")
+    assert LazyHTML.text(outcomes) =~ "Check the response · Selected for continuation"
+    assert LazyHTML.text(outcomes) =~ "Earlier notes · Background only"
   end
 
   test "missing full prompts explain availability instead of opening a blank panel" do
@@ -83,6 +94,23 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
       assert html =~ label
       refute html =~ "Highlighted text"
     end
+  end
+
+  test "request identity names the destination and keeps its exact reference" do
+    {:ok, %{episode: episode}} = Episodes.apply(EpisodeFixtures.admit_input())
+    {:ok, snapshot} = Projection.episode(episode.key)
+    snapshot = put_in(snapshot.episode.destination, "control_plane:lab:demo")
+
+    identity =
+      snapshot
+      |> render_episode([])
+      |> LazyHTML.from_fragment()
+      |> LazyHTML.query(".story-identity")
+      |> LazyHTML.text()
+
+    assert identity =~ "Direct conversation"
+    assert identity =~ "Destination ID"
+    assert identity =~ snapshot.episode.destination
   end
 
   test "a visible input and answer do not acquire duplicate receipt cards" do
@@ -268,7 +296,9 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
     refute html =~ "Validation history"
   end
 
-  test "unchanged delivery links to the response while real transformations keep both versions" do
+  test "sent text stays visible even when it matches the validated response" do
+    # The full timeline needs both the checked candidate and the delivery
+    # outcome; a link to one must not erase the other.
     {:ok, %{episode: episode}} = Episodes.apply(EpisodeFixtures.admit_input())
     {:ok, snapshot} = Projection.episode(episode.key)
     at = snapshot.trace.received_at
@@ -306,9 +336,11 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
       page = put_in(snapshot, [:trace, :case_file, :conversation], [sent])
       document = render_episode(page, [request]) |> LazyHTML.from_fragment()
       previews = LazyHTML.query(document, ".markdown-preview") |> Enum.map(&LazyHTML.text/1)
-      assert Enum.count(previews, &String.contains?(&1, "The check is partial")) == 1
 
-      assert LazyHTML.query(document, ".response-reference a") |> Enum.count() ==
+      assert Enum.count(previews, &String.contains?(&1, "The check is partial")) ==
+               if(transformed, do: 1, else: 2)
+
+      assert LazyHTML.query(document, "a.response-reference") |> Enum.count() ==
                if(transformed, do: 0, else: 1)
 
       if transformed,
@@ -458,6 +490,14 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
       |> put_in([:trace, :steps], [%{step | id: "running", band: :work, at: DateTime.add(at, 3)}])
 
     document = render_episode(snapshot, []) |> LazyHTML.from_fragment()
+
+    assert document
+           |> LazyHTML.query(".timeline-index a")
+           |> LazyHTML.attribute("href") == ["#chapter-1", "#chapter-2", "#chapter-3"]
+
+    assert document
+           |> LazyHTML.query(".timeline-index a")
+           |> Enum.map(&LazyHTML.text/1) == ["Message 1", "Message 2", "Message 3"]
 
     for {message, targets} <- [{1, [2]}, {2, [1, 3]}, {3, [2]}] do
       links =
@@ -919,9 +959,10 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
     assert LazyHTML.text(metrics) =~ "1m 24s"
 
     assert LazyHTML.query(metrics, "dt") |> Enum.map(&LazyHTML.text/1) == [
-             "Total wall time",
+             "Conversation span",
              "Response time",
-             "Messages",
+             "Received",
+             "Sent",
              "Total cost"
            ]
 
@@ -936,6 +977,53 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
            |> String.trim() == "Hi! How can I help?"
 
     refute html =~ "End of retained execution"
+  end
+
+  test "a sent response keeps its text when an exact validated response is linked" do
+    # The latest-outcome shortcut landed on an empty message surface: the link
+    # to the validated attempt replaced the very reply the operator came to see.
+    {:ok, %{episode: episode}} = Episodes.apply(EpisodeFixtures.admit_input())
+    {:ok, snapshot} = Projection.episode(episode.key)
+    at = snapshot.trace.received_at
+
+    reply = %{
+      id: "linked-reply",
+      at: DateTime.add(at, 2),
+      actor: "Ryker",
+      text: "session reuse validated.",
+      available: true,
+      status: "Response sent",
+      delivery_ref: "delivery:linked"
+    }
+
+    request = %{
+      id: "request-linked-reply-result",
+      at: reply.at,
+      kind: :request,
+      source_kind: :work,
+      phase: :result,
+      band: :answer,
+      target: nil,
+      title: "Model response",
+      status: :settled,
+      timing: [],
+      coverage: "Retained",
+      href: "#request-linked-reply-result",
+      sections: [section("candidate", "Candidate response", %{"message" => reply.text})]
+    }
+
+    document =
+      snapshot
+      |> put_in([:trace, :case_file, :conversation], [reply])
+      |> render_episode([request])
+      |> LazyHTML.from_fragment()
+
+    sent = LazyHTML.query(document, "#story-message-linked-reply")
+    assert LazyHTML.query(sent, ".ui-message-title") |> LazyHTML.text() == "Sent response"
+    assert LazyHTML.query(sent, ".ui-message-body") |> LazyHTML.text() =~ reply.text
+
+    assert LazyHTML.query(sent, "a.response-reference") |> LazyHTML.text() =~
+             "View validated response"
   end
 
   test "the header keeps state, actions and navigation in their operator-facing order" do
@@ -956,6 +1044,9 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
       })
 
     document = snapshot |> render_episode([]) |> LazyHTML.from_fragment()
+
+    assert LazyHTML.query(document, ".episode-initial-label") |> LazyHTML.text() ==
+             "Initial request"
 
     assert Enum.empty?(LazyHTML.query(document, ".episode-title-row .ui-status"))
 
@@ -1176,9 +1267,10 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
            ]
 
     assert LazyHTML.query(headline, "dt") |> Enum.map(&LazyHTML.text/1) == [
-             "Total wall time",
+             "Conversation span",
              "Average response",
-             "Messages",
+             "Received",
+             "Sent",
              "Total cost"
            ]
 
@@ -1187,14 +1279,29 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
     assert text =~ "3"
     assert text =~ "≈ $0.15"
     assert text =~ "min 1m, max 2m"
-    assert text =~ "2 received, 1 sent"
-    refute text =~ "1 reported"
+    refute text =~ "includes estimates"
+    refute text =~ "Includes time between messages"
+
+    assert LazyHTML.query(document, ".metric-cost-details") |> LazyHTML.text() =~
+             "1 reported · 1 estimated / 3 requests"
+
     refute text =~ "2 of 3 responses timed"
     refute text =~ "avg"
-    refute text =~ "·"
     refute text =~ "Elapsed"
     refute text =~ "Work turns"
     refute text =~ "Tool calls"
+  end
+
+  test "review history shows review state rather than cost coverage" do
+    {:ok, %{episode: episode}} = Episodes.apply(EpisodeFixtures.admit_input())
+    {:ok, snapshot} = Projection.episode(episode.key)
+
+    document = snapshot |> render_episode([]) |> LazyHTML.from_fragment()
+    review = LazyHTML.query(document, ".story-review") |> LazyHTML.text()
+
+    assert review =~ "Not reviewed"
+    refute review =~ "reported"
+    refute review =~ "estimated"
   end
 
   test "active work calls its pending response waiting without missing-measurement prose" do

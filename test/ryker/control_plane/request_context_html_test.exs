@@ -20,6 +20,7 @@ defmodule Ryker.ControlPlane.RequestContextHTMLTest do
     earlier = LazyHTML.query(document, "[data-source=earlier_messages]")
     assert LazyHTML.text(earlier) =~ "11 messages"
     assert Enum.count(LazyHTML.query(earlier, ".context-message")) == 11
+    assert Enum.count(LazyHTML.query(earlier, ".context-messages-history")) == 1
     assert Enum.count(LazyHTML.query(earlier, ".ui-message > .ui-message-body")) == 11
 
     assert Enum.count(LazyHTML.query(earlier, ".ui-message-footer > .context-message-details")) ==

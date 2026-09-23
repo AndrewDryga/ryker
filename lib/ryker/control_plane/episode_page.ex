@@ -5,7 +5,14 @@ defmodule Ryker.ControlPlane.EpisodePage do
   @moduledoc "One chronological case file: conversation, model requests, host decisions and delivery."
   use Phoenix.Component
   import Ryker.ControlPlane.Components
-  alias Ryker.ControlPlane.{EpisodeRequest, EpisodeTrace, RequestContextHTML, RequestPage}
+
+  alias Ryker.ControlPlane.{
+    EpisodeRequest,
+    EpisodeTrace,
+    RequestContextHTML,
+    RequestPage,
+    SlackNames
+  }
 
   @conversation_bands [:ready, :routing, :work, :answer]
 
@@ -35,7 +42,10 @@ defmodule Ryker.ControlPlane.EpisodePage do
       <div class="episode-page-intro">
         <.link navigate="/" class="back-to-activity">← Activity</.link>
         <div class="episode-title-row">
-          <h1>{@snapshot.trace.case_file.title}</h1>
+          <div class="episode-title-copy">
+            <p class="episode-initial-label">Initial request</p>
+            <h1>{@snapshot.trace.case_file.title}</h1>
+          </div>
           <.status :if={@startup} state="not_started" />
           <nav
             :if={!@startup && @snapshot.trace.actions != []}
@@ -117,7 +127,7 @@ defmodule Ryker.ControlPlane.EpisodePage do
           <p class="metric-group-label">Timing</p>
           <dl class="metric-group-items">
             <div class="metric metric-wall">
-              <dt>Total wall time</dt><dd title={wall_reason(@response_metrics.wall)}>
+              <dt>Conversation span</dt><dd title={wall_reason(@response_metrics.wall)}>
                 {wall_time(@response_metrics.wall)}
               </dd>
             </div>
@@ -133,11 +143,11 @@ defmodule Ryker.ControlPlane.EpisodePage do
         <div class="metric-group metric-group-conversation">
           <p class="metric-group-label">Conversation</p>
           <dl class="metric-group-items">
-            <div class="metric metric-messages">
-              <dt>Messages</dt><dd>{@response_metrics.messages.total}</dd>
-              <p class="metric-note">
-                {@response_metrics.messages.received} received, {@response_metrics.messages.sent} sent
-              </p>
+            <div class="metric metric-received">
+              <dt>Received</dt><dd>{@response_metrics.messages.received}</dd>
+            </div>
+            <div class="metric metric-sent">
+              <dt>Sent</dt><dd>{@response_metrics.messages.sent}</dd>
             </div>
           </dl>
         </div>
@@ -148,6 +158,14 @@ defmodule Ryker.ControlPlane.EpisodePage do
               <dt>Total cost</dt><dd>{cost(@snapshot[:accounting])}</dd>
             </div>
           </dl>
+          <.disclosure
+            :if={@snapshot[:accounting]}
+            id={"cost-details-#{@snapshot.episode.ref}"}
+            label="Cost details"
+            class="metric-cost-details"
+          >
+            <p>{coverage(@snapshot.accounting)}</p>
+          </.disclosure>
         </div>
       </section>
       <section
@@ -245,7 +263,9 @@ defmodule Ryker.ControlPlane.EpisodePage do
         label="Review history"
         class="story-review"
       >
-        <p>{coverage(@snapshot[:accounting])}</p>
+        <p :if={@snapshot.trace.review[:at] == nil && @snapshot.trace.review[:note] in [nil, ""]}>
+          Not reviewed
+        </p>
         <p :if={@snapshot.trace.review[:note] not in [nil, ""]}>
           {@snapshot.trace.review[:note]
           |> Ryker.ControlPlane.InspectionRedactor.artifact(max_bytes: 2_048)
@@ -260,7 +280,8 @@ defmodule Ryker.ControlPlane.EpisodePage do
   defp episode_identity(snapshot) do
     [
       %{label: "Request ID", value: snapshot.episode.ref, identifier: true},
-      %{label: "Destination", value: snapshot.episode.destination},
+      %{label: "Conversation", value: SlackNames.destination(snapshot.episode.destination)},
+      %{label: "Destination ID", value: snapshot.episode.destination, identifier: true},
       %{label: "Created", value: timestamp(snapshot.episode.created_at)}
     ]
   end
@@ -388,6 +409,14 @@ defmodule Ryker.ControlPlane.EpisodePage do
           Long artifacts are labeled when truncated.
         </span>
       </p>
+      <nav :if={@groups != []} class="timeline-index" aria-label="Jump to chapter">
+        <span>Jump to</span>
+        <ol>
+          <li :for={{group, index} <- Enum.with_index(@groups, 1)}>
+            <a href={"#chapter-#{index}"}>{group.title}</a>
+          </li>
+        </ol>
+      </nav>
       <section
         :for={{group, index} <- Enum.with_index(@groups, 1)}
         class={"trace-chapter timeline-group #{if group.kind == :conversation, do: "conversation-chapter", else: "background-chapter"} phase-#{group.band}"}
@@ -914,11 +943,17 @@ defmodule Ryker.ControlPlane.EpisodePage do
         </time>
         <span :if={@message[:status]}>{@message.status}</span>
       </:meta>
-      <p :if={@message[:response_reference]} class="response-reference">
-        <a href={@message.response_reference}>View response ↑</a>
-      </p>
-      <div :if={!@message[:response_reference]}>{message_text(@message)}</div>
-      <:footer :if={@message[:details]}><.input_details message={@message} /></:footer>
+      <div>{message_text(@message)}</div>
+      <:footer :if={@message[:details] || @message[:response_reference]}>
+        <a
+          :if={@message[:response_reference]}
+          class="response-reference"
+          href={@message.response_reference}
+        >
+          View validated response ↑
+        </a>
+        <.input_details :if={@message[:details]} message={@message} />
+      </:footer>
     </.message_block>
     <.input_details :if={@message[:provider] && @message[:details]} message={@message} />
     <p :if={@message[:provider] && @message.provider.links != []} class="provider-links">

@@ -510,7 +510,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
     assert Enum.any?(detail.trace.chapters, &(&1.title == "The answer"))
 
     for {candidate, expected_parse} <- [
-          {Jason.encode!(%{"delivery" => "none"}), nil},
+          {Jason.encode!(%{"delivery" => "none"}), "JSON object"},
           {Jason.encode!(["not", "an", "object"]), "JSON value; object required"},
           {"not-json", "invalid JSON"}
         ] do
@@ -576,7 +576,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
 
     assert Enum.map(validation_steps, & &1.summary) == [
              "Supply the missing evidence.",
-             "Passed checks on attempt 3.",
+             "Accepted candidate on attempt 3.",
              "Ryker rejected this candidate and requested a same-turn correction."
            ]
 

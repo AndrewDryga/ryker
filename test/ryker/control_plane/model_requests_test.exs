@@ -140,7 +140,11 @@ defmodule Ryker.ControlPlane.ModelRequestsTest do
         assert Enum.count(component) == 1
         assert LazyHTML.query(component, "summary") |> LazyHTML.text() =~ title
         assert LazyHTML.query(component, "summary") |> LazyHTML.text() =~ "estimated tokens"
-        assert LazyHTML.query(component, ".submitted-prompt code") |> LazyHTML.text() == text
+        assert LazyHTML.query(component, ".submitted-prompt-raw code") |> LazyHTML.text() == text
+
+        assert LazyHTML.query(component, ".submitted-prompt-formatted code")
+               |> LazyHTML.text()
+               |> Jason.decode!() == Jason.decode!(text)
       end
 
       prompt_component = LazyHTML.query(full, ".prompt-source[data-source=request]")
@@ -214,9 +218,11 @@ defmodule Ryker.ControlPlane.ModelRequestsTest do
     document = LazyHTML.from_document(html)
     attempts = LazyHTML.query(document, ".validation-attempt")
     assert LazyHTML.attribute(attempts, "data-candidate-attempt") == ["1", "2"]
-    assert LazyHTML.text(Enum.at(attempts, 0)) =~ "Attempt 1 needs correction"
+    assert LazyHTML.text(Enum.at(attempts, 0)) =~ "Attempt 1 rejected"
     assert LazyHTML.text(Enum.at(attempts, 0)) =~ "not ready"
-    assert LazyHTML.text(Enum.at(attempts, 1)) =~ "Attempt 2 passed checks"
+    assert LazyHTML.text(Enum.at(attempts, 1)) =~ "Attempt 2 accepted"
+    assert LazyHTML.text(Enum.at(attempts, 1)) =~ "JSON object"
+    assert LazyHTML.text(Enum.at(attempts, 1)) =~ "100 bytes"
     assert LazyHTML.text(attempts) =~ "Response body not retained for this attempt"
     refute LazyHTML.text(attempts) =~ rejected["candidate_sha256"]
     refute html =~ "<script>"

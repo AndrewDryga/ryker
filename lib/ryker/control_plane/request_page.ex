@@ -267,6 +267,14 @@ defmodule Ryker.ControlPlane.RequestPage do
         <.card_heading title={step.title}>
           <:meta :if={step.at}><time>{timestamp(step.at)}</time></:meta>
         </.card_heading>
+        <dl :if={step.parse || step.response_bytes} class="validation-receipt-facts">
+          <div :if={step.parse}>
+            <dt>Parse</dt><dd>{step.parse}</dd>
+          </div>
+          <div :if={step.response_bytes}>
+            <dt>Response</dt><dd>{step.response_bytes} bytes</dd>
+          </div>
+        </dl>
         <ul :if={step.violations != []}>
           <li :for={violation <- step.violations}>{violation}</li>
         </ul>
@@ -315,10 +323,11 @@ defmodule Ryker.ControlPlane.RequestPage do
     if Enum.all?(violations, &is_binary/1) && (verdict != "accept" || violations == []) do
       %{
         attempt: attempt,
-        title:
-          "Attempt #{attempt} #{if verdict == "accept", do: "passed checks", else: "needs correction"}",
+        title: "Attempt #{attempt} #{if verdict == "accept", do: "accepted", else: "rejected"}",
         violations: violations,
         at: validation_time(entry["recorded_at"]),
+        parse: recorded_parse(entry["parse"]),
+        response_bytes: recorded_bytes(entry["response_bytes"]),
         response: exact_response(entry, responses),
         response_retained: retained_response?(entry, document, sections)
       }
@@ -329,12 +338,19 @@ defmodule Ryker.ControlPlane.RequestPage do
 
   defp validation_step(_entry, _document, _sections, _responses), do: unavailable_validation()
 
+  defp recorded_parse(value) when is_binary(value), do: value
+  defp recorded_parse(_value), do: nil
+  defp recorded_bytes(value) when is_integer(value) and value >= 0, do: value
+  defp recorded_bytes(_value), do: nil
+
   defp unavailable_validation,
     do: %{
       attempt: nil,
       title: "Validation details unavailable",
       violations: [],
       at: nil,
+      parse: nil,
+      response_bytes: nil,
       response: nil,
       response_retained: false
     }

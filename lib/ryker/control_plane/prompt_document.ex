@@ -1,14 +1,23 @@
 defmodule Ryker.ControlPlane.PromptDocument do
+  alias Ryker.ControlPlane.Components
   alias Ryker.ControlPlane.RequestContextHTML
-  @moduledoc "Source annotations over retained JSON tokens, without rewriting the submitted text."
+  @moduledoc "Readable source annotations beside the exact retained prompt text."
   @tokens ~r/\s+|"(?:\\.|[^"\\])*"|[{}\[\],:]|[^\s{}\[\],:]+/u
 
   def render(%{state: :retained, truncated: false, text: text}) do
     case Jason.decode(text) do
       {:ok, value} when is_map(value) ->
-        tokens = Regex.scan(@tokens, text) |> List.flatten()
+        formatted = Jason.encode!(value, pretty: true)
+        tokens = Regex.scan(@tokens, formatted) |> List.flatten()
         {html, rest} = value(tokens, "$", 0)
-        ["<pre class=\"submitted-prompt\"><code>", html, escape(Enum.join(rest)), "</code></pre>"]
+
+        [
+          "<pre class=\"submitted-prompt submitted-prompt-formatted\"><code>",
+          html,
+          escape(Enum.join(rest)),
+          "</code></pre>",
+          Components.disclosure_html("Raw text", pre(text), class: "prompt-raw")
+        ]
 
       _ ->
         pre(text)
@@ -136,6 +145,13 @@ defmodule Ryker.ControlPlane.PromptDocument do
   end
 
   defp whitespace?(token), do: String.trim(token) == ""
-  defp pre(text), do: ["<pre class=\"submitted-prompt\"><code>", escape(text), "</code></pre>"]
+
+  defp pre(text),
+    do: [
+      "<pre class=\"submitted-prompt submitted-prompt-raw\"><code>",
+      escape(text),
+      "</code></pre>"
+    ]
+
   defp escape(text), do: Plug.HTML.html_escape(text)
 end

@@ -16,6 +16,7 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
       |> assign(:explanation, explanation(request))
       |> assign(:timing, request.timing)
       |> assign(:decision, decision_facts(request))
+      |> assign(:candidate_outcomes, candidate_outcomes(request))
       |> assign(:result?, request.phase == :result)
       |> assign(:archived_response, archived)
       |> assign(
@@ -76,6 +77,18 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
           </dd>
         </div>
       </dl>
+      <Components.disclosure
+        :if={@candidate_outcomes != []}
+        id={"#{@request.id}-candidate-outcomes"}
+        label="Candidate outcomes"
+        class="routing-candidate-outcomes"
+      >
+        <ul>
+          <li :for={outcome <- @candidate_outcomes}>
+            <a href={outcome.href}>{outcome.title}</a><span> · {outcome.status}</span>
+          </li>
+        </ul>
+      </Components.disclosure>
       <dl :if={@timing != []} class="request-timing">
         <div :for={metric <- @timing} :if={metric.value != "Not recorded"}>
           <dt>{timing_label(metric.label)}</dt><dd>{metric.value}</dd>
@@ -495,6 +508,53 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
        do: [%{label: "Run mode", value: run_mode(mode)}]
 
   defp decision_facts(_request), do: []
+
+  defp candidate_outcomes(%{source_kind: :admission, phase: :result} = request) do
+    case document(request, "candidate") do
+      %{} = result ->
+        selected_ref = result["episode_ref"]
+        relation = result["relation"]
+
+        request
+        |> Map.get(:candidate_links, %{})
+        |> Enum.map(fn {ref, candidate} ->
+          %{
+            title: candidate.value,
+            href: candidate.href,
+            status:
+              candidate_outcome(
+                ref,
+                candidate.allowed_relations,
+                selected_ref,
+                relation,
+                result["action"]
+              ),
+            selected: ref == selected_ref
+          }
+        end)
+        |> Enum.sort_by(fn outcome -> {not outcome.selected, outcome.title} end)
+
+      _ ->
+        []
+    end
+  end
+
+  defp candidate_outcomes(_request), do: []
+
+  defp candidate_outcome(ref, _allowed, ref, "same_work", _action),
+    do: "Selected for continuation"
+
+  defp candidate_outcome(ref, _allowed, ref, _relation, "continue_episode"),
+    do: "Selected for continuation"
+
+  defp candidate_outcome(ref, _allowed, ref, "history_only", _action),
+    do: "Selected as background"
+
+  defp candidate_outcome(ref, _allowed, ref, _relation, _action), do: "Selected"
+
+  defp candidate_outcome(_ref, allowed, _selected_ref, _relation, _action) do
+    if "same_work" in allowed, do: "Not selected for continuation", else: "Background only"
+  end
 
   defp run_mode(:live), do: "Live"
   defp run_mode(:shadow), do: "Evaluation"
