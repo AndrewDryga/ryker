@@ -37,38 +37,45 @@ defmodule Ryker.ControlPlane.ReceivedInputCardTest do
 
     message = LazyHTML.query(document, "#story-message-#{entry.id}")
 
-    assert LazyHTML.query(message, ".case-card-heading h3") |> LazyHTML.text() ==
+    assert LazyHTML.query(message, ".ui-message-title") |> LazyHTML.text() ==
+             "Incoming message"
+
+    assert LazyHTML.query(message, ".ui-message-header strong") |> LazyHTML.text() ==
              "Slack user U123"
 
-    assert LazyHTML.query(message, ".case-message-text") |> LazyHTML.text() =~ "Terraform plan"
+    assert LazyHTML.query(message, ".ui-message-meta time") |> LazyHTML.text() |> String.trim() ==
+             "4 Sep, 22:51:44 UTC"
+
+    assert LazyHTML.query(message, ".ui-message > .ui-message-body") |> LazyHTML.text() =~
+             "Terraform plan"
+
+    assert Enum.empty?(LazyHTML.query(message, ".case-entry-time > time"))
+    assert Enum.count(LazyHTML.query(message, ".ui-message-footer > .input-details")) == 1
+
+    assert LazyHTML.query(message, ".input-details > summary .ui-disclosure-label")
+           |> LazyHTML.text() == "Details"
 
     details = LazyHTML.query(document, "#input-details-#{entry.id}")
     assert Enum.count(details) == 1
     text = LazyHTML.text(details)
 
-    for label <- [
-          "Input ID",
-          "Source",
-          "Event",
-          "Event ID",
-          "Event identity",
-          "Message ID",
-          "Sender ID",
-          "Source revision",
-          "Source event time",
-          "Recorded by Ryker"
-        ] do
-      assert text =~ label
-    end
+    labels =
+      details
+      |> LazyHTML.query(".ui-disclosure-body > .ui-facts > div > dt")
+      |> Enum.map(&LazyHTML.text/1)
+
+    assert labels == ["Input ID", "Source", "Sender ID"]
 
     refute text =~ "time reported by the source"
     refute text =~ "time assigned at ingress"
     refute text =~ "Extracted metadata"
+    refute text =~ "Event identity"
+    refute text =~ "Execution mode"
 
     assert details
            |> LazyHTML.query("button[data-copy-value]")
            |> LazyHTML.attribute("data-copy-value")
-           |> Enum.take(2) == ["ingress-input:#{entry.id}", entry.dedupe_key]
+           |> Enum.take(2) == ["ingress-input:#{entry.id}", "user:U123"]
 
     # Metadata precedes the three bodies, and the bodies come in the approved order.
     positions =
@@ -172,7 +179,8 @@ defmodule Ryker.ControlPlane.ReceivedInputCardTest do
     card = LazyHTML.query(document, ".provider-message.provider-terraform")
     assert Enum.count(card) == 1
     text = LazyHTML.text(card)
-    assert text =~ "HCP Terraform · via Slack"
+    assert LazyHTML.query(card, ".case-card-heading h3") |> LazyHTML.text() == "HCP Terraform"
+    assert LazyHTML.query(card, ".case-card-heading-detail") |> LazyHTML.text() == "via Slack"
     assert text =~ "Planning"
     assert text =~ "Dryga/emisar"
     assert text =~ "run-k9CpPp3nWjQrkCMG"

@@ -34,6 +34,9 @@ defmodule Ryker.ControlPlane.CandidateResponseViewTest do
     for {attempt, response} <- [{1, first}, {2, second}, {3, second}] do
       card = Enum.at(attempts, attempt - 1)
       assert LazyHTML.query(card, ".candidate-response pre") |> LazyHTML.text() == response.text
+      # A validated answer is primary message content, not another subtitle
+      # beneath its check result. Raw evidence remains a separate disclosure.
+      assert Enum.count(LazyHTML.query(card, ".candidate-response .ui-message-body")) == 1
       assert Enum.empty?(LazyHTML.query(card, ".candidate-response[open]"))
 
       assert LazyHTML.query(card, ".candidate-response") |> LazyHTML.attribute("id") ==

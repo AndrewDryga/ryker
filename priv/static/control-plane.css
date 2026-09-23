@@ -32,13 +32,6 @@ code{font-family:var(--ryker-font-mono);font-size:.9em}.eyebrow{color:var(--acce
 .request-context-readable { padding: 6px 18px 18px; }
 .request-context-readable section { margin-top: 22px; }
 .request-context-readable h3 { font-size: 14px; color: var(--ryker-text); margin: 0 0 12px; }
-.context-message { border-left: 2px solid var(--ryker-source-conversation); background: var(--ryker-surface-emphasis); padding: 13px 16px; margin: 10px 0; }
-.context-message header { display: flex; gap: 14px; align-items: baseline; flex-wrap: wrap; background: none; padding: 0; border: 0; }
-.context-message header strong { font-size: 13px; }
-.context-message header span { color: var(--ryker-text-secondary); font-size: 11px; }
-.context-message-body { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14px; line-height: 1.7; margin: 10px 0; }
-.context-message details { margin-top: 12px; color: var(--ryker-text-secondary); font-size: 11px; }
-.context-message details summary, .context-candidate summary { cursor: pointer; }
 .request-context-readable pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 320px; overflow: auto; font: 11px/1.7 var(--ryker-font-mono); }
 .context-omission { padding: 10px 12px; background: var(--ryker-warning-soft); border-left: 2px solid var(--ryker-warning); font-size: 12px; }
 .context-field { padding: 8px 0 8px 12px; border-left: 1px solid var(--ryker-stroke); overflow-wrap: anywhere; }

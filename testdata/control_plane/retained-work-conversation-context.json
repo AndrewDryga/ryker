@@ -1,0 +1,31 @@
+{
+  "bundle": {
+    "channel_summary": null,
+    "messages": [
+      {"actor_ref": "local-operator", "content": {"text": "Hi\r\n"}, "occurred_at": "2026-09-20T19:54:31.308563Z"},
+      {"actor_ref": "local-operator", "content": {"text": "hiii\r\n"}, "occurred_at": "2026-09-20T20:22:12.362595Z"},
+      {"actor_ref": "local-operator", "content": {"text": "What you can do?\r\n"}, "occurred_at": "2026-09-20T21:11:04.297490Z"},
+      {"actor_ref": "local-operator", "content": {"text": "Just chat"}, "occurred_at": "2026-09-20T21:12:58.875514Z"},
+      {"actor_ref": "local-operator", "content": {"text": "Good, u?\r\n"}, "occurred_at": "2026-09-21T03:38:04.433224Z"},
+      {"actor_ref": "local-operator", "content": {"text": "1\r\n"}, "occurred_at": "2026-09-21T03:41:26.395812Z"},
+      {"actor_ref": "local-operator", "content": {"text": "2\r\n"}, "occurred_at": "2026-09-21T03:41:50.919481Z"},
+      {"actor_ref": "local-operator", "content": {"text": "3"}, "occurred_at": "2026-09-21T03:41:53.810961Z"},
+      {"actor_ref": "local-operator", "content": {"text": "4"}, "occurred_at": "2026-09-21T03:41:55.427902Z"},
+      {"actor_ref": "local-operator", "content": {"text": "5"}, "occurred_at": "2026-09-21T03:41:57.739229Z"},
+      {"actor_ref": "local-operator", "content": {"text": "Reply with exactly: progress validation complete."}, "occurred_at": "2026-09-21T05:44:38.329569Z"}
+    ],
+    "thread_summary": null
+  },
+  "manifest": {
+    "bytes": 5079,
+    "channel_summary": {"reason": "absent", "status": "unavailable"},
+    "cutoff": "2026-09-21T05:48:52.427135Z",
+    "included": 11,
+    "kind": "conversation",
+    "range": {"from": "2026-09-20T19:54:31.308563Z", "to": "2026-09-21T05:44:38.329569Z"},
+    "requested": 20,
+    "root": "not_applicable",
+    "source_read": "retained_only",
+    "thread_summary": {"reason": "absent", "status": "unavailable"}
+  }
+}

@@ -5,7 +5,7 @@ defmodule Ryker.ControlPlane.EpisodePage do
   @moduledoc "One chronological case file: conversation, model requests, host decisions and delivery."
   use Phoenix.Component
   import Ryker.ControlPlane.Components
-  alias Ryker.ControlPlane.{EpisodeRequest, EpisodeTrace}
+  alias Ryker.ControlPlane.{EpisodeRequest, EpisodeTrace, RequestContextHTML, RequestPage}
 
   @conversation_bands [:ready, :routing, :work, :answer]
 
@@ -184,25 +184,33 @@ defmodule Ryker.ControlPlane.EpisodePage do
       <section :if={@snapshot.trace.stopped && !@startup} class="story-stop">
         <p class="ui-eyebrow">NEXT ACTION</p><h3>{@snapshot.trace.stopped.headline}</h3>
         <p>{@snapshot.trace.stopped.reason}</p><strong>{@snapshot.trace.stopped.action}</strong>
-        <details :if={@snapshot.trace.stopped[:model_output]} class="recovery-worker-report">
-          <summary>Worker’s saved response</summary>
+        <.disclosure
+          :if={@snapshot.trace.stopped[:model_output]}
+          class="recovery-worker-report"
+          id="recovery-worker-report"
+          label="Worker’s saved response"
+        >
           <p class="recovery-attribution">
             {@snapshot.trace.stopped[:delivery]} This is the worker’s report, not an independently verified check result.
           </p>
           <div class="recovery-model-output">
             {Phoenix.HTML.raw(SlackMarkdown.preview(@snapshot.trace.stopped.model_output))}
           </div>
-        </details>
+        </.disclosure>
         <a
           :if={@snapshot.trace.stopped.href}
           class="ui-button secondary"
           href={@snapshot.trace.stopped.href}
         >{@snapshot.trace.stopped[:link_label] || "Open recovery"} <.icon name={:arrow} /></a>
-        <details :if={@snapshot.trace.stopped.attempted != []}>
-          <summary>Already attempted</summary><ul>
+        <.disclosure
+          :if={@snapshot.trace.stopped.attempted != []}
+          id="recovery-attempted"
+          label="Already attempted"
+        >
+          <ul>
             <li :for={attempt <- @snapshot.trace.stopped.attempted}>{attempt}</li>
           </ul>
-        </details>
+        </.disclosure>
       </section>
       <section
         :if={(@snapshot.trace[:follow_through] || []) != []}
@@ -285,7 +293,7 @@ defmodule Ryker.ControlPlane.EpisodePage do
       </div>
       <p class="episode-location">
         <time :if={@received_at}>{timestamp(@received_at)}</time>
-        <a :if={@source} href={@source.href} rel="noopener noreferrer">{@source.label} →</a>
+        <a :if={@source} href={@source.href} target="_blank" rel="noopener noreferrer">{@source.label} →</a>
         <a :if={@conversation_href} href={@conversation_href}>All activity in this conversation →</a>
       </p>
     </div>
@@ -612,11 +620,14 @@ defmodule Ryker.ControlPlane.EpisodePage do
     ~H"""
     <article
       id={@entry.id}
-      class={"case-entry case-#{@entry.kind} #{if compact_entry?(@entry), do: "case-checkpoint"}"}
+      class={
+        "case-entry case-#{@entry.kind} #{if compact_entry?(@entry), do: "case-checkpoint"} #{if message_container?(@entry), do: "message-container"}"
+      }
       data-entry-kind={@entry.kind}
     >
       <div class="case-entry-time">
         <time
+          :if={!message_container?(@entry)}
           datetime={if(@entry.at, do: DateTime.to_iso8601(@entry.at))}
           title={timestamp(@entry.at)}
         >{clock_time(@entry.at)}</time>
@@ -661,6 +672,9 @@ defmodule Ryker.ControlPlane.EpisodePage do
         "Input queue",
         "Work setup"
       ]
+
+  defp message_container?(%{kind: :message, message: message}), do: is_nil(message[:provider])
+  defp message_container?(_entry), do: false
 
   @doc """
   The Getting ready cards for an input that has no Timeline of its own yet.
@@ -887,25 +901,44 @@ defmodule Ryker.ControlPlane.EpisodePage do
 
   defp message(assigns) do
     ~H"""
-    <.provider_header :if={@message[:provider]} provider={@message.provider} />
-    <.card_heading :if={!@message[:provider]} title={@message[:display_actor] || @message.actor}>
-      <:meta :if={@message[:status]}><span>{@message.status}</span></:meta>
-    </.card_heading>
-    <p :if={@message[:response_reference]} class="response-reference">
-      <a href={@message.response_reference}>View response ↑</a>
-    </p>
-    <div
-      :if={!@message[:response_reference] && !@message[:provider]}
-      class="case-message-text markdown-preview"
+    <.provider_header :if={@message[:provider]} provider={@message.provider} id={@message.id} />
+    <.message_block
+      :if={!@message[:provider]}
+      title={message_title(@message)}
+      sender={@message[:display_actor] || @message.actor}
+      class="case-message"
     >
-      {message_text(@message)}
-    </div>
-    <.input_details :if={@message[:details]} message={@message} />
+      <:meta>
+        <time :if={@message.at} datetime={DateTime.to_iso8601(@message.at)}>
+          {message_timestamp(@message.at)}
+        </time>
+        <span :if={@message[:status]}>{@message.status}</span>
+      </:meta>
+      <p :if={@message[:response_reference]} class="response-reference">
+        <a href={@message.response_reference}>View response ↑</a>
+      </p>
+      <div :if={!@message[:response_reference]}>{message_text(@message)}</div>
+      <:footer :if={@message[:details]}><.input_details message={@message} /></:footer>
+    </.message_block>
+    <.input_details :if={@message[:provider] && @message[:details]} message={@message} />
     <p :if={@message[:provider] && @message.provider.links != []} class="provider-links">
-      <a :for={link <- @message.provider.links} href={link.href} rel="noopener noreferrer">{link.label} ↗</a>
+      <a
+        :for={link <- @message.provider.links}
+        href={link.href}
+        target="_blank"
+        rel="noopener noreferrer"
+      >{link.label} ↗</a>
     </p>
     """
   end
+
+  defp message_title(%{response_reference: reference}) when is_binary(reference),
+    do: "Sent response"
+
+  defp message_title(%{event_kind: :edit}), do: "Message edited"
+  defp message_title(%{event_kind: :delete}), do: "Message deleted"
+  defp message_title(%{event_kind: :event}), do: "Incoming event"
+  defp message_title(_message), do: "Incoming message"
 
   # A recognized notification leads with provider, state, subject and a few
   # labelled facts. The state badge is text; the accent only says which
@@ -913,17 +946,19 @@ defmodule Ryker.ControlPlane.EpisodePage do
   defp provider_header(assigns) do
     ~H"""
     <div class={"provider-message provider-#{@provider.provider}"} data-provider={@provider.provider}>
-      <div class="provider-heading">
-        <span class="provider-name">{@provider.name} · via {source_transport(@provider)}</span>
-        <span :if={@provider.state} class={"provider-state tone-#{@provider.tone}"}>{@provider.state}</span>
-      </div>
+      <.card_heading title={@provider.name}>
+        <:detail>via {source_transport(@provider)}</:detail>
+        <:meta :if={@provider.state}>
+          <span class={"provider-state tone-#{@provider.tone}"}>{@provider.state}</span>
+        </:meta>
+      </.card_heading>
       <p :if={@provider.subject} class="provider-subject">{@provider.subject}</p>
       <.fact_list :if={@provider.facts != []} facts={@provider.facts} class="provider-facts" />
       <.disclosure
         :for={group <- @provider[:groups] || []}
         label={group.label}
         class="provider-group"
-        id={"provider-#{@provider.provider}-#{String.downcase(group.label)}"}
+        id={"provider-#{@id}-#{@provider.provider}-#{String.downcase(group.label)}"}
       >
         <.fact_list facts={group.entries} />
       </.disclosure>
@@ -952,7 +987,7 @@ defmodule Ryker.ControlPlane.EpisodePage do
     ~H"""
     <.disclosure
       id={"input-details-#{@message.id}"}
-      label="Input details"
+      label="Details"
       class="input-details"
     >
       <.fact_list facts={@message.details.metadata} />
@@ -968,13 +1003,12 @@ defmodule Ryker.ControlPlane.EpisodePage do
         body={@message.details.normalized}
         absent="The normalized input was not retained."
       />
-      <details class="input-body" id={"input-original-#{@message.id}"}>
-        <summary>Original message</summary>
+      <.disclosure class="input-body" id={"input-original-#{@message.id}"} label="Original message">
         <p :if={!@message.available} class="artifact-unavailable">
           Source content not recorded or expired.
         </p>
         <pre :if={@message.available}>{@message.text}</pre>
-      </details>
+      </.disclosure>
     </.disclosure>
     """
   end
@@ -983,21 +1017,21 @@ defmodule Ryker.ControlPlane.EpisodePage do
     assigns = assign(assigns, :artifact, assigns.body.artifact)
 
     ~H"""
-    <details
+    <.disclosure
       class="input-body"
       id={@id}
+      label={@title}
       data-artifact={if @artifact.state in [:collapsed, :retained], do: @body.artifact_id}
       data-revoked={if @artifact.state in [:expired], do: "true"}
     >
-      <summary>
-        {@title}
+      <:meta>
         <span :if={@artifact.state == :collapsed}>{bytes(@artifact.bytes)}</span>
         <span :if={@artifact.state == :expired}>Expired</span>
         <span :if={@artifact.state == :not_recorded}>Not recorded</span>
         <span :if={@artifact.state == :omitted}>Omitted</span>
         <span :if={@artifact[:redacted]}>Secrets redacted</span>
         <span :if={@artifact[:truncated]}>Partial display</span>
-      </summary>
+      </:meta>
       <p :if={@artifact.state == :collapsed} class="artifact-loading" role="status">Loading…</p>
       <p :if={@artifact.state == :not_recorded} class="artifact-unavailable">{@absent}</p>
       <p :if={@artifact.state == :expired} class="artifact-unavailable">
@@ -1007,7 +1041,7 @@ defmodule Ryker.ControlPlane.EpisodePage do
         {omission(@artifact)}
       </p>
       <pre :if={@artifact.state == :retained}>{@artifact.text}</pre>
-    </details>
+    </.disclosure>
     """
   end
 
@@ -1095,16 +1129,17 @@ defmodule Ryker.ControlPlane.EpisodePage do
     assigns = assign(assigns, :artifact, assigns.item.artifact)
 
     ~H"""
-    <details
+    <.disclosure
       id={@id}
+      label={@item.label}
       data-artifact={if @artifact.state in [:collapsed, :retained], do: @item[:artifact_id]}
       data-revoked={if @artifact.state in [:expired, :not_recorded], do: "true"}
     >
-      <summary>
-        {@item.label}<span :if={@artifact.state == :collapsed}> · {bytes(@artifact.bytes)}</span><span :if={
+      <:meta>
+        <span :if={@artifact.state == :collapsed}>{bytes(@artifact.bytes)}</span><span :if={
           @artifact.truncated
-        }> · Partial display</span><span :if={@artifact.redacted}> · Secrets redacted</span>
-      </summary>
+        }>Partial display</span><span :if={@artifact.redacted}>Secrets redacted</span>
+      </:meta>
       <p :if={@artifact.state == :collapsed} class="artifact-loading" role="status">Loading…</p>
       <p :if={@artifact.state in [:expired, :not_recorded]} class="artifact-unavailable">
         {if @artifact.state == :expired,
@@ -1112,7 +1147,7 @@ defmodule Ryker.ControlPlane.EpisodePage do
           else: "This body was not recorded."}
       </p>
       <pre :if={@artifact.state == :retained}>{@artifact.text}</pre>
-    </details>
+    </.disclosure>
     """
   end
 
@@ -1140,11 +1175,17 @@ defmodule Ryker.ControlPlane.EpisodePage do
   defp compact_entry?(%{kind: :event, step: step}), do: bookkeeping?(step)
   defp compact_entry?(_), do: false
 
+  defp show_event_state?(%{stage: "Validation", state: state}) when state in ["accept", "reject"],
+    do: false
+
   defp show_event_state?(step),
     do:
       step.state not in [nil, ""] &&
         step.stage not in ["Preparation", "Execution", "Evidence"] &&
-        String.downcase(label(step.state)) != String.downcase(event_title(step))
+        not String.contains?(
+          String.downcase(event_title(step)),
+          String.downcase(label(step.state))
+        )
 
   defp event_title(%{stage: "Tool call", title: "Tool call", summary: summary})
        when is_binary(summary), do: summary
@@ -1211,7 +1252,7 @@ defmodule Ryker.ControlPlane.EpisodePage do
           into: %{},
           do: {step.record_ref, %{href: "#event-#{step.id}", title: step.title}}
 
-    requests = Enum.map(timeline.items, &Map.put(&1, :record_links, record_links))
+    requests = requests_with_links(timeline.items, record_links)
 
     messages =
       Enum.map(snapshot.trace.case_file.conversation, fn message ->
@@ -1252,6 +1293,22 @@ defmodule Ryker.ControlPlane.EpisodePage do
     Enum.sort_by(messages ++ steps ++ requests, &unix(&1.at || &1[:sort_at]))
   end
 
+  defp requests_with_links(requests, record_links) do
+    candidate_links =
+      for %{source_kind: :admission, phase: :submission} = request <- requests,
+          into: %{},
+          do: {request.id, RequestContextHTML.candidate_links(request.sections, request.id)}
+
+    Enum.map(requests, fn request ->
+      request
+      |> Map.put(:record_links, record_links)
+      |> Map.put(
+        :candidate_links,
+        candidate_links[String.replace_suffix(request.id, "-result", "")] || %{}
+      )
+    end)
+  end
+
   # A receipt may point back to this turn's exact response; a changed, missing or
   # truncated candidate must never hide what actually reached the conversation.
   defp response_reference(message, requests) do
@@ -1263,12 +1320,17 @@ defmodule Ryker.ControlPlane.EpisodePage do
              Enum.find(sections, &(&1.id == "candidate")),
            {:ok, %{"message" => body}} when is_binary(body) <- Jason.decode(text),
            true <- body == message.text do
-        "##{id}"
+        response_anchor(RequestPage.latest_archived_response(sections), message.id, id)
       else
         _ -> nil
       end
     end
   end
+
+  defp response_anchor(%{attempt: attempt}, message_id, _request_id),
+    do: "#turn-#{message_id}-response-#{attempt}-body"
+
+  defp response_anchor(_archived, _message_id, request_id), do: "##{request_id}"
 
   defp visible_copies(steps, messages, requests) do
     input_ids = for %{message: message} <- messages, message.actor != "Ryker", do: message.id
@@ -1332,6 +1394,11 @@ defmodule Ryker.ControlPlane.EpisodePage do
   defp unix(at), do: DateTime.to_unix(at, :microsecond)
   defp clock_time(nil), do: "Not recorded"
   defp clock_time(at), do: Calendar.strftime(at, "%H:%M:%S")
+
+  defp message_timestamp(%DateTime{} = at),
+    do: "#{at.day} #{Calendar.strftime(at, "%b, %H:%M:%S UTC")}"
+
+  defp message_timestamp(_at), do: "Not recorded"
   defp base(snapshot), do: "/timeline/" <> URI.encode_www_form(snapshot.episode.ref)
   defp pending_answer_label(%{episode: %{state: :cancelled}}), do: "Stopped"
   defp pending_answer_label(%{episode: %{state: :complete}}), do: "No further reply was sent"

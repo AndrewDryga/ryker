@@ -235,18 +235,8 @@ defmodule Ryker.ControlPlane.EpisodeTrace.CaseFile do
   defp input_metadata(input) do
     compact_details([
       {"Input ID", "ingress-input:#{input.id}", identifier: true},
-      {"Event identity", input.dedupe_key, identifier: true},
       {"Source", source_label(input.source_kind)},
-      {"Event", input_event_label(input.event_kind)},
-      {"Event ID", input.event_ref, identifier: true},
-      {"Message ID", input.source_item_ref, identifier: true},
-      {"Sender ID", join_ref(input.actor_kind, input.actor_ref), identifier: true},
-      {"Conversation", input.destination_conversation_ref, identifier: true},
-      {"Thread", input.destination_thread_ref, identifier: true},
-      {"Source revision", input.revision},
-      {"Source event time", source_event_time(input)},
-      {"Recorded by Ryker", timestamp_precise(input.inserted_at)},
-      {"Execution mode", input.execution_mode}
+      {"Sender ID", join_ref(input.actor_kind, input.actor_ref), identifier: true}
     ])
   end
 
@@ -300,17 +290,6 @@ defmodule Ryker.ControlPlane.EpisodeTrace.CaseFile do
   defp source_label("control_plane"), do: "Direct conversation"
   defp source_label("webhook"), do: "Webhook"
   defp source_label(other), do: to_string(other)
-
-  defp input_event_label(:message), do: "New message"
-  defp input_event_label(:edit), do: "Message edited"
-  defp input_event_label(:delete), do: "Message deleted"
-  defp input_event_label(:event), do: "Source event"
-  defp input_event_label(other), do: to_string(other)
-
-  defp source_event_time(%{occurred_at: at, occurred_at_source: :ingress}),
-    do: "#{timestamp_precise(at)} · Recorded by Ryker when received"
-
-  defp source_event_time(%{occurred_at: at}), do: timestamp_precise(at)
 
   defp case_reply_status(%{
          delivered_at: %DateTime{},

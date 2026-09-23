@@ -102,19 +102,20 @@ defmodule Ryker.ControlPlane.ToolCard do
         </ul>
       </section>
       <pre :if={@action.diff && @step.state != "started"} class="action-diff">{@action.diff}</pre>
-      <details
-        :for={artifact <- @step.artifacts}
+      <Components.disclosure
+        :for={{artifact, index} <- Enum.with_index(@step.artifacts)}
+        id={"tool-#{@step.id}-artifact-#{index}"}
+        label={if artifact.label == "Arguments", do: "Raw arguments", else: artifact.label}
         class="action-raw"
         data-artifact={
           if artifact.artifact.state in [:collapsed, :retained], do: artifact[:artifact_id]
         }
         data-revoked={if artifact.artifact.state in [:expired, :not_recorded], do: "true"}
       >
-        <summary>
-          {if artifact.label == "Arguments", do: "Raw arguments", else: artifact.label}{if artifact.artifact.truncated,
-            do: " · partial record"}{if artifact.artifact.state == :collapsed,
-            do: " · #{bytes(artifact.artifact.bytes)}"}
-        </summary>
+        <:meta :if={artifact.artifact.truncated || artifact.artifact.state == :collapsed}>
+          <span :if={artifact.artifact.truncated}>Partial display</span>
+          <span :if={artifact.artifact.state == :collapsed}>{bytes(artifact.artifact.bytes)}</span>
+        </:meta>
         <p :if={artifact.artifact.state == :collapsed} class="artifact-loading" role="status">
           Loading…
         </p>
@@ -122,7 +123,7 @@ defmodule Ryker.ControlPlane.ToolCard do
           This body is no longer retained.
         </p>
         <pre :if={artifact.artifact.state == :retained}>{artifact.artifact.text}</pre>
-      </details>
+      </Components.disclosure>
     </div>
     """
   end

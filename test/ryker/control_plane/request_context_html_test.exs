@@ -2,6 +2,110 @@ defmodule Ryker.ControlPlane.RequestContextHTMLTest do
   use ExUnit.Case, async: true
   alias Ryker.ControlPlane.{InspectionRedactor, RequestContextHTML}
 
+  test "retained Work history exposes its messages, limits and summary availability" do
+    # The live Work card hid all eleven retained messages and both summaries
+    # because their bundle/manifest envelope differs from routing's flat shape.
+    context =
+      "testdata/control_plane/retained-work-conversation-context.json"
+      |> File.read!()
+      |> Jason.decode!()
+
+    document =
+      %{"conversation_context" => context}
+      |> InspectionRedactor.artifact()
+      |> RequestContextHTML.assembly("$.work", "nested-history")
+      |> IO.iodata_to_binary()
+      |> LazyHTML.from_fragment()
+
+    earlier = LazyHTML.query(document, "[data-source=earlier_messages]")
+    assert LazyHTML.text(earlier) =~ "11 messages"
+    assert Enum.count(LazyHTML.query(earlier, ".context-message")) == 11
+    assert Enum.count(LazyHTML.query(earlier, ".ui-message > .ui-message-body")) == 11
+
+    assert Enum.count(LazyHTML.query(earlier, ".ui-message-footer > .context-message-details")) ==
+             11
+
+    refute LazyHTML.text(earlier) =~ "Current message"
+
+    assert LazyHTML.attribute(LazyHTML.query(earlier, ".context-message"), "data-message-context") ==
+             List.duplicate("Earlier context", 11)
+
+    assert LazyHTML.text(earlier) =~ "Reply with exactly: progress validation complete."
+    assert LazyHTML.text(earlier) =~ "Up to 20 earlier messages"
+    refute LazyHTML.text(earlier) =~ "Bodies not retained"
+
+    for kind <- ["channel", "thread"] do
+      summary = LazyHTML.query(document, "[data-source=#{kind}_summary]")
+      assert LazyHTML.text(summary) =~ "No summary had been saved for this conversation."
+      assert LazyHTML.text(summary) =~ "Not available"
+    end
+  end
+
+  test "continuation context never borrows the conversation memory source-note count" do
+    # The live second-turn briefing labelled both different continuity sources
+    # 'Source notes 13', though only operator_context contained those notes.
+    artifact =
+      InspectionRedactor.artifact(%{
+        "continuity" => %{
+          "first_input" => %{
+            "content" => %{"text" => "Reply with exactly: session reuse validated."}
+          }
+        },
+        "operator_context" => %{
+          "continuity" => %{"observations" => [%{"summary" => "session reuse validated."}]}
+        }
+      })
+
+    document =
+      artifact
+      |> RequestContextHTML.assembly("$.work", "scoped-counts", %{
+        "continuity" => %{label: "1 source note", known?: true}
+      })
+      |> IO.iodata_to_binary()
+      |> LazyHTML.from_fragment()
+
+    sources = LazyHTML.query(document, "[data-source=continuity]") |> Enum.to_list()
+    assert length(sources) == 2
+    [continuation, memory] = sources
+    assert LazyHTML.query(continuation, "summary") |> LazyHTML.text() =~ "Conversation continuity"
+    refute LazyHTML.query(continuation, "summary") |> LazyHTML.text() =~ "source note"
+    assert LazyHTML.query(memory, "summary") |> LazyHTML.text() =~ "1 source note"
+  end
+
+  test "a context manifest without message bodies cannot claim no messages were supplied" do
+    # Work briefings retain the count separately from the message bundle. The
+    # timeline labelled the missing bundle '0 messages', contradicting the count.
+    artifact =
+      InspectionRedactor.artifact(%{"context_manifest" => %{"included" => 11, "requested" => 20}})
+
+    document =
+      artifact
+      |> RequestContextHTML.assembly("$.work", "missing-bodies")
+      |> IO.iodata_to_binary()
+      |> LazyHTML.from_fragment()
+
+    earlier = LazyHTML.query(document, "[data-source=earlier_messages]")
+    assert LazyHTML.text(earlier) =~ "11 reported"
+    assert LazyHTML.text(earlier) =~ "Message bodies were not retained in this context."
+    refute LazyHTML.text(earlier) =~ "0 messages"
+    refute LazyHTML.text(earlier) =~ "No earlier messages were supplied"
+    assert Enum.empty?(LazyHTML.query(earlier, ".prompt-source-estimate"))
+  end
+
+  test "a work context manifest is not mistaken for an earlier-message bundle" do
+    artifact =
+      InspectionRedactor.artifact(%{"context_manifest" => %{"inputs" => %{"eligible" => 1}}})
+
+    document =
+      artifact
+      |> RequestContextHTML.assembly("$.work", "work-manifest")
+      |> IO.iodata_to_binary()
+      |> LazyHTML.from_fragment()
+
+    assert Enum.empty?(LazyHTML.query(document, "[data-source=earlier_messages]"))
+    assert LazyHTML.text(document) =~ "Raw context"
+  end
+
   test "custom instruction provenance shows only the submitted revisions through redaction and expiry" do
     snapshot = %{
       "global" => %{"scope" => "global", "revision" => 7, "text" => "Saved global PRIVATE_TOKEN"},
@@ -104,19 +208,17 @@ defmodule Ryker.ControlPlane.RequestContextHTMLTest do
     assert LazyHTML.text(global) =~ "Not configured"
 
     assert global
-           |> LazyHTML.query("summary > .prompt-source-meta > .prompt-source-status")
+           |> LazyHTML.query("summary > .ui-disclosure-meta > .prompt-source-status")
            |> LazyHTML.text() == "Not configured"
 
     assert channel
-           |> LazyHTML.query("summary > .prompt-source-meta > .prompt-source-status")
+           |> LazyHTML.query("summary > .ui-disclosure-meta > .prompt-source-status")
            |> LazyHTML.text() == "Not applicable"
 
     assert Enum.empty?(LazyHTML.query(document, ".prompt-source-main .prompt-source-status"))
 
     assert Enum.count(LazyHTML.query(document, ".prompt-source")) ==
-             Enum.count(
-               LazyHTML.query(document, ".prompt-source > summary > .prompt-source-chevron")
-             )
+             Enum.count(LazyHTML.query(document, ".prompt-source > summary > .ui-icon"))
 
     assert LazyHTML.text(global) =~
              "No global instructions were saved in Settings when this request ran"
@@ -255,7 +357,7 @@ defmodule Ryker.ControlPlane.RequestContextHTMLTest do
       })
 
     html = artifact |> RequestContextHTML.render() |> IO.iodata_to_binary()
-    assert html =~ "context-message-body"
+    assert html =~ "ui-message-body"
     assert html =~ "slack:user:U123"
     assert html =~ "3 earlier inputs were omitted"
     assert html =~ "Inspect &lt;script&gt;"
@@ -286,7 +388,7 @@ defmodule Ryker.ControlPlane.RequestContextHTMLTest do
 
     html = artifact |> RequestContextHTML.render("$.work") |> IO.iodata_to_binary()
     assert html =~ "data-source=\"future.layer\""
-    assert html =~ "Additional retained field"
+    assert html =~ "More specific provenance was not recorded by this viewer."
     assert html =~ "Empty in request"
     refute html =~ "$.work.operator_context.memory"
     assert html =~ "data-source=\"memory\""
@@ -417,7 +519,7 @@ defmodule Ryker.ControlPlane.RequestContextHTMLTest do
     assert Enum.count(
              LazyHTML.query(
                document,
-               ".prompt-group[data-group=runtime] > .prompt-source > summary > .prompt-source-chevron"
+               ".prompt-group[data-group=runtime] > .ui-disclosure-source > summary > .ui-icon"
              )
            ) == 5
   end
@@ -546,7 +648,7 @@ defmodule Ryker.ControlPlane.RequestContextHTMLTest do
     body =
       html
       |> LazyHTML.from_fragment()
-      |> LazyHTML.query(".context-message-body")
+      |> LazyHTML.query(".ui-message-body")
       |> LazyHTML.text()
 
     assert body =~ "Host OOM kills"
@@ -591,9 +693,10 @@ defmodule Ryker.ControlPlane.RequestContextHTMLTest do
     assert text =~ "Current message"
     assert text =~ "Local operator"
     assert text =~ "21 Sep, 05:48:52 UTC"
-    assert text =~ "Message details"
+    assert text =~ "Details"
     assert text =~ "Chat"
-    assert text =~ "Copy raw event"
+    assert text =~ "Raw event (JSON)"
+    refute text =~ "Copy raw event"
     assert text =~ "Sender ID"
 
     assert Enum.empty?(
@@ -601,7 +704,7 @@ defmodule Ryker.ControlPlane.RequestContextHTMLTest do
              |> Enum.filter(&(LazyHTML.text(&1) == "Received"))
            )
 
-    assert Enum.count(LazyHTML.query(document, "[data-copy-status][aria-live=polite]")) == 2
+    assert Enum.empty?(LazyHTML.query(document, "[data-copy-status][aria-live=polite]"))
     refute text =~ "The message that started this routing call"
     refute text =~ "You"
     refute text =~ "Source fields and attachment metadata"
