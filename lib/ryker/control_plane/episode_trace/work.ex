@@ -150,7 +150,11 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Work do
       %{
         actor: "Ryker",
         owner: {:turn, turn.id},
-        details: validation_details(Keyword.fetch!(options, :parse)),
+        details:
+          validation_details(
+            Keyword.fetch!(options, :parse),
+            Keyword.fetch!(options, :response_bytes)
+          ),
         stage: "Validation",
         state: state,
         summary: validation_summary(verdict, violations, attempt, turn),
@@ -424,8 +428,8 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Work do
   defp measurement_issue(%Turn{usage_recorded: false}), do: "Usage was not reported."
   defp measurement_issue(_turn), do: nil
 
-  defp validation_details(parse) when parse in ["JSON object", nil], do: []
-  defp validation_details(parse), do: compact_details([{"Parse", parse}])
+  defp validation_details(parse, response_bytes),
+    do: compact_details([{"Parse", parse}, {"Response bytes", response_bytes}])
 
   defp validation_summary("reject", [], _attempt, _turn),
     do: "Ryker rejected this candidate and requested a same-turn correction."
@@ -433,9 +437,9 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Work do
   defp validation_summary("reject", violations, _attempt, _turn), do: Enum.join(violations, " ")
 
   defp validation_summary("accept", _violations, attempt, _turn) when is_integer(attempt),
-    do: "Passed checks on attempt #{attempt}."
+    do: "Accepted candidate on attempt #{attempt}."
 
-  defp validation_summary("accept", _violations, _attempt, _turn), do: "Passed checks."
+  defp validation_summary("accept", _violations, _attempt, _turn), do: "Candidate accepted."
 
   defp validation_summary(_verdict, _violations, _attempt, _turn),
     do: "A candidate reached the host validation boundary."

@@ -89,7 +89,9 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
              %{
                label: "Selected work",
                value: candidate_link_title(item),
-               href: "#" <> candidate_anchor(prefix, ref)
+               href: "#" <> candidate_anchor(prefix, ref),
+               allowed_relations:
+                 if(is_list(item["allowed_relations"]), do: item["allowed_relations"], else: [])
              }}
     else
       _ -> %{}
@@ -1208,7 +1210,10 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
         end
 
       [
-        "<section class=\"context-messages\">",
+        if(kind == :history,
+          do: "<section class=\"context-messages context-messages-history\">",
+          else: "<section class=\"context-messages\">"
+        ),
         Enum.map(items, &message(&1, length(items), kind)),
         if(is_integer(omitted) and omitted > 0,
           do: [

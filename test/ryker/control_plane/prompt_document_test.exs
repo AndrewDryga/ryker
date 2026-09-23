@@ -30,7 +30,7 @@ defmodule Ryker.ControlPlane.PromptDocumentTest do
       assert LazyHTML.attribute(fragment, "data-source-title") == [title]
     end
 
-    assert LazyHTML.query(document, "code") |> LazyHTML.text() == prompt
+    assert LazyHTML.query(document, ".submitted-prompt-raw code") |> LazyHTML.text() == prompt
   end
 
   test "dotted JSON keys cannot impersonate a nested briefing source" do
@@ -43,7 +43,11 @@ defmodule Ryker.ControlPlane.PromptDocumentTest do
       |> IO.iodata_to_binary()
 
     refute html =~ "Confirmed guidance"
-    assert html |> LazyHTML.from_fragment() |> LazyHTML.query("code") |> LazyHTML.text() == prompt
+
+    assert html
+           |> LazyHTML.from_fragment()
+           |> LazyHTML.query(".submitted-prompt-raw code")
+           |> LazyHTML.text() == prompt
   end
 
   test "the annotated prompt preserves every submitted byte and names each source" do
@@ -57,13 +61,34 @@ defmodule Ryker.ControlPlane.PromptDocumentTest do
     document =
       artifact |> PromptDocument.render() |> IO.iodata_to_binary() |> LazyHTML.from_fragment()
 
-    assert document |> LazyHTML.query("code") |> LazyHTML.text() == prompt
+    assert document |> LazyHTML.query(".submitted-prompt-raw code") |> LazyHTML.text() == prompt
     assert LazyHTML.query(document, ~s([data-source="$.instructions"])) |> Enum.count() == 1
 
     assert LazyHTML.query(document, ~s([data-source="$.work.operator_context.continuity"]))
            |> Enum.count() == 1
 
     assert LazyHTML.query(document, ~s([data-source="$.work.inputs"])) |> Enum.count() == 1
+  end
+
+  test "formatted prompt exposes each source while retaining exact raw text" do
+    # A one-line retained request made individual context components difficult to
+    # scan; formatting must never replace the captured text needed for debugging.
+    prompt =
+      ~s({"instructions":"Route carefully.","context":{"input":{"content":{"text":"Hello"}}}})
+
+    document =
+      prompt
+      |> InspectionRedactor.artifact(preserve_format: true)
+      |> PromptDocument.render()
+      |> IO.iodata_to_binary()
+      |> LazyHTML.from_fragment()
+
+    formatted = LazyHTML.query(document, ".submitted-prompt-formatted code") |> LazyHTML.text()
+    assert Jason.decode!(formatted) == Jason.decode!(prompt)
+    assert formatted =~ "\n"
+    assert LazyHTML.query(document, ".submitted-prompt-raw code") |> LazyHTML.text() == prompt
+    assert LazyHTML.query(document, ".prompt-raw summary") |> LazyHTML.text() =~ "Raw text"
+    assert Enum.count(LazyHTML.query(document, ~s([data-source="$.context.input"]))) == 1
   end
 
   test "the prompt inspector maps logical components instead of whole JSON containers" do
