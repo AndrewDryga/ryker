@@ -118,6 +118,9 @@ defmodule Ryker.ControlPlane.Components do
   attr(:open, :boolean, default: false)
   attr(:class, :any, default: nil)
   attr(:summary_aria_label, :string, default: nil)
+  attr(:body_class, :any, default: nil)
+  attr(:rest, :global)
+  slot(:label_content, doc: "Optional title and count, using the same disclosure shell")
   slot(:meta, doc: "Status, type, or size aligned opposite a source title")
   slot(:inner_block, required: true)
 
@@ -128,16 +131,90 @@ defmodule Ryker.ControlPlane.Components do
       id={@id}
       class={["ui-disclosure", "ui-disclosure-#{@kind}", @class]}
       open={@open}
+      {@rest}
     >
       <summary aria-label={@summary_aria_label}>
         <.icon name={:chevron} />
-        <span class="ui-disclosure-label">{@label}</span>
+        <span class="ui-disclosure-label">{if @label_content == [],
+          do: @label,
+          else: render_slot(@label_content)}</span>
         <span :if={@meta != []} class="ui-disclosure-meta">{render_slot(@meta)}</span>
       </summary>
-      <div class="ui-disclosure-body">{render_slot(@inner_block)}</div>
+      <div class={["ui-disclosure-body", @body_class]}>{render_slot(@inner_block)}</div>
     </details>
     """
   end
+
+  @doc "The same disclosure for sanitized iodata inspection views; body and slots must already be escaped."
+  def disclosure_html(label, body, options \\ []) do
+    %{
+      __changed__: nil,
+      id: options[:id],
+      label: label,
+      kind: options[:kind] || :details,
+      class: options[:class],
+      body_class: options[:body_class],
+      open: options[:open] || false,
+      rest: options[:rest] || %{},
+      label_content: html_slot(:label_content, options[:label_content]),
+      meta: html_slot(:meta, options[:meta]),
+      inner_block: html_slot(:inner_block, body)
+    }
+    |> disclosure()
+    |> Safe.to_iodata()
+  end
+
+  attr(:title, :string, default: nil)
+  attr(:sender, :string, default: nil)
+  attr(:context, :string, default: nil)
+  attr(:class, :any, default: nil)
+  attr(:rest, :global)
+  slot(:meta, doc: "Message timestamp or delivery state, separate from its content")
+  slot(:footer, doc: "Supporting details and controls, never the message itself")
+  slot(:inner_block, required: true)
+
+  @doc "A self-contained message: context, sender and time above its body; details below it."
+  def message_block(assigns) do
+    ~H"""
+    <article class={["ui-message", @class]} {@rest}>
+      <header :if={@title || @sender || @context || @meta != []} class="ui-message-header">
+        <div class="ui-message-identity">
+          <h3 :if={@title} class="ui-message-title">{@title}</h3>
+          <div :if={@sender || @context} class="ui-message-sender">
+            <strong :if={@sender}>{@sender}</strong>
+            <span :if={@context} class="ui-message-context">{@context}</span>
+          </div>
+        </div>
+        <div :if={@meta != []} class="ui-message-meta">{render_slot(@meta)}</div>
+      </header>
+      <div class="ui-message-body markdown-preview">{render_slot(@inner_block)}</div>
+      <footer :if={@footer != []} class="ui-message-footer">{render_slot(@footer)}</footer>
+    </article>
+    """
+  end
+
+  @doc "The same message block for sanitized iodata views; body and slots must already be escaped."
+  def message_block_html(sender, body, options \\ []) do
+    %{
+      __changed__: nil,
+      title: options[:title],
+      sender: sender,
+      context: options[:context],
+      class: options[:class],
+      rest: options[:rest] || %{},
+      meta: html_slot(:meta, options[:meta]),
+      footer: html_slot(:footer, options[:footer]),
+      inner_block: html_slot(:inner_block, body)
+    }
+    |> message_block()
+    |> Safe.to_iodata()
+  end
+
+  defp html_slot(_name, nil), do: []
+  defp html_slot(_name, []), do: []
+
+  defp html_slot(name, content),
+    do: [%{__slot__: name, inner_block: fn _, _ -> Phoenix.HTML.raw(content) end}]
 
   attr(:facts, :list, required: true)
   attr(:class, :any, default: nil)
@@ -172,6 +249,7 @@ defmodule Ryker.ControlPlane.Components do
   attr(:meta_layout, :atom, values: [:inline, :stack_on_narrow], default: :inline)
   slot(:leading, doc: "A compact symbol that identifies the card kind")
   slot(:detail, doc: "Short title-adjacent context, never status or timing")
+  slot(:description, doc: "A concise explanation that belongs directly to the title")
   slot(:meta, doc: "State, timing, or execution target aligned opposite the title")
 
   @doc "The shared title-left and metadata-right header for timeline cards."
@@ -182,10 +260,15 @@ defmodule Ryker.ControlPlane.Components do
       @meta_layout == :stack_on_narrow && "case-card-heading-stack-meta",
       @class
     ]}>
-      <div class="case-card-heading-main">
-        <span :if={@leading != []} class="case-card-heading-leading">{render_slot(@leading)}</span>
-        <h3>{@title}</h3>
-        <span :if={@detail != []} class="case-card-heading-detail">{render_slot(@detail)}</span>
+      <div class="case-card-heading-copy">
+        <div class="case-card-heading-main">
+          <span :if={@leading != []} class="case-card-heading-leading">{render_slot(@leading)}</span>
+          <h3>{@title}</h3>
+          <span :if={@detail != []} class="case-card-heading-detail">{render_slot(@detail)}</span>
+        </div>
+        <p :if={@description != []} class="case-card-heading-description">
+          {render_slot(@description)}
+        </p>
       </div>
       <div :if={@meta != []} class="case-card-heading-meta">{render_slot(@meta)}</div>
     </header>

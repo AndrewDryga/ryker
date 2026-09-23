@@ -3,6 +3,37 @@ defmodule Ryker.ControlPlane.ToolCardTest do
   import Phoenix.LiveViewTest
   alias Ryker.ControlPlane.{InspectionRedactor, ToolCard}
 
+  test "raw tool evidence uses the same disclosure and preserves lazy loading and expiry" do
+    # Native raw-tool summaries drifted from every other timeline disclosure;
+    # migrating their shell must not eagerly fetch or resurrect expired bodies.
+    fixture = File.read!("testdata/control_plane/oom-evidence-link.json") |> Jason.decode!()
+    recorded = step(hd(fixture["activities"])["payload"])
+
+    for {state, expected} <- [{:collapsed, "data-artifact"}, {:expired, "data-revoked"}] do
+      artifacts =
+        Enum.map(
+          recorded.artifacts,
+          &Map.merge(&1, %{
+            artifact_id: "raw-tool",
+            artifact: %{&1.artifact | state: state, text: nil}
+          })
+        )
+
+      document =
+        render_component(&ToolCard.render/1, step: %{recorded | artifacts: artifacts})
+        |> LazyHTML.from_fragment()
+
+      disclosures = LazyHTML.query(document, ".action-raw.ui-disclosure")
+      assert Enum.count(disclosures) == length(artifacts)
+
+      assert LazyHTML.query(disclosures, "summary > .ui-icon") |> Enum.count() ==
+               length(artifacts)
+
+      assert LazyHTML.attribute(disclosures, expected) != []
+      assert Enum.empty?(LazyHTML.query(disclosures, "pre"))
+    end
+  end
+
   test "a completed citation points to the saved observation instead of repeating it" do
     # The real HAProxy episode repeated a full paragraph in adjacent record and
     # tool cards, making one saved observation look like two separate findings.

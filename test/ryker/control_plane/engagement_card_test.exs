@@ -51,7 +51,7 @@ defmodule Ryker.ControlPlane.EngagementCardTest do
 
     positions =
       for marker <- [
-            ~s(class="case-message-text markdown-preview"),
+            ~s(class="ui-message-body markdown-preview"),
             ~s(class="case-event-content participation"),
             ~s(class="case-event-content input-queue")
           ],

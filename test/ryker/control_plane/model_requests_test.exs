@@ -134,7 +134,7 @@ defmodule Ryker.ControlPlane.ModelRequestsTest do
 
       for {id, title, text} <- [
             {"request", "Prompt text", prompt},
-            {"contract", "Output contract", contract}
+            {"contract", "Response format", contract}
           ] do
         component = LazyHTML.query(full, ".prompt-source[data-source='#{id}']")
         assert Enum.count(component) == 1
@@ -480,7 +480,7 @@ defmodule Ryker.ControlPlane.ModelRequestsTest do
     assert html =~ "Processing"
     assert html =~ "1.0 s"
     refute html =~ "Host validation and repair history"
-    assert html =~ "Response to validate"
+    assert html =~ "Raw model response"
   end
 
   test "a truncated context remains readable inline instead of becoming an empty document" do

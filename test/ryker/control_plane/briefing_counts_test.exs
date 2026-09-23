@@ -288,7 +288,7 @@ defmodule Ryker.ControlPlane.BriefingCountsTest do
 
       labels =
         related
-        |> LazyHTML.query(".candidate-preview header strong")
+        |> LazyHTML.query(".candidate-preview .ui-message-title")
         |> Enum.map(&LazyHTML.text/1)
 
       assert "Message 1" in labels

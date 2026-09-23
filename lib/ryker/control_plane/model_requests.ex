@@ -686,18 +686,18 @@ defmodule Ryker.ControlPlane.ModelRequests do
   # them into one eligible total would invent a set nobody selected over.
   defp put_continuity_counts(counts, ledger, context) do
     parts =
-      for {key, label} <- [{"observations", "Source notes"}, {"knowledge", "Saved topics"}],
+      for {key, label} <- [{"observations", "source note"}, {"knowledge", "saved topic"}],
           included = get_in(context, ["operator_context", "continuity", key]),
           is_list(included) do
         case get_in(ledger, [key, "eligible"]) do
           eligible when is_integer(eligible) and eligible > length(included) ->
-            {"#{label} #{length(included)} of #{eligible}", true}
+            {"#{length(included)}/#{eligible} #{label}s", true}
 
           eligible when is_integer(eligible) ->
-            {"#{label} #{length(included)}", true}
+            {continuity_count(length(included), label), true}
 
           _absent ->
-            {"#{label} #{length(included)}", false}
+            {continuity_count(length(included), label), false}
         end
       end
 
@@ -713,6 +713,9 @@ defmodule Ryker.ControlPlane.ModelRequests do
         )
     end
   end
+
+  defp continuity_count(number, label),
+    do: "#{number} #{label}#{if number == 1, do: "", else: "s"}"
 
   defp put_listed_counts(counts, _ledger, context) do
     Enum.reduce(

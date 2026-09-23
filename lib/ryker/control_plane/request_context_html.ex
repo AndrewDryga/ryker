@@ -1,4 +1,5 @@
 defmodule Ryker.ControlPlane.RequestContextHTML do
+  alias Ryker.ControlPlane.Components
   alias Ryker.ControlPlane.PromptDocument
   alias Ryker.ControlPlane.SlackMarkdown
   alias Ryker.ControlPlane.SlackNames
@@ -75,6 +76,36 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
   @order ~w(custom_instructions input slack_addressing inputs current_inputs continuity operator_context records related_outcomes prior_outcome candidates responder_state_tools source_and_action_tools workspace repository_ref destination allowed_actions execution_mode mode offer_confirmation_supported linked_history_ref parent_submission_ref)
   @instruction_not_recorded :instruction_not_recorded
 
+  @doc "In-page links to the candidates from this exact retained routing briefing."
+  def candidate_links(sections, prefix) do
+    with %{artifact: %{state: :retained, truncated: false, text: text}} <-
+           Enum.find(sections, &(&1.id == "context")),
+         {:ok, %{"candidates" => candidates}} when is_list(candidates) <- Jason.decode(text) do
+      for %{"episode_ref" => ref, "state" => state} = item <- candidates,
+          is_binary(ref) and is_binary(state),
+          into: %{},
+          do:
+            {ref,
+             %{
+               label: "Selected work",
+               value: candidate_link_title(item),
+               href: "#" <> candidate_anchor(prefix, ref)
+             }}
+    else
+      _ -> %{}
+    end
+  end
+
+  defp candidate_link_title(%{"digest" => %{"objective" => title}})
+       when is_binary(title) and title != "", do: title
+
+  defp candidate_link_title(_item), do: "Earlier work"
+
+  defp candidate_anchor(prefix, ref) when is_binary(prefix) and is_binary(ref),
+    do: prefix <> "-candidate-" <> Base.url_encode64(ref, padding: false)
+
+  defp candidate_anchor(_prefix, _ref), do: nil
+
   @doc "The complete submitted components, grouped for reading without hiding source labels."
   def briefing(sections, kind, prefix, counts \\ %{}) do
     instructions = Enum.find(sections, &(&1.id == "instructions"))
@@ -104,21 +135,16 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
       "<p class=\"prompt-legend\">Provider-owned instructions and wrappers are not part of this record. Point to or focus a highlight to identify its component.</p>",
       Enum.map(
         [
-          {"request", "Prompt", "Prompt sent to the model.", "Prompt text", "$.prompt"},
-          {"contract", "Response format", "Supplied alongside the prompt, not added to its text.",
-           "Output contract", "$.output_schema"}
+          {"request", "Prompt text", "$.prompt"},
+          {"contract", "Response format", "$.output_schema"}
         ],
-        fn {id, title, description, component, path} ->
+        fn {id, title, path} ->
           case Enum.find(sections, &(&1.id == id)) do
             nil ->
               []
 
             section ->
-              group(
-                title,
-                description,
-                submitted_source(section.artifact, id, component, path, prefix, artifact_id)
-              )
+              submitted_source(section.artifact, id, title, path, prefix, artifact_id)
           end
         end
       )
@@ -147,6 +173,9 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
 
   defp submitted_provenance("request", %{redacted: true}),
     do: "Sensitive values are hidden in this view."
+
+  defp submitted_provenance("contract", _artifact),
+    do: "Supplied alongside the prompt, not added to its text."
 
   defp submitted_provenance(_id, _artifact), do: nil
 
@@ -281,7 +310,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
     options =
       [count: Map.get(counts, key)]
       |> instruction_options(key, parent, value)
-      |> source_count_option(key)
+      |> source_count_option(key, parent)
 
     if key == "candidates" and is_list(value) do
       candidate_sources(value, path, prefix, counts)
@@ -298,10 +327,14 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
     end
   end
 
-  defp source_count_option(options, key) when key in ~w(input inputs current_inputs),
+  defp source_count_option(options, key, _parent) when key in ~w(input inputs current_inputs),
     do: Keyword.delete(options, :count)
 
-  defp source_count_option(options, _key), do: options
+  defp source_count_option(options, "continuity", parent)
+       when parent not in ["$.work.operator_context", "$.context.operator_context"],
+       do: Keyword.delete(options, :count)
+
+  defp source_count_option(options, _key, _parent), do: options
 
   defp group_presentation("conversation", title, _description, entries, _counts) do
     count =
@@ -367,7 +400,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
       path,
       items,
       {title, "memory", nil, description},
-      candidates(items, histories),
+      candidates(items, histories, prefix),
       prefix,
       count: %{label: count(length(items), "candidate"), known?: true},
       estimate: items
@@ -416,30 +449,29 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
     values = Map.new(scope, fn {key, value, _parent} -> {key, value} end)
     exact = Map.new(scope, fn {key, value, _parent} -> {key, value} end)
 
-    bundle =
-      if is_map(values["conversation_context"]), do: values["conversation_context"], else: %{}
-
-    manifest = if is_map(values["context_manifest"]), do: values["context_manifest"], else: %{}
-    messages = List.wrap(bundle["messages"])
+    {bundle, manifest, bundle_path} = conversation_context(values, root)
+    messages = if is_list(bundle["messages"]), do: bundle["messages"]
     permission_rows = allowed_rows(values)
 
     [
-      if(Map.has_key?(values, "conversation_context") or Map.has_key?(values, "context_manifest"),
+      if(
+        conversation_history?(values, manifest),
         do:
           source(
             "earlier_messages",
-            root <> ".conversation_context.messages",
-            if(messages == [], do: %{"messages" => []}, else: messages),
+            bundle_path <> ".messages",
+            messages,
             {"Earlier messages", "conversation", nil, nil},
             earlier_messages_body(messages, manifest),
             prefix,
-            count: %{label: count(length(messages), "message"), known?: true},
-            estimate: if(messages == [], do: nil, else: messages)
+            count: earlier_messages_count(messages, manifest),
+            state: if(is_nil(messages), do: "Bodies not retained"),
+            estimate: if(messages in [nil, []], do: nil, else: messages)
           ),
         else: []
       ),
-      summary_source("channel", bundle, manifest, root, prefix),
-      summary_source("thread", bundle, manifest, root, prefix),
+      summary_source("channel", bundle, manifest, bundle_path, prefix),
+      summary_source("thread", bundle, manifest, bundle_path, prefix),
       if(permission_rows != [],
         do:
           source(
@@ -466,6 +498,42 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
     ]
   end
 
+  # Work keeps the bundle and its selection manifest together; routing submits
+  # them as peers. Read the actual source shape without rewriting the raw view.
+  defp conversation_context(
+         %{"conversation_context" => %{"bundle" => bundle} = envelope},
+         root
+       )
+       when is_map(bundle),
+       do: {bundle, context_map(envelope["manifest"]), root <> ".conversation_context.bundle"}
+
+  defp conversation_context(values, root),
+    do:
+      {context_map(values["conversation_context"]), context_map(values["context_manifest"]),
+       root <> ".conversation_context"}
+
+  defp context_map(value) when is_map(value), do: value
+  defp context_map(_value), do: %{}
+
+  defp conversation_history?(values, manifest),
+    do:
+      Map.has_key?(values, "conversation_context") or is_integer(manifest["included"]) or
+        is_integer(manifest["requested"])
+
+  defp earlier_messages_count(messages, _manifest) when is_list(messages),
+    do: %{label: count(length(messages), "message"), known?: true}
+
+  defp earlier_messages_count(nil, %{"included" => included}) when is_integer(included),
+    do: %{label: "#{included} reported", known?: true}
+
+  defp earlier_messages_count(nil, _manifest), do: nil
+
+  defp earlier_messages_body(nil, manifest),
+    do: [
+      context_limit(manifest),
+      "<p class=\"context-absent\">Message bodies were not retained in this context.</p>"
+    ]
+
   defp earlier_messages_body([], manifest) do
     [
       context_limit(manifest),
@@ -474,7 +542,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
   end
 
   defp earlier_messages_body(messages, manifest) do
-    [context_limit(manifest), messages(%{"inputs" => messages})]
+    [context_limit(manifest), messages(%{"inputs" => messages}, :history)]
   end
 
   defp context_limit(manifest) do
@@ -495,7 +563,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
     end
   end
 
-  defp summary_source(kind, bundle, manifest, root, prefix) do
+  defp summary_source(kind, bundle, manifest, bundle_path, prefix) do
     key = kind <> "_summary"
 
     if Map.has_key?(bundle, key) or Map.has_key?(manifest, key) do
@@ -505,7 +573,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
 
       source(
         key,
-        root <> ".conversation_context." <> key,
+        bundle_path <> "." <> key,
         if(available?, do: value, else: %{"status" => "unavailable"}),
         {human(kind) <> " summary", "conversation", nil, nil},
         summary_body(value, recorded),
@@ -811,10 +879,13 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
   def source_label("$.work.custom_instructions.channel"), do: "Channel instructions"
   def source_label("$.context.conversation_context.messages"), do: "Earlier messages"
   def source_label("$.work.conversation_context.messages"), do: "Earlier messages"
+  def source_label("$.work.conversation_context.bundle.messages"), do: "Earlier messages"
   def source_label("$.context.conversation_context.channel_summary"), do: "Channel summary"
   def source_label("$.work.conversation_context.channel_summary"), do: "Channel summary"
+  def source_label("$.work.conversation_context.bundle.channel_summary"), do: "Channel summary"
   def source_label("$.context.conversation_context.thread_summary"), do: "Thread summary"
   def source_label("$.work.conversation_context.thread_summary"), do: "Thread summary"
+  def source_label("$.work.conversation_context.bundle.thread_summary"), do: "Thread summary"
   def source_label("$.context.allowed_actions"), do: "Permitted actions"
   def source_label("$.work.allowed_actions"), do: "Permitted actions"
   def source_label("$.context.conversation_observations"), do: "Conversation observations"
@@ -891,8 +962,8 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
        when key in ~w(input inputs current_inputs) and (is_map(value) or is_list(value)),
        do: messages(%{key => value})
 
-  defp body("candidates", value, _path, _prefix) when is_list(value) and value != [],
-    do: candidates(value)
+  defp body("candidates", value, _path, prefix) when is_list(value) and value != [],
+    do: candidates(value, %{}, prefix)
 
   defp body("workspace", value, _path, _prefix) when is_map(value) and map_size(value) > 0,
     do: workspace(value)
@@ -930,11 +1001,11 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
     if String.contains?(path, ".operator_context."),
       do: [
         recall(value),
-        "<details class=\"context-inline-disclosure\"><summary>",
-        disclosure_chevron(),
-        "<span>Exact component</span></summary><pre>",
-        escape(Jason.encode!(value, pretty: true)),
-        "</pre></details>"
+        Components.disclosure_html(
+          "Exact component",
+          ["<pre>", escape(Jason.encode!(value, pretty: true)), "</pre>"],
+          class: "context-inline-disclosure"
+        )
       ],
       else: fields(value, 0)
   end
@@ -994,50 +1065,35 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
     do:
       "<p>Saved summary is not structured. Its retained value is in the exact component below.</p>"
 
-  defp disclosure_chevron do
-    "<svg class=\"prompt-source-chevron\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"m9 5 7 7-7 7\"></path></svg>"
-  end
-
   defp source(key, path, value, metadata, body, prefix, options \\ []) do
-    {title, origin, owner, description} = metadata
+    {title, origin, _owner, description} = metadata
     settings = source_settings(value, options)
     count = Keyword.get(options, :count)
 
-    [
-      "<details id=\"",
-      escape(prefix <> "-source-" <> Base.url_encode64(path, padding: false)),
-      "\" class=\"prompt-source",
-      source_partial_class(settings.state_override),
-      "\" data-source=\"",
-      escape(key),
-      "\" data-origin=\"",
-      origin,
-      "\"",
-      # The component carries its own lazy load. The outer disclosure used to,
-      # which is why it had to stay a disclosure at all.
-      source_artifact_attribute(settings.artifact),
-      # An expired body must never be fetched back, and the reader's open copy
-      # goes with it: privacy and retention win over preserving their place.
-      source_revoked_attribute(settings.revoked),
-      source_open_attribute(settings.open),
-      "><summary>",
-      disclosure_chevron(),
-      "<span class=\"prompt-source-main\"><span class=\"prompt-source-title\">",
-      escape(title),
-      "</span>",
-      source_count(count),
-      source_owner(owner),
-      "</span>",
-      "<span class=\"prompt-source-meta\">",
-      source_status(value, settings.state, settings.state_override),
-      source_estimate(value, settings.state_override, settings.estimate),
-      "</span>",
-      "</summary>",
-      "<div class=\"prompt-source-body\">",
-      source_description(description),
-      body,
-      "</div></details>"
-    ]
+    Components.disclosure_html(title, [source_description(description), body],
+      id: prefix <> "-source-" <> Base.url_encode64(path, padding: false),
+      kind: :source,
+      class: ["prompt-source", settings.state_override && "prompt-source-partial"],
+      body_class: "prompt-source-body",
+      open: settings.open,
+      rest: %{
+        "data-source" => key,
+        "data-origin" => origin,
+        "data-artifact" => settings.artifact,
+        "data-revoked" => if(settings.revoked, do: "true")
+      },
+      label_content: [
+        "<span class=\"prompt-source-main\"><span class=\"prompt-source-title\">",
+        escape(title),
+        "</span>",
+        source_count(count),
+        "</span>"
+      ],
+      meta: [
+        source_status(value, settings.state, settings.state_override),
+        source_estimate(value, settings.state_override, settings.estimate)
+      ]
+    )
   end
 
   defp source_settings(value, options) do
@@ -1054,20 +1110,6 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
       state_override: state_override
     }
   end
-
-  defp source_partial_class(nil), do: ""
-  defp source_partial_class(_state), do: " prompt-source-partial"
-  defp source_artifact_attribute(nil), do: ""
-  defp source_artifact_attribute(artifact), do: [" data-artifact=\"", escape(artifact), "\""]
-  defp source_revoked_attribute(true), do: " data-revoked=\"true\""
-  defp source_revoked_attribute(_revoked), do: ""
-  defp source_open_attribute(true), do: " open"
-  defp source_open_attribute(_open), do: ""
-
-  defp source_owner(nil), do: []
-
-  defp source_owner(owner),
-    do: ["<span class=\"prompt-source-location\">", escape(owner), "</span>"]
 
   defp source_description(nil), do: []
   defp source_description(description), do: ["<p>", escape(description), "</p>"]
@@ -1145,7 +1187,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
       else: root <> "[" <> Jason.encode!(key) <> "]"
   end
 
-  defp messages(context) do
+  defp messages(context, kind \\ :current) do
     documents =
       [context["input"], context["inputs"], context["current_inputs"]] |> Enum.reject(&is_nil/1)
 
@@ -1167,9 +1209,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
 
       [
         "<section class=\"context-messages\">",
-        items
-        |> Enum.with_index()
-        |> Enum.map(fn {item, index} -> message(item, length(items), index) end),
+        Enum.map(items, &message(&1, length(items), kind)),
         if(is_integer(omitted) and omitted > 0,
           do: [
             "<p class=\"context-omission\">",
@@ -1183,55 +1223,58 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
     end)
   end
 
-  defp message(input, total, index) when is_map(input) do
+  defp message(input, total, kind) when is_map(input) do
     actor = actor_label(input)
     body = message_text(input["content"] || input)
-    context = message_context(input, total, index)
+    context = message_context(input, kind)
     raw = Jason.encode!(input, pretty: true)
+    title = if(total > 1 and kind != :history, do: context)
 
-    [
-      "<article class=\"context-message\" data-message-context=\"",
-      escape(context),
-      "\"><header><div>",
-      if(total > 1,
-        do: ["<span class=\"context-message-context\">", escape(context), "</span>"],
-        else: []
-      ),
-      "<strong>",
-      escape(actor),
-      "</strong></div>",
-      if(input["occurred_at"],
-        do: [
-          "<time datetime=\"",
-          escape(input["occurred_at"]),
-          "\">",
-          escape(readable_candidate_time(input["occurred_at"])),
-          "</time>"
-        ],
-        else: []
-      ),
-      "</header>",
+    Components.message_block_html(
+      actor,
       if(body,
-        do: ["<div class=\"context-message-body\">", message_body(body, input), "</div>"],
+        do: message_body(body, input),
         else: "<p class=\"context-absent\">This source event has no text body.</p>"
       ),
-      "<details class=\"context-message-details\"><summary>",
-      disclosure_chevron(),
-      "<span>Message details</span></summary>",
-      "<dl class=\"context-rows\">",
-      message_detail("Source", message_source(input)),
-      message_detail("Sender ID", message_sender(input)),
-      message_detail("Attachments", attachment_count(input)),
-      "</dl><button type=\"button\" class=\"context-copy-raw\" data-copy-value=\"",
-      escape(raw),
-      "\">Copy raw event<span class=\"sr-only\" data-copy-status aria-live=\"polite\"></span></button></details></article>"
-    ]
+      class: "context-message",
+      rest: %{"data-message-context" => context},
+      title: title,
+      meta:
+        if(input["occurred_at"],
+          do: [
+            "<time datetime=\"",
+            escape(input["occurred_at"]),
+            "\">",
+            escape(readable_candidate_time(input["occurred_at"])),
+            "</time>"
+          ],
+          else: []
+        ),
+      footer:
+        Components.disclosure_html(
+          "Details",
+          [
+            "<dl class=\"context-rows\">",
+            message_detail("Source", message_source(input)),
+            message_detail("Sender ID", message_sender(input)),
+            message_detail("Attachments", attachment_count(input)),
+            "</dl>",
+            Components.disclosure_html(
+              "Raw event (JSON)",
+              ["<pre>", escape(raw), "</pre>"],
+              class: "context-message-raw"
+            )
+          ],
+          class: "context-message-details"
+        )
+    )
   end
 
-  defp message(_input, _total, _index), do: []
+  defp message(_input, _total, _kind), do: []
 
-  defp message_context(%{"current" => false}, _total, _index), do: "Earlier context"
-  defp message_context(_input, _total, _index), do: "Current message"
+  defp message_context(_input, :history), do: "Earlier context"
+  defp message_context(%{"current" => false}, _kind), do: "Earlier context"
+  defp message_context(_input, _kind), do: "Current message"
 
   defp message_detail(_label, nil), do: []
   defp message_detail(_label, ""), do: []
@@ -1352,18 +1395,19 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
   defp fields(nil, _depth), do: "<p class=\"context-absent\">Not supplied</p>"
   defp fields(value, _depth), do: ["<p>", escape(value), "</p>"]
 
-  defp candidates(items, histories \\ %{}) when is_list(items) and items != [] do
+  defp candidates(items, histories, prefix) when is_list(items) and items != [] do
     [
       "<section class=\"context-candidates\">",
       Enum.map(items, fn item ->
         history = if is_map(item), do: Map.get(histories, item["episode_ref"], []), else: []
-        candidate(item, history)
+        anchor = if is_map(item), do: candidate_anchor(prefix, item["episode_ref"])
+        candidate(item, history, anchor)
       end),
       "</section>"
     ]
   end
 
-  defp candidate(%{"state" => state} = item, enriched_history) when is_binary(state) do
+  defp candidate(%{"state" => state} = item, enriched_history, anchor) when is_binary(state) do
     digest = if is_map(item["digest"]), do: item["digest"], else: %{}
     objective = present(digest["objective"])
     latest_development = present(digest["latest_development"])
@@ -1376,7 +1420,9 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
         else: digest["input_count"] || length(previews) + omitted
 
     [
-      "<article class=\"context-candidate\"><header class=\"candidate-heading\"><h4>",
+      "<article class=\"context-candidate context-record\"",
+      if(anchor, do: [" id=\"", escape(anchor), "\" tabindex=\"-1\""], else: []),
+      "><header class=\"candidate-heading\"><h4>",
       candidate_title(objective),
       "</h4>",
       candidate_time(digest),
@@ -1393,9 +1439,9 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
     ]
   end
 
-  defp candidate(item, _history) do
+  defp candidate(item, _history, _anchor) do
     [
-      "<article class=\"context-candidate context-candidate-malformed\"><p class=\"context-absent\">",
+      "<article class=\"context-candidate context-record context-candidate-malformed\"><p class=\"context-absent\">",
       "Historical candidate · retained shape unavailable",
       "</p>",
       retained_raw_candidate(item),
@@ -1530,60 +1576,58 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
   end
 
   defp candidate_history(previews, count, omitted) do
-    [
-      "<details class=\"candidate-history\"><summary>",
-      disclosure_chevron(),
-      "<span>Message history",
-      if(is_integer(count) and count > 1, do: [" · ", count(count, "message")], else: []),
-      "</span></summary><div>",
-      if(omitted > 0,
-        do: [
-          "<p class=\"candidate-history-omission\">",
-          count(omitted, "earlier message"),
-          " omitted</p>"
-        ],
-        else: []
-      ),
-      Enum.map(previews, &candidate_preview_card/1),
-      "</div></details>"
-    ]
+    Components.disclosure_html(
+      "Message history",
+      [
+        if(omitted > 0,
+          do: [
+            "<p class=\"candidate-history-omission\">",
+            count(omitted, "earlier message"),
+            " omitted</p>"
+          ],
+          else: []
+        ),
+        Enum.map(previews, &candidate_preview_card/1)
+      ],
+      class: "candidate-history",
+      meta: if(is_integer(count) and count > 1, do: count(count, "message"))
+    )
   end
 
   defp related_candidate_history(previews, count, omitted, artifact_id, collapsed?) do
-    [
-      "<details class=\"candidate-history candidate-related-history\" data-artifact=\"",
-      escape(artifact_id),
-      "\"><summary>",
-      disclosure_chevron(),
-      "<span>Related episode history",
-      if(is_integer(count) and count > 1, do: [" · ", count(count, "message")], else: []),
-      "</span><span class=\"candidate-history-status\">Full history not supplied to routing",
-      if(collapsed?, do: " · loads on open", else: []),
-      "</span></summary><div>",
-      if(omitted > 0,
-        do: [
-          "<p class=\"candidate-history-omission\">",
-          count(omitted, "message"),
-          " not shown</p>"
-        ],
-        else: []
-      ),
-      Enum.map(previews, &candidate_preview_card/1),
-      "</div></details>"
-    ]
+    Components.disclosure_html(
+      "Related episode history",
+      [
+        "<p class=\"context-note\">Full history not supplied to routing",
+        if(collapsed?, do: " · loads on open", else: []),
+        "</p>",
+        if(omitted > 0,
+          do: [
+            "<p class=\"candidate-history-omission\">",
+            count(omitted, "message"),
+            " not shown</p>"
+          ],
+          else: []
+        ),
+        Enum.map(previews, &candidate_preview_card/1)
+      ],
+      class: "candidate-history candidate-related-history",
+      rest: %{"data-artifact" => artifact_id},
+      meta: if(is_integer(count) and count > 1, do: count(count, "message"))
+    )
   end
 
   defp candidate_preview_card(preview) do
-    [
-      "<article class=\"candidate-preview\"><header><strong>",
-      preview.label,
-      "</strong>",
-      if(preview.at, do: ["<time>", escape(preview.at), "</time>"], else: []),
-      "</header><p>",
-      escape(preview.text),
-      if(preview.truncated, do: " <span>(truncated)</span>", else: []),
-      "</p></article>"
-    ]
+    Components.message_block_html(
+      nil,
+      ["<p>", escape(preview.text), "</p>"],
+      title: preview.label,
+      class: "candidate-preview",
+      meta: [
+        if(preview.at, do: ["<time>", escape(preview.at), "</time>"], else: []),
+        if(preview.truncated, do: "<span>(truncated)</span>", else: [])
+      ]
+    )
   end
 
   defp candidate_preview(%{} = preview, label) do
@@ -1663,13 +1707,9 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
     encoded = if is_binary(item), do: item, else: Jason.encode!(item, pretty: true)
     encoded = bounded(encoded, 500)
 
-    [
-      "<details class=\"context-candidate-raw context-inline-disclosure\"><summary>",
-      disclosure_chevron(),
-      "<span>Retained raw candidate</span></summary><pre>",
-      escape(encoded),
-      "</pre></details>"
-    ]
+    Components.disclosure_html("Retained raw candidate", ["<pre>", escape(encoded), "</pre>"],
+      class: "context-candidate-raw context-inline-disclosure"
+    )
   end
 
   defp present(value) when is_binary(value) and value != "", do: value

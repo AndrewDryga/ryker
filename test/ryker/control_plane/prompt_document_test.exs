@@ -2,6 +2,37 @@ defmodule Ryker.ControlPlane.PromptDocumentTest do
   use ExUnit.Case, async: true
   alias Ryker.ControlPlane.{InspectionRedactor, PromptDocument, RequestContextHTML}
 
+  test "Work history highlights the same message and summary components as routing" do
+    # The actual nested Work bundle was unlabelled even though the same sources
+    # in routing were individually inspectable.
+    context =
+      "testdata/control_plane/retained-work-conversation-context.json"
+      |> File.read!()
+      |> Jason.decode!()
+
+    prompt = Jason.encode!(%{"work" => %{"conversation_context" => context}})
+
+    document =
+      prompt
+      |> InspectionRedactor.artifact(preserve_format: true)
+      |> PromptDocument.render()
+      |> IO.iodata_to_binary()
+      |> LazyHTML.from_fragment()
+
+    for {key, title} <- [
+          {"messages", "Earlier messages"},
+          {"channel_summary", "Channel summary"},
+          {"thread_summary", "Thread summary"}
+        ] do
+      path = "$.work.conversation_context.bundle." <> key
+      fragment = LazyHTML.query(document, ~s([data-source="#{path}"]))
+      assert Enum.count(fragment) == 1
+      assert LazyHTML.attribute(fragment, "data-source-title") == [title]
+    end
+
+    assert LazyHTML.query(document, "code") |> LazyHTML.text() == prompt
+  end
+
   test "dotted JSON keys cannot impersonate a nested briefing source" do
     prompt = ~s({"work":{"operator_context.guidance":"ordinary field"}})
 

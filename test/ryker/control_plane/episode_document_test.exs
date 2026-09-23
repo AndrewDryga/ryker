@@ -6,6 +6,70 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
 
+  test "opaque routing candidate references never become nonexistent timeline links" do
+    # The live follow-up routed correctly but its 'Joins' link opened a 404:
+    # candidate references belong to one prompt, not the timeline route namespace.
+    ref = "candidate:52af063"
+
+    html =
+      render_request(:admission, :result, [
+        section("candidate", "Decision", %{
+          "action" => "continue_episode",
+          "episode_ref" => ref,
+          "relation" => "same_work"
+        })
+      ])
+
+    refute html =~ "/timeline/candidate"
+    assert html =~ "data-copy-value=\"#{ref}\""
+  end
+
+  test "routing decisions jump to the selected candidate in their own briefing" do
+    {:ok, %{episode: episode}} = Episodes.apply(EpisodeFixtures.admit_input())
+    {:ok, snapshot} = Projection.episode(episode.key)
+
+    candidate = %{
+      "episode_ref" => "candidate:52af063",
+      "state" => "complete",
+      "allowed_relations" => ["same_work"],
+      "digest" => %{"objective" => "Check the response"}
+    }
+
+    request = %{
+      id: "routing-link",
+      at: snapshot.trace.received_at,
+      kind: :request,
+      source_kind: :admission,
+      phase: :submission,
+      band: :ready,
+      target: nil,
+      title: "Routing",
+      status: :settled,
+      timing: [],
+      coverage: "Retained",
+      href: "#routing-link",
+      sections: [section("context", "Context", %{"candidates" => [candidate]})]
+    }
+
+    result = %{
+      request
+      | id: "routing-link-result",
+        phase: :result,
+        sections: [
+          section("candidate", "Decision", %{
+            "action" => "continue_episode",
+            "episode_ref" => candidate["episode_ref"]
+          })
+        ]
+    }
+
+    document = render_episode(snapshot, [request, result]) |> LazyHTML.from_fragment()
+    link = LazyHTML.query(document, ".request-decision a")
+    assert LazyHTML.text(link) == "Check the response"
+    ["#" <> id] = LazyHTML.attribute(link, "href")
+    assert LazyHTML.query(document, ".context-candidate[id='#{id}']") |> Enum.count() == 1
+  end
+
   test "missing full prompts explain availability instead of opening a blank panel" do
     for {artifact, label} <- [
           {InspectionRedactor.artifact(nil), "Not recorded"},
@@ -162,7 +226,13 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
       ])
 
     document = LazyHTML.from_fragment(html)
-    assert LazyHTML.query(document, ".prompt-group") |> Enum.count() >= 3
+
+    assert LazyHTML.query(document, ".prompt-group > header h4") |> Enum.map(&LazyHTML.text/1) ==
+             ["Instructions", "Messages"]
+
+    assert LazyHTML.query(document, ".final-prompt > .ui-disclosure-source .prompt-source-title")
+           |> Enum.map(&LazyHTML.text/1) == ["Prompt text", "Response format"]
+
     assert LazyHTML.query(document, ".prompt-source[open]") |> Enum.empty?()
 
     assert LazyHTML.query(document, ".prompt-source[data-source='contract']") |> LazyHTML.text() =~
@@ -191,7 +261,7 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
         })
       ])
 
-    assert html =~ "Response to validate"
+    assert html =~ "Model response"
     assert html =~ "<strong>partial</strong>"
     assert html =~ "Supporting records"
     refute html =~ "Validated response"
@@ -422,7 +492,7 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
              ["M12 19V5 M6 11l6-6 6 6", "M12 5v14 M18 13l-6 6-6-6"] |> Enum.sort()
   end
 
-  test "the briefing lists prompt sources without outer or recursively nested disclosures" do
+  test "the briefing lists sources directly and nests only message diagnostics" do
     # Instructions and operator context previously took three or four clicks
     # to reach. The source inventory must be visible before opening any part.
     html =
@@ -445,11 +515,40 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
     assert summaries =~ "System prompt"
     assert summaries =~ "Confirmed guidance"
     assert summaries =~ "Conversation messages"
-    assert Enum.empty?(LazyHTML.query(document, ".prompt-assembly details details details"))
+
+    assert Enum.count(
+             LazyHTML.query(
+               document,
+               ".context-message-details > .ui-disclosure-body > .context-message-raw"
+             )
+           ) == 1
+
+    assert Enum.empty?(
+             LazyHTML.query(document, ".prompt-assembly details details details details")
+           )
+
     assert Enum.empty?(LazyHTML.query(document, ".request-input-parts > details"))
     refute LazyHTML.text(document) =~ "$.work.operator_context.guidance"
     assert html =~ "data-source=\"guidance\""
     assert html =~ "Retained host policy &lt;not markup&gt;"
+  end
+
+  test "a model briefing keeps its purpose with its title instead of below right-side metadata" do
+    html =
+      render_request(:admission, :submission, [
+        section("instructions", "Instructions", "Retained host policy"),
+        section("context", "Context", %{"inputs" => [%{"text" => "Hi"}]})
+      ])
+
+    document = LazyHTML.from_fragment(html)
+    heading = LazyHTML.query(document, ".episode-request > .case-card-heading")
+
+    assert LazyHTML.query(heading, ".case-card-heading-description")
+           |> LazyHTML.text()
+           |> String.trim() ==
+             "Classify this message and choose how to respond."
+
+    assert Enum.empty?(LazyHTML.query(document, ".episode-request > .request-explanation"))
   end
 
   test "the routing card states the decision it made, not only its reasoning" do
@@ -832,7 +931,7 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
     refute response =~ "avg"
     refute response =~ "max"
 
-    assert LazyHTML.query(document, "#story-message-accepted-reply .case-message-text")
+    assert LazyHTML.query(document, "#story-message-accepted-reply .ui-message-body")
            |> LazyHTML.text()
            |> String.trim() == "Hi! How can I help?"
 

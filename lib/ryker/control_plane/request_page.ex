@@ -365,9 +365,9 @@ defmodule Ryker.ControlPlane.RequestPage do
       id={"#{@prefix}-response-#{@attempt}"}
     >
       <div id={"#{@prefix}-response-#{@attempt}-body"} class="candidate-response-body" tabindex="-1">
-        <div :if={@document && is_binary(@document["message"])} class="markdown-preview">
+        <.message_block :if={@document && is_binary(@document["message"])} sender="Ryker">
           {Phoenix.HTML.raw(Ryker.ControlPlane.SlackMarkdown.preview(@document["message"]))}
-        </div>
+        </.message_block>
         <p
           :if={@document && is_binary(@document["decision_reason"])}
           class="candidate-decision-reason"

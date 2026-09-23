@@ -43,11 +43,14 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
     ~H"""
     <div class="episode-request">
       <Components.card_heading title={@headline} meta_layout={:stack_on_narrow}>
+        <:description :if={!@result? && @explanation}>{@explanation}</:description>
         <:meta>
           <div class="request-model"><Components.execution_target target={@request.target} /></div>
         </:meta>
       </Components.card_heading>
-      <p :if={@explanation} class="request-explanation">{@explanation}</p>
+      <p :if={@result? && @explanation} class="request-rationale">
+        {@explanation}
+      </p>
       <section
         :if={@applied != []}
         class="applied-context"
@@ -67,7 +70,9 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
         <div :for={fact <- @decision}>
           <dt>{fact.label}</dt>
           <dd>
-            <a :if={fact[:href]} href={fact.href}>{fact.value}</a><span :if={!fact[:href]}>{fact.value}</span>
+            <a :if={fact[:href]} href={fact.href}>{fact.value}</a>
+            <Components.identifier :if={fact[:identifier]} value={fact.value} label={fact.label} />
+            <span :if={!fact[:href] && !fact[:identifier]}>{fact.value}</span>
           </dd>
         </div>
       </dl>
@@ -91,16 +96,16 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
           )
         )}
         <%= for section <- @input_sections do %>
-          <details
+          <Components.disclosure
             :if={unavailable_assembly?(section)}
             class="briefing-unavailable"
             id={"#{@request.id}-#{section.id}-unavailable"}
+            label={section.title}
+            kind={:source}
           >
-            <summary>
-              {section.title} <span>{availability(section.artifact) || "Unstructured record"}</span>
-            </summary>
+            <:meta>{availability(section.artifact) || "Unstructured record"}</:meta>
             <.artifact_text section={section} />
-          </details>
+          </Components.disclosure>
         <% end %>
       </div>
       <section :if={@prompt_section} class="final-prompt" id={"#{@request.id}-final-prompt"}>
@@ -120,9 +125,9 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
         )}
       </section>
       <section :if={is_map(@response)} class="response-review">
-        <div :if={is_binary(@response["message"])} class="markdown-preview">
+        <Components.message_block :if={is_binary(@response["message"])} sender="Ryker">
           {Phoenix.HTML.raw(Ryker.ControlPlane.SlackMarkdown.preview(@response["message"]))}
-        </div>
+        </Components.message_block>
         <p :if={is_binary(@response["decision_reason"])}>{@response["decision_reason"]}</p>
         <div :if={response_records(@response) != []} class="response-records">
           <h4>Supporting records</h4>
@@ -149,6 +154,7 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
           :for={section <- @result_evidence}
           id={"#{@request.id}-evidence-#{section.id}"}
           section={section}
+          source_kind={@request.source_kind}
         />
       </div>
     </div>
@@ -183,7 +189,7 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
   defp artifact_disclosure(assigns) do
     assigns =
       assigns
-      |> assign(:label, evidence_label(assigns.section))
+      |> assign(:label, evidence_label(assigns.section, assigns.source_kind))
       |> assign(:meta, artifact_meta(assigns.section.artifact))
       |> assign(:selection_facts, selection_facts(assigns.section))
 
@@ -220,10 +226,10 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
     """
   end
 
-  defp evidence_label(%{id: "routing"}), do: "Selection evidence"
-  defp evidence_label(%{id: "response"}), do: "Raw routing response"
-  defp evidence_label(%{id: "candidate", title: title}), do: title
-  defp evidence_label(section), do: section.title
+  defp evidence_label(%{id: "routing"}, _kind), do: "Selection evidence"
+  defp evidence_label(%{id: "response"}, _kind), do: "Raw routing response"
+  defp evidence_label(%{id: "candidate"}, :work), do: "Raw model response"
+  defp evidence_label(section, _kind), do: section.title
 
   defp artifact_meta(%{state: :retained, text: text, bytes: bytes} = artifact) do
     kind =
@@ -359,9 +365,8 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
   defp artifact_text(assigns) do
     ~H"""
     <section class={"timeline-artifact artifact-#{@section.id}"}>
-      <h4>{@section.title}</h4>
-      <p :if={availability(@section.artifact)}>{availability(@section.artifact)}</p>
       <pre :if={@section.artifact.state == :retained}>{@section.artifact.text}</pre>
+      <p :if={@section.artifact.state != :retained}>{availability(@section.artifact)}</p>
     </section>
     """
   end
@@ -457,7 +462,7 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
 
   defp headline(request) do
     case {document(request, "candidate"), document(request, "validation")} do
-      {%{}, _} -> "Response to validate"
+      {%{}, _} -> "Model response"
       {_, %{"verdict" => %{"verdict" => "reject"}}} -> "Answer needs correction"
       {_, %{"verdict" => %{"verdict" => "accept"}}} -> "Answer passed validation"
       _ -> "Model result"
@@ -473,7 +478,7 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
       %{"action" => action} = candidate ->
         [
           %{label: "Decision", value: decision_label(action)},
-          relation_fact(candidate),
+          (request[:candidate_links] || %{})[candidate["episode_ref"]] || relation_fact(candidate),
           work_fact(candidate),
           source_fact(candidate),
           reaction_fact(candidate)
@@ -501,13 +506,21 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
   defp decision_label("ignore"), do: "No response"
   defp decision_label(action) when is_binary(action), do: String.replace(action, "_", " ")
 
+  defp relation_fact(%{"episode_ref" => "candidate:" <> _ = ref}),
+    do: %{label: "Selected work", value: ref, identifier: true}
+
   defp relation_fact(%{"episode_ref" => ref}) when is_binary(ref) and ref != "",
     do: %{label: "Joins", value: ref, href: "/timeline/#{URI.encode_www_form(ref)}"}
 
   defp relation_fact(%{"relation" => relation}) when is_binary(relation),
-    do: %{label: "Relation", value: String.replace(relation, "_", " ")}
+    do: %{label: "Earlier work", value: relation_label(relation)}
 
   defp relation_fact(_candidate), do: nil
+
+  defp relation_label("unrelated"), do: "Separate request"
+  defp relation_label("same_work"), do: "Continuation"
+  defp relation_label("history_only"), do: "Background context"
+  defp relation_label(relation), do: readable_code(relation)
 
   defp work_fact(%{"work_class" => class}) when is_binary(class),
     do: %{label: "Work", value: String.replace(class, "_", " ")}

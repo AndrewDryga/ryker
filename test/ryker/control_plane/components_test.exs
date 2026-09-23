@@ -145,6 +145,7 @@ defmodule Ryker.ControlPlane.ComponentsTest do
           <Components.card_heading title="Model briefing" meta_layout={:stack_on_narrow}>
             <:leading><span class="test-symbol">◇</span></:leading>
             <:detail>Work request</:detail>
+            <:description>What the model received for this call.</:description>
             <:meta>
               <Components.execution_target target="codex:gpt-5.6-sol/medium@default" />
             </:meta>
@@ -165,8 +166,82 @@ defmodule Ryker.ControlPlane.ComponentsTest do
     assert LazyHTML.query(heading, ".case-card-heading-detail") |> LazyHTML.text() ==
              "Work request"
 
+    assert LazyHTML.query(heading, ".case-card-heading-description")
+           |> LazyHTML.text()
+           |> String.trim() ==
+             "What the model received for this call."
+
     assert LazyHTML.query(heading, ".case-card-heading-meta .execution-target-model")
            |> LazyHTML.text() == "gpt-5.6-sol"
+  end
+
+  test "messages are self-contained containers with contextual titles and subordinate controls" do
+    # Intake and retained messages drifted into title/subtitle layouts. Both
+    # render paths must use the same anatomy without interpreting sender text.
+    sender = "<Local operator>"
+    body = "<script>not markup</script>"
+
+    heex =
+      render_component(
+        fn assigns ->
+          ~H"""
+          <Components.message_block
+            sender={@sender}
+            title="Current message"
+            data-message-context="current"
+          >
+            <:meta><time>05:48 UTC</time></:meta>
+            <p>{@body}</p>
+            <:footer>
+              <Components.disclosure id="message-details" label="Message details">
+                Evidence
+              </Components.disclosure>
+            </:footer>
+          </Components.message_block>
+          """
+        end,
+        sender: sender,
+        body: body
+      )
+
+    iodata =
+      Components.message_block_html(
+        sender,
+        ["<p>", Phoenix.HTML.safe_to_string(Phoenix.HTML.html_escape(body)), "</p>"],
+        title: "Current message",
+        rest: %{"data-message-context" => "current"},
+        meta: "<time>05:48 UTC</time>",
+        footer: Components.disclosure_html("Message details", "Evidence", id: "message-details")
+      )
+      |> IO.iodata_to_binary()
+
+    for html <- [heex, iodata] do
+      document = LazyHTML.from_fragment(html)
+      message = LazyHTML.query(document, "article.ui-message[data-message-context=current]")
+      assert LazyHTML.query(message, ".ui-message-title") |> LazyHTML.text() == "Current message"
+      assert LazyHTML.query(message, ".ui-message-header strong") |> LazyHTML.text() == sender
+      assert LazyHTML.query(message, ".ui-message-meta time") |> LazyHTML.text() == "05:48 UTC"
+      assert LazyHTML.query(message, ".ui-message-body > p") |> LazyHTML.text() == body
+
+      assert LazyHTML.query(
+               message,
+               ".ui-message-footer > details.ui-disclosure > summary .ui-icon"
+             )
+             |> Enum.count() == 1
+
+      assert LazyHTML.query(message, "script") |> Enum.empty?()
+    end
+
+    bare =
+      render_component(fn assigns ->
+        ~H"""
+        <Components.message_block>Response</Components.message_block>
+        """
+      end)
+      |> LazyHTML.from_fragment()
+
+    assert LazyHTML.query(bare, ".ui-message-body") |> LazyHTML.text() == "Response"
+    assert LazyHTML.query(bare, "header, footer") |> Enum.empty?()
   end
 
   test "fact lists render retained execution targets through the shared presentation" do

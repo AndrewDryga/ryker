@@ -130,7 +130,7 @@ defmodule Ryker.ControlPlane.PromptDocument do
         path
       ) or
       Regex.match?(
-        ~r/^\$\.(work|context)\.(custom_instructions\.(global|channel)|conversation_context\.(messages|channel_summary|thread_summary)|operator_context\.[^.\[\]]+)$/,
+        ~r/^\$\.(work|context)\.(custom_instructions\.(global|channel)|conversation_context\.(bundle\.)?(messages|channel_summary|thread_summary)|operator_context\.[^.\[\]]+)$/,
         path
       )
   end

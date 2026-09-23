@@ -3,6 +3,92 @@ defmodule Ryker.ControlPlane.ReadabilityTest do
 
   alias Ryker.ControlPlane.{Assets, EpisodeTrace}
 
+  test "message content has its own surface and sections outrank disclosure labels" do
+    # Font-only fixes left sender/title plus message looking like title/subtitle.
+    # The shared content surface must be present at every message nesting level.
+    css = Assets.call(Plug.Test.conn(:get, "/workspace.css"), []).resp_body
+    assert [_, container] = Regex.run(~r/^\.ui-message \{([^}]+)\}/m, css)
+    assert container =~ "border:1px solid var(--ryker-stroke)"
+    assert container =~ "background:var(--ryker-surface-raised)"
+
+    assert [_, message] = Regex.run(~r/^\.ui-message-body \{([^}]+)\}/m, css)
+    assert message =~ "padding:14px 16px"
+    assert message =~ "background:var(--ryker-surface)"
+    refute message =~ "border:"
+    assert message =~ "font-size:16px"
+
+    # Retained event bodies use inline Slack rendering, not paragraph markup;
+    # their original line breaks must survive the shared message surface.
+    assert [_, retained_body] =
+             Regex.run(~r/^\.context-message > \.ui-message-body \{([^}]+)\}/m, css)
+
+    assert retained_body =~ "white-space:pre-wrap"
+
+    assert [_, sender] = Regex.run(~r/^\.ui-message-header strong \{([^}]+)\}/m, css)
+    assert sender =~ "font-size:13px"
+    assert sender =~ "font-weight:400"
+    assert sender =~ "color:var(--ryker-text-secondary)"
+
+    assert [_, header] = Regex.run(~r/^\.ui-message-header \{([^}]+)\}/m, css)
+    assert header =~ "align-items:start"
+    assert header =~ "padding:16px 20px 0"
+
+    assert message =~ "margin:16px 20px 0"
+
+    assert [_, footer] = Regex.run(~r/^\.ui-message-footer \{([^}]+)\}/m, css)
+    assert footer =~ "margin:8px 0 0"
+    assert footer =~ "padding:0 20px 12px"
+
+    assert [_, group] = Regex.run(~r/^\.prompt-group > header h4 \{([^}]+)\}/m, css)
+    assert group =~ "font-size:15px"
+    assert [_, source] = Regex.run(~r/^\.prompt-source-title \{([^}]+)\}/m, css)
+    assert source =~ "font-size:14px"
+
+    assert [_, field_label] =
+             Regex.run(~r/^\.prompt-source-body \.context-field h4 \{([^}]+)\}/m, css)
+
+    assert field_label =~ "font-size:12px"
+
+    assert [_, field_value] =
+             Regex.run(~r/^\.prompt-source-body \.context-field p \{([^}]+)\}/m, css)
+
+    assert field_value =~ "font-size:14px"
+  end
+
+  test "cards use spacing instead of decorative dividers between titles and explanations" do
+    css = Assets.call(Plug.Test.conn(:get, "/workspace.css"), []).resp_body
+
+    assert [_, heading] =
+             Regex.run(
+               ~r/^\.case-entry-body \.case-card-heading:not\(:last-child\) \{([^}]+)\}/m,
+               css
+             )
+
+    refute heading =~ "border-bottom"
+
+    assert [_, briefing] = Regex.run(~r/^\.prompt-assembly \{([^}]+)\}/m, css)
+    refute briefing =~ "border-block"
+    assert briefing =~ "margin:0"
+
+    assert [_, request_briefing] =
+             Regex.run(~r/^\.episode-request > \.prompt-assembly \{([^}]+)\}/m, css)
+
+    assert request_briefing =~ "margin-top:24px"
+
+    assert [_, group] = Regex.run(~r/^\.prompt-group \{([^}]+)\}/m, css)
+    assert group =~ "margin:0"
+
+    assert [_, adjacent_group] =
+             Regex.run(~r/^\.prompt-group \+ \.prompt-group \{([^}]+)\}/m, css)
+
+    assert adjacent_group =~ "margin-top:24px"
+
+    assert [_, participation] =
+             Regex.run(~r/^\.participation > \.participation-section \{([^}]+)\}/m, css)
+
+    refute participation =~ "border-top"
+  end
+
   test "secondary labels remain legible on both paper and panel surfaces" do
     # Every usage label was pale green on paper; calibration put dark headings
     # on a black banner. These actual shipped colors must not recur.
@@ -84,24 +170,24 @@ defmodule Ryker.ControlPlane.ReadabilityTest do
   test "prompt source disclosures have a shared chevron and right metadata slot" do
     css = Assets.call(Plug.Test.conn(:get, "/workspace.css"), []).resp_body
 
-    assert [_, summary] = Regex.run(~r/^\.prompt-source > summary \{([^}]+)\}/m, css)
+    assert [_, summary] = Regex.run(~r/^\.ui-disclosure > summary \{([^}]+)\}/m, css)
     assert summary =~ "grid-template-columns"
 
-    assert [_, chevron] = Regex.run(~r/^\.prompt-source-chevron \{([^}]+)\}/m, css)
+    assert [_, chevron] = Regex.run(~r/^\.ui-disclosure > summary \.ui-icon \{([^}]+)\}/m, css)
     refute chevron =~ "transition:transform"
 
     assert css =~
-             "@media (prefers-reduced-motion:no-preference) { .activity-row, .app-nav a, .ui-button { transition:background-color .12s ease; } .ui-disclosure > summary .ui-icon, .prompt-source-chevron { transition:transform .12s ease; } }"
+             "@media (prefers-reduced-motion:no-preference) { .activity-row, .app-nav a, .ui-button { transition:background-color .12s ease; } .ui-disclosure > summary .ui-icon { transition:transform .12s ease; } }"
 
     assert [_, open_chevron] =
              Regex.run(
-               ~r/^\.prompt-source\[open\] > summary \.prompt-source-chevron \{([^}]+)\}/m,
+               ~r/^\.ui-disclosure\[open\] > summary \.ui-icon \{([^}]+)\}/m,
                css
              )
 
     assert open_chevron =~ "rotate(90deg)"
 
-    assert [_, metadata] = Regex.run(~r/^\.prompt-source-meta \{([^}]+)\}/m, css)
+    assert [_, metadata] = Regex.run(~r/^\.ui-disclosure-meta \{([^}]+)\}/m, css)
     assert metadata =~ "margin-left:auto"
   end
 
@@ -170,7 +256,7 @@ defmodule Ryker.ControlPlane.ReadabilityTest do
 
     [_, heading] = Regex.run(~r/\.case-card-heading h3 \{([^}]+)\}/, css)
 
-    assert heading =~ "font-size:16px"
+    assert heading =~ "font-size:17px"
     assert heading =~ "line-height:24px"
     assert heading =~ "color:var(--ink)"
 
@@ -178,13 +264,21 @@ defmodule Ryker.ControlPlane.ReadabilityTest do
     assert metadata =~ "justify-content:flex-end"
     assert metadata =~ "text-align:right"
 
+    # Work setup rendered two rules a few pixels apart when the shared card
+    # divider met the first fact row's divider. Only the heading owns that edge.
+    [_, first_fact] =
+      Regex.run(~r/\.case-card-heading \+ \.ui-facts > div:first-child \{([^}]+)\}/, css)
+
+    assert first_fact =~ "border-top:0"
+    assert first_fact =~ "padding-top:0"
+
     [_, narrow_metadata] =
       Regex.run(~r/\.case-card-heading-stack-meta \.case-card-heading-meta \{([^}]+)\}/, css)
 
     assert narrow_metadata =~ "justify-content:flex-start"
     assert narrow_metadata =~ "text-align:left"
 
-    [_, message] = Regex.run(~r/\.case-message-text \{([^}]+)\}/, css)
+    [_, message] = Regex.run(~r/\.ui-message-body \{([^}]+)\}/, css)
     assert message =~ "font-size:16px"
     assert message =~ "line-height:24px"
     assert message =~ "color:var(--ink)"
