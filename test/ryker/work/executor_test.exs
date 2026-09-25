@@ -2315,6 +2315,42 @@ defmodule Ryker.Work.ExecutorTest do
     assert persisted_turn.submission["context"]["mode"] == "full"
   end
 
+  test "a model changed in Settings moves a created session onto its policy's current digest" do
+    # The conversation's session was created under the old model. Choosing
+    # another model gave the policy a new digest, no worker offered the old one
+    # any more, and every later turn blocked as "no eligible worker with
+    # available capacity".
+    authority = String.duplicate("f", 64)
+    claim = claim_with_bound_empty_session!("model-moved-rotation", authority)
+    new_digest = String.duplicate("9", 64)
+    policy_binding!(claim.session.policy, new_digest, authority)
+    {:ok, fake} = fake_for(claim, [reply("The new model answered.")])
+
+    # The worker now runs the policy under its new digest.
+    FakeAPI.update(fake, fn state ->
+      %{
+        state
+        | session: Map.merge(state.session, %{"policy_digest" => new_digest, "state" => "closed"})
+      }
+    end)
+
+    assert {:ok, execution} = Executor.run(claim, options(fake))
+    assert execution.status == :accepted
+
+    sessions =
+      Ryker.Repo.all(
+        from(session in Ryker.Work.Session,
+          where: session.episode_id == ^claim.episode.id,
+          order_by: [asc: session.generation]
+        )
+      )
+
+    assert Enum.map(sessions, &{&1.generation, &1.policy_digest}) ==
+             [{1, claim.session.policy_digest}, {2, new_digest}]
+
+    assert Ryker.Repo.get!(Ryker.Work.Turn, claim.turn.id).session_id == List.last(sessions).id
+  end
+
   test "a new repository session waits for freshness v2 before remote creation" do
     claim = claim_episode!("new-session-capability-wait")
 
@@ -4065,6 +4101,29 @@ defmodule Ryker.Work.ExecutorTest do
              )
 
     %{claim | session: session, turn: turn}
+  end
+
+  defp policy_binding!(policy_name, policy_digest, authority_digest) do
+    {:ok, snapshot} =
+      case Ryker.Settings.fetch() do
+        {:ok, snapshot} -> {:ok, snapshot}
+        {:error, :settings_not_initialized} -> Ryker.Settings.initialize("control-plane:local")
+      end
+
+    {:ok, _snapshot} =
+      Ryker.Settings.put_policy_binding(
+        %{
+          authority_digest: authority_digest,
+          policy_digest: policy_digest,
+          policy_name: policy_name,
+          purpose: :conversational,
+          scope_kind: :installation,
+          scope_ref: "",
+          verified_by: :import
+        },
+        snapshot.installation.revision,
+        "control-plane:local"
+      )
   end
 
   defp claim_with_bound_empty_session!(suffix, authority_digest \\ nil) do

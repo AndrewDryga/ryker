@@ -214,7 +214,8 @@ issues, and pull requests for the corresponding adapter and lifecycle paths to r
 The supervised runtime contains both `server` and `tokens` components: `server` owns the shared
 webhook listener and trusted bindings, while `tokens` signs short-lived App JWTs and mints the exact
 repository-scoped installation token used by delivery and publication. See
-the Settings page of the local console for the saved settings and the effective assembled values.
+**Integrations → GitHub** in the local console for the saved connection and **Settings → Advanced**
+for the effective assembled values.
 
 As with the universal listener, public exposure belongs behind the normal ingress proxy. A `202`
 means the normalized event is durably queued. `ping` is authenticated and acknowledged without
@@ -231,15 +232,23 @@ with bounded exponential backoff measured from the time the failure occurred. It
 episode's model-attempt budget because no episode turn has started yet.
 
 Confirmed failed Coop operations get a fresh durable execution generation; ambiguous transport
-failures retain the original operation key for reconciliation. An interrupted or budget-exhausted turn,
-or an operation whose outcome Coop cannot prove, leaves explicit blocked custody instead of silently
-replaying an unsafe mutation.
+failures retain the original operation key for reconciliation. An operation whose outcome Coop
+cannot prove leaves explicit blocked custody instead of silently replaying an unsafe mutation.
 
-A terminal failed model turn also blocks immediately: Coop has already finished its own provider
-recovery, so automatically resubmitting the frozen request cannot repair its configuration or account.
-The input retains the provider's actual error and the next safe execution generation for an explicit
-operator retry after repair. A transport timeout while a turn is still running keeps its existing
-operation identity and remains retryable.
+A cancelled, interrupted or budget-exhausted turn decided nothing, and nothing on the worker can
+read the message from it again. It spends its execution generation like a confirmed failed
+operation, so the message is read again by a fresh run within the same bounded retry budget: eight
+attempts with exponential backoff, while later inputs in the conversation wait behind it. Only when
+that budget is spent does the input block for an explicit operator retry, which starts another
+fresh run. Nobody is asked to send the message again. Ryker itself never cancels a reading run: an
+edited or deleted message is a new input, and a stale revision is superseded when its decision
+commits.
+
+A terminal failed model turn, by contrast, blocks immediately: Coop has already finished its own
+provider recovery, so automatically resubmitting the frozen request cannot repair its configuration
+or account. The input retains the provider's actual error and the next safe execution generation for
+an explicit operator retry after repair. A transport timeout while a turn is still running keeps its
+existing operation identity and remains retryable.
 
 ## Generic model decision
 

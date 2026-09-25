@@ -6,6 +6,8 @@ defmodule Ryker.Work.Custody.Delivery do
   with the exact external receipt. A delivery that keeps failing is blocked and
   rearmed by an operator without changing its result or target, and an inactive
   destination pauses the episode until the same opaque pause reference resumes it.
+  A destination deleted for good is the one thing that moves a reply: it goes,
+  with its content and delivery reference, where the host says people still read.
   """
 
   import Ecto.Query
@@ -76,6 +78,98 @@ defmodule Ryker.Work.Custody.Delivery do
       Repo.transaction(fn -> resume_destination_locked(episode_id, episode_key, reason) end)
     end
   end
+
+  @doc false
+  @spec redirect_delivery(Ecto.UUID.t(), String.t(), String.t(), map()) ::
+          {:ok, map()} | {:error, term()}
+  def redirect_delivery(episode_id, episode_key, gone_conversation_ref, target) do
+    with {:ok, episode_id} <- uuid(episode_id, :episode_id),
+         :ok <- reference(episode_key, :episode_key),
+         :ok <- reference(gone_conversation_ref, :conversation_ref),
+         :ok <- redirect_target(target, gone_conversation_ref) do
+      Repo.transaction(fn ->
+        redirect_delivery_locked(episode_id, episode_key, gone_conversation_ref, target)
+      end)
+    end
+  end
+
+  defp redirect_delivery_locked(episode_id, episode_key, gone_conversation_ref, target) do
+    with {:ok, episode} <- Episodes.lock_current_in_transaction(episode_key),
+         :ok <- exact_episode(episode, episode_id) do
+      redirect_delivery_owner(episode, gone_conversation_ref, target)
+    else
+      {:error, reason} -> Repo.rollback(reason)
+    end
+  end
+
+  defp redirect_delivery_owner(
+         %Episode{state: :working, owner_kind: :delivery} = episode,
+         gone_conversation_ref,
+         target
+       ) do
+    case lock_delivery_turn(episode.id, episode.owner_ref) do
+      {:ok, %Turn{status: status} = turn} when status in [:delivery_pending, :blocked] ->
+        redirect_owed_reply(episode, turn, gone_conversation_ref, target, Repo.now!())
+
+      {:ok, %Turn{}} ->
+        Repo.rollback(:work_delivery_not_pending)
+
+      {:error, reason} ->
+        Repo.rollback(reason)
+    end
+  end
+
+  defp redirect_delivery_owner(%Episode{} = episode, _gone_conversation_ref, _target),
+    do: %{episode: episode, status: :settled, turn: nil}
+
+  # An attempt in flight finishes under its own lease, and the next call sees
+  # what it came to. Only a reply owed to the gone place moves, so a moved one
+  # never moves twice; a reply owed anywhere else is left where it is going,
+  # and one blocked there is refused, for a person to see.
+  defp redirect_owed_reply(episode, turn, gone_conversation_ref, target, now) do
+    cond do
+      current_lease?(turn, turn.lease_ref, now) ->
+        %{episode: episode, status: :pending, turn: turn}
+
+      delivery_target(episode, turn)["conversation_ref"] == gone_conversation_ref ->
+        move_reply(episode, turn, target)
+
+      turn.status == :delivery_pending ->
+        %{episode: episode, status: :pending, turn: turn}
+
+      true ->
+        %{episode: episode, status: :refused, turn: turn}
+    end
+  end
+
+  defp move_reply(episode, turn, target) do
+    result =
+      turn
+      |> TurnChangeset.redirect_delivery(target)
+      |> Repo.update()
+      |> persistence_result(:work_delivery_redirect)
+
+    case result do
+      {:ok, turn} -> %{episode: episode, status: :pending, turn: turn}
+      {:error, reason} -> Repo.rollback(reason)
+    end
+  end
+
+  defp redirect_target(%{} = target, gone_conversation_ref) do
+    with true <- Enum.sort(Map.keys(target)) == ~w(conversation_ref thread_ref transport),
+         :ok <- reference(target["conversation_ref"], :target),
+         :ok <- optional_reference(target["thread_ref"], :target),
+         :ok <- reference(target["transport"], :target),
+         false <- target["conversation_ref"] == gone_conversation_ref do
+      :ok
+    else
+      {:error, _reason} = error -> error
+      _invalid -> {:error, {:invalid_work_custody, :target}}
+    end
+  end
+
+  defp redirect_target(_target, _gone_conversation_ref),
+    do: {:error, {:invalid_work_custody, :target}}
 
   defp pause_destination_locked(episode_id, episode_key, intent, fingerprint) do
     with {:ok, episode} <- Episodes.lock_current_in_transaction(episode_key),

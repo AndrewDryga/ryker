@@ -3,15 +3,18 @@ defmodule Ryker.Slack.IncidentRoomsTest do
 
   import Ecto.Query
 
-  alias Ryker.ControlPlane.InstructionSettings
-  alias Ryker.Delivery.JSONClient
+  alias Ryker.ControlPlane.{FailureExplanation, FailureProjection, InstructionSettings}
+  alias Ryker.Delivery.{Adapters, Dispatcher, JSONClient}
+  alias Ryker.Delivery.Operator, as: DeliveryOperator
   alias Ryker.Episodes
+  alias Ryker.Episodes.{Episode, Event}
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Ingress.{Inbox, Input}
   alias Ryker.Repo
 
   alias Ryker.Slack.{
     ChannelConfigurationChangeset,
+    ChannelConfigurations,
     Client,
     IncidentRoom,
     IncidentRoomCard,
@@ -25,10 +28,38 @@ defmodule Ryker.Slack.IncidentRoomsTest do
   }
 
   alias Ryker.State.{KnowledgeSnapshot, Record, Records}
-  alias Ryker.Work.{Custody, DeliveryReceipt, Result, Session, SubmissionBuilder, Turn}
+
+  alias Ryker.Work.{
+    Cancellation,
+    Custody,
+    DeliveryReceipt,
+    Result,
+    Session,
+    Submission,
+    SubmissionBuilder,
+    Turn
+  }
 
   @now ~U[2026-08-28 12:00:00.000000Z]
   @policy_digest String.duplicate("b", 64)
+  # What the alert's own conversation mounted: its environment's writable
+  # repository and the one it reads.
+  @source_context %{
+    "context_ref" => "production",
+    "parallel_goal_limit" => 2,
+    "primary_repository" => "ryker",
+    "read_only_repositories" => ["docs"]
+  }
+
+  # A finished answer as a run's final result, harvested from
+  # episode_work_turns.delivery_document (turn e35050df, 2026-09-23).
+  @finished_answer %{
+    "decision_reason" => nil,
+    "delivery" => "reply",
+    "message" =>
+      "A liveness probe checks whether a container is still functioning; repeated failures cause Kubernetes to restart it. A readiness probe checks whether it can serve traffic; failures mark the Pod unready and remove it from matching Services’ ready endpoints without restarting the container. Use liveness for problems a restart can fix, such as a deadlock, and readiness for temporary inability to handle requests, such as warming up or waiting on a dependency.",
+    "outcome" => %{"artifact_refs" => [], "record_refs" => [], "state" => "complete"}
+  }
 
   defmodule API do
     def ensure_conversation(agent, "T123", name, private, creator_ref, requested_at) do
@@ -69,21 +100,38 @@ defmodule Ryker.Slack.IncidentRoomsTest do
       Agent.get_and_update(agent, fn state ->
         case get_in(state, [:post_errors, delivery_ref]) do
           nil ->
-            key = {channel_ref, thread_ref, delivery_ref}
-            message_ref = Map.get(state.messages, key, "1787832001.000200")
+            post(state, channel_ref, thread_ref, document, delivery_ref)
 
-            {{:ok, message_ref},
-             %{
-               state
-               | messages: Map.put(state.messages, key, message_ref),
-                 posts: state.posts ++ [{channel_ref, thread_ref, document, delivery_ref}]
-             }}
+          # Slack posted it, but its answer never reached Ryker.
+          {:answer_lost, reason} ->
+            {_posted, state} = post(state, channel_ref, thread_ref, document, delivery_ref)
+            {{:error, reason}, state}
 
           reason ->
             {{:error, reason}, state}
         end
       end)
     end
+
+    defp post(state, channel_ref, thread_ref, document, delivery_ref) do
+      key = {channel_ref, thread_ref, delivery_ref}
+      message_ref = Map.get(state.messages, key, "1787832001.000200")
+
+      {{:ok, message_ref},
+       %{
+         state
+         | messages: Map.put(state.messages, key, message_ref),
+           posts: state.posts ++ [{channel_ref, thread_ref, document, delivery_ref}]
+       }}
+    end
+
+    # The rest of the surface Slack's publisher checks for; notes never use it.
+    def find_files(_agent, _channel_ref, _thread_ref, _filenames), do: :not_found
+
+    def upload_files(_agent, _channel_ref, _thread_ref, _document, _delivery_ref, _files),
+      do: {:error, :not_used}
+
+    def add_reaction(_agent, _channel_ref, _message_ref, _emoji_name), do: {:error, :not_used}
 
     def update_message(agent, channel_ref, message_ref, document, delivery_ref) do
       Agent.get_and_update(agent, fn state ->
@@ -180,7 +228,11 @@ defmodule Ryker.Slack.IncidentRoomsTest do
     assert investigation.episode.destination_conversation_ref == "slack:T123:C456"
     assert investigation.episode.destination_thread_ref == "1787832000.000100"
     assert investigation.session.policy == "incident-investigate"
-    assert investigation.session.repository_ref == nil
+    # It works where the conversation works, like a room would: the same
+    # environment (and Emisar account) and the same mounted repositories.
+    assert investigation.session.environment_ref == "production"
+    assert investigation.session.repository_ref == "ryker"
+    assert investigation.session.repository_context == @source_context
 
     record = Repo.get!(Record, fixture.record.id)
     assert record.status == :confirmed
@@ -453,6 +505,45 @@ defmodule Ryker.Slack.IncidentRoomsTest do
     assert postmortem["message"] =~ "Unknown — no evidence-backed root cause"
   end
 
+  # A room continues the work of the conversation it was opened from, so it
+  # works in that conversation's environment: the same repositories mounted
+  # and the same Emisar account, whatever the channel has chosen since. A room
+  # took its repository from the channel's saved setting, which names an
+  # environment now, and pinned no environment, so its investigation ran
+  # outside every environment, without the Emisar account the alert had.
+  test "an incident room inherits its conversation's environment" do
+    fixture = delivered_offer!()
+    save_channel_configuration!()
+    agent = incident_agent!()
+
+    assert fixture.session.environment_ref == "production"
+    assert ChannelConfigurations.configuration("T123", "C456").environment_ref == nil
+
+    assert {:ok, %{room: requested}} = IncidentRooms.request(request(fixture))
+    assert requested.environment_ref == "production"
+    assert requested.repository_ref == "ryker"
+    assert requested.repository_context == @source_context
+
+    assert {:ok, {:ready, room_ref}} = IncidentRoomWorker.run_once(worker_options(agent))
+    room = Repo.get_by!(IncidentRoom, ref: room_ref)
+
+    assert %Session{
+             environment_ref: "production",
+             policy: "incident-investigate",
+             repository_context: @source_context,
+             repository_ref: "ryker"
+           } = Repo.get_by!(Session, episode_id: room.episode_id)
+
+    # A conversation started in the room works there too.
+    work_profile = Runtime.options!(runtime_configuration!()).handler_settings.work_profile
+
+    assert {:ok, profile} = work_profile.("T123", "slack:T123:#{room.channel_ref}")
+    assert profile.environment_ref == "production"
+    assert profile.repository_ref == "ryker"
+    assert profile.read_only_repository_refs == ["docs"]
+    assert profile.parallel_goal_limit == 2
+  end
+
   test "an invalid configured audience blocks before creating a Slack room" do
     fixture = delivered_offer!()
     save_channel_configuration!()
@@ -555,6 +646,638 @@ defmodule Ryker.Slack.IncidentRoomsTest do
     assert claim.turn.turn_ref == resumed_episode.owner_ref
   end
 
+  # A room whose channel was deleted before setup finished was blocked for
+  # good: the Failures page could only say its retry would be refused, and the
+  # room counted against the open-room limit forever, one step closer to no
+  # incident room opening at all.
+  test "a room whose channel is deleted during setup closes itself and frees its place" do
+    fixture = delivered_offer!()
+    save_channel_configuration!()
+    agent = incident_agent!()
+
+    assert {:ok, %{room: requested}} =
+             IncidentRooms.request(%{request(fixture) | maximum_open_rooms: 1})
+
+    Agent.update(agent, &Map.put(&1, :invite_error, :invite_offline))
+    assert {:ok, {:deferred, room_ref}} = IncidentRoomWorker.run_once(worker_options(agent))
+    room = Repo.get!(IncidentRoom, requested.id)
+    assert room.channel_ref == "CINCIDENT"
+
+    deleted_at = DateTime.add(room.channel_state_changed_at, 1, :second)
+
+    assert {:ok, %{status: :applied, room: closed}} =
+             IncidentRooms.observe_lifecycle(
+               lifecycle(room, :deleted, "Ev-incident-deleted-in-setup", deleted_at)
+             )
+
+    assert closed.status == :closed
+    assert closed.channel_state == :deleted
+    assert closed.last_error_code == "incident_room_deleted"
+    assert closed.lease_ref == nil
+    assert closed.next_attempt_at == nil
+    assert FailureProjection.slack_incident(room_ref) == :not_found
+
+    # History stays: the room, its channel and the deletion Slack reported.
+    assert %IncidentRoomLifecycleEvent{kind: :deleted} =
+             Repo.get_by!(IncidentRoomLifecycleEvent, room_id: room.id)
+
+    # Nothing is left for the worker to do, and the limit has room again.
+    assert {:ok, :idle} = IncidentRoomWorker.run_once(worker_options(agent))
+    assert Repo.get!(IncidentRoom, room.id).status == :closed
+
+    assert {:ok, %{status: :requested}} =
+             IncidentRooms.request(%{request(delivered_offer!()) | maximum_open_rooms: 1})
+  end
+
+  # A room whose channel was deleted paused its investigation for good: Slack
+  # never brings a deleted channel back, so the request stayed open forever,
+  # the Failures page promised it would resume "when the room is active
+  # again", and nobody in the alert thread was told the room was gone. The
+  # investigation now closes the way a person's Close request closes it, and
+  # one fixed note says so in the thread the room was opened from.
+  test "a deleted incident room closes its investigation and says so in the alert thread" do
+    fixture = delivered_offer!()
+    save_channel_configuration!()
+    agent = incident_agent!()
+    publish_through_slack!(agent)
+
+    assert {:ok, _requested} =
+             IncidentRooms.request(%{request(fixture) | maximum_open_rooms: 1})
+
+    assert {:ok, {:ready, room_ref}} = IncidentRoomWorker.run_once(worker_options(agent))
+    room = Repo.get_by!(IncidentRoom, ref: room_ref)
+    posted_before = Agent.get(agent, & &1.posts)
+
+    assert {:ok, %{status: :applied, room: %{status: :ready}}} =
+             IncidentRooms.observe_lifecycle(
+               lifecycle(room, :deleted, "Ev-incident-ready-deleted", deleted_at(room))
+             )
+
+    assert {:ok, {:closed, ^room_ref}} = IncidentRoomWorker.run_once(worker_options(agent))
+
+    closed = Repo.get!(IncidentRoom, room.id)
+    assert closed.status == :closed
+    assert closed.channel_state == :deleted
+    assert closed.reconciled_channel_state == :deleted
+    assert closed.last_error_code == "incident_room_deleted"
+    assert closed.episode_id == room.episode_id
+
+    # Closed the way a person closes a request, saying why; nothing is deleted.
+    assert %Episode{state: :cancelled} = episode = Repo.get!(Episode, room.episode_id)
+    assert cancellation_reason(episode) =~ "##{room.channel_name} was deleted"
+
+    # One note, in the host's own words, in the alert thread the room came from.
+    note = "The incident room ##{room.channel_name} was deleted. Reply here to pick it up."
+
+    assert Agent.get(agent, & &1.posts) -- posted_before == [
+             {"C456", "1787832000.000100", %{"message" => note},
+              "incident-room:#{room.ref}:deleted"}
+           ]
+
+    # Nothing is left to do, and a later pass never posts it again.
+    assert {:ok, :idle} = IncidentRoomWorker.run_once(worker_options(agent))
+    assert length(Agent.get(agent, & &1.posts)) == length(posted_before) + 1
+
+    # Neither the room nor its closed request waits on anyone.
+    assert FailureProjection.slack_incident(room_ref) == :not_found
+    assert FailureProjection.work(episode.key) == :not_found
+
+    assert {:ok, %{status: :requested}} =
+             IncidentRooms.request(%{request(delivered_offer!()) | maximum_open_rooms: 1})
+  end
+
+  # A run still working when its room is deleted is stopped through the same
+  # cancellation custody as a person's close: the request closes on the
+  # worker's answer, never on Ryker's say-so, and the note waits for it.
+  test "an investigation still running when its room is deleted closes only once its worker confirms the stop" do
+    fixture = delivered_offer!()
+    save_channel_configuration!()
+    agent = incident_agent!()
+    publish_through_slack!(agent)
+
+    assert {:ok, _requested} = IncidentRooms.request(request(fixture))
+    assert {:ok, {:ready, room_ref}} = IncidentRoomWorker.run_once(worker_options(agent))
+    room = Repo.get_by!(IncidentRoom, ref: room_ref)
+    running = start_investigation_run!(room)
+    posted_before = Agent.get(agent, & &1.posts)
+
+    assert {:ok, %{status: :applied}} =
+             IncidentRooms.observe_lifecycle(
+               lifecycle(room, :deleted, "Ev-incident-running-deleted", deleted_at(room))
+             )
+
+    assert {:ok, {:deferred, ^room_ref}} = IncidentRoomWorker.run_once(worker_options(agent))
+
+    stopping = Repo.get!(Turn, running.turn.id)
+    assert stopping.status == :cancel_pending
+    assert stopping.cancellation_intent["action"] == "cancel"
+    assert stopping.cancellation_intent["reason"] =~ "##{room.channel_name} was deleted"
+    assert Repo.get!(Episode, room.episode_id).state == :working
+    assert Repo.get!(IncidentRoom, room.id).status == :ready
+    assert Agent.get(agent, & &1.posts) == posted_before
+
+    # The worker answers that the run stopped.
+    assert {:ok, claim} = Custody.claim_next("work:incident-room-stop", 60, :work)
+    assert claim.turn.id == running.turn.id
+
+    assert {:ok, receipt} =
+             Cancellation.terminal_receipt(
+               running.session.coop_session_id,
+               running.turn.coop_turn_id,
+               "cancelled",
+               nil,
+               "closed",
+               nil
+             )
+
+    assert {:ok, _settled} =
+             Custody.settle_cancellation(
+               running.episode.id,
+               running.episode.key,
+               running.turn.turn_ref,
+               claim.lease_ref,
+               receipt
+             )
+
+    make_room_retryable!(room.id)
+    assert {:ok, {:closed, ^room_ref}} = IncidentRoomWorker.run_once(worker_options(agent))
+    assert Repo.get!(Episode, room.episode_id).state == :cancelled
+
+    assert [{"C456", "1787832000.000100", %{"message" => note}, _ref}] =
+             Agent.get(agent, & &1.posts) -- posted_before
+
+    assert note ==
+             "The incident room ##{room.channel_name} was deleted. Reply here to pick it up."
+  end
+
+  # An investigation waiting for someone's answer in its room waited for
+  # good once the room was deleted: nobody can answer in a channel that is
+  # gone. It closes at once, the way a person's close closes a waiting request.
+  test "an investigation waiting for an answer closes at once when its room is deleted" do
+    save_channel_configuration!()
+    %{agent: agent, episode: episode, room: room} = ready_room!("deleted-while-waiting")
+    publish_through_slack!(agent)
+    assert {:ok, claim} = Custody.claim_next("incident-room:waiting", 60, :work)
+    assert claim.episode.id == episode.id
+
+    assert {:ok, question} =
+             Records.create(Records.token(claim.turn), "question", "input_request", %{
+               "choices" => ["rollback", "continue"],
+               "question" => "Should we roll back the checkout deployment?"
+             })
+
+    assert {:ok, %{episode: %Episode{state: :waiting_for_input}}} =
+             Episodes.apply(
+               EpisodeFixtures.start_wait(%{
+                 episode_key: episode.key,
+                 expected_turn_ref: episode.owner_ref,
+                 occurred_at: DateTime.add(@now, 5, :second),
+                 wait_ref: question.ref
+               })
+             )
+
+    posted_before = Agent.get(agent, & &1.posts)
+
+    assert {:ok, %{status: :applied}} =
+             IncidentRooms.observe_lifecycle(
+               lifecycle(room, :deleted, "Ev-incident-deleted-waiting", deleted_at(room))
+             )
+
+    room_ref = room.ref
+    assert {:ok, {:closed, ^room_ref}} = IncidentRoomWorker.run_once(worker_options(agent))
+
+    assert %Episode{state: :cancelled} = closed = Repo.get!(Episode, episode.id)
+    assert cancellation_reason(closed) =~ "##{room.channel_name} was deleted"
+
+    assert [{"C456", "1787832000.000100", %{"message" => note}, _ref}] =
+             Agent.get(agent, & &1.posts) -- posted_before
+
+    assert note ==
+             "The incident room ##{room.channel_name} was deleted. Reply here to pick it up."
+  end
+
+  # Archiving a room before its investigation's first run parks that run
+  # before any worker has it. Deleting the channel afterwards left the request
+  # parked for good: closing it was refused as a conflicting stop, and the
+  # Failures page kept saying it would resume when the room came back.
+  test "an investigation parked before its first run closes when its archived room is deleted" do
+    fixture = delivered_offer!()
+    save_channel_configuration!()
+    agent = incident_agent!()
+    publish_through_slack!(agent)
+
+    assert {:ok, _requested} = IncidentRooms.request(request(fixture))
+    assert {:ok, {:ready, room_ref}} = IncidentRoomWorker.run_once(worker_options(agent))
+    room = Repo.get_by!(IncidentRoom, ref: room_ref)
+    archived_at = deleted_at(room)
+    posted_before = Agent.get(agent, & &1.posts)
+
+    assert {:ok, %{status: :applied}} =
+             IncidentRooms.observe_lifecycle(
+               lifecycle(room, :archived, "Ev-incident-archived-first", archived_at)
+             )
+
+    assert {:ok, {:ready, ^room_ref}} = IncidentRoomWorker.run_once(worker_options(agent))
+    episode = Repo.get!(Episode, room.episode_id)
+
+    assert %Turn{status: :blocked, coop_turn_id: nil} =
+             Repo.get_by!(Turn, episode_id: episode.id, turn_ref: episode.owner_ref)
+
+    # While the room is archived the task waits for it, and says so.
+    assert {:ok, paused} = FailureProjection.fetch("work", episode.key)
+    assert inspect(FailureExplanation.explain(paused)) =~ "active again"
+
+    assert {:ok, %{status: :applied}} =
+             IncidentRooms.observe_lifecycle(
+               lifecycle(
+                 room,
+                 :deleted,
+                 "Ev-incident-archived-deleted",
+                 DateTime.add(archived_at, 1, :second)
+               )
+             )
+
+    # Deleted, it never reads as waiting for a room that cannot come back.
+    assert {:ok, closing} = FailureProjection.fetch("work", episode.key)
+    refute inspect(FailureExplanation.explain(closing)) =~ "active again"
+
+    assert {:ok, {:closed, ^room_ref}} = IncidentRoomWorker.run_once(worker_options(agent))
+    assert Repo.get!(Episode, room.episode_id).state == :cancelled
+    assert FailureProjection.fetch("work", episode.key) == :not_found
+
+    assert [{"C456", "1787832000.000100", %{"message" => note}, _ref}] =
+             Agent.get(agent, & &1.posts) -- posted_before
+
+    assert note ==
+             "The incident room ##{room.channel_name} was deleted. Reply here to pick it up."
+  end
+
+  # Without a publisher there is nobody to post through; the room and its
+  # request still close rather than wait for one.
+  test "a deleted room with no publisher configured closes without a note" do
+    fixture = delivered_offer!()
+    save_channel_configuration!()
+    agent = incident_agent!()
+
+    assert {:ok, _requested} = IncidentRooms.request(request(fixture))
+    assert {:ok, {:ready, room_ref}} = IncidentRoomWorker.run_once(worker_options(agent))
+    room = Repo.get_by!(IncidentRoom, ref: room_ref)
+    posted_before = Agent.get(agent, & &1.posts)
+
+    assert {:ok, %{status: :applied}} =
+             IncidentRooms.observe_lifecycle(
+               lifecycle(room, :deleted, "Ev-incident-deleted-unpublished", deleted_at(room))
+             )
+
+    assert {:ok, {:closed, ^room_ref}} = IncidentRoomWorker.run_once(worker_options(agent))
+    assert Repo.get!(Episode, room.episode_id).state == :cancelled
+    assert Agent.get(agent, & &1.posts) == posted_before
+  end
+
+  # Once the investigation is closed the note is all that is left. Slack
+  # being unreachable for a moment must not lose it or post it twice.
+  test "a deleted room's note waits out a Slack outage and is posted once" do
+    fixture = delivered_offer!()
+    save_channel_configuration!()
+    agent = incident_agent!()
+    publish_through_slack!(agent)
+
+    assert {:ok, _requested} = IncidentRooms.request(request(fixture))
+    assert {:ok, {:ready, room_ref}} = IncidentRoomWorker.run_once(worker_options(agent))
+    room = Repo.get_by!(IncidentRoom, ref: room_ref)
+    note_ref = "incident-room:#{room.ref}:deleted"
+    posted_before = Agent.get(agent, & &1.posts)
+
+    Agent.update(
+      agent,
+      &Map.put(&1, :post_errors, %{note_ref => {:slack_http_error, 503, "unavailable"}})
+    )
+
+    assert {:ok, %{status: :applied}} =
+             IncidentRooms.observe_lifecycle(
+               lifecycle(room, :deleted, "Ev-incident-deleted-outage", deleted_at(room))
+             )
+
+    assert {:ok, {:deferred, ^room_ref}} = IncidentRoomWorker.run_once(worker_options(agent))
+    assert Repo.get!(IncidentRoom, room.id).status == :ready
+    assert Repo.get!(Episode, room.episode_id).state == :cancelled
+    assert Agent.get(agent, & &1.posts) == posted_before
+
+    Agent.update(agent, &Map.put(&1, :post_errors, %{}))
+    make_room_retryable!(room.id)
+    assert {:ok, {:closed, ^room_ref}} = IncidentRoomWorker.run_once(worker_options(agent))
+
+    assert [{"C456", "1787832000.000100", %{"message" => _note}, ^note_ref}] =
+             Agent.get(agent, & &1.posts) -- posted_before
+  end
+
+  # A refusal no retry can change, here because Ryker is no longer in the
+  # alert channel, must not hold the room, and its place in the open-room
+  # limit, open for good. The room closes and records why nothing was said.
+  test "a deleted room whose note Slack refuses for good still closes" do
+    fixture = delivered_offer!()
+    save_channel_configuration!()
+    agent = incident_agent!()
+    publish_through_slack!(agent)
+
+    assert {:ok, _requested} =
+             IncidentRooms.request(%{request(fixture) | maximum_open_rooms: 1})
+
+    assert {:ok, {:ready, room_ref}} = IncidentRoomWorker.run_once(worker_options(agent))
+    room = Repo.get_by!(IncidentRoom, ref: room_ref)
+    note_ref = "incident-room:#{room.ref}:deleted"
+
+    Agent.update(
+      agent,
+      &Map.put(&1, :post_errors, %{note_ref => {:slack_api_error, "not_in_channel"}})
+    )
+
+    assert {:ok, %{status: :applied}} =
+             IncidentRooms.observe_lifecycle(
+               lifecycle(room, :deleted, "Ev-incident-deleted-refused", deleted_at(room))
+             )
+
+    assert {:ok, {:closed, ^room_ref}} = IncidentRoomWorker.run_once(worker_options(agent))
+
+    closed = Repo.get!(IncidentRoom, room.id)
+    assert closed.status == :closed
+    assert closed.last_error_code == "incident_room_deleted"
+    assert closed.last_error_detail =~ "not_in_channel"
+    assert Repo.get!(Episode, room.episode_id).state == :cancelled
+
+    assert {:ok, %{status: :requested}} =
+             IncidentRooms.request(%{request(delivered_offer!()) | maximum_open_rooms: 1})
+  end
+
+  # An answer accepted just as its room was deleted was owed to a channel Slack
+  # never brings back. The kernel rightly closes no request under an accepted
+  # reply, so the request stayed paused for good, the answer reached nobody,
+  # and Failures listed a blocked reply with a generic cause. The answer now
+  # goes, word for word, to the alert thread the room was opened from, and the
+  # room's note follows it there, each exactly once.
+  test "a reply finished for a deleted room reaches the alert thread instead of being lost" do
+    fixture = delivered_offer!()
+    save_channel_configuration!()
+    agent = incident_agent!()
+    publish_through_slack!(agent)
+
+    assert {:ok, _requested} =
+             IncidentRooms.request(%{request(fixture) | maximum_open_rooms: 1})
+
+    assert {:ok, {:ready, room_ref}} = IncidentRoomWorker.run_once(worker_options(agent))
+    room = Repo.get_by!(IncidentRoom, ref: room_ref)
+    reply = accept_investigation_reply!(room, @finished_answer)
+    assert reply.delivery_target["conversation_ref"] == "slack:T123:#{room.channel_ref}"
+    posted_before = Agent.get(agent, & &1.posts)
+
+    assert {:ok, %{status: :applied}} =
+             IncidentRooms.observe_lifecycle(
+               lifecycle(room, :deleted, "Ev-incident-deleted-with-reply", deleted_at(room))
+             )
+
+    # The room waits for its reply instead of closing over it.
+    assert {:ok, {:deferred, ^room_ref}} = IncidentRoomWorker.run_once(worker_options(agent))
+    assert Repo.get!(IncidentRoom, room.id).status == :ready
+    assert Agent.get(agent, & &1.posts) == posted_before
+
+    # The reply goes out through the ordinary delivery lane. Slack posts it but
+    # its answer is lost, and the retry finds that post instead of posting again.
+    Agent.update(
+      agent,
+      &Map.put(&1, :post_errors, %{reply.delivery_ref => {:answer_lost, :timeout}})
+    )
+
+    assert {:ok, {:deferred, :message, delivery_ref, _uncertain}} =
+             Dispatcher.run_once(delivery_options(agent))
+
+    assert delivery_ref == reply.delivery_ref
+
+    # The note never goes ahead of the reply.
+    make_room_retryable!(room.id)
+    assert {:ok, {:deferred, ^room_ref}} = IncidentRoomWorker.run_once(worker_options(agent))
+
+    make_reply_retryable!(reply.id)
+
+    assert {:ok, {:delivered, :message, ^delivery_ref}} =
+             Dispatcher.run_once(delivery_options(agent))
+
+    make_room_retryable!(room.id)
+    assert {:ok, {:closed, ^room_ref}} = IncidentRoomWorker.run_once(worker_options(agent))
+
+    note = "The incident room ##{room.channel_name} was deleted. Reply here to pick it up."
+
+    assert Agent.get(agent, & &1.posts) -- posted_before == [
+             {"C456", "1787832000.000100", %{"message" => @finished_answer["message"]},
+              delivery_ref},
+             {"C456", "1787832000.000100", %{"message" => note},
+              "incident-room:#{room.ref}:deleted"}
+           ]
+
+    assert %Turn{status: :settled, delivery_document: @finished_answer} =
+             Repo.get!(Turn, reply.id)
+
+    assert Repo.get!(Episode, room.episode_id).state == :complete
+    assert Repo.get!(IncidentRoom, room.id).status == :closed
+
+    # Nothing is left to do, and a later pass of either lane posts nothing.
+    assert {:ok, :idle} = IncidentRoomWorker.run_once(worker_options(agent))
+    assert {:ok, :idle} = Dispatcher.run_once(delivery_options(agent))
+    assert length(Agent.get(agent, & &1.posts)) == length(posted_before) + 2
+    assert FailureProjection.fetch("delivery", delivery_ref) == :not_found
+
+    assert {:ok, %{status: :requested}} =
+             IncidentRooms.request(%{request(delivered_offer!()) | maximum_open_rooms: 1})
+  end
+
+  # When the alert thread refuses the moved reply for good, here because Ryker
+  # was removed from the alert channel, the room still closes and records why,
+  # but the answer is never thrown away: it stays owed, Failures lists it as a
+  # reply for the alert thread, and a retry posts it there.
+  test "a moved reply the alert thread refuses stays owed and its room still closes" do
+    fixture = delivered_offer!()
+    save_channel_configuration!()
+    agent = incident_agent!()
+    publish_through_slack!(agent)
+
+    assert {:ok, _requested} =
+             IncidentRooms.request(%{request(fixture) | maximum_open_rooms: 1})
+
+    assert {:ok, {:ready, room_ref}} = IncidentRoomWorker.run_once(worker_options(agent))
+    room = Repo.get_by!(IncidentRoom, ref: room_ref)
+    reply = accept_investigation_reply!(room, @finished_answer)
+    note_ref = "incident-room:#{room.ref}:deleted"
+    posted_before = Agent.get(agent, & &1.posts)
+
+    assert {:ok, %{status: :applied}} =
+             IncidentRooms.observe_lifecycle(
+               lifecycle(room, :deleted, "Ev-incident-deleted-reply-refused", deleted_at(room))
+             )
+
+    assert {:ok, {:deferred, ^room_ref}} = IncidentRoomWorker.run_once(worker_options(agent))
+
+    Agent.update(
+      agent,
+      &Map.put(&1, :post_errors, %{
+        reply.delivery_ref => {:slack_api_error, "not_in_channel"},
+        note_ref => {:slack_api_error, "not_in_channel"}
+      })
+    )
+
+    assert {:ok, {:blocked, :message, delivery_ref, _refused}} =
+             Dispatcher.run_once(delivery_options(agent))
+
+    make_room_retryable!(room.id)
+    assert {:ok, {:closed, ^room_ref}} = IncidentRoomWorker.run_once(worker_options(agent))
+
+    closed = Repo.get!(IncidentRoom, room.id)
+    assert closed.status == :closed
+    assert closed.last_error_code == "incident_room_deleted"
+    assert closed.last_error_detail =~ "reply could not be posted (not_in_channel)"
+    assert Agent.get(agent, & &1.posts) == posted_before
+
+    # The answer is kept, still owed, and now owed to the alert thread.
+    owed = Repo.get!(Turn, reply.id)
+    assert owed.status == :blocked
+    assert owed.delivery_document == @finished_answer
+
+    assert owed.delivery_target == %{
+             "conversation_ref" => "slack:T123:C456",
+             "thread_ref" => "1787832000.000100",
+             "transport" => "slack"
+           }
+
+    assert %Episode{state: :working, owner_kind: :delivery} = Repo.get!(Episode, room.episode_id)
+
+    # Failures names the alert thread, never the room that cannot come back.
+    assert {:ok, row} = FailureProjection.fetch("delivery", delivery_ref)
+    assert row.destination == "slack:T123:C456 / 1787832000.000100"
+    explanation = FailureExplanation.explain(row)
+    assert Enum.any?(explanation.happened, &(&1 =~ "##{room.channel_name}, which was deleted"))
+    refute inspect(explanation) =~ "active again"
+    refute inspect(explanation) =~ "room is active"
+    refute inspect(explanation) =~ "Unarchive"
+
+    # Once Ryker can post there again, a retry posts it there, word for word.
+    Agent.update(agent, &Map.put(&1, :post_errors, %{}))
+    assert {:ok, _rearmed} = DeliveryOperator.rearm(delivery_ref)
+
+    assert {:ok, {:delivered, :message, ^delivery_ref}} =
+             Dispatcher.run_once(delivery_options(agent))
+
+    assert Agent.get(agent, & &1.posts) -- posted_before == [
+             {"C456", "1787832000.000100", %{"message" => @finished_answer["message"]},
+              delivery_ref}
+           ]
+
+    assert FailureProjection.fetch("delivery", delivery_ref) == :not_found
+
+    # A finished answer ends the investigation once it is posted.
+    assert Repo.get!(Episode, room.episode_id).state == :complete
+    assert {:ok, :idle} = IncidentRoomWorker.run_once(worker_options(agent))
+
+    assert {:ok, %{status: :requested}} =
+             IncidentRooms.request(%{request(delivered_offer!()) | maximum_open_rooms: 1})
+  end
+
+  # A reply that asks a question waits for the answer once it is posted. When
+  # it was owed to a room Slack deleted, the alert thread refused it, and a
+  # person later posted it from the Failures page, the investigation went on
+  # waiting for an answer in a room that no longer exists: the room had closed
+  # already, so nothing looked at it again, and it stayed open for good.
+  test "a reply posted from Failures for a deleted room closes its investigation" do
+    fixture = delivered_offer!()
+    save_channel_configuration!()
+    agent = incident_agent!()
+    publish_through_slack!(agent)
+
+    assert {:ok, _requested} = IncidentRooms.request(request(fixture))
+    assert {:ok, {:ready, room_ref}} = IncidentRoomWorker.run_once(worker_options(agent))
+    room = Repo.get_by!(IncidentRoom, ref: room_ref)
+    reply = ask_investigation_question!(room)
+    note_ref = "incident-room:#{room.ref}:deleted"
+
+    assert {:ok, %{status: :applied}} =
+             IncidentRooms.observe_lifecycle(
+               lifecycle(room, :deleted, "Ev-incident-deleted-question", deleted_at(room))
+             )
+
+    assert {:ok, {:deferred, ^room_ref}} = IncidentRoomWorker.run_once(worker_options(agent))
+
+    Agent.update(
+      agent,
+      &Map.put(&1, :post_errors, %{
+        reply.delivery_ref => {:slack_api_error, "not_in_channel"},
+        note_ref => {:slack_api_error, "not_in_channel"}
+      })
+    )
+
+    assert {:ok, {:blocked, :message, delivery_ref, _refused}} =
+             Dispatcher.run_once(delivery_options(agent))
+
+    make_room_retryable!(room.id)
+    assert {:ok, {:closed, ^room_ref}} = IncidentRoomWorker.run_once(worker_options(agent))
+    assert Repo.get!(IncidentRoom, room.id).status == :closed
+
+    # A person posts the reply from Failures once Ryker can post there again.
+    Agent.update(agent, &Map.put(&1, :post_errors, %{}))
+    assert {:ok, _rearmed} = DeliveryOperator.rearm(delivery_ref)
+
+    assert {:ok, {:delivered, :message, ^delivery_ref}} =
+             Dispatcher.run_once(delivery_options(agent))
+
+    posted = Agent.get(agent, & &1.posts)
+
+    # Nobody can answer in a room that is gone: the investigation closes the
+    # way the room's deletion closes one, saying why.
+    assert {:ok, {:closed, ^room_ref}} = IncidentRoomWorker.run_once(worker_options(agent))
+
+    assert %Episode{state: :cancelled} = episode = Repo.get!(Episode, room.episode_id)
+    assert cancellation_reason(episode) =~ "##{room.channel_name} was deleted"
+    assert FailureProjection.fetch("work", episode.key) == :not_found
+
+    # The room stays closed, nothing more is posted, and a later pass is idle.
+    assert Repo.get!(IncidentRoom, room.id).status == :closed
+    assert {:ok, :idle} = IncidentRoomWorker.run_once(worker_options(agent))
+    assert Agent.get(agent, & &1.posts) == posted
+  end
+
+  # Slack refuses a post in a room it deleted, and the reply's lane can reach
+  # it before the room's lane does. Failures then said the reply "fails until
+  # the room is active and Ryker is in it again", for a room that never comes
+  # back. It says Ryker moves the reply on its own, and lists it no longer
+  # once the reply is on its way to the alert thread.
+  test "a reply refused in its deleted room reads as moving to the alert thread, never as waiting for the room" do
+    fixture = delivered_offer!()
+    save_channel_configuration!()
+    agent = incident_agent!()
+    publish_through_slack!(agent)
+
+    assert {:ok, _requested} = IncidentRooms.request(request(fixture))
+    assert {:ok, {:ready, room_ref}} = IncidentRoomWorker.run_once(worker_options(agent))
+    room = Repo.get_by!(IncidentRoom, ref: room_ref)
+    reply = accept_investigation_reply!(room, @finished_answer)
+
+    assert {:ok, %{status: :applied}} =
+             IncidentRooms.observe_lifecycle(
+               lifecycle(room, :deleted, "Ev-incident-deleted-reply-first", deleted_at(room))
+             )
+
+    assert {:ok, {:blocked, :message, delivery_ref, {:slack_incident_room_inactive, :deleted}}} =
+             Dispatcher.run_once(delivery_options(agent))
+
+    assert {:ok, row} = FailureProjection.fetch("delivery", delivery_ref)
+    explanation = FailureExplanation.explain(row)
+    assert explanation.outlook == :automatic
+    assert inspect(explanation) =~ "alert thread"
+    refute inspect(explanation) =~ "active again"
+    refute inspect(explanation) =~ "room is active"
+    refute inspect(explanation) =~ "Unarchive"
+
+    assert {:ok, {:deferred, ^room_ref}} = IncidentRoomWorker.run_once(worker_options(agent))
+    assert FailureProjection.fetch("delivery", delivery_ref) == :not_found
+    assert %Turn{status: :delivery_pending} = Repo.get!(Turn, reply.id)
+  end
+
   test "a periodic channel check repairs a missed archive and treats not-found as unavailable" do
     fixture = delivered_offer!()
     save_channel_configuration!()
@@ -619,8 +1342,11 @@ defmodule Ryker.Slack.IncidentRoomsTest do
     assert settings.work_profile.("T123", conversation_ref) ==
              {:ok,
               %{
+                environment_ref: "production",
+                parallel_goal_limit: 2,
                 policy: "incident-investigate",
                 policy_digest: @policy_digest,
+                read_only_repository_refs: ["docs"],
                 repository_ref: "ryker"
               }}
 
@@ -1126,16 +1852,18 @@ defmodule Ryker.Slack.IncidentRoomsTest do
     assert Process.alive?(pid)
   end
 
+  # The alert channel's saved setting, with No environment chosen since the
+  # alert's conversation ran: a room follows that conversation, not this.
   defp save_channel_configuration!(alert_policy \\ :offer) do
     attributes = %{
       actor_ref: "U123",
       alert_policy: alert_policy,
       channel_ref: "C456",
+      environment_ref: nil,
       id: Ecto.UUID.generate(),
       invite_user_group_refs: ["SRE"],
       invite_user_refs: ["U200"],
       participation: :proactive,
-      repository_ref: "ryker",
       revision: 1,
       saved_at: @now,
       workspace_ref: "T123"
@@ -1157,6 +1885,191 @@ defmodule Ryker.Slack.IncidentRoomsTest do
       retry_base_seconds: 1,
       worker_ref: "incident-room-worker"
     }
+  end
+
+  # Host notes go through the delivery adapters every reply uses: here
+  # Slack's own publisher, over this test's Slack.
+  defp publish_through_slack!(agent) do
+    previous = Application.fetch_env(:ryker, :delivery)
+    Application.put_env(:ryker, :delivery, %{adapters: slack_registrations(agent)})
+
+    on_exit(fn ->
+      case previous do
+        {:ok, value} -> Application.put_env(:ryker, :delivery, value)
+        :error -> Application.delete_env(:ryker, :delivery)
+      end
+    end)
+  end
+
+  defp slack_registrations(agent) do
+    %{
+      "slack" => %{
+        binding: %{
+          destination_allowed: &IncidentRooms.delivery_allowed/2,
+          workspaces: %{"T123" => %{api: API, client: agent}}
+        },
+        message_publisher: Ryker.Slack.Publisher,
+        reaction_publisher: Ryker.Slack.Publisher
+      }
+    }
+  end
+
+  # The lane that posts every accepted reply, over the same Slack.
+  defp delivery_options(agent) do
+    assert {:ok, adapters} = Adapters.new(slack_registrations(agent))
+
+    [
+      adapters: adapters,
+      kind: :message,
+      lease_seconds: 60,
+      retry_base_seconds: 1,
+      retry_max_seconds: 60,
+      worker_ref: "incident-room-delivery"
+    ]
+  end
+
+  defp make_reply_retryable!(turn_id) do
+    Repo.update_all(from(turn in Turn, where: turn.id == ^turn_id), set: [next_attempt_at: @now])
+  end
+
+  defp deleted_at(room), do: DateTime.add(room.channel_state_changed_at, 1, :second)
+
+  defp cancellation_reason(episode) do
+    Repo.one!(
+      from(event in Event,
+        where: event.episode_id == ^episode.id and event.kind == :episode_cancelled,
+        select: event.payload
+      )
+    )
+    |> Map.fetch!("reason")
+  end
+
+  # The investigation's first run, on a worker: a bound session and turn.
+  defp start_investigation_run!(room) do
+    assert {:ok, claim} = Custody.claim_next("work:incident-room", 60, :work)
+    assert claim.episode.id == room.episode_id
+
+    assert {:ok, submission} =
+             Submission.new(
+               %{"request" => "Investigate checkout errors."},
+               "Investigate the incident.",
+               %{"type" => "object"},
+               "work-final-live-v3"
+             )
+
+    assert {:ok, _turn} =
+             Custody.freeze_submission(
+               claim.episode.id,
+               claim.turn.turn_ref,
+               claim.lease_ref,
+               submission
+             )
+
+    assert {:ok, session} =
+             Custody.bind_session(
+               claim.episode.id,
+               claim.turn.turn_ref,
+               claim.lease_ref,
+               claim.session.generation,
+               claim.session.create_generation,
+               "coop-session:incident-room:#{room.id}"
+             )
+
+    assert {:ok, turn} =
+             Custody.bind_turn(
+               claim.episode.id,
+               claim.turn.turn_ref,
+               claim.lease_ref,
+               session.generation,
+               claim.turn.submit_generation,
+               "coop-turn:incident-room:#{room.id}"
+             )
+
+    %{episode: claim.episode, lease_ref: claim.lease_ref, session: session, turn: turn}
+  end
+
+  # The investigation's run finishes: its answer is accepted for the room and
+  # waits for the delivery lane, posted nowhere yet.
+  defp accept_investigation_reply!(room, document) do
+    room
+    |> start_investigation_run!()
+    |> accept_reply!(room, document, %{"kind" => "complete"})
+  end
+
+  defp accept_reply!(running, room, document, continuation) do
+    candidate = Jason.encode!(document)
+    sha256 = :crypto.hash(:sha256, candidate) |> Base.encode16(case: :lower)
+
+    assert {:ok, _turn} =
+             Custody.stage_candidate(
+               running.episode.id,
+               running.turn.turn_ref,
+               running.lease_ref,
+               nil,
+               nil,
+               candidate,
+               sha256,
+               1
+             )
+
+    assert {:ok, result} = Result.new(:reply, document, nil, continuation)
+
+    assert {:ok, _turn} =
+             Custody.prepare_validation(
+               running.episode.id,
+               running.turn.turn_ref,
+               running.lease_ref,
+               sha256,
+               1,
+               :accept,
+               result
+             )
+
+    assert {:ok, %{episode: %Episode{owner_kind: :delivery}, turn: turn}} =
+             Custody.accept_result(
+               running.episode.id,
+               running.episode.key,
+               running.turn.turn_ref,
+               running.lease_ref,
+               sha256,
+               1,
+               "validation-receipt:#{room.ref}"
+             )
+
+    turn
+  end
+
+  # The investigation's run finishes by asking a question: its reply waits for
+  # the answer once it is posted, and waits for the delivery lane first.
+  defp ask_investigation_question!(room) do
+    running = start_investigation_run!(room)
+
+    assert {:ok, question} =
+             Records.create(Records.token(running.turn), "question", "input_request", %{
+               "choices" => ["rollback", "continue"],
+               "question" => "Should we roll back the checkout deployment?"
+             })
+
+    document = %{
+      "decision_reason" => nil,
+      "delivery" => "reply",
+      "message" =>
+        "Checkout errors started with the last deployment. Should we roll back the checkout deployment?",
+      "outcome" => %{
+        "artifact_refs" => [],
+        "record_refs" => [question.ref],
+        "state" => "waiting_for_input"
+      }
+    }
+
+    continuation = %{
+      "deadline_at" => nil,
+      "kind" => "wait",
+      "wait_kind" => "input",
+      "wait_ref" => question.ref
+    }
+
+    accept_reply!(running, room, document, continuation)
   end
 
   defp ready_room!(suffix) do
@@ -1211,18 +2124,11 @@ defmodule Ryker.Slack.IncidentRoomsTest do
     %{
       app_http: http,
       bot_client: client,
-      default_repository: "ryker",
+      default_environment: nil,
+      environments: %{},
       identity: %{bot_ref: "B123", bot_user_ref: "U999", workspace_ref: "T123"},
       incident_policy: %{digest: @policy_digest, name: "incident-investigate"},
       operators: ["U123"],
-      repositories: %{
-        "ryker" => %{
-          contributor_policy: %{
-            digest: String.duplicate("c", 64),
-            name: "ryker-contributor"
-          }
-        }
-      },
       default_participation: :mentions
     }
   end
@@ -1334,8 +2240,18 @@ defmodule Ryker.Slack.IncidentRoomsTest do
     command = %{command | payload: Input.document(input)}
     assert {:ok, transition} = Episodes.apply(command)
 
+    # The alert's conversation runs in the production environment.
     assert {:ok, _session} =
-             Custody.pin_episode(episode_id, "ryker-read", String.duplicate("a", 64))
+             Custody.pin_episode(
+               episode_id,
+               "ryker-read",
+               String.duplicate("a", 64),
+               nil,
+               "ryker",
+               @source_context,
+               nil,
+               "production"
+             )
 
     assert {:ok, claim} = Custody.claim_next("worker:incident-offer", 60, :work)
 

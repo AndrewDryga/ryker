@@ -7,6 +7,20 @@ defmodule Ryker.Learning.FleetSession do
 
   def external_ref(%LearningRun{id: id}), do: "ryker-learning:#{id}"
 
+  @doc """
+  Whether a worker would take a new learning session of this policy now, asked
+  without taking a slot. A transport that cannot say is not asked.
+  """
+  def placeable?(%{api: api, client: client, policy: policy, policy_digest: digest}) do
+    session = %Session{execution_kind: :learning, policy: policy, policy_digest: digest}
+
+    if Code.ensure_loaded?(api) and function_exported?(api, :accepts_session?, 2),
+      do: api.accepts_session?(client, session),
+      else: true
+  end
+
+  def placeable?(_settings), do: true
+
   def ensure(%LearningRun{} = run) do
     Repo.transaction(fn ->
       current = Repo.one!(from(r in LearningRun, where: r.id == ^run.id, lock: "FOR SHARE"))

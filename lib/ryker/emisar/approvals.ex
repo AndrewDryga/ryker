@@ -151,6 +151,163 @@ defmodule Ryker.Emisar.Approvals do
 
   def get_by_request_id(_connection_ref, _request_id), do: nil
 
+  # What the monitor saves when it has no usable token for the account: the
+  # credential is gone, or it can no longer be decrypted. A transient failure
+  # to read it is saved differently and is retried like any outage.
+  @token_unavailable_errors [
+    "{:delivery_credentials_unavailable, :credential_missing}",
+    "{:delivery_credentials_unavailable, :credential_decryption_failed}"
+  ]
+
+  @doc false
+  @spec token_unavailable_errors() :: [String.t()]
+  def token_unavailable_errors, do: @token_unavailable_errors
+
+  @doc """
+  Closes this account's approval watches that nothing waits for any more.
+
+  A watch ends for good once its task is closed or its wait was answered. A
+  blocked one could only be refused on every retry and sat on the Failures
+  page for good, and a monitoring one was never claimed again. Each is closed
+  with the reason and kept as history, never deleted. A watch whose task has
+  not started waiting yet is left alone: its turn registers it before the
+  delivered result starts the wait. Returns the closed request IDs.
+  """
+  @spec close_ended(String.t()) :: {:ok, [String.t()]} | {:error, term()}
+  def close_ended(connection_ref) do
+    with :ok <- reference(connection_ref, 64, :connection_ref) do
+      connection_ref |> ended_watches() |> close_watches()
+    end
+  end
+
+  defp ended_watches(connection_ref) do
+    Repo.all(
+      from([approval, record, episode] in watches(connection_ref),
+        where: approval.status in [:monitoring, :blocked],
+        where: record.status != :open or episode.state == :cancelled,
+        order_by: [asc: approval.updated_at, asc: approval.id],
+        limit: 100,
+        select: approval.id
+      )
+    )
+  end
+
+  # Nothing to close touches nothing: every write here notifies the control
+  # plane, and this runs on each idle poll.
+  defp close_watches([]), do: {:ok, []}
+
+  defp close_watches(ids) do
+    Repo.transaction(fn -> close_locked(ids) end)
+    |> transaction_result()
+  end
+
+  defp close_locked(ids) do
+    now = database_now!()
+
+    ids
+    |> lock_unleased(now)
+    |> Enum.map(fn approval ->
+      update!(approval, %{
+        closed_at: now,
+        closed_reason: "wait_ended",
+        lease_expires_at: nil,
+        lease_owner: nil,
+        lease_ref: nil,
+        next_attempt_at: nil,
+        status: :closed
+      }).request_id
+    end)
+  end
+
+  @doc """
+  Clears what a replaced token fixes, for one account.
+
+  A watch Emisar stopped because it refused the old token is watched again,
+  and a watch that could not read its token is checked now rather than after
+  the backoff it had reached. Each still needs a task waiting for it; the next
+  poll with a still-refused token blocks it again. Returns how many changed.
+  """
+  @spec token_replaced(String.t()) :: {:ok, non_neg_integer()} | {:error, term()}
+  def token_replaced(connection_ref) do
+    with :ok <- reference(connection_ref, 64, :connection_ref) do
+      Repo.transaction(fn -> token_replaced_locked(connection_ref) end)
+      |> transaction_result()
+    end
+  end
+
+  defp token_replaced_locked(connection_ref) do
+    now = database_now!()
+
+    (refused_watches(connection_ref) ++ unreadable_watches(connection_ref))
+    |> lock_unleased(now)
+    |> Enum.map(fn approval ->
+      update!(approval, %{
+        failure_count: 0,
+        last_error: nil,
+        lease_expires_at: nil,
+        lease_owner: nil,
+        lease_ref: nil,
+        next_attempt_at: nil,
+        status: :monitoring
+      })
+    end)
+    |> length()
+  end
+
+  defp refused_watches(connection_ref) do
+    Repo.all(
+      from([approval, _record, _episode] in waited_for(connection_ref),
+        where: approval.status == :blocked,
+        where:
+          like(approval.last_error, "{:emisar_http_error, 401,%") or
+            like(approval.last_error, "{:emisar_http_error, 403,%"),
+        select: approval.id
+      )
+    )
+  end
+
+  defp unreadable_watches(connection_ref) do
+    Repo.all(
+      from([approval, _record, _episode] in waited_for(connection_ref),
+        where: approval.status == :monitoring,
+        where: approval.last_error in ^@token_unavailable_errors,
+        select: approval.id
+      )
+    )
+  end
+
+  defp watches(connection_ref) do
+    from(approval in Approval,
+      join: record in Record,
+      on: record.id == approval.record_id and record.episode_id == approval.episode_id,
+      join: episode in Episode,
+      on: episode.id == approval.episode_id,
+      where: approval.connection_ref == ^connection_ref
+    )
+  end
+
+  # This account's watches that a task is waiting for right now.
+  defp waited_for(connection_ref) do
+    from([approval, record, episode] in watches(connection_ref),
+      where: record.kind == "emisar_approval" and record.status == :open,
+      where:
+        episode.state == :waiting_for_event and episode.owner_kind == :event and
+          episode.owner_ref == record.ref
+    )
+  end
+
+  # The rows among `ids` still open and not being polled right now, locked.
+  defp lock_unleased(ids, now) do
+    Repo.all(
+      from(approval in Approval,
+        where: approval.id in ^ids and approval.status in [:monitoring, :blocked],
+        where: is_nil(approval.lease_ref) or approval.lease_expires_at <= ^now,
+        order_by: [asc: approval.updated_at, asc: approval.id],
+        lock: "FOR UPDATE SKIP LOCKED"
+      )
+    )
+  end
+
   defp ensure_registered(%Record{kind: "emisar_approval"} = record) do
     with :ok <- exact_session_authority(record) do
       case Repo.one(from(approval in Approval, where: approval.record_id == ^record.id)) do

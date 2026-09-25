@@ -240,7 +240,7 @@ defmodule Ryker.ControlPlane.TimelineLoadingTest do
         %{"mode" => "full"},
         "Investigate",
         %{"type" => "object"},
-        "work-final-live-v2"
+        "work-final-live-v3"
       )
 
     {:ok, _frozen} =

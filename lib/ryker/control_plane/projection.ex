@@ -13,12 +13,14 @@ defmodule Ryker.ControlPlane.Projection do
     ChannelDetail,
     ChannelDirectory,
     ConfigurationProjection,
+    ConversationMemory,
     ConversationProjection,
     EpisodeProjection,
     FailureProjection,
     FindingsProjection,
     IncidentProjection,
     InstructionSettings,
+    LearningActivity,
     MemoryProjection,
     ModelRequests,
     OverviewProjection,
@@ -35,15 +37,13 @@ defmodule Ryker.ControlPlane.Projection do
   def callbacks do
     %{
       activity: &Activity.list/1,
-      admission: &FailureProjection.admission/1,
       admission_request: &ModelRequests.project_input/2,
       behavior: &BehaviorLibrary.fetch/1,
       behaviors: &BehaviorLibrary.list/2,
       channel: &ChannelDetail.fetch/3,
       channels: &ChannelDirectory.list/1,
-      delivery: &FailureProjection.delivery/1,
-      emisar: &FailureProjection.emisar/1,
       episode: &EpisodeProjection.fetch/2,
+      failure: &FailureProjection.fetch/2,
       failures: &FailureProjection.list/1,
       findings: &FindingsProjection.list/1,
       incident: &IncidentProjection.fetch/1,
@@ -54,6 +54,8 @@ defmodule Ryker.ControlPlane.Projection do
       lab_conversation: &ConversationProjection.fetch/1,
       lab_history: &ConversationProjection.history/3,
       lab_index: &ConversationProjection.index/0,
+      learned: &ConversationMemory.project/1,
+      learning: &LearningActivity.project/1,
       memory: &MemoryProjection.fetch/1,
       model_timeline: &ModelRequests.timeline/2,
       operator_configuration: &ConfigurationProjection.fetch/0,
@@ -63,12 +65,9 @@ defmodule Ryker.ControlPlane.Projection do
       schedule: &ScheduleProjection.fetch/1,
       schedules: &ScheduleProjection.list/1,
       settings: &SettingsView.fetch/0,
-      slack_incident: &FailureProjection.slack_incident/1,
-      slack_interaction: &FailureProjection.slack_interaction/1,
       subscriptions: &SubscriptionProjection.list/1,
       usage: &UsageProjection.page/1,
       usage_filter_options: &UsageProjection.filter_options/0,
-      work: &FailureProjection.work/1,
       workspace: &WorkspaceProjection.fetch/1,
       workspace_storage: &WorkspaceProjection.storage/0,
       workspaces: &WorkspaceProjection.list/1
@@ -103,6 +102,8 @@ defmodule Ryker.ControlPlane.Projection do
     as: :history
 
   defdelegate lab_index(), to: ConversationProjection, as: :index
+  defdelegate learned(params \\ %{}), to: ConversationMemory, as: :project
+  defdelegate learning(params \\ %{}), to: LearningActivity, as: :project
   defdelegate memory(params \\ %{}), to: MemoryProjection, as: :fetch
   defdelegate operator_configuration(), to: ConfigurationProjection, as: :fetch
   defdelegate overview(), to: OverviewProjection

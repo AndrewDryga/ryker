@@ -59,7 +59,7 @@ defmodule Ryker.ControlPlane.WorkRecovery do
           else: "A delivery receipt is recorded; check the conversation before sending again."
         ),
       workspace: workspace_status(unsupported, finalizing, closed),
-      setup_href: if(unsupported, do: "/settings/system#code-editing"),
+      setup_href: if(unsupported, do: "/settings/advanced#code-editing"),
       not_started: not_started?(turn),
       action: action,
       action_label: action_label(finalizing, resumable),
@@ -106,17 +106,19 @@ defmodule Ryker.ControlPlane.WorkRecovery do
     }
   end
 
-  defp action_label(true, _resumable), do: "Resume saving result"
-  defp action_label(_finalizing, nil), do: "Retry work"
-  defp action_label(_finalizing, _resumable), do: "Resume in another workspace"
+  # Each label names what pressing it does, and every surface that offers the
+  # retry (the Failures page, the request page, the confirmation) uses it.
+  defp action_label(true, _resumable), do: "Finish saving the result"
+  defp action_label(_finalizing, nil), do: "Run the task again"
+  defp action_label(_finalizing, _resumable), do: "Continue on another worker"
 
   defp retry_effect(true, _resumable),
     do:
-      "Reconciles the same completed turn, saves its workspace and releases the retained reply. It does not run the model again."
+      "Ryker picks up the finished task where saving stopped: it saves the working copy and sends the answer the worker already wrote. The model does not run again."
 
   defp retry_effect(_finalizing, nil),
     do:
-      "Starts a new logical turn after reconciling the stopped worker. Inspect and preserve unfinished changes first."
+      "Ryker starts the task again as a new run, and the model works on it again. Changes the stopped run did not save may be lost, so preserve any unfinished changes you need first."
 
   # The host holds this exact tree, so the next placement restores it instead of
   # starting from the repository. Saying what the resume does not do matters as
@@ -124,7 +126,11 @@ defmodule Ryker.ControlPlane.WorkRecovery do
   # likely to read as a waiver.
   defp retry_effect(_finalizing, %{byte_size: bytes, repository_ref: repository}),
     do:
-      "Restores the saved working copy of #{repository} (#{bytes} bytes) onto another eligible worker and continues the task there. It does not waive any check, and it does not merge or deploy."
+      "Ryker restores the saved working copy of #{repository} (#{size(bytes)}) onto another eligible worker and continues the task there. It does not waive any check, and it does not merge or deploy."
+
+  defp size(bytes) when bytes < 1_024, do: "#{bytes} bytes"
+  defp size(bytes) when bytes < 1_048_576, do: "#{Float.round(bytes / 1_024, 1)} KB"
+  defp size(bytes), do: "#{Float.round(bytes / 1_048_576, 1)} MB"
 
   defp recovery_action(true, _, _), do: nil
   defp recovery_action(_, true, false), do: nil
@@ -145,8 +151,9 @@ defmodule Ryker.ControlPlane.WorkRecovery do
           ),
         workspace: "No files changed. No checks ran.",
         delivery: "No task reply was sent.",
-        action_label: "Retry task",
-        retry_effect: "Starts the approved task. No coding work ran in this attempt."
+        action_label: "Start the task",
+        retry_effect:
+          "Ryker starts the approved task. No coding work ran in the attempt that stopped."
     }
   end
 

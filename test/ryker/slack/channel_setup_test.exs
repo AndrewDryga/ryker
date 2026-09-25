@@ -1,6 +1,8 @@
 defmodule Ryker.Slack.ChannelSetupTest do
   use Ryker.DataCase, async: true
 
+  alias Ryker.Fixtures.ChannelEnvironments
+
   alias Ryker.Slack.{
     ChannelConfiguration,
     ChannelConfigurations,
@@ -9,7 +11,8 @@ defmodule Ryker.Slack.ChannelSetupTest do
     ConfigurationSession,
     Input,
     Interaction,
-    MembershipTransition
+    MembershipTransition,
+    Renderer
   }
 
   @now ~U[2026-08-28 12:00:00.000000Z]
@@ -104,7 +107,7 @@ defmodule Ryker.Slack.ChannelSetupTest do
     def effective_settings(_workspace_ref, _channel_ref, catalog, overrides) do
       ChannelConfigurations.settings_document(
         Process.get({__MODULE__, :configuration}),
-        Map.merge(%{repository_urls: %{}}, catalog),
+        catalog,
         overrides
       )
       |> then(&{:ok, &1})
@@ -121,13 +124,22 @@ defmodule Ryker.Slack.ChannelSetupTest do
   setup do
     agent = start_supervised!({Agent, fn -> %{deliveries: %{}, posts: [], updates: []} end})
 
+    production =
+      ChannelEnvironments.environment!("production", %{repositories: ["payments", "ledger"]})
+
+    staging = ChannelEnvironments.environment!("staging")
+
     options = %{
       api: API,
       bot_user_ref: "UBOT",
       catalog: %{
-        default_repository: "infrastructure",
-        repository_refs: ["backend", "infrastructure"],
-        repository_urls: %{"backend" => "https://github.com/acme/backend"}
+        default_environment: "production",
+        environments: [
+          ChannelEnvironments.choice(production, %{
+            "payments" => "https://github.com/acme/payments"
+          }),
+          ChannelEnvironments.choice(staging)
+        ]
       },
       client: agent,
       configurations: ChannelConfigurations,
@@ -143,6 +155,87 @@ defmodule Ryker.Slack.ChannelSetupTest do
     }
 
     %{options: options}
+  end
+
+  # The Q&A's second question asked which repository to use when nobody named
+  # one. A channel selects an environment now, so the question offers every
+  # environment, says what work here could use in each, and offers No
+  # environment, which saves as none rather than as the default.
+  test "the wizard offers environments and No environment", %{options: options} do
+    assert {:ok, _joined} = ChannelSetup.handle_membership(membership(), options)
+    configuration = ChannelConfigurations.configuration(@workspace, "C456")
+    assert configuration.environment_ref == "production"
+
+    customize =
+      welcome_interaction(configuration, "ryker_welcome_configure", "interaction:customize")
+
+    assert {:ok, %{session_ref: session_ref}} =
+             ChannelSetup.handle_interaction(customize, options)
+
+    {:ok, session} = ChannelConfigurations.fetch_session(session_ref)
+
+    assert {:ok, %{outcome: :advanced}} =
+             ChannelSetup.handle_interaction(
+               interaction(session, "ryker_setup_participation_mentions", "interaction:mentions"),
+               options
+             )
+
+    assert %{document: %{"channel_setup" => %{"step" => "environment"} = step}} =
+             List.last(updates(options))
+
+    assert {:ok, %{"blocks" => [explanation | controls]}} =
+             Renderer.render(%{"channel_setup" => step})
+
+    text = explanation["text"]["text"]
+    assert text =~ "*2 · Environment*"
+    assert text =~ "*Production* — I'll make changes in `payments` and read `ledger`."
+    assert text =~ "*Staging* — It has no repos or Emisar, so I'll answer without them."
+    assert text =~ "*No environment* — I'll still answer here, but without any repos or Emisar."
+
+    assert Enum.flat_map(controls, & &1["elements"])
+           |> Enum.map(&{&1["action_id"], &1["text"]["text"], &1["value"]}) == [
+             {"ryker_setup_environment_0", "Production", session_ref},
+             {"ryker_setup_environment_1", "Staging", session_ref},
+             {"ryker_setup_environment_none", "No environment", session_ref}
+           ]
+
+    # The wizard replaces itself in one message, so every step's control names
+    # the same session and message.
+    for action_id <- [
+          "ryker_setup_environment_none",
+          "ryker_setup_alerts_reply",
+          "ryker_setup_audience_none"
+        ] do
+      assert {:ok, %{outcome: :advanced}} =
+               ChannelSetup.handle_interaction(
+                 interaction(session, action_id, "interaction:#{action_id}"),
+                 options
+               )
+    end
+
+    assert %{document: %{"channel_setup" => %{"step" => "confirm"} = confirm}} =
+             List.last(updates(options))
+
+    assert {:ok, %{"blocks" => [summary | _controls]}} =
+             Renderer.render(%{"channel_setup" => confirm})
+
+    assert summary["text"]["text"] =~
+             "I won't use an environment, so I'll answer without any repos or Emisar."
+
+    assert {:ok, %{outcome: :saved}} =
+             ChannelSetup.handle_interaction(
+               interaction(session, "ryker_setup_save", "interaction:save"),
+               options
+             )
+
+    saved = ChannelConfigurations.configuration(@workspace, "C456")
+    assert saved.environment_ref == nil
+    assert saved.revision == 2
+
+    assert %{message_ref: "1.000001", document: %{"channel_welcome" => welcome}} =
+             List.last(updates(options))
+
+    assert welcome["settings"]["environment"] == nil
   end
 
   # The 30-minute setup card used to be the only path to a saved configuration;
@@ -168,7 +261,7 @@ defmodule Ryker.Slack.ChannelSetupTest do
              "value" => "mentions"
            }
 
-    assert welcome["settings"]["default_repository"] == "infrastructure"
+    assert welcome["settings"]["environment"]["ref"] == "production"
     assert welcome["settings"]["alert_policy"] == "reply"
 
     assert {:ok, duplicate} = ChannelSetup.handle_membership(transition, options)
@@ -244,15 +337,15 @@ defmodule Ryker.Slack.ChannelSetupTest do
     assert {:ok, %{outcome: :advanced}} = ChannelSetup.handle_interaction(mentions, options)
 
     {:ok, session} = ChannelConfigurations.fetch_session(session.id)
-    assert session.step == :repository
+    assert session.step == :environment
     assert session.current_message_ref == "2.000001"
     assert length(posts(options)) == 2
 
-    assert [%{message_ref: "2.000001", document: %{"channel_setup" => repository_step}}] =
+    assert [%{message_ref: "2.000001", document: %{"channel_setup" => environment_step}}] =
              updates(options)
 
-    assert repository_step["step"] == "repository"
-    assert repository_step["revision"] == session.revision
+    assert environment_step["step"] == "environment"
+    assert environment_step["revision"] == session.revision
 
     assert {:ok, %{outcome: :duplicate}} = ChannelSetup.handle_interaction(customize, options)
 
@@ -277,7 +370,7 @@ defmodule Ryker.Slack.ChannelSetupTest do
 
     steps = [
       "ryker_setup_participation_proactive",
-      "ryker_setup_repository_0",
+      "ryker_setup_environment_1",
       "ryker_setup_alerts_offer",
       "ryker_setup_audience_none",
       "ryker_setup_save"
@@ -294,7 +387,7 @@ defmodule Ryker.Slack.ChannelSetupTest do
     assert saved.id == configuration.id
     assert saved.revision == 2
     assert saved.participation == :proactive
-    assert saved.repository_ref == "backend"
+    assert saved.environment_ref == "staging"
     assert saved.alert_policy == :offer
     assert saved.welcome_message_ref == "1.000001"
 
@@ -313,7 +406,7 @@ defmodule Ryker.Slack.ChannelSetupTest do
     assert welcome["revision"] == 2
     assert welcome["settings"]["participation"]["value"] == "proactive"
     assert welcome["settings"]["alert_policy"] == "offer"
-    assert welcome["settings"]["default_repository"] == "backend"
+    assert welcome["settings"]["environment"]["ref"] == "staging"
   end
 
   test "a stale or replayed setup click leaves the welcome and configuration untouched",
@@ -369,9 +462,9 @@ defmodule Ryker.Slack.ChannelSetupTest do
     assert view["audience"] == "thread"
     assert view["settings"]["participation"]["value"] == "mentions"
 
-    assert view["settings"]["repositories"] == [
-             %{"ref" => "backend", "url" => "https://github.com/acme/backend"},
-             %{"ref" => "infrastructure", "url" => nil}
+    assert view["settings"]["environment"]["repositories"] == [
+             %{"ref" => "payments", "url" => "https://github.com/acme/payments"},
+             %{"ref" => "ledger", "url" => nil}
            ]
 
     assert ChannelConfigurations.configuration(@workspace, "C456").revision == 1
@@ -491,9 +584,19 @@ defmodule Ryker.Slack.ChannelSetupTest do
       id: Ecto.UUID.generate(),
       workspace_ref: @workspace,
       channel_ref: "C456",
-      step: :repository,
+      step: :environment,
       status: :asking,
-      draft: %{"repository_options" => ["backend", "infrastructure"]},
+      draft: %{
+        "environment_options" => [
+          %{
+            "emisar" => false,
+            "name" => "Production",
+            "ref" => "production",
+            "repositories" => []
+          },
+          %{"emisar" => false, "name" => "Staging", "ref" => "staging", "repositories" => []}
+        ]
+      },
       revision: 7,
       response_thread_ref: "1.000001",
       current_message_ref: "2.000001",
@@ -505,7 +608,7 @@ defmodule Ryker.Slack.ChannelSetupTest do
       workspace_ref: @workspace,
       channel_ref: "C456",
       participation: :mentions,
-      repository_ref: "infrastructure",
+      environment_ref: "production",
       alert_policy: :reply,
       invite_user_refs: [],
       invite_user_group_refs: [],
@@ -522,8 +625,9 @@ defmodule Ryker.Slack.ChannelSetupTest do
       {"ryker_setup_participation_mentions", :participation, :mentions},
       {"ryker_setup_participation_proactive", :participation, :proactive},
       {"ryker_setup_participation_shadow", :participation, :shadow},
-      {"ryker_setup_repository_0", :repository, "backend"},
-      {"ryker_setup_repository_1", :repository, "infrastructure"},
+      {"ryker_setup_environment_0", :environment, "production"},
+      {"ryker_setup_environment_1", :environment, "staging"},
+      {"ryker_setup_environment_none", :environment, nil},
       {"ryker_setup_alerts_reply", :alerts, :reply},
       {"ryker_setup_alerts_offer", :alerts, :offer},
       {"ryker_setup_alerts_automatic", :alerts, :automatic},
@@ -553,12 +657,12 @@ defmodule Ryker.Slack.ChannelSetupTest do
     end
 
     assert ChannelSetup.handle_interaction(
-             interaction(session, "ryker_setup_repository_99", "interaction:bad-index"),
+             interaction(session, "ryker_setup_environment_99", "interaction:bad-index"),
              options
            ) == {:error, :configuration_action_mismatch}
 
     assert ChannelSetup.handle_interaction(
-             interaction(session, "ryker_setup_repository_nope", "interaction:bad-action"),
+             interaction(session, "ryker_setup_environment_nope", "interaction:bad-action"),
              options
            ) == {:error, :configuration_action_mismatch}
 
@@ -588,7 +692,7 @@ defmodule Ryker.Slack.ChannelSetupTest do
              {:error, :configuration_action_mismatch}
   end
 
-  test "natural setup answers save the exact Slack audience and configured repository", %{
+  test "natural setup answers save the exact Slack audience and the named environment", %{
     options: options
   } do
     assert {:ok, _joined} = ChannelSetup.handle_membership(membership(), options)
@@ -606,7 +710,7 @@ defmodule Ryker.Slack.ChannelSetupTest do
              )
 
     assert {:ok, %{outcome: :advanced}} =
-             ChannelSetup.handle_message(normalized("U123", "backend", "55.000001"), options)
+             ChannelSetup.handle_message(normalized("U123", "Staging", "55.000001"), options)
 
     assert {:ok, %{outcome: :advanced}} =
              ChannelSetup.handle_message(
@@ -628,7 +732,7 @@ defmodule Ryker.Slack.ChannelSetupTest do
 
     configuration = ChannelConfigurations.configuration(@workspace, "C456")
     assert configuration.participation == :mentions
-    assert configuration.repository_ref == "backend"
+    assert configuration.environment_ref == "staging"
     assert configuration.alert_policy == :automatic
     assert configuration.invite_user_refs == ["U456"]
     assert configuration.invite_user_group_refs == ["S123"]
@@ -695,12 +799,15 @@ defmodule Ryker.Slack.ChannelSetupTest do
 
     assert {:ok, %{outcome: :clarification}} =
              ChannelSetup.handle_message(
-               normalized("U123", "repository choice is unclear", nil),
+               normalized("U123", "environment choice is unclear", nil),
                options
              )
 
+    assert List.last(posts(options)).document ==
+             "Please choose Production, Staging or No environment."
+
     assert {:ok, %{outcome: :advanced}} =
-             ChannelSetup.handle_message(normalized("U123", "infrastructure", nil), options)
+             ChannelSetup.handle_message(normalized("U123", "production", nil), options)
 
     assert {:ok, %{outcome: :clarification}} =
              ChannelSetup.handle_message(
@@ -736,7 +843,7 @@ defmodule Ryker.Slack.ChannelSetupTest do
              ChannelSetup.handle_message(normalized("U123", "observe only", nil), options)
 
     assert {:ok, %{outcome: :advanced}} =
-             ChannelSetup.handle_message(normalized("U123", "backend", nil), options)
+             ChannelSetup.handle_message(normalized("U123", "No environment", nil), options)
 
     assert {:ok, %{outcome: :advanced}} =
              ChannelSetup.handle_message(normalized("U123", "offer a choice", nil), options)
@@ -773,7 +880,7 @@ defmodule Ryker.Slack.ChannelSetupTest do
                options
              )
 
-    for text <- ["proactive", "backend", "offer"] do
+    for text <- ["proactive", "Staging", "offer"] do
       assert {:ok, %{outcome: :advanced}} =
                ChannelSetup.handle_message(normalized("U123", text, nil), options)
     end

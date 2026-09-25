@@ -39,7 +39,7 @@ defmodule Ryker.ControlPlane.EngagementCardTest do
     "execution_mode" => "live"
   }
 
-  test "one Participation card precedes Input queue" do
+  test "one Participation card precedes the Queue card" do
     {_entry, episode} = admitted!(engagement_receipt: @rule_receipt)
     html = rendered(episode)
     document = LazyHTML.from_document(html)

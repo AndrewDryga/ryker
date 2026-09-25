@@ -43,13 +43,17 @@ defmodule Ryker.ControlPlane.ReceivedInputCardTest do
     assert LazyHTML.query(message, ".ui-message-header strong") |> LazyHTML.text() ==
              "Slack user U123"
 
+    # The card's time sits in the time column like every other card's (the
+    # first card of the page once had an empty one); the message is a reusable
+    # component and keeps its own time as well.
+    assert LazyHTML.query(message, ".case-entry-time > time") |> LazyHTML.text() == "22:51:44"
+
     assert LazyHTML.query(message, ".ui-message-meta time") |> LazyHTML.text() |> String.trim() ==
              "4 Sep, 22:51:44 UTC"
 
     assert LazyHTML.query(message, ".ui-message > .ui-message-body") |> LazyHTML.text() =~
              "Terraform plan"
 
-    assert Enum.empty?(LazyHTML.query(message, ".case-entry-time > time"))
     assert Enum.count(LazyHTML.query(message, ".ui-message-footer > .input-details")) == 1
 
     assert LazyHTML.query(message, ".input-details > summary .ui-disclosure-label")

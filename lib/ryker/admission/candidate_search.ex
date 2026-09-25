@@ -52,8 +52,10 @@ defmodule Ryker.Admission.CandidateSearch do
   @spec search(map()) :: %{selected: [pooled()], receipt: map()}
   def search(request) do
     scope = request.scope
-    anchors = RoutingDigests.anchor_keys(KnowledgeAnchors.discover([request.text]))
-    terms = RoutingDigests.search_terms(request.text)
+    identifiers = KnowledgeAnchors.discover([request.text])
+    anchors = RoutingDigests.anchor_keys(identifiers)
+    words = RoutingDigests.search_words(request.text)
+    terms = Enum.map_join(words, " | ", &"'#{&1}'")
 
     ranked_text = text_lane(request, scope, terms)
 
@@ -73,7 +75,17 @@ defmodule Ryker.Admission.CandidateSearch do
 
     %{
       selected: selected,
-      receipt: receipt(lanes, pool, selected, scope, cutoff, anchors)
+      receipt:
+        receipt(lanes, pool, selected, scope, cutoff, anchors)
+        |> Map.merge(%{
+          # What each lane searched with, so the search can be read back as
+          # the words, links and places it used, not only as counts.
+          "words" => words,
+          "identifiers" => Enum.take(identifiers, 16),
+          "in_thread" => not is_nil(request.thread_ref),
+          "history_since" => DateTime.to_iso8601(request.history_cutoff),
+          "conversation_refs" => Enum.take(scope.conversation_refs, 32)
+        })
     }
   end
 
@@ -174,21 +186,24 @@ defmodule Ryker.Admission.CandidateSearch do
 
   defp text_lane(_request, _scope, ""), do: []
 
+  # English stems, so "failing" finds "fail" and "probes" finds "probe", over
+  # a vector that weighs the work's title above its objective and latest
+  # development, and those above its messages (D, C, B, A weights below).
+  # Normalisation 32 keeps the rank between 0 and 1 whatever the length.
+  # Weights are {D, C, B, A}: messages are C, the opening and latest messages
+  # B, the title A. They are small so that one shared word scores about what
+  # it did before stemming (ranking's topic fit is this rank, normalized to
+  # rank / (rank + 1)), and "similar wording" still takes several.
   defp text_lane(request, scope, terms) do
     from(episode in eligible(request, scope),
       join: digest in RoutingDigest,
       on: digest.episode_id == episode.id,
-      where:
-        fragment(
-          "to_tsvector('simple', ?) @@ to_tsquery('simple', ?)",
-          digest.search_text,
-          ^terms
-        ),
+      where: fragment("? @@ to_tsquery('english', ?)", digest.search_vector, ^terms),
       order_by: [
         desc:
           fragment(
-            "ts_rank_cd(to_tsvector('simple', ?), to_tsquery('simple', ?))",
-            digest.search_text,
+            "ts_rank_cd('{0.05, 0.1, 0.2, 0.4}', ?, to_tsquery('english', ?), 32)",
+            digest.search_vector,
             ^terms
           ),
         desc: episode.updated_at,
@@ -198,8 +213,8 @@ defmodule Ryker.Admission.CandidateSearch do
       select:
         {episode,
          fragment(
-           "ts_rank_cd(to_tsvector('simple', ?), to_tsquery('simple', ?))",
-           digest.search_text,
+           "ts_rank_cd('{0.05, 0.1, 0.2, 0.4}', ?, to_tsquery('english', ?), 32)",
+           digest.search_vector,
            ^terms
          )}
     )

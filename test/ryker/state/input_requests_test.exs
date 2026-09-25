@@ -221,7 +221,7 @@ defmodule Ryker.State.InputRequestsTest do
                %{"episode_id" => episode_id},
                "Ask the exact operator question.",
                %{"type" => "object"},
-               "work-final-live-v2"
+               "work-final-live-v3"
              )
 
     assert {:ok, _turn} =

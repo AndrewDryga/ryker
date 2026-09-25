@@ -3,6 +3,10 @@ defmodule Ryker.Learning.Dispatcher do
   alias Ryker.Learning.{Batches, Executor, FleetSession}
 
   @maximum_reconciliations 12
+  @refused_policy_hold_seconds 300
+  @worker_hold_seconds 60
+  # Coop's MaxTurnTimeout: a session policy cannot allow a longer turn.
+  @longest_turn_seconds 24 * 3_600
 
   def run_once(settings) do
     case Batches.claim(settings.worker_ref, settings) do
@@ -38,7 +42,25 @@ defmodule Ryker.Learning.Dispatcher do
   defp resume_run(claim, _run, settings), do: prepare(claim, settings)
 
   defp prepare(claim, settings) do
-    with {:ok, run} <- Batches.prepare(claim),
+    cond do
+      # Every session this policy creates is refused before a message is sent,
+      # so a new attempt would only spend a start. Hold until the policy changes.
+      Batches.policy_refused?(settings) ->
+        Batches.yield(claim, @refused_policy_hold_seconds)
+
+      # No worker would take the session now, so an attempt could only spend a
+      # start proving nothing was created. Wait for one instead.
+      not FleetSession.placeable?(settings) ->
+        Batches.yield(claim, @worker_hold_seconds)
+
+      true ->
+        start(claim, settings)
+    end
+  end
+
+  defp start(claim, settings) do
+    with {:ok, claim} <- Batches.adopt_policy(claim, settings),
+         {:ok, run} <- Batches.prepare(claim),
          {:ok, run} <- Batches.begin_execution(claim, run.id) do
       execute(claim, run, settings)
     else
@@ -94,7 +116,14 @@ defmodule Ryker.Learning.Dispatcher do
   defp stopped(claim, %{status: :applied} = run, _settings), do: finish(claim, run)
 
   defp stopped(claim, run, settings),
-    do: Batches.release(claim, error_reason(run.error_code), settings.step_delay_seconds)
+    do: Batches.release(claim, stop_reason(run), settings.step_delay_seconds)
+
+  # An attempt closed because its worker session can never be addressed sent
+  # the model nothing, whatever its first stop was attempted for.
+  defp stop_reason(%{stop_receipt: %{"session" => "unaddressable"}}),
+    do: :learning_session_unconfirmed
+
+  defp stop_reason(run), do: error_reason(run.error_code)
 
   defp failed(claim, nil, reason, settings),
     do: Batches.release(claim, error_reason(code(reason)), settings.step_delay_seconds)
@@ -116,7 +145,31 @@ defmodule Ryker.Learning.Dispatcher do
     # One final fence/cancel is reconciliation, not another model execution.
     case Executor.stop(claim, run, :learning_remote_unresolved, settings) do
       {:ok, :stopped} ->
-        Batches.release(claim, :learning_execution_failed, settings.step_delay_seconds)
+        Batches.release(
+          claim,
+          final_stop_reason(Batches.latest(claim.batch.id)),
+          settings.step_delay_seconds
+        )
+
+      {:error, :learning_lease_lost} = error ->
+        error
+
+      _ ->
+        expire_or_wait(claim, run, settings)
+    end
+  end
+
+  # A turn that may have reached the model waits for its worker's stop proof,
+  # so uncertainty never buys a second model run. But no Coop turn outlives a
+  # day, counted from the end of Ryker's own window to send one; past that
+  # nothing more can arrive, and a conversation that waited longer waited
+  # forever. Closing costs at most one duplicate model call.
+  defp expire_or_wait(claim, run, settings) do
+    closed_after = @longest_turn_seconds + settings.execution_timeout_seconds
+
+    case Executor.expire(claim, run, closed_after) do
+      {:ok, :stopped} ->
+        Batches.release(claim, :learning_attempt_expired, settings.step_delay_seconds)
 
       {:error, :learning_lease_lost} = error ->
         error
@@ -125,6 +178,11 @@ defmodule Ryker.Learning.Dispatcher do
         Batches.release(claim, :learning_remote_unresolved, 0)
     end
   end
+
+  defp final_stop_reason(%{stop_receipt: %{"session" => "unaddressable"}}),
+    do: :learning_session_unconfirmed
+
+  defp final_stop_reason(_run), do: :learning_execution_failed
 
   defp finish(claim, %{result: nil}),
     do: Batches.finish(claim, :applied, "learning_result_pruned")
@@ -160,7 +218,9 @@ defmodule Ryker.Learning.Dispatcher do
           "output_contract_failed" => :output_contract_failed,
           "invalid_learning_result" => :invalid_learning_result,
           "learning_execution_timeout" => :learning_execution_timeout,
-          "learning_provider_failed" => :learning_provider_failed
+          "learning_provider_failed" => :learning_provider_failed,
+          "learning_session_unconfirmed" => :learning_session_unconfirmed,
+          "learning_session_not_isolated" => :learning_session_not_isolated
         },
         code,
         :learning_execution_failed

@@ -3,7 +3,9 @@ defmodule Ryker.Slack.ChannelConfigurationsTest do
 
   import Ecto.Query
 
+  alias Ryker.Fixtures.ChannelEnvironments
   alias Ryker.Repo
+  alias Ryker.Settings
 
   alias Ryker.Slack.{
     ChannelConfiguration,
@@ -14,14 +16,156 @@ defmodule Ryker.Slack.ChannelConfigurationsTest do
   }
 
   @now ~U[2026-08-28 12:00:00.000000Z]
+  # The environments `setup` saves, as the Slack runtime offers them.
   @catalog %{
-    default_repository: "infrastructure",
-    repository_refs: ["backend", "infrastructure"]
+    default_environment: "production",
+    environments: [
+      %{
+        emisar: false,
+        name: "Production",
+        ref: "production",
+        repositories: [%{ref: "payments", url: nil}, %{ref: "ledger", url: nil}]
+      },
+      %{emisar: false, name: "Staging", ref: "staging", repositories: []}
+    ]
   }
   @quiet %{
     proactive: %{source: :installation, value: false},
     shadow: %{source: :installation, value: false}
   }
+
+  setup do
+    production =
+      ChannelEnvironments.environment!("production", %{repositories: ["payments", "ledger"]})
+
+    staging = ChannelEnvironments.environment!("staging")
+
+    assert Enum.sort(@catalog.environments) ==
+             Enum.sort([
+               ChannelEnvironments.choice(production),
+               ChannelEnvironments.choice(staging)
+             ])
+
+    :ok
+  end
+
+  # A channel selects an environment, not a repository: whatever an operator
+  # later adds to the environment reaches every channel that selects it. The
+  # default is the one a channel starts with, so a new channel works like the
+  # rest of the installation without anyone configuring it.
+  test "joining a channel seeds the default environment" do
+    assert {:ok, %{configuration: configuration}} =
+             ChannelConfigurations.observe_membership(
+               membership(:joined, "event:join-seeded"),
+               @catalog
+             )
+
+    assert configuration.environment_ref == "production"
+    assert configuration.revision == 1
+    assert configuration.actor_ref == nil
+  end
+
+  # The choices are the environments that can run work now. A default whose
+  # policies are not verified yet is not among them, and a channel joined
+  # meanwhile used to be set to no environment for good.
+  test "a channel joined while the default environment cannot run work yet is still set to it" do
+    assert {:ok, %{configuration: configuration, status: :joined}} =
+             ChannelConfigurations.observe_membership(
+               %{membership(:joined, "event:join-unverified") | channel_ref: "C458"},
+               %{@catalog | default_environment: "staging", environments: []}
+             )
+
+    assert configuration.environment_ref == "staging"
+  end
+
+  # Environments are optional: an installation may have none yet, or none
+  # chosen as the default. A join that required one failed and was retried
+  # for as long as that lasted, so Ryker never said hello in the channel.
+  test "a channel joined while there is no default environment answers outside any environment" do
+    for {catalog, channel_ref} <- [
+          {%{default_environment: nil, environments: []}, "C456"},
+          {%{@catalog | default_environment: nil}, "C457"}
+        ] do
+      joined = %{membership(:joined, "event:join:#{channel_ref}") | channel_ref: channel_ref}
+
+      assert {:ok, %{configuration: configuration, status: :joined}} =
+               ChannelConfigurations.observe_membership(joined, catalog)
+
+      assert configuration.environment_ref == nil
+
+      assert {:ok, [%{configuration: %ChannelConfiguration{environment_ref: nil}}]} =
+               ChannelConfigurations.reconcile_joined(
+                 "TCE3E523134AD",
+                 [%{channel_ref: channel_ref, external_shared: false, private: false}],
+                 catalog
+               )
+
+      assert {:ok, %{"environment" => nil}} =
+               ChannelConfigurations.effective_settings(
+                 "TCE3E523134AD",
+                 channel_ref,
+                 catalog,
+                 @quiet
+               )
+    end
+  end
+
+  # The channel page on the web chooses an environment the same way the
+  # welcome's Customize saves one: a new revision, attributed to who chose it.
+  # An environment nobody saved can never become a channel's.
+  test "choosing a channel's environment saves a new revision, and an unknown one is refused" do
+    assert {:ok, %{configuration: configuration}} =
+             ChannelConfigurations.observe_membership(
+               membership(:joined, "event:join-before-choosing"),
+               %{default_environment: nil, environments: []}
+             )
+
+    assert configuration.environment_ref == nil
+
+    assert {:ok, chosen} =
+             ChannelConfigurations.select_environment(
+               "TCE3E523134AD",
+               "C456",
+               "staging",
+               "control-plane:local"
+             )
+
+    assert chosen.id == configuration.id
+    assert chosen.environment_ref == "staging"
+    assert chosen.revision == configuration.revision + 1
+    assert chosen.actor_ref == "control-plane:local"
+
+    # Choosing the same environment again is not a change.
+    assert {:ok, ^chosen} =
+             ChannelConfigurations.select_environment(
+               "TCE3E523134AD",
+               "C456",
+               "staging",
+               "control-plane:local"
+             )
+
+    assert {:ok, none} =
+             ChannelConfigurations.select_environment("TCE3E523134AD", "C456", nil, "U123")
+
+    assert none.environment_ref == nil
+    assert none.revision == chosen.revision + 1
+    assert none.actor_ref == "U123"
+
+    assert ChannelConfigurations.select_environment(
+             "TCE3E523134AD",
+             "C456",
+             "missing",
+             "U123"
+           ) == {:error, :environment_not_found}
+
+    assert ChannelConfigurations.select_environment("TCE3E523134AD", "C999", "staging", "U123") ==
+             {:error, :configuration_not_found}
+
+    assert ChannelConfigurations.select_environment("TCE3E523134AD", "C456", "staging", "") ==
+             {:error, {:invalid_channel_configuration, :actor_ref}}
+
+    assert Repo.get!(ChannelConfiguration, configuration.id).revision == none.revision
+  end
 
   # Until 2026-09-11 a configuration row existed only after an operator clicked a
   # setup button; a channel whose 30-minute setup card expired unanswered ran on
@@ -38,7 +182,7 @@ defmodule Ryker.Slack.ChannelConfigurationsTest do
     # A channel nobody configured inherits the installation default rather than
     # copying a value that would then stop following it.
     assert configuration.participation == nil
-    assert configuration.repository_ref == "infrastructure"
+    assert configuration.environment_ref == "production"
     assert configuration.alert_policy == :reply
     assert configuration.invite_user_refs == []
     assert configuration.invite_user_group_refs == []
@@ -120,17 +264,17 @@ defmodule Ryker.Slack.ChannelConfigurationsTest do
                control(session, :participation, :shadow, "event:participation")
              )
 
-    assert participation.session.step == :repository
+    assert participation.session.step == :environment
     assert participation.session.current_message_ref == "1000.000001"
     session = participation.session
 
-    assert {:ok, repository} =
+    assert {:ok, environment} =
              ChannelConfigurations.apply_action(
-               control(session, :repository, "backend", "event:repository")
+               control(session, :environment, "staging", "event:environment")
              )
 
-    assert repository.session.step == :alerts
-    session = repository.session
+    assert environment.session.step == :alerts
+    session = environment.session
 
     assert {:ok, alerts} =
              ChannelConfigurations.apply_action(control(session, :alerts, :offer, "event:alerts"))
@@ -166,7 +310,7 @@ defmodule Ryker.Slack.ChannelConfigurationsTest do
 
     assert configuration.id == untouched.id
     assert configuration.participation == :shadow
-    assert configuration.repository_ref == "backend"
+    assert configuration.environment_ref == "staging"
     assert configuration.alert_policy == :offer
     assert configuration.invite_user_refs == ["U456"]
     assert configuration.invite_user_group_refs == ["S123"]
@@ -175,7 +319,48 @@ defmodule Ryker.Slack.ChannelConfigurationsTest do
     assert configuration.welcome_message_ref == "welcome"
   end
 
-  # Changing participation from the welcome must not throw away the repository,
+  # The Q&A offers the environments that exist when it starts. One removed
+  # before the save can never become the channel's: the save is refused and
+  # the channel keeps what it had.
+  test "an environment removed while the Q&A is open is refused at save" do
+    joined!()
+    session = reconfiguration!() |> bind!("card:removed", nil)
+
+    session =
+      Enum.reduce(
+        [
+          {:participation, :mentions},
+          {:environment, "staging"},
+          {:alerts, :reply},
+          {:audience, :none}
+        ],
+        session,
+        fn {action, value}, session ->
+          assert {:ok, %{session: session}} =
+                   ChannelConfigurations.apply_action(
+                     control(session, action, value, "event:removed:#{action}")
+                   )
+
+          session
+        end
+      )
+
+    assert {:ok, _deleted} =
+             Settings.delete_environment(
+               "staging",
+               Settings.fetch!().installation.revision,
+               "control-plane:local"
+             )
+
+    assert ChannelConfigurations.apply_action(control(session, :save, nil, "event:removed:save")) ==
+             {:error, :configuration_environment_not_found}
+
+    configuration = Repo.get_by!(ChannelConfiguration, channel_ref: "C456")
+    assert configuration.environment_ref == "production"
+    assert configuration.revision == 1
+  end
+
+  # Changing participation from the welcome must not throw away the environment,
   # alert policy or invitations somebody chose in the Q&A.
   test "the welcome changes participation only, and only for its exact revision" do
     joined!()
@@ -184,7 +369,7 @@ defmodule Ryker.Slack.ChannelConfigurationsTest do
     Enum.reduce(
       [
         {:participation, :mentions},
-        {:repository, "backend"},
+        {:environment, "staging"},
         {:alerts, :automatic},
         {:audience, %{user_group_refs: [], user_refs: ["U456"]}},
         {:save, nil}
@@ -210,7 +395,7 @@ defmodule Ryker.Slack.ChannelConfigurationsTest do
 
     assert saved.status == :saved
     assert saved.configuration.participation == :proactive
-    assert saved.configuration.repository_ref == "backend"
+    assert saved.configuration.environment_ref == "staging"
     assert saved.configuration.alert_policy == :automatic
     assert saved.configuration.invite_user_refs == ["U456"]
     assert saved.configuration.revision == 3
@@ -463,17 +648,19 @@ defmodule Ryker.Slack.ChannelConfigurationsTest do
              )
 
     assert ChannelConfigurations.apply_action(
-             control(participation.session, :repository, "not-offered", "event:not-offered")
-           ) == {:error, :configuration_repository_not_offered}
+             control(participation.session, :environment, "not-offered", "event:not-offered")
+           ) == {:error, :configuration_environment_not_offered}
 
-    assert {:ok, repository} =
+    assert {:ok, environment} =
              ChannelConfigurations.apply_action(
-               control(participation.session, :repository, "backend", "event:repository-none")
+               control(participation.session, :environment, nil, "event:environment-none")
              )
+
+    assert Map.fetch!(environment.session.draft, "environment_ref") == nil
 
     assert {:ok, alerts} =
              ChannelConfigurations.apply_action(
-               control(repository.session, :alerts, :reply, "event:alerts-none")
+               control(environment.session, :alerts, :reply, "event:alerts-none")
              )
 
     assert {:ok, audience} =
@@ -510,16 +697,19 @@ defmodule Ryker.Slack.ChannelConfigurationsTest do
 
   test "effective settings fold emergency overrides over the saved configuration without mutating" do
     catalog =
-      Map.merge(@catalog, %{
-        repository_urls: %{"backend" => "https://github.com/acme/backend"}
-      })
+      put_in(
+        @catalog,
+        [:environments, Access.at(0), :repositories, Access.at(0), :url],
+        "https://github.com/acme/payments"
+      )
 
     assert {:ok, unconfigured} =
              ChannelConfigurations.effective_settings("TCE3E523134AD", "C456", catalog, @quiet)
 
+    # A conversation without its own setting runs in the default environment.
     assert unconfigured["configuration_ref"] == nil
     assert unconfigured["revision"] == nil
-    assert unconfigured["default_repository"] == "infrastructure"
+    assert unconfigured["environment"]["ref"] == "production"
     assert unconfigured["participation"] == %{"source" => "installation", "value" => "mentions"}
 
     joined!()
@@ -535,15 +725,39 @@ defmodule Ryker.Slack.ChannelConfigurationsTest do
              "alert_policy" => "reply",
              "configuration_ref" => configuration.id,
              "customized_by" => nil,
-             "default_repository" => "infrastructure",
+             "environment" => %{
+               "emisar" => false,
+               "name" => "Production",
+               "ready" => true,
+               "ref" => "production",
+               "repositories" => [
+                 %{"ref" => "payments", "url" => "https://github.com/acme/payments"},
+                 %{"ref" => "ledger", "url" => nil}
+               ]
+             },
+             "environment_count" => 2,
              "invitations" => %{"user_group_refs" => [], "user_refs" => []},
              "observation" => %{"on" => false, "source" => "installation"},
              "participation" => %{"source" => "installation", "value" => "mentions"},
-             "repositories" => [
-               %{"ref" => "backend", "url" => "https://github.com/acme/backend"},
-               %{"ref" => "infrastructure", "url" => nil}
-             ],
              "revision" => 1
+           }
+
+    # An environment the catalog no longer offers cannot run work; the channel
+    # still names it rather than reading as if it had none.
+    assert {:ok, unavailable} =
+             ChannelConfigurations.effective_settings(
+               "TCE3E523134AD",
+               "C456",
+               %{catalog | environments: tl(catalog.environments), default_environment: nil},
+               @quiet
+             )
+
+    assert unavailable["environment"] == %{
+             "emisar" => false,
+             "name" => "production",
+             "ready" => false,
+             "ref" => "production",
+             "repositories" => []
            }
 
     assert {:ok, overridden} =
@@ -569,12 +783,15 @@ defmodule Ryker.Slack.ChannelConfigurationsTest do
              proactive: true
            }) == {:error, {:invalid_channel_configuration, :overrides}}
 
-    assert ChannelConfigurations.effective_settings(
-             "TCE3E523134AD",
-             "C456",
-             Map.put(catalog, :repository_urls, %{"backend" => "http://insecure.example"}),
-             @quiet
-           ) == {:error, {:invalid_channel_configuration, :repository_urls}}
+    insecure =
+      put_in(
+        catalog,
+        [:environments, Access.at(0), :repositories, Access.at(0), :url],
+        "http://insecure.example"
+      )
+
+    assert ChannelConfigurations.effective_settings("TCE3E523134AD", "C456", insecure, @quiet) ==
+             {:error, {:invalid_channel_configuration, :environments}}
   end
 
   test "all public configuration boundaries reject malformed source authority" do
@@ -593,8 +810,13 @@ defmodule Ryker.Slack.ChannelConfigurationsTest do
 
     assert ChannelConfigurations.observe_membership(
              membership(:joined, "event:bad-catalog"),
-             %{default_repository: "missing", repository_refs: ["backend"]}
+             %{@catalog | default_environment: "not a ref!"}
            ) == {:error, {:invalid_channel_configuration, :catalog}}
+
+    assert ChannelConfigurations.observe_membership(
+             membership(:joined, "event:duplicate-environment"),
+             %{@catalog | environments: @catalog.environments ++ [hd(@catalog.environments)]}
+           ) == {:error, {:invalid_channel_configuration, :environments}}
 
     assert ChannelConfigurations.observe_membership(
              membership(:joined, "event:bad-catalog-shape"),

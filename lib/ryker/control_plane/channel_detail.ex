@@ -16,12 +16,14 @@ defmodule Ryker.ControlPlane.ChannelDetail do
     Activity,
     ChannelContext,
     ChannelScope,
+    Environments,
     PagedRelation,
     UsageProjection
   }
 
   alias Ryker.Episodes.Episode
   alias Ryker.Repo
+  alias Ryker.Settings.Environment
   alias Ryker.Slack.{ChannelConfiguration, ChannelMembership, ChannelSettings, IncidentRoom}
   alias Ryker.State.Schedule
 
@@ -30,7 +32,7 @@ defmodule Ryker.ControlPlane.ChannelDetail do
   # Every repeating relation owns one namespaced page parameter, so paging one
   # section can never reset another. Anything else in the query string is
   # dropped before it reaches a query.
-  @page_keys ~w(episode_page schedule_page summary_page rollup_page knowledge_page learning_page rule_page preference_page guidance_page memory_page)
+  @page_keys ~w(episode_page schedule_page summary_page knowledge_page rule_page preference_page guidance_page memory_page)
   # The usage window and mode use the request directory's own names, so the
   # filtered link the page offers carries exactly the scope the page showed.
   @usage_keys ~w(usage_window mode)
@@ -61,11 +63,12 @@ defmodule Ryker.ControlPlane.ChannelDetail do
   end
 
   defp project(scope, params) do
+    settings = settings()
     configuration = configuration(scope)
     membership = membership(scope)
     incident_room = incident_room(scope)
-    repository = repository(configuration, incident_room)
-    scope = ChannelScope.with_repository(scope, repository && repository.ref)
+    environment = environment(configuration, incident_room, settings)
+    scope = ChannelScope.with_repository(scope, environment.writable)
     episodes = episodes(scope, params)
 
     if is_nil(configuration) and is_nil(membership) and is_nil(incident_room) and
@@ -76,9 +79,7 @@ defmodule Ryker.ControlPlane.ChannelDetail do
         episodes: episodes,
         schedules: schedules(scope, params),
         summaries: ChannelContext.summaries(scope, params),
-        rollups: ChannelContext.rollups(scope, params),
         knowledge: ChannelContext.knowledge(scope, params),
-        learning: ChannelContext.learning(scope, params),
         rules: ChannelContext.rules(scope, params),
         preferences: ChannelContext.preferences(scope, params),
         guidance: ChannelContext.guidance(scope, params),
@@ -97,10 +98,12 @@ defmodule Ryker.ControlPlane.ChannelDetail do
            membership: membership,
            configuration: configuration,
            incident_room: incident_room,
-           repository: repository
+           environment: environment
          },
-         participation: participation(scope, configuration),
-         continuity: ChannelContext.continuity(scope)
+         environments: choices(settings),
+         participation: participation(scope, settings),
+         continuity: ChannelContext.continuity(scope),
+         learning: ChannelContext.learning_status(scope)
        })}
     end
   end
@@ -170,7 +173,7 @@ defmodule Ryker.ControlPlane.ChannelDetail do
           invite_user_group_refs: configuration.invite_user_group_refs,
           invite_user_refs: configuration.invite_user_refs,
           participation: configuration.participation,
-          repository_ref: configuration.repository_ref,
+          environment_ref: configuration.environment_ref,
           revision: configuration.revision,
           saved_at: configuration.saved_at
         }
@@ -222,49 +225,89 @@ defmodule Ryker.ControlPlane.ChannelDetail do
     )
   end
 
-  # The configured repository wins; an incident room's repository is the
-  # fallback only when the channel has no configuration of its own.
-  defp repository(%{repository_ref: ref}, _incident_room) when is_binary(ref),
-    do: %{ref: ref, source: :configuration}
+  defp settings do
+    case Ryker.Settings.fetch() do
+      {:ok, snapshot} -> snapshot
+      {:error, :settings_not_initialized} -> nil
+    end
+  end
 
-  defp repository(_configuration, %{repository_ref: ref}) when is_binary(ref),
-    do: %{ref: ref, source: :incident_room}
+  # Where the channel's work runs, and so which repository its inherited
+  # rules, guidance and memory resolve through. A channel with its own
+  # setting works in the environment it chose, or in none; an incident room
+  # without one keeps the repository it was opened with; any other
+  # conversation works in the default environment.
+  defp environment(%{environment_ref: ref}, _incident_room, settings),
+    do: described(ref, :channel, settings)
 
-  defp repository(_configuration, _incident_room), do: nil
+  defp environment(nil, %{repository_ref: ref}, settings) when is_binary(ref),
+    do: %{none(:incident_room) | repositories: [repository(ref, settings)], writable: ref}
+
+  defp environment(nil, %{}, _settings), do: none(:incident_room)
+
+  defp environment(nil, nil, settings),
+    do: described(settings && default_ref(settings), :default, settings)
+
+  defp described(nil, source, _settings), do: none(source)
+
+  defp described(ref, source, settings) do
+    case settings && Environments.find(settings, ref) do
+      nil ->
+        %{none(source) | ref: ref, name: ref}
+
+      environment ->
+        refs = Environment.repository_refs(environment)
+
+        %{
+          emisar: Environments.emisar_name(settings, environment),
+          name: environment.display_name,
+          ref: ref,
+          repositories: Enum.map(refs, &repository(&1, settings)),
+          source: source,
+          writable: List.first(refs)
+        }
+    end
+  end
+
+  defp none(source),
+    do: %{emisar: nil, name: nil, ref: nil, repositories: [], source: source, writable: nil}
+
+  defp repository(ref, nil), do: %{ref: ref, name: ref}
+
+  defp repository(ref, settings),
+    do: %{ref: ref, name: Environments.repository_name(settings, ref)}
+
+  defp default_ref(settings) do
+    case Environment.default(settings) do
+      %Environment{ref: ref} -> ref
+      nil -> nil
+    end
+  end
+
+  # What a channel can choose between on its page, the default first.
+  defp choices(nil), do: []
+
+  defp choices(settings) do
+    for environment <- Environments.ordered(settings.environments),
+        do: %{ref: environment.ref, name: environment.display_name}
+  end
 
   defp kind(_scope, %{}), do: :incident_room
 
   defp kind(scope, nil),
     do: if(ChannelScope.direct_message?(scope), do: :direct_message, else: :channel)
 
-  # One effective participation with the layer that decided it. There is no
-  # second override store to reconcile: a channel either chose, or inherits.
-  defp participation(scope, configuration) do
+  # One effective participation and the layer that decided it: the channel's
+  # own choice, or the installation default it inherits. There is no second
+  # override store to reconcile.
+  defp participation(scope, settings) do
     case ChannelSettings.effective(
            scope.workspace_ref,
            scope.conversation_ref,
-           installation_participation()
+           if(settings, do: settings.slack.default_participation, else: :mentions)
          ) do
-      %{} = effective ->
-        Enum.map([:proactive, :shadow], fn setting ->
-          %{
-            revision: configuration && configuration.revision,
-            scope: effective[setting].source,
-            setting: setting,
-            updated_at: configuration && configuration.saved_at,
-            value: effective[setting].value
-          }
-        end)
-
-      {:error, _reason} ->
-        nil
-    end
-  end
-
-  defp installation_participation do
-    case Ryker.Settings.fetch() do
-      {:ok, settings} -> settings.slack.default_participation
-      {:error, :settings_not_initialized} -> :mentions
+      %{} = effective -> ChannelSettings.effective_participation(effective)
+      {:error, _reason} -> nil
     end
   end
 

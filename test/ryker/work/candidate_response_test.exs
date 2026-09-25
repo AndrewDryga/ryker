@@ -237,7 +237,7 @@ defmodule Ryker.Work.CandidateResponseTest do
     assert claim.episode.id == id
 
     assert {:ok, submission} =
-             Submission.new(%{}, "Handle the retained input.", %{}, "work-final-live-v2")
+             Submission.new(%{}, "Handle the retained input.", %{}, "work-final-live-v3")
 
     assert {:ok, _} =
              Custody.freeze_submission(id, claim.turn.turn_ref, claim.lease_ref, submission)

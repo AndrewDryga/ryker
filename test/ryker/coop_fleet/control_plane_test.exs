@@ -6,6 +6,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
   alias Ryker.Admission.FleetSession
 
   alias Ryker.CoopFleet.{
+    Client,
     Command,
     ControlPlane,
     Event,
@@ -1612,6 +1613,36 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
     )
 
     refute ControlPlane.worker_available?(session, requirements)
+  end
+
+  test "a learning attempt asks the fleet whether a worker would take its session first" do
+    # Learning spent a start on every attempt while no worker could take its
+    # session, then needed a person after three, having asked no model
+    # anything. It now asks first, and must hear the answer placement gives.
+    {:ok, client} =
+      Client.new(
+        capability_names: ["responder-state"],
+        workspace_ref: "workspace-main"
+      )
+
+    learning = %Session{
+      execution_kind: :learning,
+      policy: "work-read-only",
+      policy_digest: @policy_digest
+    }
+
+    refute Client.accepts_session?(client, learning)
+
+    authorize_and_poll!("worker-learning")
+    assert Client.accepts_session?(client, learning)
+
+    refute Client.accepts_session?(client, %{
+             learning
+             | policy_digest: String.duplicate("e", 64)
+           })
+
+    authorize_and_poll!("worker-learning", capacity: capacity(0, 4))
+    refute Client.accepts_session?(client, learning)
   end
 
   test "work is portable only when the host holds a snapshot of the source it is pinned to" do

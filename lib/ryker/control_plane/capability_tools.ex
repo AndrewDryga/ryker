@@ -371,7 +371,7 @@ defmodule Ryker.ControlPlane.CapabilityTools do
   defp conversation_document(context, include_resources \\ true) do
     document = %{
       "configured" => true,
-      "configured_repository_ref" => context.binding.session.repository_ref,
+      "configured_environment_ref" => context.binding.session.environment_ref,
       "conversation_ref" => context.conversation_ref,
       "is_archived" => false,
       "kind" => "public_channel",

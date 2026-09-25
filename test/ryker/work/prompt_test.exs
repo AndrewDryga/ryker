@@ -3,6 +3,21 @@ defmodule Ryker.Work.PromptTest do
 
   alias Ryker.Work.Prompt
 
+  test "Work is asked to name its episode, and to keep the name with null" do
+    # Episodes had no name. Work names the episode in its final candidate and
+    # sees the current name, so it revises it only when the work changes.
+    instructions =
+      Prompt.build(%{})
+      |> Jason.decode!()
+      |> Map.fetch!("instructions")
+      |> String.replace(~r/\s+/, " ")
+
+    assert instructions =~ "episode_title is this episode's current name"
+    assert instructions =~ "set title to null to keep the current name"
+    assert instructions =~ ~s("title":null)
+    refute instructions =~ ~r/\b80 (Unicode )?characters/
+  end
+
   test "a missing operational fact leads to discovery and one useful remembered question" do
     # The retained Terraform response stopped at an unknown project ID instead
     # of asking for the fact that would unlock its health and backup checks.

@@ -1,13 +1,14 @@
 defmodule Ryker.ControlPlane.IncidentProjection do
   @moduledoc """
   The incident-room directory and one room's detail: its lifecycle, the
-  records its episode wrote and its latest publication, with every field
-  selected explicitly and failure bodies projected through `FailureDetail`.
+  records its episode wrote (in their timeline cards' words) and its latest
+  publication, with every room field selected explicitly and failure bodies
+  projected through `FailureDetail`.
   """
 
   import Ecto.Query
 
-  alias Ryker.ControlPlane.{EpisodeProjection, Search}
+  alias Ryker.ControlPlane.{Card, EpisodeProjection, Search}
   alias Ryker.Episodes.Episode
   alias Ryker.Operator.FailureDetail
   alias Ryker.Publication.Publication
@@ -42,9 +43,11 @@ defmodule Ryker.ControlPlane.IncidentProjection do
         on: episode.id == room.episode_id,
         left_join: publication in subquery(latest_publications),
         on: publication.episode_id == room.episode_id,
-        order_by: [desc: room.updated_at, desc: room.id],
+        # Newest opened first: the page heads each day with when rooms opened.
+        order_by: [desc_nulls_last: room.requested_at, desc: room.updated_at, desc: room.id],
         limit: @list_limit,
         select: %{
+          channel_name: room.channel_name,
           channel_ref: room.channel_ref,
           channel_state: room.channel_state,
           episode_ref: episode.key,
@@ -53,6 +56,7 @@ defmodule Ryker.ControlPlane.IncidentProjection do
           publication_status: publication.status,
           ref: room.ref,
           repository_ref: room.repository_ref,
+          requested_at: room.requested_at,
           status: room.status,
           title: room.title,
           updated_at: room.updated_at,
@@ -96,15 +100,10 @@ defmodule Ryker.ControlPlane.IncidentProjection do
               from(record in Record,
                 where: record.episode_id == ^room.episode_id,
                 order_by: [asc: record.sequence, asc: record.id],
-                limit: @detail_limit,
-                select: %{
-                  kind: record.kind,
-                  ref: record.ref,
-                  status: record.status,
-                  subject: record.subject_ref
-                }
+                limit: @detail_limit
               )
             )
+            |> Enum.map(&record/1)
           else
             []
           end
@@ -138,6 +137,7 @@ defmodule Ryker.ControlPlane.IncidentProjection do
            publication: publication,
            records: records,
            room: %{
+             channel_name: room.channel_name,
              channel_ref: room.channel_ref,
              channel_state: room.channel_state,
              episode_ref: episode && episode.key,
@@ -157,6 +157,26 @@ defmodule Ryker.ControlPlane.IncidentProjection do
   end
 
   def fetch(_ref), do: :not_found
+
+  # A record in the words its timeline card uses — "Evidence", the claim and
+  # what was observed — beside its identity for support.
+  defp record(%Record{} = record) do
+    card =
+      case Card.project(record) do
+        {:ok, card} -> card
+        :ignore -> %{}
+      end
+
+    %{
+      kind: record.kind,
+      label: card[:label],
+      ref: record.ref,
+      status: record.status,
+      subject: record.subject_ref,
+      summary: card[:summary],
+      title: card[:title]
+    }
+  end
 
   defp incident_status(query, nil), do: query
 

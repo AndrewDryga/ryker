@@ -351,7 +351,8 @@ defmodule Ryker.Acceptance.LiveTest do
     %{
       execution_mode: :direct,
       slack: %{
-        default_repository: "ryker",
+        default_environment: "ryker",
+        environments: %{"ryker" => %{work_profile: %{repository_ref: "ryker"}}},
         identity: %{
           bot_ref: "B-RYKER",
           bot_user_ref: "U-RYKER",
@@ -378,7 +379,28 @@ defmodule Ryker.Acceptance.LiveTest do
       slack: %{
         app_http: http,
         bot_client: bot_client,
-        default_repository: "ryker",
+        default_environment: "ryker",
+        environments: %{
+          "ryker" => %{
+            contributor_policy: %{
+              digest: String.duplicate("b", 64),
+              environment_ref: "ryker",
+              name: "ryker-contributor",
+              repository_ref: "ryker"
+            },
+            display_name: "Ryker",
+            github_repository: "acme/ryker",
+            work_profile: %{
+              emisar_connection_ref: nil,
+              environment_ref: "ryker",
+              parallel_goal_limit: 3,
+              policy: "ryker-conversation",
+              policy_digest: String.duplicate("d", 64),
+              read_only_repository_refs: [],
+              repository_ref: "ryker"
+            }
+          }
+        },
         identity: %{
           bot_ref: "B123",
           bot_user_ref: "U999",
@@ -386,14 +408,6 @@ defmodule Ryker.Acceptance.LiveTest do
         },
         incident_policy: %{digest: String.duplicate("c", 64), name: "incident-observe"},
         operators: ["U123"],
-        repositories: %{
-          "ryker" => %{
-            contributor_policy: %{
-              digest: String.duplicate("b", 64),
-              name: "ryker-contributor"
-            }
-          }
-        },
         default_participation: :proactive
       }
     }

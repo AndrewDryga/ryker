@@ -1,7 +1,7 @@
 defmodule Ryker.ControlPlane.SettingsView do
   @moduledoc """
-  What the settings page reads: the durable snapshot plus the deployment facts
-  an operator needs to interpret it.
+  What the setup, integration and settings pages read: the durable snapshot
+  plus the deployment facts an operator needs to interpret it.
 
   Credentials appear as configured, missing or invalid — never as values — and
   a database that cannot be read is reported as unavailable rather than as an
@@ -11,7 +11,7 @@ defmodule Ryker.ControlPlane.SettingsView do
 
   import Ecto.Query
 
-  alias Ryker.ControlPlane.{ChannelDirectory, ProductReadiness}
+  alias Ryker.ControlPlane.{ChannelDirectory, Environments, ProductReadiness}
   alias Ryker.Credentials
   alias Ryker.Episodes.Episode
   alias Ryker.GitHub.AppJWT
@@ -29,13 +29,39 @@ defmodule Ryker.ControlPlane.SettingsView do
           saved_by: String.t(),
           saved_at: DateTime.t(),
           credentials: [map()],
-          setup: map(),
+          setup: setup(),
           github_callback_url: String.t(),
           webhook_base_url: String.t(),
           webhook_secret_names: [String.t()] | :invalid,
           workers: WorkerPolicies.catalog(),
-          github_connection: :ready | :missing | :invalid
+          github_connection: :ready | :missing | :invalid,
+          environment_channels: %{String.t() => non_neg_integer()}
         }
+
+  @typedoc """
+  The six facts that make Ryker useful, in the order a person sets them up,
+  and the channel the Slack steps point at: one with an environment once any
+  has one, otherwise the first channel Ryker is in.
+  """
+  @type setup :: %{
+          steps: %{atom() => boolean()},
+          invited_channels: non_neg_integer(),
+          configured_channels: non_neg_integer(),
+          successful_request: boolean(),
+          channel:
+            %{
+              workspace_ref: String.t(),
+              channel_ref: String.t(),
+              environment_ref: String.t() | nil,
+              environment_name: String.t() | nil
+            }
+            | nil,
+          complete: boolean()
+        }
+
+  # There is no step for creating an environment: adding the first repository
+  # creates the Default one, and channels Ryker joins start in it.
+  @setup_steps [:slack, :github, :repositories, :invited, :channel_environment, :request]
 
   @spec fetch() :: {:ok, t()} | {:error, :settings_not_initialized | :settings_unavailable}
   def fetch do
@@ -74,15 +100,36 @@ defmodule Ryker.ControlPlane.SettingsView do
       github_callback_url: Application.fetch_env!(:ryker, :github_public_url),
       webhook_base_url: Application.fetch_env!(:ryker, :webhook_public_url),
       webhook_secret_names: registered_secret_names(),
-      workers: WorkerPolicies.catalog(snapshot.work.workspace_ref)
+      workers: WorkerPolicies.catalog(snapshot.work.workspace_ref),
+      # Channels choose an environment in the Slack tables, so how many use
+      # each one is read beside the snapshot rather than from it.
+      environment_channels: Environments.channel_counts()
     }
   end
 
-  @doc "Whether the one product setup checklist has been completed."
-  def setup_complete? do
+  @doc "The required setup steps, in order."
+  @spec setup_steps() :: [atom()]
+  def setup_steps, do: @setup_steps
+
+  @doc """
+  How far the required setup is, for the sidebar's way back into it: nil once
+  every step is done. Settings that could not be read keep the way back open
+  without claiming a count.
+  """
+  @spec setup_progress() :: %{done: non_neg_integer() | nil, total: pos_integer()} | nil
+  def setup_progress do
     case fetch() do
-      {:ok, %{setup: %{complete: complete}}} -> complete
-      _ -> false
+      {:ok, %{setup: %{complete: true}}} ->
+        nil
+
+      {:ok, %{setup: %{steps: steps}}} ->
+        %{done: Enum.count(steps, fn {_step, done} -> done end), total: length(@setup_steps)}
+
+      {:error, :settings_not_initialized} ->
+        %{done: 0, total: length(@setup_steps)}
+
+      {:error, _unavailable} ->
+        %{done: nil, total: length(@setup_steps)}
     end
   end
 
@@ -93,33 +140,35 @@ defmodule Ryker.ControlPlane.SettingsView do
   end
 
   defp setup_status(snapshot, credentials, github_connection) do
-    channels = ChannelDirectory.list(%{})
+    joined = Enum.filter(ChannelDirectory.list(%{}), &(&1.membership == :joined))
+    configured = Enum.filter(joined, &is_binary(&1.environment_ref))
 
-    slack =
-      snapshot.slack.enabled and verified?(credentials, [:slack_app, :slack_bot])
+    successful_request =
+      configured
+      |> Enum.map(&"slack:#{&1.workspace_ref}:#{&1.channel_ref}")
+      |> successful_channel_request?()
 
-    github = github_connection == :ready
-    repositories = snapshot.repositories != []
-    invited = Enum.count(channels, &(&1.membership == :joined))
-
-    configured =
-      Enum.count(channels, &(&1.membership == :joined and is_binary(&1.repository_ref)))
-
-    configured_conversations =
-      for channel <- channels,
-          channel.membership == :joined,
-          is_binary(channel.repository_ref),
-          do: "slack:#{channel.workspace_ref}:#{channel.channel_ref}"
-
-    successful_request = successful_channel_request?(configured_conversations)
+    steps = %{
+      slack: snapshot.slack.enabled and verified?(credentials, [:slack_app, :slack_bot]),
+      github: github_connection == :ready,
+      repositories: snapshot.repositories != [],
+      invited: joined != [],
+      channel_environment: configured != [],
+      request: successful_request
+    }
 
     %{
-      invited_channels: invited,
-      configured_channels: configured,
+      steps: steps,
+      invited_channels: length(joined),
+      configured_channels: length(configured),
       successful_request: successful_request,
-      complete:
-        slack and github and repositories and invited > 0 and configured > 0 and
-          successful_request
+      channel:
+        (List.first(configured) || List.first(joined))
+        |> then(
+          &(&1 &&
+              Map.take(&1, [:workspace_ref, :channel_ref, :environment_ref, :environment_name]))
+        ),
+      complete: Enum.all?(@setup_steps, &Map.fetch!(steps, &1))
     }
   end
 

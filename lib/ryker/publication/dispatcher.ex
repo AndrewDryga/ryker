@@ -5,6 +5,8 @@ defmodule Ryker.Publication.Dispatcher do
   A failure never erases an approved publication or abandons an ambiguous
   external mutation. Custody is released with bounded PostgreSQL-timed backoff
   so a later claimant reconciles the same review, delivery, or draft request.
+  The one answer no retry can change, a review session that closed for good,
+  ends the publication with that reason instead.
   """
 
   alias Ryker.Publication.{Custody, Executor}
@@ -12,7 +14,8 @@ defmodule Ryker.Publication.Dispatcher do
   @maximum_error_detail_bytes 4_096
 
   @spec run_once(keyword()) ::
-          {:ok, :idle | {:executed, map()} | {:deferred, term()}} | {:error, term()}
+          {:ok, :idle | {:executed, map()} | {:deferred, term()} | {:discarded, term()}}
+          | {:error, term()}
   def run_once(options) do
     with {:ok, settings} <- settings(options),
          {:ok, claim} <- Custody.claim_next(settings.worker_ref, settings.lease_seconds) do
@@ -31,6 +34,9 @@ defmodule Ryker.Publication.Dispatcher do
       {:ok, result} ->
         {:ok, {:executed, result}}
 
+      {:error, {:publication_review_session_closed, _state} = reason} ->
+        discard(claim, reason)
+
       {:error, reason} ->
         delay = retry_delay(claim.publication.attempt_count, settings)
         {code, detail} = describe(reason)
@@ -42,6 +48,20 @@ defmodule Ryker.Publication.Dispatcher do
           {:error, defer_reason} ->
             {:error, {:publication_dispatch_failed, reason, defer_reason}}
         end
+    end
+  end
+
+  # The change lives only in the worker session that made it, and a closed
+  # session never reopens. Deferring asked the same closed session again every
+  # minute, forever, each time for a worker command and a publishing slot.
+  defp discard(claim, reason) do
+    case Custody.discard_unreviewable(
+           claim.publication.ref,
+           claim.lease_ref,
+           :review_session_closed
+         ) do
+      {:ok, _publication} -> {:ok, {:discarded, reason}}
+      {:error, discard_reason} -> {:error, {:publication_dispatch_failed, reason, discard_reason}}
     end
   end
 

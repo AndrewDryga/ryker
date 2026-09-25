@@ -667,6 +667,40 @@ defmodule Ryker.Retention.DataTest do
     assert Repo.get(Turn, eligible.turn.id) == nil
   end
 
+  test "a closed approval watch lets its task's history expire, a live one pins it" do
+    # Ryker closes an approval watch nothing waits for any more (its task was
+    # closed, or its wait was answered). The history guard treated every status
+    # but resumed as live, so each closed watch kept its task's history past the
+    # retention horizon for good.
+    closed = settled_work!("approval-closed") |> discard_session!()
+    watched = settled_work!("approval-watched") |> discard_session!()
+    insert_approval!(closed, "closed")
+    insert_approval!(watched, "monitoring")
+    backdate_history!(closed, 120)
+    backdate_history!(watched, 120)
+
+    assert {:ok, result} =
+             Data.prune(settings(episode_history_seconds: 60, audit_data_seconds: 600))
+
+    assert result.episode_histories == 1
+    assert %DateTime{} = Repo.get!(Ryker.Episodes.Episode, closed.episode.id).history_pruned_at
+    assert Repo.get!(Ryker.Episodes.Episode, watched.episode.id).history_pruned_at == nil
+
+    assert Repo.aggregate(
+             from(approval in Ryker.Emisar.Approval,
+               where: approval.episode_id == ^closed.episode.id
+             ),
+             :count
+           ) == 0
+
+    assert Repo.aggregate(
+             from(approval in Ryker.Emisar.Approval,
+               where: approval.episode_id == ^watched.episode.id
+             ),
+             :count
+           ) == 1
+  end
+
   test "routine cleanup reclaims the transcript and leaves the retained case standing" do
     # A matching incident a year later has to start from what was learned, but
     # the raw transcript, the Coop workspace and the episode rows it came from
@@ -923,7 +957,7 @@ defmodule Ryker.Retention.DataTest do
                %{"secret" => "#{suffix} context"},
                "Handle #{suffix} exactly.",
                %{"type" => "object"},
-               "work-final-live-v2"
+               "work-final-live-v3"
              )
 
     assert {:ok, _turn} =
@@ -1210,6 +1244,52 @@ defmodule Ryker.Retention.DataTest do
         "record:open:#{work.turn.id}",
         String.duplicate("b", 64),
         @old
+      ]
+    )
+  end
+
+  defp insert_approval!(work, status) do
+    record_id = Ecto.UUID.generate()
+
+    Repo.query!(
+      """
+      INSERT INTO episode_state_records
+        (id, episode_id, turn_id, ref, operation_id, kind, status, payload,
+         payload_fingerprint, sequence, inserted_at, updated_at)
+      VALUES ($1, $2, $3, $4, 'question', 'input_request', 'answered', '{}', $5, $6, $7, $7)
+      """,
+      [
+        uuid!(record_id),
+        uuid!(work.episode.id),
+        uuid!(work.turn.id),
+        "record:approval:#{work.turn.id}",
+        String.duplicate("b", 64),
+        System.unique_integer([:positive]),
+        @old
+      ]
+    )
+
+    closed = status == "closed"
+
+    Repo.query!(
+      """
+      INSERT INTO episode_emisar_approvals
+        (id, record_id, episode_id, connection_ref, request_id, run_id, operation_id,
+         action_id, pack_ref, runner_ref, approval_url, expires_at, status, remote_status,
+         closed_at, closed_reason, inserted_at, updated_at)
+      VALUES ($1, $2, $3, NULL, 'request-1', 'run-1', 'operation-1', 'action-1',
+              'pack-1', 'runner-1', 'https://emisar.example/approvals/1', $4, $5, $6, $7, $8,
+              $4, $4)
+      """,
+      [
+        uuid!(Ecto.UUID.generate()),
+        uuid!(record_id),
+        uuid!(work.episode.id),
+        @old,
+        status,
+        if(closed, do: "cancelled", else: "pending_approval"),
+        if(closed, do: @old),
+        if(closed, do: "wait_ended")
       ]
     )
   end

@@ -3,7 +3,7 @@ defmodule Ryker.Slack.CapabilityToolsTest do
 
   alias Ryker.Delivery.PlatformAction
   alias Ryker.Episodes.Episode
-  alias Ryker.Slack.{CapabilityTools, SourceRef}
+  alias Ryker.Slack.{CapabilityTools, ChannelConfiguration, SourceRef}
   alias Ryker.Work.Turn
 
   defmodule FakeActionTokens do
@@ -1944,6 +1944,9 @@ defmodule Ryker.Slack.CapabilityToolsTest do
            ) == {:error, "temporarily_unavailable"}
   end
 
+  # A configured channel selects an environment. The listing read the
+  # channel's repository after that field became the environment, so every
+  # channel listed with no configured value and a filter by it matched none.
   test "channel listing can omit resource hydration and require trusted configuration" do
     options = options()
 
@@ -1957,13 +1960,15 @@ defmodule Ryker.Slack.CapabilityToolsTest do
                  "include_resources" => false,
                  "kinds" => ["public_channel", "private_channel"],
                  "limit" => 25,
-                 "query" => "repo:checkout"
+                 "query" => "checkout-production"
                },
                work_binding(),
                options
              )
 
     assert [%{"name" => "backend-ops"} = channel] = result["conversations"]
+    assert channel["configured_environment_ref"] == "checkout-production"
+    refute Map.has_key?(channel, "configured_repository_ref")
     refute Map.has_key?(channel, "resources")
     refute_received {:list_bookmarks, _}
 
@@ -1985,7 +1990,7 @@ defmodule Ryker.Slack.CapabilityToolsTest do
       end,
       client: self(),
       configuration: fn
-        "T123", "C456" -> %{repository_ref: "repo:checkout"}
+        "T123", "C456" -> %ChannelConfiguration{environment_ref: "checkout-production"}
         _workspace_ref, _channel_ref -> nil
       end,
       current_input: fn _binding, source ->

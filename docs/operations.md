@@ -30,14 +30,32 @@ the control UI, health, readiness or metrics endpoints.
 
 ## Setup and connection states
 
-Open the setup URL printed by the installer. The checklist leads through:
+Open the setup URL printed by the installer (`/setup`). It leads through six required steps, one
+at a time:
 
 1. connect and verify Slack;
 2. connect and verify the GitHub App;
 3. import selected repositories, or add every repository available to the App;
 4. invite Ryker to a Slack channel;
-5. choose that channel’s repository; and
+5. choose that channel’s environment; and
 6. send one real Slack request and receive its delivered answer.
+
+An **environment** is where Ryker works: the repositories work in it may use, in order (work
+changes the first and only reads the others), and at most one Emisar account. Importing a
+repository adds it to the default environment and creates one named "Default" when there is none,
+so there is no separate step for environments. A channel Ryker joins starts in the default
+environment; one it joined before any existed has none, and step 5 chooses one on the channel's
+page (or from Ryker's welcome message in Slack). Chat and every conversation without its own
+choice work in the default environment. Environments are managed under **Work › Environments**.
+
+Ryker notices steps 4 and 6 itself, and step 5 as soon as a joined channel has an environment.
+Connecting Emisar is the one recommended extra: it is optional and never blocks setup, but without
+it Ryker cannot act on anything that is running. A connected account is watched for approval
+decisions at once, and the installation's first account is given to every environment that has
+none, creating "Default" first when no environment exists yet. A later account, or an environment
+added later, is chosen on the Environments page; the Emisar page counts the environments without
+an account. Every integration is managed afterwards
+under **Integrations**, and models, retention, prices and advanced placement under **Settings**.
 
 The UI treats four facts separately: a setting can be saved, the runtime revision can be applied,
 an integration can be connected, and a real request can be live-tested. One does not imply the

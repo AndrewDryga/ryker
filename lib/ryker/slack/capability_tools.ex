@@ -62,7 +62,7 @@ defmodule Ryker.Slack.CapabilityTools do
             },
             "limit" => %{"maximum" => 200, "minimum" => 1, "type" => "integer"},
             "query" =>
-              nullable_string("Optional channel name, topic, purpose, or repository filter.")
+              nullable_string("Optional channel name, topic, purpose, or environment filter.")
           },
           "type" => "object"
         },

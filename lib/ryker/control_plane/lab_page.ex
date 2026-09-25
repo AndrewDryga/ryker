@@ -59,7 +59,8 @@ defmodule Ryker.ControlPlane.LabPage do
     assigns =
       assigns
       |> assign(:example_groups, @example_groups)
-      |> assign(:groups, directory_groups(assigns.items, assigns.now))
+      |> assign_new(:filter, fn -> "" end)
+      |> then(&assign(&1, :groups, directory_groups(filtered(&1.items, &1.filter), &1.now)))
       |> assign(:progress, progress_by_input(assigns.snapshot))
       |> assign_new(:readiness, fn ->
         %{
@@ -95,11 +96,33 @@ defmodule Ryker.ControlPlane.LabPage do
             <span aria-hidden="true">×</span>
           </button>
         </div>
+        <form
+          :if={@items != []}
+          id="lab-directory-search"
+          class="lab-directory-search"
+          role="search"
+          phx-change="filter-conversations"
+          phx-submit="filter-conversations"
+        >
+          <label class="sr-only" for="lab-directory-filter">Search conversations</label>
+          <input
+            id="lab-directory-filter"
+            type="search"
+            name="q"
+            value={@filter}
+            placeholder="Search conversations"
+            autocomplete="off"
+            phx-debounce="120"
+          />
+        </form>
         <div class="lab-directory-list">
           <div :if={@items == []} class="lab-directory-empty">
             <strong>No conversations yet</strong>
             <p>Send a message and it will appear here.</p>
           </div>
+          <p :if={@items != [] and @groups == []} class="lab-directory-empty">
+            No conversation matches “{@filter}”.
+          </p>
           <section :for={{group, items} <- @groups} class="lab-directory-group">
             <h2>{group}</h2>
             <.link
@@ -108,9 +131,13 @@ defmodule Ryker.ControlPlane.LabPage do
               class="lab-directory-item"
               title={item.title}
               aria-current={if item.id == @selected, do: "page"}
-            ><span class="lab-directory-title">{item.title}</span><time datetime={
-              DateTime.to_iso8601(item.updated_at)
-            }>{directory_time(item.updated_at, @now)}</time></.link>
+            ><span class="lab-directory-title">{item.title}</span><time
+              datetime={DateTime.to_iso8601(item.updated_at)}
+              title={directory_time(item.updated_at, @now)}
+            >{list_time(item.updated_at, @now)}</time><span
+              class="lab-directory-status"
+              data-status={item[:status] || :replied}
+            ><i aria-hidden="true"></i>{status_label(item[:status])}</span></.link>
           </section>
         </div>
       </aside>
@@ -267,7 +294,7 @@ defmodule Ryker.ControlPlane.LabPage do
 
     assigns =
       assigns
-      |> assign(:link, inspection_link(assigns.message))
+      |> assign(:timeline, timeline_href(assigns.message))
       |> assign(:state, message_state(assigns.message))
       |> assign(:failure, message_failure(assigns.message))
       |> assign(:rows, rows)
@@ -275,20 +302,26 @@ defmodule Ryker.ControlPlane.LabPage do
 
     ~H"""
     <article id={@id} class={"lab-chat-message actor-#{@message.actor}"}>
+      <span class="lab-avatar" aria-hidden="true"><img
+        :if={@message.actor not in [:operator, :integration]}
+        src="/assets/brand/mark-mint.svg"
+        alt=""
+      /><span :if={@message.actor in [:operator, :integration]}>{String.first(actor(@message.actor))}</span></span>
       <div class="lab-message-byline">
         <strong>{actor(@message.actor)}</strong><time datetime={
           DateTime.to_iso8601(@message.occurred_at)
         }>{directory_time(
           @message.occurred_at,
           @now
-        )}</time><span :if={@state} class="lab-message-state">{@state}</span><a
-          :if={@link}
-          href={@link.href}
+        )}</time><span :if={@state} class="lab-message-state">{@state}</span>{Phoenix.HTML.raw(
+          HTML.lab_message_actions(@message)
+        )}<a
+          :if={@timeline}
+          href={@timeline}
           target="_blank"
           rel="noopener"
           class="lab-message-inspect"
-        >{@link.label}
-        <span aria-hidden="true">↗</span><span class="sr-only"> (opens in a new tab)</span></a>
+        >Timeline <span aria-hidden="true">↗</span><span class="sr-only"> (opens in a new tab)</span></a>
       </div>
       <div class="chat-message-text markdown-preview">
         {Phoenix.HTML.raw(Ryker.ControlPlane.SlackMarkdown.preview(@message.text || ""))}
@@ -296,13 +329,20 @@ defmodule Ryker.ControlPlane.LabPage do
       {Phoenix.HTML.raw(HTML.lab_message_editor(@message))}
       <div class="chat-message-extras">{Phoenix.HTML.raw(HTML.lab_message_extras(@message))}</div>
       {Phoenix.HTML.raw(HTML.lab_message_reactions(@message))}
-      {Phoenix.HTML.raw(HTML.lab_message_actions(@message))}
       <p :if={@failure} class="lab-message-failure" role="status">
         <span>{@failure.label}</span> <a href={@failure.retry}>Retry</a>
         <.link navigate={@failure.inspect}>Inspect cause</.link>
       </p>
-      <p :for={row <- @rows} id={"lab-progress-#{row.id}"} class="lab-message-progress" role="status">
-        <span class="lab-progress-status">{row.phase}</span><span
+      <p
+        :for={row <- @rows}
+        id={"lab-progress-#{row.id}"}
+        class="lab-message-progress"
+        data-phase={row.phase}
+        role="status"
+      >
+        <span class="lab-progress-bar" aria-hidden="true"><i></i></span><span class="lab-progress-status">{live_phase(
+          row.phase
+        )}</span><span
           id={"lab-progress-elapsed-#{row.id}"}
           class="lab-progress-elapsed"
           phx-hook="ElapsedTime"
@@ -314,8 +354,8 @@ defmodule Ryker.ControlPlane.LabPage do
         >Inspect this revision</.link>
       </p>
       <div :if={@typing} class="lab-typing-indicator" role="status" aria-label="Ryker is working">
-        <span class="lab-typing-dots" aria-hidden="true"><i></i><i></i><i></i></span>
-        <span>Working</span>
+        <span class="lab-progress-bar" aria-hidden="true"><i></i></span>
+        <span>Ryker is working on a reply</span>
       </div>
     </article>
     """
@@ -403,7 +443,7 @@ defmodule Ryker.ControlPlane.LabPage do
   def directory_time(_at, _now), do: "Not recorded"
 
   @doc """
-  The one inspection target a message can truthfully claim, or nil.
+  The one timeline a message can truthfully link, or nil.
 
   An operator or integration input is addressed by the retained id of the
   revision on screen. That route already resolves per input: its own request
@@ -413,29 +453,21 @@ defmodule Ryker.ControlPlane.LabPage do
   uses. Nothing is derived from the conversation's newest episode, the title,
   or the message's position.
   """
-  def inspection_link(%{actor: actor, input_id: id} = message)
-      when actor in [:operator, :integration] and is_binary(id) do
-    href = "/timeline/ingress-input%3A#{id}"
+  def timeline_href(%{actor: actor, input_id: id})
+      when actor in [:operator, :integration] and is_binary(id),
+      do: "/timeline/ingress-input%3A#{id}"
 
-    if is_binary(message[:episode_id]) or message[:status] in [:pending, :blocked],
-      do: %{href: href, label: "View request"},
-      else: %{href: href, label: "View decision"}
-  end
-
-  def inspection_link(%{actor: :ryker, episode_ref: episode_ref} = message)
+  def timeline_href(%{actor: :ryker, episode_ref: episode_ref} = message)
       when is_binary(episode_ref) do
     path = "/timeline/" <> URI.encode_www_form(episode_ref)
 
     case message[:turn_id] do
-      turn_id when is_binary(turn_id) ->
-        %{href: path <> "?attempt=#{turn_id}#request-#{turn_id}", label: "View request"}
-
-      _no_turn ->
-        %{href: path, label: "View execution"}
+      turn_id when is_binary(turn_id) -> path <> "?attempt=#{turn_id}#request-#{turn_id}"
+      _no_turn -> path
     end
   end
 
-  def inspection_link(_message), do: nil
+  def timeline_href(_message), do: nil
 
   # Only states an operator has to act on or notice. "Sent" and "Delivered"
   # were the normal case on every line and said nothing.
@@ -467,6 +499,36 @@ defmodule Ryker.ControlPlane.LabPage do
     snapshot
     |> Map.get(:admission_progress, [])
     |> Enum.group_by(& &1[:native_input_id])
+  end
+
+  # What the live line says while routing handles the message; the phase names
+  # come from the observed admission attempt.
+  defp live_phase("Queued"), do: "Waiting to route your message"
+  defp live_phase("Retrying"), do: "Retrying routing"
+  defp live_phase("Needs attention"), do: "Routing stopped"
+  defp live_phase(_phase), do: "Routing your message"
+
+  defp status_label(:working), do: "Working"
+  defp status_label(:attention), do: "Needs attention"
+  defp status_label(:waiting_for_you), do: "Waiting for you"
+  defp status_label(:waiting), do: "Waiting"
+  defp status_label(_status), do: "Replied"
+
+  # The list is scanned, not read: today's time or the date, with the full
+  # time a hover away.
+  defp list_time(%DateTime{} = at, now) do
+    if DateTime.to_date(at) == DateTime.to_date(now),
+      do: Calendar.strftime(at, "%H:%M"),
+      else: Calendar.strftime(at, "%d %b")
+  end
+
+  defp list_time(_at, _now), do: ""
+
+  defp filtered(items, filter) when filter in [nil, ""], do: items
+
+  defp filtered(items, filter) do
+    needle = String.downcase(String.trim(filter))
+    Enum.filter(items, &String.contains?(String.downcase(&1.title || ""), needle))
   end
 
   defp actor(:operator), do: "You"

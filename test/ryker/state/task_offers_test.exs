@@ -210,19 +210,34 @@ defmodule Ryker.State.TaskOffersTest do
     assert Repo.get!(Record, frontend_offer.id).confirmed_episode_id == frontend.episode.id
   end
 
-  test "a repository-set offer pins one writable primary and frozen read-only companions" do
+  # A confirmed task runs in the environment it was offered from: it changes
+  # that environment's first repository, reads the others and pins the
+  # environment's Emisar account. The environment's own name, or a repository
+  # it only reads, is not something its policy may change.
+  test "a task in an environment changes its first repository and reads the others" do
     fixture =
-      delivered_offers!("repository-set", [
+      delivered_offers!("environment", [
         %{
           "kind" => "engineering",
           "prompt" => "Update the service using the infrastructure contract.",
+          "repository" => "service",
+          "title" => "Update the service"
+        },
+        %{
+          "kind" => "engineering",
+          "prompt" => "Update the platform.",
           "repository" => "platform",
           "title" => "Update the platform"
+        },
+        %{
+          "kind" => "engineering",
+          "prompt" => "Update the infrastructure contract.",
+          "repository" => "infrastructure",
+          "title" => "Update the infrastructure"
         }
       ])
-      |> Map.put(:record, nil)
 
-    fixture = %{fixture | record: hd(fixture.records)}
+    [service_offer, environment_offer, read_only_offer] = fixture.records
 
     repository_context = %{
       "context_ref" => "platform",
@@ -231,24 +246,44 @@ defmodule Ryker.State.TaskOffersTest do
       "read_only_repositories" => ["infrastructure", "runbooks"]
     }
 
-    attributes =
-      fixture
-      |> confirmation()
-      |> Map.put(:policy, %{
-        digest: @policy_digest,
-        name: "platform-contributor",
-        repository_context: repository_context,
-        repository_ref: "service"
-      })
+    policy = %{
+      digest: @policy_digest,
+      environment_ref: "platform",
+      name: "platform-contributor",
+      repository_context: repository_context,
+      repository_ref: "service"
+    }
 
-    assert {:ok, confirmed} = TaskOffers.confirm(attributes)
+    confirm = fn record, confirmation_ref, policy ->
+      fixture
+      |> Map.put(:record, record)
+      |> confirmation()
+      |> Map.put(:confirmation_ref, confirmation_ref)
+      |> Map.put(:policy, policy)
+      |> TaskOffers.confirm()
+    end
+
+    assert confirm.(service_offer, "interaction:confirm:service", %{
+             policy
+             | environment_ref: "Platform"
+           }) == {:error, {:invalid_task_offer_confirmation, :environment_ref}}
+
+    assert {:ok, confirmed} = confirm.(service_offer, "interaction:confirm:service", policy)
+    assert confirmed.session.environment_ref == "platform"
     assert confirmed.session.repository_ref == "service"
     assert confirmed.session.repository_context == repository_context
     assert confirmed.episode.linked_episode_id == fixture.episode.id
 
-    malformed = put_in(attributes, [:policy, :repository_context, "primary_repository"], "other")
+    for record <- [environment_offer, read_only_offer] do
+      assert confirm.(record, "interaction:confirm:#{record.ref}", policy) ==
+               {:error, :task_offer_repository_mismatch}
 
-    assert TaskOffers.confirm(malformed) ==
+      assert Repo.get!(Record, record.id).status == :open
+    end
+
+    malformed = put_in(policy, [:repository_context, "primary_repository"], "other")
+
+    assert confirm.(environment_offer, "interaction:confirm:malformed", malformed) ==
              {:error, {:invalid_task_offer_confirmation, :repository_context}}
   end
 
@@ -907,7 +942,7 @@ defmodule Ryker.State.TaskOffersTest do
                %{"episode_id" => episode_id},
                "Handle the task offer source.",
                %{"type" => "object"},
-               "work-final-live-v2"
+               "work-final-live-v3"
              )
 
     assert {:ok, _turn} =
@@ -1128,7 +1163,7 @@ defmodule Ryker.State.TaskOffersTest do
                %{"episode_id" => claim.episode.id},
                "Bump the internal hosted runner.",
                %{"type" => "object"},
-               "work-final-live-v2"
+               "work-final-live-v3"
              )
 
     assert {:ok, frozen} =

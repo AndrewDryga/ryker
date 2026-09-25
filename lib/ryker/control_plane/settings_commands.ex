@@ -113,9 +113,6 @@ defmodule Ryker.ControlPlane.SettingsCommands do
   defp put(%{key: :repositories}, attributes, revision),
     do: Settings.put_repository(attributes, revision, actor())
 
-  defp put(%{key: :contexts}, attributes, revision),
-    do: Settings.put_repository_context(attributes, revision, actor())
-
   defp put(%{key: :github_bindings}, attributes, revision),
     do: Settings.put_github_binding(attributes, revision, actor())
 
@@ -145,9 +142,6 @@ defmodule Ryker.ControlPlane.SettingsCommands do
 
   defp remove(%{key: :repositories}, ref, revision),
     do: Settings.delete_repository(ref, revision, actor())
-
-  defp remove(%{key: :contexts}, ref, revision),
-    do: Settings.delete_repository_context(ref, revision, actor())
 
   defp remove(%{key: :github_bindings}, name, revision),
     do: Settings.delete_github_binding(name, revision, actor())

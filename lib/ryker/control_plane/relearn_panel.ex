@@ -37,16 +37,16 @@ defmodule Ryker.ControlPlane.RelearnPanel do
         A relearning request already exists ·
         <a href={LearningActivity.path(@preview.existing_batch.id)}>Inspect its progress and attempts →</a>
       </p>
-      <p :if={!@preview.eligible?} class="memory-unavailable">{reason(@preview.reason)}</p>
+      <p :if={!@preview.eligible?} class="memory-note">{reason(@preview.reason)}</p>
       <div :if={@preview.eligible?}>
         <.filter_toolbar
           id="relearn-search"
-          path="/memory#relearn"
+          path="/memory/learned#relearn"
           label="Find current source messages"
           name="rebuild_q"
           placeholder="Search messages in this conversation"
           query={Map.get(@preview, :q, "")}
-          hidden={[{"kind", "knowledge"}, {"item", @preview.topic_id}]}
+          hidden={[{"item", @preview.topic_id}]}
         />
         <p :if={@sources == []} class="empty-state">
           No eligible current messages match. Try another search or wait for new source messages.
@@ -264,9 +264,8 @@ defmodule Ryker.ControlPlane.RelearnPanel do
   defp mode(_mode), do: nil
 
   defp path(preview, page) do
-    "/memory?" <>
+    "/memory/learned?" <>
       URI.encode_query(%{
-        "kind" => "knowledge",
         "item" => preview.topic_id,
         "rebuild_q" => Map.get(preview, :q, ""),
         "rebuild_page" => page

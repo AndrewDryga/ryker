@@ -344,6 +344,13 @@ defmodule Ryker.Delivery.Dispatcher do
   defp delivery_error(reason, custody_reason),
     do: {:error, {:delivery_dispatch_failed, reason, custody_reason}}
 
+  @doc """
+  Whether a publisher's failure may pass on a later attempt: the failures
+  every delivery lane retries. Anything else is a refusal a retry cannot change.
+  """
+  @spec retryable?(term()) :: boolean()
+  def retryable?(reason), do: retryable_error?(reason)
+
   defp retryable_error?({:delivery_credentials_unavailable, _reason}), do: true
   defp retryable_error?({:delivery_publisher_crashed, _kind, _reason}), do: true
   defp retryable_error?({:delivery_publisher_exit, _reason}), do: true

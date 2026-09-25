@@ -53,7 +53,7 @@ tools own durable records. The generic Delivery module owns external message and
 - Every class policy carries Coop's model-independent authority digest. The three classes must share
   it, each eligible fleet worker must advertise it, and the created Coop session must return it.
 - Every new repository-backed session carries one immutable repository source, frozen in the same
-  transaction that pins policy, digests and repository context. Admission may select
+  transaction that pins policy, digests, the environment and its repository context. Admission may select
   `{"kind":"default"}`, `{"kind":"branch","name":...}`, `{"kind":"pull_request","number":...}` or
   `{"kind":"commit","sha":...}` inside the already selected repository; the host supplies `default`
   when nobody chose. Workspace-free work carries no selector. The selector rides the create and
@@ -114,6 +114,10 @@ tools own durable records. The generic Delivery module owns external message and
   may have happened.
 - An active remote turn must be cancelled through Work custody. Ryker first freezes the intent,
   reconciles Coop's idempotent cancellation, and only then cancels or transfers the episode owner.
+  The stop goes to the worker that holds the run whatever policy version it runs now, since
+  cancelling and closing do no policy work. The one other proof it accepts is that worker's removal
+  from Ryker, which revokes everything the run could still reach Ryker with. A stop unconfirmed
+  after eight attempts keeps retrying and is listed on Failures with what would let it finish.
 - If Stop races a prepared create or submit before a remote resource is known, Ryker calls Coop's
   exact operation fence. The fence either prevents that mutation from starting or returns the
   operation/resource that already won the race. Cleanup never creates fresh work after authority was
@@ -125,7 +129,10 @@ tools own durable records. The generic Delivery module owns external message and
   when the episode's progress home is another channel; default progress keeps the single home, so
   contributing conversations are never subscribed to repeated status or final replies. A later input
   from somewhere else cannot move or erase an answer that was already accepted, and a delivery
-  receipt from any other destination still fails to settle it.
+  receipt from any other destination still fails to settle it. Only a destination deleted for good
+  moves it: a reply owed to a deleted incident room is rearmed, with the same content and delivery
+  reference, for the alert thread the room was opened from, and an attempt already in flight
+  finishes first.
 - Delivery retries are bounded independently from model execution. Permanent platform errors and
   exhausted transient retries preserve the exact accepted result in operator-rearmable blocked
   custody instead of polling a provider forever. Operators inspect or rearm that immutable intent by
@@ -251,7 +258,11 @@ PostgreSQL lease fences execution and acceptance. Provider calls occur outside d
 transactions. Lost create, submit, or validation responses reconcile the frozen operation key;
 uncertainty never buys a fresh model execution. Before another judgment starts, the previous remote
 turn must have exact stop proof. After twelve rapid unresolved reconciliations, the scope stays
-fenced and only reconciliation retries hourly; unrelated scopes can continue.
+fenced and only reconciliation retries hourly; unrelated scopes can continue. An attempt that never
+froze a submission has no turn: when its worker session can never be addressed again, it stops on
+that local proof and the batch continues with a fresh session under the configured policy. A
+session without the isolation above is bound, refused before any source is sent, and holds new
+attempts under that policy digest until the configured policy changes.
 
 Three host starts are allowed initially for one batch, shared by provider failures, semantic
 rejection, and match corrections. Provider-internal attempts have their own pinned-policy limit;
@@ -264,9 +275,11 @@ Owned sessions use the existing close/plan/discard retention custody, including 
 
 Explicit operator retry and rebuild reselection use the current trusted learning policy for the
 next attempt, recording old and new policy identities in the audit. Prior attempts and spent
-starts are immutable. Automatic worker recovery still follows the batch's pinned policy; only
-the operator action selects a replacement. Missing or invalid current configuration blocks a new
-grant, while replaying an already recorded action returns its original receipt without another start.
+starts are immutable. Automatic worker recovery reconciles an outstanding attempt under its own
+pinned policy; a new attempt a batch prepares on its own also adopts the current policy, because
+a worker places only sessions of the digests it advertises. Missing or invalid current
+configuration blocks a new grant, while replaying an already recorded action returns its original
+receipt without another start.
 
 After a host rejects an anchor, create match, or result shape, a fresh frozen prompt includes
 `previous_attempt_error`: a bounded code and static repair instruction. It does not repeat the
@@ -511,6 +524,19 @@ without production environment, credentials, network mutation tools, or project 
   policy; these names make the frozen model context truthful but confer no authority; and
 - optional bounded polling and receive timeouts.
 
+The Work profile an adapter freezes at ingress comes from an **environment**: the repository work
+in it changes (its first repository), the repositories mounted read-only beside it, its parallel goal
+limit and its optional Emisar account. A session pinned from the profile derives its
+`repository_context` from exactly those fields and records the `environment_ref` it ran in; history
+outlives the settings row, so neither is a foreign key. A Slack channel's work runs in the
+environment the channel chose, or in none; Chat and every conversation without its own choice run in
+the default environment; a webhook source names its own; an incident room keeps the environment of
+the conversation it was opened from; GitHub events for a repository run in the environment whose
+first repository it is, else the first (by ref) that contains it, else on the repository alone. A
+confirmed task changes the repository it names, so it runs where that repository takes changes:
+Chat's own environment when that is its repository, else the first environment (by ref) whose work
+changes it. There are no repository groups and no per-purpose Emisar routes.
+
 The Work runtime does not contain a model router. The adapter freezes a three-class Work profile at
 ingress, admission selects one abstract class, and Coop resolves the selected policy to its immutable
 target. The recommended targets are Terra/medium for conversational work, Sol/medium for standard
@@ -626,6 +652,12 @@ grace period, fetches an exact discard plan, and then:
 - discards clean committed work only after its publication is durable;
 - retains dirty or unpublished work for an operator; and
 - blocks on crossed session identity, authority, or ambiguous cleanup instead of guessing.
+
+Each step goes to the worker that holds the session under whatever policy version and setup that
+worker runs now: close, discard planning and discard do no policy work, and Coop's worker forwards
+them without one. A worker that is away is waited for like any outage. A session whose worker was
+removed from Ryker, or whose worker's Coop answers that it no longer knows it, ends with a
+`worker_removed` or `remote_absent` receipt instead of waiting for a person who cannot help.
 
 Blocked cleanup exposes its exact phase and bounded diagnostic in the local control plane. A
 confirmed operator may rearm that same phase without changing the frozen session identity. A clean

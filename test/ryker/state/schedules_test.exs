@@ -150,6 +150,46 @@ defmodule Ryker.State.SchedulesTest do
              {:error, :schedule_terminal}
   end
 
+  # A schedule keeps running where it was set up: each run pins the
+  # environment of the conversation that created it, and with it that
+  # environment's Emisar account, as the work that offered it did.
+  test "a schedule runs in the environment of the conversation that created it" do
+    {:ok, settings} = Ryker.Settings.initialize("control-plane:local")
+
+    {:ok, settings} =
+      Ryker.Settings.put_emisar_connection(
+        %{
+          ref: "production",
+          display_name: "Production",
+          rpc_url: "https://emisar.example/api/mcp/rpc",
+          account_ref: "account-production",
+          verified_at: @now
+        },
+        settings.installation.revision,
+        "control-plane:local"
+      )
+
+    {:ok, _settings} =
+      Ryker.Settings.put_environment(
+        %{ref: "production", display_name: "Production", emisar_connection_ref: "production"},
+        settings.installation.revision,
+        "control-plane:local"
+      )
+
+    fixture = delivered_offer!("environment", environment_ref: "production")
+    assert {:ok, confirmation} = Schedules.confirm(confirmation(fixture, "environment"))
+    assert confirmation.schedule.environment_ref == "production"
+
+    make_due!(confirmation.schedule, DateTime.add(database_now!(), -60, :second))
+    assert {:ok, claim} = Schedules.claim_due("schedule-worker:environment", 60)
+
+    assert {:ok, dispatched} =
+             Schedules.dispatch(claim.schedule.ref, claim.lease_ref, &policy/1, 900)
+
+    assert %Session{environment_ref: "production", emisar_connection_ref: "production"} =
+             Repo.get_by!(Session, episode_id: dispatched.episode.id)
+  end
+
   # The confirmed offer message is rebuilt from its records on every repaint;
   # the schedule it created, with its current revision and status, must travel
   # with the record or the message can neither describe nor remove it.
@@ -646,7 +686,16 @@ defmodule Ryker.State.SchedulesTest do
     assert {:ok, transition} = Episodes.apply(command)
 
     assert {:ok, _session} =
-             Custody.pin_episode(episode_id, "ryker-read", String.duplicate("a", 64))
+             Custody.pin_episode(
+               episode_id,
+               "ryker-read",
+               String.duplicate("a", 64),
+               nil,
+               nil,
+               nil,
+               nil,
+               Keyword.get(options, :environment_ref)
+             )
 
     assert {:ok, claim} = Custody.claim_next("worker:schedule-offer:#{suffix}", 60, :work)
 
@@ -674,7 +723,7 @@ defmodule Ryker.State.SchedulesTest do
                %{"episode_id" => episode_id},
                "Offer the requested schedule.",
                %{"type" => "object"},
-               "work-final-live-v2"
+               "work-final-live-v3"
              )
 
     assert {:ok, _turn} =

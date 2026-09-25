@@ -2,17 +2,21 @@ defmodule Ryker.Slack.ChannelConfigurations do
   @moduledoc """
   Durable Slack channel membership and typed setup custody.
 
-  A joined channel is configured with defaults the moment Ryker is added;
-  the optional setup Q&A and the welcome controls only revise that row. Slack
-  presentation is deliberately outside this module. A card or message is only
-  an authenticated input to this state machine; it cannot grant authority,
-  select an unconfigured repository, or partially save a draft.
+  A joined channel is configured with defaults the moment Ryker is added: the
+  default environment, or none when no environment is the default. The
+  optional setup Q&A, the welcome controls and the channel page on the web
+  only revise that row. A channel with no environment runs outside any
+  environment; it never falls back to the default. Slack presentation is
+  deliberately outside this module. A card or message is only an
+  authenticated input to this state machine; it cannot grant authority,
+  select an environment the catalog did not offer, or partially save a draft.
   """
 
   import Ecto.Query
 
   alias Ryker.CanonicalJSON
   alias Ryker.Repo
+  alias Ryker.Settings.Environment
   alias Ryker.State.{Continuity, Memories}
 
   alias Ryker.Slack.{
@@ -62,12 +66,29 @@ defmodule Ryker.Slack.ChannelConfigurations do
   @participation [:mentions, :proactive, :shadow]
   @alerts [:reply, :offer, :automatic]
   @session_seconds 30 * 60
+  @maximum_environments 200
+  @maximum_environment_repositories 33
 
+  @typedoc """
+  One environment a channel may select: its display name, whether it names an
+  Emisar account, and its repositories in order, the first being the one work
+  changes. `url` is the repository's GitHub page when the host knows it.
+  """
+  @type environment_choice :: %{
+          emisar: boolean(),
+          name: String.t(),
+          ref: String.t(),
+          repositories: [%{ref: String.t(), url: String.t() | nil}]
+        }
+
+  @typedoc """
+  The environments a channel may select and the one a new channel starts in;
+  `default_environment` is nil when no environment is the default.
+  """
   @type catalog :: %{
           optional(:on_call_count) => non_neg_integer(),
-          optional(:repository_urls) => %{String.t() => String.t()},
-          default_repository: String.t(),
-          repository_refs: [String.t()]
+          default_environment: String.t() | nil,
+          environments: [environment_choice()]
         }
 
   @spec observe_membership(map() | keyword(), catalog()) :: {:ok, map()} | {:error, term()}
@@ -212,7 +233,7 @@ defmodule Ryker.Slack.ChannelConfigurations do
 
   @doc """
   Changes only participation from the welcome message, preserving the saved
-  repository, alert policy and invitations. The control names the exact
+  environment, alert policy and invitations. The control names the exact
   configuration revision it was rendered from, so a stale card cannot save.
   """
   @spec change_participation(map() | keyword()) :: {:ok, map()} | {:error, term()}
@@ -223,6 +244,86 @@ defmodule Ryker.Slack.ChannelConfigurations do
       Repo.transaction(fn -> change_participation_locked(attributes) end)
       |> transaction_result()
     end
+  end
+
+  @doc """
+  Chooses the environment a channel's work runs in, or none (`nil`): the
+  channel's work then runs outside any environment. Saves a new revision
+  attributed to `actor_ref`, like the Q&A's save, and leaves every other choice
+  as it was; choosing the current environment again changes nothing. An
+  environment nobody saved is refused with `{:error, :environment_not_found}`,
+  and a channel Ryker holds no configuration for with
+  `{:error, :configuration_not_found}`.
+  """
+  @spec select_environment(String.t(), String.t(), String.t() | nil, String.t()) ::
+          {:ok, ChannelConfiguration.t()} | {:error, term()}
+  def select_environment(workspace_ref, channel_ref, environment_ref, actor_ref) do
+    with :ok <- reference(workspace_ref, :workspace_ref, 256),
+         :ok <- reference(channel_ref, :channel_ref, 256),
+         :ok <- reference(actor_ref, :actor_ref, 256),
+         :ok <- environment_reference(environment_ref) do
+      Repo.transaction(fn ->
+        select_environment_locked(workspace_ref, channel_ref, environment_ref, actor_ref)
+      end)
+      |> transaction_result()
+    end
+  end
+
+  defp select_environment_locked(workspace_ref, channel_ref, environment_ref, actor_ref) do
+    lock_channel!(workspace_ref, channel_ref)
+
+    configuration =
+      Repo.one(
+        from(configuration in ChannelConfiguration,
+          where:
+            configuration.workspace_ref == ^workspace_ref and
+              configuration.channel_ref == ^channel_ref,
+          lock: "FOR UPDATE"
+        )
+      )
+
+    cond do
+      is_nil(configuration) ->
+        Repo.rollback(:configuration_not_found)
+
+      not environment_saved?(environment_ref) ->
+        Repo.rollback(:environment_not_found)
+
+      configuration.environment_ref == environment_ref ->
+        configuration
+
+      true ->
+        configuration
+        |> ChannelConfigurationChangeset.configuration(%{
+          actor_ref: actor_ref,
+          environment_ref: environment_ref,
+          revision: configuration.revision + 1,
+          saved_at: database_now!()
+        })
+        |> Repo.update()
+        |> saved_configuration(:environment_not_found)
+    end
+  end
+
+  defp environment_reference(nil), do: :ok
+  defp environment_reference(ref) when is_binary(ref), do: :ok
+
+  defp environment_reference(_ref),
+    do: {:error, {:invalid_channel_configuration, :environment_ref}}
+
+  defp environment_saved?(nil), do: true
+
+  defp environment_saved?(ref),
+    do: Repo.exists?(from(environment in Environment, where: environment.ref == ^ref))
+
+  # The environment's foreign key refuses one removed since it was checked or
+  # offered; any other invalid write is a host defect and raises.
+  defp saved_configuration({:ok, configuration}, _missing_environment), do: configuration
+
+  defp saved_configuration({:error, %Ecto.Changeset{} = changeset}, missing_environment) do
+    if Keyword.has_key?(changeset.errors, :environment_ref),
+      do: Repo.rollback(missing_environment),
+      else: raise(Ecto.InvalidChangesetError, action: changeset.action, changeset: changeset)
   end
 
   @doc "Records the welcome message that presents this channel's effective settings."
@@ -265,7 +366,8 @@ defmodule Ryker.Slack.ChannelConfigurations do
       "alert_policy" => alert_policy(configuration),
       "configuration_ref" => configuration && configuration.id,
       "customized_by" => configuration && configuration.actor_ref,
-      "default_repository" => default_repository(configuration, catalog),
+      "environment" => configuration |> environment_ref(catalog) |> environment(catalog),
+      "environment_count" => length(catalog.environments),
       "invitations" => %{
         "user_group_refs" => (configuration && configuration.invite_user_group_refs) || [],
         "user_refs" => (configuration && configuration.invite_user_refs) || []
@@ -278,13 +380,6 @@ defmodule Ryker.Slack.ChannelConfigurations do
         "source" => Atom.to_string(participation.source),
         "value" => Atom.to_string(participation.value)
       },
-      "repositories" =>
-        Enum.map(catalog.repository_refs, fn repository_ref ->
-          %{
-            "ref" => repository_ref,
-            "url" => catalog |> Map.get(:repository_urls, %{}) |> Map.get(repository_ref)
-          }
-        end),
       "revision" => configuration && configuration.revision
     }
   end
@@ -292,11 +387,31 @@ defmodule Ryker.Slack.ChannelConfigurations do
   defp alert_policy(%ChannelConfiguration{alert_policy: policy}), do: Atom.to_string(policy)
   defp alert_policy(nil), do: "reply"
 
-  defp default_repository(%ChannelConfiguration{repository_ref: repository_ref}, catalog) do
-    if repository_ref in catalog.repository_refs, do: repository_ref, else: nil
-  end
+  # A configured channel runs in the environment it chose, or in none; a
+  # conversation without its own setting runs in the default.
+  defp environment_ref(%ChannelConfiguration{environment_ref: ref}, _catalog), do: ref
+  defp environment_ref(nil, catalog), do: catalog.default_environment
 
-  defp default_repository(nil, catalog), do: catalog.default_repository
+  defp environment(nil, _catalog), do: nil
+
+  # An environment the catalog does not offer cannot run work right now, so
+  # the channel's work runs outside any environment until it can; the card
+  # says which environment that is rather than claiming there is none.
+  defp environment(ref, catalog) do
+    case Enum.find(catalog.environments, &(&1.ref == ref)) do
+      nil ->
+        %{"emisar" => false, "name" => ref, "ready" => false, "ref" => ref, "repositories" => []}
+
+      choice ->
+        %{
+          "emisar" => choice.emisar,
+          "name" => choice.name,
+          "ready" => true,
+          "ref" => ref,
+          "repositories" => Enum.map(choice.repositories, &%{"ref" => &1.ref, "url" => &1.url})
+        }
+    end
+  end
 
   defp overrides(%{proactive: proactive, shadow: shadow} = overrides)
        when map_size(overrides) == 2 do
@@ -637,12 +752,14 @@ defmodule Ryker.Slack.ChannelConfigurations do
           actor_ref: nil,
           alert_policy: :reply,
           channel_ref: membership.channel_ref,
+          # The environment a new channel starts in is the default one, or
+          # none when no environment is the default.
+          environment_ref: catalog.default_environment,
           id: Ecto.UUID.generate(),
           invite_user_group_refs: [],
           invite_user_refs: [],
           # No explicit choice yet: the channel inherits the installation default.
           participation: nil,
-          repository_ref: catalog.default_repository,
           revision: 1,
           saved_at: database_now!(),
           welcome_message_ref: nil,
@@ -721,7 +838,7 @@ defmodule Ryker.Slack.ChannelConfigurations do
 
     %{
       channel_ref: membership.channel_ref,
-      draft: empty_draft(catalog),
+      draft: catalog |> environment_options() |> empty_draft(),
       expires_at: DateTime.add(now, @session_seconds, :second),
       id: Ecto.UUID.generate(),
       initiator_ref: initiator_ref,
@@ -987,16 +1104,17 @@ defmodule Ryker.Slack.ChannelConfigurations do
          value: value
        })
        when value in @participation,
-       do: {:ok, {:draft, "participation", Atom.to_string(value), :repository}}
+       do: {:ok, {:draft, "participation", Atom.to_string(value), :environment}}
 
-  defp transition(%ConfigurationSession{step: :repository, draft: draft}, %{
-         action: :repository,
-         value: repository_ref
+  # `nil` is "No environment": the channel's work runs outside any environment.
+  defp transition(%ConfigurationSession{step: :environment, draft: draft}, %{
+         action: :environment,
+         value: environment_ref
        })
-       when is_binary(repository_ref) do
-    if repository_ref in draft["repository_options"],
-      do: {:ok, {:draft, "repository_ref", repository_ref, :alerts}},
-      else: {:error, :configuration_repository_not_offered}
+       when is_nil(environment_ref) or is_binary(environment_ref) do
+    if offered_environment?(draft, environment_ref),
+      do: {:ok, {:draft, "environment_ref", environment_ref, :alerts}},
+      else: {:error, :configuration_environment_not_offered}
   end
 
   defp transition(%ConfigurationSession{step: :alerts}, %{action: :alerts, value: value})
@@ -1049,16 +1167,16 @@ defmodule Ryker.Slack.ChannelConfigurations do
     )
   end
 
+  # Starting over clears every choice and offers the same environments again.
   defp persist_transition(session, attributes, :restart) do
-    catalog = %{
-      default_repository: session.draft["default_repository"],
-      repository_refs: session.draft["repository_options"]
-    }
-
     update_session(
       session,
       attributes,
-      %{draft: empty_draft(catalog), status: :asking, step: :participation},
+      %{
+        draft: empty_draft(session.draft["environment_options"]),
+        status: :asking,
+        step: :participation
+      },
       :restarted
     )
   end
@@ -1112,19 +1230,21 @@ defmodule Ryker.Slack.ChannelConfigurations do
     attributes = %{
       actor_ref: actor_ref,
       alert_policy: String.to_existing_atom(draft["alert_policy"]),
+      environment_ref: draft["environment_ref"],
       invite_user_group_refs: draft["invite_user_group_refs"],
       invite_user_refs: draft["invite_user_refs"],
       participation: String.to_existing_atom(draft["participation"]),
-      repository_ref: draft["repository_ref"],
       revision: if(existing, do: existing.revision + 1, else: 1),
       saved_at: now
     }
 
+    # The chosen environment may have been removed since the Q&A offered it.
     case existing do
       %ChannelConfiguration{} = configuration ->
         configuration
         |> ChannelConfigurationChangeset.configuration(attributes)
-        |> Repo.update!()
+        |> Repo.update()
+        |> saved_configuration(:configuration_environment_not_found)
 
       nil ->
         attributes
@@ -1135,7 +1255,8 @@ defmodule Ryker.Slack.ChannelConfigurations do
           workspace_ref: session.workspace_ref
         })
         |> ChannelConfigurationChangeset.configuration()
-        |> Repo.insert!()
+        |> Repo.insert()
+        |> saved_configuration(:configuration_environment_not_found)
     end
   end
 
@@ -1243,26 +1364,48 @@ defmodule Ryker.Slack.ChannelConfigurations do
     :ok
   end
 
+  # The environment answer is present once chosen, and `nil` when the answer
+  # was No environment, so an unanswered step never saves as "none".
   defp complete_draft(draft) do
     valid =
       draft["participation"] in Enum.map(@participation, &Atom.to_string/1) and
         draft["alert_policy"] in Enum.map(@alerts, &Atom.to_string/1) and
-        draft["repository_ref"] in draft["repository_options"] and
+        Map.has_key?(draft, "environment_ref") and
+        offered_environment?(draft, draft["environment_ref"]) and
         is_list(draft["invite_user_refs"]) and is_list(draft["invite_user_group_refs"])
 
     if valid, do: :ok, else: {:error, :configuration_draft_incomplete}
   end
 
-  defp empty_draft(catalog) do
+  defp offered_environment?(_draft, nil), do: true
+
+  defp offered_environment?(%{"environment_options" => options}, ref) when is_list(options),
+    do: Enum.any?(options, &(&1["ref"] == ref))
+
+  defp offered_environment?(_draft, _ref), do: false
+
+  defp empty_draft(environment_options) do
     %{
       "alert_policy" => nil,
-      "default_repository" => catalog.default_repository,
+      "environment_options" => environment_options,
       "invite_user_group_refs" => [],
       "invite_user_refs" => [],
-      "participation" => nil,
-      "repository_options" => catalog.repository_refs,
-      "repository_ref" => nil
+      "participation" => nil
     }
+  end
+
+  # What the Q&A offers is fixed when it starts: each environment with what it
+  # lets work in the channel use, so every choice can be explained before it
+  # is made.
+  defp environment_options(catalog) do
+    Enum.map(catalog.environments, fn choice ->
+      %{
+        "emisar" => choice.emisar,
+        "name" => choice.name,
+        "ref" => choice.ref,
+        "repositories" => Enum.map(choice.repositories, & &1.ref)
+      }
+    end)
   end
 
   defp audience(:none), do: {:ok, %{user_group_refs: [], user_refs: []}}
@@ -1312,7 +1455,7 @@ defmodule Ryker.Slack.ChannelConfigurations do
   end
 
   defp action_name(value)
-       when value in [:alerts, :audience, :cancel, :participation, :repository, :restart, :save],
+       when value in [:alerts, :audience, :cancel, :environment, :participation, :restart, :save],
        do: :ok
 
   defp action_name(_value), do: {:error, {:invalid_channel_configuration, :action}}
@@ -1329,25 +1472,23 @@ defmodule Ryker.Slack.ChannelConfigurations do
     end
   end
 
-  defp catalog(%{default_repository: default, repository_refs: refs} = catalog)
-       when map_size(catalog) in 2..4 do
+  # Neither a default nor any environment is required: a channel joined
+  # without them is configured with no environment. The default need not be
+  # among the choices: those are the environments that can run work now, and
+  # a channel joined while the default cannot is still set to it.
+  defp catalog(%{default_environment: default, environments: environments} = catalog)
+       when map_size(catalog) in 2..3 do
     on_call_count = Map.get(catalog, :on_call_count, 0)
-    urls = Map.get(catalog, :repository_urls, %{})
 
-    with :ok <- reference(default, :default_repository, 256),
-         :ok <- references(refs, :repository_refs),
-         true <- default in refs,
-         true <-
-           Map.keys(catalog) --
-             [:default_repository, :on_call_count, :repository_refs, :repository_urls] == [],
+    with true <- Map.keys(catalog) -- [:default_environment, :environments, :on_call_count] == [],
          true <- is_integer(on_call_count) and on_call_count >= 0,
-         :ok <- repository_urls(urls, refs) do
+         {:ok, environments} <- environment_choices(environments),
+         true <- is_nil(default) or Regex.match?(Environment.ref_pattern(), default) do
       {:ok,
        %{
-         default_repository: default,
-         on_call_count: on_call_count,
-         repository_refs: Enum.sort(refs),
-         repository_urls: urls
+         default_environment: default,
+         environments: environments,
+         on_call_count: on_call_count
        }}
     else
       false -> {:error, {:invalid_channel_configuration, :catalog}}
@@ -1357,21 +1498,45 @@ defmodule Ryker.Slack.ChannelConfigurations do
 
   defp catalog(_catalog), do: {:error, {:invalid_channel_configuration, :catalog}}
 
-  defp repository_urls(urls, refs) when is_map(urls) do
-    valid =
-      Enum.all?(urls, fn
-        {repository_ref, "https://" <> _rest = url} ->
-          repository_ref in refs and reference(url, :repository_urls, 2_048) == :ok
+  # Choices read in the order a person scans them: by name.
+  defp environment_choices(environments)
+       when is_list(environments) and length(environments) <= @maximum_environments do
+    refs = Enum.map(environments, &Map.get(&1, :ref))
 
-        _entry ->
-          false
-      end)
-
-    if valid, do: :ok, else: {:error, {:invalid_channel_configuration, :repository_urls}}
+    if Enum.all?(environments, &environment_choice?/1) and Enum.uniq(refs) == refs,
+      do: {:ok, Enum.sort_by(environments, &{String.downcase(&1.name), &1.ref})},
+      else: {:error, {:invalid_channel_configuration, :environments}}
   end
 
-  defp repository_urls(_urls, _refs),
-    do: {:error, {:invalid_channel_configuration, :repository_urls}}
+  defp environment_choices(_environments),
+    do: {:error, {:invalid_channel_configuration, :environments}}
+
+  defp environment_choice?(
+         %{emisar: emisar, name: name, ref: ref, repositories: repositories} = choice
+       )
+       when map_size(choice) == 4 and is_boolean(emisar) and is_list(repositories) and
+              length(repositories) <= @maximum_environment_repositories do
+    repository_refs = Enum.map(repositories, &Map.get(&1, :ref))
+
+    is_binary(ref) and Regex.match?(Environment.ref_pattern(), ref) and
+      reference(name, :name, 320) == :ok and String.length(name) <= 80 and
+      Enum.all?(repositories, &repository_choice?/1) and
+      Enum.uniq(repository_refs) == repository_refs
+  end
+
+  defp environment_choice?(_choice), do: false
+
+  defp repository_choice?(%{ref: ref, url: url} = repository) when map_size(repository) == 2,
+    do: reference(ref, :repository, 256) == :ok and repository_url?(url)
+
+  defp repository_choice?(_repository), do: false
+
+  defp repository_url?(nil), do: true
+
+  defp repository_url?("https://" <> _rest = url),
+    do: reference(url, :repository_url, 2_048) == :ok
+
+  defp repository_url?(_url), do: false
 
   defp exact_map(attributes, fields, boundary) when is_list(attributes) do
     if Keyword.keyword?(attributes) and

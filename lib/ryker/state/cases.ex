@@ -80,14 +80,14 @@ defmodule Ryker.State.Cases do
               record.episode_id != ^episode.id,
           where:
             fragment(
-              "to_tsvector('simple', ?) @@ to_tsquery('simple', ?)",
+              "to_tsvector('english', ?) @@ to_tsquery('english', ?)",
               record.search_text,
               ^terms
             ),
           order_by: [
             desc:
               fragment(
-                "ts_rank_cd(to_tsvector('simple', ?), to_tsquery('simple', ?))",
+                "ts_rank_cd(to_tsvector('english', ?), to_tsquery('english', ?), 32)",
                 record.search_text,
                 ^terms
               ),

@@ -1,6 +1,8 @@
 defmodule Ryker.Work.SubmissionBuilderTest do
   use Ryker.DataCase, async: true
 
+  import Ecto.Query
+
   alias Ryker.{Artifacts, Episodes, Settings}
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.Knowledge, as: KnowledgeFixtures
@@ -81,6 +83,25 @@ defmodule Ryker.Work.SubmissionBuilderTest do
     assert lesson["steps"] =~ "Promote the healthy replica"
   end
 
+  test "Work sees the episode's current name so it revises it only when the work changes" do
+    claim = claim_episode!("titled-briefing", "Checkout returns 502 after the deploy")
+
+    assert {:ok, unnamed} = SubmissionBuilder.build(claim)
+    assert Map.fetch!(unnamed["context"], "episode_title") == nil
+
+    Repo.update_all(
+      from(digest in Ryker.Episodes.RoutingDigest, where: digest.episode_id == ^claim.episode.id),
+      set: [
+        title: "Investigate checkout 502s",
+        title_turn_id: claim.turn.id,
+        title_updated_at: DateTime.utc_now()
+      ]
+    )
+
+    assert {:ok, named} = SubmissionBuilder.build(claim)
+    assert named["context"]["episode_title"] == "Investigate checkout 502s"
+  end
+
   test "the first turn is a self-contained universal briefing with one attached final schema" do
     initial = String.duplicate("a", 1_500) <> " ORIGINAL_REQUEST_MARKER"
     claim = claim_episode!("full-briefing", initial)
@@ -92,7 +113,7 @@ defmodule Ryker.Work.SubmissionBuilderTest do
     assert current["content"] == %{"text" => initial}
     assert current["source_ref"] == hd(claim.episode.active_input_refs)
     assert submission["output_schema"] == Final.json_schema(:live)
-    assert submission["contract_version"] == "work-final-live-v2"
+    assert submission["contract_version"] == "work-final-live-v3"
     assert submission["prompt"] =~ "ORIGINAL_REQUEST_MARKER"
     refute submission["prompt"] =~ ~s("response_schema")
     refute submission["prompt"] =~ ~s("$schema")
@@ -107,7 +128,7 @@ defmodule Ryker.Work.SubmissionBuilderTest do
     assert shadow.episode.execution_mode == :shadow
     assert {:ok, shadow_submission} = SubmissionBuilder.build(shadow)
 
-    assert shadow_submission["contract_version"] == "work-final-shadow-v2"
+    assert shadow_submission["contract_version"] == "work-final-shadow-v3"
     assert shadow_submission["output_schema"] == Final.json_schema(:shadow)
     assert shadow_submission["prompt"] =~ "This is an observe-only evaluation"
 
@@ -117,12 +138,17 @@ defmodule Ryker.Work.SubmissionBuilderTest do
     shadow_tools = FixedTools.list(binding: %{episode: shadow.episode})
     validate_final = Enum.find(shadow_tools, &(&1["name"] == "validate_final"))
 
+    # The preflight takes the same schema with title optional.
     assert get_in(validate_final, ["inputSchema", "properties", "candidate"]) ==
-             shadow_submission["output_schema"]
+             Map.update!(
+               shadow_submission["output_schema"],
+               "required",
+               &List.delete(&1, "title")
+             )
 
     live = claim_episode!("live-contract", "Reply with the result.")
     assert {:ok, live_submission} = SubmissionBuilder.build(live)
-    assert live_submission["contract_version"] == "work-final-live-v2"
+    assert live_submission["contract_version"] == "work-final-live-v3"
     assert live_submission["output_schema"] == Final.json_schema(:live)
     assert live_submission["prompt"] =~ "This is live work"
     refute Map.has_key?(live_submission["context"], "execution_mode")
@@ -133,10 +159,22 @@ defmodule Ryker.Work.SubmissionBuilderTest do
              live_contract,
              %{
                session_id: "session-1",
-               submission: %{"contract_version" => "work-final-shadow-v2"}
+               submission: %{"contract_version" => "work-final-shadow-v3"}
              },
              %{id: "session-1"}
            ) == {:error, {:invalid_work_contract, :continuation_variant}}
+
+    # A contract revision must not strand a live session opened under the one
+    # before it; every turn carries its own output schema. Only switching
+    # between live and observe-only work is refused.
+    assert Contract.authorize_continuation(
+             live_contract,
+             %{
+               session_id: "session-1",
+               submission: %{"contract_version" => "work-final-live-v2"}
+             },
+             %{id: "session-1"}
+           ) == :ok
 
     assert Contract.select(:unknown) == {:error, {:invalid_work_contract, :execution_mode}}
   end
@@ -371,7 +409,7 @@ defmodule Ryker.Work.SubmissionBuilderTest do
     assert second == first
     assert second["prompt"] == first["prompt"]
     assert second["output_schema"] == Final.json_schema()
-    assert second["contract_version"] == "work-final-live-v2"
+    assert second["contract_version"] == "work-final-live-v3"
 
     assert Ryker.CanonicalJSON.encode!(second["context"]) ==
              Ryker.CanonicalJSON.encode!(first["context"])

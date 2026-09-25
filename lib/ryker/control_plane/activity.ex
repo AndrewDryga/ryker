@@ -13,12 +13,47 @@ defmodule Ryker.ControlPlane.Activity do
     UsageProjection
   }
 
-  alias Ryker.Episodes.Episode
+  alias Ryker.Episodes.{Episode, RoutingDigest}
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Repo
   alias Ryker.Work.Turn
 
   @page_size 30
+
+  @doc """
+  Where a page's "this conversation" link leads: the chat itself for a direct
+  conversation, or the Activity list for a conversation that holds more than
+  one request. A conversation with one request has nowhere else to lead; the
+  list would show only the page the reader came from.
+  """
+  @spec conversation_link(String.t() | nil, String.t() | nil, atom()) ::
+          %{href: String.t(), label: String.t()} | nil
+  def conversation_link(transport, conversation_ref, execution_mode \\ :live)
+
+  def conversation_link(_transport, "control-plane:lab:" <> id, _execution_mode),
+    do: %{href: "/conversations/" <> id, label: "Open in Chat"}
+
+  def conversation_link(transport, conversation_ref, execution_mode)
+      when is_binary(transport) and is_binary(conversation_ref) do
+    count =
+      Repo.aggregate(
+        from(episode in Episode,
+          where:
+            episode.destination_transport == ^transport and
+              episode.destination_conversation_ref == ^conversation_ref and
+              episode.execution_mode == ^execution_mode
+        ),
+        :count
+      )
+
+    if count > 1,
+      do: %{
+        href: conversation_path(transport, conversation_ref),
+        label: "All #{count} requests in this conversation"
+      }
+  end
+
+  def conversation_link(_transport, _conversation_ref, _execution_mode), do: nil
 
   def conversation_path(transport, conversation, thread \\ nil) do
     params = %{"transport" => transport, "conversation" => conversation, "mode" => "all"}
@@ -151,9 +186,12 @@ defmodule Ryker.ControlPlane.Activity do
         on:
           turn.episode_id == episode.id and turn.turn_ref == episode.owner_ref and
             episode.owner_kind == :turn,
+        left_join: digest in RoutingDigest,
+        on: digest.episode_id == episode.id,
         select: %{
           id: episode.id,
           kind: type(^"episode", :string),
+          episode_title: digest.title,
           ref: episode.key,
           conversation: episode.destination_conversation_ref,
           thread: episode.destination_thread_ref,
@@ -194,6 +232,7 @@ defmodule Ryker.ControlPlane.Activity do
         select: %{
           id: entry.id,
           kind: type(^"admission", :string),
+          episode_title: type(^nil, :string),
           ref: fragment("?::text", entry.id),
           conversation: entry.destination_conversation_ref,
           thread: entry.destination_thread_ref,
@@ -232,21 +271,26 @@ defmodule Ryker.ControlPlane.Activity do
     union_all(episodes, ^admissions)
   end
 
+  # An episode reads as the name Work gave it; before any turn has named it,
+  # as its first message.
+  defp present(%{episode_title: title} = row, secrets) when is_binary(title) do
+    %{present(%{row | episode_title: nil}, secrets) | title: redacted(title, secrets, 240)}
+  end
+
   defp present(row, secrets) do
-    artifact = InspectionRedactor.artifact(row.text, secrets: secrets, max_bytes: 12_000)
-    text = if artifact.text, do: String.trim(artifact.text)
+    text = redacted(row.text, secrets, 12_000)
     source = source(row.source)
 
     title =
       if text in [nil, ""],
-        do: "#{source} conversation · source content unavailable",
+        do: "Message text no longer available",
         else:
           text
           |> SlackMarkdown.plain(SlackNames.workspace_from_destination(row.conversation))
           |> String.slice(0, 200)
 
     row
-    |> Map.drop([:text, :ref, :conversation, :episode_state])
+    |> Map.drop([:text, :ref, :conversation, :episode_state, :episode_title])
     |> Map.merge(%{
       conversation: row.conversation,
       title: title,
@@ -254,6 +298,11 @@ defmodule Ryker.ControlPlane.Activity do
       href:
         "/timeline/#{URI.encode_www_form(if row.kind == "episode", do: row.ref, else: "ingress-input:#{row.ref}")}"
     })
+  end
+
+  defp redacted(text, secrets, max_bytes) do
+    artifact = InspectionRedactor.artifact(text, secrets: secrets, max_bytes: max_bytes)
+    if artifact.text, do: String.trim(artifact.text)
   end
 
   defp source("control_plane"), do: "Direct conversation"

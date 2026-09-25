@@ -1,18 +1,27 @@
 defmodule Ryker.ControlPlane.BehaviorLibrary do
-  @moduledoc "Bounded operator views of confirmed rules, preferences, and guidance."
+  @moduledoc """
+  Bounded operator views of confirmed rules, preferences, and guidance.
+
+  Rules are listed on /rules. Preferences and guidance are listed together on
+  /instructions, under "Saved from conversations". Both lists show Current
+  (on or paused) or Past (expired, deleted or replaced) entries.
+  """
   import Ecto.Query
   alias Ryker.ControlPlane.{InspectionRedactor, PagedRelation, Search}
   alias Ryker.Episodes.Episode
   alias Ryker.Repo
   alias Ryker.State.{Behavior, StandingAssignmentRun}
 
-  @kinds %{"rules" => :standing_assignment, "preferences" => :preference, "guidance" => :guidance}
   @payload_fields ~w(title task trigger source_kind source_filter filter action repository key value subject summary text visibility context_channel delivery_channel)
+  @shown %{"preferences" => :preference, "guidance" => :guidance}
 
-  def kind(path), do: Map.fetch!(@kinds, path)
+  @doc "The page that lists entries of `kind`; its rows are anchored `#behavior-<ref>`."
   def path(:standing_assignment), do: "/rules"
-  def path(:preference), do: "/preferences"
-  def path(:guidance), do: "/guidance"
+  def path(kind) when kind in [:preference, :guidance], do: "/instructions"
+
+  @doc "Where a confirmed Pause, Resume or Delete returns: the list the entry is in."
+  def return_path(:standing_assignment), do: "/rules"
+  def return_path(kind) when kind in [:preference, :guidance], do: "/instructions#saved"
 
   def fetch(ref) when is_binary(ref) and byte_size(ref) <= 1_024 do
     case Repo.one(from(b in instruction_query(), where: b.ref == ^ref)) do
@@ -54,87 +63,79 @@ defmodule Ryker.ControlPlane.BehaviorLibrary do
     )
   end
 
-  def list(kind, params) when kind in [:standing_assignment, :preference, :guidance] do
-    base = from(b in instruction_query(), where: b.kind == ^kind)
+  @doc """
+  One page of confirmed entries of `kinds` (one kind or several) for a page's
+  query `params`: "status" is current (the default) or past, "q" searches
+  their stored text, "show" narrows several kinds to one of them
+  ("preferences" or "guidance"), and "page" pages. `counts` holds every
+  status of the shown kinds before search, so an empty page can tell "nothing
+  here yet" from "nothing current".
+  """
+  def list(kind, params) when is_atom(kind), do: list([kind], params)
+
+  def list(kinds, params) when is_list(kinds) do
+    show = show(kinds, params["show"])
+    shown = if show == "all", do: kinds, else: [@shown[show]]
+    base = from(b in instruction_query(), where: b.kind in ^shown)
 
     counts =
       Repo.all(from(b in subquery(base), group_by: b.status, select: {b.status, count(b.id)}))
       |> Map.new()
 
-    status =
-      if params["status"] in ~w(all active disabled expired archived),
-        do: params["status"],
-        else: "current"
-
+    status = if params["status"] == "past", do: "past", else: "current"
     q = params |> scalar("q") |> String.trim() |> String.slice(0, 160)
-
-    scope =
-      if params["scope"] in ~w(workspace conversation repository operator),
-        do: params["scope"],
-        else: ""
 
     filtered =
       from(b in subquery(base))
       |> filter_status(status)
       |> filter_search(q)
-      |> filter_scope(scope)
 
-    page =
-      PagedRelation.read(
-        filtered,
-        [desc: :updated_at, desc: :id],
-        "page",
-        params
-      )
-
-    items = page.items
-    ids = Enum.map(items, & &1.id)
-
-    runs =
-      if kind == :standing_assignment do
-        Repo.all(
-          from(r in StandingAssignmentRun,
-            left_join: e in Episode,
-            on: e.id == r.episode_id,
-            join: b in Behavior,
-            on: b.id == r.assignment_id,
-            where: r.assignment_id in ^ids,
-            order_by: [desc: r.inserted_at, desc: r.id],
-            limit: 25,
-            select: %{
-              rule_ref: b.ref,
-              at: r.inserted_at,
-              outcome: r.outcome,
-              action: r.decision_action,
-              episode_ref: e.key
-            }
-          )
-        )
-      else
-        []
-      end
+    page = PagedRelation.read(filtered, [desc: :updated_at, desc: :id], "page", params)
 
     %{
-      kind: kind,
-      items: Enum.map(items, &sanitize/1),
+      kinds: kinds,
+      items: Enum.map(page.items, &sanitize/1),
       counts: counts,
       total: page.total,
       page: page.page,
       pages: page.pages,
-      runs: runs,
-      params: %{"status" => status, "q" => q, "scope" => scope}
+      runs: if(kinds == [:standing_assignment], do: runs(page.items), else: []),
+      params: %{"status" => status, "q" => q, "show" => show}
     }
   end
 
-  defp filter_status(query, "current"),
+  defp show(kinds, value) do
+    if length(kinds) > 1 and Map.get(@shown, value) in kinds, do: value, else: "all"
+  end
+
+  defp runs(items) do
+    ids = Enum.map(items, & &1.id)
+
+    Repo.all(
+      from(r in StandingAssignmentRun,
+        left_join: e in Episode,
+        on: e.id == r.episode_id,
+        join: b in Behavior,
+        on: b.id == r.assignment_id,
+        where: r.assignment_id in ^ids,
+        order_by: [desc: r.inserted_at, desc: r.id],
+        limit: 25,
+        select: %{
+          rule_ref: b.ref,
+          at: r.inserted_at,
+          outcome: r.outcome,
+          action: r.decision_action,
+          episode_ref: e.key
+        }
+      )
+    )
+  end
+
+  defp filter_status(query, "past"),
+    do: from(b in query, where: b.status in ["expired", "deleted", "superseded"])
+
+  defp filter_status(query, _current),
     do: from(b in query, where: b.status in ["active", "disabled"])
-
-  defp filter_status(query, "all"), do: query
-
-  defp filter_status(query, "archived"),
-    do: from(b in query, where: b.status in ["deleted", "superseded"])
-
-  defp filter_status(query, status), do: from(b in query, where: b.status == ^status)
 
   defp scalar(params, key) do
     case params[key] do
@@ -142,11 +143,6 @@ defmodule Ryker.ControlPlane.BehaviorLibrary do
       _ -> ""
     end
   end
-
-  defp filter_scope(query, ""), do: query
-
-  defp filter_scope(query, scope),
-    do: from(b in query, where: fragment("?::text", b.scope_kind) == ^scope)
 
   defp filter_search(query, ""), do: query
 

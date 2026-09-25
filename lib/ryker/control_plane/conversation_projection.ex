@@ -24,7 +24,7 @@ defmodule Ryker.ControlPlane.ConversationProjection do
 
   alias Ryker.Delivery.PlatformAction
   alias Ryker.Delivery.Reaction
-  alias Ryker.Episodes.{Episode, Event}
+  alias Ryker.Episodes.{Episode, Event, RoutingDigest}
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Publication.Publication
   alias Ryker.Repo
@@ -69,6 +69,7 @@ defmodule Ryker.ControlPlane.ConversationProjection do
       end
     end)
     |> directory_titles()
+    |> directory_states()
   end
 
   defp directory_titles([]), do: []
@@ -103,6 +104,7 @@ defmodule Ryker.ControlPlane.ConversationProjection do
       |> Map.new()
 
     secrets = InspectionRedactor.configured_secrets()
+    named = episode_titles(refs)
 
     Enum.map(items, fn item ->
       artifact =
@@ -114,12 +116,97 @@ defmodule Ryker.ControlPlane.ConversationProjection do
       Map.put(
         item,
         :title,
-        if(artifact.text in [nil, ""],
-          do: "Conversation · #{Calendar.strftime(item.updated_at, "%d %b")}",
-          else: String.slice(artifact.text, 0, 160)
-        )
+        cond do
+          is_binary(named[item.ref]) ->
+            named[item.ref]
+
+          artifact.text in [nil, ""] ->
+            "Conversation · #{Calendar.strftime(item.updated_at, "%d %b")}"
+
+          true ->
+            String.slice(artifact.text, 0, 160)
+        end
       )
     end)
+  end
+
+  # Once Ryker has named its latest work in a conversation, that name is the
+  # conversation's; until then its opening message is.
+  defp episode_titles(refs) do
+    Repo.all(
+      from(entry in Entry,
+        join: digest in RoutingDigest,
+        on: digest.episode_id == entry.episode_id,
+        where: entry.destination_conversation_ref in ^refs and not is_nil(digest.title),
+        distinct: entry.destination_conversation_ref,
+        order_by: [
+          asc: entry.destination_conversation_ref,
+          desc: digest.title_updated_at,
+          desc: digest.episode_id
+        ],
+        select: {entry.destination_conversation_ref, digest.title}
+      )
+    )
+    |> Map.new()
+  end
+
+  # What a conversation needs from the reader, from its inputs and their work:
+  # something stopped, Ryker is still at it, it is waiting, or it replied.
+  defp directory_states([]), do: []
+
+  defp directory_states(items) do
+    refs = Enum.map(items, & &1.ref)
+
+    rows =
+      Repo.all(
+        from(entry in Entry,
+          left_join: episode in Episode,
+          on: episode.id == entry.episode_id,
+          where:
+            entry.destination_transport == "control_plane" and
+              entry.destination_conversation_ref in ^refs,
+          select: {entry.destination_conversation_ref, entry.status, episode.id, episode.state}
+        )
+      )
+
+    episode_ids = for {_ref, _status, id, _state} <- rows, is_binary(id), uniq: true, do: id
+
+    blocked =
+      from(turn in Turn,
+        where: turn.episode_id in ^episode_ids and turn.status == :blocked,
+        distinct: true,
+        select: turn.episode_id
+      )
+      |> Repo.all()
+      |> MapSet.new()
+
+    states =
+      rows
+      |> Enum.group_by(&elem(&1, 0))
+      |> Map.new(fn {ref, rows} -> {ref, conversation_status(rows, blocked)} end)
+
+    Enum.map(items, &Map.put(&1, :status, Map.get(states, &1.ref, :replied)))
+  end
+
+  defp conversation_status(rows, blocked) do
+    cond do
+      Enum.any?(rows, fn {_ref, status, id, state} ->
+        status == :blocked or (MapSet.member?(blocked, id) and state != :complete)
+      end) ->
+        :attention
+
+      Enum.any?(rows, fn {_ref, status, _id, state} -> status == :pending or state == :working end) ->
+        :working
+
+      Enum.any?(rows, fn {_ref, _status, _id, state} -> state == :waiting_for_input end) ->
+        :waiting_for_you
+
+      Enum.any?(rows, fn {_ref, _status, _id, state} -> state == :waiting_for_event end) ->
+        :waiting
+
+      true ->
+        :replied
+    end
   end
 
   @doc """

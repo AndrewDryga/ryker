@@ -442,7 +442,7 @@ defmodule Ryker.Slack.WorkControlsTest do
                %{"request" => "resume"},
                "Handle the request.",
                %{"type" => "object"},
-               "work-final-live-v2"
+               "work-final-live-v3"
              )
 
     assert {:ok, _frozen} =

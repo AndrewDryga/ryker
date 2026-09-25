@@ -33,30 +33,76 @@ defmodule Ryker.ControlPlane.NativePagesTest do
         params: %{"q" => "trace", "repository" => "ryker", "mode" => "all"},
         path: "/activity",
         now: @now,
-        stream: items,
+        # As the LiveView draws the list: each row carries its day.
+        stream:
+          Enum.zip(
+            Enum.map(items, &elem(&1, 0)),
+            ActivityPage.with_days(Enum.map(items, &elem(&1, 1)), @now)
+          ),
         new_items: 2,
-        schedules: [
-          %{
-            ref: "schedule:one",
-            title: "Weekly review",
-            next_occurrence_at: @now,
-            timezone: "UTC"
-          }
-        ]
+        schedules: [schedule("schedule:one", "Weekly review")]
       )
 
+    document = LazyHTML.from_fragment(html)
     assert html =~ "Investigate &lt;unsafe&gt;"
-    assert html =~ "GitHub"
-    assert html =~ "2m since received"
+    refute html =~ "<unsafe>"
+
+    # Each request is one Kit row: its name opens the timeline in place, its
+    # state is a dot and a word, then where it came from, when and where it ran.
+    rows = LazyHTML.query(document, "#activity-stream > article.entity-row.entity-row-link")
+    assert Enum.count(rows) == 5
+
+    assert LazyHTML.query(
+             rows,
+             ".entity-name a[href='/timeline/request-1'][data-phx-link=redirect]"
+           )
+           |> LazyHTML.text() == "Investigate <unsafe> 1"
+
+    assert Enum.map(LazyHTML.query(rows, ".entity-side .state-word"), fn state ->
+             {LazyHTML.attribute(state, "data-tone"), LazyHTML.text(state)}
+           end) == [
+             {["busy"], "Queued"},
+             {["busy"], "Working"},
+             {["warn"], "Needs attention"},
+             {["off"], "Completed"},
+             {["off"], "Stopped"}
+           ]
+
+    assert LazyHTML.query(rows, ".entity-meta") |> Enum.at(0) |> LazyHTML.text() =~
+             "Direct conversation"
+
+    assert LazyHTML.query(rows, ".entity-meta") |> Enum.at(1) |> LazyHTML.text() =~ "GitHub"
+    assert LazyHTML.query(rows, ".entity-meta") |> Enum.at(1) |> LazyHTML.text() =~ "ryker"
+    # When is the row's edge, under its day's heading.
+    assert LazyHTML.query(rows, ".entity-side time[datetime]") |> Enum.count() == 5
+    assert LazyHTML.query(rows, ".entity-group") |> Enum.count() >= 1
+    assert LazyHTML.query(document, ".kit-toolbar-count") |> LazyHTML.text() == "90 items"
+
     assert html =~ "Page 2 of 3"
     assert html =~ "page=1"
     assert html =~ "page=3"
     assert html =~ "repository=ryker"
     assert html =~ "2 new or reordered items"
-    assert html =~ "Weekly review"
-    assert html =~ "1 eligible"
-    assert html =~ "Worker status is unavailable"
-    refute html =~ "<unsafe>"
+
+    # Coming up is a section of Kit rows in the Schedules page's own words.
+    assert LazyHTML.query(document, "#coming-up .section-head h2") |> LazyHTML.text() ==
+             "Coming up"
+
+    assert LazyHTML.query(document, "#coming-up .entity-name a[href='/schedules/schedule%3Aone']")
+           |> LazyHTML.text() == "Weekly review"
+
+    assert LazyHTML.query(document, "#coming-up .entity-meta") |> LazyHTML.text() =~
+             "Every day at 09:00 UTC"
+
+    # A worker problem is a warning count at the top and a section below.
+    assert LazyHTML.query(document, ".kit-counts a.kit-count[href='#workers'][data-tone=warn]")
+           |> LazyHTML.text() =~ "worker status"
+
+    assert LazyHTML.query(document, "#workers .entity-name") |> LazyHTML.text() =~
+             "Worker status is unknown"
+
+    assert LazyHTML.query(document, "#workers .entity-meta") |> LazyHTML.text() =~
+             "last check: 1 worker available"
   end
 
   test "a filtered empty activity page does not imply the workspace has no conversations" do
@@ -75,11 +121,17 @@ defmodule Ryker.ControlPlane.NativePagesTest do
     assert html =~ "No matching activity"
     assert html =~ "Clear filters"
     refute html =~ ~r/id="activity-filters-search"[^>]*disabled/
-    refute html =~ "activity-rail"
+    refute html =~ "id=\"workers\""
+    refute html =~ "id=\"coming-up\""
     refute html =~ "No activity yet"
   end
 
-  test "activity uses the shared summary in workload order and keeps mobile navigation visible" do
+  # Andrew, 2026-09-24, comparing Activity with Incident rooms, Failures,
+  # Channels and Working copies: "Look how different all those pages are."
+  # Activity had its own framed collection, tab strip, mint links and filled
+  # status pills; it now leads with the same counts and toolbar row as every
+  # other list page.
+  test "activity leads with the counts and toolbar row every list page shares" do
     html =
       render_component(&ActivityPage.render/1,
         overview: %{counts: %{active: 3, waiting: 2, blocked: 1}, fleet: %{required: false}},
@@ -93,29 +145,40 @@ defmodule Ryker.ControlPlane.NativePagesTest do
       )
       |> LazyHTML.from_fragment()
 
-    facts = LazyHTML.query(html, ".page-summary-facts > div")
+    counts = LazyHTML.query(html, ".activity-page > .kit-counts > .kit-count")
 
-    assert Enum.map(facts, fn fact ->
-             {fact |> LazyHTML.query("dd") |> LazyHTML.text(),
-              fact |> LazyHTML.query("dt") |> LazyHTML.text() |> String.trim()}
-           end) == [{"3", "active"}, {"2", "waiting"}, {"1", "blocked"}]
+    assert Enum.map(counts, fn count ->
+             {count |> LazyHTML.query("b") |> LazyHTML.text(),
+              count |> LazyHTML.text() |> String.split() |> List.last(),
+              count |> LazyHTML.attribute("href") |> List.first()}
+           end) == [
+             {"3", "active", "/?filter=running"},
+             {"2", "waiting", "/?filter=attention"},
+             {"1", "blocked", "/?filter=attention"}
+           ]
 
-    assert LazyHTML.query(html, ".page-summary-fact-attention a[href='/failures']")
-           |> Enum.count() == 1
+    assert LazyHTML.query(html, ".kit-count[data-tone=warn]") |> LazyHTML.text() =~ "blocked"
+    assert LazyHTML.query(html, ".kit-count[data-phx-link=patch]") |> Enum.count() == 3
 
-    assert LazyHTML.query(html, "[data-active-count]") |> LazyHTML.text() == "3"
+    refute LazyHTML.query(html, ".activity-pulse, .collection-shell, .page-summary")
+           |> Enum.any?()
 
-    refute LazyHTML.query(html, ".page-summary-link") |> Enum.any?()
+    toolbar = LazyHTML.query(html, ".activity-page > .kit-toolbar")
+    assert Enum.count(toolbar) == 1
 
-    refute LazyHTML.query(html, ".activity-pulse") |> Enum.any?()
-    assert LazyHTML.query(html, ".activity-primary > .collection-shell") |> Enum.count() == 1
+    assert LazyHTML.query(toolbar, "#activity-filters-toolbar.filter-toolbar") |> Enum.count() ==
+             1
 
-    assert LazyHTML.query(html, ".collection-shell-header .ui-tabs") |> Enum.count() == 1
+    assert LazyHTML.query(toolbar, "nav.segmented a[data-phx-link=patch]")
+           |> Enum.map(&LazyHTML.text/1) == ["All", "Needs you", "In progress", "Finished"]
 
-    assert LazyHTML.query(html, ".collection-shell-filter-row #activity-filters-toolbar")
-           |> Enum.count() == 1
+    assert LazyHTML.query(toolbar, "nav.segmented a[aria-current=page]") |> LazyHTML.text() ==
+             "All"
 
-    assert LazyHTML.query(html, ".collection-shell-content > .empty-state") |> Enum.count() == 1
+    assert LazyHTML.query(toolbar, ".kit-toolbar-count") |> LazyHTML.text() == "0 items"
+
+    assert LazyHTML.query(html, ".entity-empty .entity-empty-title") |> LazyHTML.text() ==
+             "No activity yet"
 
     assert LazyHTML.query(html, "#activity-filters-search[disabled]") |> Enum.count() == 1
     assert LazyHTML.query(html, "#activity-mode[disabled]") |> Enum.count() == 1
@@ -123,8 +186,6 @@ defmodule Ryker.ControlPlane.NativePagesTest do
     assert LazyHTML.query(html, ".search-field.filter-control") |> Enum.count() == 1
     assert LazyHTML.query(html, "#activity-mode.filter-control") |> Enum.count() == 1
     assert LazyHTML.query(html, "#filter-add.filter-control") |> Enum.count() == 1
-    assert LazyHTML.query(html, ".ui-tabs a") |> Enum.empty?()
-    assert LazyHTML.query(html, ".ui-tabs .ui-tab-disabled") |> Enum.count() == 4
   end
 
   test "worker problems remain actionable without filling an empty inbox with decorative widgets" do
@@ -142,15 +203,49 @@ defmodule Ryker.ControlPlane.NativePagesTest do
           schedules: []
         )
 
-      assert html =~ "Worker attention"
-      assert html =~ "Inspect system settings"
-      assert html =~ "href=\"/workspaces\""
+      document = LazyHTML.from_fragment(html)
+
+      assert LazyHTML.query(document, ".kit-count[href='#workers'][data-tone=warn]")
+             |> Enum.count() == 1
+
+      assert LazyHTML.query(document, "#workers .entity-side .state-word[data-tone=warn]")
+             |> Enum.count() == 1
+
+      assert LazyHTML.query(document, "#workers a[href='/settings/advanced']") |> Enum.count() ==
+               1
+
+      assert LazyHTML.query(document, "#workers a[href='/working-copies']") |> Enum.count() == 1
       assert html =~ "No activity yet"
       refute html =~ "Coming up"
       refute html =~ "Test your ryker"
       refute html =~ "Local operator"
       refute html =~ "empty-orbit"
     end
+  end
+
+  # One active schedule as the Schedules projection lists it.
+  defp schedule(ref, title) do
+    %{
+      authority: :read_only,
+      destination_conversation_ref: "slack:T123:C456",
+      destination_thread_ref: nil,
+      destination_transport: "slack",
+      expires_at: nil,
+      expires_local: nil,
+      failures: 0,
+      next_local: ~N[2026-09-06 09:00:00],
+      next_occurrence_at: ~U[2026-09-06 09:00:00Z],
+      now_local: ~N[2026-09-05 12:00:00],
+      once_local: nil,
+      recurrence: %{"kind" => "daily", "time" => "09:00:00"},
+      ref: ref,
+      repository: nil,
+      status: :active,
+      task: "Summarize the week.",
+      timezone: "UTC",
+      title: title,
+      updated_at: @now
+    }
   end
 
   test "the episode shows cost coverage, recovery evidence, and confirmed answers together" do
@@ -200,7 +295,9 @@ defmodule Ryker.ControlPlane.NativePagesTest do
     html = episode_html(snapshot)
 
     assert html =~ "$0.12"
-    assert html =~ "1 reported · 0 estimated / 2 requests"
+    # The cost is one figure; its coverage no longer hides behind a disclosure
+    # larger than its one line.
+    refute html =~ "1 reported · 0 estimated / 2 requests"
     assert html =~ "Delivery confirmed"
     assert html =~ "A retained answer &lt;not markup&gt;"
     refute html =~ "Inspect accepted answer"

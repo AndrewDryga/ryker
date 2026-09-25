@@ -12,7 +12,7 @@ defmodule Ryker.Slack.ConfigurationSession do
     field(:start_event_ref, :string)
     field(:start_fingerprint, :string)
     field(:initiator_ref, :string)
-    field(:step, Ecto.Enum, values: [:participation, :repository, :alerts, :audience, :confirm])
+    field(:step, Ecto.Enum, values: [:participation, :environment, :alerts, :audience, :confirm])
     field(:status, Ecto.Enum, values: [:asking, :confirming, :saved, :cancelled, :expired])
     field(:draft, Ryker.CanonicalJSON.Type)
     field(:revision, :integer)

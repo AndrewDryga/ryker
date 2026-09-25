@@ -1,25 +1,37 @@
 defmodule Ryker.ControlPlane.SubscriptionPresentation do
-  @moduledoc "Read-only, allowlisted descriptions of saved waits; never predicts provider outcomes."
+  @moduledoc """
+  Read-only, allowlisted words for a follow-up: what it waits for, which
+  request it continues, where, and when. Never predicts a provider's outcome;
+  every label comes from the saved matcher or the host's own timestamps.
+  """
 
   alias Ryker.ControlPlane.{InspectionRedactor, SlackNames}
   alias Ryker.Slack.ReplyRecords
 
+  @doc """
+  The follow-up's presentation fields: `title` (what it waits for),
+  `condition` (the exact matching filters, for Details), a safe `target_url`,
+  the request it continues, and where that request lives (`place`,
+  `repository`).
+  """
   def project(item, episode, secrets) do
     source = source_label(item.source_kind)
     retained? = episode && episode.source_available
     matcher = if retained?, do: item.matcher, else: %{}
     {target, url} = target(matcher)
     target = text(target, secrets)
-    timer? = item.trigger_type in ["after", "at"]
+    timer? = timer?(item)
+    {place, repository} = context(episode, retained?, secrets)
 
     Map.merge(item, %{
-      title: if(timer?, do: "Timed follow-up", else: target || "Matching #{source} update"),
-      condition: condition(matcher, source, timer?, secrets),
+      title: if(timer?, do: "Timer", else: waits_for(target, matcher, source, secrets)),
+      condition: if(timer?, do: nil, else: condition(matcher, secrets)),
       target_url: safe_url(url, secrets),
       source_label: if(timer?, do: "Timer", else: source),
-      episode_title: if(episode, do: episode.title, else: "Request unavailable"),
+      episode_title: episode && episode.title,
       episode_href: episode && episode.href,
-      context_label: context(episode, retained?, secrets)
+      place: place,
+      repository: repository
     })
   end
 
@@ -33,26 +45,42 @@ defmodule Ryker.ControlPlane.SubscriptionPresentation do
     {matcher["run_id"] || matcher["project_id"] || matcher["deployment"], nil}
   end
 
-  defp condition(_matcher, _source, true, _secrets), do: "Resume work at the scheduled time"
+  # What the follow-up waits for, as a person would say it: "Pull request #42
+  # is merged", "portal is healthy", "An update on Run run-k9…", "A matching
+  # GitHub update".
+  defp waits_for("Pull request " <> _number = target, matcher, _source, _secrets) do
+    pull_request = matcher["pull_request"]
 
-  defp condition(matcher, source, false, secrets) do
-    filters =
-      [
-        {"status", matcher["status"]},
-        {"action", matcher["action"]},
-        {"state", matcher["state"]},
-        {"pull request state", pull_request_state(matcher)}
-      ] ++ attachment_conditions(matcher)
+    cond do
+      pull_request["merged"] == true -> target <> " is merged"
+      "closed" in [pull_request["state"], matcher["action"]] -> target <> " is closed"
+      true -> "An update on " <> String.downcase(target, :ascii)
+    end
+  end
 
-    filters =
-      filters
-      |> Enum.flat_map(fn {label, value} ->
-        if value = text(value, secrets), do: ["#{label}: #{value}"], else: []
-      end)
+  defp waits_for(nil, _matcher, source, _secrets), do: "A matching #{source} update"
 
-    case filters do
-      [] -> "Next matching #{source} update"
-      values -> "Matching #{source} update · " <> Enum.join(values, " · ")
+  defp waits_for(target, matcher, _source, secrets) do
+    case text(matcher["status"] || matcher["state"], secrets) do
+      nil -> "An update on " <> target
+      value -> "#{target} is #{value}"
+    end
+  end
+
+  # The exact filters a matching update must carry, for Details.
+  defp condition(matcher, secrets) do
+    ([
+       {"status", matcher["status"]},
+       {"action", matcher["action"]},
+       {"state", matcher["state"]},
+       {"pull request state", pull_request_state(matcher)}
+     ] ++ attachment_conditions(matcher))
+    |> Enum.flat_map(fn {label, value} ->
+      if value = text(value, secrets), do: ["#{label}: #{value}"], else: []
+    end)
+    |> case do
+      [] -> nil
+      values -> Enum.join(values, " · ")
     end
   end
 
@@ -65,22 +93,20 @@ defmodule Ryker.ControlPlane.SubscriptionPresentation do
 
   defp attachment_conditions(_), do: []
 
-  defp context(nil, _, _), do: "Source context unavailable"
-  defp context(_episode, false, _), do: "Source context unavailable"
+  # Where the request lives: a channel name or a direct conversation, and
+  # its repository. Withheld once the source is no longer retained.
+  defp context(nil, _retained?, _secrets), do: {nil, nil}
+  defp context(_episode, false, _secrets), do: {nil, nil}
 
   defp context(episode, true, secrets) do
-    destination =
-      if episode.source == "Slack", do: SlackNames.destination(episode.conversation)
+    place =
+      case episode.source do
+        "Slack" -> SlackNames.destination(episode.conversation)
+        "Direct conversation" -> :direct
+        _other -> nil
+      end
 
-    # "Slack · Slack channel" says Slack twice; the word is only worth keeping
-    # once the destination resolved to a name of its own.
-    source =
-      if destination && not SlackNames.named?(episode.conversation), do: nil, else: episode.source
-
-    [source, destination, text(episode.repository, secrets)]
-    |> Enum.reject(&(&1 in [nil, ""]))
-    |> Enum.uniq()
-    |> Enum.join(" · ")
+    {place, text(episode.repository, secrets)}
   end
 
   defp text(value, secrets) when is_binary(value) and value != "",
@@ -102,52 +128,74 @@ defmodule Ryker.ControlPlane.SubscriptionPresentation do
   defp source_label("emisar"), do: "Emisar"
   defp source_label(_), do: "external"
 
-  def status(%{status: :active}), do: {"Waiting", "active"}
-  def status(%{status: :timed_out}), do: {"Timed out", "attention"}
-  def status(%{status: :cancelled}), do: {"Cancelled", "quiet"}
-  def status(%{status: :resolved}), do: {"Resumed", "done"}
+  defp timer?(item), do: item.trigger_type in ["after", "at"]
 
+  @doc "The follow-up's state as a dot tone and a word."
+  def status(%{status: :active}), do: {:busy, "Waiting"}
+  def status(%{status: :resolved}), do: {:off, "Resumed"}
+  def status(%{status: :timed_out}), do: {:warn, "Deadline passed"}
+  def status(%{status: :cancelled}), do: {:off, "Cancelled"}
+
+  @doc """
+  When, in words: `{text, at}` facts, `at` being the exact time the words
+  describe, or nil when they describe none.
+
+  A current follow-up says when it continues and when it stops waiting; a past one
+  says what ended it and how long ago.
+  """
   def timing(%{status: :active} = item, now) do
-    timer? = item.trigger_type in ["after", "at"]
-
-    wake =
-      cond do
-        scheduled_check?(item, timer?) ->
-          {if(timer?, do: "Follow-up", else: "Next check"), relative(item.poll_after, now, :due),
-           item.poll_after}
-
-        timer? ->
-          {"Follow-up", "Time not recorded", nil}
-
-        true ->
-          {"Next update", "When a matching update arrives", nil}
+    facts =
+      if timer?(item) do
+        [item.poll_after && {relative(item.poll_after, now, :due), item.poll_after}]
+      else
+        [
+          {"when a matching update arrives", nil},
+          scheduled_check?(item) &&
+            {"next check " <> relative(item.poll_after, now, :due), item.poll_after},
+          deadline(item.deadline_at, now)
+        ]
       end
 
-    deadline =
-      if item.deadline_at,
-        do: {"Deadline", relative(item.deadline_at, now, :due), item.deadline_at},
-        else: {"Deadline", "No deadline", nil}
-
-    [wake, deadline]
+    Enum.filter(facts, & &1)
   end
 
   def timing(item, now) do
-    [{outcome(item), relative(item.last_observed_at, now), item.last_observed_at}]
+    outcome = outcome(item)
+
+    case item.last_observed_at do
+      %DateTime{} = at -> [{outcome <> " " <> relative(at, now), at}]
+      nil -> [{outcome, nil}]
+    end
   end
 
-  defp scheduled_check?(%{poll_after: nil}, _timer?), do: false
-  defp scheduled_check?(_item, true), do: true
-  defp scheduled_check?(%{deadline_at: nil}, false), do: true
+  # An event follow-up saves its deadline as the next wake-up when no earlier
+  # check was asked for; calling that a check would promise work that only
+  # ends it.
+  defp scheduled_check?(%{poll_after: nil}), do: false
+  defp scheduled_check?(%{deadline_at: nil}), do: true
 
-  defp scheduled_check?(item, false),
+  defp scheduled_check?(item),
     do: DateTime.compare(item.poll_after, item.deadline_at) == :lt
 
-  defp outcome(%{status: :cancelled}), do: "Wait cancelled"
-  defp outcome(%{status: :timed_out}), do: "Deadline reached"
-  defp outcome(%{resolution_kind: :timer}), do: "Timer fired"
-  defp outcome(%{resolution_kind: :input}), do: "Matching update arrived"
-  defp outcome(%{resolution_kind: :poll_fallback}), do: "Resumed for a status check"
-  defp outcome(_), do: "Wait resolved"
+  defp deadline(nil, _now), do: {"no deadline", nil}
+
+  defp deadline(at, now) do
+    seconds = DateTime.diff(at, now)
+
+    cond do
+      seconds <= 0 -> {"stops waiting now", at}
+      seconds < 86_400 -> {"stops waiting " <> relative(at, now), at}
+      at.year == now.year -> {"stops waiting " <> Calendar.strftime(at, "%-d %b"), at}
+      true -> {"stops waiting " <> Calendar.strftime(at, "%-d %b %Y"), at}
+    end
+  end
+
+  defp outcome(%{status: :cancelled}), do: "cancelled"
+  defp outcome(%{status: :timed_out}), do: "gave up"
+  defp outcome(%{resolution_kind: :timer}), do: "timer fired"
+  defp outcome(%{resolution_kind: :input}), do: "update arrived"
+  defp outcome(%{resolution_kind: :poll_fallback}), do: "checked again"
+  defp outcome(_item), do: "resumed"
 
   def relative(at, now, mode \\ :past)
   def relative(nil, _, _), do: "Time not recorded"

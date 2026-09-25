@@ -33,8 +33,8 @@ defmodule Ryker.Admission.CandidateFittingTest do
 
     for candidate <- fitted.candidates,
         preview <- [candidate.first_input_preview, candidate.latest_input_preview] do
-      assert byte_size(preview["content_preview"]) in 256..4_096
-      assert String.valid?(preview["content_preview"])
+      assert byte_size(preview["text"]) in 256..4_096
+      assert String.valid?(preview["text"])
       assert preview["truncated"]
     end
   end
@@ -48,12 +48,12 @@ defmodule Ryker.Admission.CandidateFittingTest do
 
     assert Enum.all?(
              fitted.candidates,
-             &(byte_size(&1.first_input_preview["content_preview"]) < 4_096)
+             &(byte_size(&1.first_input_preview["text"]) < 4_096)
            )
 
     assert Enum.all?(
              fitted.candidates,
-             &(byte_size(&1.first_input_preview["content_preview"]) >= 256)
+             &(byte_size(&1.first_input_preview["text"]) >= 256)
            )
 
     assert Prompt.build(fitted)["context"] == Context.for_model(fitted)
@@ -67,7 +67,7 @@ defmodule Ryker.Admission.CandidateFittingTest do
     assert snapshot_bytes in 98_000..98_304
     assert prompt_bytes < 60_000
 
-    ceiling = byte_size(hd(fitted.candidates).first_input_preview["content_preview"])
+    ceiling = byte_size(hd(fitted.candidates).first_input_preview["text"])
 
     wider = %{
       fitted

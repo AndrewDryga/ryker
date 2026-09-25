@@ -267,7 +267,7 @@ defmodule Ryker.Fixtures.Publication do
         %{"input" => claim.episode.key},
         "Implement the frozen request.",
         %{"type" => "object"},
-        "work-final-live-v2"
+        "work-final-live-v3"
       )
 
     {:ok, frozen} =

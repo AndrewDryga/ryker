@@ -1,6 +1,12 @@
 defmodule Ryker.ControlPlane.InstructionsEditor do
-  @moduledoc "Explicit two-scope editor; live refresh never overwrites an unsaved draft."
+  @moduledoc """
+  The instructions editor for the global scope (on /instructions) and for one
+  channel (on its page). Saving is explicit; a live refresh never overwrites
+  an unsaved draft, and a save that races another one keeps the draft and
+  shows what was saved meanwhile.
+  """
   use Phoenix.LiveComponent
+  alias Ryker.ControlPlane.{Components, Kit}
   alias Ryker.Instructions
 
   @impl true
@@ -58,7 +64,7 @@ defmodule Ryker.ControlPlane.InstructionsEditor do
          socket
          |> assign(:view, view)
          |> reset(saved)
-         |> assign(:message, "Instructions saved. They apply to the next model turn.")}
+         |> assign(:message, "Instructions saved. Ryker uses them from its next step.")}
 
       {:error, {:instructions_conflict, current}} ->
         {:noreply,
@@ -118,7 +124,7 @@ defmodule Ryker.ControlPlane.InstructionsEditor do
     do: "Use at most 2,000 characters. Your draft is preserved."
 
   defp error({:invalid_instructions, :bytes}),
-    do: "This text exceeds 8 KiB of UTF-8 data. Shorten it; your draft is preserved."
+    do: "This text is larger than 8,192 bytes. Shorten it; your draft is preserved."
 
   defp error(:instructions_scope_unavailable),
     do: "This channel is no longer available for editing. Your draft has not been saved."
@@ -127,24 +133,76 @@ defmodule Ryker.ControlPlane.InstructionsEditor do
     do:
       "The instructions could not be saved. Check the text and try again; your draft is preserved."
 
+  # The quiet line under the text: what is left, and the byte size only once
+  # it is close enough to the 8 KiB limit to matter (emoji and some scripts
+  # take several bytes a character).
   defp character_count(text) do
-    case 2_000 - String.length(text) do
-      remaining when remaining >= 0 -> "#{remaining} characters remaining"
-      -1 -> "1 character over the limit"
-      over -> "#{-over} characters over the limit"
-    end
+    left =
+      case 2_000 - String.length(text) do
+        remaining when remaining >= 0 -> "#{delimit(remaining)} characters left"
+        -1 -> "1 character over the limit"
+        over -> "#{delimit(-over)} characters over the limit"
+      end
+
+    if byte_size(text) > 6_144,
+      do: left <> " · #{delimit(byte_size(text))} of 8,192 bytes",
+      else: left
   end
+
+  defp delimit(number) do
+    number
+    |> Integer.to_string()
+    |> String.reverse()
+    |> String.graphemes()
+    |> Enum.chunk_every(3)
+    |> Enum.map_join(",", &Enum.join/1)
+    |> String.reverse()
+  end
+
+  defp label(:global), do: "Instructions for every conversation"
+  defp label(_channel), do: "Instructions for this channel"
+
+  defp placeholder(:global), do: "Keep replies concise. Separate observed facts from guesses."
+
+  defp placeholder(_channel),
+    do: "Include the affected service and time window when reporting an incident."
+
+  defp current_text(%{text: ""}), do: "Nothing. The saved instructions are empty."
+  defp current_text(%{text: text}), do: text
+
+  defp saved_on(at) do
+    if at.year == Date.utc_today().year,
+      do: Calendar.strftime(at, "%-d %b"),
+      else: Calendar.strftime(at, "%-d %b %Y")
+  end
+
+  defp saved_title(at), do: Calendar.strftime(at, "%d %b %Y, %H:%M UTC")
 
   @impl true
   def render(assigns) do
     ~H"""
-    <section id={@id} class="instructions-editor" aria-labelledby="instructions-label">
+    <%!-- On /instructions this is the "For every conversation" section; a
+    channel's page gives the channel editor its own heading around it. --%>
+    <section
+      id={@id}
+      class="instructions-editor"
+      aria-labelledby={if @scope == :global, do: @id <> "-head"}
+      aria-label={if @scope != :global, do: label(@scope)}
+    >
+      <Kit.section_head :if={@scope == :global} id={@id <> "-head"} title="For every conversation" />
       <div :if={@view.global} class="inherited-instructions">
-        <div class="instructions-heading">
-          <h2>Inherited global instructions</h2><.link navigate="/instructions">Edit global instructions →</.link>
-        </div>
-        <p :if={@view.global.text == ""} class="muted">No global instructions are saved.</p>
-        <pre :if={@view.global.text != ""} id="inherited-instructions">{@view.global.text}</pre>
+        <p class="inherited-head">
+          <span>For every conversation</span>
+          <.link navigate="/instructions">Edit<span class="sr-only"> the instructions for every conversation</span></.link>
+        </p>
+        <p :if={@view.global.text == ""} class="inherited-empty">Nothing saved yet.</p>
+        <%!-- pre-wrap text: whitespace inside these paragraphs is content. --%>
+        <p
+          :if={@view.global.text != ""}
+          id="inherited-instructions"
+          class="inherited-text"
+          phx-no-format
+        >{@view.global.text}</p>
       </div>
       <form
         id="instructions-form"
@@ -157,53 +215,49 @@ defmodule Ryker.ControlPlane.InstructionsEditor do
         data-scope={@view.setting.scope_ref}
       >
         <input type="hidden" name="revision" value={@expected_revision} />
-        <label id="instructions-label" for="instructions-text">{if @scope == :global,
-          do: "Global instructions",
-          else: "Channel instructions"}</label>
+        <label class="sr-only" for="instructions-text">{label(@scope)}</label>
         <textarea
           id="instructions-text"
           name="text"
-          rows="8"
+          rows="4"
           aria-describedby="instructions-count"
           aria-invalid={to_string(not is_nil(@error))}
-          placeholder={
-            if @scope == :global,
-              do: "Keep replies concise. Separate observed facts from guesses.",
-              else: "Include the affected service and time window when reporting an incident."
-          }
+          placeholder={placeholder(@scope)}
         >{@draft}</textarea>
-        <div class="instructions-meta">
-          <span id="instructions-count">{character_count(@draft)} · {byte_size(@draft)} / 8,192 bytes</span><span :if={
-            @saved.saved_at
-          }>Saved
-          <time datetime={DateTime.to_iso8601(@saved.saved_at)}>{Calendar.strftime(
-            @saved.saved_at,
-            "%d %b, %H:%M UTC"
-          )}</time>
-          by {@saved.saved_by}</span>
-        </div>
-        <Ryker.ControlPlane.Components.form_feedback :if={@error} message={@error} tone={:error} />
+        <Components.form_feedback :if={@error} message={@error} tone={:error} />
         <div :if={@conflict} class="instructions-conflict">
-          <h3>Currently saved</h3><pre id="instructions-current">{if @conflict.text == "", do: "No custom instructions.", else: @conflict.text}</pre><button
+          <p>Someone saved these instructions while you were editing:</p>
+          <p id="instructions-current" class="instructions-current" phx-no-format>{current_text(@conflict)}</p>
+          <button
             type="button"
             class="ui-button secondary"
             phx-click="review-current"
             phx-target={@myself}
           >Keep my draft and review against this version</button>
         </div>
-        <div class="instructions-actions">
-          <button
-            type="submit"
-            class="ui-button primary"
-            disabled={!@dirty or not is_nil(@conflict)}
-            phx-disable-with="Saving…"
-          >Save changes</button><button
-            type="button"
-            class="ui-button secondary"
-            phx-click="cancel"
-            phx-target={@myself}
-            disabled={!@dirty}
-          >Cancel</button><span role="status">{@message}</span>
+        <div class="instructions-footer">
+          <p class="instructions-meta">
+            <span id="instructions-count">{character_count(@draft)}</span><span :if={@saved.saved_at}> · saved
+              <time
+              datetime={DateTime.to_iso8601(@saved.saved_at)}
+              title={saved_title(@saved.saved_at)}
+            >{saved_on(@saved.saved_at)}</time></span>
+          </p>
+          <span role="status" class="instructions-message">{@message}</span>
+          <div class="instructions-actions">
+            <button
+              :if={@dirty}
+              type="button"
+              class="ui-button secondary"
+              phx-click="cancel"
+              phx-target={@myself}
+            >Cancel</button><button
+              type="submit"
+              class="ui-button primary"
+              disabled={!@dirty or not is_nil(@conflict)}
+              phx-disable-with="Saving…"
+            >Save</button>
+          </div>
         </div>
       </form>
     </section>

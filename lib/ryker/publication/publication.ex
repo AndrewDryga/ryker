@@ -29,6 +29,10 @@ defmodule Ryker.Publication.Publication do
       ]
     )
 
+    # Set only when Ryker discarded the publication itself; a person's discard
+    # is recorded in the operator audit instead.
+    field(:discarded_reason, Ecto.Enum, values: [:review_session_closed])
+
     field(:destination_transport, :string)
     field(:destination_conversation_ref, :string)
     field(:destination_thread_ref, :string)

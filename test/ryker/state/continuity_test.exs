@@ -4,7 +4,7 @@ defmodule Ryker.State.ContinuityTest do
   import Ecto.Query
 
   alias Ryker.CanonicalJSON
-  alias Ryker.ControlPlane.{HTML, Projection}
+  alias Ryker.ControlPlane.{LearnedPage, Projection}
   alias Ryker.Episodes
   alias Ryker.Fixtures.DatabaseClock
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
@@ -1313,11 +1313,11 @@ defmodule Ryker.State.ContinuityTest do
 
     # Hundreds of saved summaries were invisible on Memory, making replay look empty.
     html =
-      Projection.memory(%{"kind" => "context"})
-      |> HTML.memory("test-secret")
+      Projection.learned(%{"kind" => "context"})
+      |> LearnedPage.html("test-secret")
       |> IO.iodata_to_binary()
 
-    assert html =~ "Conversation context"
+    assert html =~ "Conversation summaries"
     assert html =~ "Verify production delivery"
 
     recalled = Continuity.model_context(work.claim.episode, "ryker")
@@ -1588,7 +1588,7 @@ defmodule Ryker.State.ContinuityTest do
                  occurred_at: DateTime.add(@now, 1, :second),
                  workspace_ref: "T123"
                },
-               %{default_repository: "ryker", repository_refs: ["ryker"]}
+               %{default_environment: nil, environments: []}
              )
 
     assert Repo.aggregate(ConversationRollup, :count) == 0
@@ -1722,7 +1722,7 @@ defmodule Ryker.State.ContinuityTest do
                  occurred_at: DateTime.add(@now, 1, :second),
                  workspace_ref: "T123"
                },
-               %{default_repository: "ryker", repository_refs: ["ryker"]}
+               %{default_environment: nil, environments: []}
              )
 
     assert deleted.membership.status == :deleted
@@ -1759,7 +1759,7 @@ defmodule Ryker.State.ContinuityTest do
                  occurred_at: DateTime.add(@now, 1, :second),
                  workspace_ref: "T123"
                },
-               %{default_repository: "ryker", repository_refs: ["ryker"]}
+               %{default_environment: nil, environments: []}
              )
 
     assert deleted.membership.status == :deleted
@@ -2055,7 +2055,7 @@ defmodule Ryker.State.ContinuityTest do
                %{"episode_id" => work.episode.id},
                "Update continuity.",
                %{"type" => "object"},
-               "work-final-live-v2"
+               "work-final-live-v3"
              )
 
     claim = work.claim

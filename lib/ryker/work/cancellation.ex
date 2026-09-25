@@ -4,8 +4,8 @@ defmodule Ryker.Work.Cancellation do
 
   The intent is persisted before the remote mutation. Its exact operation key
   can then be reconciled after a lost response or worker restart. Only a
-  terminal remote turn proof permits the episode kernel to cancel or transfer
-  ownership.
+  terminal remote turn proof, or the removal from Ryker of the worker holding
+  the run, permits the episode kernel to cancel or transfer ownership.
   """
 
   alias Ryker.CanonicalJSON
@@ -14,11 +14,21 @@ defmodule Ryker.Work.Cancellation do
   @intent_fields ~w(action cancel_ref new_turn_ref reason required_input_ref transfer_ref)
   @absent_receipt_fields ~w(close_operation_ref create_operation_ref kind remote_session_id session_state submit_operation_ref)
   @terminal_receipt_fields ~w(cancel_operation_ref close_operation_ref kind remote_session_id remote_state remote_turn_id session_state)
+  @removed_receipt_fields ~w(kind remote_session_id remote_turn_id worker_id)
   @terminal_states ~w(cancelled completed failed interrupted budget_exhausted)
   @session_states ~w(open exhausted closed discarded)
+  # A stop retries on its own for as long as it takes, because only the
+  # worker's answer (or its removal) proves a run stopped. After this many
+  # attempts, about two minutes of backoff, it is listed on Failures with
+  # what would let it finish.
+  @stalled_after_attempts 8
 
   @type intent :: map()
   @type receipt :: map()
+
+  @doc "How many failed attempts make a pending stop worth a person's attention."
+  @spec stalled_after_attempts() :: pos_integer()
+  def stalled_after_attempts, do: @stalled_after_attempts
 
   @spec new_cancel(String.t(), String.t()) :: {:ok, intent()} | {:error, term()}
   def new_cancel(cancel_ref, reason) do
@@ -145,7 +155,43 @@ defmodule Ryker.Work.Cancellation do
        else: {:error, {:invalid_work_cancellation, :receipt}}
   end
 
+  @doc """
+  Proof that a run stopped because the worker holding it was removed.
+
+  Removal revokes the worker's certificates and placements for good, and the
+  run's state tools with the placement: nothing the run still does can reach
+  Ryker, so the stop needs no answer from it. Custody checks the removal
+  itself before it accepts this receipt.
+  """
+  @spec worker_removed_receipt(String.t() | nil, String.t() | nil, String.t()) ::
+          {:ok, receipt()} | {:error, term()}
+  def worker_removed_receipt(remote_session_id, remote_turn_id, worker_id) do
+    receipt = %{
+      "kind" => "worker_removed",
+      "remote_session_id" => remote_session_id,
+      "remote_turn_id" => remote_turn_id,
+      "worker_id" => worker_id
+    }
+
+    if optional_reference?(remote_session_id) and optional_reference?(remote_turn_id) and
+         (is_nil(remote_turn_id) or is_binary(remote_session_id)) and reference?(worker_id),
+       do: {:ok, receipt},
+       else: {:error, {:invalid_work_cancellation, :receipt}}
+  end
+
   @spec prepare_receipt(term()) :: {:ok, receipt()} | {:error, term()}
+  def prepare_receipt(%{"kind" => "worker_removed"} = receipt) do
+    if Map.keys(receipt) |> Enum.sort() == @removed_receipt_fields do
+      worker_removed_receipt(
+        receipt["remote_session_id"],
+        receipt["remote_turn_id"],
+        receipt["worker_id"]
+      )
+    else
+      {:error, {:invalid_work_cancellation, :receipt}}
+    end
+  end
+
   def prepare_receipt(%{"kind" => "terminal_turn"} = receipt) do
     if Map.keys(receipt) |> Enum.sort() == @terminal_receipt_fields do
       terminal_receipt(

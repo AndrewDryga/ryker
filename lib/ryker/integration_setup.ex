@@ -8,8 +8,10 @@ defmodule Ryker.IntegrationSetup do
 
   alias Ryker.Credentials
   alias Ryker.Delivery.JSONClient
+  alias Ryker.Emisar.Approvals
   alias Ryker.GitHub.AppJWT
   alias Ryker.Settings
+  alias Ryker.Settings.{EmisarConnection, Environment}
 
   @actor "control-plane:local"
   @slack_scopes ~w(
@@ -193,6 +195,15 @@ defmodule Ryker.IntegrationSetup do
     end
   end
 
+  @doc """
+  Verifies an Emisar account and makes it usable at once.
+
+  Connecting is the operator saying "use this account for approvals", so the
+  account is watched for approval decisions from the start. The first account
+  also serves every environment that has none, and a default environment is
+  made for Chat when there is none: a connection that waited for two more
+  switches did nothing. A later account changes no environment.
+  """
   @spec connect_emisar(map(), keyword()) :: {:ok, map()} | {:error, term()}
   def connect_emisar(params, options \\ []) when is_map(params) do
     requested_ref = text(params, "ref", "")
@@ -206,7 +217,7 @@ defmodule Ryker.IntegrationSetup do
          :ok <- connection_ref(ref),
          :ok <- bounded_text(display_name, 1, 120, :display_name),
          {:ok, _credential} <- Credentials.put(:emisar, ref, token, @actor),
-         {:ok, snapshot} <-
+         {:ok, _snapshot} <-
            Settings.put_emisar_connection(
              %{
                ref: ref,
@@ -215,18 +226,26 @@ defmodule Ryker.IntegrationSetup do
                account_ref: identity.account_ref,
                account_label: identity.account_label,
                enabled_for_new_work: true,
-               monitoring_enabled: false,
+               monitoring_enabled: true,
                verified_at: DateTime.utc_now()
              },
              Settings.fetch!().installation.revision,
              @actor
            ),
-         {:ok, _credential} <- Credentials.verify(:emisar, ref, :verified, @actor) do
+         {:ok, _credential} <- Credentials.verify(:emisar, ref, :verified, @actor),
+         {:ok, _watched_again} <- Approvals.token_replaced(ref),
+         {:ok, snapshot} <- serve_environments(ref) do
       {:ok,
        %{
          ref: ref,
          account_ref: identity.account_ref,
          account_label: identity.account_label,
+         environments:
+           for(
+             environment <- snapshot.environments,
+             environment.emisar_connection_ref == ref,
+             do: environment.ref
+           ),
          rpc_url: rpc_url,
          settings_revision: snapshot.installation.revision,
          status: :connected
@@ -234,6 +253,74 @@ defmodule Ryker.IntegrationSetup do
     else
       {:error, _reason} = error -> error
       _invalid -> {:error, {:emisar_verification_failed, :response}}
+    end
+  end
+
+  # The account work may use belongs to its environment
+  # (`Ryker.Emisar.Connections`). Only the installation's first account is
+  # placed anywhere automatically: connecting never moves an environment an
+  # operator already gave an account, and a second account starts with none.
+  # An account lets a task record an approval that Ryker then only reads; what
+  # the model may run in Emisar is still Emisar's decision.
+  defp serve_environments(ref, attempts \\ 3) do
+    snapshot = Settings.fetch!()
+
+    if Enum.map(snapshot.emisar_connections, & &1.ref) == [ref] do
+      case assign_first_account(snapshot, ref) do
+        {:error, {:settings_conflict, _current}} when attempts > 1 ->
+          serve_environments(ref, attempts - 1)
+
+        result ->
+          result
+      end
+    else
+      {:ok, snapshot}
+    end
+  end
+
+  defp assign_first_account(snapshot, ref) do
+    with {:ok, snapshot, _default} <- ensure_default_environment(snapshot) do
+      snapshot.environments
+      |> Enum.filter(&is_nil(&1.emisar_connection_ref))
+      |> set_emisar_account(ref, snapshot)
+    end
+  end
+
+  # Chat and every conversation without its own setting work in the default
+  # environment; when none is chosen, Ryker makes "Default" the default.
+  defp ensure_default_environment(snapshot) do
+    case Environment.default(snapshot) do
+      %Environment{} = environment ->
+        {:ok, snapshot, environment}
+
+      nil ->
+        attributes =
+          case Environment.find(snapshot, :ref, "default") do
+            nil -> %{ref: "default", display_name: "Default", is_default: true}
+            _existing -> %{ref: "default", is_default: true}
+          end
+
+        with {:ok, saved} <-
+               Settings.put_environment(attributes, snapshot.installation.revision, @actor) do
+          {:ok, saved, Environment.default(saved)}
+        end
+    end
+  end
+
+  # An imported repository joins the default environment after the ones
+  # already there, so the repository its work changes stays the first.
+  defp join_default_environment(repository_ref) do
+    with {:ok, snapshot, environment} <- ensure_default_environment(Settings.fetch!()) do
+      refs = Environment.repository_refs(environment)
+
+      if repository_ref in refs,
+        do: {:ok, snapshot},
+        else:
+          Settings.put_environment(
+            %{ref: environment.ref, repositories: refs ++ [repository_ref]},
+            snapshot.installation.revision,
+            @actor
+          )
     end
   end
 
@@ -246,7 +333,8 @@ defmodule Ryker.IntegrationSetup do
          {:ok, identity} <- verify_emisar(token, connection.rpc_url, options),
          true <- identity.account_ref == connection.account_ref,
          {:ok, _credential} <- Credentials.put(:emisar, ref, token, @actor),
-         {:ok, _credential} <- Credentials.verify(:emisar, ref, :verified, @actor) do
+         {:ok, _credential} <- Credentials.verify(:emisar, ref, :verified, @actor),
+         {:ok, _watched_again} <- Approvals.token_replaced(ref) do
       {:ok, %{ref: ref, status: :rotated}}
     else
       nil -> {:error, :connection_not_found}
@@ -356,9 +444,50 @@ defmodule Ryker.IntegrationSetup do
     end
   end
 
+  @doc """
+  Removes an account and takes it off the environments that use it, as
+  "Remove account" says. An account that a task session or an approval still
+  names is refused before anything changes, so a refused removal never leaves
+  an environment without its account.
+  """
   def delete_emisar(ref) when is_binary(ref) do
     snapshot = Settings.fetch!()
-    Settings.delete_emisar_connection(ref, snapshot.installation.revision, @actor)
+
+    case Enum.find(snapshot.emisar_connections, &(&1.ref == ref)) do
+      nil ->
+        {:error, :connection_not_found}
+
+      connection ->
+        {using, others} =
+          Enum.split_with(snapshot.environments, &(&1.emisar_connection_ref == ref))
+
+        released = Enum.map(using, &%{&1 | emisar_connection_ref: nil})
+
+        with :ok <- unreferenced(connection, %{snapshot | environments: others ++ released}),
+             {:ok, snapshot} <- set_emisar_account(using, nil, snapshot) do
+          Settings.delete_emisar_connection(ref, snapshot.installation.revision, @actor)
+        end
+    end
+  end
+
+  defp unreferenced(connection, snapshot) do
+    case EmisarConnection.deletable(connection, snapshot) do
+      :ok -> :ok
+      {:error, reason} -> {:error, {:invalid_settings, reason}}
+    end
+  end
+
+  defp set_emisar_account(environments, connection_ref, snapshot) do
+    Enum.reduce_while(environments, {:ok, snapshot}, fn environment, {:ok, current} ->
+      case Settings.put_environment(
+             %{ref: environment.ref, emisar_connection_ref: connection_ref},
+             current.installation.revision,
+             @actor
+           ) do
+        {:ok, saved} -> {:cont, {:ok, saved}}
+        {:error, _reason} = error -> {:halt, error}
+      end
+    end)
   end
 
   @spec retry_github_onboarding(String.t()) :: {:ok, map()} | {:error, term()}
@@ -604,7 +733,6 @@ defmodule Ryker.IntegrationSetup do
   defp persist_repository(repository, ryker_actor_id) do
     full_name = repository_value(repository, :full_name)
     ref = repository_ref(full_name)
-    context_ref = context_ref(ref)
 
     with {:ok, snapshot} <- Settings.fetch(),
          {:ok, _snapshot} <-
@@ -620,19 +748,6 @@ defmodule Ryker.IntegrationSetup do
            ),
          {:ok, snapshot} <- Settings.fetch(),
          {:ok, _snapshot} <-
-           Settings.put_repository_context(
-             %{
-               ref: context_ref,
-               display_name: full_name,
-               primary_repository_ref: ref,
-               read_only_repository_refs: [],
-               parallel_goal_limit: 3
-             },
-             snapshot.installation.revision,
-             @actor
-           ),
-         {:ok, snapshot} <- Settings.fetch(),
-         {:ok, _snapshot} <-
            Settings.put_github_binding(
              %{
                name: ref,
@@ -642,12 +757,12 @@ defmodule Ryker.IntegrationSetup do
                ryker_actor_id: ryker_actor_id,
                action_grants: github_action_grants(repository_value(repository, :permissions)),
                granted_permissions:
-                 normalize_github_permissions(repository_value(repository, :permissions)),
-               repository_context_ref: context_ref
+                 normalize_github_permissions(repository_value(repository, :permissions))
              },
              snapshot.installation.revision,
              @actor
-           ) do
+           ),
+         {:ok, _snapshot} <- join_default_environment(ref) do
       :ok
     end
   end
@@ -855,14 +970,6 @@ defmodule Ryker.IntegrationSetup do
 
       String.slice(normalized, 0, 54) <> "-" <> digest
     end
-  end
-
-  defp context_ref(repository_ref) do
-    suffix = "-context"
-
-    if byte_size(repository_ref) + byte_size(suffix) <= 64,
-      do: repository_ref <> suffix,
-      else: String.slice(repository_ref, 0, 56) <> suffix
   end
 
   defp generate_secret, do: :crypto.strong_rand_bytes(32) |> Base.url_encode64(padding: false)

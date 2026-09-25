@@ -10,7 +10,7 @@ defmodule Ryker.ControlPlane.ComponentsTest do
   import Phoenix.Component
   import Phoenix.LiveViewTest
 
-  alias Ryker.ControlPlane.{Components, HTML}
+  alias Ryker.ControlPlane.{Components, Kit, Pages}
   alias Ryker.Fixtures.ControlPlaneOptions
 
   test "a status reads the same whether its state arrives as a string or an atom" do
@@ -266,7 +266,7 @@ defmodule Ryker.ControlPlane.ComponentsTest do
   end
 
   test "the pager renders nothing for one page and only the links that lead somewhere" do
-    assigns = %{path: fn page -> "/findings?page=#{page}" end}
+    assigns = %{path: fn page -> "/memory/findings?page=#{page}" end}
 
     assert render_component(&Components.pager/1,
              page: 1,
@@ -287,7 +287,7 @@ defmodule Ryker.ControlPlane.ComponentsTest do
     assert LazyHTML.query(first, "nav.pagination[aria-label='Finding pages']") |> Enum.count() ==
              1
 
-    assert LazyHTML.query(first, "a") |> LazyHTML.attribute("href") == ["/findings?page=2"]
+    assert LazyHTML.query(first, "a") |> LazyHTML.attribute("href") == ["/memory/findings?page=2"]
     assert LazyHTML.query(first, "a") |> LazyHTML.text() == "Next →"
     assert LazyHTML.query(first, "span") |> LazyHTML.text() =~ "Page 1 of 3"
 
@@ -304,8 +304,8 @@ defmodule Ryker.ControlPlane.ComponentsTest do
       |> LazyHTML.from_fragment()
 
     assert LazyHTML.query(middle, "a") |> LazyHTML.attribute("href") == [
-             "/findings?page=1",
-             "/findings?page=3"
+             "/memory/findings?page=1",
+             "/memory/findings?page=3"
            ]
 
     assert LazyHTML.query(middle, "a") |> LazyHTML.text() == "← Newer updatesOlder updates →"
@@ -426,48 +426,53 @@ defmodule Ryker.ControlPlane.ComponentsTest do
     assert LazyHTML.query(html, "details.filter-add-menu") |> Enum.empty?()
   end
 
-  test "the page summary keeps facts, a message, a breakdown and related navigation in one vocabulary" do
+  # The page summary and the data table were a second vocabulary beside the
+  # Kit: counts as a definition list, tables with a stacked mobile layout.
+  # Every page now leads with Kit counts and compares figures in Kit tables.
+  test "Kit counts lead with numbers: a warning tone, a link and a quieter breakdown" do
     html =
-      render_component(&Components.page_summary/1,
-        label: "Current workload",
-        facts: [
-          %{value: 2, label: "active"},
-          %{value: 1, label: "blocked", tone: :attention, href: "/failures"}
-        ],
-        message: "Nothing else needs attention",
-        secondary: [%{value: 1, label: "Routing"}, %{value: 2, label: "Delivery"}],
-        related: %{href: "/usage", label: "View usage and cost"}
+      render_component(
+        fn assigns ->
+          ~H"""
+          <Kit.counts label="Current workload" items={@items} patch />
+          <Kit.counts label="Tokens" items={[%{value: "1.2k", label: "output"}]} secondary />
+          """
+        end,
+        items: [
+          %{value: 2, label: "active", href: "/activity?filter=running"},
+          %{value: 1, label: "blocked", tone: :warn, href: "/activity?filter=attention"},
+          %{value: 0, label: "workers available", tone: :warn, href: "#workers"},
+          %{value: 3, label: "waiting"}
+        ]
       )
       |> LazyHTML.from_fragment()
 
-    assert LazyHTML.query(html, ".page-summary[aria-label='Current workload']") |> Enum.count() ==
-             1
+    counts = LazyHTML.query(html, ".kit-counts[aria-label='Current workload'] > .kit-count")
+    assert Enum.count(counts) == 4
+    assert LazyHTML.query(counts, "b") |> Enum.map(&LazyHTML.text/1) == ["2", "1", "0", "3"]
+    assert LazyHTML.query(html, "a.kit-count[data-phx-link=patch]") |> Enum.count() == 2
 
-    assert LazyHTML.query(html, ".page-summary-facts > div") |> Enum.count() == 2
-
-    assert LazyHTML.query(html, ".page-summary-fact-attention a[href='/failures']")
+    assert LazyHTML.query(html, "a.kit-count[href='#workers']:not([data-phx-link])")
            |> Enum.count() == 1
 
-    assert LazyHTML.query(html, ".page-summary-message") |> LazyHTML.text() ==
-             "Nothing else needs attention"
+    assert LazyHTML.query(html, "span.kit-count") |> LazyHTML.text() =~ "waiting"
+    assert LazyHTML.query(html, ".kit-count[data-tone=warn]") |> Enum.count() == 2
 
-    assert LazyHTML.query(html, ".page-summary-secondary") |> LazyHTML.text() =~ "By area"
-
-    assert LazyHTML.query(html, ".page-summary-link[href='/usage']") |> LazyHTML.text() ==
-             "View usage and cost"
+    assert LazyHTML.query(html, ".kit-counts.kit-counts-secondary[aria-label=Tokens]")
+           |> Enum.count() == 1
   end
 
-  test "the table marks every cell with its column so a narrow screen can stack it" do
+  test "a Kit table names each column once and right-aligns its figures" do
     rows = [%{name: "Daily health", count: 2}, %{name: "Weekly digest", count: 0}]
 
     html =
       render_component(
         fn assigns ->
           ~H"""
-          <Components.table rows={@rows}>
+          <Kit.table rows={@rows} label="Schedules">
             <:col :let={row} label="Schedule">{row.name}</:col>
-            <:col :let={row} label="Failures" class="row-number">{row.count}</:col>
-          </Components.table>
+            <:col :let={row} label="Failures" numeric>{row.count}</:col>
+          </Kit.table>
           """
         end,
         rows: rows
@@ -475,34 +480,81 @@ defmodule Ryker.ControlPlane.ComponentsTest do
 
     document = LazyHTML.from_fragment(html)
 
-    assert LazyHTML.query(document, "table.data-table thead th[scope='col']") |> LazyHTML.text() ==
-             "ScheduleFailures"
+    assert LazyHTML.query(document, "table.kit-table[aria-label=Schedules] thead tr")
+           |> Enum.count() == 1
 
-    assert LazyHTML.query(document, "th.row-number") |> LazyHTML.text() == "Failures"
-    assert LazyHTML.query(document, "tbody tr") |> Enum.count() == 2
+    assert LazyHTML.query(document, "thead th[scope=col]")
+           |> Enum.map(&String.trim(LazyHTML.text(&1))) ==
+             ["Schedule", "Failures"]
 
-    assert LazyHTML.query(document, "td[data-label='Schedule'].row-identity .cell-value")
-           |> LazyHTML.text() == "Daily healthWeekly digest"
+    assert LazyHTML.query(document, "th[data-numeric=true]")
+           |> Enum.map(&String.trim(LazyHTML.text(&1))) ==
+             ["Failures"]
 
-    assert LazyHTML.query(document, "td[data-label='Failures'].row-number .cell-value")
-           |> LazyHTML.text() == "20"
+    assert LazyHTML.query(document, "td[data-numeric=true]")
+           |> Enum.map(&String.trim(LazyHTML.text(&1))) ==
+             ["2", "0"]
+  end
 
-    refute html =~ ~s(class="")
+  test "Kit facts drop a missing value instead of showing a placeholder" do
+    html =
+      render_component(
+        fn assigns ->
+          ~H"""
+          <Kit.status_line state={{:warn, "Needs attention"}}><span>opened 2 h ago</span></Kit.status_line>
+          <Kit.facts facts={[
+            {"Channel", "#incidents"},
+            {"Stage", nil},
+            {"Asked", false},
+            {"Repository", ""}
+          ]} />
+          """
+        end,
+        []
+      )
+      |> LazyHTML.from_fragment()
 
-    # The string pages build the same shape, so one stylesheet rule covers both.
-    string_table =
-      ControlPlaneOptions.options(self()).projection.channels.(%{})
-      |> HTML.channels(%{})
-      |> IO.iodata_to_binary()
+    assert LazyHTML.query(html, "p.kit-status-line .state-word[data-tone=warn]")
+           |> LazyHTML.text() ==
+             "Needs attention"
+
+    assert LazyHTML.query(html, "dl.kit-facts dt") |> Enum.map(&LazyHTML.text/1) == ["Channel"]
+    assert LazyHTML.query(html, "dl.kit-facts dd") |> LazyHTML.text() == "#incidents"
+  end
+
+  test "a string-rendered list page uses the same Kit row markup as the component" do
+    # The Channels list is prepared as a string by Pages; it must produce the
+    # rows the Kit component produces, so one stylesheet rule covers both.
+    component =
+      render_component(
+        fn assigns ->
+          ~H"""
+          <Kit.entity_list label="Channels">
+            <Kit.entity_row
+              name="#infra"
+              href="/channels/T1/C1"
+              state={{:on, "Ryker is in"}}
+              meta={["Replies when mentioned"]}
+            />
+          </Kit.entity_list>
+          """
+        end,
+        %{}
+      )
+      |> LazyHTML.from_fragment()
+
+    page =
+      Pages.page(["channels"], %{}, ControlPlaneOptions.options(self())).body
       |> LazyHTML.from_fragment()
 
     for contract <- [
-          "table.data-table thead th[scope='col']",
-          "tbody tr td.row-identity[data-label] .cell-value",
-          "th.row-number"
+          "div.entity-list[role=list] > article.entity-row[role=listitem]",
+          "article.entity-row > div.entity-body > h3.entity-name > a[href]",
+          "article.entity-row > div.entity-side > .state-word[data-tone]",
+          "div.entity-body > p.entity-meta"
         ] do
-      assert LazyHTML.query(document, contract) |> Enum.count() > 0, contract
-      assert LazyHTML.query(string_table, contract) |> Enum.count() > 0, contract
+      assert LazyHTML.query(component, contract) |> Enum.count() > 0, contract
+      assert LazyHTML.query(page, contract) |> Enum.count() > 0, contract
     end
   end
 end

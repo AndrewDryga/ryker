@@ -88,6 +88,69 @@ defmodule Ryker.ControlPlane.StandingRulesCardTest do
     assert rules_at < routing_at
   end
 
+  test "rule details say what the rule looked for and which condition decided it" do
+    # The details listed an identifier, a revision and a scope. An operator could
+    # read "Did not match" but not whether the sender or the trigger decided it.
+    {entry, episode} = admitted!()
+
+    people_only =
+      "Review people's plans"
+      |> rule(
+        "not_matched",
+        "This message came from an app; this rule only applies to messages from people."
+      )
+      |> Map.put("criteria", %{"source_filter" => "human", "trigger" => "terraform_plan"})
+      |> put_in(["evidence", "sender_matches"], false)
+      |> put_in(["evidence", "trigger_matches"], true)
+      |> put_in(["evidence", "trigger_text"], "Plan: 2 to add,")
+
+    inventory!(entry, [
+      rule("Review Terraform plans", "matched", "A Terraform plan from an app matched."),
+      people_only,
+      rule("Investigate database alerts", "disabled", "This rule was paused.")
+    ])
+
+    document = episode |> rendered() |> LazyHTML.from_document()
+
+    details = fn verdict ->
+      document
+      |> LazyHTML.query(".standing-rule[data-verdict=#{verdict}] .standing-rule-definition dl")
+      |> Enum.map(fn facts ->
+        facts
+        |> LazyHTML.query("div")
+        |> Enum.map(fn row ->
+          {row |> LazyHTML.query("dt") |> LazyHTML.text(),
+           row |> LazyHTML.query("dd") |> LazyHTML.text() |> String.trim()}
+        end)
+        |> Map.new()
+      end)
+    end
+
+    # The rule's channel is part of what it looks for; its internal reference,
+    # revision and raw scope were plumbing and are gone from the face.
+    [matched] = details.("matched")
+    assert matched["Looks for"] == "Terraform plans from apps and bots in Slack channel C456"
+    refute Enum.any?(["Rule", "Revision at the time", "Scope"], &Map.has_key?(matched, &1))
+    assert matched["Sender"] == "An app, which this rule listens to"
+    assert matched["Content"] == "Contains “Plan: 2 to add,”"
+
+    [missed] = details.("not_matched")
+    assert missed["Looks for"] == "Terraform plans from people in Slack channel C456"
+    assert missed["Sender"] == "An app; this rule only listens to people"
+    assert missed["Content"] == "Contains “Plan: 2 to add,”"
+
+    # A paused rule was never checked: it says what it looks for and nothing more.
+    [paused] = details.("disabled")
+    assert paused["Looks for"] == "Terraform plans from apps and bots in Slack channel C456"
+    refute Map.has_key?(paused, "Sender")
+    refute Map.has_key?(paused, "Content")
+
+    # The way to the rule itself is a link to it, not its identifier.
+    assert document
+           |> LazyHTML.query(".standing-rule[data-verdict=matched] a.standing-rule-link")
+           |> LazyHTML.attribute("href") == ["/rules#behavior-behavior:review-terraform-plans"]
+  end
+
   test "an empty recorded inventory says no standing rules" do
     {entry, episode} = admitted!()
     inventory!(entry, [])
@@ -257,6 +320,8 @@ defmodule Ryker.ControlPlane.StandingRulesCardTest do
     assert participation_tree(episode) == before
   end
 
+  # The shape Behaviors.record_rule_inventory/2 writes for a trigger rule that
+  # listens to apps; evidence exists only where the trigger was checked.
   defp rule(title, verdict, reason) do
     %{
       "ref" => "behavior:" <> String.replace(String.downcase(title), " ", "-"),
@@ -265,7 +330,18 @@ defmodule Ryker.ControlPlane.StandingRulesCardTest do
       "scope_ref" => "slack:TC9F5B40D364C:C456",
       "revision" => 3,
       "verdict" => verdict,
-      "reason" => reason
+      "reason" => reason,
+      "criteria" => %{"source_filter" => "app", "trigger" => "terraform_plan"},
+      "evidence" =>
+        if(verdict in ["matched", "not_matched"],
+          do: %{
+            "event_class" => nil,
+            "sender" => "app",
+            "sender_matches" => true,
+            "trigger_matches" => verdict == "matched",
+            "trigger_text" => if(verdict == "matched", do: "Plan: 2 to add,")
+          }
+        )
     }
   end
 

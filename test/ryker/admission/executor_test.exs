@@ -86,7 +86,9 @@ defmodule Ryker.Admission.ExecutorTest do
         requests: inspector.timeline
       )
 
-    assert html =~ "Selection evidence"
+    # How the search found earlier work is a card of its own before the briefing.
+    assert html =~ "Search for earlier work"
+    refute html =~ "Selection evidence"
     assert html =~ "Raw routing response"
     refute html =~ "Observed execution milestones"
     assert html =~ "Routing briefing"

@@ -68,18 +68,16 @@ defmodule Ryker.ControlPlane.LabPageTest do
     assert LabPage.directory_groups([], @now) == []
   end
 
-  test "a message's inspection link resolves only its own retained execution" do
+  test "a message's timeline link resolves only its own retained execution" do
     # The runtime rail linked "All requests in this conversation" and the
     # latest episode; a message from an earlier episode had no way to its own
     # execution. Each link now comes from the message's exact input id or
     # producing turn, never from list position, title text or the newest episode.
     pending = %{actor: :operator, input_id: "0193", episode_id: nil, status: :pending}
+    assert LabPage.timeline_href(pending) == "/timeline/ingress-input%3A0193"
 
-    assert LabPage.inspection_link(pending) ==
-             %{href: "/timeline/ingress-input%3A0193", label: "View request"}
-
-    blocked = %{pending | status: :blocked}
-    assert LabPage.inspection_link(blocked).href == "/timeline/ingress-input%3A0193"
+    assert LabPage.timeline_href(%{pending | status: :blocked}) ==
+             "/timeline/ingress-input%3A0193"
 
     admitted = %{
       actor: :operator,
@@ -90,17 +88,14 @@ defmodule Ryker.ControlPlane.LabPageTest do
     }
 
     # Once routed, the same route is this input's own admission request on its
-    # episode; a second message admitted into that episode gets its own id.
-    assert LabPage.inspection_link(admitted) ==
-             %{href: "/timeline/ingress-input%3A0193", label: "View request"}
+    # episode; an ignored input's is its recorded decision.
+    assert LabPage.timeline_href(admitted) == "/timeline/ingress-input%3A0193"
 
-    ignored = %{admitted | episode_id: nil, decision_action: :ignore}
-
-    assert LabPage.inspection_link(ignored) ==
-             %{href: "/timeline/ingress-input%3A0193", label: "View decision"}
+    assert LabPage.timeline_href(%{admitted | episode_id: nil, decision_action: :ignore}) ==
+             "/timeline/ingress-input%3A0193"
 
     integration = %{actor: :integration, input_id: "0194", episode_id: nil, status: :pending}
-    assert LabPage.inspection_link(integration).href == "/timeline/ingress-input%3A0194"
+    assert LabPage.timeline_href(integration) == "/timeline/ingress-input%3A0194"
 
     reply = %{
       actor: :ryker,
@@ -109,19 +104,14 @@ defmodule Ryker.ControlPlane.LabPageTest do
       status: :settled
     }
 
-    assert LabPage.inspection_link(reply) ==
-             %{
-               href: "/timeline/conversation-lab%3Aabc?attempt=turn-uuid#request-turn-uuid",
-               label: "View request"
-             }
+    assert LabPage.timeline_href(reply) ==
+             "/timeline/conversation-lab%3Aabc?attempt=turn-uuid#request-turn-uuid"
 
     action = %{actor: :ryker, episode_ref: "grafana:rule-1:cycle-1", status: :delivered}
-
-    assert LabPage.inspection_link(action) ==
-             %{href: "/timeline/grafana%3Arule-1%3Acycle-1", label: "View execution"}
+    assert LabPage.timeline_href(action) == "/timeline/grafana%3Arule-1%3Acycle-1"
 
     # No provenance, no guessed URL.
-    assert LabPage.inspection_link(%{actor: :ryker, status: :delivered, text: "hi"}) == nil
-    assert LabPage.inspection_link(%{actor: :operator, status: :decided, text: "hi"}) == nil
+    assert LabPage.timeline_href(%{actor: :ryker, status: :delivered, text: "hi"}) == nil
+    assert LabPage.timeline_href(%{actor: :operator, status: :decided, text: "hi"}) == nil
   end
 end

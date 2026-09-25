@@ -9,9 +9,9 @@ defmodule Ryker.Slack.ChannelSetup do
   for in conversation or through `/ryker status` reuse the same projection.
 
   This module never trusts a button value beyond the setup or configuration
-  identity it names. Repository choices are resolved from the persisted offered
-  catalog, and membership plus operator authority are rechecked for every action
-  or conversational answer.
+  identity it names. Environment choices are resolved from the environments the
+  session offered when it started, and membership plus operator authority are
+  rechecked for every action or conversational answer.
   """
 
   alias Ryker.Slack.{
@@ -21,7 +21,8 @@ defmodule Ryker.Slack.ChannelSetup do
     MembershipTransition
   }
 
-  @repository_action ~r/\Aryker_setup_repository_([0-9]{1,2})\z/
+  @environment_action ~r/\Aryker_setup_environment_([0-9]{1,3})\z/
+  @no_environment_answers ["no environment", "none", "without an environment"]
   @welcome_value ~r/\A([0-9a-f-]{36})\|([1-9][0-9]{0,9})\z/
   @user_mention ~r/<@([A-Z0-9]+)>/
   @group_mention ~r/<!subteam\^([A-Z0-9]+)(?:\|[^>]+)?>/
@@ -607,19 +608,19 @@ defmodule Ryker.Slack.ChannelSetup do
   defp interaction_action("ryker_setup_restart", _session), do: {:ok, :restart, nil}
   defp interaction_action("ryker_setup_cancel", _session), do: {:ok, :cancel, nil}
 
-  defp interaction_action(action_id, session) do
-    case Regex.run(@repository_action, action_id) do
-      [_whole, index] ->
-        with {index, ""} <- Integer.parse(index),
-             repository_ref when is_binary(repository_ref) <-
-               Enum.at(session.draft["repository_options"], index) do
-          {:ok, :repository, repository_ref}
-        else
-          _invalid -> {:error, :configuration_action_mismatch}
-        end
+  defp interaction_action("ryker_setup_environment_none", _session),
+    do: {:ok, :environment, nil}
 
-      _invalid ->
-        {:error, :configuration_action_mismatch}
+  # A button names its place among the offered environments, never an
+  # environment, so a copied or forged value cannot select one not offered.
+  defp interaction_action(action_id, session) do
+    with [_whole, index] <- Regex.run(@environment_action, action_id),
+         {index, ""} <- Integer.parse(index),
+         %{"ref" => environment_ref} when is_binary(environment_ref) <-
+           Enum.at(session.draft["environment_options"] || [], index) do
+      {:ok, :environment, environment_ref}
+    else
+      _invalid -> {:error, :configuration_action_mismatch}
     end
   end
 
@@ -646,12 +647,22 @@ defmodule Ryker.Slack.ChannelSetup do
     end
   end
 
-  defp answer_step(_text, original, %{step: :repository, draft: draft}) do
-    repository = String.trim(original, "` ")
+  # An environment is named by its display name or its ref; naming one wins
+  # over the words for No environment, so an environment called "None" can
+  # still be chosen by name.
+  defp answer_step(_text, original, %{step: :environment, draft: draft}) do
+    answer = original |> String.trim("` ") |> String.downcase()
 
-    if repository in draft["repository_options"],
-      do: {:ok, :repository, repository},
-      else: {:error, :configuration_answer_ambiguous}
+    option =
+      Enum.find(draft["environment_options"] || [], fn option ->
+        String.downcase(option["name"]) == answer or option["ref"] == answer
+      end)
+
+    cond do
+      option -> {:ok, :environment, option["ref"]}
+      answer in @no_environment_answers -> {:ok, :environment, nil}
+      true -> {:error, :configuration_answer_ambiguous}
+    end
   end
 
   defp answer_step(text, _original, %{step: :alerts}) do
@@ -903,10 +914,13 @@ defmodule Ryker.Slack.ChannelSetup do
   defp clarification(%ConfigurationSession{step: :participation}),
     do: "Please choose Mentions only, Be proactive, or Observe only using the current setup card."
 
-  defp clarification(%ConfigurationSession{step: :repository, draft: draft}),
-    do:
-      "Please choose one connected repository: " <>
-        Enum.map_join(draft["repository_options"], ", ", &"`#{&1}`") <> "."
+  defp clarification(%ConfigurationSession{step: :environment, draft: draft}) do
+    choices = Enum.map(draft["environment_options"] || [], & &1["name"]) ++ ["No environment"]
+    {others, [last]} = Enum.split(choices, -1)
+    listed = if others == [], do: last, else: Enum.join(others, ", ") <> " or " <> last
+
+    "Please choose #{listed}."
+  end
 
   defp clarification(%ConfigurationSession{step: :alerts}),
     do: "Please choose Investigate, Offer a choice, or Create automatically."

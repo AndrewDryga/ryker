@@ -87,7 +87,7 @@ defmodule Ryker.State.SlackPostOffersTest do
                %{"episode_id" => transition.episode.id},
                "Offer the exact additional Slack post for confirmation.",
                %{"type" => "object"},
-               "work-final-live-v2"
+               "work-final-live-v3"
              )
 
     assert {:ok, _turn} =

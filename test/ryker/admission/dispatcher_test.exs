@@ -8,6 +8,7 @@ defmodule Ryker.Admission.DispatcherTest do
   alias Ryker.Admission
   alias Ryker.Admission.{Decision, Dispatcher, Executor}
   alias Ryker.Admission.DispatcherTest.ExecutorStub
+  alias Ryker.ControlPlane.FailureProjection
   alias Ryker.Episodes
   alias Ryker.Episodes.Command
   alias Ryker.Ingress.Inbox
@@ -344,29 +345,91 @@ defmodule Ryker.Admission.DispatcherTest do
     end
   end
 
-  test "operator and policy terminal turns stop without silently starting a new session" do
-    for state <- ~w(cancelled interrupted budget_exhausted) do
-      entry = record_input!("Ev-terminal-#{state}")
+  # A reading run the worker cancelled, interrupted or ran out of budget used
+  # to close its message with a fixed note asking the sender to send it again,
+  # and before that blocked it for a person at once. Andrew, 2026-09-25:
+  # "re-read it automatically, why would we ever ask users to retry anything?"
+  # A stopped run spends its generation like any confirmed terminal outcome,
+  # and a fresh run reads the message again on its own.
+  test "a reading run the worker stopped is read again without asking anyone" do
+    for {state, message_ref} <- [
+          {"cancelled", "1787832101.000100"},
+          {"interrupted", "1787832102.000100"},
+          {"budget_exhausted", "1787832103.000100"}
+        ] do
+      entry = record_input!("Ev-stopped-#{state}", message_ref: message_ref)
 
+      # Each reading's decision is recorded under its run's own turn id.
       {:ok, fake} =
-        FakeAPI.start_link([decision()], fail_first_turn: true, first_turn_state: state)
+        FakeAPI.start_link([decision()],
+          fail_first_turn: true,
+          first_turn_state: state,
+          turn_id_override: "turn_#{state}"
+        )
 
-      assert {:ok, {:blocked, input_ref, {:coop_turn_stopped, ^state, _, _}}} =
+      assert {:ok, {:deferred, input_ref, {:coop_turn_stopped, ^state, _, _}}} =
                Dispatcher.run_once(real_options(fake, @now))
 
       assert input_ref == Inbox.ref(entry)
-      assert {:ok, blocked} = Inbox.fetch(input_ref)
-      assert blocked.status == :blocked
-      assert blocked.execution_generation == 1
-      assert blocked.lease_ref == nil
+      assert {:ok, waiting} = Inbox.fetch(input_ref)
+      assert waiting.status == :pending
+      assert waiting.last_error_code == "coop_turn_stopped"
+      assert waiting.lease_ref == nil
+      # The stopped run's generation is spent, so the next reading is a fresh run.
+      assert waiting.execution_generation == 2
 
-      assert {:ok, :idle} =
+      # Nothing was posted or started for it, and nothing waits for a person.
+      assert :error = Episodes.fetch_by_key("ingress-input:#{entry.id}")
+      assert FailureProjection.admission(input_ref) == :not_found
+
+      assert {:ok, {:decided, execution}} =
                Dispatcher.run_once(real_options(fake, DateTime.add(@now, 2, :second)))
 
+      assert execution.result.entry.id == entry.id
+      assert execution.result.entry.status == :decided
+      assert execution.result.entry.execution_generation == 2
+
       state_record = FakeAPI.state(fake)
-      assert state_record.submit_count == 1
-      refute Enum.any?(state_record.turn_keys, &String.contains?(&1, ":g2:"))
+      assert state_record.submit_count == 2
+      assert Enum.any?(state_record.turn_keys, &String.contains?(&1, ":g2:"))
     end
+  end
+
+  # Reading again is bounded like every other retryable admission failure: a
+  # message whose runs keep stopping would otherwise hold every later message
+  # in its channel behind it for good. Once the budget is spent it waits on
+  # Failures, and a person's retry starts yet another fresh run.
+  test "a message whose reading runs keep stopping waits for a person only once its retries are spent" do
+    entry = record_input!("Ev-stopped-every-run")
+    input_ref = Inbox.ref(entry)
+    {:ok, fake} = FakeAPI.start_link([decision()], every_turn_state: "interrupted")
+
+    for attempt <- 1..8 do
+      at = DateTime.add(@now, (attempt - 1) * 61, :second)
+      expected = if attempt == 8, do: :blocked, else: :deferred
+
+      assert {:ok, {^expected, ^input_ref, {:coop_turn_stopped, "interrupted", _, _}}} =
+               Dispatcher.run_once(real_options(fake, at))
+    end
+
+    assert {:ok, blocked} = Inbox.fetch(input_ref)
+    assert blocked.status == :blocked
+    assert blocked.attempt_count == 8
+    assert blocked.last_error_code == "coop_turn_stopped"
+    # Every reading was a fresh run, and so is the one a person's retry starts.
+    assert FakeAPI.state(fake).submit_count == 8
+    assert blocked.execution_generation == 9
+
+    assert {:ok, %{kind: "admission", summary: "coop_turn_stopped"}} =
+             FailureProjection.admission(input_ref)
+
+    Agent.update(fake, &%{&1 | every_turn_state: nil})
+    assert {:ok, _rearmed} = Inbox.rearm(input_ref)
+    later = DateTime.add(@now, 8 * 61, :second)
+
+    assert {:ok, {:decided, execution}} = Dispatcher.run_once(real_options(fake, later))
+    assert execution.result.entry.execution_generation == 9
+    assert FakeAPI.state(fake).submit_count == 9
   end
 
   test "a confirmed failed semantic validation retries with a fresh generation" do

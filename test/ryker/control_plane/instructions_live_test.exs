@@ -2,8 +2,11 @@ defmodule Ryker.ControlPlane.InstructionsLiveTest do
   use Ryker.DataCase, async: false
   import Phoenix.ConnTest
   import Phoenix.LiveViewTest
+  import Plug.Conn, only: [get_resp_header: 2]
   alias Ryker.ControlPlane.{Actions, Endpoint, InstructionSettings, Projection, SlackNames}
+  alias Ryker.ControlPlane.Updates
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
+  alias Ryker.Fixtures.SavedEntities
   alias Ryker.Instructions
   alias Ryker.Slack.{ChannelConfigurationChangeset, ChannelMembership}
 
@@ -54,7 +57,7 @@ defmodule Ryker.ControlPlane.InstructionsLiveTest do
 
   test "global edits save explicitly and retain drafts through refresh, validation and conflict" do
     {:ok, view, html} = open("/instructions")
-    assert html =~ "Global instructions"
+    assert html =~ "For every conversation"
     assert has_element?(view, "#instructions-form button[type=submit][disabled]")
     edit(view, "First draft 🌱")
     assert Instructions.get(:global).revision == 0
@@ -88,34 +91,166 @@ defmodule Ryker.ControlPlane.InstructionsLiveTest do
     assert Instructions.get(:global).text == ""
   end
 
-  test "global instructions put the approved help directly below the subtitle" do
+  test "Instructions reads the editor for every conversation, then channels, then what people saved" do
+    # Andrew approved one Instructions place on 2026-09-24: the global editor,
+    # the channels that add their own, and the preferences and guidance that
+    # used to be two more pages. One sentence of description replaces the
+    # "How instructions work" disclosure.
     {:ok, _view, html} = open("/instructions")
-    document = LazyHTML.from_document(html)
-    page = LazyHTML.query(document, ".instructions-page")
+    page = LazyHTML.from_document(html) |> LazyHTML.query(".instructions-page")
+
+    assert LazyHTML.query(page, "h1") |> LazyHTML.text() == "Instructions"
 
     assert LazyHTML.query(page, ".page-description") |> LazyHTML.text() ==
-             "Every time Ryker decides, works, or learns, it receives the global instructions and any instructions saved for the current Slack channel."
+             "How Ryker should work. It follows these in every reply, investigation and task."
 
-    help =
-      LazyHTML.query(page, "details.page-help.configuration-help#instructions-help:not([open])")
-
-    assert LazyHTML.query(help, "summary") |> LazyHTML.text() == "How instructions work"
-
-    assert help |> LazyHTML.query(".page-help-body p") |> Enum.map(&LazyHTML.text/1) == [
-             "Use global instructions for stable defaults that should apply everywhere. Add channel instructions from a channel’s page when something should apply only there.",
-             "Both sets of instructions are sent to Ryker. If they give different guidance about the same behavior, Ryker treats the channel instruction as more specific for work in that channel.",
-             "Instructions can shape choices such as style and level of detail. They cannot change permissions, available tools, confirmation requirements, or other fixed system rules. Changes apply to the next model turn."
-           ]
+    assert Enum.empty?(LazyHTML.query(page, "details.page-help"))
 
     assert page
-           |> LazyHTML.query(
-             "header.page-header, details.configuration-help, section.instructions-editor"
-           )
-           |> Enum.map(fn node -> node |> LazyHTML.tag() |> hd() end) == [
-             "header",
-             "details",
-             "section"
+           |> LazyHTML.query("header.section-head h2")
+           |> Enum.map(&LazyHTML.text/1) == [
+             "For every conversation",
+             "For specific channels",
+             "Saved from conversations"
            ]
+
+    editor = LazyHTML.query(page, "section.instructions-editor#instructions-global")
+
+    assert LazyHTML.query(editor, "label[for=instructions-text]") |> LazyHTML.text() =~
+             "Instructions for every conversation"
+
+    assert LazyHTML.query(editor, "#instructions-count") |> LazyHTML.text() ==
+             "2,000 characters left"
+
+    assert LazyHTML.query(page, "#saved + .kit-toolbar nav.segmented a[aria-current]")
+           |> Enum.map(&LazyHTML.text/1) == ["All", "Current"]
+  end
+
+  test "channels with their own instructions are listed under the global editor and open their editor" do
+    # Channel instructions are written on a channel's page. The Instructions
+    # page is where a person sees all of them at once; each row is the
+    # channel, its words, and the way to its editor. A cleared channel adds
+    # nothing and is not listed.
+    assert {:ok, _} =
+             Instructions.save(@scope, "Include the affected service.", 0, "operator:test")
+
+    cleared = {:channel, "TINSTRUCTIONS", "CCLEARED"}
+    assert {:ok, _} = Instructions.save(cleared, "Old text", 0, "operator:test")
+    assert {:ok, _} = Instructions.save(cleared, "", 1, "operator:test")
+
+    {:ok, view, _html} = open("/instructions")
+    row = "section.instructions-channels article[id='channel-instructions-TINSTRUCTIONS-CTEST']"
+    assert has_element?(view, row <> " h3", "Slack channel CTEST")
+    assert has_element?(view, row <> " .entity-text", "“Include the affected service.”")
+
+    assert has_element?(
+             view,
+             row <>
+               " a[href='/channels/TINSTRUCTIONS/CTEST#instructions-slack:TINSTRUCTIONS:CTEST']",
+             "Edit"
+           )
+
+    refute has_element?(view, "section.instructions-channels", "CCLEARED")
+    refute has_element?(view, "section.instructions-channels", "Old text")
+  end
+
+  test "preferences and guidance saved from conversations are listed under Instructions with their controls" do
+    # /preferences and /guidance were removed on 2026-09-24. Their entries
+    # must stay listed, filterable and pausable here, or confirmed guidance
+    # would keep shaping replies with nowhere to see or stop it.
+    source = SavedEntities.source!("slack:T123:C456")
+
+    preference =
+      SavedEntities.behavior!(
+        source,
+        :preference,
+        %{
+          "expires_in" => "30d",
+          "key" => "response_detail",
+          "repository" => nil,
+          "scope" => "conversation",
+          "value" => "concise"
+        },
+        scope_ref: "slack:T123:C456",
+        expires_at: nil
+      )
+
+    guidance =
+      SavedEntities.behavior!(
+        source,
+        :guidance,
+        %{
+          "expires_in" => "30d",
+          "repository" => nil,
+          "scope" => "workspace",
+          "subject" => "Migrations need a rollback note",
+          "summary" => "Rollback notes",
+          "text" => "Any change under db/migrations needs a rollback note.",
+          "visibility" => "workspace"
+        },
+        scope_kind: :workspace,
+        scope_ref: "slack:T123",
+        expires_at: nil
+      )
+
+    {:ok, view, _html} = open("/instructions")
+    preference_row = "section.instructions-saved article[id='behavior-#{preference.ref}']"
+    guidance_row = "section.instructions-saved article[id='behavior-#{guidance.ref}']"
+    assert has_element?(view, preference_row <> " h3", "Reply length: Concise")
+    assert has_element?(view, preference_row <> " .entity-meta", "Preference")
+    assert has_element?(view, guidance_row <> " h3", "Migrations need a rollback note")
+    assert has_element?(view, guidance_row <> " .entity-meta", "everywhere")
+
+    pause = "/actions/behavior/#{URI.encode_www_form(preference.ref)}/disabled"
+
+    assert has_element?(
+             view,
+             preference_row <> " form.action-control[action='#{pause}']",
+             "Pause"
+           )
+
+    {:ok, view, _html} = open("/instructions?show=preferences")
+    assert has_element?(view, preference_row)
+    refute has_element?(view, guidance_row)
+
+    {:ok, view, _html} = open("/instructions?show=guidance")
+    refute has_element?(view, preference_row)
+    assert has_element?(view, guidance_row)
+
+    {:ok, view, _html} = open("/instructions?status=past")
+    refute has_element?(view, "section.instructions-saved article")
+
+    assert has_element?(
+             view,
+             "section.instructions-saved .entity-empty-title",
+             "No past preferences or guidance"
+           )
+  end
+
+  test "the Preferences and Guidance pages are removed rather than redirected" do
+    for path <- ["/preferences", "/guidance"] do
+      response = get(build_conn() |> Map.put(:host, "localhost"), path)
+      assert response.status == 404, path
+      assert get_resp_header(response, "location") == [], path
+    end
+  end
+
+  test "a change to a saved preference or guidance refreshes an open Instructions page" do
+    # They moved from their own pages to /instructions; an invalidation still
+    # aimed at the removed pages would leave the list stale until reconcile.
+    assert Updates.domain("/instructions") == "instructions"
+    state = %{connection: self(), reference: make_ref(), pending: MapSet.new(), timer: nil}
+
+    {:noreply, pending} =
+      Updates.handle_info(
+        {:notification, self(), state.reference, "ryker_control_plane", "operator_behaviors"},
+        state
+      )
+
+    assert MapSet.member?(pending.pending, "instructions")
+    refute MapSet.member?(pending.pending, "preferences")
+    refute MapSet.member?(pending.pending, "guidance")
+    Process.cancel_timer(pending.timer)
   end
 
   test "channel page has its own editor and inherited preview without leaking text into the roster" do
@@ -129,29 +264,36 @@ defmodule Ryker.ControlPlane.InstructionsLiveTest do
 
     {:ok, view, html} = open("/channels/TINSTRUCTIONS/CTEST")
     assert has_element?(view, ".instructions-page h1", "#test")
-    assert html =~ "Channel instructions"
+    assert html =~ "Instructions for this channel"
     refute html =~ "more specific for conflicting behavioral guidance in this channel"
     refute html =~ "They cannot change permissions or fixed system rules."
     refute html =~ "take priority"
     assert has_element?(view, "#inherited-instructions", "Global <script>plain text</script>")
     refute html =~ "<script>plain text</script>"
-    assert has_element?(view, "a[href='/instructions']", "Edit global instructions")
+
+    assert has_element?(
+             view,
+             "a[href='/instructions']",
+             "Edit the instructions for every conversation"
+           )
+
     submit(view, "CHANNEL_PRIVATE_INSTRUCTION")
     assert Instructions.get(@scope).text == "CHANNEL_PRIVATE_INSTRUCTION"
     assert Instructions.get(:global).revision == 1
     {:ok, _, roster} = open("/channels")
-    assert roster =~ "Global + channel"
+    assert roster =~ "own instructions"
     refute roster =~ "CHANNEL_PRIVATE_INSTRUCTION"
     {:ok, _, other} = open("/channels/TOTHER/CTEST")
     refute other =~ "instructions-form"
     refute other =~ "CHANNEL_PRIVATE_INSTRUCTION"
   end
 
-  test "the channel page reads title, episodes, help, its instructions, then its configuration" do
+  test "the channel page reads how Ryker takes part, its instructions, then what applies and what it knows" do
     # Deployed 2026-09-13 as 0.1.0-g865731d1, the editor card sat between the
-    # title and everything the approved page leads with: the quiet episode
-    # count and the help disclosure came after a 400px form. The editor is one
-    # section in the page's own order, not a card the page is arranged around.
+    # title and everything the page leads with. On 2026-09-24 the page became
+    # Kit sections in the order a person asks about a channel: how Ryker takes
+    # part, what it was told here, what else applies, what it knows, then its
+    # schedules, recent work and usage.
     join!()
     start_supervised!({SlackNames, workspace: "TINSTRUCTIONS", fetch: fn _ -> {:ok, "test"} end})
     SlackNames.name("TINSTRUCTIONS", "CTEST")
@@ -163,7 +305,7 @@ defmodule Ryker.ControlPlane.InstructionsLiveTest do
     outline =
       page
       |> LazyHTML.query(
-        "header.page-header, section.page-summary, details.page-help, section.instructions-editor, section.channel-section"
+        "header.page-header, p.channel-state, section.channel-section, header.section-head#channel-instructions, section.instructions-editor"
       )
       |> Enum.map(fn node ->
         [tag] = LazyHTML.tag(node)
@@ -172,13 +314,22 @@ defmodule Ryker.ControlPlane.InstructionsLiveTest do
         "#{tag}.#{class}" <> if(id, do: "##{id}", else: "")
       end)
 
-    assert Enum.take(outline, 5) == [
+    assert outline == [
              "header.page-header",
-             "section.page-summary",
-             "details.page-help#channel-help",
+             "p.channel-state",
+             "section.channel-section#taking-part",
+             "header.section-head#channel-instructions",
              "section.instructions-editor#instructions-slack:TINSTRUCTIONS:CTEST",
-             "section.channel-section#configuration"
+             "section.channel-section#applies",
+             "section.channel-section#knows",
+             "section.channel-section#schedules",
+             "section.channel-section#episodes",
+             "section.channel-section#usage"
            ]
+
+    assert page |> LazyHTML.query("header.page-header h1") |> LazyHTML.text() == "#test"
+    assert page |> LazyHTML.query("p.channel-state") |> LazyHTML.text() =~ "Ryker is in"
+    refute html =~ "How context reaches this channel"
   end
 
   test "a channel revoked while editing cannot save and the existing draft stays visible" do
@@ -234,7 +385,6 @@ defmodule Ryker.ControlPlane.InstructionsLiveTest do
       channel_ref: "CCONFIGURED",
       id: Ecto.UUID.generate(),
       participation: :mentions,
-      repository_ref: "ryker",
       revision: 1,
       saved_at: DateTime.utc_now(),
       workspace_ref: "TINSTRUCTIONS"
@@ -320,7 +470,7 @@ defmodule Ryker.ControlPlane.InstructionsLiveTest do
     {:ok, view, _} = open("/instructions")
     pasted = String.duplicate("👩‍💻\r\n", 643)
     edit(view, pasted)
-    assert has_element?(view, "#instructions-count", "7716 / 8,192 bytes")
+    assert has_element?(view, "#instructions-count", "714 characters left · 7,716 of 8,192 bytes")
     refute has_element?(view, "#instructions-count[role=status]")
     submit(view, pasted)
     assert Instructions.get(:global).text == String.replace(pasted, "\r\n", "\n")

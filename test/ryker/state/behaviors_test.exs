@@ -96,7 +96,7 @@ defmodule Ryker.State.BehaviorsTest do
       |> Router.call(options)
 
     assert response.status == 200
-    assert response.resp_body =~ "href=\"/guidance\""
+    assert response.resp_body =~ "href=\"/instructions#saved\""
 
     confirmed.behavior
     |> BehaviorChangeset.update(%{expires_at: DateTime.add(DateTime.utc_now(), -1)})
@@ -183,7 +183,6 @@ defmodule Ryker.State.BehaviorsTest do
     assert run.rule_ref == item.ref
     assert run.outcome == :pending
     assert item.payload["filter"] != nil
-    assert BehaviorLibrary.list(:standing_assignment, %{"scope" => "repository"}).items == []
     assert BehaviorLibrary.list(:standing_assignment, %{"q" => "%"}).items == []
     assert BehaviorLibrary.list(:standing_assignment, %{"q" => "github"}).total == 1
 
@@ -191,15 +190,36 @@ defmodule Ryker.State.BehaviorsTest do
              1
 
     assert BehaviorLibrary.list(:standing_assignment, %{"page" => "oops"}).page == 1
-    assert BehaviorLibrary.list(:standing_assignment, %{"status" => "archived"}).items == []
+    assert BehaviorLibrary.list(:standing_assignment, %{"status" => "past"}).items == []
     assert %{items: [%{status: "disabled"}]} = BehaviorLibrary.list(:preference, %{})
     assert %{items: [], counts: %{"expired" => 1}} = BehaviorLibrary.list(:guidance, %{})
 
     assert %{items: [%{status: "expired"}]} =
-             BehaviorLibrary.list(:guidance, %{"status" => "expired"})
+             BehaviorLibrary.list(:guidance, %{"status" => "past"})
 
-    assert %{items: [%{status: "expired"}]} =
-             BehaviorLibrary.list(:guidance, %{"status" => "all"})
+    # An unknown view is Current, never everything.
+    assert %{items: []} = BehaviorLibrary.list(:guidance, %{"status" => "all"})
+
+    # Instructions lists preferences and guidance together; "show" narrows
+    # that list to one kind and never widens a single-kind list.
+    saved = [:preference, :guidance]
+
+    assert %{items: [%{kind: :preference}], params: %{"show" => "all"}} =
+             BehaviorLibrary.list(saved, %{})
+
+    assert %{items: [%{kind: :preference}]} =
+             BehaviorLibrary.list(saved, %{"show" => "preferences"})
+
+    assert %{items: []} = BehaviorLibrary.list(saved, %{"show" => "guidance"})
+
+    assert %{items: [%{kind: :guidance, status: "expired"}]} =
+             BehaviorLibrary.list(saved, %{"show" => "guidance", "status" => "past"})
+
+    assert %{items: [], params: %{"show" => "all"}} =
+             BehaviorLibrary.list(:standing_assignment, %{
+               "show" => "guidance",
+               "status" => "past"
+             })
 
     assert Repo.get!(Behavior, guidance.behavior.id).status == :active
 
@@ -1336,7 +1356,7 @@ defmodule Ryker.State.BehaviorsTest do
                %{"episode_id" => episode.id},
                "Offer the requested durable behavior.",
                %{"type" => "object"},
-               "work-final-live-v2"
+               "work-final-live-v3"
              )
 
     assert {:ok, _turn} =

@@ -117,17 +117,6 @@ defmodule Ryker.ControlPlane.ReadabilityTest do
     end
   end
 
-  test "configuration help keeps the approved subtitle gap and wraps at narrow widths" do
-    css = Assets.call(Plug.Test.conn(:get, "/workspace.css"), []).resp_body
-    [_, help] = Regex.run(~r/\.configuration-help \{([^}]+)\}/, css)
-    [_, summary] = Regex.run(~r/\.page-surface \.configuration-help > summary \{([^}]+)\}/, css)
-    assert help =~ "margin-top:-16px"
-    assert help =~ "max-width:76ch"
-    assert summary =~ "padding:0"
-    assert css =~ "@media (max-width:600px)"
-    assert css =~ "overflow-wrap:anywhere"
-  end
-
   test "prompt and action headings cannot inherit the dark application banner" do
     css = Assets.call(Plug.Test.conn(:get, "/workspace.css"), []).resp_body
 
@@ -162,7 +151,7 @@ defmodule Ryker.ControlPlane.ReadabilityTest do
     assert cards =~ "grid-template-columns:minmax(0,1fr)"
     [_, card] = Regex.run(~r/\.memory-card \{([^}]+)\}/, css)
     assert card =~ "overflow-wrap:anywhere"
-    [_, tooltip] = Regex.run(~r/\.prompt-inspector-tooltip \{([^}]+)\}/, css)
+    [_, tooltip] = Regex.run(~r/\.ryker-tooltip \{([^}]+)\}/, css)
     assert tooltip =~ "position:fixed"
     assert tooltip =~ "max-width:min(420px, calc(100vw - 24px))"
   end
@@ -177,7 +166,7 @@ defmodule Ryker.ControlPlane.ReadabilityTest do
     refute chevron =~ "transition:transform"
 
     assert css =~
-             "@media (prefers-reduced-motion:no-preference) { .activity-row, .app-nav a, .ui-button { transition:background-color .12s ease; } .ui-disclosure > summary .ui-icon { transition:transform .12s ease; } }"
+             "@media (prefers-reduced-motion:no-preference) { .app-nav a, .ui-button { transition:background-color .12s ease; } .ui-disclosure > summary .ui-icon { transition:transform .12s ease; } }"
 
     assert [_, open_chevron] =
              Regex.run(
@@ -415,25 +404,26 @@ defmodule Ryker.ControlPlane.ReadabilityTest do
     assert contrast(error, panel) >= 4.5,
            "error text #{error} is unreadable on the feedback panel #{panel}"
 
-    for selector <- [
-          ".settings-row-status[data-tone=verified]",
-          ".settings-row-status[data-tone=changed]",
-          ".settings-row-status[data-tone=unavailable]"
-        ] do
-      [_, rule] = Regex.run(Regex.compile!(Regex.escape(selector) <> " \\{([^}]+)\\}"), css)
-      assert rule =~ "color:var(--ryker-text-secondary)"
-    end
+    # A save is confirmed in the success tone, never in a grey that reads as
+    # nothing happened, and it stays readable on the page.
+    [_, saved] = Regex.run(~r/\.settings-saved \{([^}]+)\}/, css)
+    assert saved =~ "color:var(--ryker-success)"
+
+    [_, success] = Regex.run(~r/--ryker-success:(#[0-9a-f]{6})/, tokens)
+    [_, surface] = Regex.run(~r/--ryker-surface:(#[0-9a-f]{6})/, tokens)
+
+    assert contrast(success, surface) >= 4.5,
+           "success text #{success} is unreadable on the page #{surface}"
   end
 
   test "icon-only controls keep a 44px hit area around their small glyph" do
     # brand/ryker: at least 44x44px for icon buttons even if the glyph is
     # small. The activity row's "Inspect" chevron was a 20x36px link beside
-    # a 14px icon, the one icon-only control on the workspace under that
-    # size; the close and overflow controls already met it.
+    # a 14px icon; an Activity row now opens from anywhere on the row, and
+    # the close and overflow controls already met the size.
     css = Assets.call(Plug.Test.conn(:get, "/workspace.css"), []).resp_body
 
     for selector <- [
-          ".row-open",
           ".ryker-app .behavior-menu > summary",
           ".lab-directory.is-open .lab-directory-close"
         ] do

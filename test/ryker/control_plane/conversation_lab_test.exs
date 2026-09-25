@@ -844,12 +844,7 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
              )
 
     early_actions =
-      Actions.callbacks(profile(), %{
-        "ryker" => %{
-          name: "ryker-contributor",
-          digest: @task_policy_digest
-        }
-      })
+      Actions.callbacks(profile(), %{"production" => task_policy("production")})
 
     assert early_actions.act_on_lab_record.(
              @conversation_id,
@@ -1034,12 +1029,15 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
              "eyes"
            ) == {:error, :conversation_reaction_target_not_found}
 
+    # Chat works in the default environment, so a task that changes that
+    # environment's repository runs there, even when another environment
+    # that changes the same repository sorts first. Task policies are keyed
+    # by environment since 2026-09-25; before, a Chat task had no
+    # environment at all and ran on the repository alone.
     actions =
-      Actions.callbacks(profile(), %{
-        "ryker" => %{
-          name: "ryker-contributor",
-          digest: @task_policy_digest
-        }
+      Actions.callbacks(chat_profile("production"), %{
+        "a-staging" => task_policy("a-staging"),
+        "production" => task_policy("production")
       })
 
     assert actions.act_on_lab_record.(
@@ -1094,7 +1092,8 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
     assert %Session{
              policy: "ryker-contributor",
              policy_digest: @task_policy_digest,
-             repository_ref: "ryker"
+             repository_ref: "ryker",
+             environment_ref: "production"
            } = confirmation.session
 
     assert {:ok, updated_conversation} = Projection.lab_conversation(@conversation_id)
@@ -1235,12 +1234,7 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
     view_actions =
       Actions.callbacks(
         profile(),
-        %{
-          "ryker" => %{
-            name: "ryker-contributor",
-            digest: @task_policy_digest
-          }
-        },
+        %{"production" => task_policy("production")},
         %{coop_api: FakeWorkCoopAPI, coop_client: coop}
       )
 
@@ -1548,6 +1542,32 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
       })
 
     profile
+  end
+
+  # Chat's profile is its default environment's: work there changes the
+  # environment's first repository.
+  defp chat_profile(environment_ref) do
+    {:ok, profile} =
+      WorkProfile.new(%{
+        policy: "conversation-read",
+        policy_digest: String.duplicate("a", 64),
+        repository_ref: "ryker",
+        environment_ref: environment_ref,
+        parallel_goal_limit: 3
+      })
+
+    profile
+  end
+
+  # The running configuration's task policy for one environment: the
+  # contributor policy and the repository its tasks change.
+  defp task_policy(environment_ref) do
+    %{
+      name: "ryker-contributor",
+      digest: @task_policy_digest,
+      environment_ref: environment_ref,
+      repository_ref: "ryker"
+    }
   end
 
   defp workspace_changes(patch) do

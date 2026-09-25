@@ -138,6 +138,7 @@ defmodule Ryker.Slack.IncidentRooms do
              where: room.workspace_ref == ^workspace_ref and room.channel_ref == ^channel_ref,
              select: %{
                channel_state: room.channel_state,
+               environment_ref: room.environment_ref,
                episode_id: room.episode_id,
                policy: room.policy,
                policy_digest: room.policy_digest,
@@ -160,6 +161,20 @@ defmodule Ryker.Slack.IncidentRooms do
       {:ok, %{channel_state: :active, status: :ready}} -> :ok
       {:ok, %{channel_state: state}} -> {:error, {:slack_incident_room_inactive, state}}
     end
+  end
+
+  @doc """
+  The alert thread a room was opened from, as a delivery target: where the
+  note about its deletion goes, and where a reply owed to the room goes once
+  Slack has deleted it.
+  """
+  @spec alert_thread(IncidentRoom.t()) :: map()
+  def alert_thread(%IncidentRoom{} = room) do
+    %{
+      "conversation_ref" => "slack:#{room.workspace_ref}:#{room.source_channel_ref}",
+      "thread_ref" => room.source_thread_ref || room.source_message_ref,
+      "transport" => "slack"
+    }
   end
 
   @doc """
@@ -461,31 +476,90 @@ defmodule Ryker.Slack.IncidentRooms do
   @spec mark_lifecycle_reconciled(Ecto.UUID.t(), Ecto.UUID.t(), atom()) ::
           {:ok, IncidentRoom.t()} | {:error, term()}
   def mark_lifecycle_reconciled(room_id, lease_ref, expected_state)
-      when expected_state in [:active, :archived, :deleted, :unavailable] do
+      when expected_state in [:active, :archived, :unavailable] do
     mutate_claim(room_id, lease_ref, fn room, now ->
-      cond do
-        room.status != :ready ->
-          Repo.rollback(:incident_room_not_ready)
-
-        room.channel_state != expected_state ->
-          Repo.rollback(:incident_room_lifecycle_stale)
-
-        true ->
-          update!(
-            room,
-            %{
-              last_error_code: nil,
-              last_error_detail: nil,
-              lease_expires_at: nil,
-              lease_owner: nil,
-              lease_ref: nil,
-              next_attempt_at: nil,
-              reconciled_channel_state: expected_state
-            },
-            now
-          )
+      with :ok <- current_lifecycle(room, expected_state) do
+        update!(room, reconciled_attributes(expected_state), now)
       end
     end)
+  end
+
+  @doc """
+  Closes a ready room whose channel Slack deleted, once the worker has closed
+  its investigation, or found the reply it still owes refused in the alert
+  thread, and told that thread the room came from, or found it cannot.
+  `detail` records which, for whoever opens the room later.
+  """
+  @spec close_deleted(Ecto.UUID.t(), Ecto.UUID.t(), String.t()) ::
+          {:ok, IncidentRoom.t()} | {:error, term()}
+  def close_deleted(room_id, lease_ref, detail) do
+    with :ok <- bounded_text(detail, @maximum_error_detail_bytes, :detail) do
+      mutate_claim(room_id, lease_ref, &close_deleted_locked(&1, &2, detail))
+    end
+  end
+
+  @doc """
+  The oldest investigation still open whose room closed because Slack deleted
+  its channel, with that room.
+
+  A room closes while a reply it owed stays refused in the alert thread. Once
+  a person posts that reply from the Failures page, the investigation goes on
+  to wait for an answer, or to run again for messages queued behind the
+  reply, in a room that is gone; nothing else looks at a closed room again.
+  One still owing a reply waits for it to settle, and one already being
+  stopped is left to its worker's answer, so a pass never repeats itself.
+  """
+  @spec next_orphaned_investigation() :: {IncidentRoom.t(), Episode.t()} | nil
+  def next_orphaned_investigation do
+    Repo.one(
+      from(room in IncidentRoom,
+        join: episode in Episode,
+        on: episode.id == room.episode_id,
+        left_join: turn in Turn,
+        on:
+          turn.episode_id == episode.id and episode.owner_kind == :turn and
+            turn.turn_ref == episode.owner_ref,
+        where: room.status == :closed and room.channel_state == :deleted,
+        where:
+          episode.state in [:waiting_for_input, :waiting_for_event] or
+            (episode.state == :working and episode.owner_kind == :turn and
+               (is_nil(turn.id) or turn.status != :cancel_pending)),
+        order_by: [asc: room.updated_at, asc: room.id],
+        limit: 1,
+        select: {room, episode}
+      )
+    )
+  end
+
+  defp close_deleted_locked(room, now, detail) do
+    with :ok <- current_lifecycle(room, :deleted) do
+      attributes =
+        :deleted
+        |> reconciled_attributes()
+        |> Map.merge(channel_deleted_attributes())
+        |> Map.put(:last_error_detail, detail)
+
+      update!(room, attributes, now)
+    end
+  end
+
+  defp current_lifecycle(%IncidentRoom{status: :ready, channel_state: state}, state), do: :ok
+
+  defp current_lifecycle(%IncidentRoom{status: :ready}, _state),
+    do: Repo.rollback(:incident_room_lifecycle_stale)
+
+  defp current_lifecycle(%IncidentRoom{}, _state), do: Repo.rollback(:incident_room_not_ready)
+
+  defp reconciled_attributes(expected_state) do
+    %{
+      last_error_code: nil,
+      last_error_detail: nil,
+      lease_expires_at: nil,
+      lease_owner: nil,
+      lease_ref: nil,
+      next_attempt_at: nil,
+      reconciled_channel_state: expected_state
+    }
   end
 
   @spec record_channel_observation(
@@ -622,7 +696,7 @@ defmodule Ryker.Slack.IncidentRooms do
         next_attempt_at: nil
       }
 
-      attributes = requested_deleted_attributes(room, state, attributes)
+      attributes = deleted_attributes(room, state, attributes)
       room = update!(room, attributes, database_now!())
       %{room: room, status: :applied}
     else
@@ -630,16 +704,27 @@ defmodule Ryker.Slack.IncidentRooms do
     end
   end
 
-  defp requested_deleted_attributes(%IncidentRoom{status: :requested}, :deleted, attributes) do
-    Map.merge(attributes, %{
-      last_error_code: "incident_room_deleted",
-      last_error_detail: "Slack deleted the incident room before provisioning completed.",
-      reconciled_channel_state: :deleted,
-      status: :blocked
-    })
-  end
+  # A room without its investigation yet has nothing to close, so it closes on
+  # the event. It used to be blocked for good instead: a retry was refused, and
+  # it held a place in the open-room limit forever. A room that owns an
+  # investigation closes once the worker has closed that and told the alert
+  # thread the room came from (`close_deleted/3`).
+  defp deleted_attributes(%IncidentRoom{episode_id: nil}, :deleted, attributes),
+    do: Map.merge(attributes, channel_deleted_attributes())
 
-  defp requested_deleted_attributes(_room, _state, attributes), do: attributes
+  defp deleted_attributes(_room, _state, attributes), do: attributes
+
+  # Slack deletes a channel for good, so a room whose channel is gone can never
+  # be set up or resumed. Closing it releases its place in the open-room limit;
+  # its lifecycle events and the investigation's history stay.
+  defp channel_deleted_attributes do
+    %{
+      last_error_code: "incident_room_deleted",
+      last_error_detail: "Slack deleted the room's channel, so Ryker closed the room.",
+      reconciled_channel_state: :deleted,
+      status: :closed
+    }
+  end
 
   defp lifecycle_state(:joined), do: :active
   defp lifecycle_state(:unarchived), do: :active
@@ -666,11 +751,14 @@ defmodule Ryker.Slack.IncidentRooms do
   defp investigate_locked(attributes) do
     lock_workspace!(attributes.workspace_ref)
 
-    with {:ok, record, source_episode, _turn, _session} <- lock_offer(attributes.record_ref),
+    with {:ok, record, source_episode, _turn, session} <- lock_offer(attributes.record_ref),
          :ok <- workspace_source?(source_episode, attributes.workspace_ref),
          :ok <- no_room_for(record),
          {:ok, confirmation} <-
-           TaskOffers.confirm(Map.delete(attributes, :workspace_ref)) do
+           attributes
+           |> Map.delete(:workspace_ref)
+           |> inherit_placement(session)
+           |> TaskOffers.confirm() do
       confirmation
     else
       {:error, :task_offer_stale} -> Repo.rollback(:incident_offer_stale)
@@ -679,6 +767,19 @@ defmodule Ryker.Slack.IncidentRooms do
       {:error, :task_offer_not_delivered} -> Repo.rollback(:incident_offer_not_delivered)
       {:error, reason} -> Repo.rollback(reason)
     end
+  end
+
+  # An investigation in the thread works where its conversation works, like a
+  # room does: the same environment (so the same Emisar account) and the same
+  # mounted repositories the offer's session had. It ran outside any
+  # environment before 2026-09-25, so it could record no approvals.
+  defp inherit_placement(attributes, session) do
+    Map.update!(attributes, :policy, fn policy ->
+      policy
+      |> Map.put_new(:environment_ref, session.environment_ref)
+      |> Map.put_new(:repository_context, session.repository_context)
+      |> Map.put_new(:repository_ref, session.repository_ref)
+    end)
   end
 
   defp no_room_for(record) do
@@ -765,12 +866,14 @@ defmodule Ryker.Slack.IncidentRooms do
     end
   end
 
+  # The room works where the conversation it was opened from worked: that
+  # session's environment, repository and mounted companions, whatever the
+  # channel has chosen since. The channel supplies only who to invite.
   defp insert_room!(record, source_episode, source_session, attributes) do
     room_id = Ecto.UUID.generate()
     room_ref = "incident-room:#{room_id}"
     source_channel_ref = source_channel_ref!(attributes.target.conversation_ref)
     configuration = configuration(attributes.workspace_ref, source_channel_ref)
-    repository_ref = source_session.repository_ref || configuration.repository_ref
     title = record.payload["title"]
     prompt = record.payload["prompt"]
     channel_name = channel_name(attributes.channel_prefix, attributes.occurred_at, title, room_id)
@@ -787,6 +890,7 @@ defmodule Ryker.Slack.IncidentRooms do
       channel_name: channel_name,
       channel_state: :pending,
       confirmation_ref: attributes.confirmation_ref,
+      environment_ref: source_session.environment_ref,
       id: room_id,
       invite_user_group_refs: configuration.invite_user_group_refs,
       invite_user_refs: invite_users,
@@ -797,7 +901,7 @@ defmodule Ryker.Slack.IncidentRooms do
       record_id: record.id,
       ref: room_ref,
       repository_context: source_session.repository_context,
-      repository_ref: repository_ref,
+      repository_ref: source_session.repository_ref,
       requested_at: attributes.occurred_at,
       requested_by_actor_ref: attributes.actor_ref,
       source_channel_ref: source_channel_ref,
@@ -915,9 +1019,6 @@ defmodule Ryker.Slack.IncidentRooms do
          ) do
       nil ->
         Repo.rollback(:incident_room_not_found)
-
-      %IncidentRoom{status: :blocked, channel_state: :deleted} ->
-        Repo.rollback(:incident_room_deleted)
 
       %IncidentRoom{status: :blocked} = room ->
         status = if room.episode_id, do: :ready, else: :requested
@@ -1198,7 +1299,9 @@ defmodule Ryker.Slack.IncidentRooms do
              room.policy_digest,
              nil,
              room.repository_ref,
-             room.repository_context
+             room.repository_context,
+             nil,
+             room.environment_ref
            ),
          %Record{} = record <-
            Repo.one(
@@ -1463,6 +1566,13 @@ defmodule Ryker.Slack.IncidentRooms do
   defp reference(value, field) do
     if is_binary(value) and String.valid?(value) and :binary.match(value, <<0>>) == :nomatch and
          String.trim(value) != "" and byte_size(value) <= 1_024,
+       do: :ok,
+       else: {:error, {:invalid_incident_room_request, field}}
+  end
+
+  defp bounded_text(value, maximum, field) do
+    if is_binary(value) and String.valid?(value) and :binary.match(value, <<0>>) == :nomatch and
+         String.trim(value) != "" and byte_size(value) <= maximum,
        do: :ok,
        else: {:error, {:invalid_incident_room_request, field}}
   end

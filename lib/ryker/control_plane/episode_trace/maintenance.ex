@@ -42,18 +42,21 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Maintenance do
   end
 
   defp cleanup_outcome_step(%Session{cleanup_status: :discarded} = session) do
+    kind = get_in(session.cleanup_receipt || %{}, ["kind"])
+    {title, summary} = cleanup_outcome(kind)
+
     [
       step("maintenance-#{session.id}-discarded", :maintenance, session.discarded_at, %{
         actor: "Ryker",
         stage: "Maintenance",
-        state: "workspace removed",
-        title: "Workspace removed",
-        summary: cleanup_receipt_summary(session),
+        state: String.downcase(title),
+        title: title,
+        summary: summary,
         tone: nil,
         details:
           compact_details([
             {"Repository", session.repository_ref},
-            {"Receipt", get_in(session.cleanup_receipt || %{}, ["outcome"])},
+            {"Receipt", kind},
             {"Remote session", session.coop_session_id, identifier: true}
           ])
       })
@@ -109,15 +112,32 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Maintenance do
   defp cleanup_repository(%Session{repository_ref: repository}),
     do: "#{repository}'s worker session was closed. Closing is not removing its workspace."
 
-  defp cleanup_receipt_summary(%Session{cleanup_receipt: %{"outcome" => "never_bound"}}),
-    do: "No remote session was ever bound, so there was no remote workspace to delete."
-
-  defp cleanup_receipt_summary(%Session{cleanup_receipt: %{"outcome" => "already_discarded"}}),
+  # What the cleanup receipt proves, by the kind cleanup writes. Only
+  # "discarded" is a removal this pass made.
+  defp cleanup_outcome("never_bound"),
     do:
-      "The worker reported the workspace was already gone; this pass observed that, it did not delete it."
+      {"Nothing to remove",
+       "Ryker never learned a worker session for this request, so it had nothing to close or remove."}
 
-  defp cleanup_receipt_summary(_session),
-    do: "The temporary workspace was discarded. Retained inspection evidence is unaffected."
+  defp cleanup_outcome("already_discarded"),
+    do:
+      {"Workspace already gone",
+       "The worker reported the workspace was already gone; this pass observed that, it did not delete it."}
+
+  defp cleanup_outcome("remote_absent"),
+    do:
+      {"Workspace already gone",
+       "The worker no longer knew this session, so there was nothing left to close or remove."}
+
+  defp cleanup_outcome("worker_removed"),
+    do:
+      {"Workspace left on a removed worker",
+       "The worker holding it was removed from Ryker, so Ryker cannot reach it to close or remove it."}
+
+  defp cleanup_outcome(_kind),
+    do:
+      {"Workspace removed",
+       "The temporary workspace was discarded. Retained inspection evidence is unaffected."}
 
   defp retained_reason("dirty" <> _),
     do: "The workspace was kept: it still holds uncommitted changes."

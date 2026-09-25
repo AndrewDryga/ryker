@@ -10,6 +10,7 @@ defmodule Ryker.ControlPlane.WebhookPreview do
 
   use Phoenix.LiveComponent
 
+  alias Ryker.ControlPlane.{Components, Kit}
   alias Ryker.Webhooks.Presets
 
   @impl true
@@ -98,15 +99,20 @@ defmodule Ryker.ControlPlane.WebhookPreview do
   @impl true
   def render(assigns) do
     ~H"""
-    <section id={@id} class="webhook-preview" aria-labelledby={"#{@id}-title"}>
-      <h2 id={"#{@id}-title"}>Check a payload</h2>
-      <p class="settings-description">
-        Paste a sample delivery to preview the event Ryker would create. Nothing is saved or sent.
-      </p>
-      <p :if={sources(@view) == []} class="muted">Save a webhook source first.</p>
+    <section id={@id} class="webhook-preview" aria-label="Check a payload">
+      <Kit.section_head
+        title="Check a payload"
+        lede="Paste one delivery to see the event Ryker would record. Nothing is saved or sent."
+      />
+      <Kit.empty
+        :if={sources(@view) == []}
+        title="Nothing to check yet"
+        text="Add a webhook source first, then paste one of its deliveries here."
+      />
       <form
         :if={sources(@view) != []}
         id={"#{@id}-form"}
+        class="settings-form"
         phx-change="edit"
         phx-submit="check"
         phx-target={@myself}
@@ -119,13 +125,19 @@ defmodule Ryker.ControlPlane.WebhookPreview do
               value={source.name}
               selected={source.name == @source_name}
             >
-              {source.name} · {source.adapter_kind}
+              {source.name}
             </option>
           </select>
         </div>
-        <div class="settings-field">
-          <label for={"#{@id}-sample"}>Sample payload</label>
-          <textarea id={"#{@id}-sample"} name="sample" rows="10">{@sample}</textarea>
+        <div class="settings-field settings-field-wide">
+          <label for={"#{@id}-sample"}>Sample delivery</label>
+          <p class="settings-help" id={"#{@id}-sample-help"}>The JSON body of one request.</p>
+          <textarea
+            id={"#{@id}-sample"}
+            name="sample"
+            rows="10"
+            aria-describedby={"#{@id}-sample-help"}
+          >{@sample}</textarea>
         </div>
         <div class="settings-actions">
           <button type="submit" class="ui-button primary">Check this payload</button>
@@ -135,40 +147,39 @@ defmodule Ryker.ControlPlane.WebhookPreview do
             phx-click="load-sample"
             phx-target={@myself}
           >
-            Use the recorded example
+            Use an example
           </button>
         </div>
       </form>
-      <Ryker.ControlPlane.Components.form_feedback
-        :if={@error}
-        message={@error}
-        tone={:error}
-        class="settings-error"
-      />
+      <Components.form_feedback :if={@error} message={@error} tone={:error} class="settings-error" />
       <div :if={@mapped} class="webhook-preview-result" role="status">
         <h3>
           {length(@mapped)} {if length(@mapped) == 1, do: "event", else: "events"} would be recorded
         </h3>
-        <dl :for={event <- @mapped}>
-          <div>
-            <dt>Event</dt>
-            <dd>{event.event_ref}</dd>
-          </div>
-          <div>
-            <dt>Occurred</dt>
-            <dd>{DateTime.to_iso8601(event.occurred_at)}</dd>
-          </div>
-          <div>
-            <dt>Revision</dt>
-            <dd>{event.revision}</dd>
-          </div>
-          <div>
-            <dt>Content</dt>
-            <dd><pre>{inspect(event.summary, pretty: true, limit: 40)}</pre></dd>
-          </div>
-        </dl>
+        <div :for={event <- @mapped} class="webhook-preview-event">
+          <p class="entity-meta">
+            <strong>{event.event_ref}</strong>
+            · occurred
+            <time
+              datetime={DateTime.to_iso8601(event.occurred_at)}
+              title={DateTime.to_iso8601(event.occurred_at)}
+            >{Calendar.strftime(event.occurred_at, "%-d %b %Y, %H:%M UTC")}</time>
+            · revision {event.revision}
+          </p>
+          <Components.copy_block label="Copy the event content">
+            <pre>{content(event.summary)}</pre>
+          </Components.copy_block>
+        </div>
       </div>
     </section>
     """
+  end
+
+  # What the event would carry, as the JSON a person pasted it as.
+  defp content(summary) do
+    case Jason.encode(summary, pretty: true) do
+      {:ok, json} -> json
+      {:error, _reason} -> inspect(summary, pretty: true, limit: 40)
+    end
   end
 end

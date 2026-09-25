@@ -94,7 +94,9 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
         ] do
       html = page("/channels/T123/#{channel}")
       assert fact(html, "Visibility") == visibility, "#{channel} visibility"
-      assert fact(html, "Externally shared") == shared, "#{channel} external sharing"
+
+      assert fact(html, "Shared with another organization") == shared,
+             "#{channel} external sharing"
     end
 
     assert {:ok, %{channel: %{membership: public}}} = Projection.channel("T123", "CPUBLIC", %{})
@@ -118,8 +120,16 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
     html = page("/channels/T123/C456")
     assert html =~ "slack:T123:C456"
     assert html =~ "slack:T123"
-    assert fact(html, "Channel") =~ "C456"
-    assert fact(html, "Workspace") =~ "T123"
+    assert fact(html, "Channel ID") =~ "C456"
+    assert fact(html, "Workspace ID") =~ "T123"
+
+    # The raw references live in the one closed Details disclosure, never in
+    # the facts a person reads first or in any list.
+    document = LazyHTML.from_document(html)
+    refute Enum.empty?(LazyHTML.query(document, "code"))
+
+    assert Enum.count(LazyHTML.query(document, "code")) ==
+             Enum.count(LazyHTML.query(document, "details:not([open]) code"))
   end
 
   test "current configuration is projected exactly, not inferred" do
@@ -131,9 +141,11 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
       left_at: nil
     )
 
+    environment!("production", "Production", ~w(api docs), emisar: "approvals")
+
     configuration!("T123", "C456",
       participation: :proactive,
-      repository_ref: "ryker",
+      environment_ref: "production",
       alert_policy: :offer,
       invite_user_refs: ["U1", "U2"],
       invite_user_group_refs: ["S1"],
@@ -156,7 +168,7 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
 
     assert %{
              participation: :proactive,
-             repository_ref: "ryker",
+             environment_ref: "production",
              alert_policy: :offer,
              invite_user_refs: ["U1", "U2"],
              invite_user_group_refs: ["S1"],
@@ -165,26 +177,40 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
              saved_at: @now
            } = view.channel.configuration
 
-    assert view.scope.repository_ref == "ryker"
-    assert view.channel.repository == %{ref: "ryker", source: :configuration}
+    # Inherited rules and memory resolve through the repository the
+    # environment's work changes.
+    assert view.scope.repository_ref == "api"
+
+    assert %{
+             ref: "production",
+             source: :channel,
+             name: "Production",
+             emisar: "Production approvals",
+             writable: "api",
+             repositories: [%{ref: "api", name: "acme/api"}, %{ref: "docs", name: "acme/docs"}]
+           } = view.channel.environment
+
     assert view.channel.kind == :channel
 
-    assert [
-             %{setting: :proactive, value: true, scope: :channel, revision: 4},
-             %{setting: :shadow, value: false, scope: :channel, revision: 4}
-           ] = view.participation
+    assert view.participation == %{source: :channel, value: :proactive}
 
     html = page("/channels/T123/C456")
-    assert fact(html, "Membership") =~ "Joined"
-    assert fact(html, "Membership") =~ "generation 3"
-    assert fact(html, "Participation") =~ "Proactive"
-    assert fact(html, "Repository") =~ "ryker"
-    assert fact(html, "Alert policy") =~ "Offer"
-    assert fact(html, "Additional users") =~ "U1"
-    assert fact(html, "User groups") =~ "S1"
-    assert fact(html, "Configured by") =~ "U123"
-    assert fact(html, "Revision") =~ "4"
-    assert fact(html, "Saved") =~ "10 Sep, 12:00 UTC"
+    assert fact(html, "Membership") == "Ryker joined 10 Sep"
+    assert fact(html, "Membership record") == "Generation 3"
+
+    assert fact(html, "Conversations") ==
+             "Joins relevant conversations · set for this channel"
+
+    assert fact(html, "Code") == "Changes acme/api · reads acme/docs"
+    assert fact(html, "Emisar") == "Production approvals"
+    assert fact(html, "Alerts") == "Offers to investigate, in the thread or an incident room"
+    assert fact(html, "Invites to incident rooms") =~ "U1"
+    assert fact(html, "Invites to incident rooms") =~ "user group S1"
+    assert fact(html, "Channel settings") =~ "Revision 4, saved 10 Sep, 12:00 UTC by"
+    assert fact(html, "Channel settings") =~ "U123"
+
+    assert html |> LazyHTML.from_document() |> LazyHTML.query(".channel-state") |> LazyHTML.text() =~
+             "Ryker is in"
   end
 
   test "unconfigured values are calm explicit empties, never a substituted default" do
@@ -198,19 +224,23 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
     assert {:ok, view} = Projection.channel("T123", "C456", %{})
     assert is_nil(view.channel.configuration)
     assert is_nil(view.channel.incident_room)
-    assert is_nil(view.channel.repository)
-    assert [%{scope: :installation}, %{scope: :installation}] = view.participation
+    assert %{ref: nil, source: :default, repositories: []} = view.channel.environment
+    assert view.participation == %{source: :installation, value: :mentions}
 
     html = page("/channels/T123/C456")
-    assert fact(html, "Membership") =~ "Left"
-    assert fact(html, "Participation") == "Not configured"
-    assert fact(html, "Repository") == "Not configured"
-    assert fact(html, "Alert policy") == "Not configured"
-    assert fact(html, "Additional users") == "None"
-    assert fact(html, "User groups") == "None"
-    assert fact(html, "Revision") == "Not configured"
-    assert html =~ "Installation default"
+    assert fact(html, "Membership") =~ "Ryker left"
+    assert fact(html, "Conversations") == "Replies when mentioned · workspace default"
+    assert fact(html, "Environment") == "None, and no environment is the default"
+    assert fact(html, "Code") == "None, so Ryker does not read code here"
+    assert fact(html, "Emisar") == "None, so Ryker cannot act on running systems here"
+    refute html =~ "channel-environment-choice"
+    assert fact(html, "Alerts") == "Investigates in the alert's thread"
+    assert fact(html, "Channel settings") == "Never saved; this channel follows the defaults"
+    refute "Invites to incident rooms" in fact_labels(html)
     refute "Incident room" in fact_labels(html)
+
+    assert html |> LazyHTML.from_document() |> LazyHTML.query(".channel-state") |> LazyHTML.text() =~
+             "Ryker left"
   end
 
   test "an incident room channel shows its room and owning incident only when it is one" do
@@ -231,13 +261,22 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
            } = view.channel.incident_room
 
     assert view.channel.incident_room.episode_ref == source.episode.key
-    assert view.channel.repository == %{ref: "ryker", source: :incident_room}
+
+    # An incident room keeps the repository it was opened with; it has no
+    # environment of its own to choose.
+    assert %{source: :incident_room, writable: "ryker"} = view.channel.environment
     assert view.scope.repository_ref == "ryker"
 
     html = page("/channels/T123/CINCIDENT")
     assert html =~ "href=\"/incident-rooms/incident-room%3Aoperator\""
-    assert fact(html, "Kind") == "Incident room"
-    assert fact(html, "Room state") =~ "Active"
+    assert html =~ "A private incident room in"
+    assert fact(html, "Incident room") =~ "Operator incident · needs attention"
+    assert fact(html, "Code") == "Changes ryker · from the incident room"
+    refute "Environment" in fact_labels(html)
+
+    assert html |> LazyHTML.from_document() |> LazyHTML.query(".channel-state") |> LazyHTML.text() =~
+             "Incident open"
+
     refute html =~ room.prompt
     refute html =~ "private-incident-error"
   end
@@ -358,17 +397,13 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
       assert length(view.episodes.items) == @page_size
 
       html = page("/channels/T123/C456")
-      summary = html |> LazyHTML.from_document() |> LazyHTML.query(".page-summary")
+      work = html |> LazyHTML.from_document() |> LazyHTML.query("#episodes")
 
-      assert summary
-             |> LazyHTML.query(".page-summary-facts dt")
-             |> LazyHTML.text()
-             |> String.trim() == "retained episodes"
+      assert work |> LazyHTML.query(".pagination span") |> LazyHTML.text() =~
+               "Page 1 of 9 · 201 conversations"
 
-      assert LazyHTML.query(summary, ".page-summary-facts dd") |> LazyHTML.text() == "201"
-
-      metric = LazyHTML.query(summary, ".page-summary-link")
-      assert LazyHTML.text(metric) == "View conversation"
+      metric = LazyHTML.query(work, ".section-actions a")
+      assert LazyHTML.text(metric) |> String.trim() == "All 201 conversations"
 
       [href] = LazyHTML.attribute(metric, "href")
       assert href == Activity.conversation_path("slack", "slack:T123:C456")
@@ -386,17 +421,24 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
       assert Enum.all?(directory.items, &(&1.conversation == "slack:T123:C456"))
     end
 
-    test "an empty relation says so once, not as a zero count above an empty line" do
-      # "0 rollups" over "No compacted continuity is retained" is the same
-      # fact twice; the count is for a list that has rows.
+    test "an empty section says what would put something there once, with no zero count" do
+      # "0 rollups" over "No compacted continuity is retained" was the same
+      # fact twice; a count belongs to a list that has rows.
       membership!("T123", "C456", private: false, external_shared: false)
       document = page("/channels/T123/C456") |> LazyHTML.from_document()
-      rollups = LazyHTML.query(document, "#rollups")
-      assert LazyHTML.query(rollups, "p.empty-state") |> LazyHTML.text() =~ "No compacted"
-      assert LazyHTML.query(rollups, "p.result-count") |> Enum.empty?()
+      schedules = LazyHTML.query(document, "#schedules")
+
+      assert LazyHTML.query(schedules, ".entity-empty-title") |> LazyHTML.text() ==
+               "Nothing is scheduled here."
+
+      assert LazyHTML.query(schedules, ".ask-hint q") |> LazyHTML.text() =~ "Every weekday"
+      assert Enum.empty?(LazyHTML.query(schedules, ".pagination, .result-count, .entity-row"))
+
+      applies = LazyHTML.query(document, "#applies .entity-empty-title")
+      assert LazyHTML.text(applies) == "Nothing else applies here yet."
     end
 
-    test "a related episode is named by what was asked, with its key as the secondary fact" do
+    test "a related episode is named by what was asked and links to its timeline, never by its key" do
       # Deployed as 0.1.0-g865731d1, every row in Related episodes read
       # `ingress-input:dc0ef577-…` in monospace and nothing else: the key of
       # the request, not the request. The Activity page already names an
@@ -435,13 +477,14 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
       rows =
         page("/channels/T123/C456")
         |> LazyHTML.from_document()
-        |> LazyHTML.query("#episodes tbody tr")
+        |> LazyHTML.query("#episodes article.entity-row")
 
       assert [row] = Enum.to_list(rows)
-      link = LazyHTML.query(row, "td:first-child a")
+      link = LazyHTML.query(row, "h3.entity-name a")
       assert LazyHTML.text(link) =~ "checkout is returning 502s"
-      refute LazyHTML.text(link) =~ key
-      assert LazyHTML.query(row, "td:first-child code") |> LazyHTML.text() == key
+      assert LazyHTML.attribute(link, "href") == ["/timeline/" <> URI.encode_www_form(key)]
+      refute LazyHTML.text(row) =~ key
+      assert LazyHTML.query(row, ".state-word") |> LazyHTML.text() != ""
     end
 
     test "every related collection pages exactly at 25 rows without losing a timestamp tie" do
@@ -451,21 +494,9 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
       episode_refs = episodes!("slack:T123:C456", 26, updated_at: @now)
       schedule_refs = schedules!(source, "slack:T123:C456", 26)
       summary_refs = for _ <- 1..26, do: summary!("slack:T123", "slack:T123:C456", []).ref
-      future = DateTime.add(@now, 30, :day)
-
-      # A rollup is unique per period, so each one starts on its own day.
-      rollup_refs =
-        for index <- 1..26,
-            do:
-              rollup!("slack:T123", :conversation, "slack:T123:C456",
-                expires_at: future,
-                period_start: DateTime.add(@now, -index, :day)
-              ).ref
 
       knowledge_refs =
         for index <- 1..26, do: knowledge!("slack:T123:C456", title: "Topic #{index}").id
-
-      learning_refs = for _ <- 1..26, do: batch!("slack:T123:C456", status: :no_change).id
 
       # One turn may hold only so many offers; each collection gets its own.
       rules_source = SavedEntities.source!("slack:T123:CSOURCE-rules")
@@ -501,9 +532,7 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
             {:episodes, "episode_page", episode_refs},
             {:schedules, "schedule_page", schedule_refs},
             {:summaries, "summary_page", summary_refs},
-            {:rollups, "rollup_page", rollup_refs},
             {:knowledge, "knowledge_page", knowledge_refs},
-            {:learning, "learning_page", learning_refs},
             {:rules, "rule_page", rule_refs},
             {:preferences, "preference_page", preference_refs},
             {:guidance, "guidance_page", guidance_refs},
@@ -592,15 +621,24 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
       assert length(view.summaries.items) == @page_size
 
       html = page("/channels/T123/C456?summary_page=2")
-      refute html =~ "No conversation context is retained"
+      refute html =~ "Ryker has not learned anything here yet."
+
+      assert html
+             |> LazyHTML.from_document()
+             |> LazyHTML.query("#summaries .entity-row")
+             |> Enum.count() == 25
     end
 
     test "a channel with only paged-out rows never reads as empty" do
       membership!("T123", "C456", private: false, external_shared: false)
       summary!("slack:T123", "slack:T123:C456", [])
       html = page("/channels/T123/C456?summary_page=9")
-      refute html =~ "No conversation context is retained"
-      assert html =~ "1 context record"
+      refute html =~ "Ryker has not learned anything here yet."
+
+      assert html
+             |> LazyHTML.from_document()
+             |> LazyHTML.query("#summaries .entity-row")
+             |> Enum.count() == 1
     end
   end
 
@@ -663,7 +701,7 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
       assert text =~ "Fail over to the replica"
       assert text =~ "Confirm the backup finished"
       assert text =~ LearningActivity.error("source_capacity")
-      assert text =~ "Recalled 3 times"
+      assert text =~ "recalled 3 times"
       assert text =~ "ryker"
       hrefs = section |> LazyHTML.query("a") |> LazyHTML.attribute("href")
       assert item.request_path in hrefs
@@ -673,56 +711,6 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
       # The ref stays reachable, but it is not the heading.
       refute section |> LazyHTML.query("h3") |> LazyHTML.text() =~ summary.ref
       assert html =~ summary.ref
-    end
-
-    test "rollups are the canonical conversation's own, unexpired ones" do
-      membership!("T123", "C456", private: false, external_shared: false)
-      configuration!("T123", "C456", repository_ref: "ryker")
-      future = DateTime.add(@now, 30, :day)
-      past = DateTime.add(@now, -30, :day)
-
-      current =
-        rollup!("slack:T123", :conversation, "slack:T123:C456",
-          expires_at: future,
-          source_count: 4,
-          recall_count: 2,
-          situation: "Rolled up situation"
-        )
-
-      rollup!("slack:T123", :conversation, "slack:T123:C456",
-        expires_at: DateTime.add(past, 2, :day),
-        period_start: past
-      )
-
-      rollup!("slack:T123", :repository, "ryker",
-        expires_at: future,
-        repository_ref: "ryker"
-      )
-
-      rollup!("slack:T123", :conversation, "slack:T123:C999", expires_at: future)
-      rollup!("T123", :conversation, "slack:T123:C456", expires_at: future)
-      rollup!("slack:T999", :conversation, "slack:T999:C456", expires_at: future)
-
-      assert {:ok, view} = Projection.channel("T123", "C456", %{})
-      assert view.rollups.total == 1
-      assert [item] = view.rollups.items
-      assert item.ref == current.ref
-      assert item.source_count == 4
-      assert item.recall_count == 2
-      assert item.expires_at == future
-      assert item.text == "Rolled up situation"
-      assert %DateTime{} = item.period_start
-      assert %DateTime{} = item.period_end
-      refute Map.has_key?(item, :source_refs)
-      refute Map.has_key?(item, :source_scopes)
-
-      html = page("/channels/T123/C456")
-      section = html |> LazyHTML.from_document() |> LazyHTML.query("#rollups") |> LazyHTML.text()
-      assert section =~ "1 rollup"
-      assert section =~ "4 sources"
-      assert section =~ "Rolled up situation"
-      assert section =~ "Recalled 2 times"
-      assert section =~ "Expires 10 Oct, 12:00 UTC"
     end
 
     test "learned knowledge for the exact conversation shows its topic, state and history link" do
@@ -751,8 +739,7 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
       assert learned.version == 1
       assert learned.text =~ "wants to keep"
 
-      assert learned.path ==
-               "/memory?" <> URI.encode_query(%{"kind" => "knowledge", "item" => learned.id})
+      assert learned.path == "/memory/learned?" <> URI.encode_query(%{"item" => learned.id})
 
       expired = Enum.find(view.knowledge.items, &(&1.id == pruned.id))
       refute expired.available
@@ -761,66 +748,60 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
       html = page("/channels/T123/C456")
       section = html |> LazyHTML.from_document() |> LazyHTML.query("#knowledge")
       assert LazyHTML.text(section) =~ "Keep draft-ai-suggestions"
-      assert LazyHTML.text(section) =~ "Not used for recall"
+      assert LazyHTML.text(section) =~ "Not in use"
+      assert LazyHTML.text(section) =~ "a source changed, was removed or expired"
       assert learned.path in LazyHTML.attribute(LazyHTML.query(section, "a"), "href")
       refute html =~ "must-not-render-pruned"
       refute html =~ "Elsewhere"
     end
 
-    test "learning batches for the exact conversation show their health and link to the inspection" do
+    test "a long learned topic reads as a few lines, and the whole text stays one click away" do
+      # "What Ryker knows" is a summary of the channel, not the memory itself:
+      # one topic's full text once pushed every later section off the screen.
       membership!("T123", "C456", private: false, external_shared: false)
+      long = String.duplicate("Replication lag grows under load on the primary. ", 20)
+      item = knowledge!("slack:T123:C456", title: "Replication", summary: long)
 
-      deferred =
-        batch!("slack:T123:C456",
-          status: :deferred,
-          error_code: "learning_judgment_deferred",
-          next_attempt_at: ~U[2026-09-11 12:00:00.000000Z]
-        )
+      row =
+        page("/channels/T123/C456")
+        |> LazyHTML.from_document()
+        |> LazyHTML.query("#knowledge article.entity-row")
 
-      queued = batch!("slack:T123:C456", status: :queued, execution_mode: :shadow, input_count: 3)
-      settled = batch!("slack:T123:C456", status: :no_change, completed_at: @now)
-      batch!("slack:T123:C999", status: :queued)
+      text = row |> LazyHTML.query("p.entity-text") |> LazyHTML.text()
+      assert String.length(text) <= 281
+      assert String.ends_with?(text, "…")
+
+      assert LazyHTML.query(row, "h3.entity-name a") |> LazyHTML.attribute("href") == [
+               "/memory/learned?" <> URI.encode_query(%{"item" => item.id})
+             ]
+    end
+
+    test "learning that needs a person is counted for the exact conversation and links to Learning" do
+      membership!("T123", "C456", private: false, external_shared: false)
+      membership!("T123", "C999", private: false, external_shared: false)
+
+      batch!("slack:T123:C456",
+        status: :deferred,
+        error_code: "learning_judgment_deferred",
+        next_attempt_at: ~U[2026-09-11 12:00:00.000000Z]
+      )
+
+      batch!("slack:T123:C456", status: :queued, execution_mode: :shadow, input_count: 3)
+      batch!("slack:T123:C456", status: :no_change, completed_at: @now)
+      batch!("slack:T123:C999", status: :deferred, error_code: "learning_judgment_deferred")
 
       assert {:ok, view} = Projection.channel("T123", "C456", %{})
-      assert view.learning.total == 3
-
-      assert view.learning.counts == %{
-               queued: 1,
-               running: 0,
-               applied: 0,
-               no_change: 1,
-               deferred: 1,
-               superseded: 0
-             }
-
-      # Three batches formed in the same instant: the unique id breaks the tie.
-      assert Enum.map(view.learning.items, & &1.id) ==
-               Enum.sort([settled.id, queued.id, deferred.id], :desc)
-
-      item = Enum.find(view.learning.items, &(&1.id == deferred.id))
-      assert item.label == "Needs attention"
-      assert item.error == LearningActivity.error("learning_judgment_deferred")
-      assert item.path == LearningActivity.path(deferred.id)
-      assert item.next_attempt_at == ~U[2026-09-11 12:00:00.000000Z]
-      assert Enum.find(view.learning.items, &(&1.id == queued.id)).mode == :shadow
-      refute Map.has_key?(item, :lease_owner)
-      refute Map.has_key?(item, :policy_digest)
+      assert %{needs_attention: 1, waiting: 0} = view.learning
 
       html = page("/channels/T123/C456")
-      section = html |> LazyHTML.from_document() |> LazyHTML.query("#learning")
-      text = LazyHTML.text(section)
-      assert text =~ "1 queued"
-      assert text =~ "1 needs attention"
-      assert text =~ "3 messages"
-      assert text =~ LearningActivity.error("learning_judgment_deferred")
-
-      assert LearningActivity.path(deferred.id) in LazyHTML.attribute(
-               LazyHTML.query(section, "a"),
-               "href"
-             )
-
+      section = html |> LazyHTML.from_document() |> LazyHTML.query("#knows")
+      link = LazyHTML.query(section, ".channel-health a[href='/memory/learning']")
+      assert LazyHTML.text(link) =~ "1 learning batch needs attention"
       refute html =~ "must-not-render-lease"
       refute html =~ "must-not-render-policy"
+
+      assert {:ok, quiet} = Projection.channel("T123", "C999", %{})
+      assert quiet.learning.needs_attention == 1
     end
 
     test "in-flight drafts and unsaved handovers are counted, never shown" do
@@ -839,16 +820,16 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
       assert view.summaries.total == 0
 
       html = page("/channels/T123/C456")
-      section = html |> LazyHTML.from_document() |> LazyHTML.query("#summaries")
-      assert LazyHTML.text(section) =~ "1 context update in flight"
-      assert LazyHTML.text(section) =~ "1 context update not saved"
+      section = html |> LazyHTML.from_document() |> LazyHTML.query("#knows")
+      assert LazyHTML.text(section) =~ "1 conversation update being saved"
+      assert LazyHTML.text(section) =~ "1 conversation update could not be saved"
 
-      assert "/memory#handover-failures" in LazyHTML.attribute(
+      assert "/memory/learning#context-not-saved" in LazyHTML.attribute(
                LazyHTML.query(section, "a"),
                "href"
              )
 
-      assert LazyHTML.text(section) =~ "No conversation context is retained"
+      assert LazyHTML.text(section) =~ "Ryker has not learned anything here yet."
       refute html =~ "must-not-render-draft"
 
       assert {:ok, quiet} = Projection.channel("T123", "C999", %{})
@@ -858,8 +839,9 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
 
   describe "confirmed context" do
     setup do
+      environment!("ryker", "Ryker", ~w(ryker))
       membership!("T123", "C456", private: false, external_shared: false)
-      configuration!("T123", "C456", repository_ref: "ryker")
+      configuration!("T123", "C456", environment_ref: "ryker")
       # Offers need a real source turn; it lives elsewhere so it adds no episode here.
       source = SavedEntities.source!("slack:T123:CSOURCE")
       other = SavedEntities.source!("slack:T999:CSOURCE")
@@ -888,10 +870,11 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
       html = page("/channels/T123/C456")
       section = html |> LazyHTML.from_document() |> LazyHTML.query("#rules")
       text = LazyHTML.text(section)
-      assert text =~ "2 rules"
+      assert Enum.count(LazyHTML.query(section, "article.entity-row")) == 2
       assert text =~ "Review Terraform plans"
       assert text =~ "Paused"
-      assert text =~ "Used 0 times"
+      assert text =~ "Rule for this channel"
+      assert text =~ "not used yet"
       refute text =~ "Workspace rule"
       refute text =~ "Repository rule"
       refute text =~ "Other channel"
@@ -1000,30 +983,32 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
       html = page("/channels/T123/C456")
       document = LazyHTML.from_document(html)
       preferences = document |> LazyHTML.query("#preferences") |> LazyHTML.text()
-      assert preferences =~ "3 preferences"
+      assert Enum.count(LazyHTML.query(document, "#preferences article.entity-row")) == 3
       assert preferences =~ "Response detail"
-      assert preferences =~ "This channel"
-      assert preferences =~ "Inherited from repository ryker"
-      assert preferences =~ "Inherited from the workspace"
+      assert preferences =~ "set for this channel"
+      assert preferences =~ "from repository ryker"
+      assert preferences =~ "from the whole workspace"
       refute preferences =~ "Elsewhere"
       refute preferences =~ "Paused"
       refute preferences =~ "Person"
       refute preferences =~ "Stale"
 
       guidance = document |> LazyHTML.query("#guidance") |> LazyHTML.text()
-      assert guidance =~ "4 guidance entries"
+      assert Enum.count(LazyHTML.query(document, "#guidance article.entity-row")) == 4
       assert guidance =~ "Only here: must-stay-visible-here"
-      assert guidance =~ "Visible only in this conversation"
+      assert guidance =~ "only in this channel"
       refute html =~ "must-not-render-foreign-private"
       refute html =~ "must-not-render-personal"
 
-      hrefs = document |> LazyHTML.query("#guidance a") |> LazyHTML.attribute("href")
-      assert ("/guidance#behavior-" <> here.ref) in hrefs
-
-      assert ("/preferences#behavior-" <> channel.ref) in LazyHTML.attribute(
-               LazyHTML.query(document, "#preferences a"),
-               "href"
-             )
+      # Saved preferences and guidance are listed, and paged, under one
+      # section of the Instructions page; that section always exists.
+      for section <- ["#guidance", "#preferences"] do
+        assert document
+               |> LazyHTML.query(section <> " h3 a")
+               |> LazyHTML.attribute("href")
+               |> Enum.uniq() ==
+                 ["/instructions#saved"]
+      end
     end
 
     test "operational memory applies through its runtime scope and visibility, labeled and unaccounted",
@@ -1083,14 +1068,13 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
       html = page("/channels/T123/C456")
       section = html |> LazyHTML.from_document() |> LazyHTML.query("#memory")
       text = LazyHTML.text(section)
-      assert text =~ "4 memories"
+      assert Enum.count(LazyHTML.query(section, "article.entity-row")) == 4
       assert text =~ "primary database"
       assert text =~ "db-01"
-      assert text =~ "This channel"
-      assert text =~ "Inherited from repository ryker"
-      assert text =~ "Inherited from the workspace"
-      assert text =~ "Every workspace"
-      assert text =~ "Entity relationship"
+      assert text =~ "set for this channel"
+      assert text =~ "from repository ryker"
+      assert text =~ "from the whole workspace"
+      assert text =~ "from every workspace"
       refute html =~ "must-not-render-foreign-memory"
       refute text =~ "elsewhere"
       refute text =~ "superseded"
@@ -1105,7 +1089,7 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
       assert Repo.all(from(behavior in Behavior, select: behavior.use_count)) |> Enum.uniq() == []
     end
 
-    test "confirmed context is not inherited from a repository the channel does not configure",
+    test "confirmed context is not inherited from a repository the channel's environment does not hold",
          %{source: source} do
       Repo.delete_all(Ryker.Slack.ChannelConfiguration)
 
@@ -1189,8 +1173,8 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
       section = html |> LazyHTML.from_document() |> LazyHTML.query("#usage")
       text = section |> LazyHTML.text() |> String.replace(~r/\s+/, " ")
       assert text =~ "Last 7 days"
-      assert text =~ "all work"
-      assert text =~ "3 executions"
+      assert text =~ "live work and evaluation runs"
+      assert text =~ "3 runs"
       assert text =~ "2 of 3 reported tokens"
       assert text =~ "1 of 3 recorded a cost"
       assert text =~ "$0.50"
@@ -1205,9 +1189,9 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
       now = DateTime.utc_now()
 
       quiet = page("/channels/T123/C456") |> usage_text()
-      assert quiet =~ "No executions"
+      assert quiet =~ "No model work here in this window."
       refute quiet =~ "$0"
-      refute quiet =~ "Not recorded"
+      refute quiet =~ "not recorded"
 
       execution!("slack:T123:C456",
         recorded_at: DateTime.add(now, -1, :hour),
@@ -1219,7 +1203,7 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
       measured_zero = page("/channels/T123/C456") |> usage_text()
       assert measured_zero =~ "1 of 1 reported tokens"
       assert measured_zero =~ "0 input"
-      assert measured_zero =~ "Cost Not recorded"
+      assert measured_zero =~ "Cost not recorded"
       refute measured_zero =~ "$0"
 
       Repo.delete_all(Execution)
@@ -1228,8 +1212,8 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
       assert %{executions: 1, measured: 0, costed: 0} = view.usage
       missing = page("/channels/T123/C456") |> usage_text()
       assert missing =~ "0 of 1 reported tokens"
-      assert missing =~ "Tokens Not recorded"
-      assert missing =~ "Cost Not recorded"
+      assert missing =~ "Tokens not recorded"
+      assert missing =~ "Cost not recorded"
       refute missing =~ "0 input"
     end
 
@@ -1316,15 +1300,68 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
 
       conn = build_conn() |> Map.put(:host, "localhost")
       {:ok, view, html} = live(conn, "/channels/T123/C456?episode_page=2&summary_page=2")
-      assert pages(html) == %{"episodes" => "Page 2 of 2", "summaries" => "Page 2 of 2"}
+      second = %{"episodes" => "Page 2 of 2", "summaries" => "Page 2 of 2"}
+      assert pages(html) == second
 
       send(view.pid, :reconcile)
-      assert pages(render(view)) == %{"episodes" => "Page 2 of 2", "summaries" => "Page 2 of 2"}
+      assert pages(render(view)) == second
       render_click(view, "refresh")
-      assert pages(render(view)) == %{"episodes" => "Page 2 of 2", "summaries" => "Page 2 of 2"}
+      assert pages(render(view)) == second
 
       {:ok, _view, first} = live(conn, "/channels/T123/C456")
       assert pages(first) == %{"episodes" => "Page 1 of 2", "summaries" => "Page 1 of 2"}
+    end
+
+    test "a channel page selects an environment" do
+      # Andrew, 2026-09-25: "channels select environments, not a specific
+      # repo". The page used to name the channel's repository and send people
+      # to Slack to change it; the environment is chosen here now, and what
+      # the channel's work may use changes with it.
+      environment!("production", "Production", ~w(api docs), emisar: "approvals", default: true)
+      environment!("staging", "Staging", ~w(api))
+      membership!("T123", "C456", private: false, external_shared: false)
+      configuration!("T123", "C456", environment_ref: "production")
+
+      conn = build_conn() |> Map.put(:host, "localhost")
+      {:ok, view, html} = live(conn, "/channels/T123/C456")
+
+      assert has_element?(
+               view,
+               "#channel-environment-choice option[selected][value=production]",
+               "Production"
+             )
+
+      assert has_element?(view, "#channel-environment-choice option[value='']", "No environment")
+      assert fact(html, "Code") == "Changes acme/api · reads acme/docs"
+      assert fact(html, "Emisar") == "Production approvals"
+
+      view |> form("#channel-environment", environment: "staging") |> render_submit()
+
+      assert %{environment_ref: "staging", actor_ref: "control-plane:local", revision: 2} =
+               Repo.get_by!(Ryker.Slack.ChannelConfiguration,
+                 workspace_ref: "T123",
+                 channel_ref: "C456"
+               )
+
+      assert has_element?(
+               view,
+               "#channel-environment-notice",
+               "Saved. This channel works in Staging now."
+             )
+
+      assert has_element?(view, "#channel-environment-choice option[selected][value=staging]")
+      assert fact(render(view), "Code") == "Changes acme/api"
+      assert fact(render(view), "Emisar") == "None, so Ryker cannot act on running systems here"
+
+      view |> form("#channel-environment", environment: "") |> render_submit()
+
+      assert %{environment_ref: nil} =
+               Repo.get_by!(Ryker.Slack.ChannelConfiguration,
+                 workspace_ref: "T123",
+                 channel_ref: "C456"
+               )
+
+      assert fact(render(view), "Code") == "None, so Ryker does not read code here"
     end
 
     test "a percent-encoded channel link opens the same native page as the plain one" do
@@ -1349,8 +1386,10 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
       for section <- ~w(episodes summaries), into: %{} do
         {section,
          document
-         |> LazyHTML.query("##{section} .pagination span")
+         |> LazyHTML.query("##{section} .pagination > span")
          |> LazyHTML.text()
+         |> String.split(" · ")
+         |> hd()
          |> String.trim()}
       end
     end
@@ -1422,7 +1461,7 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
       id: Ecto.UUID.generate(),
       invite_user_group_refs: [],
       invite_user_refs: [],
-      repository_ref: nil,
+      environment_ref: nil,
       alert_policy: :reply,
       revision: 1,
       saved_at: @now,
@@ -1431,6 +1470,77 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
     |> Map.merge(Map.new(attributes))
     |> ChannelConfigurationChangeset.configuration()
     |> Repo.insert!()
+  end
+
+  # Settings with the repositories and the Emisar account the environments
+  # below name, created once per test.
+  defp environment!(ref, name, repositories, options \\ []) do
+    snapshot =
+      case Ryker.Settings.fetch() do
+        {:ok, snapshot} ->
+          snapshot
+
+        {:error, :settings_not_initialized} ->
+          {:ok, snapshot} = Ryker.Settings.initialize("control-plane:local")
+          snapshot
+      end
+
+    snapshot =
+      Enum.reduce(repositories, snapshot, fn repository, snapshot ->
+        if Enum.any?(snapshot.repositories, &(&1.ref == repository)) do
+          snapshot
+        else
+          {:ok, snapshot} =
+            Ryker.Settings.put_repository(
+              %{
+                ref: repository,
+                display_name: "acme/" <> repository,
+                github_repository: "acme/" <> repository
+              },
+              snapshot.installation.revision,
+              "control-plane:local"
+            )
+
+          snapshot
+        end
+      end)
+
+    snapshot =
+      case Keyword.get(options, :emisar) do
+        nil ->
+          snapshot
+
+        account ->
+          {:ok, snapshot} =
+            Ryker.Settings.put_emisar_connection(
+              %{
+                ref: account,
+                display_name: "Production approvals",
+                rpc_url: "https://emisar.example/api/mcp/rpc",
+                account_ref: "account-" <> account,
+                enabled_for_new_work: true,
+                monitoring_enabled: true,
+                verified_at: @now
+              },
+              snapshot.installation.revision,
+              "control-plane:local"
+            )
+
+          snapshot
+      end
+
+    {:ok, _snapshot} =
+      Ryker.Settings.put_environment(
+        %{
+          ref: ref,
+          display_name: name,
+          repositories: repositories,
+          emisar_connection_ref: Keyword.get(options, :emisar),
+          is_default: Keyword.get(options, :default, false)
+        },
+        snapshot.installation.revision,
+        "control-plane:local"
+      )
   end
 
   defp continuity_state(attributes, sequence) do
@@ -1897,7 +2007,7 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
   defp fact_labels(html) do
     html
     |> LazyHTML.from_document()
-    |> LazyHTML.query("#configuration dl > div > dt")
+    |> LazyHTML.query("#taking-part dl > div > dt")
     |> Enum.map(&(&1 |> LazyHTML.text() |> String.trim()))
   end
 
@@ -1905,7 +2015,7 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
   defp fact(html, label) do
     html
     |> LazyHTML.from_document()
-    |> LazyHTML.query("#configuration dl > div")
+    |> LazyHTML.query("#taking-part dl > div")
     |> Enum.find(fn pair ->
       pair |> LazyHTML.query("dt") |> LazyHTML.text() |> String.trim() == label
     end)

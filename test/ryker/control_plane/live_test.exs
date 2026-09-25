@@ -16,6 +16,9 @@ defmodule Ryker.ControlPlane.LiveTest do
   alias Ryker.ControlPlane.Endpoint
   alias Ryker.Episodes.Reactions
 
+  # Activity's "active" count: the number in the count that opens In progress.
+  @active_count ".kit-count[href$='?filter=running'] b"
+
   @endpoint Endpoint
 
   setup do
@@ -79,9 +82,6 @@ defmodule Ryker.ControlPlane.LiveTest do
               searchable: true
             }
           end,
-          memory: fn params ->
-            Agent.get(counters, & &1[:memory_snapshot]) || Projection.memory(params)
-          end,
           episode: fn ref, params ->
             if Agent.get(counters, & &1[:episode_fail]),
               do: {:error, :database_unavailable},
@@ -121,7 +121,7 @@ defmodule Ryker.ControlPlane.LiveTest do
     assert html =~ "No activity yet"
     refute html =~ "class=\"metric\""
     assert has_element?(view, "[data-connection-state=connected]")
-    assert has_element?(view, "[data-active-count]", "1")
+    assert has_element?(view, @active_count, "1")
 
     Agent.update(counters, &Map.put(&1, :active, 7))
 
@@ -133,44 +133,34 @@ defmodule Ryker.ControlPlane.LiveTest do
 
     # Same debounce-plus-projection wait as the Lab stream below; same guard.
     assert_receive {:overview_projected, 7}, 2_000
-    assert has_element?(view, "[data-active-count]", "7")
+    assert has_element?(view, @active_count, "7")
   end
 
-  test "instruction libraries are live navigable and keep visible filters after reconciliation" do
-    for {path, title} <- [
-          {"/rules", "Standing rules"},
-          {"/preferences", "Preferences"},
-          {"/guidance", "Guidance"}
+  test "rules and saved entries are live navigable and keep their filters after reconciliation" do
+    for {path, selected} <- [
+          {"/rules?q=emisar&status=past", ["Past"]},
+          {"/instructions?show=guidance&status=past", ["Guidance", "Past"]}
         ] do
-      {:ok, view, html} =
-        live(
-          build_conn() |> Map.put(:host, "localhost"),
-          path <> "?q=emisar&status=all&scope=repository"
-        )
-
-      assert html =~ title
-      assert has_element?(view, "input[name=q][value=emisar]")
-      assert has_element?(view, "select[name=status] option[value=all][selected]")
-      assert has_element?(view, "input[type=hidden][name=scope][value=repository]")
-      assert has_element?(view, ".filter-chip[data-filter=scope]", "Repository")
+      {:ok, view, html} = live(build_conn() |> Map.put(:host, "localhost"), path)
+      assert current_segments(html) == selected, path
       send(view.pid, :reconcile)
-      assert has_element?(view, "input[name=q][value=emisar]")
-      assert has_element?(view, "input[type=hidden][name=scope][value=repository]")
-      assert has_element?(view, ".filter-chip[data-filter=scope]", "Repository")
+      assert current_segments(render(view)) == selected, path
     end
 
+    {:ok, view, _} = live(build_conn() |> Map.put(:host, "localhost"), "/rules?q=emisar")
+    assert has_element?(view, ".kit-toolbar form.filter-toolbar input[name=q][value=emisar]")
+    send(view.pid, :reconcile)
+    assert has_element?(view, ".kit-toolbar form.filter-toolbar input[name=q][value=emisar]")
+
     {:ok, view, _} = live(build_conn() |> Map.put(:host, "localhost"), "/rules?q[x]=1&page[x]=2")
-    assert has_element?(view, ".behavior-library")
+    assert has_element?(view, ".behavior-page")
     refute has_element?(view, ".document-unavailable")
   end
 
-  test "the live shell shows a configuration page's title once, its description beneath, then one column" do
-    # The Standing rules screenshot Andrew sent on 2026-09-09: three 30px
-    # status counts in a flex row with the creation help pushed to the right
-    # by margin-left:auto, an Apply button, and the total buried inside the
-    # pagination line. The approved order is title, description, help
-    # disclosure, toolbar, quiet count, entries, history — down one left
-    # edge — and a routine reconcile must not disturb it.
+  test "the live shell shows Rules once with its sentence beneath, then one column" do
+    # The approved page (2026-09-24): the title, one plain sentence, one row of
+    # search and Current/Past, the rules, how to add one, then recent
+    # matches, down one left edge. A routine reconcile must not disturb it.
     source = SavedEntities.source!("slack:T123:C456")
 
     SavedEntities.behavior!(
@@ -191,77 +181,75 @@ defmodule Ryker.ControlPlane.LiveTest do
     document = LazyHTML.from_document(html)
     headings = LazyHTML.query(document, "main h1")
     assert Enum.count(headings) == 1
-    assert LazyHTML.text(headings) == "Standing rules"
-
-    assert Enum.count(LazyHTML.query(document, "main header.page-header > .page-heading > h1")) ==
-             1
+    assert LazyHTML.text(headings) == "Rules"
 
     assert LazyHTML.query(
              document,
              "main header.page-header > .page-heading + p.page-description"
            )
-           |> LazyHTML.text() =~ "Standing rules let Ryker watch for specific events"
+           |> LazyHTML.text() ==
+             "Rules tell Ryker to act when something happens, like a new alert or a merged pull request."
 
     assert outline(document, "main .secondary-page > *") == [
              "header.page-header",
-             "div.behavior-library"
+             "div.behavior-page"
            ]
 
-    assert outline(document, "main .behavior-library > *") == [
-             "details.page-help",
-             "form.filter-toolbar",
-             "p.result-count",
-             "div.behavior-entries",
-             "section.behavior-history"
+    assert outline(document, "main .behavior-page > *") == [
+             "div.kit-toolbar",
+             "div.entity-list",
+             "p.ask-hint",
+             "section.behavior-matches"
            ]
 
-    assert has_element?(view, "main p.result-count", "1 rule")
-    assert has_element?(view, "main .behavior-entry h2", "Operational alert")
-    assert has_element?(view, "main .behavior-entry", "Watch Terraform applies")
-    refute has_element?(view, ".behavior-counts, .behavior-overview, .secondary-page-title")
-    refute has_element?(view, "form.filter-toolbar button:not(noscript button)")
+    assert has_element?(view, "main .behavior-page > .entity-list h3", "Triage alerts")
+    assert has_element?(view, "main .behavior-page > .entity-list", "Watch Terraform applies")
+    refute has_element?(view, "details.page-help, p.result-count, .behavior-counts")
 
     send(view.pid, :reconcile)
-    assert has_element?(view, "main header.page-header h1", "Standing rules")
-    assert has_element?(view, "main details.page-help summary", "How to create a standing rule")
+    assert has_element?(view, "main header.page-header h1", "Rules")
+    assert has_element?(view, "main p.ask-hint", "To add a rule, tell Ryker in the channel:")
   end
 
   test "filters live in the URL, so a shared or back-navigated address reproduces the list and changes nothing" do
-    # The toolbar is a GET form: the address is the only filter state, so the
-    # browser's Back button, a pasted link and a reconcile all show the same
-    # rows. Changing a filter, opening the action menu and opening the Delete
-    # confirmation are reads; the row they describe must be byte-for-byte the
-    # row that was there before.
+    # The search is a GET form and Current/Past are links: the address is the
+    # only filter state, so Back, a pasted link and a reconcile all show the
+    # same rows. Changing a view, opening the action menu and opening the
+    # Delete confirmation are reads; the row they describe must be
+    # byte-for-byte the row that was there before.
     source = SavedEntities.source!("slack:T123:C456")
     active = rule!(source, "Watch Terraform applies and report readiness.")
     archived = rule!(source, "Retired: page the old rota.", status: :deleted)
     before = Repo.get!(Ryker.State.Behavior, active.id)
+    rows = "main .behavior-page > .entity-list article.entity-row"
 
     conn = build_conn() |> Map.put(:host, "localhost")
-    {:ok, view, _} = live(conn, "/rules?status=archived")
-    assert has_element?(view, "select[name=status] option[value=archived][selected]")
-    assert has_element?(view, "main .behavior-entry", "Retired: page the old rota.")
-    refute has_element?(view, "main .behavior-entry", "Watch Terraform applies")
-    assert has_element?(view, "main p.result-count", "1 rule")
-    assert has_element?(view, "form.filter-toolbar a.filter-clear[href='/rules']")
+    {:ok, view, _} = live(conn, "/rules?status=past")
+    assert has_element?(view, "nav.segmented a[aria-current=page]", "Past")
+    assert has_element?(view, rows, "Retired: page the old rota.")
+    refute has_element?(view, rows, "Watch Terraform applies")
+
+    assert has_element?(
+             view,
+             ".kit-toolbar form.filter-toolbar input[type=hidden][name=status][value=past]"
+           )
 
     # Back: the previous address, nothing else, brings the previous list back.
     render_patch(view, "/rules")
-    assert has_element?(view, "select[name=status] option[value=current][selected]")
-    assert has_element?(view, "main .behavior-entry", "Watch Terraform applies")
-    refute has_element?(view, "main .behavior-entry", "Retired: page the old rota.")
-    refute has_element?(view, "form.filter-toolbar a.filter-clear")
-    refute has_element?(view, "form.filter-toolbar input[name=page]")
+    assert has_element?(view, "nav.segmented a[aria-current=page]", "Current")
+    assert has_element?(view, rows, "Watch Terraform applies")
+    refute has_element?(view, rows, "Retired: page the old rota.")
+    refute has_element?(view, ".kit-toolbar a.filter-clear")
+    refute has_element?(view, ".kit-toolbar form.filter-toolbar input[name=status]")
 
-    render_patch(view, "/rules?q=Terraform&status=all&scope=conversation&page=7")
+    render_patch(view, "/rules?q=Terraform&page=7")
     assert has_element?(view, "input[name=q][value=Terraform]")
-    assert has_element?(view, "select[name=scope] option[value=conversation][selected]")
-    assert has_element?(view, "main p.result-count", "1 rule")
+    assert has_element?(view, ".kit-toolbar a.filter-clear[href='/rules']")
     send(view.pid, :reconcile)
-    assert has_element?(view, "main .behavior-entry", "Watch Terraform applies")
+    assert has_element?(view, rows, "Watch Terraform applies")
 
     # Opening the menu is a disclosure; opening Delete is its confirmation page.
-    assert has_element?(view, "main .behavior-entry details.behavior-menu:not([open])")
+    assert has_element?(view, rows <> " details.behavior-menu:not([open])")
     ref = URI.encode_www_form(active.ref)
     confirmation = get(conn, "/actions/behavior/#{ref}/deleted")
     assert confirmation.status == 200
@@ -270,11 +258,9 @@ defmodule Ryker.ControlPlane.LiveTest do
     assert Repo.get!(Ryker.State.Behavior, archived.id).status == :deleted
   end
 
-  test "current, all and archived statuses select the rows they name and count only what they show" do
-    # BehaviorLibrary computes per-status counts before search and scope
-    # filtering. The old page printed those as Active/Paused/Expired numbers
-    # above a list they did not describe; the count under the toolbar must be
-    # the size of the list under it for every status choice.
+  test "current and past select the rows they name, and search stays inside the chosen view" do
+    # Current is what can still act (on or paused); Past is what expired, was
+    # deleted or was replaced. An unknown view is Current, never everything.
     source = SavedEntities.source!("slack:T123:C456")
     rule!(source, "Active rule one.")
     rule!(source, "Active rule two.")
@@ -284,52 +270,46 @@ defmodule Ryker.ControlPlane.LiveTest do
     rule!(source, "Expired rule.", expires_at: DateTime.add(DateTime.utc_now(), -60, :second))
     conn = build_conn() |> Map.put(:host, "localhost")
 
-    for {query, count, statuses} <- [
-          {"", "3 rules", ["Active", "Active", "Paused"]},
-          {"?status=current", "3 rules", ["Active", "Active", "Paused"]},
-          {"?status=active", "2 rules", ["Active", "Active"]},
-          {"?status=disabled", "1 rule", ["Paused"]},
-          {"?status=expired", "1 rule", ["Expired"]},
-          {"?status=archived", "2 rules", ["Deleted", "Superseded"]},
-          {"?status=all", "6 rules",
-           ["Active", "Active", "Paused", "Deleted", "Superseded", "Expired"]}
+    for {query, states} <- [
+          {"", ["On", "On", "Paused"]},
+          {"?status=current", ["On", "On", "Paused"]},
+          {"?status=past", ["Deleted", "Expired", "Replaced"]},
+          {"?status=all", ["On", "On", "Paused"]}
         ] do
       {:ok, _view, html} = live(conn, "/rules" <> query)
-      document = LazyHTML.from_document(html)
-      assert LazyHTML.query(document, "main p.result-count") |> LazyHTML.text() == count, query
 
-      assert LazyHTML.query(document, "main .behavior-entry .behavior-heading .ui-status")
-             |> LazyHTML.text()
-             |> String.split(~r/(?<=[a-z])(?=[A-Z])/)
-             |> Enum.sort() == Enum.sort(statuses),
-             query
-
-      assert Enum.count(LazyHTML.query(document, "main article.behavior-entry")) ==
-               length(statuses),
+      assert html
+             |> LazyHTML.from_document()
+             |> LazyHTML.query(
+               "main .behavior-page > .entity-list article .entity-side .state-word"
+             )
+             |> Enum.map(&LazyHTML.text/1)
+             |> Enum.sort() == Enum.sort(states),
              query
     end
 
-    {:ok, _view, html} = live(conn, "/rules?status=all&q=Paused")
+    {:ok, _view, html} = live(conn, "/rules?status=past&q=Deleted")
     document = LazyHTML.from_document(html)
-    assert LazyHTML.query(document, "main p.result-count") |> LazyHTML.text() == "1 rule"
-    assert Enum.count(LazyHTML.query(document, "main article.behavior-entry")) == 1
+
+    assert LazyHTML.query(document, "main .behavior-page > .entity-list article")
+           |> Enum.map(&(LazyHTML.query(&1, ".entity-text") |> LazyHTML.text())) == [
+             "Deleted rule."
+           ]
   end
 
-  test "an empty filtered library is not a failed one, and a failed one is not empty", %{
+  test "an empty search is not a failed page, and a failed page is not empty", %{
     counters: counters
   } do
-    # "No matching entries" invites the reader to change the filters; a
-    # projection that could not run must not be presented as that, or the
-    # reader concludes the rule they are looking for does not exist.
+    # "No rules match" invites the reader to change the search; a projection
+    # that could not run must not be presented as that, or the reader
+    # concludes the rule they are looking for does not exist.
     source = SavedEntities.source!("slack:T123:C456")
     rule!(source, "Watch Terraform applies and report readiness.")
     conn = build_conn() |> Map.put(:host, "localhost")
 
     {:ok, empty, _} = live(conn, "/rules?q=nothing-here")
-    assert has_element?(empty, "main .behavior-library > .empty-state", "No matching entries")
-    assert has_element?(empty, "main .behavior-library > .empty-state", "Change the filters")
-    assert has_element?(empty, "form.filter-toolbar a.filter-clear[href='/rules']")
-    refute has_element?(empty, "main p.result-count")
+    assert has_element?(empty, "main .behavior-page > .entity-empty", "No rules match")
+    assert has_element?(empty, "main .entity-empty a[href='/rules']", "Clear the search")
     refute has_element?(empty, ".document-unavailable")
     refute has_element?(empty, ".app-warning", "could not refresh")
 
@@ -337,22 +317,24 @@ defmodule Ryker.ControlPlane.LiveTest do
 
     log =
       ExUnit.CaptureLog.capture_log(fn ->
-        {:ok, failed, _} = live(conn, "/rules?q=nothing-here")
-        assert has_element?(failed, ".document-unavailable", "temporarily unavailable")
-        assert has_element?(failed, ".app-warning", "could not refresh")
-        refute has_element?(failed, ".behavior-library > .empty-state")
-        refute has_element?(failed, "main", "No matching entries")
-        refute has_element?(failed, "main", "No standing rules yet")
+        for path <- ["/rules?q=nothing-here", "/instructions"] do
+          {:ok, failed, _} = live(conn, path)
+          assert has_element?(failed, ".document-unavailable", "temporarily unavailable"), path
+          assert has_element?(failed, ".app-warning", "could not refresh"), path
+          refute has_element?(failed, ".entity-empty"), path
+          refute has_element?(failed, "main", "No rules match"), path
+          refute has_element?(failed, "main", "Nothing saved yet"), path
+        end
       end)
 
     assert log =~ "category=RuntimeError"
     refute log =~ "sensitive provider exception body"
   end
 
-  test "the twenty-sixth entry starts a second page and the count stays the filtered total" do
-    # Twenty-five rows per page is the projection's contract. The page has
+  test "the twenty-sixth saved entry starts a second page and paging keeps the kind shown" do
+    # Twenty-five rows per page is the projection's contract. The section has
     # to show all twenty-five, say how many there are in total, and reach the
-    # twenty-sixth through a link that keeps the current filters.
+    # twenty-sixth through a link that keeps the kind and lands on the section.
     source = SavedEntities.source!("slack:T123:C456")
 
     for index <- 1..26 do
@@ -373,28 +355,28 @@ defmodule Ryker.ControlPlane.LiveTest do
       )
     end
 
+    rows = "section.instructions-saved article.entity-row"
+    pager = "section.instructions-saved nav.pagination"
     conn = build_conn() |> Map.put(:host, "localhost")
-    {:ok, view, html} = live(conn, "/guidance?status=current")
+    {:ok, view, html} = live(conn, "/instructions?show=guidance")
     document = LazyHTML.from_document(html)
-    assert Enum.count(LazyHTML.query(document, "main article.behavior-entry")) == 25
-    assert has_element?(view, "main p.result-count", "26 guidance entries")
-    assert has_element?(view, "main nav.pagination", "Page 1 of 2")
+    assert Enum.count(LazyHTML.query(document, rows)) == 25
+    assert has_element?(view, pager, "Page 1 of 2")
+    assert has_element?(view, pager, "26 entries")
 
-    assert LazyHTML.query(document, "main nav.pagination a")
-           |> LazyHTML.attribute("href") ==
-             ["/guidance?page=2&q=&scope=&status=current"]
+    assert LazyHTML.query(document, pager <> " a") |> LazyHTML.attribute("href") ==
+             ["/instructions?page=2&show=guidance#saved"]
 
-    render_patch(view, "/guidance?status=current&page=2")
+    render_patch(view, "/instructions?show=guidance&page=2")
     document = LazyHTML.from_document(render(view))
-    assert Enum.count(LazyHTML.query(document, "main article.behavior-entry")) == 1
-    assert has_element?(view, "main p.result-count", "26 guidance entries")
-    assert has_element?(view, "main nav.pagination", "Page 2 of 2")
-    assert has_element?(view, "main nav.pagination a[href*='page=1']", "Previous")
+    assert Enum.count(LazyHTML.query(document, rows)) == 1
+    assert has_element?(view, pager, "Page 2 of 2")
+    assert has_element?(view, pager <> " a[href='/instructions?show=guidance#saved']", "Previous")
 
-    render_patch(view, "/guidance?page=99")
-    assert has_element?(view, "main nav.pagination", "Page 2 of 2")
-    render_patch(view, "/guidance?page=abc")
-    assert has_element?(view, "main nav.pagination", "Page 1 of 2")
+    render_patch(view, "/instructions?show=guidance&page=99")
+    assert has_element?(view, pager, "Page 2 of 2")
+    render_patch(view, "/instructions?show=guidance&page=abc")
+    assert has_element?(view, pager, "Page 1 of 2")
   end
 
   test "a two-thousand-character rule reaches the page whole, and its open disclosures keep their ids across a refresh" do
@@ -420,8 +402,8 @@ defmodule Ryker.ControlPlane.LiveTest do
 
     full = LazyHTML.query(document, "main details.behavior-full")
     assert LazyHTML.attribute(full, "id") == ["behavior-#{rule.ref}-full"]
-    assert LazyHTML.query(full, "p.behavior-instruction") |> LazyHTML.text() == long
-    assert LazyHTML.query(document, "main p.behavior-preview") |> LazyHTML.text() =~ "Step 1:"
+    assert LazyHTML.query(full, "p.behavior-full-text") |> LazyHTML.text() == long
+    assert LazyHTML.query(document, "main article p.entity-text") |> LazyHTML.text() =~ "Step 1:"
 
     send(view.pid, :reconcile)
     document = LazyHTML.from_document(render(view))
@@ -434,7 +416,7 @@ defmodule Ryker.ControlPlane.LiveTest do
              "behavior-#{rule.ref}-menu"
            ]
 
-    assert LazyHTML.query(document, "main details.behavior-full p.behavior-instruction")
+    assert LazyHTML.query(document, "main details.behavior-full p.behavior-full-text")
            |> LazyHTML.text() == long
   end
 
@@ -457,8 +439,8 @@ defmodule Ryker.ControlPlane.LiveTest do
     # Query-string status filters were invisible, and every refresh emptied search.
     for {path, status} <- [
           {"/incident-rooms", "blocked"},
-          {"/schedules", "paused"},
-          {"/subscriptions", "timed_out"},
+          {"/schedules", nil},
+          {"/follow-ups", nil},
           {"/channels", nil},
           {"/repositories", nil}
         ] do
@@ -471,6 +453,19 @@ defmodule Ryker.ControlPlane.LiveTest do
         do: assert(has_element?(view, "select[name=status] option[value='#{status}'][selected]"))
 
       send(view.pid, :reconcile)
+      assert has_element?(view, "form.filter-toolbar input[name=q][value=emisar]")
+    end
+
+    # Schedules and Follow-ups narrow by Current and Past instead, and a
+    # refresh keeps the view as well as the search.
+    for path <- ["/schedules", "/follow-ups"] do
+      {:ok, view, _} =
+        live(build_conn() |> Map.put(:host, "localhost"), path <> "?q=emisar&view=past")
+
+      assert has_element?(view, "nav.segmented a[aria-current=page]", "Past")
+      send(view.pid, :reconcile)
+      assert has_element?(view, "nav.segmented a[aria-current=page]", "Past")
+      assert has_element?(view, "form.filter-toolbar input[name=view][value=past]")
       assert has_element?(view, "form.filter-toolbar input[name=q][value=emisar]")
     end
   end
@@ -901,7 +896,7 @@ defmodule Ryker.ControlPlane.LiveTest do
     end
   end
 
-  test "the directory reads as grouped two-line titles and says when it is empty" do
+  test "the directory reads as grouped titles and says when it is empty" do
     conn = build_conn() |> Map.put(:host, "localhost")
     {:ok, empty, _} = live(conn, "/conversations")
     assert has_element?(empty, ".lab-directory-empty", "No conversations yet")
@@ -962,10 +957,70 @@ defmodule Ryker.ControlPlane.LiveTest do
     assert title == long
     assert has_element?(view, ".lab-directory-list a[href='/conversations/#{earlier}']", long)
 
-    times = LazyHTML.query(document, ".lab-directory-list time") |> LazyHTML.text()
-    assert times =~ "UTC"
+    # The list is scanned: a short time on the row, the full UTC time on hover.
+    times = LazyHTML.query(document, ".lab-directory-list time")
+    assert LazyHTML.text(times) =~ ~r/\d\d:\d\d|\d\d [A-Z][a-z]{2}/
+    assert Enum.all?(LazyHTML.attribute(times, "title"), &(&1 =~ "UTC"))
     refute html =~ "inputs ·"
     refute html =~ "RECENT CONVERSATIONS"
+  end
+
+  test "the directory says what each conversation needs and names it after its work" do
+    # Andrew, 2026-09-24: a conversation whose reply never arrived looked the
+    # same as one that was answered, and every row was titled by its opening
+    # line. Each row now carries one status from its inputs and their work, so
+    # stopped work reads as needing attention and never as still working, and
+    # the title Ryker gave the work replaces the opening line once it exists.
+    {:ok, profile} =
+      WorkProfile.new(%{
+        policy: "lab-live-test",
+        policy_digest: String.duplicate("a", 64),
+        repository_ref: nil
+      })
+
+    routing = Ecto.UUID.generate()
+    stopped = Ecto.UUID.generate()
+    answered = Ecto.UUID.generate()
+
+    {:ok, _} = ConversationLab.send_message(routing, "Still routing", profile)
+
+    {:ok, %{entry: stopped_entry}} =
+      ConversationLab.send_message(stopped, "Stops midway", profile)
+
+    {_episode, turn} = claimed_turn!(stopped, stopped_entry, profile)
+
+    Repo.get!(Ryker.Work.Turn, turn.id)
+    |> Ecto.Changeset.change(
+      status: :blocked,
+      lease_ref: nil,
+      lease_owner: nil,
+      lease_expires_at: nil,
+      next_attempt_at: nil
+    )
+    |> Repo.update!()
+
+    {:ok, %{entry: answered_entry}} = ConversationLab.send_message(answered, "hey there", profile)
+    {episode, reply} = accepted_reply!(answered, answered_entry, "Hello.", profile)
+
+    Repo.get_by!(Ryker.Episodes.RoutingDigest, episode_id: episode.id)
+    |> Ecto.Changeset.change(
+      title: "Greeting",
+      title_turn_id: reply.id,
+      title_updated_at: DateTime.utc_now()
+    )
+    |> Repo.update!()
+
+    conn = build_conn() |> Map.put(:host, "localhost")
+    {:ok, view, _} = live(conn, "/conversations")
+    row = fn id -> ".lab-directory-list a[href='/conversations/#{id}']" end
+
+    assert has_element?(view, row.(routing) <> " [data-status=working]", "Working")
+    assert has_element?(view, row.(stopped) <> " [data-status=attention]", "Needs attention")
+    assert has_element?(view, row.(answered) <> " [data-status=replied]", "Replied")
+
+    assert has_element?(view, row.(answered) <> " .lab-directory-title", "Greeting")
+    refute has_element?(view, row.(answered), "hey there")
+    assert has_element?(view, row.(routing) <> " .lab-directory-title", "Still routing")
   end
 
   test "an inspection link opens beside the conversation instead of replacing it" do
@@ -1018,10 +1073,15 @@ defmodule Ryker.ControlPlane.LiveTest do
     assert has_element?(
              view,
              "#lab-messages a.lab-message-inspect[href='/timeline/ingress-input%3A#{first.id}']",
-             "View request"
+             "Timeline"
            )
 
-    assert has_element?(view, "#lab-messages .lab-message-progress", "Queued")
+    assert has_element?(
+             view,
+             "#lab-messages .lab-message-progress[data-phase=Queued]",
+             "Waiting to route your message"
+           )
+
     assert length(find_all(view, ".lab-message-progress")) == 1
     refute has_element?(view, ".lab-runtime")
     refute has_element?(view, "a", "All requests in this conversation")
@@ -1043,7 +1103,7 @@ defmodule Ryker.ControlPlane.LiveTest do
     assert has_element?(
              view,
              "#lab-messages a.lab-message-inspect[href='#{reply_href}']",
-             "View request"
+             "Timeline"
            )
 
     # The second, still-pending message links only itself and owns the only progress row.
@@ -1077,7 +1137,7 @@ defmodule Ryker.ControlPlane.LiveTest do
     assert has_element?(
              view,
              "#lab-messages a.lab-message-inspect[href='/timeline/ingress-input%3A#{second.id}']",
-             "View decision"
+             "Timeline"
            )
 
     refute has_element?(view, "#lab-messages a[href*='#{episode.key}'][href*='#{second.id}']")
@@ -1100,7 +1160,12 @@ defmodule Ryker.ControlPlane.LiveTest do
     conn = build_conn() |> Map.put(:host, "localhost")
     {:ok, view, _html} = live(conn, "/conversations/#{id}")
 
-    assert has_element?(view, ".lab-message-progress", "Queued")
+    assert has_element?(
+             view,
+             ".lab-message-progress[data-phase=Queued]",
+             "Waiting to route your message"
+           )
+
     assert has_element?(view, ".lab-progress-elapsed[phx-hook=ElapsedTime]", "now")
     refute render(view) =~ "waiting for a slot"
     assert_receive {:lab_projected, 1}
@@ -1149,7 +1214,7 @@ defmodule Ryker.ControlPlane.LiveTest do
     )
 
     assert_receive {:lab_projected, 1}, 2_000
-    assert has_element?(view, ".lab-message-progress", "Working")
+    assert has_element?(view, ".lab-message-progress[data-phase=Working]", "Routing your message")
     refute render(view) =~ "Provider running"
   end
 
@@ -1213,7 +1278,7 @@ defmodule Ryker.ControlPlane.LiveTest do
     render_hook(view, "refresh", %{})
     refute has_element?(view, "#lab-messages .lab-message-failure")
     refute has_element?(view, "#lab-messages .lab-message-state", "Working")
-    assert has_element?(view, "#lab-messages .lab-typing-indicator", "Working")
+    assert has_element?(view, "#lab-messages .lab-typing-indicator", "working on a reply")
     assert length(find_all(view, ".lab-typing-indicator")) == 1
   end
 
@@ -1655,7 +1720,12 @@ defmodule Ryker.ControlPlane.LiveTest do
              "Inspect the request behind this answer"
            )
 
-    assert has_element?(view, ".lab-message-progress", "Queued")
+    assert has_element?(
+             view,
+             ".lab-message-progress[data-phase=Queued]",
+             "Waiting to route your message"
+           )
+
     assert has_element?(view, ".lab-directory-list a", "Inspect the request behind this answer")
     assert has_element?(view, ".lab-message-actions .lab-edit-toggle", "Edit")
     assert has_element?(view, ".lab-native-composer[phx-update=ignore]")
@@ -1685,10 +1755,10 @@ defmodule Ryker.ControlPlane.LiveTest do
     )
 
     view |> render_hook("refresh", %{})
-    assert has_element?(view, "[data-active-count]", "9")
+    assert has_element?(view, @active_count, "9")
     Agent.update(counters, &Map.put(&1, :active, 12))
     {:ok, remounted, _html} = live(conn, "/")
-    assert has_element?(remounted, "[data-active-count]", "12")
+    assert has_element?(remounted, @active_count, "12")
   end
 
   test "socket connect rejects remote peers and missing peer information" do
@@ -1724,7 +1794,10 @@ defmodule Ryker.ControlPlane.LiveTest do
     {:ok, view, _} = live(conn, "/timeline/ingress-input%3A#{entry.id}")
 
     assert has_element?(view, "#execution-timeline")
-    assert has_element?(view, "#admission-#{entry.id}-1", "Routing briefing")
+    # A routing call that has not started has no card yet; its queue card says
+    # what the input is waiting for.
+    refute has_element?(view, "#admission-#{entry.id}-1")
+    assert has_element?(view, ".input-queue")
     refute has_element?(view, ".model-inspector")
 
     Repo.insert!(%Ryker.Admission.Attempt{
@@ -1800,7 +1873,7 @@ defmodule Ryker.ControlPlane.LiveTest do
            )
 
     confirmation = get(conn, href)
-    assert html_response(confirmation, 200) =~ "Retry routing this message?"
+    assert html_response(confirmation, 200) =~ "Read this message again?"
   end
 
   test "activity search and status links preserve existing Usage drill-down filters" do
@@ -1860,7 +1933,7 @@ defmodule Ryker.ControlPlane.LiveTest do
     {:ok, view, _} = live(build_conn() |> Map.put(:host, "localhost"), "/")
     assert has_element?(view, "details.mobile-manage summary", "More")
 
-    for path <- ~w(memory findings repositories channels subscriptions) do
+    for path <- ~w(memory memory/findings repositories channels follow-ups working-copies) do
       assert has_element?(view, ".mobile-manage a[href='/#{path}']")
     end
 
@@ -1878,66 +1951,51 @@ defmodule Ryker.ControlPlane.LiveTest do
     refute has_element?(view, "a[href='/audit']")
   end
 
-  test "source provenance stays focused and does not inherit memory settings", %{
-    counters: counters
-  } do
-    at = ~U[2026-09-20 22:47:00Z]
+  test "no memory page hides settings in a drawer; learning is switched from its own page" do
+    # Until 2026-09-24 the only learning control was a closed "Learning
+    # settings" drawer at the foot of /memory, below every learned topic.
+    assert {:ok, _snapshot} = Ryker.Settings.initialize("control-plane:local")
+    conn = build_conn() |> Map.put(:host, "localhost")
 
-    source = %{
-      id: "source-1",
-      title: "",
-      conversation: "Direct conversation",
-      conversation_path: "/conversations/conversation-1",
-      at: at,
-      repository: nil,
-      text: "The original source message.",
-      workspace: nil,
-      groups: [],
-      source: nil,
-      source_count: nil,
-      source_path: nil,
-      request_path: nil,
-      changed_at: at,
-      source_at: at
-    }
+    for path <- ~w(/memory /memory/learned /memory/findings /memory/learning) do
+      {:ok, view, _html} = live(conn, path)
+      refute has_element?(view, "details.area-settings"), path
+      assert has_element?(view, "#learning-switch") == (path == "/memory/learning"), path
+    end
 
-    Agent.update(counters, fn values ->
-      Map.put(values, :memory_snapshot, %{
-        memories: [],
-        reviews: [],
-        conversation_memory: %{
-          counts: %{context: 1, knowledge: 0},
-          kind: "sources",
-          q: "",
-          page: 1,
-          pages: 1,
-          total: 1,
-          related_to: "context:context-1",
-          source_parent: %{
-            back_label: "Conversation context",
-            back_path: "/memory?kind=context#memory-context-1",
-            title: "Validation schedule"
-          },
-          selected: nil,
-          rebuild: nil,
-          history: [],
-          history_page: 1,
-          history_pages: 1,
-          learning_activity: nil,
-          learning: nil,
-          items: [source]
-        }
-      })
-    end)
+    {:ok, view, _html} = live(conn, "/memory/learning")
 
-    {:ok, view, _html} =
-      live(
-        build_conn() |> Map.put(:host, "localhost"),
-        "/memory?kind=sources&related_to=context%3Acontext-1"
-      )
+    assert has_element?(
+             view,
+             "header.page-header .page-action #learning-switch button",
+             "Turn off learning"
+           )
 
-    assert has_element?(view, ".memory-source-context", "Sources for Validation schedule")
-    refute has_element?(view, "details.area-settings")
+    view |> element("#learning-switch button") |> render_click()
+    refute Ryker.Settings.fetch!().learning.enabled
+    assert has_element?(view, "#learning-switch button", "Turn on learning")
+
+    view |> element("#learning-switch button") |> render_click()
+    assert Ryker.Settings.fetch!().learning.enabled
+    assert has_element?(view, "#learning-switch button", "Turn off learning")
+  end
+
+  test "the learning switch shows a change made elsewhere instead of overwriting it" do
+    assert {:ok, snapshot} = Ryker.Settings.initialize("control-plane:local")
+    {:ok, view, _html} = live(build_conn() |> Map.put(:host, "localhost"), "/memory/learning")
+
+    # Someone else turns learning off after this page was read.
+    assert {:ok, _changed} =
+             Ryker.Settings.save_learning(
+               %{enabled: false},
+               snapshot.installation.revision,
+               "control-plane:local"
+             )
+
+    view |> element("#learning-switch button", "Turn off learning") |> render_click()
+    assert has_element?(view, "#learning-switch [role=alert]", "Settings changed somewhere else")
+    assert has_element?(view, "#learning-switch button", "Turn on learning")
+    refute Ryker.Settings.fetch!().learning.enabled
   end
 
   test "projection failures preserve stale state but log only a safe diagnostic category", %{
@@ -1954,7 +2012,7 @@ defmodule Ryker.ControlPlane.LiveTest do
     assert log =~ "category=RuntimeError"
     refute log =~ "sensitive provider exception body"
     assert has_element?(view, ".app-warning", "could not refresh")
-    assert has_element?(view, "[data-active-count]", "1")
+    assert has_element?(view, @active_count, "1")
   end
 
   test "Lab announces new replies and phase changes without repeating them on reconciliation" do
@@ -2255,6 +2313,13 @@ defmodule Ryker.ControlPlane.LiveTest do
   end
 
   # "tag.first-class" for each matched element, in document order.
+  defp current_segments(html) do
+    html
+    |> LazyHTML.from_document()
+    |> LazyHTML.query("main nav.segmented a[aria-current=page]")
+    |> Enum.map(&LazyHTML.text/1)
+  end
+
   defp outline(document, selector) do
     nodes = LazyHTML.query(document, selector)
 

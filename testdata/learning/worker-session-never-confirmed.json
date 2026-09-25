@@ -1,0 +1,124 @@
+{
+  "provenance": "Harvested read-only from the local Compose install on 2026-09-24 at 22:05 UTC: conversation_learning_runs, conversation_learning_batches, episode_work_sessions, coop_session_placements and the coop_worker_commands results for two of the seven learning runs that retried every hour after the bundled worker created their sessions with project_env and project_mcp true. Run, batch and session identifiers are the live ones; tests rebind only the run-owned external_ref to their own run.",
+  "cases": {
+    "placement_active": {
+      "run": {
+        "id": "aac60e1f-f4b3-4bf8-aa38-11e144fdf337",
+        "status": "rejected",
+        "error_code": "learning_remote_unresolved",
+        "reconcile_attempt_count": 25,
+        "submit_revision": null,
+        "coop_turn_id": null,
+        "remote_stopped_at": null,
+        "stop_receipt": null,
+        "policy": "ryker-learning",
+        "policy_digest": "d0926780f4ea855ef4fb622d5c577f51b2523c07d7df3d0d929b4295ea95621d",
+        "started_at": "2026-09-24T08:32:26.474753"
+      },
+      "batch": {
+        "id": "a4be5e8e-455a-41d1-805e-9028c6081e88",
+        "status": "deferred",
+        "start_count": 1,
+        "start_limit": 3,
+        "budget_version": 0,
+        "error_code": "learning_remote_unresolved"
+      },
+      "session": {
+        "id": "b000790d-0953-4910-9f34-39b4c21cfe9a",
+        "coop_session_id": null,
+        "cleanup_status": "active",
+        "placement_state": "active",
+        "placement_generation": 1
+      },
+      "create_operation": {
+        "created_at": "2026-09-24T08:32:26.815450559Z",
+        "id": "op_5c8b83c75e333e735f8c997e440bf2fc",
+        "method": "CreateRemoteSession",
+        "resource_id": "remote_aeca0c1a6034d181a6c3b8d904589f38",
+        "resource_type": "session",
+        "state": "succeeded",
+        "updated_at": "2026-09-24T08:32:26.861721067Z"
+      },
+      "remote_session": {
+        "activity": "parked",
+        "authority_digest": "947a151e816413444b013a8ce7dd98a517fddb213956d4e6745fc4142775fab1",
+        "base_commit": "c1b143d1bef1b90a6129ccb4850d4f5322feb4f1",
+        "created_at": "2026-09-24T08:32:26.861563358Z",
+        "external_ref": "ryker-learning:aac60e1f-f4b3-4bf8-aa38-11e144fdf337",
+        "fork_name": "remote-d75445fef38fef5526f1a39a",
+        "id": "remote_aeca0c1a6034d181a6c3b8d904589f38",
+        "last_event_sequence": 1,
+        "max_queued_bytes": 1048576,
+        "max_queued_turns": 20,
+        "max_turns": 100,
+        "mode": "normal",
+        "network": {"mode": "open"},
+        "policy": "ryker-learning",
+        "policy_digest": "d0926780f4ea855ef4fb622d5c577f51b2523c07d7df3d0d929b4295ea95621d",
+        "project_env": true,
+        "project_mcp": true,
+        "queued_prompt_bytes": 0,
+        "queued_turn_count": 0,
+        "repository_freshness": [
+          {
+            "fetched_at": "2026-09-24T08:32:26.820273795Z",
+            "name": "primary",
+            "remote_identity": "local",
+            "requested_revision": "HEAD",
+            "resolved_revision": "c1b143d1bef1b90a6129ccb4850d4f5322feb4f1",
+            "stale_base_status": "not_applicable",
+            "version": 2,
+            "workspace_base_revision": "c1b143d1bef1b90a6129ccb4850d4f5322feb4f1"
+          }
+        ],
+        "repository_freshness_status": "recorded",
+        "repository_read_only": true,
+        "revision": 1,
+        "state": "open",
+        "target": "codex:gpt-5.6-sol/medium@default",
+        "turns_used": 0,
+        "updated_at": "2026-09-24T08:32:26.861629983Z"
+      }
+    },
+    "placement_replaced": {
+      "run": {
+        "id": "1fd0d5f6-7f38-439c-87ed-545b025ce310",
+        "status": "rejected",
+        "error_code": "learning_remote_unresolved",
+        "reconcile_attempt_count": 94,
+        "submit_revision": null,
+        "coop_turn_id": null,
+        "remote_stopped_at": null,
+        "stop_receipt": null,
+        "policy": "ryker-learning",
+        "policy_digest": "d0926780f4ea855ef4fb622d5c577f51b2523c07d7df3d0d929b4295ea95621d",
+        "started_at": "2026-09-21T05:14:24.443285"
+      },
+      "batch": {
+        "id": "8966fa80-79c0-4e76-95f9-dcba6b056451",
+        "status": "deferred",
+        "start_count": 1,
+        "start_limit": 3,
+        "budget_version": 0,
+        "error_code": "learning_remote_unresolved"
+      },
+      "session": {
+        "id": "0d5baeae-07a5-4e31-acbe-ebd7043be60e",
+        "coop_session_id": null,
+        "cleanup_status": "active",
+        "placement_state": "replaced",
+        "placement_generation": 1
+      },
+      "create_operation": {
+        "created_at": "2026-09-21T05:14:29.358088923Z",
+        "id": "op_dff5c426992c877316f771a2759407ad",
+        "method": "CreateRemoteSession",
+        "resource_id": "remote_3364acb0c1bdcdeb46ea265c75da09c3",
+        "resource_type": "session",
+        "state": "succeeded",
+        "updated_at": "2026-09-21T05:14:29.415370569Z"
+      },
+      "get_session_error": "coop_session_replacement_required"
+    }
+  }
+}

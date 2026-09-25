@@ -781,7 +781,7 @@ defmodule Ryker.State.MemoriesTest do
   test "wide offers cannot be confirmed after a channel becomes private or externally shared" do
     fixture = delivered_offers!("changed-channel-visibility")
 
-    catalog = %{default_repository: "ryker", repository_refs: ["ryker"]}
+    catalog = %{default_environment: nil, environments: []}
 
     assert {:ok, [_private]} =
              ChannelConfigurations.reconcile_joined(
@@ -830,7 +830,7 @@ defmodule Ryker.State.MemoriesTest do
                  occurred_at: DateTime.add(@now, 1, :second),
                  workspace_ref: "T123"
                },
-               %{default_repository: "ryker", repository_refs: ["ryker"]}
+               %{default_environment: nil, environments: []}
              )
 
     deleted_memory = Repo.get!(MemoryEntry, confirmed.memory.id)
@@ -882,7 +882,7 @@ defmodule Ryker.State.MemoriesTest do
                  occurred_at: DateTime.add(@now, 1, :second),
                  workspace_ref: "T123"
                },
-               %{default_repository: "ryker", repository_refs: ["ryker"]}
+               %{default_environment: nil, environments: []}
              )
 
     deleted_fact = Repo.get!(MemoryEntry, fact.id)
@@ -1276,7 +1276,7 @@ defmodule Ryker.State.MemoriesTest do
                %{"episode_id" => episode.id},
                "Offer the exact memory mappings for confirmation.",
                %{"type" => "object"},
-               "work-final-live-v2"
+               "work-final-live-v3"
              )
 
     assert {:ok, _turn} =

@@ -1,11 +1,11 @@
 defmodule Ryker.Settings.WebhookSource do
-  @moduledoc "One inbound webhook source: preset or custom mapping, auth, destination and context."
+  @moduledoc "One inbound webhook source: preset or custom mapping, auth, destination and environment."
   use Ecto.Schema
   import Ecto.Changeset
   alias Ryker.Settings.Validation
 
   @primary_key {:name, :string, autogenerate: false}
-  @fields ~w(name enabled adapter_kind auth_kind secret_name destination_transport destination_conversation_ref destination_thread_ref context_ref group_by_labels mapping publication_lifecycle)a
+  @fields ~w(name enabled adapter_kind auth_kind secret_name destination_transport destination_conversation_ref destination_thread_ref environment_ref group_by_labels mapping publication_lifecycle)a
   @mapping_required ~w(event_id status title)
   @mapping_optional ~w(annotations ends_at incident_id item_id labels revision severity source_url starts_at summary)
   @lifecycle_fields ~w(environments kinds repositories targets)
@@ -19,7 +19,7 @@ defmodule Ryker.Settings.WebhookSource do
     field(:destination_transport, :string)
     field(:destination_conversation_ref, :string)
     field(:destination_thread_ref, :string)
-    field(:context_ref, :string)
+    field(:environment_ref, :string)
     field(:group_by_labels, {:array, :string}, default: [])
     field(:mapping, :map)
     field(:publication_lifecycle, :map)
@@ -32,7 +32,7 @@ defmodule Ryker.Settings.WebhookSource do
   def find(snapshot, :name, name), do: Enum.find(snapshot.webhook_sources, &(&1.name == name))
 
   def changeset(current, attributes, snapshot) do
-    contexts = Enum.map(snapshot.repositories, & &1.ref) ++ Enum.map(snapshot.contexts, & &1.ref)
+    environments = Enum.map(snapshot.environments, & &1.ref)
 
     current
     |> cast(attributes, @fields)
@@ -44,7 +44,7 @@ defmodule Ryker.Settings.WebhookSource do
       :secret_name,
       :destination_transport,
       :destination_conversation_ref,
-      :context_ref,
+      :environment_ref,
       :group_by_labels
     ])
     |> validate_format(:name, Validation.adapter_name_pattern())
@@ -52,7 +52,7 @@ defmodule Ryker.Settings.WebhookSource do
     |> validate_inclusion(:destination_transport, ~w(slack github control_plane))
     |> validate_length(:destination_conversation_ref, min: 1, max: 1_024)
     |> validate_length(:destination_thread_ref, min: 1, max: 1_024)
-    |> Validation.validate_known(:context_ref, contexts, :unknown_context)
+    |> Validation.validate_known(:environment_ref, environments, :unknown_environment)
     |> Validation.validate_unique_list(
       :group_by_labels,
       &(is_binary(&1) and byte_size(&1) in 1..256)

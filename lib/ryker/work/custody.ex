@@ -90,6 +90,28 @@ defmodule Ryker.Work.Custody do
               ),
               to: Sessions
 
+  @spec pin_episode(
+          Ecto.UUID.t(),
+          String.t(),
+          String.t(),
+          String.t() | nil,
+          String.t() | nil,
+          map() | nil,
+          map() | nil,
+          String.t() | nil
+        ) :: {:ok, Session.t()} | {:error, term()}
+  defdelegate pin_episode(
+                episode_id,
+                policy,
+                policy_digest,
+                authority_digest,
+                repository_ref,
+                repository_context,
+                repository_source,
+                environment_ref
+              ),
+              to: Sessions
+
   @doc false
   @spec pin_episode_in_transaction(Ecto.UUID.t(), String.t(), String.t()) ::
           {:ok, Session.t()} | {:error, term()}
@@ -158,6 +180,28 @@ defmodule Ryker.Work.Custody do
               ),
               to: Sessions
 
+  @spec pin_episode_in_transaction(
+          Ecto.UUID.t(),
+          String.t(),
+          String.t(),
+          String.t() | nil,
+          String.t() | nil,
+          map() | nil,
+          map() | nil,
+          String.t() | nil
+        ) :: {:ok, Session.t()} | {:error, term()}
+  defdelegate pin_episode_in_transaction(
+                episode_id,
+                policy,
+                policy_digest,
+                authority_digest,
+                repository_ref,
+                repository_context,
+                repository_source,
+                environment_ref
+              ),
+              to: Sessions
+
   @doc false
   @spec pin_task_episode_in_transaction(
           Ecto.UUID.t(),
@@ -215,8 +259,34 @@ defmodule Ryker.Work.Custody do
               ),
               to: Sessions
 
+  @doc false
+  @spec pin_task_episode_in_transaction(
+          Ecto.UUID.t(),
+          String.t(),
+          String.t(),
+          String.t(),
+          map() | nil,
+          map(),
+          map() | nil,
+          String.t() | nil
+        ) :: {:ok, Session.t()} | {:error, term()}
+  defdelegate pin_task_episode_in_transaction(
+                episode_id,
+                policy,
+                policy_digest,
+                repository_ref,
+                repository_context,
+                workspace_task,
+                repository_source,
+                environment_ref
+              ),
+              to: Sessions
+
   @spec claim_next(String.t(), pos_integer()) ::
           {:ok, claim() | nil} | {:error, term()}
+  @doc "The digest a session's policy runs under now; see `Sessions.current_policy_digest/1`."
+  defdelegate current_policy_digest(session), to: Sessions
+
   defdelegate claim_next(worker_ref, lease_seconds), to: Claims
 
   @spec claim_next(String.t(), pos_integer(), :any | :work | :delivery) ::
@@ -561,6 +631,25 @@ defmodule Ryker.Work.Custody do
           {:ok, map()} | {:error, term()}
   defdelegate resume_destination(episode_id, episode_key, pause_ref), to: Delivery
 
+  @doc """
+  Moves an accepted reply owed to a conversation that is gone for good.
+
+  Slack deletes a channel for good, so a reply accepted for a deleted incident
+  room can never be posted there. It is rearmed for `target` (string keys, as
+  `delivery_target/2` returns) with its content and delivery reference, and the
+  ordinary delivery lane posts it, searching the target thread first so a
+  retry never posts it twice. An attempt in flight is left to finish, and a
+  reply owed anywhere else stays where it was going.
+
+  The status says what the episode still owes: `:settled` nothing, `:pending`
+  a reply on its way, `:refused` a reply blocked where it now goes, which
+  waits for a person.
+  """
+  @spec redirect_delivery(Ecto.UUID.t(), String.t(), String.t(), map()) ::
+          {:ok, map()} | {:error, term()}
+  defdelegate redirect_delivery(episode_id, episode_key, gone_conversation_ref, target),
+    to: Delivery
+
   @doc false
   @spec resume_blocked_in_transaction(Episode.t(), String.t() | nil) ::
           {:ok, Episode.t()} | {:error, term()}
@@ -719,7 +808,8 @@ defmodule Ryker.Work.Custody do
   A reply answers the inputs that instructed it, so it returns to the newest
   one's own origin — a question asked in a new thread is answered there even
   when the episode's home is elsewhere. An accepted answer keeps the target it
-  was accepted with; later context can never move or erase it.
+  was accepted with; later context can never move or erase it. Only a place
+  deleted for good moves it (`redirect_delivery/4`).
   """
   @spec delivery_target(Episode.t(), Turn.t()) :: map()
   defdelegate delivery_target(episode, turn), to: Delivery

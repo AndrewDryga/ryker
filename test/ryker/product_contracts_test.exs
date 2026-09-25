@@ -132,31 +132,33 @@ defmodule Ryker.ProductContractsTest do
              WorkProfile.policy_for(profile, :provider_named_by_model)
   end
 
-  test "repository-set context round trips separately from the sole writable repository" do
-    context = %{
-      context_ref: "platform",
+  # Work in an environment changes its first repository and only reads the
+  # others. The frozen profile carries exactly that split, and the session
+  # pinned from it derives the workspace Coop must mount from these fields, so
+  # a profile that lost the order or smuggled the writable repository in among
+  # the read-only ones would widen what the work can change.
+  test "work in an environment changes its first repository and reads the others" do
+    attributes = %{
+      authority_digest: nil,
+      class_policies: nil,
+      emisar_connection_ref: "production",
+      environment_ref: "platform",
       parallel_goal_limit: 2,
-      primary_repository: "infrastructure",
-      read_only_repositories: ["application", "runbooks"]
+      policy: "platform-read",
+      policy_digest: @digest,
+      read_only_repository_refs: ["application", "runbooks"],
+      repository_ref: "infrastructure"
     }
 
-    assert {:ok, profile} =
-             WorkProfile.new(%{
-               authority_digest: nil,
-               class_policies: nil,
-               policy: "platform-read",
-               policy_digest: @digest,
-               repository_context: context,
-               repository_ref: "infrastructure"
-             })
-
+    assert {:ok, profile} = WorkProfile.new(attributes)
     assert profile.repository_ref == "infrastructure"
-    assert profile.repository_context == context
+    assert profile.read_only_repository_refs == ["application", "runbooks"]
 
-    assert {:ok, %{repository_context: document}} =
-             WorkProfile.policy_for(profile, :conversational)
+    assert {:ok, policy} = WorkProfile.policy_for(profile, :conversational)
+    assert policy.environment_ref == "platform"
+    assert policy.repository_ref == "infrastructure"
 
-    assert document == %{
+    assert policy.repository_context == %{
              "context_ref" => "platform",
              "parallel_goal_limit" => 2,
              "primary_repository" => "infrastructure",
@@ -165,32 +167,67 @@ defmodule Ryker.ProductContractsTest do
 
     assert {:ok, ^profile} = profile |> WorkProfile.document() |> WorkProfile.restore()
 
-    invalid_document =
+    # An environment without repositories still names itself and its Emisar
+    # account, and mounts nothing.
+    assert {:ok, ops} =
+             WorkProfile.new(%{attributes | read_only_repository_refs: [], repository_ref: nil})
+
+    assert {:ok, ops_policy} = WorkProfile.policy_for(ops, :conversational)
+    assert %{environment_ref: "platform", repository_ref: nil} = ops_policy
+    refute Map.has_key?(ops_policy, :repository_context)
+    assert {:ok, ^ops} = ops |> WorkProfile.document() |> WorkProfile.restore()
+
+    # Work outside any environment carries no placement at all.
+    assert {:ok, outside} =
+             WorkProfile.new(%{
+               policy: "chat",
+               policy_digest: @digest,
+               repository_ref: nil
+             })
+
+    assert outside.environment_ref == nil
+    assert outside.read_only_repository_refs == []
+
+    refute Enum.any?(
+             ~w(environment_ref parallel_goal_limit read_only_repository_refs emisar_connection_ref),
+             &Map.has_key?(WorkProfile.document(outside), &1)
+           )
+
+    for {invalid, field} <- [
+          {%{attributes | read_only_repository_refs: ["infrastructure"]},
+           :read_only_repository_refs},
+          {%{attributes | read_only_repository_refs: ["application", "application"]},
+           :read_only_repository_refs},
+          {%{attributes | repository_ref: nil}, :read_only_repository_refs},
+          {%{attributes | parallel_goal_limit: 4}, :parallel_goal_limit},
+          {%{attributes | parallel_goal_limit: nil}, :parallel_goal_limit},
+          {%{attributes | environment_ref: "Platform"}, :environment_ref},
+          {%{attributes | environment_ref: nil}, :read_only_repository_refs},
+          {%{attributes | environment_ref: nil, read_only_repository_refs: []},
+           :parallel_goal_limit},
+          {%{
+             attributes
+             | environment_ref: nil,
+               read_only_repository_refs: [],
+               parallel_goal_limit: nil
+           }, :emisar_connection_ref}
+        ] do
+      assert WorkProfile.new(invalid) == {:error, {:invalid_work_profile, field}},
+             inspect(invalid)
+    end
+
+    tampered =
       profile
       |> WorkProfile.document()
-      |> put_in(["repository_context", "primary_repository"], "other")
+      |> Map.put("read_only_repository_refs", ["infrastructure"])
 
-    assert WorkProfile.restore(invalid_document) ==
-             {:error, {:invalid_work_profile, :repository_context}}
+    assert WorkProfile.restore(tampered) ==
+             {:error, {:invalid_work_profile, :read_only_repository_refs}}
+
+    assert WorkProfile.restore(Map.put(WorkProfile.document(profile), "repository_context", %{})) ==
+             {:error, {:invalid_work_profile, :fields}}
 
     assert WorkProfile.restore(:invalid) == {:error, {:invalid_work_profile, :fields}}
-
-    for invalid <- [
-          %{context | primary_repository: "other"},
-          %{context | read_only_repositories: ["infrastructure"]},
-          %{context | read_only_repositories: ["application", "application"]},
-          %{context | parallel_goal_limit: 4}
-        ] do
-      assert {:error, {:invalid_work_profile, :repository_context}} =
-               WorkProfile.new(%{
-                 authority_digest: nil,
-                 class_policies: nil,
-                 policy: "platform-read",
-                 policy_digest: @digest,
-                 repository_context: invalid,
-                 repository_ref: "infrastructure"
-               })
-    end
   end
 
   test "repository contexts reject values outside their typed document contract" do

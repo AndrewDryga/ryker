@@ -53,17 +53,18 @@ defmodule Ryker.ControlPlane.WorkSetupCardTest do
     assert ready?(html, work.turn)
     refute card =~ "Ready"
     assert card =~ "Session"
-    assert card =~ "New"
-    assert card =~ "Execution policy"
-    assert card =~ "setup-policy"
-    assert card =~ "Worker"
-    assert card =~ "Local Coop"
-    assert card =~ "Workspace"
-    assert card =~ "Prepared · 2 repositories"
+    assert card =~ "New · the model starts with only this briefing"
     refute html =~ "Workspace selected"
   end
 
-  test "setup details show access and tools without repeating face facts or internal receipts" do
+  test "a ready setup says what the model started with and what code it could see, nothing else" do
+    # Andrew, 2026-09-24: "what is the meaning of each field? don't we have
+    # just one worker and one policy, why so much complexity?" The card listed
+    # the session generation, the worker, the execution policy, the workspace
+    # and, behind a disclosure larger than its two rows, repository access and
+    # "Ryker tools: Bound to this work turn". On a one-worker install the
+    # worker and policy are the same on every card; they now appear only when
+    # setup failed and they are part of the explanation.
     work = submitted!("details")
     html = rendered(work.episode)
     card = card(html, work.turn)
@@ -71,12 +72,20 @@ defmodule Ryker.ControlPlane.WorkSetupCardTest do
     location = html |> LazyHTML.from_document() |> LazyHTML.query(".episode-location")
     refute LazyHTML.text(location) =~ "ryker"
 
-    assert card =~ "Setup details"
-    assert card =~ "Generation 1"
-    assert card =~ "Repository access"
-    assert card =~ "ryker writable · coop read-only"
-    assert card =~ "Ryker tools"
-    assert card =~ "Bound to this work turn"
+    assert card =~ "Code"
+    assert card =~ "ryker · can change it, coop · read only"
+
+    for noise <- [
+          "Setup details",
+          "Generation",
+          "Execution policy",
+          "Worker",
+          "Ryker tools",
+          "Bound to this work turn"
+        ] do
+      refute card =~ noise
+    end
+
     refute card =~ "Selected from"
     refute card =~ "Preparation checks"
     refute card =~ "Technical details"
@@ -89,9 +98,7 @@ defmodule Ryker.ControlPlane.WorkSetupCardTest do
       |> LazyHTML.query("#event-setup-#{work.turn.id} dt")
       |> Enum.map(&LazyHTML.text/1)
 
-    assert Enum.count(labels, &(&1 == "Session")) == 1
-    assert Enum.count(labels, &(&1 == "Execution policy")) == 1
-    assert Enum.count(labels, &(&1 == "Worker")) == 1
+    assert labels == ["Session", "Code"]
     # The briefing owns the repo@sha chips and the tool catalog; setup does not repeat them.
     refute card =~ "e36a37be36a"
     refute card =~ "get_work_state"
@@ -142,9 +149,8 @@ defmodule Ryker.ControlPlane.WorkSetupCardTest do
     )
 
     card = card(rendered(work.episode), work.turn)
-    assert card =~ "Replaced"
-    assert card =~ "Generation 2"
-    assert card =~ "Reason not recorded"
+    assert card =~ "New, replacing an earlier session · the reason was not recorded"
+    refute card =~ "Generation"
     refute card =~ "reached its limit"
   end
 
@@ -163,8 +169,10 @@ defmodule Ryker.ControlPlane.WorkSetupCardTest do
       })
 
     html = rendered(work.episode)
-    assert card(html, work.turn) =~ "New"
-    assert card(html, later) =~ "Reused from previous work round"
+    assert card(html, work.turn) =~ "New · the model starts with only this briefing"
+
+    assert card(html, later) =~
+             "Continued · the model still has what it saw in the previous round"
   end
 
   test "a turn blocked before it started shows the recorded cause, not a ready worker" do
@@ -258,7 +266,7 @@ defmodule Ryker.ControlPlane.WorkSetupCardTest do
         %{"mode" => "full", "workspace" => @workspace},
         "Investigate",
         %{"type" => "object"},
-        "work-final-live-v2"
+        "work-final-live-v3"
       )
 
     {:ok, _frozen} =

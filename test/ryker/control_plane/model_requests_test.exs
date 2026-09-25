@@ -5,7 +5,7 @@ defmodule Ryker.ControlPlane.ModelRequestsTest do
   alias Ryker.ControlPlane.ConversationLab
   alias Ryker.ControlPlane.{EpisodePage, EpisodeRequest, InspectionRedactor, Projection}
   alias Ryker.ControlPlane.{ModelRequests, RequestPage}
-  alias Ryker.Ingress.WorkProfile
+  alias Ryker.Ingress.{InputCustodyTransition, WorkProfile}
   alias Ryker.Work.{Custody, Submission, Turn}
 
   test "inspection reads the frozen request and distinguishes instructions from provider-owned context" do
@@ -139,8 +139,8 @@ defmodule Ryker.ControlPlane.ModelRequestsTest do
         component = LazyHTML.query(full, ".prompt-source[data-source='#{id}']")
         assert Enum.count(component) == 1
         assert LazyHTML.query(component, "summary") |> LazyHTML.text() =~ title
-        assert LazyHTML.query(component, "summary") |> LazyHTML.text() =~ "estimated tokens"
-        assert LazyHTML.query(component, ".submitted-prompt-raw code") |> LazyHTML.text() == text
+        assert LazyHTML.query(component, "summary") |> LazyHTML.text() =~ ~r/≈ [\d,]+ tokens/
+        refute LazyHTML.text(component) =~ "Raw text"
 
         assert LazyHTML.query(component, ".submitted-prompt-formatted code")
                |> LazyHTML.text()
@@ -153,7 +153,7 @@ defmodule Ryker.ControlPlane.ModelRequestsTest do
       assert LazyHTML.text(prompt_component) =~ "Sensitive values are hidden in this view"
       refute LazyHTML.text(prompt_component) =~ "Retained submission"
       refute LazyHTML.text(prompt_component) =~ "exact retained prompt text"
-      assert LazyHTML.text(full) =~ "alongside"
+      refute LazyHTML.text(full) =~ "alongside"
       assert LazyHTML.text(full) |> String.downcase() =~ "provider"
       ids = LazyHTML.query(document, "[id]") |> LazyHTML.attribute("id")
       assert ids == Enum.uniq(ids)
@@ -411,8 +411,9 @@ defmodule Ryker.ControlPlane.ModelRequestsTest do
     # The old flat prompt hid which host/context source shaped the answer.
     assert html =~ "data-source=\"instructions\""
     assert html =~ "System prompt"
-    assert html =~ "Run mode"
-    assert html =~ "Live"
+    # A live run is the normal case; only an evaluation run is called out.
+    refute html =~ "Run mode"
+    refute html =~ "never delivered"
     visible = LazyHTML.from_document(html) |> LazyHTML.text()
     refute visible =~ "$.instructions"
     refute visible =~ "$.work.inputs"
@@ -443,7 +444,37 @@ defmodule Ryker.ControlPlane.ModelRequestsTest do
            |> LazyHTML.attribute("id") == ["event-kernel-9", "event-kernel-10"]
   end
 
-  test "timeline timing separates remote queue from execution before host acceptance exists" do
+  test "a model call carries the purpose its policy is bound to" do
+    # A briefing explains its model by what the call was for. The purpose is
+    # the settings binding that selected the Coop policy; the policy's own name
+    # stays in the request inspector.
+    {episode, turn, _prompt} = frozen_turn!()
+
+    Repo.insert!(%Ryker.Settings.PolicyBinding{
+      id: Ecto.UUID.generate(),
+      purpose: :conversational,
+      scope_kind: :installation,
+      scope_ref: "",
+      policy_name: "policy:inspection",
+      policy_digest: String.duplicate("a", 64),
+      verified_by: :import
+    })
+
+    {:ok, timeline} = ModelRequests.timeline(episode.key, %{})
+    request = Enum.find(timeline.items, &(&1.id == "request-#{turn.id}"))
+
+    assert request.model_choice == %{
+             purpose: :conversational,
+             scope_kind: :installation,
+             scope_ref: "",
+             settings: false
+           }
+  end
+
+  test "a work result says where its time went before Ryker accepted it" do
+    # The card listed "Coop queue", "Agent execution" and "Host processing"
+    # beside each other; the time before the model ran, often the longest
+    # part, was not on it at all.
     {episode, turn, _prompt} = frozen_turn!()
     started = DateTime.add(turn.inserted_at, 2)
     finished = DateTime.add(started, 60)
@@ -464,11 +495,9 @@ defmodule Ryker.ControlPlane.ModelRequestsTest do
     result = Enum.find(timeline.items, &(&1.id == "request-#{turn.id}-result"))
     assert result.at == finished
 
-    assert result.timing == [
-             %{label: "Coop queue", value: "2 ms"},
-             %{label: "Agent execution", value: "60.0 s"},
-             %{label: "Host processing", value: "1.0 s"}
-           ]
+    # Not accepted yet: the time so far, and no total that pretends it ended.
+    assert Enum.map(result.run.segments, &{&1.kind, &1.ms}) == [prepare: 2_000, model: 60_000]
+    assert result.run.total_ms == nil
 
     {:ok, snapshot} = Projection.episode(episode.key)
 
@@ -480,13 +509,105 @@ defmodule Ryker.ControlPlane.ModelRequestsTest do
         params: %{}
       )
 
-    assert html =~ "2 ms"
-    assert html =~ "60.0 s"
-    assert html =~ "Model execution"
-    assert html =~ "Processing"
-    assert html =~ "1.0 s"
+    # One short two-column table, read top to bottom.
+    rows =
+      html
+      |> LazyHTML.from_fragment()
+      |> LazyHTML.query("#request-#{turn.id}-result dl.call-run > div")
+      |> Enum.map(&(&1 |> LazyHTML.text() |> String.split() |> Enum.join(" ")))
+
+    assert "Preparing and waiting for the worker 2.0 s" in rows
+    assert "Model 1 min" in rows
+    refute html =~ "Agent execution"
     refute html =~ "Host validation and repair history"
     assert html =~ "Raw model response"
+  end
+
+  test "a retried routing call names the failure that ended the attempt before it" do
+    # Andrew, 2026-09-24: "Conversational reply · Attempt 2" gave no hint why
+    # there was a second attempt. The first had failed a whole card earlier.
+    {episode, _turn, original} = frozen_turn!()
+
+    {:ok, profile} =
+      WorkProfile.new(%{
+        policy: "inspection-test",
+        policy_digest: String.duplicate("a", 64),
+        repository_ref: nil
+      })
+
+    {:ok, %{entry: entry}} = ConversationLab.send_message(Ecto.UUID.generate(), "Hi", profile)
+
+    entry =
+      entry
+      |> Ecto.Changeset.change(
+        episode_id: episode.id,
+        status: :decided,
+        decision_action: :reply,
+        decision_ref: "decision:#{entry.id}",
+        decision_fingerprint: String.duplicate("a", 64),
+        execution_generation: 2,
+        decision_document: %{
+          "action" => "reply",
+          "repository_source" => nil,
+          "work_class" => "conversational"
+        }
+      )
+      |> Repo.update!()
+
+    failed_at = entry.inserted_at
+
+    Repo.insert!(%Attempt{
+      input_id: entry.id,
+      generation: 1,
+      policy: "inspection-test",
+      policy_digest: String.duplicate("a", 64),
+      phase: "response_received",
+      milestones: %{"response_received" => DateTime.to_iso8601(failed_at)},
+      submission: %{"prompt" => original},
+      response: %{"error_code" => "acp_protocol_error", "state" => "failed"}
+    })
+
+    Repo.insert!(%InputCustodyTransition{
+      input_id: entry.id,
+      sequence: 90,
+      kind: :retry_scheduled,
+      occurred_at: DateTime.add(failed_at, 1),
+      generation: 1,
+      attempt: 1,
+      error_code: "acp_protocol_error"
+    })
+
+    Repo.insert!(%Attempt{
+      input_id: entry.id,
+      generation: 2,
+      policy: "inspection-test",
+      policy_digest: String.duplicate("a", 64),
+      phase: "committed",
+      milestones: %{"response_received" => DateTime.to_iso8601(DateTime.add(failed_at, 30))},
+      submission: %{"prompt" => original}
+    })
+
+    {:ok, timeline} = ModelRequests.timeline(episode.key, %{})
+    second = Enum.find(timeline.items, &(&1.id == "admission-#{entry.id}-2-result"))
+
+    assert %{generation: 1, href: href, summary: "acp protocol error"} = second.retried_after
+    assert href == "#admission-#{entry.id}-1-result"
+
+    first = Enum.find(timeline.items, &(&1.id == "admission-#{entry.id}-1-result"))
+    assert first.retried_after == nil
+
+    {:ok, snapshot} = Projection.episode(episode.key)
+
+    html =
+      render_component(&EpisodePage.render/1, snapshot: snapshot, timeline: timeline, params: %{})
+
+    retry =
+      html
+      |> LazyHTML.from_fragment()
+      |> LazyHTML.query("#admission-#{entry.id}-2-result .request-retry")
+
+    assert LazyHTML.text(retry) =~ "Retried after attempt 1 failed: acp protocol error."
+    assert LazyHTML.query(retry, "a") |> LazyHTML.attribute("href") == [href]
   end
 
   test "a truncated context remains readable inline instead of becoming an empty document" do
@@ -648,6 +769,44 @@ defmodule Ryker.ControlPlane.ModelRequestsTest do
     refute expanded.truncated
     assert expanded.call_history.more == nil
     assert expanded.call_history.shown > bounded.call_history.shown
+  end
+
+  test "a blocked input shows the attempt that ran, not one that has not started" do
+    # A provider failure moves the input to its next attempt and clears the
+    # frozen context. The page drew that attempt anyway: a second "Routing
+    # briefing" with every section "Not recorded", for a call that never ran.
+    {_episode, _turn, original} = frozen_turn!()
+
+    {:ok, profile} =
+      WorkProfile.new(%{
+        policy: "inspection-test",
+        policy_digest: String.duplicate("a", 64),
+        repository_ref: nil
+      })
+
+    {:ok, %{entry: entry}} = ConversationLab.send_message(Ecto.UUID.generate(), "Howdy", profile)
+
+    Repo.insert!(%Attempt{
+      input_id: entry.id,
+      generation: 1,
+      policy: "inspection-test",
+      policy_digest: String.duplicate("a", 64),
+      phase: "response_received",
+      submission: %{"prompt" => original},
+      response: %{"error_code" => "acp_protocol_error", "state" => "failed"}
+    })
+
+    entry
+    |> Ecto.Changeset.change(status: :blocked, execution_generation: 2, admission_context: nil)
+    |> Repo.update!()
+
+    {:ok, view} = ModelRequests.project_input(entry.id, %{})
+
+    requests =
+      view.timeline |> Enum.map(& &1.id) |> Enum.filter(&String.starts_with?(&1, "admission-"))
+
+    assert "admission-#{entry.id}-1" in requests
+    refute Enum.any?(requests, &String.starts_with?(&1, "admission-#{entry.id}-2"))
   end
 
   test "pruned request content is expired rather than silently reconstructed" do

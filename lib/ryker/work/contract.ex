@@ -32,7 +32,7 @@ defmodule Ryker.Work.Contract do
   def select(:live) do
     {:ok,
      %{
-       contract_version: "work-final-live-v2",
+       contract_version: "work-final-live-v3",
        mode: :live,
        output_schema: Final.json_schema(:live)
      }}
@@ -41,7 +41,7 @@ defmodule Ryker.Work.Contract do
   def select(:shadow) do
     {:ok,
      %{
-       contract_version: "work-final-shadow-v2",
+       contract_version: "work-final-shadow-v3",
        mode: :shadow,
        output_schema: Final.json_schema(:shadow)
      }}
@@ -62,13 +62,20 @@ defmodule Ryker.Work.Contract do
 
   def platform_tool_allowed?(_mode, _name), do: false
 
+  # A session keeps its variant: live work never continues as an observe-only
+  # evaluation, or the reverse. A newer revision of the same variant may
+  # continue it, because every turn carries its own output schema.
   @spec authorize_continuation(t(), map() | nil, map()) :: :ok | {:error, term()}
   def authorize_continuation(
         %{contract_version: version},
-        %{session_id: session_id, submission: %{"contract_version" => version}},
+        %{session_id: session_id, submission: %{"contract_version" => previous}},
         %{id: session_id}
-      ),
-      do: :ok
+      )
+      when is_binary(previous) do
+    if variant(previous) == variant(version),
+      do: :ok,
+      else: {:error, {:invalid_work_contract, :continuation_variant}}
+  end
 
   def authorize_continuation(
         _contract,
@@ -78,4 +85,6 @@ defmodule Ryker.Work.Contract do
       do: {:error, {:invalid_work_contract, :continuation_variant}}
 
   def authorize_continuation(_contract, _previous, _session), do: :ok
+
+  defp variant(version), do: String.replace(version, ~r/-v\d+\z/, "")
 end

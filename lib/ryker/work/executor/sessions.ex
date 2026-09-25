@@ -14,8 +14,19 @@ defmodule Ryker.Work.Executor.Sessions do
   alias Ryker.Work.Executor.Remote
 
   @doc false
-  def ensure_session(%{session: %{coop_session_id: id}} = claim, settings)
+  def ensure_session(%{session: %{coop_session_id: id} = session} = claim, settings)
       when is_binary(id) do
+    # The model for this kind of work changed in Settings: the created session
+    # still runs the old one, and no worker offers its digest any more. The
+    # next generation follows the policy's current digest, same authority.
+    if Custody.current_policy_digest(session) != session.policy_digest,
+      do: rotate_session(claim, settings),
+      else: use_bound_session(claim, id, settings)
+  end
+
+  def ensure_session(claim, settings), do: create_or_bind_session(claim, settings)
+
+  defp use_bound_session(claim, id, settings) do
     case Remote.api_call(settings, fn -> settings.api.get_session(settings.client, id) end) do
       {:ok, remote_session} ->
         with :ok <-
@@ -31,7 +42,7 @@ defmodule Ryker.Work.Executor.Sessions do
     end
   end
 
-  def ensure_session(claim, settings) do
+  defp create_or_bind_session(claim, settings) do
     key = Remote.create_key(claim.session)
 
     result =

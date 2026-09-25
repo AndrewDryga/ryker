@@ -2,7 +2,7 @@ defmodule Ryker.State.GlobalMemoriesTest do
   use Ryker.DataCase, async: false
 
   alias Ryker.CanonicalJSON
-  alias Ryker.ControlPlane.{HTML, Projection}
+  alias Ryker.ControlPlane.{FactsPage, Projection}
   alias Ryker.Episodes
   alias Ryker.Episodes.Episode
   alias Ryker.Fixtures.AnswerMemory
@@ -94,15 +94,13 @@ defmodule Ryker.State.GlobalMemoriesTest do
     assert item.ref == entry.ref
 
     body =
-      HTML.memory(
-        %{memories: snapshot.memories, reviews: []},
-        "test-secret"
-      )
+      %{memories: snapshot.memories, reviews: []}
+      |> FactsPage.html()
       |> IO.iodata_to_binary()
 
     assert body =~ "portal-prod"
     assert body =~ "Production portal"
-    assert body =~ "Global"
+    assert body =~ "Everywhere"
     assert body =~ "/actions/memory/#{URI.encode(entry.ref, &URI.char_unreserved?/1)}/forget"
     refute body =~ entry.scope_ref
   end

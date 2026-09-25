@@ -6,14 +6,13 @@ defmodule Ryker.Settings.GitHubBinding do
 
   @primary_key {:name, :string, autogenerate: false}
   @action_grants ~w(read review open_pull_request update_ryker_branch rerun_ci cancel_ci issues approve merge)
-  @fields ~w(name repository_ref installation_id repository_id ryker_actor_id repository_context_ref action_grants granted_permissions)a
+  @fields ~w(name repository_ref installation_id repository_id ryker_actor_id action_grants granted_permissions)a
 
   schema "github_binding_settings" do
     field(:repository_ref, :string)
     field(:installation_id, :integer)
     field(:repository_id, :integer)
     field(:ryker_actor_id, :integer)
-    field(:repository_context_ref, :string)
 
     field(:action_grants, {:array, :string},
       default: ~w(read review open_pull_request update_ryker_branch rerun_ci)
@@ -52,33 +51,14 @@ defmodule Ryker.Settings.GitHubBinding do
       |> check_constraint(:granted_permissions, name: :github_binding_permissions_valid)
       |> unique_constraint(:repository_ref, name: :github_binding_settings_repository_ref_index)
 
-    context_ref = get_field(changeset, :repository_context_ref)
     repository_ref = get_field(changeset, :repository_ref)
 
     other_bindings =
       Enum.reject(snapshot.github_bindings, &(&1.name == get_field(changeset, :name)))
 
-    cond do
-      Enum.any?(other_bindings, &(&1.repository_ref == repository_ref)) ->
-        add_error(changeset, :repository_ref, "is already bound", validation: :already_bound)
-
-      is_nil(context_ref) ->
-        changeset
-
-      not Enum.any?(
-        snapshot.contexts,
-        &(&1.ref == context_ref and &1.primary_repository_ref == repository_ref)
-      ) ->
-        add_error(
-          changeset,
-          :repository_context_ref,
-          "must be a context whose primary is this repository",
-          validation: :context_primary
-        )
-
-      true ->
-        changeset
-    end
+    if Enum.any?(other_bindings, &(&1.repository_ref == repository_ref)),
+      do: add_error(changeset, :repository_ref, "is already bound", validation: :already_bound),
+      else: changeset
   end
 
   def deletable(_binding, _snapshot), do: :ok

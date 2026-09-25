@@ -10,8 +10,8 @@ defmodule Ryker.Slack.Interaction do
 
   alias Ryker.Retained
 
-  @actions ~w(ryker_answer_input ryker_check_publication ryker_close_work ryker_confirm_automation ryker_confirm_behavior ryker_confirm_memory ryker_confirm_schedule ryker_confirm_slack_post ryker_delete_behavior ryker_delete_schedule ryker_resume_behavior ryker_forget_memory ryker_investigate_incident ryker_open_incident ryker_open_publication ryker_publish_draft ryker_resume_work ryker_review_publication ryker_start_engineering_task ryker_stop_work ryker_task_check ryker_task_discard_publication ryker_task_publish ryker_task_retry_publication ryker_task_update_publication ryker_work_record ryker_setup_alerts_automatic ryker_setup_alerts_offer ryker_setup_alerts_reply ryker_setup_audience_none ryker_setup_cancel ryker_setup_participation_mentions ryker_setup_participation_proactive ryker_setup_participation_shadow ryker_setup_restart ryker_setup_save ryker_welcome_be_proactive ryker_welcome_configure ryker_welcome_mentions_only ryker_welcome_view_rules ryker_welcome_view_schedules)
-  @repository_action ~r/\Aryker_setup_repository_[0-9]{1,2}\z/
+  @actions ~w(ryker_answer_input ryker_check_publication ryker_close_work ryker_confirm_automation ryker_confirm_behavior ryker_confirm_memory ryker_confirm_schedule ryker_confirm_slack_post ryker_delete_behavior ryker_delete_schedule ryker_resume_behavior ryker_forget_memory ryker_investigate_incident ryker_open_incident ryker_open_publication ryker_publish_draft ryker_resume_work ryker_review_publication ryker_start_engineering_task ryker_stop_work ryker_task_check ryker_task_discard_publication ryker_task_publish ryker_task_retry_publication ryker_task_update_publication ryker_work_record ryker_setup_alerts_automatic ryker_setup_alerts_offer ryker_setup_alerts_reply ryker_setup_audience_none ryker_setup_cancel ryker_setup_environment_none ryker_setup_participation_mentions ryker_setup_participation_proactive ryker_setup_participation_shadow ryker_setup_restart ryker_setup_save ryker_welcome_be_proactive ryker_welcome_configure ryker_welcome_mentions_only ryker_welcome_view_rules ryker_welcome_view_schedules)
+  @environment_action ~r/\Aryker_setup_environment_[0-9]{1,3}\z/
   # Configure channel also lives on the private `/ryker status` reply. It
   # acts on the channel configuration named in its value, never on the message
   # it was clicked in, so an ephemeral container is acceptable for it alone.
@@ -250,7 +250,7 @@ defmodule Ryker.Slack.Interaction do
     do:
       is_binary(value) and
         (value in @actions or value == "ryker_submit_input" or
-           Regex.match?(@repository_action, value))
+           Regex.match?(@environment_action, value))
 
   defp action(
          %{"action_id" => "ryker_submit_input", "type" => "button", "value" => ref},

@@ -3,18 +3,30 @@ defmodule Ryker.Publication.DispatcherTest do
 
   import Ecto.Query
 
+  alias Ryker.ControlPlane.FailureProjection
   alias Ryker.Delivery.Adapters
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Publication.Custody, as: PublicationCustody
   alias Ryker.Publication.{Dispatcher, Publication}
   alias Ryker.State.Records
-  alias Ryker.Work.{Custody, DeliveryReceipt, Result, Submission}
+  alias Ryker.Work.{Custody, DeliveryReceipt, Result, Session, Submission}
 
   @now ~U[2026-08-28 12:00:00.000000Z]
 
   defmodule Coop do
-    def get_session(agent, _session_id), do: {:ok, Agent.get(agent, & &1.session)}
+    # Every read of the session is a worker command in production; the count
+    # is what a publication that can never succeed used to spend forever.
+    def get_session(agent, _session_id) do
+      Agent.get_and_update(agent, fn state ->
+        state = Map.update(state, :session_calls, 1, &(&1 + 1))
+
+        case Map.get(state, :session_errors, []) do
+          [reason | remaining] -> {{:error, reason}, %{state | session_errors: remaining}}
+          [] -> {{:ok, state.session}, state}
+        end
+      end)
+    end
 
     def run_review(agent, _session_id, key, expected_revision) do
       Agent.get_and_update(agent, fn state ->
@@ -585,6 +597,140 @@ defmodule Ryker.Publication.DispatcherTest do
     assert [{^key1, 7}, {^key2, 8}] = Agent.get(coop, & &1.review_calls)
   end
 
+  # Production, 2026-09-10: a person pressed Review on a change whose worker
+  # session Ryker had closed five hours earlier. Every attempt asked the worker
+  # for the session, read `closed`, called it a protocol error and waited a
+  # minute: 2,902 worker commands over two days, each holding one of the two
+  # publishing slots, while the Failures page said a retry would not help and
+  # offered nothing that could end it.
+  test "a publication whose worker session closed ends by itself and says why" do
+    %{claim: work_claim, offer: offer, offer_receipt: offer_receipt} =
+      delivered_offer!("closed-session")
+
+    assert {:ok, %{publication: publication}} =
+             PublicationCustody.request_review(review_request(work_claim, offer, offer_receipt))
+
+    coop = review_coop!(work_claim, "closed")
+    effects = effects!(publication)
+    options = dispatcher_options(coop, effects)
+
+    assert {:ok, {:discarded, {:publication_review_session_closed, "closed"}}} =
+             Dispatcher.run_once(options)
+
+    ended = Repo.get!(Publication, publication.id)
+    assert ended.status == :discarded
+    assert ended.discarded_reason == :review_session_closed
+    assert ended.last_error_code == nil
+    assert ended.next_attempt_at == nil
+    assert ended.lease_ref == nil
+    assert ended.recovery_generation == publication.recovery_generation + 1
+    # The request and its one attempt stay as history.
+    assert ended.review_request_ref == publication.review_request_ref
+    assert ended.attempt_count == 1
+
+    # Nothing is left to retry, so nothing asks the worker again.
+    assert {:ok, :idle} = Dispatcher.run_once(options)
+    assert Agent.get(coop, & &1.session_calls) == 1
+    assert Agent.get(coop, & &1.review_calls) == []
+    assert Agent.get(effects, & &1.delivery_requests) == []
+    assert FailureProjection.fetch("publication", publication.ref) == :not_found
+  end
+
+  # Ryker records the close itself when it cleans a session up, so asking the
+  # worker about it again only spends a command to learn what is on disk here.
+  test "a publication whose session Ryker already closed ends without asking the worker" do
+    %{claim: work_claim, offer: offer, offer_receipt: offer_receipt} =
+      delivered_offer!("host-closed-session")
+
+    assert {:ok, %{publication: publication}} =
+             PublicationCustody.request_review(review_request(work_claim, offer, offer_receipt))
+
+    Repo.update_all(
+      from(session in Session, where: session.id == ^work_claim.session.id),
+      set: [closed_at: @now]
+    )
+
+    coop = review_coop!(work_claim, "closed")
+    options = dispatcher_options(coop, effects!(publication))
+
+    assert {:ok, {:discarded, {:publication_review_session_closed, "closed"}}} =
+             Dispatcher.run_once(options)
+
+    assert Repo.get!(Publication, publication.id).discarded_reason == :review_session_closed
+    assert Agent.get(coop, & &1.session_calls) == 0
+  end
+
+  # A failed attempt wrote last_error_code and nothing cleared it: the review
+  # that then succeeded carried the old code into every later phase, so a
+  # change moving along normally stayed on the Failures page as broken.
+  test "a publication that recovered by itself is not listed as failing" do
+    %{claim: work_claim, offer: offer, offer_receipt: offer_receipt} =
+      delivered_offer!("recovered")
+
+    assert {:ok, %{publication: publication}} =
+             PublicationCustody.request_review(review_request(work_claim, offer, offer_receipt))
+
+    coop = review_coop!(work_claim, "open", session_errors: [{:coop_unavailable, :simulated}])
+    options = dispatcher_options(coop, effects!(publication))
+
+    assert {:ok, {:deferred, {:coop_unavailable, :simulated}}} = Dispatcher.run_once(options)
+
+    assert {:ok, %{summary: "coop_unavailable"}} =
+             FailureProjection.fetch("publication", publication.ref)
+
+    Repo.update_all(
+      from(saved in Publication, where: saved.id == ^publication.id),
+      set: [next_attempt_at: @now]
+    )
+
+    assert {:ok, {:executed, %{phase: :reviewed}}} = Dispatcher.run_once(options)
+    reviewed = Repo.get!(Publication, publication.id)
+    assert reviewed.status == :review_ready
+    assert reviewed.last_error_code == nil
+    assert FailureProjection.fetch("publication", publication.ref) == :not_found
+
+    assert {:ok, {:executed, %{phase: :delivered}}} = Dispatcher.run_once(options)
+    waiting = Repo.get!(Publication, publication.id)
+    assert waiting.status == :reviewed
+    assert waiting.last_error_code == nil
+    assert FailureProjection.fetch("publication", publication.ref) == :not_found
+  end
+
+  defp review_coop!(work_claim, state, options \\ []) do
+    patch = "diff --git a/lib/fix.ex b/lib/fix.ex\n+fixed\n"
+
+    {:ok, coop} =
+      Agent.start_link(fn ->
+        %{
+          patch: patch,
+          patch_calls: [],
+          review: review_document(work_claim, patch),
+          review_calls: [],
+          session: %{
+            "external_ref" => work_claim.session.external_ref,
+            "id" => work_claim.session.coop_session_id,
+            "policy" => work_claim.session.policy,
+            "policy_digest" => work_claim.session.policy_digest,
+            "revision" => 7,
+            "state" => state
+          },
+          session_calls: 0,
+          session_errors: Keyword.get(options, :session_errors, [])
+        }
+      end)
+
+    coop
+  end
+
+  defp effects!(publication) do
+    {:ok, effects} =
+      Agent.start_link(fn ->
+        %{delivery_requests: [], publication_id: publication.id, publication_requests: []}
+      end)
+
+    effects
+  end
+
   defp dispatcher_options(coop, effects) do
     {:ok, adapters} =
       Adapters.new(%{
@@ -742,7 +888,7 @@ defmodule Ryker.Publication.DispatcherTest do
                %{"input" => claim.episode.key},
                "Implement the frozen request.",
                %{"type" => "object"},
-               "work-final-live-v2"
+               "work-final-live-v3"
              )
 
     assert {:ok, frozen} =

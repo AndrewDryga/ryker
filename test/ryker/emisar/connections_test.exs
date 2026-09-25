@@ -14,20 +14,32 @@ defmodule Ryker.Emisar.ConnectionsTest do
   @digest String.duplicate("d", 64)
   @now ~U[2026-09-19 12:00:00.000000Z]
 
-  test "two accounts stay isolated across routing, session pins and colliding request IDs" do
+  # Emisar used to be reached through routes: one per repository, group or
+  # purpose, each a separate switch an operator had to find, and a channel on a
+  # repository without its own route ran with no Emisar at all. The account is
+  # now a property of the environment a conversation runs in, pinned once when
+  # its first session starts.
+  test "a channel's environment picks its Emisar account, never a route" do
     settings = configured!()
 
     assert {:ok, %{connection_ref: "production", account_ref: "account-production"}} =
-             Connections.resolve(settings, "repo-one", nil)
+             Connections.resolve(settings, "production")
 
     assert {:ok, %{connection_ref: "staging", account_ref: "account-staging"}} =
-             Connections.resolve(settings, "repo-two", nil)
+             Connections.resolve(settings, "staging")
 
-    first = waiting_approval!("one", "repo-one", "production", "account-production")
-    second = waiting_approval!("two", "repo-two", "staging", "account-staging")
+    for environment_ref <- ["sandbox", "missing", nil] do
+      assert Connections.resolve(settings, environment_ref) == {:error, :not_configured}
+    end
 
+    first = waiting_approval!("one", "production", "production", "account-production")
+    second = waiting_approval!("two", "staging", "staging", "account-staging")
+    outside = pin!("outside", nil)
+
+    assert first.session.environment_ref == "production"
     assert first.session.emisar_connection_ref == "production"
     assert second.session.emisar_connection_ref == "staging"
+    assert outside.emisar_connection_ref == nil
 
     assert Approvals.get_by_request_id("production", "request-shared").episode_id ==
              first.episode.id
@@ -47,48 +59,53 @@ defmodule Ryker.Emisar.ConnectionsTest do
     assert {:ok, %{connection_ref: "production"}} = Operator.fetch("production/request-shared")
     assert {:ok, %{connection_ref: "staging"}} = Operator.fetch("staging/request-shared")
 
-    production_binding =
-      Enum.find(settings.emisar_bindings, &(&1.scope_ref == "repo-one"))
-
-    assert {:ok, rebound} =
-             Settings.put_emisar_binding(
-               %{
-                 id: production_binding.id,
-                 scope_kind: :repository,
-                 scope_ref: "repo-one",
-                 purpose: :standard,
-                 connection_ref: "staging"
-               },
+    # Moving the environment to another account changes where new work goes;
+    # a session already pinned keeps the account it started with.
+    assert {:ok, moved} =
+             Settings.put_environment(
+               %{ref: "production", emisar_connection_ref: "staging"},
                Settings.fetch!().installation.revision,
                @actor
              )
 
-    assert {:ok, %{connection_ref: "staging"}} =
-             Connections.resolve(rebound, "repo-one", nil)
+    assert {:ok, %{connection_ref: "staging"}} = Connections.resolve(moved, "production")
+    assert pin!("after-move", "production").emisar_connection_ref == "staging"
+    assert Repo.reload!(first.session).emisar_connection_ref == "production"
 
-    assert first.session.emisar_connection_ref == "production"
+    {:ok, disabled} =
+      Settings.put_emisar_connection(
+        %{ref: "staging", enabled_for_new_work: false},
+        moved.installation.revision,
+        @actor
+      )
+
+    assert Connections.resolve(disabled, "staging") == {:error, :disabled}
+    assert pin!("disabled", "staging").emisar_connection_ref == nil
 
     assert {:error, {:invalid_settings, _references}} =
              Settings.delete_emisar_connection(
                "production",
-               rebound.installation.revision,
+               disabled.installation.revision,
                @actor
              )
   end
 
   defp configured! do
     {:ok, snapshot} = Settings.initialize(@actor)
-    snapshot = put_repository!(snapshot, "repo-one")
-    snapshot = put_repository!(snapshot, "repo-two")
     snapshot = put_connection!(snapshot, "production", "account-production")
     snapshot = put_connection!(snapshot, "staging", "account-staging")
-    snapshot = put_binding!(snapshot, "repo-one", "production")
-    put_binding!(snapshot, "repo-two", "staging")
+    snapshot = put_environment!(snapshot, "production", "production")
+    snapshot = put_environment!(snapshot, "staging", "staging")
+    put_environment!(snapshot, "sandbox", nil)
   end
 
-  defp put_repository!(snapshot, ref) do
+  defp put_environment!(snapshot, ref, connection_ref) do
     {:ok, saved} =
-      Settings.put_repository(%{ref: ref}, snapshot.installation.revision, @actor)
+      Settings.put_environment(
+        %{ref: ref, display_name: String.capitalize(ref), emisar_connection_ref: connection_ref},
+        snapshot.installation.revision,
+        @actor
+      )
 
     saved
   end
@@ -113,23 +130,37 @@ defmodule Ryker.Emisar.ConnectionsTest do
     saved
   end
 
-  defp put_binding!(snapshot, repository_ref, connection_ref) do
-    {:ok, saved} =
-      Settings.put_emisar_binding(
-        %{
-          scope_kind: :repository,
-          scope_ref: repository_ref,
-          purpose: :standard,
-          connection_ref: connection_ref
-        },
-        snapshot.installation.revision,
-        @actor
-      )
+  defp pin!(suffix, environment_ref) do
+    episode_id = Ecto.UUID.generate()
 
-    saved
+    assert {:ok, _transition} =
+             Episodes.apply(
+               EpisodeFixtures.admit_input(%{
+                 episode_id: episode_id,
+                 episode_key: "emisar-connections:#{suffix}",
+                 native_input_id: "source:#{suffix}",
+                 occurred_at: @now,
+                 payload: %{"text" => "Run a governed action."},
+                 turn_ref: "turn:#{suffix}"
+               })
+             )
+
+    assert {:ok, session} =
+             Custody.pin_episode(
+               episode_id,
+               "test-policy",
+               @digest,
+               nil,
+               nil,
+               nil,
+               nil,
+               environment_ref
+             )
+
+    session
   end
 
-  defp waiting_approval!(suffix, repository_ref, connection_ref, account_ref) do
+  defp waiting_approval!(suffix, environment_ref, connection_ref, account_ref) do
     episode_id = Ecto.UUID.generate()
 
     assert {:ok, transition} =
@@ -145,7 +176,16 @@ defmodule Ryker.Emisar.ConnectionsTest do
              )
 
     assert {:ok, session} =
-             Custody.pin_episode(episode_id, "test-policy", @digest, repository_ref)
+             Custody.pin_episode(
+               episode_id,
+               "test-policy",
+               @digest,
+               nil,
+               nil,
+               nil,
+               nil,
+               environment_ref
+             )
 
     # This focused suite can run against a shared development test database
     # containing older abandoned work. Make the fixture the oldest eligible

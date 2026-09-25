@@ -148,12 +148,17 @@ defmodule Ryker.Slack.InteractionFeedbackTest do
         status: :cancelled,
         draft: %{
           "alert_policy" => nil,
-          "default_repository" => "ryker",
+          "environment_options" => [
+            %{
+              "emisar" => false,
+              "name" => "Production",
+              "ref" => "production",
+              "repositories" => ["ryker"]
+            }
+          ],
           "invite_user_group_refs" => [],
           "invite_user_refs" => [],
-          "participation" => nil,
-          "repository_options" => ["ryker"],
-          "repository_ref" => nil
+          "participation" => nil
         },
         revision: 2,
         root_message_ref: "1787832000.000100",

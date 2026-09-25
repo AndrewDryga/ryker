@@ -122,7 +122,9 @@ defmodule Ryker.ControlPlane.ToolCard do
         <p :if={artifact.artifact.state in [:expired, :not_recorded]} class="artifact-unavailable">
           This body is no longer retained.
         </p>
-        <pre :if={artifact.artifact.state == :retained}>{artifact.artifact.text}</pre>
+        <Components.copy_block :if={artifact.artifact.state == :retained}>
+          <pre>{artifact.artifact.text}</pre>
+        </Components.copy_block>
       </Components.disclosure>
     </div>
     """

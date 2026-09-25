@@ -24,7 +24,7 @@ defmodule Ryker.Work.FinalTest do
     schema = JSV.build!(Final.json_schema())
 
     documents = [
-      reply_document(String.duplicate("😀", 20_000)),
+      Map.put(reply_document(String.duplicate("😀", 20_000)), "title", nil),
       %{
         "decision_reason" => nil,
         "delivery" => "reply",
@@ -33,7 +33,8 @@ defmodule Ryker.Work.FinalTest do
           "artifact_refs" => [],
           "record_refs" => ["record:wait:1"],
           "state" => "waiting_for_event"
-        }
+        },
+        "title" => String.duplicate("😀", 80)
       }
     ]
 
@@ -76,13 +77,47 @@ defmodule Ryker.Work.FinalTest do
 
   test "the audited silence reason accepts 240 Unicode characters and rejects 241" do
     schema = JSV.build!(Final.json_schema())
-    accepted = silent_document(String.duplicate("😀", 240))
-    rejected = silent_document(String.duplicate("😀", 241))
+    accepted = Map.put(silent_document(String.duplicate("😀", 240)), "title", nil)
+    rejected = Map.put(silent_document(String.duplicate("😀", 241)), "title", nil)
 
     assert {:ok, _validated} = JSV.validate(accepted, schema)
     assert {:ok, _final} = Final.parse(accepted)
     assert {:error, _reason} = JSV.validate(rejected, schema)
     assert {:error, {:invalid_work_final, :decision_reason}} = Final.parse(rejected)
+  end
+
+  # Episodes had no name, so every list and candidate card fell back to the
+  # first message, which rarely says what the work is. The answer names it.
+  test "an answer names its episode in one line, or keeps the current name with null" do
+    schema = JSV.build!(Final.json_schema())
+
+    for title <- ["Validate progress replies in chat", nil] do
+      document = Map.put(reply_document("Done."), "title", title)
+      assert {:ok, _validated} = JSV.validate(document, schema)
+      assert {:ok, final} = Final.parse(document)
+      assert final.title == title
+      assert Final.document(final) == document
+    end
+
+    # Recorded answers from before titles still parse, as keeping the name.
+    document = reply_document("Done.")
+    assert {:ok, %{title: nil} = final} = Final.parse(document)
+    assert Final.document(final) == document
+  end
+
+  test "a title is one short line" do
+    schema = JSV.build!(Final.json_schema())
+
+    for title <- ["Two\nlines", "Carriage\rreturn", "   ", String.duplicate("a", 81), 1] do
+      document = Map.put(reply_document("Done."), "title", title)
+      assert {:error, _reason} = JSV.validate(document, schema)
+      assert Final.parse(document) == {:error, {:invalid_work_final, :title}}
+    end
+
+    assert {:ok, %{title: title}} =
+             Final.parse(Map.put(reply_document("Done."), "title", String.duplicate("a", 80)))
+
+    assert String.length(title) == 80
   end
 
   test "record and artifact references are bounded and unique" do

@@ -199,12 +199,16 @@ defmodule Ryker.Retention.Dispatcher do
   defp outage?({:coop_worker_command_timeout, _command_id}), do: true
   defp outage?({:coop_error, 429, _code, _detail}), do: true
   defp outage?({:coop_error, status, _code, _detail}) when status >= 500, do: true
+  # The worker holding the session is handing it over (for at most a lease) or
+  # is away; both are the worker's state, not a verdict about the session.
+  defp outage?({:coop_session_replacement_pending, _session_id, _generation, _until}), do: true
+  defp outage?({:retention_worker_unavailable, _worker_id}), do: true
   defp outage?(_reason), do: false
 
   # The durable error codes an outage leaves behind, for reconnect recovery.
   defp outage_error_codes,
     do:
-      ~w(coop_unavailable coop_transport_error coop_worker_capacity_unavailable coop_worker_command_timeout coop_error)
+      ~w(coop_unavailable coop_transport_error coop_worker_capacity_unavailable coop_worker_command_timeout coop_error coop_session_replacement_pending retention_worker_unavailable)
 
   defp retry_delay(attempt, settings) do
     exponent = min(max(attempt - 1, 0), 20)

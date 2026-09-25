@@ -600,7 +600,43 @@ defmodule Ryker.State.Behaviors do
       "scope_ref" => behavior.scope_ref,
       "revision" => behavior.revision,
       "verdict" => verdict,
-      "reason" => reason
+      "reason" => reason,
+      "criteria" => assignment_criteria(behavior.payload),
+      "evidence" =>
+        if(verdict in ["matched", "not_matched"],
+          do: assignment_evidence(behavior.payload, input)
+        )
+    }
+  end
+
+  # What the rule looked for, frozen with its verdict so a later edit cannot
+  # rewrite what this message was checked against.
+  defp assignment_criteria(%{"source_kind" => source_kind, "filter" => filter}),
+    do: %{"filter" => filter, "source_kind" => source_kind}
+
+  defp assignment_criteria(payload),
+    do: %{"source_filter" => payload["source_filter"], "trigger" => payload["trigger"]}
+
+  # What the check found in this message, one result per condition, so a
+  # reader can see which condition decided the verdict. Every condition is
+  # evaluated here even where the matcher itself stops at the first failure.
+  defp assignment_evidence(%{"source_kind" => source_kind, "filter" => filter}, input),
+    do: %{
+      "filter_matches" => SourceEventMatcher.matches?(filter, input.content),
+      "source_kind" => input.source.kind,
+      "source_matches" => source_kind == input.source.kind
+    }
+
+  defp assignment_evidence(payload, input) do
+    event_class = explicit_event_class(input)
+
+    %{
+      "event_class" => event_class,
+      "sender" => Atom.to_string(input.actor.kind),
+      "sender_matches" => source_matches?(payload["source_filter"], input.actor.kind),
+      "trigger_matches" => event_matches?(payload["trigger"], input),
+      "trigger_text" =>
+        if(is_nil(event_class), do: trigger_text(payload["trigger"], model_text(input.content)))
     }
   end
 
@@ -682,10 +718,10 @@ defmodule Ryker.State.Behaviors do
   defp actor_phrase(:system), do: "a system actor"
   defp actor_phrase(kind), do: "a #{human(kind)} sender"
 
-  defp source_filter_phrase("user"), do: "people"
-  defp source_filter_phrase("app"), do: "apps"
-  defp source_filter_phrase("bot"), do: "bots"
-  defp source_filter_phrase("system"), do: "system actors"
+  # The values source_matches?/2 accepts; "app" also admits bots and system actors.
+  defp source_filter_phrase("human"), do: "people"
+  defp source_filter_phrase("app"), do: "apps and bots"
+  defp source_filter_phrase("any"), do: "anyone"
   defp source_filter_phrase(filter), do: human(to_string(filter))
 
   @doc false
@@ -1352,17 +1388,27 @@ defmodule Ryker.State.Behaviors do
 
   defp explicit_event_class(_input), do: nil
 
-  defp text_event_matches?("terraform_plan", text) do
-    Regex.match?(~r/\bterraform(?:\s+\w+){0,3}\s+plan\b|\bplan:\s*\d+\s+to\s+add,/iu, text)
+  defp text_event_matches?(trigger, text), do: not is_nil(trigger_text(trigger, text))
+
+  # The words that make a message this trigger's event, or nil when none do.
+  defp trigger_text(trigger, text) do
+    with %Regex{} = pattern <- trigger_pattern(trigger),
+         [found | _rest] <- Regex.run(pattern, text) do
+      found
+    else
+      _no_match -> nil
+    end
   end
 
-  defp text_event_matches?("deployment", text),
-    do: Regex.match?(~r/\b(?:deploy(?:ed|ing|ment)?|rollout|release)\b/iu, text)
+  defp trigger_pattern("terraform_plan"),
+    do: ~r/\bterraform(?:\s+\w+){0,3}\s+plan\b|\bplan:\s*\d+\s+to\s+add,/iu
 
-  defp text_event_matches?("operational_alert", text),
-    do: Regex.match?(~r/\b(?:alert|firing|critical|degraded|unhealthy|incident)\b/iu, text)
+  defp trigger_pattern("deployment"), do: ~r/\b(?:deploy(?:ed|ing|ment)?|rollout|release)\b/iu
 
-  defp text_event_matches?(_trigger, _text), do: false
+  defp trigger_pattern("operational_alert"),
+    do: ~r/\b(?:alert|firing|critical|degraded|unhealthy|incident)\b/iu
+
+  defp trigger_pattern(_trigger), do: nil
 
   defp model_text(content) do
     [content["text"], get_in(content, ["payload", "text"]), content["event_type"]]

@@ -3,6 +3,7 @@ defmodule Ryker.Slack.IncidentRoomChangeset do
 
   import Ecto.Changeset
 
+  alias Ryker.Settings.Environment
   alias Ryker.Slack.IncidentRoom
   alias Ryker.Work.RepositoryContext
 
@@ -17,6 +18,7 @@ defmodule Ryker.Slack.IncidentRoomChangeset do
     :channel_state_changed_at,
     :channel_state_event_ref,
     :confirmation_ref,
+    :environment_ref,
     :episode_id,
     :handoff_message_ref,
     :id,
@@ -62,6 +64,7 @@ defmodule Ryker.Slack.IncidentRoomChangeset do
                        :channel_checked_at,
                        :channel_state_changed_at,
                        :channel_state_event_ref,
+                       :environment_ref,
                        :episode_id,
                        :handoff_message_ref,
                        :last_error_code,
@@ -103,6 +106,7 @@ defmodule Ryker.Slack.IncidentRoomChangeset do
     |> validate_format(:policy_digest, ~r/\A[0-9a-f]{64}\z/)
     |> validate_length(:repository_ref, min: 1, max: 256)
     |> validate_repository_context()
+    |> validate_format(:environment_ref, Environment.ref_pattern())
     |> validate_length(:title, min: 1, max: 200)
     |> validate_length(:prompt, min: 1, max: 4_000)
     |> validate_length(:channel_name, min: 1, max: 80)
@@ -137,6 +141,7 @@ defmodule Ryker.Slack.IncidentRoomChangeset do
     |> check_constraint(:repository_context,
       name: :slack_incident_room_repository_context_valid
     )
+    |> check_constraint(:environment_ref, name: :slack_incident_rooms_environment_valid)
   end
 
   defp validate_repository_context(changeset) do

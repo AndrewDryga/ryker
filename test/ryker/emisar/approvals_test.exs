@@ -1,8 +1,9 @@
 defmodule Ryker.Emisar.ApprovalsTest do
   use Ryker.DataCase, async: true
 
-  alias Ryker.ControlPlane.Projection
-  alias Ryker.Emisar.{Approval, Approvals, Connections, Operator, RunState}
+  alias Ryker.ControlPlane.{FailureExplanation, Pages, Projection}
+  alias Ryker.{Credentials, IntegrationSetup}
+  alias Ryker.Emisar.{Approval, ApprovalDispatcher, Approvals, Connections, Operator, RunState}
   alias Ryker.Episodes
   alias Ryker.Episodes.Command
   alias Ryker.Episodes.Episode
@@ -11,12 +12,41 @@ defmodule Ryker.Emisar.ApprovalsTest do
   alias Ryker.State.{Record, Records}
   alias Ryker.Work.Custody
 
+  @actor "control-plane:local"
   @policy_digest String.duplicate("a", 64)
   @connection_ref "production"
+  @environment_ref "production"
 
   setup do
     configure_emisar!()
     :ok
+  end
+
+  defmodule UnusedAPI do
+    @behaviour Ryker.Emisar.API
+
+    @impl true
+    def wait_for_run(_client, _run_id), do: {:error, :not_expected}
+  end
+
+  defmodule UnusedPresenter do
+    def publish(_approval, _state, _presentation), do: {:error, :not_expected}
+    def permanent?(_reason), do: false
+  end
+
+  # Verifies the replacement token against the account already connected.
+  defmodule SameAccountRequester do
+    def request(_client, :post, "/mcp", _body, _headers) do
+      {:ok,
+       %{
+         body: %{
+           "jsonrpc" => "2.0",
+           "result" => %{"account" => %{"id" => "account-acme", "name" => "Acme production"}}
+         },
+         headers: [],
+         status: 200
+       }}
+    end
   end
 
   test "registers the immutable approval atomically and claims it only after delivery starts the wait" do
@@ -182,7 +212,193 @@ defmodule Ryker.Emisar.ApprovalsTest do
     assert Operator.list_blocked(0) == {:error, {:invalid_emisar_approval_operator, :limit}}
   end
 
+  # A stopped watch whose task was then closed could only stay blocked: "Watch
+  # the approval again" was refused every time because nothing waited for it,
+  # and the row sat on Failures for good under a button that could never work.
+  test "an approval watch nothing waits for any more closes by itself, keeps its history and leaves Failures" do
+    %{claim: claim} = approval_wait!("closed-task")
+
+    assert {:ok, %{lease_ref: lease_ref}} =
+             Approvals.claim_next(@connection_ref, "approval-worker", 60)
+
+    assert {:ok, %Approval{status: :blocked}} =
+             Approvals.block(
+               @connection_ref,
+               "apr-closed-task",
+               lease_ref,
+               {:emisar_http_error, 403, "forbidden"}
+             )
+
+    assert %{kind: "emisar"} = failure("production/apr-closed-task")
+    close_task!(claim.episode.key)
+
+    # Nothing can continue from it, so it is not offered as a failure at all.
+    assert failure("production/apr-closed-task") == nil
+    assert Projection.emisar("production/apr-closed-task") == :not_found
+    refute failures_page() =~ "apr-closed-task"
+
+    # The monitor closes it on its next idle pass, with the reason, and keeps it.
+    assert {:ok, {:closed, ["apr-closed-task"]}} = ApprovalDispatcher.run_once(dispatcher())
+
+    closed = Approvals.get_by_request_id(@connection_ref, "apr-closed-task")
+    assert closed.status == :closed
+    assert closed.closed_reason == "wait_ended"
+    assert %DateTime{} = closed.closed_at
+    assert closed.last_error =~ "403"
+    assert {:ok, %{status: :closed}} = Operator.fetch("production/apr-closed-task")
+    assert Operator.rearm("production/apr-closed-task") == {:error, :emisar_approval_not_blocked}
+    assert {:ok, :idle} = ApprovalDispatcher.run_once(dispatcher())
+  end
+
+  test "a watch whose wait has not started yet is never closed as if nothing waited for it" do
+    # The approval is registered with its turn, before the delivered result
+    # starts the wait; only a closed task or an answered wait ends it.
+    unstarted = registered_approval!("unstarted")
+
+    assert {:ok, :idle} = ApprovalDispatcher.run_once(dispatcher("closer-unstarted"))
+    assert Approvals.get_by_request_id(@connection_ref, unstarted).status == :monitoring
+  end
+
+  # Turning approval monitoring off, or losing the account's token, stopped
+  # every approval a task was waiting for, and nothing said so anywhere: the
+  # watch was not blocked, so Failures listed nothing while tasks waited for
+  # good.
+  test "an approval a task waits for is a failure while its account is not watched, until it is again" do
+    approval_wait!("unwatched")
+    assert failure("production/apr-unwatched") == nil
+
+    assert {:ok, _snapshot} = IntegrationSetup.disable_emisar_monitoring(@connection_ref)
+
+    row = failure("production/apr-unwatched")
+    assert %{kind: "emisar", stall: :monitoring_off, action: nil, status: :monitoring} = row
+    assert {:ok, %{stall: :monitoring_off}} = Projection.emisar("production/apr-unwatched")
+
+    explanation = FailureExplanation.explain(row)
+    assert explanation.outlook == :fix_first
+    assert explanation.button == %{label: "Open Emisar settings", href: "/integrations/emisar"}
+    assert explanation.summary =~ "monitoring is off"
+    refute Enum.any?(explanation.options, &is_binary(&1[:path]))
+    assert failures_page() =~ "/failures/emisar/production%2Fapr-unwatched"
+
+    assert {:ok, _snapshot} = IntegrationSetup.enable_emisar_monitoring(@connection_ref)
+    assert failure("production/apr-unwatched") == nil
+
+    assert {:ok, %{approval: %{request_id: "apr-unwatched"}}} =
+             Approvals.claim_next(@connection_ref, "approval-worker-watched-again", 60)
+  end
+
+  test "an approval a task waits for is a failure while its account has no token, until one is saved" do
+    approval_wait!("tokenless")
+    assert {:ok, :ok} = Credentials.delete(:emisar, @connection_ref, @actor)
+
+    row = failure("production/apr-tokenless")
+    assert %{stall: :token_unavailable, action: nil} = row
+
+    explanation = FailureExplanation.explain(row)
+    assert explanation.outlook == :fix_first
+    assert explanation.button.href == "/integrations/emisar"
+    assert explanation.summary =~ "no usable Emisar token"
+
+    assert {:ok, %{status: :rotated}} =
+             IntegrationSetup.rotate_emisar(
+               @connection_ref,
+               "replacement-emisar-token-long-enough",
+               requester: SameAccountRequester
+             )
+
+    assert failure("production/apr-tokenless") == nil
+  end
+
+  test "a token Ryker cannot read stops watching, and replacing it clears the failure" do
+    approval_wait!("unreadable")
+
+    assert {:ok, %{lease_ref: lease_ref}} =
+             Approvals.claim_next(@connection_ref, "approval-worker", 60)
+
+    assert {:ok, _deferred} =
+             Approvals.defer(
+               @connection_ref,
+               "apr-unreadable",
+               lease_ref,
+               300,
+               {:delivery_credentials_unavailable, :credential_decryption_failed}
+             )
+
+    assert %{stall: :token_unavailable} = failure("production/apr-unreadable")
+
+    assert {:ok, %{status: :rotated}} =
+             IntegrationSetup.rotate_emisar(
+               @connection_ref,
+               "replacement-emisar-token-long-enough",
+               requester: SameAccountRequester
+             )
+
+    assert failure("production/apr-unreadable") == nil
+
+    # The next check goes out now rather than after the backoff it had reached.
+    assert {:ok, %{approval: %{request_id: "apr-unreadable"}}} =
+             Approvals.claim_next(@connection_ref, "approval-worker-after-token", 60)
+  end
+
+  # Emisar refusing the token blocks the watch, and the page said to replace
+  # the token, then press "Watch the approval again" on every approval.
+  test "an approval stopped by a refused token is watched again once the token is replaced" do
+    approval_wait!("refused")
+
+    assert {:ok, %{lease_ref: lease_ref}} =
+             Approvals.claim_next(@connection_ref, "approval-worker", 60)
+
+    assert {:ok, %Approval{status: :blocked}} =
+             Approvals.block(
+               @connection_ref,
+               "apr-refused",
+               lease_ref,
+               {:emisar_http_error, 401, "unauthorized"}
+             )
+
+    row = failure("production/apr-refused")
+    assert row.summary == "emisar_http_401"
+    assert FailureExplanation.explain(row).button.href == "/integrations/emisar"
+
+    assert {:ok, %{status: :rotated}} =
+             IntegrationSetup.rotate_emisar(
+               @connection_ref,
+               "replacement-emisar-token-long-enough",
+               requester: SameAccountRequester
+             )
+
+    assert failure("production/apr-refused") == nil
+    assert Approvals.get_by_request_id(@connection_ref, "apr-refused").status == :monitoring
+
+    assert {:ok, %{approval: %{request_id: "apr-refused"}}} =
+             Approvals.claim_next(@connection_ref, "approval-worker-after-rotation", 60)
+  end
+
   defp approval_wait!(suffix) do
+    %{claim: claim, record: record} = registered!(suffix)
+
+    assert {:ok, waiting} =
+             Episodes.apply(%Command.StartWait{
+               deadline_at: ~U[2099-08-29 12:00:00.000000Z],
+               episode_key: claim.episode.key,
+               expected_turn_ref: claim.turn.turn_ref,
+               kind: :event,
+               occurred_at: ~U[2026-08-29 12:00:01.000000Z],
+               wait_ref: record.ref
+             })
+
+    assert waiting.episode.state == :waiting_for_event
+    %{claim: claim, record: record}
+  end
+
+  # The approval as its turn records it, before the delivered result starts
+  # the episode's wait for it.
+  defp registered_approval!(suffix) do
+    registered!(suffix)
+    "apr-#{suffix}"
+  end
+
+  defp registered!(suffix) do
     now = ~U[2026-08-29 12:00:00.000000Z]
 
     command =
@@ -198,7 +414,16 @@ defmodule Ryker.Emisar.ApprovalsTest do
     assert {:ok, transition} = Episodes.apply(command)
 
     assert {:ok, _session} =
-             Custody.pin_episode(transition.episode.id, "test-policy", @policy_digest)
+             Custody.pin_episode(
+               transition.episode.id,
+               "test-policy",
+               @policy_digest,
+               nil,
+               nil,
+               nil,
+               nil,
+               @environment_ref
+             )
 
     Episode
     |> Repo.get!(transition.episode.id)
@@ -226,18 +451,46 @@ defmodule Ryker.Emisar.ApprovalsTest do
                approval_payload(suffix)
              )
 
-    assert {:ok, waiting} =
-             Episodes.apply(%Command.StartWait{
-               deadline_at: ~U[2099-08-29 12:00:00.000000Z],
-               episode_key: claim.episode.key,
-               expected_turn_ref: claim.turn.turn_ref,
-               kind: :event,
-               occurred_at: DateTime.add(now, 1, :second),
-               wait_ref: record.ref
-             })
-
-    assert waiting.episode.state == :waiting_for_event
     %{claim: claim, record: record}
+  end
+
+  defp close_task!(episode_key) do
+    assert {:ok, waiting} = Episodes.fetch_by_key(episode_key)
+
+    assert {:ok, _cancelled} =
+             Episodes.apply(%Command.CancelEpisode{
+               cancel_ref: "cancel:#{episode_key}",
+               episode_key: episode_key,
+               expected_owner: %{kind: waiting.owner_kind, ref: waiting.owner_ref},
+               occurred_at: ~U[2026-08-29 12:05:00.000000Z],
+               reason: "Closed by slack:user:U1 from the exact Slack work card."
+             })
+  end
+
+  defp failure(ref) do
+    assert {:ok, failures} = Projection.failures(%{})
+    Enum.find(failures, &(&1.kind == "emisar" and &1.ref == ref))
+  end
+
+  defp failures_page do
+    page = Pages.page(["failures"], %{}, %{projection: Projection.callbacks()})
+    assert page.status == 200
+    page.body
+  end
+
+  defp dispatcher(worker_ref \\ "approval-closer") do
+    [
+      api: UnusedAPI,
+      client: :unused,
+      connection_ref: @connection_ref,
+      lease_seconds: 60,
+      poll_seconds: 5,
+      presentation: :unused,
+      presenter: UnusedPresenter,
+      retry_base_seconds: 2,
+      retry_max_seconds: 60,
+      worker_ref: worker_ref
+    ]
   end
 
   defp approval_payload(suffix) do
@@ -260,6 +513,9 @@ defmodule Ryker.Emisar.ApprovalsTest do
   defp configure_emisar! do
     {:ok, snapshot} = Settings.initialize("control-plane:local")
 
+    {:ok, _credential} =
+      Credentials.put(:emisar, @connection_ref, "emisar-token-long-enough", @actor)
+
     {:ok, snapshot} =
       Settings.put_emisar_connection(
         %{
@@ -277,19 +533,18 @@ defmodule Ryker.Emisar.ApprovalsTest do
       )
 
     {:ok, _snapshot} =
-      Settings.put_emisar_binding(
+      Settings.put_environment(
         %{
-          scope_kind: :installation_purpose,
-          scope_ref: "standard",
-          purpose: :standard,
-          connection_ref: @connection_ref
+          ref: @environment_ref,
+          display_name: "Production",
+          emisar_connection_ref: @connection_ref
         },
         snapshot.installation.revision,
         "control-plane:local"
       )
 
     assert {:ok, %{connection_ref: @connection_ref}} =
-             Connections.resolve(Settings.fetch!(), nil, nil)
+             Connections.resolve(Settings.fetch!(), @environment_ref)
   end
 
   defp run_state(suffix, status) do

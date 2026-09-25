@@ -36,7 +36,7 @@ function fixture(items, store = storage(), target = scope) {
     addEventListener() {}, removeEventListener() {},
     createElement: tagName => ({tagName: tagName.toUpperCase(), dataset: {}, type: "", name: "", value: ""})}
   document.activeElement = document.body
-  const location = {pathname: "/memory", hash: "", search: "?rebuild_page=1"}
+  const location = {pathname: "/memory/learned", hash: "", search: "?rebuild_page=1"}
   Object.defineProperty(location, "href", {get() { return `http://127.0.0.1${this.pathname}${this.search}` }})
   const window = {scrollY: 0, innerHeight: 800, scrollTo() {}, addEventListener() {}, removeEventListener() {}}
   const root = {ownerDocument: document, querySelectorAll: () => [],

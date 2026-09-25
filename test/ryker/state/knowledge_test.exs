@@ -4,7 +4,7 @@ defmodule Ryker.State.KnowledgeTest do
   import Ecto.Query
   alias Ryker.{Admission, Repo}
   alias Ryker.Admission.{Context, Decision, Prompt}
-  alias Ryker.ControlPlane.{ConversationMemory, HTML, Projection}
+  alias Ryker.ControlPlane.{ConversationMemory, LearnedPage, Projection}
   alias Ryker.Episodes.Episode
   alias Ryker.Fixtures.DatabaseClock
   alias Ryker.Ingress.Inbox
@@ -695,11 +695,12 @@ defmodule Ryker.State.KnowledgeTest do
     assert item.text == String.replace(@resolved["summary"], "?orgId=1", "")
 
     html =
-      HTML.memory(Projection.memory(%{"kind" => "knowledge", "item" => item.id}), "test-secret")
+      Projection.learned(%{"item" => item.id})
+      |> LearnedPage.html("test-secret")
       |> IO.iodata_to_binary()
 
-    assert html =~ "Current knowledge"
-    assert html =~ "Sources · 2 →"
+    assert html =~ "All topics"
+    assert html =~ ">2 sources</a>"
     assert html =~ "Update history"
     assert html =~ @firing["summary"] |> String.split(" [Alert]") |> hd()
     refute html =~ "Source result ref"
@@ -749,7 +750,7 @@ defmodule Ryker.State.KnowledgeTest do
     params = %{"kind" => "knowledge", "item" => item.id, "history_page" => "2"}
     view = ConversationMemory.project(params)
     assert Enum.map(view.history, & &1.version) == [1]
-    html = HTML.memory(Projection.memory(params), "test-secret") |> IO.iodata_to_binary()
+    html = Projection.learned(params) |> LearnedPage.html("test-secret") |> IO.iodata_to_binary()
     assert html =~ "Newer updates"
     assert html =~ "Page 2 of 2"
   end

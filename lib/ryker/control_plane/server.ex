@@ -13,6 +13,7 @@ defmodule Ryker.ControlPlane.Server do
   alias Ryker.Ingress.WorkProfile
   alias Ryker.Observability
   alias Ryker.State.ScheduleRuntime
+  alias Ryker.Work.RepositoryContext
 
   @loopback_v4 {127, 0, 0, 1}
   @loopback_v6 {0, 0, 0, 0, 0, 0, 0, 1}
@@ -150,28 +151,39 @@ defmodule Ryker.ControlPlane.Server do
   defp normalize!(_configuration),
     do: raise(ArgumentError, "control-plane configuration must be a map or keyword list")
 
+  # One contributor policy per environment, keyed by the environment and
+  # naming the repository its tasks change and the context mounted for them.
   defp task_policies!(policies) when is_map(policies) do
     Map.new(policies, fn
-      {context_ref, %{name: name, digest: digest} = policy} ->
-        repository_ref = Map.get(policy, :repository_ref, context_ref)
+      {environment_ref,
+       %{
+         name: name,
+         digest: digest,
+         environment_ref: environment_ref,
+         repository_ref: repository_ref
+       } = policy} ->
         repository_context = Map.get(policy, :repository_context)
 
-        case WorkProfile.new(%{
-               policy: name,
-               policy_digest: digest,
-               repository_context: restore_repository_context(repository_context),
-               repository_ref: repository_ref
-             }) do
-          {:ok, _profile} ->
-            prepared =
-              %{name: name, digest: digest}
-              |> maybe_put(:repository_ref, Map.get(policy, :repository_ref))
-              |> maybe_put(:repository_context, repository_context)
+        with {:ok, _profile} <-
+               WorkProfile.new(%{
+                 policy: name,
+                 policy_digest: digest,
+                 repository_ref: repository_ref
+               }),
+             true <- is_binary(repository_ref),
+             {:ok, _context} <- RepositoryContext.restore(repository_context, repository_ref) do
+          prepared =
+            %{
+              name: name,
+              digest: digest,
+              environment_ref: environment_ref,
+              repository_ref: repository_ref
+            }
+            |> maybe_put(:repository_context, repository_context)
 
-            {context_ref, prepared}
-
-          _invalid ->
-            raise ArgumentError, "control-plane task policies are invalid"
+          {environment_ref, prepared}
+        else
+          _invalid -> raise ArgumentError, "control-plane task policies are invalid"
         end
 
       _invalid ->
@@ -190,19 +202,6 @@ defmodule Ryker.ControlPlane.Server do
     |> Map.fetch!(:dispatcher_options)
     |> Keyword.fetch!(:policy_resolver)
   end
-
-  defp restore_repository_context(nil), do: nil
-
-  defp restore_repository_context(context) when is_map(context) do
-    %{
-      context_ref: context["context_ref"],
-      parallel_goal_limit: context["parallel_goal_limit"],
-      primary_repository: context["primary_repository"],
-      read_only_repositories: context["read_only_repositories"]
-    }
-  end
-
-  defp restore_repository_context(value), do: value
 
   defp maybe_put(map, _key, nil), do: map
   defp maybe_put(map, key, value), do: Map.put(map, key, value)

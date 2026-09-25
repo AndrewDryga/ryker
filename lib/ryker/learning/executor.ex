@@ -41,12 +41,24 @@ defmodule Ryker.Learning.Executor do
   end
 
   defp execute(claim, run, settings) do
-    with {:ok, %{} = session} <- remote_session(claim, run, settings, :create),
-         {:ok, %{} = turn} <- remote_turn(claim, run, session, settings, :submit) do
-      process_turn(claim, run, session, turn, settings)
+    case remote_session(claim, run, settings, :create) do
+      {:ok, %{} = session} ->
+        with :ok <- disclosable(claim, run, session, settings),
+             {:ok, %{} = turn} <- remote_turn(claim, run, session, settings, :submit),
+             do: process_turn(claim, run, session, turn, settings)
+
+      {:error, reason} = error ->
+        if unaddressable?(run, reason),
+          do: stop(claim, run, :learning_session_unconfirmed, settings),
+          else: error
+
+      other ->
+        other
     end
   end
 
+  # Binding needs only the session's exact identity, so a session this run owns
+  # is bound even when its authority is unusable and cleanup can close it.
   defp remote_session(claim, run, settings, mode) do
     local = Repo.get_by!(Session, learning_run_id: run.id)
 
@@ -58,6 +70,36 @@ defmodule Ryker.Learning.Executor do
       {:ok, session}
     end
   end
+
+  # Retained messages go only to an isolated session. Its policy fixed that
+  # authority when the session was created, so no retry of this attempt can
+  # change it: stop the attempt before anything is disclosed.
+  defp disclosable(claim, run, session, settings) do
+    if isolated_session?(session) do
+      :ok
+    else
+      case stop(claim, run, :learning_session_not_isolated, settings) do
+        {:ok, :stopped} -> {:error, :learning_session_not_isolated}
+        other -> other
+      end
+    end
+  end
+
+  # A worker session this attempt can no longer use: its placement ended and
+  # learning never replaces a session (the fleet re-places only a bound one, on
+  # a worker still offering its policy), or its identity is not this run's. The
+  # submission revision is frozen before any turn is sent, so without one there
+  # is no model turn to wait for, and closing costs a start, never a model call.
+  defp unaddressable?(run, reason),
+    do: is_nil(run.submit_revision) and is_nil(run.coop_turn_id) and unaddressable?(reason)
+
+  defp unaddressable?({:coop_session_replacement_required, _session, _generation}), do: true
+
+  defp unaddressable?(reason),
+    do: reason in [:learning_session_authority_conflict, :learning_session_identity_conflict]
+
+  defp unaddressable_code({reason, _session, _generation}), do: Atom.to_string(reason)
+  defp unaddressable_code(reason), do: Atom.to_string(reason)
 
   defp locate_session(claim, run, nil, settings, mode) do
     key = Learning.operation_key(run, :create)
@@ -280,6 +322,10 @@ defmodule Ryker.Learning.Executor do
     end
   end
 
+  @doc "Close an attempt none of whose turns can still be running, on local proof alone."
+  def expire(claim, run, closed_after_seconds),
+    do: run.id |> Learning.record_expired_stop(closed_after_seconds, claim) |> stopped()
+
   defp stop_remote(_claim, %{remote_stopped_at: %DateTime{}}, _settings), do: {:ok, :stopped}
 
   defp stop_remote(claim, run, settings) do
@@ -297,6 +343,16 @@ defmodule Ryker.Learning.Executor do
           claim
         )
         |> stopped()
+
+      {:error, reason} = error ->
+        # An unreachable worker proves nothing and keeps reconciling; a session
+        # that can never be addressed again leaves only the local proof.
+        if unaddressable?(run, reason),
+          do:
+            run.id
+            |> Learning.record_unaddressable_stop(unaddressable_code(reason), claim)
+            |> stopped(),
+          else: error
 
       other ->
         other
@@ -391,14 +447,14 @@ defmodule Ryker.Learning.Executor do
            "external_ref" => external,
            "state" => state,
            "revision" => revision
-         } = session,
+         },
          run,
          expected
        ) do
     if is_binary(id) and byte_size(id) in 1..1024 and expected in [nil, id] and
          policy == run.policy and
          digest == run.policy_digest and external == FleetSession.external_ref(run) and
-         valid_session_state?(state, revision) and isolated_session?(session),
+         valid_session_state?(state, revision),
        do: :ok,
        else: {:error, :learning_session_authority_conflict}
   end

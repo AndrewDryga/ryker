@@ -1,8 +1,9 @@
 defmodule Ryker.ControlPlane.SubscriptionProjection do
   @moduledoc """
-  The event-subscription directory: every wait the host is holding, named by
-  the episode it belongs to, with its matcher, cursor and last observation
-  reduced to digests so no external payload crosses the page boundary.
+  The follow-up directory: every event subscription the host is holding,
+  named by the request it belongs to, with its matcher, cursor and last
+  observation reduced to digests so no external payload crosses the page
+  boundary.
   """
 
   import Ecto.Query
@@ -14,9 +15,14 @@ defmodule Ryker.ControlPlane.SubscriptionProjection do
   alias Ryker.State.{EventSubscription, Record}
 
   @list_limit 100
-  @statuses ~w(active resolved timed_out cancelled)a
+  @views %{"current" => [:active], "past" => [:resolved, :timed_out, :cancelled]}
 
-  @doc "Every event wait the host holds, filtered by status and search."
+  @doc """
+  Every follow-up the host holds: the current view (still waiting, soonest
+  first) or the past one (most recently ended first). Search reads the words
+  the page shows, over the #{@list_limit} rows the view holds, or finds one
+  exact reference anywhere in it.
+  """
   def list(params) when is_map(params) do
     query =
       from(subscription in EventSubscription,
@@ -24,7 +30,18 @@ defmodule Ryker.ControlPlane.SubscriptionProjection do
         on: episode.id == subscription.episode_id,
         join: record in Record,
         on: record.id == subscription.record_id,
-        order_by: [asc: subscription.status, desc: subscription.updated_at, desc: subscription.id],
+        order_by: [
+          asc: fragment("CASE WHEN ? = 'active' THEN 0 ELSE 1 END", subscription.status),
+          asc_nulls_last:
+            fragment(
+              "CASE WHEN ? = 'active' THEN coalesce(?, ?) END",
+              subscription.status,
+              subscription.poll_after,
+              subscription.deadline_at
+            ),
+          desc: subscription.updated_at,
+          desc: subscription.id
+        ],
         limit: @list_limit,
         select: %{
           cursor: subscription.cursor,
@@ -43,7 +60,7 @@ defmodule Ryker.ControlPlane.SubscriptionProjection do
           updated_at: subscription.updated_at
         }
       )
-      |> subscription_status(Search.one_of(params["status"], @statuses))
+      |> subscription_view(Map.get(@views, params["view"]))
 
     search = Search.term(params["q"])
     items = subscription_rows(query, search)
@@ -70,10 +87,10 @@ defmodule Ryker.ControlPlane.SubscriptionProjection do
     end
   end
 
-  defp subscription_status(query, nil), do: query
+  defp subscription_view(query, nil), do: query
 
-  defp subscription_status(query, status),
-    do: from(subscription in query, where: subscription.status == ^status)
+  defp subscription_view(query, statuses),
+    do: from(subscription in query, where: subscription.status in ^statuses)
 
   defp subscription_search(items, nil), do: items
 
@@ -89,7 +106,8 @@ defmodule Ryker.ControlPlane.SubscriptionProjection do
         :title,
         :condition,
         :episode_title,
-        :context_label
+        :place,
+        :repository
       ])
       |> Map.values()
       |> Enum.join(" ")

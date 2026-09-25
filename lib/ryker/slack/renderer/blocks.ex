@@ -117,6 +117,10 @@ defmodule Ryker.Slack.Renderer.Blocks do
     do: Enum.map_join(values, "\n", &fact_markdown/1)
 
   defp fact_markdown(%{"ref" => _ref} = repository), do: repository_link(repository)
+
+  defp fact_markdown({:repository, repository, role}),
+    do: repository_link(repository) <> " — " <> escape(role)
+
   defp fact_markdown(%{"channel_ref" => channel_ref}), do: channel_mention(channel_ref)
   defp fact_markdown({:markup, text}), do: text
   defp fact_markdown(value), do: escape(value)
@@ -124,6 +128,7 @@ defmodule Ryker.Slack.Renderer.Blocks do
   # The same facts as notification text, where markup is noise.
   def fact_text(values) when is_list(values), do: Enum.map_join(values, ", ", &fact_text/1)
   def fact_text(%{"ref" => ref}), do: escape(ref)
+  def fact_text({:repository, %{"ref" => ref}, role}), do: escape(ref) <> " — " <> escape(role)
   def fact_text(%{"channel_ref" => channel_ref}), do: channel_mention(channel_ref)
   def fact_text({:markup, text}), do: text
   def fact_text(value), do: escape(value)

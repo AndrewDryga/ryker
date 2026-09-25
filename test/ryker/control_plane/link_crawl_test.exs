@@ -14,7 +14,7 @@ defmodule Ryker.ControlPlane.LinkCrawlTest do
   import Phoenix.ConnTest
   import Phoenix.LiveViewTest
 
-  alias Ryker.ControlPlane.{Endpoint, InstructionSettings, ModelRequests, Projection}
+  alias Ryker.ControlPlane.{Actions, Endpoint, InstructionSettings, ModelRequests, Projection}
   alias Ryker.Episodes
   alias Ryker.Fixtures.ControlPlaneOptions
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
@@ -22,15 +22,19 @@ defmodule Ryker.ControlPlane.LinkCrawlTest do
   @endpoint Endpoint
 
   # The pages the route map serves directly; everything else is discovered.
-  @seeds ~w(/ /activity /conversations /incident-rooms /schedules /subscriptions /channels
-            /repositories /failures /workspaces /findings /memory /rules /preferences /guidance
-            /instructions /usage /settings /settings/slack /settings/github /settings/emisar
-            /settings/webhooks /settings/retention /settings/token-rates /settings/system)
+  @seeds ~w(/ /activity /conversations /incident-rooms /schedules /follow-ups /environments
+            /channels /repositories /failures /working-copies /memory /memory/learned /memory/findings
+            /memory/learning /rules
+            /instructions /usage /setup /integrations /integrations/slack /integrations/github
+            /integrations/emisar /integrations/webhooks /settings/models /settings/retention
+            /settings/prices /settings/advanced)
 
   @live_routes [
     ~r{^/$},
-    ~r{^/(conversations|activity|incident-rooms|schedules|subscriptions|channels|repositories|failures|workspaces|findings|memory|rules|preferences|guidance|instructions|usage)$},
-    ~r{^/settings(?:/(?:slack|github|emisar|webhooks|retention|token-rates|system))?$},
+    ~r{^/(conversations|activity|incident-rooms|schedules|follow-ups|environments|channels|repositories|failures|working-copies|memory|rules|instructions|usage|setup|integrations)$},
+    ~r{^/memory/(learned|findings|learning)$},
+    ~r{^/integrations/(slack|github|emisar|webhooks)$},
+    ~r{^/settings/(models|retention|prices|advanced)$},
     ~r{^/conversations/[^/]+$},
     ~r{^/timeline/[^/]+$},
     ~r{^/incident-rooms/[^/]+$},
@@ -48,6 +52,17 @@ defmodule Ryker.ControlPlane.LinkCrawlTest do
     # episode link, and the real projections read an empty transcript.
     {:ok, %{episode: episode}} = Episodes.apply(EpisodeFixtures.admit_input())
 
+    # One environment behind the Environments page, so its rows and the
+    # editor each row's name opens are crawled too.
+    {:ok, settings} = Ryker.Settings.initialize("control-plane:local")
+
+    {:ok, _settings} =
+      Ryker.Settings.put_environment(
+        %{ref: "production", display_name: "Production", repositories: [], is_default: true},
+        settings.installation.revision,
+        "control-plane:local"
+      )
+
     projection =
       Projection.callbacks()
       |> Map.merge(Map.drop(fixture.projection, [:lab_conversation, :lab_index, :lab_artifact]))
@@ -56,10 +71,16 @@ defmodule Ryker.ControlPlane.LinkCrawlTest do
         model_timeline: fn _ref, params -> ModelRequests.timeline(episode.key, params) end
       })
 
+    # With settings in place the settings pages render their editors, which
+    # read the real settings commands; the fixture's doubles still answer
+    # every record action the crawl could reach.
     options = %{
       fixture
       | projection: projection,
-        actions: Map.put(fixture.actions, :save_instructions, &InstructionSettings.save/3)
+        actions:
+          Actions.callbacks()
+          |> Map.merge(fixture.actions)
+          |> Map.put(:save_instructions, &InstructionSettings.save/3)
     }
 
     start_supervised!(
@@ -88,7 +109,14 @@ defmodule Ryker.ControlPlane.LinkCrawlTest do
              end)
 
     # The crawl reached the record views, not only the indexes it started from.
-    for prefix <- ["/incident-rooms/", "/schedules/", "/channels/", "/failures/", "/actions/"] do
+    for prefix <- [
+          "/incident-rooms/",
+          "/schedules/",
+          "/channels/",
+          "/failures/",
+          "/actions/",
+          "/environments?edit="
+        ] do
       assert Enum.any?(visited, &String.starts_with?(&1, prefix)),
              "nothing crawled under #{prefix}"
     end

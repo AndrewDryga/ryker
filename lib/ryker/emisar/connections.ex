@@ -1,20 +1,27 @@
 defmodule Ryker.Emisar.Connections do
-  @moduledoc "Trusted resolution of scoped Emisar authority and isolated clients."
+  @moduledoc """
+  Trusted resolution of the Emisar account work may use, and isolated clients.
+
+  The account belongs to the environment work runs in. A session pins it once,
+  when its first generation is created, and later generations copy that pin;
+  work outside any environment, in an environment without an account, or in
+  one whose account is closed to new work has no Emisar authority.
+  """
 
   alias Ryker.{Credentials, Settings}
+  alias Ryker.Settings.Environment
 
-  @spec resolve(Settings.snapshot(), String.t() | nil, map() | nil, atom()) ::
-          {:ok, map()} | {:error, :not_configured | :disabled}
-  def resolve(snapshot, repository_ref, repository_context, purpose \\ :standard) do
-    {scope_kind, scope_ref} = scope(repository_ref, repository_context, purpose)
+  @type pin :: %{connection_ref: String.t(), account_ref: String.t(), rpc_url: String.t()}
 
-    with binding when not is_nil(binding) <-
-           Enum.find(snapshot.emisar_bindings, fn binding ->
-             binding.scope_kind == scope_kind and binding.scope_ref == scope_ref and
-               binding.purpose == purpose
-           end),
+  @spec resolve(Settings.snapshot(), String.t() | nil) ::
+          {:ok, pin()} | {:error, :not_configured | :disabled}
+  def resolve(_snapshot, nil), do: {:error, :not_configured}
+
+  def resolve(snapshot, environment_ref) when is_binary(environment_ref) do
+    with %Environment{emisar_connection_ref: ref} when is_binary(ref) <-
+           Environment.find(snapshot, :ref, environment_ref),
          connection when not is_nil(connection) <-
-           Enum.find(snapshot.emisar_connections, &(&1.ref == binding.connection_ref)),
+           Enum.find(snapshot.emisar_connections, &(&1.ref == ref)),
          true <- connection.enabled_for_new_work do
       {:ok,
        %{
@@ -24,21 +31,10 @@ defmodule Ryker.Emisar.Connections do
        }}
     else
       false -> {:error, :disabled}
-      nil -> {:error, :not_configured}
+      _unconfigured -> {:error, :not_configured}
     end
   end
 
   @spec credential_provider(String.t()) :: (-> {:ok, String.t()} | {:error, term()})
   def credential_provider(connection_ref), do: Credentials.provider(:emisar, connection_ref)
-
-  defp scope(_repository_ref, %{"context_ref" => ref}, _purpose) when is_binary(ref),
-    do: {:context, ref}
-
-  defp scope(_repository_ref, %{context_ref: ref}, _purpose) when is_binary(ref),
-    do: {:context, ref}
-
-  defp scope(repository_ref, _context, _purpose) when is_binary(repository_ref),
-    do: {:repository, repository_ref}
-
-  defp scope(nil, _context, purpose), do: {:installation_purpose, Atom.to_string(purpose)}
 end

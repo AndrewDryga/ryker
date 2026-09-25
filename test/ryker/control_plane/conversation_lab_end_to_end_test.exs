@@ -213,7 +213,8 @@ defmodule Ryker.ControlPlane.ConversationLabEndToEndTest do
              )
 
     candidate_ref =
-      "candidate:" <> CanonicalJSON.digest(["ingress-admission-candidate", episode.id])
+      "candidate:" <>
+        binary_part(CanonicalJSON.digest(["ingress-admission-candidate", episode.id]), 0, 12)
 
     {:ok, follow_up_admission} =
       FakeCoopAPI.start_link([decision(:continue_episode, candidate_ref)])

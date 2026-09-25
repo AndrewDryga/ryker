@@ -10,10 +10,11 @@ defmodule Ryker.ControlPlane.ProjectionTest do
     Activity,
     EpisodePage,
     FailureProjection,
-    HTML,
     Projection,
     RequestFilters,
-    UsageProjection
+    UsagePage,
+    UsageProjection,
+    WorkingCopiesPage
   }
 
   alias Ryker.CoopFleet.{Event, Placement, Worker}
@@ -224,14 +225,19 @@ defmodule Ryker.ControlPlane.ProjectionTest do
     assert Enum.map(detail.events, & &1.summary) == ["input admitted", "input wait started"]
     # Getting ready always carries Participation, including its recorded or
     # explicitly absent standing-rule inventory.
-    assert Enum.map(detail.trace.chapters, & &1.title) == ["What came in", "Getting ready"]
+    # The queue hands the input to routing, so its card opens the Routing chapter.
+    assert Enum.map(detail.trace.chapters, & &1.title) == [
+             "What came in",
+             "Getting ready",
+             "Routing"
+           ]
 
     assert Enum.map(detail.trace.steps, & &1.title) ==
              [
                "Input admitted",
                "Input wait started",
                "Participation",
-               "Input queue"
+               "Queue"
              ]
 
     assert detail.trace.stopped.headline == "Waiting for a person"
@@ -580,22 +586,6 @@ defmodule Ryker.ControlPlane.ProjectionTest do
              "Ryker rejected this candidate and requested a same-turn correction."
            ]
 
-    for {workspace_task, expected} <- [
-          {%{"repository" => "acme/ryker"}, "acme/ryker"},
-          {%{"primary" => %{"name" => "ryker-primary"}}, "ryker-primary"}
-        ] do
-      Repo.update_all(
-        from(saved in Ryker.Work.Session, where: saved.id == ^measured.session_id),
-        set: [workspace_task: workspace_task]
-      )
-
-      assert {:ok, workspace_detail} = Projection.episode(episode_key!(measured.episode_id))
-
-      setup_step = Enum.find(workspace_detail.trace.steps, &(&1.title == "Work setup"))
-      setup_details = Map.new(setup_step.setup.details, &{&1.label, &1.value})
-      assert setup_details["Bound task"] == expected
-    end
-
     for provider_ms <- [120_000, 7_200_000] do
       Repo.update_all(
         from(saved in Ryker.Work.Turn, where: saved.id == ^measured.id),
@@ -782,7 +772,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
     assert snapshot.totals.tokens == 16_160
     assert Enum.sum(Enum.map(snapshot.profiles, & &1.attempts)) == 13
 
-    document = snapshot |> HTML.usage() |> IO.iodata_to_binary() |> LazyHTML.from_document()
+    document = snapshot |> UsagePage.render() |> IO.iodata_to_binary() |> LazyHTML.from_document()
     people = LazyHTML.query(document, "#usage-users")
 
     for label <- ["Direct conversation", "universal", "Slack app", "without a saved"],
@@ -931,7 +921,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
     assert Enum.sort(Enum.map(snapshot.models, &{Map.get(&1, :effort), &1.attempts})) ==
              [{nil, 1}, {"high", 1}, {"medium", 2}]
 
-    document = snapshot |> HTML.usage() |> IO.iodata_to_binary() |> LazyHTML.from_document()
+    document = snapshot |> UsagePage.render() |> IO.iodata_to_binary() |> LazyHTML.from_document()
 
     for href <- document |> LazyHTML.query("#usage-models a") |> LazyHTML.attribute("href") do
       params = URI.decode_query(URI.parse(href).query)
@@ -1625,7 +1615,12 @@ defmodule Ryker.ControlPlane.ProjectionTest do
     assert Projection.episode("missing") == :not_found
 
     assert Projection.findings(%{}) == %{items: [], total: 0, page: 1, pages: 1}
-    assert map_size(Projection.callbacks()) == 38
+    assert map_size(Projection.callbacks()) == 35
+    # One failure callback serves every kind's page and confirmation.
+    assert is_function(Projection.callbacks().failure, 2)
+    refute Map.has_key?(Projection.callbacks(), :delivery)
+    assert is_function(Projection.callbacks().learned, 1)
+    assert is_function(Projection.callbacks().learning, 1)
     assert is_function(Projection.callbacks().instructions, 1)
     assert is_function(Projection.callbacks().lab_history, 3)
     assert is_function(Projection.callbacks().lab_changes, 3)
@@ -1678,8 +1673,16 @@ defmodule Ryker.ControlPlane.ProjectionTest do
     previous_configuration =
       Map.new(configuration_keys, &{&1, Application.get_env(:ryker, &1, :missing)})
 
+    # The running configuration keys task policies by environment; each names
+    # the repository its tasks change.
     Application.put_env(:ryker, :control_plane, %{
-      task_policies: %{"ryker" => %{name: "ryker-contributor"}}
+      task_policies: %{
+        "production" => %{
+          name: "ryker-contributor",
+          environment_ref: "production",
+          repository_ref: "ryker"
+        }
+      }
     })
 
     Application.put_env(:ryker, :schedules, %{
@@ -1811,6 +1814,24 @@ defmodule Ryker.ControlPlane.ProjectionTest do
 
     assert post_action.status == :pending
 
+    # Channels choose an environment; the repository's channels are the ones
+    # whose environment holds it.
+    {:ok, settings} = Ryker.Settings.initialize("control-plane:local")
+
+    {:ok, settings} =
+      Ryker.Settings.put_repository(
+        %{ref: "ryker", display_name: "Ryker"},
+        settings.installation.revision,
+        "control-plane:local"
+      )
+
+    {:ok, _settings} =
+      Ryker.Settings.put_environment(
+        %{ref: "production", display_name: "Production", repositories: ["ryker"]},
+        settings.installation.revision,
+        "control-plane:local"
+      )
+
     configuration =
       %{
         actor_ref: "U123",
@@ -1820,7 +1841,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
         invite_user_group_refs: [],
         invite_user_refs: [],
         participation: :proactive,
-        repository_ref: "ryker",
+        environment_ref: "production",
         revision: 1,
         saved_at: now,
         workspace_ref: "T123"
@@ -2061,6 +2082,13 @@ defmodule Ryker.ControlPlane.ProjectionTest do
     assert incident.room.episode_ref == source.episode.key
     assert [%{kind: :observed_active}] = incident.lifecycle
     assert Enum.map(incident.records, & &1.ref) == [record.ref, followup_record.ref]
+
+    # A room's page names each record the way its timeline card does.
+    assert Enum.map(incident.records, &{&1.label, &1.title}) == [
+             {"Progress", "investigating"},
+             {"Progress", "publishing"}
+           ]
+
     assert publication.ref != newer_publication.ref
     assert incident.publication.ref == newer_publication.ref
     assert incident.publication.last_error =~ "stored diagnostic sha256:"
@@ -2071,7 +2099,9 @@ defmodule Ryker.ControlPlane.ProjectionTest do
              Projection.schedules(%{"q" => "Operator", "status" => "active"})
 
     assert {:ok, schedule_detail} = Projection.schedule(schedule.ref)
-    assert schedule_detail.schedule.recurrence == "every 3600 seconds"
+
+    # The saved recurrence reaches the page as saved; the page words it.
+    assert %{"every_seconds" => 3_600, "kind" => "interval"} = schedule_detail.schedule.recurrence
 
     assert [
              %{
@@ -2087,7 +2117,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
     assert episode_ref == source.episode.key
 
     assert [projected_subscription] =
-             Projection.subscriptions(%{"q" => "github", "status" => "active"})
+             Projection.subscriptions(%{"q" => "github", "view" => "current"})
 
     assert projected_subscription.ref == subscription.ref
     assert projected_subscription.episode_ref == source.episode.key
@@ -2101,23 +2131,23 @@ defmodule Ryker.ControlPlane.ProjectionTest do
     assert [%{ref: subscription_ref}] = Projection.subscriptions(:all)
     assert subscription_ref == subscription.ref
 
-    for {recurrence, label} <- [
-          {%{"kind" => "daily", "time" => "09:30"}, "daily at 09:30"},
-          {%{"kind" => "weekly", "time" => "10:00", "weekday" => "monday"},
-           "weekly on monday at 10:00"},
-          {%{"day" => 15, "kind" => "monthly", "time" => "11:00"}, "monthly on day 15 at 11:00"},
-          {%{"at" => "2026-09-05T12:00:00Z", "kind" => "once"}, "once at 2026-09-05T12:00:00Z"},
-          {%{"kind" => "future"}, "recorded recurrence"}
+    for {recurrence, once_local} <- [
+          {%{"kind" => "daily", "time" => "09:30"}, nil},
+          {%{"kind" => "weekly", "time" => "10:00", "weekday" => "monday"}, nil},
+          {%{"day" => 15, "kind" => "monthly", "time" => "11:00"}, nil},
+          {%{"at" => "2026-09-05T12:00:00Z", "kind" => "once"}, ~N[2026-09-05 12:00:00.000000]},
+          {%{"kind" => "future"}, nil}
         ] do
       Repo.update_all(
         from(saved in Ryker.State.Schedule, where: saved.id == ^schedule.id),
         set: [recurrence: recurrence]
       )
 
-      assert {:ok, %{schedule: %{recurrence: ^label}}} = Projection.schedule(schedule.ref)
+      assert {:ok, %{schedule: %{recurrence: ^recurrence, once_local: ^once_local}}} =
+               Projection.schedule(schedule.ref)
     end
 
-    assert [%{membership: :joined, private: true, repository_ref: "ryker"}] =
+    assert [%{membership: :joined, private: true, environment_ref: "production"}] =
              Projection.channels(%{"q" => "C456"})
 
     assert {:ok, channel} = Projection.channel("T123", "C456", %{})
@@ -2130,20 +2160,19 @@ defmodule Ryker.ControlPlane.ProjectionTest do
     assert incident_channel.channel.kind == :incident_room
     assert incident_channel.channel.incident_room.channel_state == :active
     assert incident_channel.channel.incident_room.private
-    assert incident_channel.channel.repository == %{ref: "ryker", source: :incident_room}
+    assert %{source: :incident_room, writable: "ryker"} = incident_channel.channel.environment
     refute inspect(incident_channel) =~ "private-incident-marker"
 
     assert [%{ref: "ryker", freshness: receipt} = repository] =
              Projection.repositories(%{"q" => "ryk"})
 
     assert repository.channels == 1
+    assert repository.environments == ["Production"]
     assert repository.schedules == 1
     assert repository.sessions == 1
 
-    assert repository.configured == %{
-             contributor_policy: "ryker-contributor",
-             schedule_policy: "ryker-scheduled"
-           }
+    assert %{contributor_policy: "ryker-contributor", schedule_policy: "ryker-scheduled"} =
+             repository.configured
 
     assert [%{revision: "commit:operator", worker_ref: "operator-worker"}] = repository.workers
     assert receipt.version == 2
@@ -2552,19 +2581,20 @@ defmodule Ryker.ControlPlane.ProjectionTest do
     assert [preview] = storage.preview
     assert preview.ref == session.external_ref
     assert preview.status == :active
-    assert preview.reason == "start the follow-up window"
+    assert preview.reason == "Keep it briefly for follow-up questions, then remove it"
     assert preview.kind == :work
     assert is_integer(preview.eligible_age_seconds)
 
     # Preview is read-only: nothing about the session changed by looking at it.
     assert Repo.get!(Session, session.id).cleanup_status == :active
 
-    html = HTML.workspaces([], storage) |> IO.iodata_to_binary()
-    assert html =~ "No report"
-    assert html =~ "refused: reserve_exhausted"
-    assert html =~ "unknown"
-    assert html =~ "Nothing is eligible for cleanup"
-    refute html =~ "start the follow-up window"
+    html = WorkingCopiesPage.html(%{rows: [], storage: storage, now: nil})
+
+    assert html =~ "worker-silent</strong>"
+    assert html =~ "has not reported storage yet."
+    assert html =~ "not taking new copies (reserve exhausted)"
+    assert html =~ "Nothing is ready for cleanup right now."
+    refute html =~ "Keep it briefly for follow-up questions"
   end
 
   test "a publication that cannot proceed is visible on the failures page" do

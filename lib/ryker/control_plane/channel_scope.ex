@@ -51,7 +51,10 @@ defmodule Ryker.ControlPlane.ChannelScope do
     end
   end
 
-  @doc "The repository context that inherited rules, guidance and memory resolve through."
+  @doc """
+  The repository inherited rules, guidance and memory resolve through: the one
+  the channel's environment changes, or an incident room's own.
+  """
   @spec with_repository(t(), String.t() | nil) :: t()
   def with_repository(%__MODULE__{} = scope, repository_ref)
       when is_binary(repository_ref) and byte_size(repository_ref) in 1..1_024,

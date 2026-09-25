@@ -16,7 +16,7 @@ defmodule Ryker.Work.Custody.Turns do
   alias Ryker.Artifacts.References, as: ArtifactReferences
   alias Ryker.CanonicalJSON
   alias Ryker.Episodes
-  alias Ryker.Episodes.{Command, Episode}
+  alias Ryker.Episodes.{Command, Episode, RoutingDigests}
   alias Ryker.Publication.Custody, as: PublicationCustody
   alias Ryker.Repo
   alias Ryker.State.{Continuity, EventSubscriptions, KnowledgeSnapshot}
@@ -992,7 +992,8 @@ defmodule Ryker.Work.Custody.Turns do
            ),
          :ok <- Ryker.Accounting.accepted_in_transaction(episode, session, turn),
          {:ok, _subscription} <- EventSubscriptions.ensure_in_transaction(transition.episode),
-         :ok <- Continuity.accept_staged_in_transaction(episode, session, turn, turn.result_ref) do
+         :ok <- Continuity.accept_staged_in_transaction(episode, session, turn, turn.result_ref),
+         :ok <- RoutingDigests.accept_title_in_transaction(episode, turn) do
       %{episode: transition.episode, turn: turn}
     else
       {:accepted, turn} -> %{episode: episode_for_result!(episode_key), turn: turn}

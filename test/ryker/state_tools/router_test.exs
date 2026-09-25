@@ -133,8 +133,10 @@ defmodule Ryker.StateTools.RouterTest do
 
     validate_final = Enum.find(tools, &(&1["name"] == "validate_final"))
 
+    # The preflight takes the shadow answer schema, with title optional so a
+    # candidate without it preflights as keeping the episode's name.
     assert get_in(validate_final, ["inputSchema", "properties", "candidate"]) ==
-             Final.json_schema(:shadow)
+             Map.update!(Final.json_schema(:shadow), "required", &List.delete(&1, "title"))
 
     refused =
       rpc(
@@ -2666,6 +2668,10 @@ defmodule Ryker.StateTools.RouterTest do
                transition.episode.id,
                "test-policy",
                @policy_digest,
+               nil,
+               "ryker",
+               nil,
+               nil,
                "ryker"
              )
 
@@ -2719,12 +2725,12 @@ defmodule Ryker.StateTools.RouterTest do
       )
 
     {:ok, _snapshot} =
-      Settings.put_emisar_binding(
+      Settings.put_environment(
         %{
-          scope_kind: :repository,
-          scope_ref: "ryker",
-          purpose: :standard,
-          connection_ref: "production"
+          ref: "ryker",
+          display_name: "Ryker",
+          repositories: ["ryker"],
+          emisar_connection_ref: "production"
         },
         snapshot.installation.revision,
         "control-plane:local"

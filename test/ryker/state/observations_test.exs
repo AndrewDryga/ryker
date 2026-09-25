@@ -4,7 +4,7 @@ defmodule Ryker.State.ObservationsTest do
   import Ecto.Query
   alias Ryker.{Admission, CanonicalJSON, Repo}
   alias Ryker.Admission.{Context, Decision, Executor, Prompt}
-  alias Ryker.ControlPlane.{Components, ConversationMemory, HTML, Projection}
+  alias Ryker.ControlPlane.{Components, ConversationMemory, LearnedPage, Projection}
   alias Ryker.Episodes.Episode
   alias Ryker.Fixtures.DatabaseClock
   alias Ryker.Ingress.Inbox
@@ -56,19 +56,19 @@ defmodule Ryker.State.ObservationsTest do
 
     summary = summary!(LearningSources.for_entry(entry))
 
-    snapshot =
-      Projection.memory(%{
+    view =
+      Projection.learned(%{
         "kind" => "sources",
         "related_to" => "context:#{summary.id}"
       })
 
-    [item] = snapshot.conversation_memory.items
+    [item] = view.items
     assert item.at == @now
     assert item.text == @note["summary"]
-    html = HTML.memory(snapshot, "test-secret") |> IO.iodata_to_binary()
+    html = LearnedPage.html(view, "test-secret") |> IO.iodata_to_binary()
     assert html =~ "draft-ai-suggestions"
-    assert html =~ "Sources for Retained conversation context"
-    assert html =~ "Open source"
+    assert html =~ "Messages behind “Retained conversation context”"
+    assert html =~ "Open message"
     assert html =~ "name=\"q\""
     refute html =~ "Source excerpts"
   end
@@ -82,11 +82,11 @@ defmodule Ryker.State.ObservationsTest do
     summary = summary!(LearningSources.for_entry(entry))
 
     html =
-      Projection.memory(%{
+      Projection.learned(%{
         "kind" => "sources",
         "related_to" => "context:#{summary.id}"
       })
-      |> HTML.memory("test-secret")
+      |> LearnedPage.html("test-secret")
       |> IO.iodata_to_binary()
 
     assert length(Regex.scan(~r/class="slack-mention"/, html)) == 2
@@ -200,7 +200,12 @@ defmodule Ryker.State.ObservationsTest do
     context = context!(next)
     assert [%{"summary" => summary}] = context.observations
     assert summary == @note["summary"]
-    assert Prompt.build(context)["context"]["conversation_observations"] == context.observations
+    # Routing reads who noted what and when; the frozen snapshot keeps the rest.
+    assert [%{"summary" => ^summary} = note] =
+             Prompt.build(context)["context"]["conversation_observations"]
+
+    refute Map.has_key?(note, "source_read")
+    refute Map.has_key?(note, "source_ref")
     assert {:ok, restored} = Context.restore(Context.snapshot(context), context.input, next, %{})
     assert restored.observations == context.observations
 

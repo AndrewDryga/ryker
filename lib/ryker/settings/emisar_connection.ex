@@ -43,7 +43,8 @@ defmodule Ryker.Settings.EmisarConnection do
   end
 
   def deletable(connection, snapshot) do
-    binding_count = Enum.count(snapshot.emisar_bindings, &(&1.connection_ref == connection.ref))
+    environment_count =
+      Enum.count(snapshot.environments, &(&1.emisar_connection_ref == connection.ref))
 
     session_count =
       Ryker.Repo.aggregate(
@@ -59,14 +60,18 @@ defmodule Ryker.Settings.EmisarConnection do
         :count
       )
 
-    if binding_count + session_count + approval_count == 0 do
+    if environment_count + session_count + approval_count == 0 do
       :ok
     else
       {:error,
        [
          ref:
            {:referenced,
-            %{bindings: binding_count, sessions: session_count, approvals: approval_count}}
+            %{
+              approvals: approval_count,
+              environments: environment_count,
+              sessions: session_count
+            }}
        ]}
     end
   end

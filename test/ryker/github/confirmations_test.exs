@@ -81,6 +81,41 @@ defmodule Ryker.GitHub.ConfirmationsTest do
     assert Repo.aggregate(Schedule, :count, :id) == 1
   end
 
+  # A task confirmed on GitHub runs where its repository is writable: the
+  # environment's policy decides what it mounts, and the session records that
+  # environment so it pins the environment's Emisar account.
+  test "a task confirmed on GitHub runs in the environment that writes its repository" do
+    fixture = delivered_offers!()
+
+    repository_context = %{
+      "context_ref" => "platform",
+      "parallel_goal_limit" => 3,
+      "primary_repository" => "ryker",
+      "read_only_repositories" => ["docs"]
+    }
+
+    options =
+      Confirmations.options!(%{
+        repositories: %{
+          "ryker" => %{
+            contributor_policy: %{
+              digest: @digest,
+              environment_ref: "platform",
+              name: "ryker-contributor",
+              repository_context: repository_context,
+              repository_ref: "ryker"
+            }
+          }
+        }
+      })
+
+    assert {:ok, %{"status" => "confirmed"}} =
+             Confirmations.apply(input!("/ryker confirm #{fixture.task.ref}", 9_151, 42), options)
+
+    assert %Session{environment_ref: "platform", repository_context: ^repository_context} =
+             Repo.get_by!(Session, policy: "ryker-contributor")
+  end
+
   test "commands copied to another thread or pointing at unsupported records fail closed" do
     fixture = delivered_offers!()
 
@@ -246,7 +281,7 @@ defmodule Ryker.GitHub.ConfirmationsTest do
                %{"episode_id" => episode_id},
                "Prepare offers.",
                %{"type" => "object"},
-               "work-final-live-v2"
+               "work-final-live-v3"
              )
 
     assert {:ok, _turn} =

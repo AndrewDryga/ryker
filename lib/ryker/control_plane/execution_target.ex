@@ -63,6 +63,7 @@ defmodule Ryker.ControlPlane.ExecutionTarget do
 
   defp effort(nil), do: nil
   defp effort("none"), do: "No reasoning"
+  defp effort("xhigh"), do: "Extra high reasoning"
   defp effort(value), do: human(value) <> " reasoning"
 
   defp provider("codex"), do: "Codex"

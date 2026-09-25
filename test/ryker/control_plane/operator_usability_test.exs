@@ -2,15 +2,28 @@ defmodule Ryker.ControlPlane.OperatorUsabilityTest do
   alias Ryker.ControlPlane.UsageChart
   use ExUnit.Case, async: true
   import Phoenix.LiveViewTest, only: [render_component: 2]
-  alias Ryker.ControlPlane.{BehaviorPage, HTML}
 
-  test "timer subscriptions show their scheduled wake without pretending to watch any source" do
-    html =
-      HTML.subscriptions([
+  alias Ryker.ControlPlane.{
+    BehaviorPage,
+    FailureExplanation,
+    FailuresPage,
+    FindingsPage,
+    RepositoriesPage,
+    SubscriptionsPage
+  }
+
+  @now ~U[2026-09-24 12:00:00Z]
+
+  test "a timer follow-up says when work continues without pretending to watch any source" do
+    now = ~U[2026-09-07 12:00:00Z]
+
+    document =
+      [
         %{
-          title: "Timed follow-up",
-          condition: "Resume work at the scheduled time",
-          context_label: "Source context unavailable",
+          title: "Timer",
+          condition: nil,
+          place: nil,
+          repository: nil,
           episode_title: "Follow up on the deployment",
           episode_href: "/timeline/episode%3Atimer",
           source_label: "Timer",
@@ -30,16 +43,22 @@ defmodule Ryker.ControlPlane.OperatorUsabilityTest do
           trigger_type: "after",
           updated_at: ~U[2026-09-07 12:00:00Z]
         }
-      ])
+      ]
+      |> SubscriptionsPage.list(%{"q" => "", "view" => "current"}, now)
       |> IO.iodata_to_binary()
+      |> LazyHTML.from_fragment()
 
-    assert html =~ "Waits"
-    document = LazyHTML.from_document(html)
-    assert LazyHTML.query(document, ".subscription-timing dt") |> LazyHTML.text() =~ "Follow-up"
-    assert html =~ "Timed follow-up"
-    assert html =~ "Resume work at the scheduled time"
-    refute html =~ ">any<"
-    refute html =~ "External event subscriptions"
+    row = LazyHTML.query(document, ".entity-row")
+    assert LazyHTML.query(row, ".entity-name") |> LazyHTML.text() =~ "Timer"
+
+    assert LazyHTML.query(row, ".entity-meta time[datetime='2026-09-07T12:10:00Z']")
+           |> LazyHTML.text() == "in 10 minutes"
+
+    text = LazyHTML.text(row)
+    refute text =~ "matching update"
+    refute text =~ "stops waiting"
+    refute text =~ ~r/\bany\b/
+    refute text =~ "External event subscriptions"
   end
 
   test "an entry's overflow control says which entry it acts on and never hides the ordinary action" do
@@ -49,9 +68,9 @@ defmodule Ryker.ControlPlane.OperatorUsabilityTest do
     # rather than folded into the same menu as Delete. Entries that can no
     # longer change carry their state in words, not only in a colour.
     entry = fn status ->
-      render_component(&BehaviorPage.render/1,
+      render_component(&BehaviorPage.rules/1,
         view: %{
-          kind: :standing_assignment,
+          kinds: [:standing_assignment],
           items: [
             %{
               kind: :standing_assignment,
@@ -74,7 +93,7 @@ defmodule Ryker.ControlPlane.OperatorUsabilityTest do
           page: 1,
           pages: 1,
           runs: [],
-          params: %{"q" => "", "scope" => "", "status" => "current"}
+          params: %{"q" => "", "status" => "current", "show" => "all"}
         }
       )
       |> LazyHTML.from_fragment()
@@ -82,9 +101,9 @@ defmodule Ryker.ControlPlane.OperatorUsabilityTest do
 
     for {status, ordinary} <- [{"active", "Pause"}, {"disabled", "Resume"}] do
       document = entry.(status)
-      actions = LazyHTML.query(document, ".behavior-footer .behavior-actions")
+      actions = LazyHTML.query(document, "article .entity-actions")
 
-      assert LazyHTML.query(document, ".behavior-actions > form.action-control button")
+      assert LazyHTML.query(document, "article .entity-actions > form.action-control button")
              |> LazyHTML.text() == ordinary
 
       summary = LazyHTML.query(actions, "details.behavior-menu > summary")
@@ -94,38 +113,41 @@ defmodule Ryker.ControlPlane.OperatorUsabilityTest do
       delete = LazyHTML.query(actions, "details.behavior-menu button")
       assert LazyHTML.text(delete) == "Delete"
       assert LazyHTML.attribute(delete, "class") == ["ui-button danger"]
-      assert LazyHTML.text(LazyHTML.query(document, ".behavior-usage")) =~ "Not used yet"
+      assert LazyHTML.text(LazyHTML.query(document, "article .entity-meta")) =~ "not used yet"
     end
 
     for {status, word} <- [
           {"expired", "Expired"},
           {"deleted", "Deleted"},
-          {"superseded", "Superseded"}
+          {"superseded", "Replaced"}
         ] do
       document = entry.(status)
-      assert Enum.empty?(LazyHTML.query(document, ".behavior-actions, form.action-control"))
-      assert LazyHTML.query(document, ".behavior-heading .ui-status") |> LazyHTML.text() == word
+      assert Enum.empty?(LazyHTML.query(document, "form.action-control"))
+
+      assert LazyHTML.query(document, "article .entity-side .state-word") |> LazyHTML.text() ==
+               word
     end
   end
 
-  test "findings explain their scope and supported creation workflow" do
-    html = HTML.findings(%{items: [], total: 0, page: 1, pages: 1}) |> IO.iodata_to_binary()
-    assert html =~ "How findings work"
-    assert html =~ "Routine lookups, raw alerts, and unchanged repeated conclusions"
-    assert html =~ "continue the source investigation"
+  test "findings say what puts one there and never offer to create one" do
+    html =
+      FindingsPage.html(%{items: [], total: 0, page: 1, pages: 1}) |> IO.iodata_to_binary()
+
+    assert html =~ "No findings yet"
+    assert html =~ "When Ryker investigates a problem, it saves what it concluded here"
     refute html =~ "Create finding"
   end
 
-  test "cleanup recovery explains the ownership blocker instead of sending people to a hash" do
-    # The real September 2 failure was displayed as coop_error and a hash,
-    # encouraging retries that cannot supply the missing ownership proof.
+  # The September 2 failure was displayed as coop_error and a hash, and the
+  # page offered a retry that cannot supply the missing ownership proof.
+  test "a cleanup that cannot prove which files are its own is never offered as a retry that works" do
     row = %{
       kind: "retention",
       ref: "session:one",
       episode_ref: "episode:one",
-      status: "blocked",
+      status: :blocked,
       summary: "coop_error",
-      updated_at: nil,
+      updated_at: ~U[2026-09-02 13:56:40Z],
       request_title: "Hi",
       request_state: :complete,
       source: "ryker",
@@ -138,48 +160,46 @@ defmodule Ryker.ControlPlane.OperatorUsabilityTest do
       detail: "stored diagnostic sha256:abc"
     }
 
-    html = row |> HTML.failure() |> IO.iodata_to_binary()
+    detail = row |> FailuresPage.detail(@now) |> IO.iodata_to_binary()
+    document = LazyHTML.from_fragment(detail)
 
-    assert html =~ "Temporary files could not be removed"
-    assert html =~ "The request is complete. Only automatic cleanup failed."
-    assert html =~ "Why it stopped"
-    assert html =~ "Leave the folder in place for now. Do not retry cleanup."
-    assert html =~ "There is no supported recovery command for this older session yet."
-    refute html =~ "A developer needs to check the leftover folder"
-    assert html =~ "HTTP 409"
+    assert detail =~ "cannot prove"
+    assert detail =~ "Leave the folder in place"
+    assert detail =~ "cleanup fix in Coop"
 
-    assert html
-           |> LazyHTML.from_document()
-           |> LazyHTML.query("a[href='/timeline/episode%3Aone']")
-           |> LazyHTML.text()
-           |> String.trim() == "Hi"
+    assert LazyHTML.query(document, ".failure-status .state-word") |> LazyHTML.text() ==
+             "Retry won't help"
 
-    refute html =~ "Inspect the saved error"
-    refute html =~ "Resume cleanup…"
-    [primary | _] = String.split(html, "<details")
+    assert LazyHTML.query(document, ".failure-status a[href='/timeline/episode%3Aone']")
+           |> LazyHTML.text() == "Hi"
+
+    # The retry stays reachable for an operator who knows better, but only as
+    # a secondary step marked as failing, never as the page's primary button.
+    retry = LazyHTML.query(document, ".failure-option form[action^='/actions/retention/'] button")
+    assert Enum.count(retry) == 1
+    assert LazyHTML.attribute(retry, "class") == ["ui-button secondary"]
+    assert Enum.empty?(LazyHTML.query(document, ".failure-option .ui-button.primary"))
+
+    [primary | _] = String.split(detail, "id=\"failure-technical\"")
     refute primary =~ "stored diagnostic sha256"
-    refute primary =~ "Ownership proof"
     refute primary =~ "HTTP 409"
-    refute primary =~ "failure-progress"
-    refute primary =~ "Resume cleanup"
+    assert detail =~ "HTTP 409"
 
-    document = LazyHTML.from_document(html)
-    assert Enum.count(LazyHTML.query(document, ".failure-diagnostics form button")) == 1
+    list = [row] |> FailuresPage.list(@now) |> IO.iodata_to_binary()
+    assert list |> LazyHTML.from_fragment() |> LazyHTML.text() =~ "Retry won't help"
+    refute list =~ "/actions/retention/"
 
-    pending = %{row | request_state: :working} |> HTML.failure() |> IO.iodata_to_binary()
-    refute pending =~ "The request is complete"
+    pending =
+      %{row | request_state: :working} |> FailuresPage.detail(@now) |> IO.iodata_to_binary()
 
-    work = %{row | kind: "work"} |> HTML.failure() |> IO.iodata_to_binary()
-    refute work =~ "Temporary files could not be removed"
-    refute work =~ "Only automatic cleanup failed"
+    refute pending =~ "the request finished"
 
-    list = [row] |> HTML.failures() |> IO.iodata_to_binary()
-    assert list =~ "Cleanup paused"
-    refute list =~ "Resume cleanup"
+    one_attempt = %{row | attempt_count: 1}
 
-    one_attempt = %{row | kind: "work", attempt_count: 1}
-
-    for rendered <- [HTML.failure(one_attempt), HTML.failures([one_attempt])] do
+    for rendered <- [
+          FailuresPage.detail(one_attempt, @now),
+          FailuresPage.list([one_attempt], @now)
+        ] do
       text = rendered |> IO.iodata_to_binary() |> LazyHTML.from_fragment() |> LazyHTML.text()
       assert text =~ "1 attempt"
       refute text =~ "1 attempts"
@@ -187,35 +207,107 @@ defmodule Ryker.ControlPlane.OperatorUsabilityTest do
   end
 
   # Operators could not tell what recovery would do; internal queue terms were
-  # exposed as the primary action on failed deliveries and workspace cleanup.
-  test "failed operations explain recovery without exposing queue jargon" do
-    html =
-      HTML.failures([
-        %{
-          kind: "delivery",
-          ref: "delivery:one",
-          action: :rearm,
-          status: "blocked",
-          summary: "Slack rate limit",
-          updated_at: nil
-        }
-      ])
-      |> IO.iodata_to_binary()
+  # the labels, and "Resume cleanup" said nothing about whether it would work.
+  test "a failure says what its action will do before it is taken" do
+    rows = [
+      %{
+        kind: "delivery",
+        ref: "delivery:one",
+        action: :rearm,
+        attempt_count: 8,
+        delivery_kind: :message,
+        status: :blocked,
+        summary: "delivery_rate_limited",
+        updated_at: ~U[2026-09-24 11:00:00Z]
+      },
+      %{
+        kind: "slack_interaction",
+        ref: "interaction:one",
+        action: :rearm,
+        action_id: "ryker_confirm_memory",
+        attempt_count: 8,
+        outcome: :confirmed,
+        status: :blocked,
+        summary: "slack_interaction_repaint_error",
+        updated_at: ~U[2026-09-24 11:00:00Z]
+      }
+    ]
 
-    assert html =~ "Retry delivery"
-    refute html =~ "Needs attention"
-    refute html =~ ">Rearm"
-    assert html =~ "/rearm"
-    refute html =~ "<th>Reference</th>"
-    assert html =~ "Inspect cause"
+    document =
+      rows |> FailuresPage.list(@now) |> IO.iodata_to_binary() |> LazyHTML.from_fragment()
+
+    refute LazyHTML.text(document) =~ "Rearm"
+
+    for {row, article} <- Enum.zip(rows, LazyHTML.query(document, "article.failure-row")) do
+      explanation = FailureExplanation.explain(row, @now)
+      button = LazyHTML.query(article, "form[method='get'] button")
+      next = LazyHTML.query(article, ".failure-next") |> LazyHTML.text()
+
+      assert LazyHTML.text(button) == explanation.button.label
+
+      assert LazyHTML.query(article, "form") |> LazyHTML.attribute("action") == [
+               "/actions/#{row.kind}/#{URI.encode(row.ref, &URI.char_unreserved?/1)}/rearm"
+             ]
+
+      # The line under the facts names the button and says what it does.
+      assert next =~ explanation.button.label
+      [_label, effect] = String.split(next, ":", parts: 2)
+      assert String.trim(effect) == hd(Enum.filter(explanation.options, & &1[:path])).effect
+    end
+
+    assert LazyHTML.text(document) =~ "Post the reply again"
+    assert LazyHTML.text(document) =~ "never appears twice"
+    assert LazyHTML.text(document) =~ "Update the message again"
+  end
+
+  test "an action that cannot work yet is not offered as the primary step" do
+    # Ryker is out of the channel: pressing retry would be refused again, so
+    # the row offers the change that has to come first, and where to make it.
+    row = %{
+      kind: "delivery",
+      ref: "delivery:one",
+      action: :rearm,
+      attempt_count: 1,
+      delivery_kind: :message,
+      destination: "slack:T123:C456 / 1787832000.001",
+      provider_error: "not_in_channel",
+      slack: %{connection: :ready, membership: :left, renewed_at: nil},
+      status: :blocked,
+      summary: "delivery_reconciliation_failed",
+      updated_at: ~U[2026-09-24 11:00:00Z]
+    }
+
+    list = [row] |> FailuresPage.list(@now) |> IO.iodata_to_binary() |> LazyHTML.from_fragment()
+    assert LazyHTML.query(list, ".state-word") |> LazyHTML.text() == "Fix needed first"
+    assert Enum.empty?(LazyHTML.query(list, "form[action^='/actions/']"))
+    assert LazyHTML.query(list, ".failure-next") |> LazyHTML.text() =~ "invite Ryker"
+
+    assert LazyHTML.query(list, ".entity-actions a") |> LazyHTML.attribute("href") == [
+             "https://slack.com/app_redirect?channel=C456&team=T123"
+           ]
+
+    detail = row |> FailuresPage.detail(@now) |> IO.iodata_to_binary() |> LazyHTML.from_fragment()
+    retry = LazyHTML.query(detail, "form[action='/actions/delivery/delivery%3Aone/rearm'] button")
+    assert LazyHTML.attribute(retry, "class") == ["ui-button secondary"]
+    assert LazyHTML.text(detail) =~ "Fails until fixed"
+
+    # Once Ryker is back in the channel, the same failure offers the retry.
+    rejoined = put_in(row, [:slack, :membership], :joined)
+
+    list =
+      [rejoined] |> FailuresPage.list(@now) |> IO.iodata_to_binary() |> LazyHTML.from_fragment()
+
+    assert LazyHTML.query(list, ".state-word") |> LazyHTML.text() == "Retry should work"
+
+    assert LazyHTML.query(list, "form") |> LazyHTML.attribute("action") == [
+             "/actions/delivery/delivery%3Aone/rearm"
+           ]
   end
 
   test "a stuck publication says why it is stuck" do
     # The first screenshot of the new Publishing rows showed three of them
     # reading "No recognized error explanation is available in the saved
-    # record." while the host held the exact code for each. That is the same
-    # defect as a card telling an operator no cause exists over a refusal it is
-    # storing, one surface over.
+    # record." while the host held the exact code for each.
     rows = [
       %{
         kind: "publication",
@@ -241,12 +333,71 @@ defmodule Ryker.ControlPlane.OperatorUsabilityTest do
       }
     ]
 
-    html = rows |> HTML.failures() |> IO.iodata_to_binary()
+    html = rows |> FailuresPage.list(@now) |> IO.iodata_to_binary()
 
-    assert html =~ "Publishing stopped"
-    assert html =~ "worker session it was reviewing is no longer in a state that allows it"
-    assert html =~ "no connected GitHub App"
+    assert html =~ "Opening a pull request stopped"
+    # A closed session ends its publication on its own and never reaches this
+    # page; the protocol error left here is an answer Ryker could not read.
+    assert html =~ "did not match what Ryker expected"
+    refute html =~ "no longer open"
+    assert html =~ "Pull requests are not set up for the ryker repository"
+    assert html =~ "href=\"/integrations/github\""
+    refute html =~ "/actions/publication/"
     refute html =~ "No recognized error explanation"
+  end
+
+  # A message whose reading run stopped is read again by a fresh run on its
+  # own now, so only one whose runs kept stopping through the whole retry
+  # budget reaches this page. The page offered to ask the person to send it
+  # again; its retry reads the message again, and the page has to say so,
+  # and that Ryker already did that by itself.
+  test "a message whose reading runs kept stopping offers another reading, never a note" do
+    row = %{
+      kind: "admission",
+      ref: "ingress-input:one",
+      action: :rearm,
+      attempt_count: 8,
+      destination: "slack:T123:C456 / 1787832000.000100",
+      status: :blocked,
+      summary: "coop_turn_stopped",
+      updated_at: @now
+    }
+
+    stopped = FailureExplanation.explain(row, @now)
+    assert stopped.outlook == :unknown
+    assert stopped.summary =~ "kept stopping"
+    assert Enum.any?(stopped.tried, &(&1 =~ "fresh run"))
+
+    assert %{effect: effect} = Enum.find(stopped.options, &(&1.label == "Read the message again"))
+    assert effect =~ "decides again how to respond"
+
+    assert {:ok, "Read this message again?", _sentence} =
+             FailureExplanation.confirmation(row, "rearm")
+
+    refute inspect(stopped) =~ "send it again"
+    refute inspect(stopped) =~ "send this message again"
+  end
+
+  # A deleted incident-room channel used to leave the room blocked with a
+  # refused retry, counting against the room limit. It closes on its own now.
+  test "a half-set-up incident room says its channel's deletion closes it" do
+    row = %{
+      kind: "slack_incident",
+      ref: "incident-room:one",
+      action: :rearm,
+      attempt_count: 8,
+      channel_state: :active,
+      setup_step: :topic,
+      status: :blocked,
+      summary: "slack_incident_room_error",
+      title: "Checkout errors",
+      updated_at: @now
+    }
+
+    explained = FailureExplanation.explain(row, @now)
+    assert %{effect: left} = Enum.find(explained.options, &(&1.label == "Leave it"))
+    assert left =~ "If its channel is deleted in Slack, Ryker closes the room"
+    assert Enum.any?(explained.affects, &(&1 =~ "until its channel is deleted in Slack"))
   end
 
   test "a stuck task on the Failures list says why, in its recovery brief's words" do
@@ -264,21 +415,22 @@ defmodule Ryker.ControlPlane.OperatorUsabilityTest do
       summary: "work_execution_blocked",
       updated_at: nil,
       work_recovery: %{
-        action_label: "Retry work",
+        action: :retry,
+        action_label: "Run the task again",
         cause: "The worker did not take or finish one of this task's commands in time.",
-        explained: true
+        explained: true,
+        retry_effect: "Ryker starts the task again as a new run."
       }
     }
 
-    html = [row] |> HTML.failures() |> IO.iodata_to_binary()
-
+    html = [row] |> FailuresPage.list(@now) |> IO.iodata_to_binary()
     assert html =~ "The worker did not take or finish one of this task"
     refute html =~ "No recognized error explanation"
 
-    # A brief that names nothing leaves this list its own generic sentence.
+    # A brief that names nothing leaves this list its own plain sentence.
     unexplained = put_in(row, [:work_recovery, :explained], false)
-    html = [unexplained] |> HTML.failures() |> IO.iodata_to_binary()
-    assert html =~ "No recognized error explanation"
+    html = [unexplained] |> FailuresPage.list(@now) |> IO.iodata_to_binary()
+    assert html =~ "The task stopped before Ryker could confirm why."
   end
 
   test "a stalled worker is named as the cause of any stopped operation" do
@@ -296,31 +448,29 @@ defmodule Ryker.ControlPlane.OperatorUsabilityTest do
       updated_at: nil
     }
 
-    html = [row] |> HTML.failures() |> IO.iodata_to_binary()
-
-    assert html =~ "The worker did not take or finish"
-    refute html =~ "No recognized error explanation"
+    html = [row] |> FailuresPage.list(@now) |> IO.iodata_to_binary()
+    assert html =~ "The worker did not take or finish the cleanup step in time."
+    assert html =~ "Background learning"
 
     # A learning cleanup from before a policy re-pin could not be placed back
     # on its worker, and read as unexplained too.
     unplaceable = %{row | summary: "coop_session_replacement_required"}
-    html = [unplaceable] |> HTML.failures() |> IO.iodata_to_binary()
-
-    assert html =~ "can no longer take it back"
-    refute html =~ "No recognized error explanation"
+    html = [unplaceable] |> FailuresPage.list(@now) |> IO.iodata_to_binary()
+    assert html =~ "could not take it back then"
   end
 
-  test "failure summary keeps headline facts and only the represented multi-area breakdown" do
-    # The old eight-cell grid made five zeroes louder than the three areas that
-    # actually needed attention.
+  # The old summary led with "4 failures · 2 affected requests" and an eight
+  # cell breakdown by internal area, which told an operator nothing about
+  # whether anyone was waiting.
+  test "the counts say who is affected before how many, and housekeeping comes last" do
     cleanup = %{
       kind: "retention",
       ref: "session:one",
       episode_ref: "episode:one",
       action: :rearm,
-      status: "blocked",
+      status: :blocked,
       summary: "coop_error",
-      updated_at: nil
+      updated_at: ~U[2026-09-23 12:00:00Z]
     }
 
     rows = [
@@ -330,145 +480,100 @@ defmodule Ryker.ControlPlane.OperatorUsabilityTest do
       %{cleanup | kind: "admission", ref: "input:one", episode_ref: nil}
     ]
 
-    document = rows |> HTML.failures() |> IO.iodata_to_binary() |> LazyHTML.from_fragment()
+    document =
+      rows |> FailuresPage.list(@now) |> IO.iodata_to_binary() |> LazyHTML.from_fragment()
 
-    summary =
+    counts =
       document
-      |> LazyHTML.query(".page-summary-facts > div")
-      |> Enum.map(fn stat ->
-        {stat |> LazyHTML.query("dt") |> LazyHTML.text() |> String.trim(),
-         stat |> LazyHTML.query("dd") |> LazyHTML.text()}
-      end)
+      |> LazyHTML.query(".kit-counts .kit-count")
+      |> Enum.map(&(&1 |> LazyHTML.text() |> String.split() |> Enum.join(" ")))
 
-    assert summary == [
-             {"failures", "4"},
-             {"affected requests", "2"}
+    assert counts == ["2 affect people", "2 housekeeping", "1 d since the oldest stopped"]
+
+    assert LazyHTML.query(document, ".kit-counts .kit-count[data-tone=warn]")
+           |> LazyHTML.text() =~ "affect people"
+
+    assert LazyHTML.query(document, ".section-head h2") |> Enum.map(&LazyHTML.text/1) == [
+             "Affects people",
+             "Housekeeping"
            ]
 
-    types =
-      document
-      |> LazyHTML.query(".page-summary-secondary dl > div")
-      |> Enum.map(fn stat ->
-        {stat |> LazyHTML.query("dt") |> LazyHTML.text() |> String.trim(),
-         stat |> LazyHTML.query("dd") |> LazyHTML.text()}
-      end)
+    assert Enum.count(LazyHTML.query(document, "#affects-people ~ .entity-list article")) == 2
+    assert Enum.count(LazyHTML.query(document, "article.failure-row")) == 4
 
-    assert types == [
-             {"Routing", "1"},
-             {"Delivery", "1"},
-             {"Cleanup", "2"}
-           ]
-
-    assert LazyHTML.query(document, ".page-summary-secondary > span") |> LazyHTML.text() ==
-             "By area"
-
-    assert Enum.count(LazyHTML.query(document, ".failure-cards > article")) == 4
-    refute LazyHTML.text(document) =~ "These saved operations"
+    # Cleanup alone has no people section at all.
+    only_cleanup = [cleanup] |> FailuresPage.list(@now) |> IO.iodata_to_binary()
+    refute only_cleanup =~ "Affects people"
   end
 
-  test "a single failure area omits the redundant breakdown" do
-    row = %{
-      kind: "retention",
-      ref: "session:one",
-      episode_ref: "episode:one",
-      action: :rearm,
-      status: "blocked",
-      summary: "coop_error",
-      updated_at: nil
-    }
+  test "an empty Failures page says nothing needs you and what would put something here" do
+    document = [] |> FailuresPage.list(@now) |> IO.iodata_to_binary() |> LazyHTML.from_fragment()
 
-    document = [row] |> HTML.failures() |> IO.iodata_to_binary() |> LazyHTML.from_fragment()
+    assert LazyHTML.query(document, ".entity-empty-title") |> LazyHTML.text() ==
+             "Nothing needs you."
 
-    facts = LazyHTML.query(document, ".page-summary-facts > div")
-
-    assert Enum.map(facts, fn fact ->
-             {fact |> LazyHTML.query("dt") |> LazyHTML.text() |> String.trim(),
-              fact |> LazyHTML.query("dd") |> LazyHTML.text()}
-           end) == [{"failures", "1"}, {"affected requests", "1"}]
-
-    assert Enum.empty?(LazyHTML.query(document, ".page-summary-secondary"))
+    assert LazyHTML.text(document) =~ "When Ryker cannot finish something on its own"
+    assert Enum.empty?(LazyHTML.query(document, ".kit-counts"))
   end
 
-  test "empty failures show one zero and the useful empty state" do
-    document = [] |> HTML.failures() |> IO.iodata_to_binary() |> LazyHTML.from_fragment()
-    counts = LazyHTML.query(document, ".page-summary-facts dd")
-    assert Enum.count(counts) == 1
-    assert LazyHTML.text(counts) == "0"
-    refute LazyHTML.text(document) =~ "affected requests"
-    assert Enum.empty?(LazyHTML.query(document, ".page-summary-secondary"))
-    assert LazyHTML.text(document) =~ "Nothing needs attention"
-  end
-
-  test "working copies do not present the repository name as a retention reason" do
+  test "a failure's page leads with what happened and keeps opaque IDs in Technical details" do
     html =
-      HTML.workspaces(
-        [
-          %{
-            action: nil,
-            ref: "session:1",
-            status: :discarded,
-            state: :complete,
-            summary: "emisar",
-            repository: "emisar",
-            updated_at: ~U[2026-09-05 12:00:00Z]
-          }
-        ],
-        no_storage()
+      FailuresPage.detail(
+        %{
+          kind: "retention",
+          ref: "session:one",
+          episode_ref: "episode:one",
+          status: :blocked,
+          summary: "coop_error",
+          detail: "stored diagnostic sha256:" <> String.duplicate("a", 64),
+          destination: "control_plane:control-plane:lab:one / control-plane:lab:one",
+          updated_at: ~U[2026-09-05 12:00:00Z]
+        },
+        @now
       )
       |> IO.iodata_to_binary()
 
-    assert html =~ "Removed safely"
-    assert html =~ "05 Sep, 12:00 UTC"
-    refute html =~ ">emisar</span>"
-  end
+    document = LazyHTML.from_fragment(html)
 
-  test "failure detail leads with the interrupted operation and keeps opaque IDs secondary" do
-    html =
-      HTML.failure(%{
-        kind: "retention",
-        ref: "session:one",
-        episode_ref: "episode:one",
-        status: "blocked",
-        summary: "coop_error",
-        detail: "stored diagnostic sha256:" <> String.duplicate("a", 64),
-        destination: "control_plane:control-plane:lab:one / control-plane:lab:one",
-        updated_at: ~U[2026-09-05 12:00:00Z]
-      })
-      |> IO.iodata_to_binary()
+    assert LazyHTML.query(document, ".section-head h2") |> Enum.map(&LazyHTML.text/1) == [
+             "What happened",
+             "What it affects",
+             "What Ryker tried",
+             "What you can do"
+           ]
 
-    assert html =~ "Working-copy cleanup stopped"
-    assert html =~ "Open request"
+    assert html =~ "Open the request"
     assert html =~ "Direct conversation"
     refute html =~ "Conversation Lab"
-    assert html =~ "Failure diagnostics"
-    assert html =~ "Diagnostic reference"
-    refute html =~ ">Fingerprint<"
+
+    technical = LazyHTML.query(document, "details#failure-technical")
+    refute LazyHTML.attribute(technical, "open") == [""]
+    assert LazyHTML.text(technical) =~ "Technical details"
+    assert LazyHTML.text(technical) =~ "Diagnostic reference"
     assert html =~ ~s(data-copy-value="stored diagnostic sha256:)
-    refute html =~ ">Custody reference</dt>"
+
+    [primary | _] = String.split(html, "id=\"failure-technical\"")
+    refute primary =~ "session:one"
+    refute primary =~ "sha256"
   end
 
   test "search keeps an accessible label bound to its input instead of an extra column" do
     # The label once sat in its own grid column; it then became a visible
     # caption above the field. The shared toolbar groups the icon, label and
     # input in one search-field while retaining the explicit label binding.
-    document = HTML.repositories([]) |> IO.iodata_to_binary() |> LazyHTML.from_fragment()
+    document =
+      %{items: [], view: RepositoriesPage.view(%{}), now: nil}
+      |> RepositoriesPage.html()
+      |> LazyHTML.from_fragment()
 
     assert outline(document, "form.filter-toolbar > *") |> List.first() == "div.search-field"
 
     assert LazyHTML.query(document, "form.filter-toolbar label[for=operator-search]")
-           |> LazyHTML.text() == "Repository name"
+           |> LazyHTML.text() == "Search repositories"
 
     assert LazyHTML.query(document, "form.filter-toolbar input#operator-search[name=q]")
-           |> LazyHTML.attribute("placeholder") == ["Repository name"]
+           |> LazyHTML.attribute("placeholder") == ["Search repositories"]
   end
-
-  # The storage sections the Workspaces page renders beneath the working copies.
-  defp no_storage,
-    do: %{
-      budget: %{disposable_bytes_limit: nil, reclaim_target_seconds: nil},
-      preview: [],
-      workers: []
-    }
 
   # "tag.first-class" for each matched element, in document order.
   defp outline(document, selector) do
@@ -523,30 +628,5 @@ defmodule Ryker.ControlPlane.OperatorUsabilityTest do
     html = UsageChart.render(days) |> IO.iodata_to_binary()
     assert length(Regex.scan(~r/<rect /, html)) <= 366
     assert html =~ "latest 366 calendar days"
-  end
-
-  test "different requests in one repository remain distinguishable before cleanup" do
-    rows =
-      for title <- ["Investigate portal errors", "Update runner version"] do
-        %{
-          kind: :input_admitted,
-          source: :episode,
-          actor: "Ryker",
-          ref: title,
-          episode_ref: title,
-          href: "/timeline/" <> URI.encode_www_form(title),
-          request_title: title,
-          repository: "emisar",
-          summary: "emisar",
-          status: :discarded,
-          state: :complete,
-          action: nil,
-          updated_at: nil
-        }
-      end
-
-    html = rows |> HTML.workspaces(no_storage()) |> IO.iodata_to_binary()
-    assert html =~ ">Investigate portal errors</a>"
-    assert html =~ ">Update runner version</a>"
   end
 end

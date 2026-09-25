@@ -10,7 +10,7 @@ defmodule Ryker.Work.SubmissionBuilder do
   import Ecto.Query
 
   alias Ryker.CanonicalJSON
-  alias Ryker.Episodes.{CorrelationClaims, Episode, Event, Origins, Reactions}
+  alias Ryker.Episodes.{CorrelationClaims, Episode, Event, Origins, Reactions, RoutingDigests}
   alias Ryker.GitHub.SourceRef, as: GitHubSourceRef
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Ingress.RecallText
@@ -190,6 +190,7 @@ defmodule Ryker.Work.SubmissionBuilder do
             conversation_ref: episode.destination_conversation_ref
           }),
         "conversation_feedback" => Reactions.model_context(episode.id, episode.next_sequence),
+        "episode_title" => RoutingDigests.titles([episode.id])[episode.id],
         "responder_state_tools" => state_tools,
         "source_and_action_tools" => platform_tools
       }

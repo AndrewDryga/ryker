@@ -13,6 +13,7 @@ defmodule Ryker.State.ScheduleChangeset do
     :destination_conversation_ref,
     :destination_thread_ref,
     :destination_transport,
+    :environment_ref,
     :expires_at,
     :failure_count,
     :id,
@@ -37,6 +38,7 @@ defmodule Ryker.State.ScheduleChangeset do
   @insert_required @fields --
                      [
                        :destination_thread_ref,
+                       :environment_ref,
                        :expires_at,
                        :failure_count,
                        :last_error,

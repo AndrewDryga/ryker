@@ -38,7 +38,7 @@ atomic: either every alert is recorded or none is.
 
 ## Source configuration
 
-Sources are durable settings, edited under **Settings → Webhook sources**. There is no
+Sources are durable settings, edited under **Integrations → Webhooks**. There is no
 configuration file. One saved source carries:
 
 | Field | Meaning |
@@ -48,14 +48,15 @@ configuration file. One saved source carries:
 | Authentication | Bearer token or HMAC-SHA256. There is no unauthenticated shape and no weaker fallback when verification fails. |
 | Credential | A secret generated or imported for this source in guided setup. Ryker reveals a generated value once, stores it encrypted, and lets an operator rotate it without changing another source. |
 | Destination | Transport plus conversation and thread reference. Validated against the configured outbound adapters when the runtime assembles. |
-| Repository context | The context whose reviewed policies this source's work runs under. The payload can never select it. |
+| Environment | The Ryker environment this source's work runs in: its repositories, its Emisar account and its reviewed policies. Chosen by name from the environments; the payload can never select it. |
 | Correlate by labels | Label values that make events the same ongoing situation. |
 | Custom field mapping | Dotted paths, for a custom shape only. Event ID, status and title are required. |
-| Deployment lifecycle filter | Optional environments, kinds, repositories and targets. |
+| Deployment lifecycle filter | Optional deployment environments, kinds, repositories and targets. |
 
 The listener address and port, the 40 KB body limit and the 300-second clock-skew limit are
-deployment and code defaults, not per-source settings. The Work profile comes from the repository
-context's reviewed policy bindings, so no form ever names a policy digest.
+deployment and code defaults, not per-source settings. The Work profile comes from the
+environment's reviewed policy bindings, so no form ever names a policy digest. An environment a
+source uses cannot be removed until the source chooses another one.
 
 **Check a payload** on the same page runs one pasted delivery through the exact transform the live
 route uses and shows what it would record. It records nothing, opens no incident, submits no model
@@ -200,10 +201,10 @@ Lifecycle evidence needs a dedicated authenticated route with exact host-owned a
 example:
 
 Save a dedicated source for it: payload shape `universal`, HMAC authentication, its own registered
-credential (not the one an alerting source uses), the destination channel, the repository context
-whose policies it runs under, and a deployment lifecycle filter naming the environments, kinds,
-repositories and targets it may report — for example environments `production`, kinds `deployment`
-and `terraform`, repositories and targets `ryker`.
+credential (not the one an alerting source uses), the destination channel, the Ryker environment
+its work runs in, and a deployment lifecycle filter naming the deployment environments, kinds,
+repositories and targets it may report — for example deployment environments `production`, kinds
+`deployment` and `terraform`, repositories and targets `ryker`.
 
 The route is projected as a system actor. Its environment, kind, repository, and target lists are
 an allowlist, not hints. Only such a route may wake merged publication follow-up. Send the version

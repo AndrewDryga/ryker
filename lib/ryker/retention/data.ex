@@ -841,7 +841,7 @@ defmodule Ryker.Retention.Data do
         SELECT 1 FROM episode_emisar_approvals approval
         WHERE approval.episode_id = episode.id
           AND (
-            approval.status <> 'resumed'
+            approval.status NOT IN ('resumed', 'closed')
             OR approval.updated_at >= clock_timestamp() - ($2 * interval '1 second')
           )
       )
@@ -905,7 +905,7 @@ defmodule Ryker.Retention.Data do
     )
 
     execute_count(
-      "DELETE FROM episode_emisar_approvals WHERE episode_id IN (SELECT unnest($1::text[])::uuid) AND status = 'resumed'",
+      "DELETE FROM episode_emisar_approvals WHERE episode_id IN (SELECT unnest($1::text[])::uuid) AND status IN ('resumed', 'closed')",
       params
     )
 

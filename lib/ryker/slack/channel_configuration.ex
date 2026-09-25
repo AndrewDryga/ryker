@@ -10,7 +10,9 @@ defmodule Ryker.Slack.ChannelConfiguration do
     field(:channel_ref, :string)
     # nil means the channel inherits the installation default participation.
     field(:participation, Ecto.Enum, values: [:mentions, :proactive, :shadow])
-    field(:repository_ref, :string)
+    # The environment the channel's work runs in; nil is "No environment": the
+    # channel's work runs outside any environment, never in the default.
+    field(:environment_ref, :string)
     field(:alert_policy, Ecto.Enum, values: [:reply, :offer, :automatic])
     field(:invite_user_refs, {:array, :string}, default: [])
     field(:invite_user_group_refs, {:array, :string}, default: [])

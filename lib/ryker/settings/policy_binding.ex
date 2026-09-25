@@ -17,15 +17,15 @@ defmodule Ryker.Settings.PolicyBinding do
     :schedule_read_only,
     :schedule_governed
   ]
-  @context_purposes [:conversational, :standard, :deep, :contributor]
-  @repository_purposes @context_purposes ++ [:schedule]
+  @environment_purposes [:conversational, :standard, :deep, :contributor]
+  @repository_purposes @environment_purposes ++ [:schedule]
   @purposes Enum.uniq(@installation_purposes ++ @repository_purposes)
   @primary_key {:id, :binary_id, autogenerate: false}
   @fields ~w(id purpose scope_kind scope_ref policy_name policy_digest authority_digest verified_by verified_worker_ref)a
 
   schema "policy_bindings" do
     field(:purpose, Ecto.Enum, values: @purposes)
-    field(:scope_kind, Ecto.Enum, values: [:installation, :repository, :context])
+    field(:scope_kind, Ecto.Enum, values: [:installation, :repository, :environment])
     field(:scope_ref, :string, default: "")
     field(:policy_name, :string)
     field(:policy_digest, :string)
@@ -37,7 +37,7 @@ defmodule Ryker.Settings.PolicyBinding do
 
   def installation_purposes, do: @installation_purposes
   def repository_purposes, do: @repository_purposes
-  def context_purposes, do: @context_purposes
+  def environment_purposes, do: @environment_purposes
   def fields, do: @fields
   def new(_snapshot), do: %__MODULE__{id: Ecto.UUID.generate()}
 
@@ -98,12 +98,12 @@ defmodule Ryker.Settings.PolicyBinding do
           :unknown_repository
         )
 
-      {purpose, :context} when purpose in @context_purposes ->
+      {purpose, :environment} when purpose in @environment_purposes ->
         Validation.validate_known(
           changeset,
           :scope_ref,
-          Enum.map(snapshot.contexts, & &1.ref),
-          :unknown_context
+          Enum.map(snapshot.environments, & &1.ref),
+          :unknown_environment
         )
 
       _mismatch ->

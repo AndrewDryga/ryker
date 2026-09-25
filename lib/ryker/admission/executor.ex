@@ -12,7 +12,6 @@ defmodule Ryker.Admission.Executor do
 
   alias Ryker.Admission
   alias Ryker.Admission.{Attempts, Context, Decision, Prompt}
-  alias Ryker.CanonicalJSON
   alias Ryker.Ingress.{Inbox, Input, WorkProfile}
   alias Ryker.State.{Knowledge, Observations}
 
@@ -79,9 +78,6 @@ defmodule Ryker.Admission.Executor do
 
       {:error, {:admission_generation_spent, _reason}} = error ->
         close_then(session, entry, settings, error)
-
-      {:error, {:admission_execution_stopped, reason}} ->
-        close_then(session, entry, settings, {:error, {:admission_execution_blocked, reason}})
 
       {:error, {:coop_protocol_error, :validated_candidate_mismatch} = reason} ->
         block_after_close(session, entry, settings, reason)
@@ -234,7 +230,7 @@ defmodule Ryker.Admission.Executor do
   end
 
   defp submit_turn(entry, session, context, key, settings) do
-    prompt = context |> Prompt.build() |> CanonicalJSON.encode!()
+    prompt = context |> Prompt.build() |> Prompt.render()
 
     schema =
       Decision.json_schema(
@@ -440,11 +436,13 @@ defmodule Ryker.Admission.Executor do
     generation_spent({:coop_turn_failed, state, turn["error_code"], turn["error_detail"]})
   end
 
+  # A run the worker cancelled, interrupted or ran out of budget for decided
+  # nothing, and nothing on the worker can read the message from it again. It
+  # spends its generation, so the message is read again by a fresh run within
+  # the dispatcher's retry budget; nobody is asked to send it again.
   defp observed_decision(%{"state" => state} = turn, _context, _entry, _settings, _left)
        when state in @stopped_turn_states do
-    {:error,
-     {:admission_execution_stopped,
-      {:coop_turn_stopped, state, turn["error_code"], turn["error_detail"]}}}
+    generation_spent({:coop_turn_stopped, state, turn["error_code"], turn["error_detail"]})
   end
 
   defp observed_decision(%{"state" => state} = turn, context, entry, settings, left)

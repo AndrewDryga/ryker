@@ -135,9 +135,11 @@ The user must be a full workspace member. Ryker performs bounded read-only triag
 the user's current channel or thread location; no proactive channel configuration is required, and
 the mention alone does not create an incident. A configured operator can say
 `@Emisar open an incident for production checkout errors` to create one directly. Ryker then
-acknowledges the request, creates the dedicated room using `slack.default_repository`, and posts a
-durable `Incident room ready` reply after configured responders are invited and the topic and root
-pin are ready. If the open-incident limit is full, it replies in the summon thread with the action
+acknowledges the request, creates the dedicated room, and posts a durable `Incident room ready`
+reply after configured responders are invited and the topic and root pin are ready. The room works
+in the environment of the conversation it was opened from — the repositories that conversation
+mounted and its Emisar account — whatever the channel has chosen since; new conversations in the
+room run there too. If the open-incident limit is full, it replies in the summon thread with the action
 required instead of silently dropping the request.
 
 After Emisar answers, that channel location remains an active conversation for 30 minutes. Nearby
@@ -153,23 +155,28 @@ be understood without forcing Emisar to interrupt it.
 
 Ryker admits the bot's own Slack channel-join event immediately and records the event, the
 membership transition and a complete default configuration in one transaction: mentions-only
-participation, the deployment-default repository, in-place alert investigation and no additional
-incident invitees. Useful defaults need no click. A periodic reconciliation against the bot's
+participation, the default environment (or no environment when none is the default), in-place
+alert investigation and no additional incident invitees. Useful defaults need no click, and none of
+them requires an environment to exist: joins, the reconciliation below and `/ryker status` work in
+an installation that has none. A periodic reconciliation against the bot's
 joined conversations is the recovery path for a missed event; it configures and welcomes only the
 memberships it repaired itself, never already-joined channels, so a sweep cannot flood configured
 channels with hellos. Membership state survives restarts, suppresses duplicate welcomes, and makes
 remove/re-add post one fresh welcome for the new membership generation.
 
 The welcome is one message per channel, generated entirely from the effective saved settings by the
-same projection that answers `/ryker status` and settings questions: repository access (typed
-links when the repository names a GitHub repository), conversation participation, the actual alert
-behavior, observation mode and incident invitations. It never says "alerts are handled separately".
+same projection that answers `/ryker status` and settings questions: the channel's environment and
+what work there may use (the repository it changes, linked when it names a GitHub repository, the
+repositories it only reads, and Emisar when the environment has an account), conversation
+participation, the actual alert behavior, observation mode and incident invitations. A channel with
+no environment says it answers without any repos or Emisar and how to choose one; an environment
+that cannot run work right now is named with that said, rather than read as none. It never says "alerts are handled separately".
 Its controls follow the saved state: **Be proactive** and **Customize** on a mentions-only
 channel, **Mentions only** and **Customize** on a proactive one, **Configure channel** alone while
 observation mode or a `/ryker` override is in effect (the welcome then says which override and
 how `inherit` returns to the saved setting). Each control carries the configuration id and the
 revision it was rendered from; the host rechecks operator authority, channel membership and that
-exact revision before saving, and a participation change preserves the repository, alert policy
+exact revision before saving, and a participation change preserves the environment, alert policy
 and invitations chosen earlier. Every save re-renders this same welcome in place with a short
 notice such as **Settings updated.**; there is never a second introduction.
 
@@ -179,8 +186,11 @@ notice such as **Settings updated.**; there is never a second introduction.
 option before asking for a choice, pairing the exact button label with what Ryker will do:
 
 1. conversations: **Mentions only**, **Be proactive** or **Observe only**;
-2. repositories: the default repository for coding tasks when none is named — this only sets the
-   default and never grants access;
+2. environment: every environment by name, each explained by what work in the channel would use
+   there (the repository it changes, the ones it reads, Emisar), plus **No environment**, which
+   answers without any repos or Emisar; choosing one decides which environment the channel uses
+   and never changes what is in it. The step is asked even when no environment exists yet, with
+   **No environment** as its only choice;
 3. alerts: **Investigate** in the alert's thread, **Offer a choice** between the thread and an
    incident room, or **Create automatically**;
 4. invitations: **On-call responders only** (or **No invitations** when none are configured), or a
@@ -193,12 +203,16 @@ produce a scoped clarification and do not advance the draft. Controls are bound 
 id, channel, actor, current step, revision and 30-minute expiry, so a stale, copied or replayed
 button cannot advance or save. Saving retires the wizard message, revises the saved configuration
 and re-renders the welcome; cancelling or expiring leaves the saved settings and the welcome
-untouched. Saving affects listening, repository context, Slack-app alert escalation and room
-invitations only. It never authorizes repository changes, Emisar approvals, deployments or
-infrastructure mutations.
+untouched. Saving affects listening, the channel's environment, Slack-app alert escalation and
+room invitations only. It never authorizes repository changes, Emisar approvals, deployments or
+infrastructure mutations. The channel's page on the web chooses its environment the same way: a new
+revision attributed to whoever chose it (`ChannelConfigurations.select_environment/4`), refused for
+an environment nobody saved.
 
 A channel either chose its participation or inherits the installation default; there is no third
-store. Confirmed channel deletion removes its membership observation, setup sessions and saved
+store. A channel's environment is its own: **No environment** runs the channel's work outside any
+environment, never in the default. Only a conversation with no setting of its own, such as a direct
+message, runs in the default environment. Confirmed channel deletion removes its membership observation, setup sessions and saved
 configuration.
 
 The installation participation default covers shared operational feeds such as `#infra-alerts`
@@ -402,8 +416,10 @@ Engineering-task offers use active full workspace membership rather than inciden
 authorization. They retain the same source-message binding, restart durability, and idempotency
 rules. Their source threads use task-specific cards and lifecycle copy rather than presenting
 repository work as an alert incident. Dedicated Slack rooms remain reserved for incident
-coordination. A member offer is restricted to the repository assigned to its Slack channel and uses
-that repository's contributor policy; only operators may publish or use destructive task controls.
+coordination. A member offer runs in its conversation's environment: it must name one of that
+environment's repositories, runs under the environment's own contributor policy and keeps the
+environment on the task's session. A conversation with no environment has no repository a task
+could change. Only operators may publish or use destructive task controls.
 
 An approved or permitted incident decision retains the original Slack message as evidence,
 acknowledges the source thread, and enters the same channel, root-card, isolated-fork, and
@@ -495,9 +511,10 @@ commitment card at the room. Free text is now classified by the model and execut
 model being unavailable, and it is read only when Ryker is addressed.
 
 `status` is the private form of the structured effective-settings view the welcome uses:
-Conversations, Alerts, Repositories, Default repository, Incident invitations and Observation mode,
+Conversations, Alerts, Environment (or No environment), Repositories (the one work changes, then
+the ones it only reads), Incident invitations and Observation mode,
 with a context line naming where the effective value came from (defaults, who saved the channel
-setup, a `/ryker` override, an incident room) and a **Configure channel** control that opens the
+setup, a change made on Ryker's settings page, a `/ryker` override, an incident room) and a **Configure channel** control that opens the
 Q&A in the welcome thread. A settings question addressed to Ryker in a channel — "what are
 your settings?", "how are you configured here?" — posts the same view as a reply in that thread.
 Reading settings never mutates them. The view never relies on raw values such as `inherit`,
@@ -719,7 +736,7 @@ approval, durable behavior, schedules, and operational mutations require both:
 Bots, app users, deleted users, guests, restricted users, strangers, and external Slack Connect
 members cannot steer an incident session. Foreign-source channel events are dropped before
 persistence. External apps are accepted only as untrusted classification evidence in explicitly
-watched channels; they cannot invoke incident controls, select the repository or policy, or join
+watched channels; they cannot invoke incident controls, select the environment, repository or policy, or join
 the resulting incident conversation. Coop and Emisar policy remains authoritative for any access
 available to the triage session.
 Only configured full-member operators can approve a watched-channel incident offer.
@@ -731,7 +748,8 @@ The same operator and active full-member checks protect every `/ryker` command. 
 text is parsed by the host as an exact command; it is never sent to the model.
 
 Engineering tasks deliberately use a different boundary. Any active full member of the configured
-workspace may confirm a channel-repository-bound task offer, collaborate in its source thread, and
+workspace may confirm a task offer for one of its conversation's environment's repositories,
+collaborate in its source thread, and
 use its non-destructive task controls. A configured operator must publish, stop, close, or discard
 work. Guests, bots, restricted users,
 strangers, and external Slack Connect members remain denied. Task authority never grants incident
@@ -757,6 +775,18 @@ outage, while `/readyz` reports the disconnected dependency.
 Closing never archives the channel or merges work. It schedules ownership-checked retention;
 automatic cleanup refuses dirty and unpublished committed changes.
 If a human archives or deletes an incident room, Slack's lifecycle event is persisted before
-acknowledgement. An open incident becomes blocked, new turns and room writes stop, and the Coop
-session, isolated fork, channel identity, and audit records remain. Unarchive events restore the
-room. A missed `channel_not_found` response marks the room unavailable, not definitively deleted.
+acknowledgement. An archived room's open incident becomes blocked, new turns and room writes stop,
+and the Coop session, isolated fork, channel identity, and audit records remain. Unarchive events
+restore the room. A deleted channel never comes back, so Ryker closes its investigation the way
+**Close request** does (a run still working stops first, on its worker's answer), posts one fixed
+note in the alert thread the room was opened from, *The incident room #name was deleted. Reply
+here to pick it up.*, and closes the room with that reason, freeing its place in the open-room
+limit. Slack names nobody in a deletion event, so the note names the room. A reply the
+investigation finished but had not yet posted in the room goes, unchanged, to that alert thread
+first, and the investigation closes after it; a reply Slack refuses there for good is never
+dropped: it waits on the Failures page for a retry, and the room closes anyway. Once a person posts
+that reply from Failures, the investigation closes too, rather than waiting for an answer, or
+running again, in a room that is gone. A shadow room, or
+one Ryker has no publisher for, closes without the note, and a note Slack refuses for good does
+not hold the room open. A room still being set up closes at once. A missed `channel_not_found`
+response marks the room unavailable, not definitively deleted.

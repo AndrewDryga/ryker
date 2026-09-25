@@ -1769,7 +1769,7 @@
           "name": "record_feedback"
         },
         {
-          "description": "Preflight the complete final candidate against current host-owned state. Pass one candidate object containing decision_reason, delivery, message, and outcome; outcome requires state, record_refs, and artifact_refs. Return only the accepted candidate unchanged.",
+          "description": "Preflight the complete final candidate against current host-owned state. Pass one candidate object containing decision_reason, delivery, message, outcome, and title; outcome requires state, record_refs, and artifact_refs. Return only the accepted candidate unchanged.",
           "inputSchema": {
             "additionalProperties": false,
             "properties": {
@@ -1882,6 +1882,19 @@
                       "state"
                     ],
                     "type": "object"
+                  },
+                  "title": {
+                    "anyOf": [
+                      {
+                        "maxLength": 80,
+                        "minLength": 1,
+                        "pattern": "^[^\\n\\r\\x00]*[^\\s\\x00][^\\n\\r\\x00]*$",
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
                   }
                 },
                 "required": [
